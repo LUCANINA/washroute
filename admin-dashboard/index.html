@@ -2455,6 +2455,7 @@
               <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
               <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">Subscriptions</button>
               <button class="rpt-page-tab" onclick="setRptTab('registrations',this)">Registrations</button>
+              <button class="rpt-page-tab" onclick="setRptTab('deliverykpis',this)">Delivery KPIs</button>
             </div>
           </div>
 
@@ -2886,6 +2887,12 @@
                 </table>
               </div>
             </div>
+          </div>
+
+          <!-- ── TAB: DELIVERY KPIs ── -->
+          <div id="rpttab-deliverykpis" style="display:none">
+            <div id="dk-period-note" class="card-sub" style="margin-bottom:14px;color:var(--gray-500)"></div>
+            <div id="dk-cards"><div class="rpt-no-data">Loading…</div></div>
           </div>
 
         </div><!-- /page-reports -->
@@ -26954,6 +26961,7 @@ ${oneCopy}
     else if (rptTab === 'drivers')       loadReports();
     else if (rptTab === 'onaccount')     loadOnAccountReport();
     else if (rptTab === 'registrations') loadRegistrationsReport();
+    else if (rptTab === 'deliverykpis')  loadDeliveryKpis();
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
   }
 
@@ -26961,7 +26969,7 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','possales','launderer','onaccount','subscriptions','registrations'].forEach(t => {
+    ['drivers','revenue','items','possales','launderer','onaccount','subscriptions','registrations','deliverykpis'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -26970,8 +26978,8 @@ ${oneCopy}
       const oaBar = document.getElementById('oa-action-bar');
       if (oaBar) oaBar.classList.remove('visible');
     }
-    if (tab === 'subscriptions') {
-      // Subscription metrics need at least a month-long window to be meaningful.
+    if (tab === 'subscriptions' || tab === 'deliverykpis') {
+      // These reports compare windows / need a multi-day range to be meaningful.
       // If picker is at today-only (the global default), bump it to Last 30 days.
       const fromEl = document.getElementById('rpt-from');
       const toEl   = document.getElementById('rpt-to');
@@ -26984,6 +26992,135 @@ ${oneCopy}
       }
     }
     runCurrentReport();
+  }
+
+  // ── DELIVERY KPIs REPORT (session 172) ──
+  // All metrics are delivery-only (orders.source != 'walk_in'; customers
+  // referral_source != 'pos_walkin'). Each card shows the current-period value
+  // and a delta vs the equal-length window immediately before it. Computed
+  // server-side by the delivery_kpis(p_from,p_to) RPC.
+  const DK_SECTIONS = [
+    { title: 'Growth', items: [
+      { key: 'new_customers',          label: 'New Delivery Customers', fmt: 'int',   good: 'up' },
+      { key: 'conversion',             label: 'Conversion Rate',        fmt: 'pct',   good: 'up',   hint: 'New signups who placed an order' },
+      { key: 'reorder_new',            label: 'Reorder Rate (new)',     fmt: 'pct',   good: 'up',   hint: 'New signups who placed a 2nd order' },
+      { key: 'active_subs',            label: 'Active Subscribers',     fmt: 'int',   good: 'up',   hint: 'At period end' },
+    ]},
+    { title: 'Revenue', items: [
+      { key: 'total_revenue',          label: 'Total Delivery Revenue', fmt: 'money', good: 'up',   hint: 'Paid orders + subscription invoices' },
+      { key: 'spend_per_order',        label: 'Spend per Order',        fmt: 'money', good: 'up',   hint: 'Order revenue ÷ paid orders' },
+      { key: 'rev_per_order_incl_sub', label: 'Revenue per Order',      fmt: 'money', good: 'up',   hint: 'Incl. subscription revenue' },
+      { key: 'avg_ltv_to_date',        label: 'Average LTV',            fmt: 'money', good: 'up',   toDate: true, hint: 'All-time, to date' },
+    ]},
+    { title: 'Operations', items: [
+      { key: 'delivered_orders',       label: 'Delivered Orders',       fmt: 'int',   good: 'up' },
+      { key: 'pounds',                 label: 'Pounds Processed',       fmt: 'int',   good: 'up' },
+      { key: 'avg_order_weight',       label: 'Avg Order Weight',       fmt: 'lbs',   good: 'up' },
+      { key: 'stops_per_hour',         label: 'Driver Stops / Hour',    fmt: 'dec1',  good: 'up' },
+      { key: 'pounds_per_hour',        label: 'Pounds / Driver Hour',   fmt: 'dec1',  good: 'up' },
+      { key: 'driver_hours',           label: 'Driver Hours',           fmt: 'dec1',  good: 'neutral' },
+    ]},
+    { title: 'Retention', items: [
+      { key: 'repeat_rate',            label: 'Repeat Rate',            fmt: 'pct',   good: 'up',   hint: 'Customers ordering this period with 2+ lifetime orders' },
+      { key: 'churn',                  label: 'Subscription Churn',     fmt: 'pct',   good: 'down', hint: 'Cancellations ÷ active at period start' },
+    ]},
+  ];
+
+  function _dkFmt(v, fmt) {
+    if (v === null || v === undefined) return '—';
+    const n = Number(v);
+    switch (fmt) {
+      case 'money': return fmtMoney(n);
+      case 'pct':   return (n * 100).toFixed(1) + '%';
+      case 'int':   return Math.round(n).toLocaleString();
+      case 'lbs':   return n.toFixed(1) + ' lbs';
+      case 'dec1':  return n.toFixed(1);
+      default:      return String(n);
+    }
+  }
+
+  // Delta chip comparing current vs previous. `good` = which direction is positive.
+  function _dkDelta(cur, prev, good) {
+    if (cur === null || cur === undefined) return '';
+    if (prev === null || prev === undefined) return '';
+    const c = Number(cur), p = Number(prev);
+    if (p === 0 && c === 0) return _dkChip('flat', '—');
+    if (p === 0) return _dkChip(good === 'down' ? 'bad' : 'goodNew', '▲ new');
+    const pct = ((c - p) / Math.abs(p)) * 100;
+    if (Math.abs(pct) < 0.1) return _dkChip('flat', '— flat');
+    const up = pct > 0;
+    const arrow = up ? '▲' : '▼';
+    // Tone: green when moving in the "good" direction, red otherwise. Neutral metrics stay gray.
+    let tone;
+    if (good === 'neutral') tone = 'flat';
+    else tone = ((up && good === 'up') || (!up && good === 'down')) ? 'good' : 'bad';
+    return _dkChip(tone, `${arrow} ${Math.abs(pct).toFixed(1)}%`);
+  }
+
+  function _dkChip(tone, text) {
+    const styles = {
+      good:    'color:#15803d;background:#dcfce7',
+      goodNew: 'color:#15803d;background:#dcfce7',
+      bad:     'color:#b91c1c;background:#fee2e2',
+      flat:    'color:#6b7280;background:#f3f4f6',
+    };
+    return `<span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;${styles[tone] || styles.flat}">${text}</span>`;
+  }
+
+  async function loadDeliveryKpis() {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl?.value || !toEl?.value) return;
+    const cards = document.getElementById('dk-cards');
+    if (cards) cards.innerHTML = '<div class="rpt-no-data"><div class="loading"><div class="spinner"></div> Loading…</div></div>';
+    const { data, error } = await db.rpc('delivery_kpis', { p_from: fromEl.value, p_to: toEl.value });
+    if (error || !data) {
+      console.error('delivery_kpis:', error);
+      if (cards) cards.innerHTML = '<div class="rpt-no-data">Could not load delivery KPIs.</div>';
+      return;
+    }
+    renderDeliveryKpis(data, fromEl.value, toEl.value);
+  }
+
+  function renderDeliveryKpis(data, fromStr, toStr) {
+    const cur = data.current || {};
+    const prev = data.previous || {};
+    const days = data.period?.days || 0;
+
+    // Previous-period label (equal-length window immediately before the selection)
+    const note = document.getElementById('dk-period-note');
+    if (note) {
+      const fmtD = s => new Date(`${s}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
+      const pFrom = addDaysPacific(fromStr, -days);
+      const pTo   = addDaysPacific(fromStr, -1);
+      note.innerHTML = `Showing <strong>${fmtD(fromStr)} – ${fmtD(toStr)}</strong> &nbsp;·&nbsp; compared to previous ${days} days (${fmtD(pFrom)} – ${fmtD(pTo)})`;
+    }
+
+    const valueOf = (m, src) => m.toDate ? data[m.key] : src[m.key];
+
+    const html = DK_SECTIONS.map(sec => {
+      const cards = sec.items.map(m => {
+        const cv = valueOf(m, cur);
+        const delta = m.toDate ? _dkChip('flat', 'to date') : _dkDelta(cv, prev[m.key], m.good);
+        return `
+          <div class="stat-card">
+            <div class="stat-label">${m.label}</div>
+            <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:2px">
+              <div class="stat-value">${_dkFmt(cv, m.fmt)}</div>
+              ${delta}
+            </div>
+            ${m.hint ? `<div style="font-size:11px;color:var(--gray-400);margin-top:5px;line-height:1.3">${m.hint}</div>` : ''}
+          </div>`;
+      }).join('');
+      return `
+        <div style="margin-bottom:6px">
+          <div style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.03em;margin:10px 2px 10px">${sec.title}</div>
+          <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${cards}</div>
+        </div>`;
+    }).join('');
+
+    const el = document.getElementById('dk-cards');
+    if (el) el.innerHTML = html;
   }
 
   // ── REGISTRATIONS REPORT ──
