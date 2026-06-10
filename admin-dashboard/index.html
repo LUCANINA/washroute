@@ -29400,24 +29400,25 @@ ${oneCopy}
     // — exclude scheduled / picked_up / cancelled / failed / refunded so the
     // report reflects real revenue, not booked-but-not-yet-realized work.
     //
-    // Session 155: Retail (POS walk-in) orders need a different filter — they
-    // don't have a delivery_window_start (no pickup/delivery scheduling), and
-    // revenue is real the moment the customer pays at the counter, not when
-    // they come back for the bag. So we run a second query for source='walk_in'
-    // AND billing_status='paid' filtered by billed_at, then merge into the
-    // same aggregation map under the 'Retail' pricelist key.
+    // Session 173: anchor on BILLED_AT (the day revenue was realized) for ALL
+    // orders, not delivery_window_start. David's call — the report measures what
+    // we billed/processed each day. Anchoring on delivery date hugely understated
+    // a single day (most laundry billed today delivers 1-2 days later), so "today"
+    // showed only the small slice already delivered. billing_status='paid' is the
+    // gate (no separate status='delivered' requirement); a paid order counts on
+    // the day it was billed regardless of where it is in the fulfilment pipeline.
+    // This also unifies Delivery with Retail, which already keyed off billed_at.
     let itemsOrders = [], itemsFetchError = null;
     { const BATCH = 1000; let offset = 0;
       while (true) {
         const { data, error: e } = await db.from('orders')
           .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at, tip_amount, tip_type')
-          .eq('status', 'delivered')
           .eq('billing_status', 'paid')
           .not('total_amount', 'is', null)
-          .neq('source', 'walk_in')  // walk-in handled by its own query below — keyed off billed_at, not delivery_window_start
-          .gte('delivery_window_start', fromISO)
-          .lte('delivery_window_start', toISO)
-          .order('delivery_window_start')
+          .neq('source', 'walk_in')  // walk-in handled by its own query below
+          .gte('billed_at', fromISO)
+          .lte('billed_at', toISO)
+          .order('billed_at')
           .range(offset, offset + BATCH - 1);
         if (e) { itemsFetchError = e; break; }
         itemsOrders.push(...(data || []));
@@ -29456,13 +29457,13 @@ ${oneCopy}
     const svcMap = {};
     (services || []).forEach(s => { svcMap[s.id] = s; });
 
-    // Filter to exact Pacific date range
+    // Filter to exact Pacific date range — anchored on billed_at (see comment above)
     const filtered = orders.filter(o => {
-      if (!o.delivery_window_start) return false;
-      const d = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      if (!o.billed_at) return false;
+      const d = new Date(o.billed_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
       return d >= selFrom && d <= selTo;
     });
-    // Retail uses billed_at instead of delivery_window_start
+    // Retail also anchored on billed_at
     const filteredRetail = retailOrders.filter(o => {
       if (!o.billed_at) return false;
       const d = new Date(o.billed_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
@@ -29562,9 +29563,14 @@ ${oneCopy}
       _accumulateFeesTips(o, plData);
     });
 
-    // Render — preferred order of price lists
-    const PL_ORDER = ['Delivery', 'Retail', 'Commercial'];
-    const presentPLs = PL_ORDER.filter(pl => byPricelist[pl]);
+    // Render — preferred order of price lists, then ANY others present so no
+    // paid bucket is ever silently dropped (session 173: 'Subscription' orders
+    // were being aggregated but never rendered because they weren't in this list).
+    const PL_ORDER = ['Delivery', 'Subscription', 'Retail', 'Commercial'];
+    const presentPLs = [
+      ...PL_ORDER.filter(pl => byPricelist[pl]),
+      ...Object.keys(byPricelist).filter(pl => !PL_ORDER.includes(pl)).sort()
+    ];
 
     const fmtLbs  = n => n % 1 === 0 ? `${n.toLocaleString()} lbs` : `${n.toLocaleString('en-US', {minimumFractionDigits:1, maximumFractionDigits:1})} lbs`;
     const fmtMoney = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -29593,20 +29599,19 @@ ${oneCopy}
 
       // Fees & Tips breakout. Delivery fee + same-day surcharge are components
       // of Gross Revenue (shown above); tips are collected on top of it.
-      const ordWord = n => `${n.toLocaleString()} order${n === 1 ? '' : 's'}`;
       const feesTipsTable = `
         <table class="items-tbl" style="margin-top:10px">
           <thead>
             <tr>
               <th style="text-align:left">Fees &amp; Tips</th>
-              <th>Orders</th>
+              <th>Count</th>
               <th>Amount</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td>Delivery fees</td><td>${ordWord(d.delivFeeOrders)}</td><td>$${d.delivFees.toFixed(2)}</td></tr>
-            <tr><td>Same-day delivery fees</td><td>${ordWord(d.sameDayOrders)}</td><td>$${d.sameDay.toFixed(2)}</td></tr>
-            <tr><td>Tips <span style="color:var(--gray-400);font-weight:400">(on top of gross)</span></td><td>${ordWord(d.tipOrders)}</td><td>$${d.tips.toFixed(2)}</td></tr>
+            <tr><td>Delivery fees</td><td>${d.delivFeeOrders.toLocaleString()}</td><td>$${d.delivFees.toFixed(2)}</td></tr>
+            <tr><td>Same-day delivery fees</td><td>${d.sameDayOrders.toLocaleString()}</td><td>$${d.sameDay.toFixed(2)}</td></tr>
+            <tr><td>Tips <span style="color:var(--gray-400);font-weight:400">(on top of gross)</span></td><td>${d.tipOrders.toLocaleString()}</td><td>$${d.tips.toFixed(2)}</td></tr>
           </tbody>
         </table>
         <div style="font-size:11px;color:var(--gray-400);padding:6px 16px 0;line-height:1.5">
@@ -29631,7 +29636,7 @@ ${oneCopy}
             <thead>
               <tr>
                 <th style="text-align:left">Add-on</th>
-                <th>Items</th>
+                <th>Count</th>
                 <th>Revenue</th>
               </tr>
             </thead>
@@ -29660,7 +29665,7 @@ ${oneCopy}
     rows.push([
       'Pricelist','Orders','Bags','Pounds Processed',
       'Gross Revenue','Revenue / lb','Revenue / Order',
-      'Add-on','Items','Add-on Revenue'
+      'Add-on / Fee / Tip','Count','Amount'
     ].map(esc).join(','));
 
     pricelists.forEach(d => {
