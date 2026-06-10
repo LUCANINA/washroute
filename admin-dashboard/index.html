@@ -7266,6 +7266,7 @@
         // "$X across N orders" summary reflects what was actually billed.
         db.from('orders').select('id, order_number, status, total_amount, tip_amount, tip_type, billing_status, stripe_payment_intent_id, customers(first_name_cache, last_name_cache)')
           .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
+          .is('archived_at', null)   // archived = deliberately handled/hidden, not actionable unpaid
           .gt('total_amount', 0),
 
         // 4. Stop/order desync (P1)
@@ -7732,6 +7733,9 @@
       // (SQL NULL NOT IN (...) is NULL, not TRUE), so we need an explicit null branch.
       // written_off = intentionally uncollectible (e.g. customer deceased) — not outstanding.
       .or('billing_status.is.null,billing_status.not.in.(paid,refunded,written_off)')
+      // Archived orders are deliberately hidden from Overview (history preserved,
+      // restorable from the Archived tab) — keep them off the unpaid worklist.
+      .is('archived_at', null)
       .order('created_at', { ascending: false });
 
     if (error || !rawData) {
