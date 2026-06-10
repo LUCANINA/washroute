@@ -11350,6 +11350,23 @@ ${oneCopy}
     const printWin = transport === 'browser' ? window.open('', '_blank', 'width=420,height=750') : null;
     if (transport === 'browser' && !printWin) { showToast('Pop-up blocked — allow pop-ups for this page to print receipts', ''); return; }
 
+    // Session 171: the receipt prints whatever line_items / total / weight live
+    // on the cached order object — and that cache can be stale. A recurring order
+    // booked under the OLD price (#6269) was repriced at intake on one screen, but
+    // a reprint from another screen 2h later still showed the booking estimate
+    // ($59/no overage) because its cached copy never refreshed. Re-fetch the
+    // money + weight fields straight from the DB right before printing so the slip
+    // always matches what's actually charged. We only overlay these fields onto the
+    // cached order and KEEP the cached o.customers (with its addresses embed) — a
+    // fresh fetch wouldn't carry that under non-admin RLS, which the address
+    // resolver depends on (session 154 pt 5).
+    try {
+      const { data: _fresh } = await db.from('orders')
+        .select('line_items, total_amount, weight_lbs, total_bags, tip_amount, tip_type, pickup_window_start, delivery_window_start, delivery_address_id, pickup_address_id, order_number')
+        .eq('id', targetId).maybeSingle();
+      if (_fresh) Object.assign(o, _fresh);
+    } catch (_) { /* DB unreachable — fall back to cached values rather than fail the print */ }
+
     // allOrders has customer_id + allCustomers; kanban caches have o.customers embedded — use whichever is available
     const cust = allCustomers.find(c => c.id === o.customer_id) || o.customers || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';

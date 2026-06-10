@@ -4414,6 +4414,18 @@
       showToast(t('Order not found in queue — please refresh.'), 'error');
       return;
     }
+    // Session 171: the receipt prints whatever pricing/weight is on the cached
+    // queue object. For delivery orders dropped here by driver pickup (session
+    // 149), that price can be repriced at intake on the admin side after this
+    // queue last loaded — so a reprint could show a stale amount (same class as
+    // the admin #6269 bug). Re-fetch the money + weight fields fresh before
+    // printing; keep the cached _customerName / _creditApplied the builder relies on.
+    try {
+      const { data: _fresh } = await db.from('orders')
+        .select('line_items, total_amount, tax_amount, weight_lbs, total_bags, tip_amount, tip_type')
+        .eq('id', orderId).maybeSingle();
+      if (_fresh) Object.assign(order, _fresh);
+    } catch (_) { /* DB unreachable — fall back to cached values rather than fail the reprint */ }
     try {
       await queuePosPrintJob(order, 1);
       showToast(t('Receipt sent to printer'), 'success');
