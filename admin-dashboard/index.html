@@ -4435,7 +4435,7 @@
     <button class="cp-tab" onclick="cpTab('transactions',this)">Transactions</button>
     <button class="cp-tab" onclick="cpTab('engagement',this)">Engagement</button>
     <button class="cp-tab" onclick="cpTab('preferences',this)">Preferences</button>
-    <button class="cp-tab" onclick="cpTab('notes',this)">Notes</button>
+    <button class="cp-tab" onclick="cpTab('issues',this)">Issues</button>
   </div>
 
   <!-- ── CONTACT TAB ── -->
@@ -4804,13 +4804,12 @@
   </div>
 
   <!-- ── NOTES TAB ── -->
-  <div class="cp-body" id="cptab-notes" style="display:none">
-    <div class="cp-section-head"><span>Internal Notes</span></div>
-    <textarea class="cp-input" id="cpnote-text" rows="6" placeholder="Staff notes, special instructions, anything the team should know about this customer…"></textarea>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100)">
-      <button class="btn btn-primary cp-save-btn" onclick="savePanelNotes()">Save Notes</button>
-      <div class="cp-save-msg" id="cp-notes-msg">✓ Saved</div>
+  <div class="cp-body" id="cptab-issues" style="display:none">
+    <div class="cp-section-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span>Issue History</span>
+      <button onclick="openCreateIssue(panelCustomerId)" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ Log issue</button>
     </div>
+    <div id="cp-issues-list"><div style="padding:16px;color:var(--gray-400);font-size:13px">Loading…</div></div>
   </div>
 </div>
 
@@ -15416,6 +15415,8 @@ ${oneCopy}
     showToast(`Issue #${data.id} created ✓`, 'success');
     closeCreateIssue();
     loadOverviewIssues();
+    // Refresh the customer panel's Issues tab if it's open for this customer.
+    if (typeof loadCpIssues === 'function' && panelCustomerId && custId === panelCustomerId) loadCpIssues(panelCustomerId);
     openIssueDetail(data.id);
   }
 
@@ -18351,11 +18352,12 @@ ${oneCopy}
   function cpTab(name, btn) {
     document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
-    ['contact','billing','orders','transactions','engagement','preferences','notes'].forEach(n=>{
+    ['contact','billing','orders','transactions','engagement','preferences','issues'].forEach(n=>{
       const el = document.getElementById('cptab-'+n);
       if (el) el.style.display = (n===name) ? '' : 'none';
     });
     if (name==='orders' && panelCustomerId) loadPanelOrders(panelCustomerId);
+    if (name==='issues' && panelCustomerId) loadCpIssues(panelCustomerId);
     if (name==='preferences' && panelCustomerId) loadPanelPreferences(panelCustomerId);
     // Lazy loads
     if (name === 'transactions') loadCpTransactions(panelCustomerId);
@@ -18383,6 +18385,44 @@ ${oneCopy}
     try { localStorage.setItem('wr-cpb-subtab', name); } catch (e) { /* private mode */ }
   }
 
+  // Customer panel → Issues tab: full per-customer cs_issues history (open + resolved,
+  // newest first). Replaced the old free-text Notes tab (session 173). Existing notes
+  // were migrated into cs_issues as resolved "Imported note" entries.
+  async function loadCpIssues(customerId) {
+    const el = document.getElementById('cp-issues-list');
+    if (!el || !customerId) return;
+    el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Loading…</div>';
+    const { data: issues, error } = await db.from('cs_issues')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    if (error) { el.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Could not load issues.</div>'; return; }
+    if (!issues || !issues.length) {
+      el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">No issues logged for this customer yet.</div>';
+      return;
+    }
+    el.innerHTML = issues.map(iss => {
+      const age      = (typeof inboxTimeAgo === 'function') ? inboxTimeAgo(iss.created_at) : fmtDate(iss.created_at);
+      const catLabel = (typeof ISSUE_CATEGORIES === 'object' && ISSUE_CATEGORIES[iss.category]) || iss.category || '';
+      const pri      = iss.priority || 'normal';
+      const resolved = iss.status === 'resolved' || iss.status === 'closed';
+      const statusBadge = resolved
+        ? '<span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;padding:1px 7px;border-radius:6px;white-space:nowrap">RESOLVED</span>'
+        : `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;padding:1px 7px;border-radius:6px;white-space:nowrap">${esc((iss.status||'open').replace('_',' ').toUpperCase())}</span>`;
+      const noteSnippet = iss.notes ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:5px;white-space:pre-wrap;line-height:1.4">${esc(iss.notes)}</div>` : '';
+      return `<div class="issue-row" style="display:block;cursor:pointer;${resolved?'opacity:.8':''}" onclick="openIssueDetail(${iss.id})">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="issue-pri-badge ${priBadgeClass(pri)}">${esc(pri.toUpperCase())}</span>
+          <span class="issue-row-title">${esc(iss.title || '(untitled)')}</span>
+          ${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}
+          ${statusBadge}
+          <span class="issue-row-meta" style="margin-left:auto">${esc(age)}${iss.created_by ? ' · ' + esc(iss.created_by) : ''}</span>
+        </div>
+        ${noteSnippet}
+      </div>`;
+    }).join('');
+  }
+
   async function openCustomerPanel(customerId, startTab) {
     panelCustomerId = customerId;
     _panelPhone = null;
@@ -18390,7 +18430,7 @@ ${oneCopy}
     cpBillingMode = false;
     cpBillingSelection.clear();
     updateBillingBar();
-    const tabs = ['contact','billing','orders','transactions','engagement','preferences','notes'];
+    const tabs = ['contact','billing','orders','transactions','engagement','preferences','issues'];
     const activeIdx = startTab ? Math.max(0, tabs.indexOf(startTab)) : 0;
     document.querySelectorAll('.cp-tab').forEach((t,i)=>{ t.classList.toggle('active', i===activeIdx); });
     tabs.forEach((n,i)=>{
