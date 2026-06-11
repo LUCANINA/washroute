@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
     type: 'initial' | 'reminder' | 'final' | 'recovered'
   ) {
     const { data: customer } = await db.from('customers')
-      .select('id, first_name, email, phone, sms_consent_at, sms_marketing_opt_out_at')
+      .select('id, first_name, email, phone, sms_consent_at, sms_marketing_opt_out_at, sms_notifications_opt_out_at')
       .eq('id', customerId)
       .single()
     if (!customer) { console.warn('sendDunningNotification: customer not found:', customerId); return }
@@ -219,7 +219,8 @@ Deno.serve(async (req) => {
     // Send SMS if customer has phone + SMS consent
     // Note: dunning messages are TRANSACTIONAL (billing/account), not marketing.
     // They require sms_consent_at but bypass sms_marketing_opt_out_at per A2P 10DLC rules.
-    const canSms = customer.phone && customer.sms_consent_at
+    // session 174: sms_notifications_opt_out_at suppresses ALL automated SMS (incl. transactional dunning)
+    const canSms = customer.phone && customer.sms_consent_at && !customer.sms_notifications_opt_out_at
     if (canSms) {
       try {
         await fetch(`${supabaseUrl}/functions/v1/send-sms`, {
