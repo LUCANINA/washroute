@@ -1075,6 +1075,9 @@
     .items-tbl td:first-child { text-align:left; color:var(--gray-900); font-weight:500; }
     .items-tbl tbody tr:hover td { background:var(--gray-50); }
     .items-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
+    .items-tbl tr.items-subhead td { padding:8px 16px; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); background:var(--gray-50); border-bottom:1px solid var(--gray-100); }
+    .items-tbl tr.items-subhead:hover td { background:var(--gray-50); }
+    .items-tbl tr.items-subtotal td { font-weight:700; color:var(--gray-800); background:var(--gray-50); }
     .items-summary-row { display:flex; gap:28px; padding:10px 20px 14px; }
     .items-summary-stat { font-size:12px; color:var(--gray-500); }
     .items-summary-stat strong { display:block; font-size:18px; font-weight:700; color:var(--gray-900); margin-bottom:1px; }
@@ -29579,6 +29582,8 @@ ${oneCopy}
       const d = byPricelist[pl];
       const addonNames = Object.keys(d.addons).sort();
 
+      const subhead = label => `<tr class="items-subhead"><td colspan="3">${label}</td></tr>`;
+
       const addonRows = addonNames.length ? addonNames.map(name => {
         const a = d.addons[name];
         return `<tr>
@@ -29586,37 +29591,20 @@ ${oneCopy}
           <td>${a.bags.toLocaleString()}</td>
           <td>$${a.revenue.toFixed(2)}</td>
         </tr>`;
-      }).join('') : `<tr><td colspan="3" style="color:var(--gray-400);font-style:italic;text-align:left;padding:10px 16px">No add-ons</td></tr>`;
+      }).join('') : `<tr><td style="color:var(--gray-400);font-style:italic">No add-ons</td><td>—</td><td>—</td></tr>`;
 
       const totalBags    = addonNames.reduce((s, n) => s + d.addons[n].bags,    0);
       const totalAddonRev = addonNames.reduce((s, n) => s + d.addons[n].revenue, 0);
+      const addonTotalRow = addonNames.length
+        ? `<tr class="items-subtotal"><td>Add-on total</td><td>${totalBags.toLocaleString()}</td><td>$${totalAddonRev.toFixed(2)}</td></tr>`
+        : '';
 
-      const footer = addonNames.length ? `<tfoot><tr>
-        <td>Total</td>
-        <td>${totalBags.toLocaleString()}</td>
-        <td>$${totalAddonRev.toFixed(2)}</td>
-      </tr></tfoot>` : '';
-
-      // Fees & Tips breakout. Delivery fee + same-day surcharge are components
-      // of Gross Revenue (shown above); tips are collected on top of it.
-      const feesTipsTable = `
-        <table class="items-tbl" style="margin-top:10px">
-          <thead>
-            <tr>
-              <th style="text-align:left">Fees &amp; Tips</th>
-              <th>Count</th>
-              <th>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>Delivery fees</td><td>${d.delivFeeOrders.toLocaleString()}</td><td>$${d.delivFees.toFixed(2)}</td></tr>
-            <tr><td>Same-day delivery fees</td><td>${d.sameDayOrders.toLocaleString()}</td><td>$${d.sameDay.toFixed(2)}</td></tr>
-            <tr><td>Tips <span style="color:var(--gray-400);font-weight:400">(on top of gross)</span></td><td>${d.tipOrders.toLocaleString()}</td><td>$${d.tips.toFixed(2)}</td></tr>
-          </tbody>
-        </table>
-        <div style="font-size:11px;color:var(--gray-400);padding:6px 16px 0;line-height:1.5">
-          Delivery &amp; same-day fees are included in Gross Revenue above. Tips are collected on top and are not part of Gross Revenue.
-        </div>`;
+      // Fees & Tips. Delivery fee + same-day surcharge are components of Gross
+      // Revenue (shown above); tips are collected on top of it.
+      const feesRows = `
+        <tr><td>Delivery fees</td><td>${d.delivFeeOrders.toLocaleString()}</td><td>$${d.delivFees.toFixed(2)}</td></tr>
+        <tr><td>Same-day delivery fees</td><td>${d.sameDayOrders.toLocaleString()}</td><td>$${d.sameDay.toFixed(2)}</td></tr>
+        <tr><td>Tips <span style="color:var(--gray-400);font-weight:400">(on top of gross)</span></td><td>${d.tipOrders.toLocaleString()}</td><td>$${d.tips.toFixed(2)}</td></tr>`;
 
       return `
         <div class="card items-pricelist-section" style="margin-bottom:16px">
@@ -29633,17 +29621,25 @@ ${oneCopy}
             <div class="items-summary-stat"><strong>${d.orders > 0 && d.grossRev > 0 ? fmtMoney(d.grossRev / d.orders) : '—'}</strong>Revenue / order</div>
           </div>
           <table class="items-tbl">
+            <colgroup><col><col style="width:130px"><col style="width:150px"></colgroup>
             <thead>
               <tr>
-                <th style="text-align:left">Add-on</th>
+                <th style="text-align:left">Breakdown</th>
                 <th>Count</th>
-                <th>Revenue</th>
+                <th>Amount</th>
               </tr>
             </thead>
-            <tbody>${addonRows}</tbody>
-            ${footer}
+            <tbody>
+              ${subhead('Add-ons')}
+              ${addonRows}
+              ${addonTotalRow}
+              ${subhead('Fees &amp; Tips')}
+              ${feesRows}
+            </tbody>
           </table>
-          ${feesTipsTable}
+          <div style="font-size:11px;color:var(--gray-400);padding:6px 16px 0;line-height:1.5">
+            Add-ons &amp; delivery/same-day fees are included in Gross Revenue above. Tips are collected on top and are not part of Gross Revenue.
+          </div>
         </div>`;
     });
 
