@@ -1307,6 +1307,10 @@
                 <input type="checkbox" id="c-sms-consent">
                 <span>I agree to receive text messages from Family Laundry about my orders. Message &amp; data rates may apply. Reply STOP to opt out.</span>
               </label>
+              <label class="sms-consent-row">
+                <input type="checkbox" id="c-email-consent" checked>
+                <span>Subscribe to Family Laundry's newsletter for occasional deals and updates.</span>
+              </label>
               <div class="field">
                 <label>How did you find us? <span style="font-size:11px;color:var(--gray-400);font-weight:400">(optional)</span></label>
                 <select id="c-source" style="width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:15px;font-family:inherit;color:var(--text);background:white;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:12px">
@@ -2272,7 +2276,8 @@ async function handleNameSubmit() {
       p_first_name:      firstName || null,
       p_last_name:       lastName || null,
       p_referral_source: null,
-      p_sms_consent:     true
+      p_sms_consent:     true,
+      p_email_consent:   emailConsent
     });
     if (claimErrName) console.warn('[handleNameSubmit] claim_existing_customer RPC error:', claimErrName.message);
     const existing = (claimedName && claimedName.length > 0) ? claimedName[0] : null;
@@ -2594,7 +2599,8 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     p_first_name:      first || user.user_metadata?.first_name || null,
     p_last_name:       last  || user.user_metadata?.last_name  || null,
     p_referral_source: referralSource || null,
-    p_sms_consent:     smsConsent || false
+    p_sms_consent:     smsConsent || false,
+    p_email_consent:   emailConsent || false
   });
   if (claimErr) console.warn('[ensureProfile] claim_existing_customer RPC error:', claimErr.message);
   let ec = (claimed && claimed.length > 0) ? claimed[0] : null;
@@ -2613,6 +2619,11 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     });
     const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
     currentCustomer = newCust;
+    // ── Klaviyo welcome subscribe (booking-flow signup path, session 174) ──
+    // Same gating semantics as handleSignup / handleNameSubmit. Fire-and-forget.
+    if (emailConsent && (email || user.email)) {
+      subscribeKlaviyoWelcome({ email: email || user.email, first_name: first, last_name: last, phone });
+    }
   } else {
     currentCustomer = ec;
     if (smsConsent && !ec.sms_consent_at) {
@@ -2621,6 +2632,11 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     // Mirror for email marketing consent; never re-consent someone who opted out.
     if (emailConsent && !ec.email_marketing_consent_at && !ec.email_marketing_opt_out_at) {
       await db.from('customers').update({ email_marketing_consent_at: new Date().toISOString() }).eq('id', ec.id);
+      // First time this customer consents → also subscribe in Klaviyo (session 174)
+      const klEmail = email || user.email || ec.email_cache;
+      if (klEmail) {
+        subscribeKlaviyoWelcome({ email: klEmail, first_name: first || ec.first_name_cache, last_name: last || ec.last_name_cache, phone: phone || ec.phone_cache });
+      }
     }
   }
 }
@@ -2930,7 +2946,8 @@ async function loadUserData() {
       p_first_name:      currentProfile?.first_name || m.first_name || null,
       p_last_name:       currentProfile?.last_name  || m.last_name  || null,
       p_referral_source: null,
-      p_sms_consent:     false
+      p_sms_consent:     false,
+      p_email_consent:   !!m.email_consent
     });
     if (claimErr2) console.warn('[loadUserData] claim_existing_customer RPC error:', claimErr2.message);
     if (claimed && claimed.length > 0) {
@@ -5035,7 +5052,8 @@ async function renderConfirmAuth() {
       p_first_name:      first || null,
       p_last_name:       last  || null,
       p_referral_source: m.referral_source || null,
-      p_sms_consent:     !!m.sms_consent
+      p_sms_consent:     !!m.sms_consent,
+      p_email_consent:   !!m.email_consent
     });
     if (claimErr3) console.warn('[renderConfirmAuth] claim_existing_customer RPC error:', claimErr3.message);
     if (claimed && claimed.length > 0) {
@@ -5090,6 +5108,11 @@ async function placeOrder() {
     const email = document.getElementById('c-email')?.value.trim();
     const pass  = document.getElementById('c-pass')?.value;
     const smsConsent = document.getElementById('c-sms-consent')?.checked || false;
+    // Email marketing consent — booking-flow equivalent of s-email-consent.
+    // Default-checked; if the user unticks it we honor the no. (session 174 fix:
+    // this form previously had no email-consent checkbox, so book-and-signup
+    // customers — the highest-converting path — never reached Klaviyo.)
+    const emailConsent = document.getElementById('c-email-consent')?.checked ?? false;
     const referralSource = document.getElementById('c-source')?.value || null;
     if (!first || !last || !email || !pass || !phone) {
       if (errEl) { errEl.textContent = 'Please fill in all fields (including name, phone, email, and password).'; errEl.classList.add('show'); }
@@ -5126,14 +5149,14 @@ async function placeOrder() {
 
     const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
     const { data: authData, error: authErr } = await db.auth.signUp({
-      email, password: pass, options: { data: { first_name: first, last_name: last, phone }, emailRedirectTo: redirectUrl }
+      email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, email_consent: emailConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl }
     });
     if (authErr) {
       btn.disabled = false; btn.textContent = 'Create Account & Place Order';
       if (errEl) { errEl.textContent = authErr.message; errEl.classList.add('show'); }
       return;
     }
-    if (authData.user) await ensureProfile(authData.user, first, last, email, phone, smsConsent, referralSource);
+    if (authData.user) await ensureProfile(authData.user, first, last, email, phone, smsConsent, referralSource, emailConsent);
   }
 
   if (!currentCustomer) { toast('Account error — please try again'); btn.disabled = false; return; }
