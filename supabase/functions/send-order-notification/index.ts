@@ -150,7 +150,7 @@ Deno.serve(async (req: Request) => {
 
     // Fetch customer — email_cache added for Klaviyo event tracking
     const customers = await dbGet(
-      `customers?id=eq.${order.customer_id}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache,email_cache&limit=1`
+      `customers?id=eq.${order.customer_id}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache,email_cache,sms_notifications_opt_out_at&limit=1`
     );
     const customer = Array.isArray(customers) ? customers[0] : null;
 
@@ -227,6 +227,13 @@ Deno.serve(async (req: Request) => {
     if (!tmpl.sms_enabled || !tmpl.sms_body) {
       console.warn(`[send-order-notification] TEMPLATE DISABLED for triggerKey=${triggerKey} (event=${event}, orderId=${orderId}) — sms_enabled=${tmpl.sms_enabled}, body_present=${!!tmpl.sms_body}. Customer was NOT notified. Re-enable in admin Notifications tab.`);
       return new Response(JSON.stringify({ ok: true, sms: false, reason: 'sms_disabled' }), { headers: CORS });
+    }
+
+    // Per-customer automated-SMS kill-switch (session 174 — Kidango sites).
+    // Placed AFTER the Klaviyo block so order tracking is unaffected.
+    if (customer.sms_notifications_opt_out_at) {
+      console.log(`[send-order-notification] SMS suppressed: customer ${customer.id} opted out of automated SMS`);
+      return new Response(JSON.stringify({ ok: true, sms: false, reason: 'sms_notifications_opted_out' }), { headers: CORS });
     }
 
     const phone = customer.phone_cache;
