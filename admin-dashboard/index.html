@@ -29512,9 +29512,11 @@ ${oneCopy}
     // Fees & tips breakout (session 173). David asked to see delivery fees,
     // same-day delivery fees, and tips broken out.
     //   • delivery_fee / same_day_surcharge live IN line_items and are already
-    //     part of total_amount → they are a *breakdown* of Gross Revenue.
-    //   • Tips live in orders.tip_amount (+ tip_type) and are NOT in
-    //     total_amount → they are *additional* money collected on top of gross.
+    //     part of total_amount → components of Gross Revenue.
+    //   • Tips live in orders.tip_amount (+ tip_type), separate from total_amount.
+    //     Per David (session 173): tips ARE included in Gross Revenue, so we add
+    //     each order's tip dollars onto plData.grossRev here. All three breakout
+    //     rows (delivery / same-day / tips) are therefore components of gross.
     // pct tips resolve against total_amount, matching _orderTipBreakdown / charge-order.
     const _accumulateFeesTips = (o, plData) => {
       const li = Array.isArray(o.line_items) ? o.line_items : [];
@@ -29529,7 +29531,7 @@ ${oneCopy}
         const tipDollars = o.tip_type === 'pct'
           ? Math.round(parseFloat(o.total_amount || 0) * tipAmt) / 100
           : tipAmt;
-        if (tipDollars > 0) { plData.tips += tipDollars; plData.tipOrders++; }
+        if (tipDollars > 0) { plData.tips += tipDollars; plData.tipOrders++; plData.grossRev += tipDollars; }
       }
     };
 
@@ -29604,7 +29606,7 @@ ${oneCopy}
       const feesRows = `
         <tr><td>Delivery fees</td><td>${d.delivFeeOrders.toLocaleString()}</td><td>$${d.delivFees.toFixed(2)}</td></tr>
         <tr><td>Same-day delivery fees</td><td>${d.sameDayOrders.toLocaleString()}</td><td>$${d.sameDay.toFixed(2)}</td></tr>
-        <tr><td>Tips <span style="color:var(--gray-400);font-weight:400">(on top of gross)</span></td><td>${d.tipOrders.toLocaleString()}</td><td>$${d.tips.toFixed(2)}</td></tr>`;
+        <tr><td>Tips</td><td>${d.tipOrders.toLocaleString()}</td><td>$${d.tips.toFixed(2)}</td></tr>`;
 
       return `
         <div class="card items-pricelist-section" style="margin-bottom:16px">
@@ -29638,7 +29640,7 @@ ${oneCopy}
             </tbody>
           </table>
           <div style="font-size:11px;color:var(--gray-400);padding:6px 16px 0;line-height:1.5">
-            Add-ons &amp; delivery/same-day fees are included in Gross Revenue above. Tips are collected on top and are not part of Gross Revenue.
+            Add-ons, delivery/same-day fees, and tips are all included in Gross Revenue above.
           </div>
         </div>`;
     });
@@ -29700,7 +29702,7 @@ ${oneCopy}
       // Fees & tips breakout rows (Orders count goes in the Items column)
       rows.push(['','','','','','','', 'Delivery fees', d.delivFeeOrders, (d.delivFees||0).toFixed(2)].map(esc).join(','));
       rows.push(['','','','','','','', 'Same-day delivery fees', d.sameDayOrders, (d.sameDay||0).toFixed(2)].map(esc).join(','));
-      rows.push(['','','','','','','', 'Tips (additional, not in gross)', d.tipOrders, (d.tips||0).toFixed(2)].map(esc).join(','));
+      rows.push(['','','','','','','', 'Tips (included in gross)', d.tipOrders, (d.tips||0).toFixed(2)].map(esc).join(','));
 
       // Blank row between sections
       rows.push('');
