@@ -19600,17 +19600,23 @@ ${oneCopy}
       // Billing mode: checkboxes, paid/outstanding badge, click to select
       el.innerHTML = filtered.map(o=>{
         const isPaid = !!o.stripe_payment_intent_id || o.billing_status === 'paid';
-        const checked = cpBillingSelection.has(o.id);
+        // Session 175: written_off is terminal — show its own grey badge (was
+        // falling through to "Outstanding") and block selection so a written-off
+        // order can't be re-billed from this panel.
+        const isWrittenOff = o.billing_status === 'written_off';
+        const checked = !isWrittenOff && cpBillingSelection.has(o.id);
         // Session 137: show charged total (subtotal + tip) so list rows agree
         // with the receipt and Stripe.
         const amt = orderChargedTotal(o);
         const dateStr = fmtDate(o.pickup_window_start || o.created_at);
         const methodLabel = !isPaid ? '' : o.billing_payment_method === 'credit' ? ' (credit)' : o.billing_payment_method === 'check' ? ' (check)' : o.billing_payment_method === 'cash' ? ' (cash)' : '';
-        const paidBadge = isPaid
+        const paidBadge = isWrittenOff
+          ? `<span style="font-size:11px;font-weight:600;color:var(--gray-400);white-space:nowrap">✕ Written off</span>`
+          : isPaid
           ? `<span style="font-size:11px;font-weight:600;color:#059669;white-space:nowrap">✅ Paid${methodLabel}</span>`
           : `<span style="font-size:11px;font-weight:600;color:#b45309;white-space:nowrap">◻ Outstanding</span>`;
-        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}${isPaid?' billing-paid':''}" id="brow-${o.id}" onclick="toggleBillingOrder('${o.id}')" style="${isPaid ? 'opacity:0.7' : ''}">
-          <input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">
+        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}${(isPaid||isWrittenOff)?' billing-paid':''}" id="brow-${o.id}" ${isWrittenOff?'':`onclick="toggleBillingOrder('${o.id}')"`} style="${(isPaid||isWrittenOff) ? 'opacity:0.7' : ''}">
+          ${isWrittenOff ? '<input type="checkbox" class="bill-cb" disabled>' : `<input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">`}
           <span class="cp-order-num">#${o.order_number}</span>
           <div class="cp-order-svc">
             <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
@@ -19625,7 +19631,13 @@ ${oneCopy}
 
     // Normal mode (All / Active / Completed)
     el.innerHTML = filtered.map(o=>{
-      const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id && o.status==='ready_for_delivery';
+      // Session 175: must also check billing_status — cash/credit-paid orders have NO
+      // Stripe PI (the known paid-status antipattern) and written_off orders must
+      // never grow a Charge button (Valerie #7081 was one click from being charged
+      // against a write-off decision).
+      const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id
+        && o.billing_status !== 'paid' && o.billing_status !== 'written_off'
+        && o.status==='ready_for_delivery';
       const receiptable = !!o.stripe_payment_intent_id || o.status==='delivered';
       const actionBtn = receiptable
         ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="event.stopPropagation();sendReceipt('${o.id}','${o.order_number}',this)" title="Email receipt to customer">📧 Receipt</button>`

@@ -68,12 +68,20 @@ Deno.serve(async (req) => {
 
     // Load order (v35: include subscription_id for subscription guard)
     const { data: order, error: orderErr } = await db.from('orders')
-      .select('id, order_number, total_amount, tip_amount, tip_type, status, stripe_payment_intent_id, customer_id, line_items, subscription_id, services(name)')
+      .select('id, order_number, total_amount, tip_amount, tip_type, status, billing_status, stripe_payment_intent_id, customer_id, line_items, subscription_id, services(name)')
       .eq('id', orderId)
       .single()
 
     if (orderErr || !order) throw new Error('Order not found')
     if (order.stripe_payment_intent_id) throw new Error('Order has already been charged')
+    // v46 (session 175): billing_status guard. The PI check above only protects
+    // card-paid orders — cash / credit / subscription-paid orders have NO
+    // PaymentIntent, and written_off orders must never be chargeable (the admin
+    // Charge button and batch-charge-retry both land here). billing_status is
+    // the source of truth for 'settled'.
+    if (order.billing_status === 'paid' || order.billing_status === 'written_off') {
+      throw new Error(`Order #${order.order_number} is already settled (${order.billing_status}) — refusing to charge`)
+    }
     // v44 (session 166): allow $0 total — subscriber orders that fully fit
     // under the plan cap with no add-ons / tip / same-day legitimately have
     // total_amount=0. The downstream creditsOnly path marks them paid
@@ -237,6 +245,11 @@ Deno.serve(async (req) => {
     if (paymentIntent) {
       orderUpdate.stripe_payment_intent_id = paymentIntent.id
       orderUpdate.billing_payment_method = 'credit_card'
+    } else if (order.subscription_id && chargeAmount <= 0) {
+      // v44 (session 166): subscriber order with $0 chargeable amount —
+      // record as 'subscription' for clearer reporting. (Ported back into the
+      // repo in session 175 — production v45 had this but the repo didn't.)
+      orderUpdate.billing_payment_method = 'subscription'
     } else {
       orderUpdate.billing_payment_method = 'credit'
     }
