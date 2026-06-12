@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
 
     // Load customer (v34: also pull credits balance)
     const { data: customer, error: custErr } = await db.from('customers')
-      .select('id, stripe_customer_id, stripe_default_payment_method_id, card_last4, card_brand, lifetime_value, credits')
+      .select('id, billing_type, stripe_customer_id, stripe_default_payment_method_id, card_last4, card_brand, lifetime_value, credits')
       .eq('id', order.customer_id)
       .single()
 
@@ -112,6 +112,14 @@ Deno.serve(async (req) => {
       await stampChargeFailed(db, orderId);
       notifyCustomer(orderId, 'payment_failed');
       throw new Error('Customer not found')
+    }
+
+    // v47 (session 175): on-account customers pay by check/invoice — never charge
+    // their card and NEVER stamp billing_status='failed' / send the "update your
+    // card" SMS at them. Homebase Shelter Program (#6528) got both when an admin
+    // clicked the order-panel Charge button. Clean refusal, no side effects.
+    if (customer.billing_type === 'on_account') {
+      throw new Error(`Order #${order.order_number} belongs to an on-account customer — bill via invoice, not card`)
     }
 
     // v33: charge = pre-tip total + team tip

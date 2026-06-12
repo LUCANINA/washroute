@@ -5563,7 +5563,10 @@
   const issueBadge = (o) => {
     const s = o.status, cb = o.cancelled_by;
     let label, color, bg;
-    if (o.billing_status === 'failed') {
+    // Session 175: on_account customers pay by invoice — a 'failed' billing stamp on
+    // them is always an erroneous card attempt, never a card problem. Don't let it
+    // hijack the badge; fall through to the real (status) issue.
+    if (o.billing_status === 'failed' && o.customers?.billing_type !== 'on_account') {
       const hasCard = _custWithCard.has(o.customers?.id);
       label = hasCard ? 'Card Declined' : 'No Card on File';
       color = '#dc2626'; bg = '#fee2e2';
@@ -5588,7 +5591,8 @@
 
   // Returns an inline action button for the Issues tab row
   const issueActionBtn = (o) => {
-    if (o.billing_status === 'failed') {
+    // Session 175: on_account → never show card request/retry actions (see issueBadge)
+    if (o.billing_status === 'failed' && o.customers?.billing_type !== 'on_account') {
       const custId = o.customers?.id || '';
       const hasCard = custId && _custWithCard.has(custId);
       if (hasCard) {
@@ -5628,7 +5632,10 @@
 
   // Action button for Delivered tab — shows card request / retry for unpaid orders
   const _deliveredActionBtn = (o) => {
-    if (o.billing_status === 'failed') {
+    // Session 175: on_account → no card actions; their unpaid orders live on the
+    // on-account report (the not-yet-failed branch below already had this guard —
+    // it was fragmented, this unifies it)
+    if (o.billing_status === 'failed' && o.customers?.billing_type !== 'on_account') {
       const custId = o.customers?.id || '';
       const hasCard = custId && _custWithCard.has(custId);
       if (hasCard) {
@@ -10814,7 +10821,13 @@
     document.getElementById('op-bill-charged').textContent = o.stripe_payment_intent_id ? 'Yes' : 'Not yet charged';
     const actEl = document.getElementById('op-bill-actions');
     actEl.innerHTML = '';
-    if (!o.stripe_payment_intent_id) {
+    // Session 175: never offer the Charge button for on-account customers (they pay
+    // by check/invoice — Homebase #6528 got a "card declined" SMS this way) or for
+    // orders already settled (paid via cash/credit have no PI; written_off is terminal).
+    const _opCust = allCustomers.find(c => c.id === opCurrentCustId);
+    if (_opCust?.billing_type === 'on_account') {
+      actEl.innerHTML = `<div style="font-size:12.5px;color:var(--gray-500);text-align:center;padding:6px">📋 On Account — collected via invoice, not card</div>`;
+    } else if (!o.stripe_payment_intent_id && o.billing_status !== 'paid' && o.billing_status !== 'written_off') {
       actEl.innerHTML = `<button class="btn btn-primary" onclick="opChargeOrder()" style="width:100%">Charge ${fmtMoney(billTotal)}</button>`;
     }
   }
@@ -10822,6 +10835,10 @@
   async function opChargeOrder() {
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
+    // Session 175: belt-and-suspenders — refuse charging on-account customers even
+    // if the button somehow rendered (charge-order v47 also blocks server-side)
+    const _ocCust = allCustomers.find(c => c.id === opCurrentCustId);
+    if (_ocCust?.billing_type === 'on_account') { showToast('On-account customer — bill via invoice, not card', 'error'); return; }
     const chargeTotal = _orderTipBreakdown(o).totalWithTip;
     if (!confirm(`Charge ${fmtMoney(chargeTotal)} for Order #${o.order_number}?`)) return;
     const { data: { session } } = await db.auth.getSession();
