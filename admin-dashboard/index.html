@@ -26001,6 +26001,7 @@ ${oneCopy}
   let procFeeExempt = false;  // true when customer has fee_exempt checked
   let procIsSameDay = false;  // true when pickup date === delivery date
   let procCustomerCredits = 0;   // customer's available credit balance
+  let procPrefsResolved = false; // session 175: true once the async customer-prefs fetch has populated procAddons — Save stays disabled until then
   let procCustomerId = null;     // customer ID for credit deduction
   let procPricelist = 'Delivery'; // session 169: customer's FRESH pricelist at intake (set in openIntakePanel). getDeliveryFees uses this, NOT the allCustomers cache, so the delivery fee matches the base (both resolve to the same pricelist). Fixes the stale-cache bug where a just-subscribed customer's base went $0 but delivery stayed $9.95.
   let procCustomerDiscount = null; // { id, name, type:'percent'|'fixed', value } or null
@@ -26254,7 +26255,13 @@ ${oneCopy}
     // Configure footer button — Intake only
     const nextBtn = document.getElementById('intake-next-btn');
     nextBtn.textContent = '⚖️ Save & Start Processing';
-    nextBtn.disabled = !procWeight; // enable immediately if weight already exists
+    // Session 175: Save stays DISABLED until the async prefs fetch below resolves.
+    // Previously it was enabled immediately when weight was prefilled (the
+    // move-back-to-Intake case) — a fast save could land before procAddons was
+    // populated, computing $0 for an order with add-ons (Valerie #7081 leaked
+    // $5.70 this way: Oxi ×2 dropped, order racked at $0 and marked paid).
+    procPrefsResolved = false;
+    nextBtn.disabled = true;
     document.getElementById('intake-error').style.display  = 'none';
     procAddons = {};
     procAddonServices = {};
@@ -26349,8 +26356,10 @@ ${oneCopy}
       procAddonServices[svc.id] = { selected: false, service: svc, qty: 1 };
     });
 
-    // Re-render now that add-ons are resolved
+    // Re-render now that add-ons are resolved — and only NOW allow saving (session 175)
+    procPrefsResolved = true;
     renderIntakePanel();
+    updateIntakeSaveBtn();
     setTimeout(() => document.getElementById('proc-weight-inp')?.focus(), 280);
   }
 
@@ -26755,7 +26764,8 @@ ${oneCopy}
   function updateIntakeSaveBtn() {
     const btn = document.getElementById('intake-next-btn');
     if (!btn) return;
-    btn.disabled = !(procWeight && parseFloat(procWeight) > 0);
+    // Session 175: never enable before the customer-prefs fetch resolves (procPrefsResolved)
+    btn.disabled = !procPrefsResolved || !(procWeight && parseFloat(procWeight) > 0);
   }
 
   function closeIntakePanel() {
@@ -26913,6 +26923,9 @@ ${oneCopy}
 
   async function saveIntake() {
     if (!procActiveOrder) return;
+    // Session 175: belt-and-suspenders — refuse to save before add-on prefs are loaded
+    // (covers any path that bypasses the disabled button, e.g. Enter key)
+    if (!procPrefsResolved) { showToast('Still loading customer preferences — one moment…', 'error'); return; }
     const weight = parseFloat(procWeight);
     if (!weight || weight <= 0) { showToast('Please enter the order weight.', 'error'); return; }
     const btn = document.getElementById('intake-next-btn');
@@ -27947,7 +27960,8 @@ ${oneCopy}
     //   Counts money actually charged in the period: Subscription = paid
     //   subscription_invoice txns; Overage/Add-on/Tips = is_subscription_order
     //   orders with billing_status='paid' billed in period (overage = lb_overage
-    //   lines, add-on = addon + same_day_surcharge lines, tips = order tip with
+    //   lines, add-on = addon + pref_service + addon_service + same_day_surcharge
+    //   lines (session 175), tips = order tip with
     //   pct resolved against the pre-tip subtotal). Nothing uncharged is counted.
     //   This single map drives BOTH the summary tiles and the per-row columns.
     const revByCust = {};
@@ -27981,7 +27995,9 @@ ${oneCopy}
             const amt = Number(li.amount || 0);
             preTip += amt;
             if (li.type === 'lb_overage') b.overage += amt;
-            else if (li.type === 'addon' || li.type === 'same_day_surcharge') b.addon += amt;
+            // Session 175: pref_service (Oxi, Vinegar — preference-linked services) and
+            // addon_service were missing here, so subscriber add-on revenue always showed $0.
+            else if (li.type === 'addon' || li.type === 'pref_service' || li.type === 'addon_service' || li.type === 'same_day_surcharge') b.addon += amt;
           });
           const tipRaw = Number(o.tip_amount || 0);
           if (tipRaw > 0) b.tips += (o.tip_type === 'pct' ? Math.round(preTip * tipRaw) / 100 : tipRaw);
