@@ -2868,6 +2868,18 @@ async function sendOnMyWay(stopId) {
       body: JSON.stringify({ stopId, driverName }),
     });
     const result = await res.json();
+
+    // Stale-stop refusal (session 175): the office skipped/cancelled this order
+    // (or it's already delivered/failed) since the route was loaded. Don't mark
+    // en_route or notify the customer — refresh the route so the dead stop drops.
+    if (res.status === 409 && result?.refused) {
+      toast('This stop was cancelled by the office — refreshing your route');
+      if (btn) { btn.disabled = false; btn.textContent = 'Notify Customer'; }
+      await loadDriverData();
+      goTo('route');
+      return;
+    }
+
     if (!res.ok) throw new Error(result.error || result.message || `Server error ${res.status}`);
 
     // Update local stop state
@@ -2906,6 +2918,17 @@ async function sendOnMyWay(stopId) {
    ARRIVED AT STOP (skip notification)
 ────────────────────────────── */
 async function arrivedAtStop(stopId) {
+  // Stale-stop guard (session 175): if the office skipped/cancelled this order
+  // (or it's already delivered/failed) since the route loaded, don't revive the
+  // stop — the DB now hard-blocks it anyway. Refresh so the dead stop drops.
+  const _chk = allStops.find(s => s.id === stopId);
+  const _TERMINAL = ['skipped','cancelled','delivered','pickup_failed','delivery_failed'];
+  if (_chk && (_TERMINAL.includes(_chk?.orders?.status) || !['pending','en_route'].includes(_chk.status))) {
+    toast('This stop was cancelled by the office — refreshing your route');
+    await loadDriverData();
+    goTo('route');
+    return;
+  }
   currentStopPhase = 2;
   currentStopSubPhase = 1;
   draftNotes = null;
@@ -3168,6 +3191,16 @@ async function completeStop(stopId, stopType) {
   });
 
   if (rpcErr) {
+    // Stale-stop case (session 175): the order was skipped/cancelled by the
+    // office (or already delivered/failed) since the route loaded, so the
+    // status advance is rejected ("...from terminal status..."). Show a plain
+    // message instead of the raw DB error and refresh the route.
+    if (/terminal status|Cannot advance order/i.test(rpcErr.message || '')) {
+      toast('This stop was cancelled by the office — refreshing your route');
+      await loadDriverData();
+      goTo('route');
+      return;
+    }
     toast('Error: ' + rpcErr.message);
     if (btn) { btn.disabled = false; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
     return;
