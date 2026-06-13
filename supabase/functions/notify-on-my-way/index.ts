@@ -74,7 +74,7 @@ Deno.serve(async (req: Request) => {
     if (!stopId) return new Response(JSON.stringify({ error: 'stopId required' }), { status: 400, headers: cors });
 
     const stops = await dbGet(
-      `route_stops?id=eq.${stopId}&select=id,stop_type,order_id,status,orders(id,customer_id,customers(id,first_name_cache,last_name_cache,phone_cache,sms_notifications_opt_out_at))&limit=1`
+      `route_stops?id=eq.${stopId}&select=id,stop_type,order_id,status,orders(id,status,customer_id,customers(id,first_name_cache,last_name_cache,phone_cache,sms_notifications_opt_out_at))&limit=1`
     );
 
     const stop = Array.isArray(stops) ? stops[0] : null;
@@ -84,6 +84,30 @@ Deno.serve(async (req: Request) => {
     const customer = order?.customers;
     const custFirstName   = customer?.first_name_cache || 'there';
     const phone           = customer?.phone_cache;
+
+    // ── Stale-stop guard (session 175) ───────────────────────────────────
+    // Refuse to revive a stop / text the customer when the order has already
+    // moved to a terminal status (e.g. admin skipped/cancelled it, or it was
+    // delivered/failed), or the stop itself is no longer active. Without this,
+    // a driver working from a stale route list could tap "On My Way" on a
+    // cancelled stop and the customer would get an "on the way" text after
+    // having asked to cancel (the Todd Bower incident). The DB trigger
+    // prevent_stop_reactivation_on_terminal_order is the hard backstop; this
+    // returns a clean, friendly refusal so the driver app can refresh.
+    const TERMINAL_ORDER_STATUSES = ['skipped','cancelled','delivered','pickup_failed','delivery_failed'];
+    const orderStatus = order?.status || null;
+    if (orderStatus && TERMINAL_ORDER_STATUSES.includes(orderStatus)) {
+      return new Response(JSON.stringify({
+        ok: false, refused: true, reason: 'order_terminal',
+        order_status: orderStatus, stop_status: stop.status,
+      }), { status: 409, headers: cors });
+    }
+    if (!['pending','en_route'].includes(stop.status)) {
+      return new Response(JSON.stringify({
+        ok: false, refused: true, reason: 'stop_inactive',
+        order_status: orderStatus, stop_status: stop.status,
+      }), { status: 409, headers: cors });
+    }
 
     // driverName is passed as first name only from the driver app
     const driverFirstName = driverName || 'Your driver';
