@@ -3833,6 +3833,31 @@ function debouncedResort() {
    Catches admin reassignments, cancellations, and any order
    status changes so the driver always sees current data.
 ────────────────────────────── */
+/* ──────────────────────────────
+   SAFETY REFRESH — realtime is best-effort on mobile. The websocket dies when the
+   phone sleeps or signal drops, and any INSERT/UPDATE that arrives during a reload
+   is skipped by the `_dataLoading` guard. Without a fallback, an order booked
+   mid-route would never appear until the driver manually reloaded (Angel, Jun 12,
+   on a weak 2-bar connection). Belt-and-suspenders: refresh when the app returns to
+   the foreground (driver pulls the phone back out), and on a slow interval while
+   it's visible. loadDriverData() piggybacks any in-flight load and we re-render only
+   the route/home lists — never the open stop detail — so a driver mid-entry on a
+   stop is never disrupted.
+────────────────────────────── */
+function refreshStopsQuietly() {
+  if (!appReady || !currentDriver || _dataLoading || document.visibilityState !== 'visible') return;
+  loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(() => {});
+}
+let _refreshLoopWired = false;
+function startStopRefreshLoop() {
+  if (_refreshLoopWired) return;        // idempotent — auth state can fire repeatedly
+  _refreshLoopWired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshStopsQuietly();
+  });
+  setInterval(refreshStopsQuietly, 60 * 1000); // every 60s while the app is visible
+}
+
 let _stopSub = null;
 function subscribeToRouteStopUpdates() {
   if (_stopSub || !currentDriver) return;
@@ -3915,8 +3940,15 @@ function subscribeToRouteStopUpdates() {
       if (_dataLoading) return;
       const inserted = payload.new;
       const isMyRoute = todayRoutes.some(t => t.id === inserted.route_id) || upcomingRoutes.some(t => t.id === inserted.route_id);
-      const isMyDriver = inserted.driver_id === currentDriver?.id || inserted.driver_id === null;
-      if (isMyRoute && isMyDriver) {
+      // Mirror the UPDATE handler: a stop explicitly assigned to me is mine even if
+      // its route isn't loaded yet. A customer booking mid-route can spin up a
+      // brand-new route run the app has never seen — the old `isMyRoute && isMyDriver`
+      // gate silently dropped those, so the new order never appeared until a manual
+      // refresh (Angel, Jun 12). Inherited (driver_id=NULL) stops still require one
+      // of my known routes so we don't pull in other drivers' unassigned stops.
+      const explicitlyMine     = inserted.driver_id === currentDriver?.id;
+      const inheritedOnMyRoute = inserted.driver_id === null && isMyRoute;
+      if (explicitlyMine || inheritedOnMyRoute) {
         // Reload fully so we get the joined order/customer data for the new stop
         loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
       }
@@ -4096,6 +4128,7 @@ async function _handleDriverSession(event, session) {
     initPhotoQueue(); // Resume any pending photo uploads from previous session
     subscribeToDriverMessages();
     subscribeToRouteStopUpdates();
+    startStopRefreshLoop(); // foreground + slow-interval fallback for missed realtime events
     goTo('home');
     // Start live GPS tracking if driver has any active routes today
     if (todayRoutes.length) startGpsTracking();
