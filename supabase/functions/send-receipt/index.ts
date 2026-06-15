@@ -77,10 +77,21 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
   // etc.) render as green minus rows under the subtotal. Before this, type='discount' line items
   // were silently dropped from the receipt, so customers saw an unexplained gap between
   // (line items + tip) and Total Paid (e.g. SENIORS 5% off — Dorothy, May 2026).
-  const creditItems  = allItems.filter((i: any) => (i.type === 'credit' || i.type === 'discount') && Number(i.amount ?? 0) < 0);
+  // Service discounts ONLY (SENIORS, promo codes, etc.) — rendered as their own
+  // green minus rows. Account credit (type:'credit') is deliberately EXCLUDED here:
+  // it is rendered exactly once below from `effectiveCredit`, the authoritative
+  // customer_transactions sum. Including type:'credit' here AS WELL caused the
+  // receipt to show two identical "Account credit applied" lines AND to subtract
+  // the credit twice from the card total (Todd Bower #7240, June 2026 — receipt
+  // said $20.75 paid by card when the card was actually charged $54.85).
+  const discountItems = allItems.filter((i: any) => i.type === 'discount' && Number(i.amount ?? 0) < 0);
+  // Fallback account-credit figure for legacy orders that predate the credit ledger
+  // (no credit_use transaction). Sum of any type:'credit' line items, as a positive.
+  const lineCreditTotal = allItems
+    .filter((i: any) => i.type === 'credit' && Number(i.amount ?? 0) < 0)
+    .reduce((s: number, i: any) => s + Math.abs(Number(i.amount ?? 0)), 0);
 
   const subtotal = displayItems.reduce((sum: number, i: any) => sum + Number(i.amount ?? 0), 0);
-  const total    = Number(order.total_amount ?? 0);
   const bags     = order.total_bags ?? null;
   const weightLbs = order.weight_lbs ? Number(order.weight_lbs) : null;
 
@@ -106,15 +117,25 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
   const taxRatePct  = (rawItems.find((i: any) => i?.type === 'tax')?.rate) || null;
   const taxLabel    = taxRatePct ? `Sales tax (${(taxRatePct * 100).toFixed(2)}%)` : 'Sales tax';
 
-  const grandTotal = total + tipDollars;
   // Session 150: split mixed-tender payments. `creditApplied` (passed in by the
   // handler from customer_transactions where type='credit_use') is the dollar
-  // amount paid from the customer's account credit. `cardPaid` is what hit
-  // their actual card. When both are > 0, the receipt shows them as separate
-  // lines so the customer's bank-statement charge matches what they see here.
-  const cardPaid = Math.max(0, Math.round((grandTotal - creditApplied) * 100) / 100);
-  const hasMixedTender = creditApplied > 0 && cardPaid > 0;
-  const fullyPaidByCredit = creditApplied > 0 && cardPaid === 0;
+  // amount paid from the customer's account credit. Prefer it; fall back to the
+  // line-item credit total for legacy orders without a ledger entry.
+  const effectiveCredit = creditApplied > 0 ? creditApplied : lineCreditTotal;
+
+  // Gross total the customer owes, built UP from gross services + discounts + tax
+  // + tip. We must NOT derive this from order.total_amount: that column is already
+  // NET of the account credit (and discounts), so using it double-subtracted the
+  // credit and understated the card charge (Todd Bower #7240 — see note above).
+  const discountTotal = discountItems.reduce((s: number, i: any) => s + Number(i.amount ?? 0), 0); // negative
+  const grandTotal = Math.round((subtotal + discountTotal + taxAmt + tipDollars) * 100) / 100;
+
+  // `cardPaid` is what hit the customer's actual card. When both credit and card
+  // are > 0, the receipt shows them as separate lines so the customer's
+  // bank-statement charge matches what they see here.
+  const cardPaid = Math.max(0, Math.round((grandTotal - effectiveCredit) * 100) / 100);
+  const hasMixedTender = effectiveCredit > 0 && cardPaid > 0;
+  const fullyPaidByCredit = effectiveCredit > 0 && cardPaid === 0;
 
   // Schedule rows
   const pickupAddr = order.pickup_address;
@@ -164,17 +185,18 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
         </tr>`).join('')
     : `<tr><td colspan="2" style="padding:10px 0;font-size:13px;color:#9ca3af;">Wash &amp; Fold service</td></tr>`;
 
-  const creditItemsHtml = creditItems.map((i: any) => `
+  const discountItemsHtml = discountItems.map((i: any) => `
         <tr>
-          <td style="padding:5px 0;font-size:13px;color:#059669;">${i.label ?? 'Credit'}</td>
+          <td style="padding:5px 0;font-size:13px;color:#059669;">${i.label ?? 'Discount'}</td>
           <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">\u2212${fmt(i.amount)}</td>
         </tr>`).join('');
 
-  // Session 150: account-credit-application row, separate from line-item credits.
-  const accountCreditHtml = creditApplied > 0 ? `
+  // Session 150: account-credit-application row. Rendered ONCE from effectiveCredit
+  // (transactions, or legacy line-item fallback) \u2014 never also from line items.
+  const accountCreditHtml = effectiveCredit > 0 ? `
         <tr>
           <td style="padding:5px 0;font-size:13px;color:#059669;">Account credit applied</td>
-          <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">\u2212${fmt(creditApplied)}</td>
+          <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">\u2212${fmt(effectiveCredit)}</td>
         </tr>` : '';
 
   // Tip row — styled like credit items but in green with a + prefix
@@ -197,7 +219,7 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
     : '';
 
   // Show subtotal row only when it differs from total (i.e. credits exist, multi-line, tax, or tip)
-  const showSubtotal = displayItems.length > 1 || creditItems.length > 0 || tipDollars > 0 || taxAmt > 0 || creditApplied > 0;
+  const showSubtotal = displayItems.length > 1 || discountItems.length > 0 || tipDollars > 0 || taxAmt > 0 || effectiveCredit > 0;
 
   return `
 <!DOCTYPE html>
@@ -248,7 +270,7 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
                 <td style="font-size:13px;color:#6b7280;padding:3px 0;">Subtotal</td>
                 <td align="right" style="font-size:13px;color:#111827;font-weight:500;">${fmt(subtotal)}</td>
               </tr>` : ''}
-              ${creditItemsHtml}
+              ${discountItemsHtml}
               ${accountCreditHtml}
               ${taxHtml}
               ${tipHtml}

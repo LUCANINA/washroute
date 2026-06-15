@@ -20011,9 +20011,19 @@ ${oneCopy}
       const items = Array.isArray(o.line_items) ? o.line_items : [];
       const isPaid = !!o.stripe_payment_intent_id || o.billing_status === 'paid';
       const docType = isPaid ? 'RECEIPT' : 'INVOICE';
+      // Session 150 fix (June 2026): the account credit is rendered ONCE — from
+      // the customer_transactions credit_use sum (creditFromTxn) — never also from
+      // the type:'credit' line item. Showing both produced a doubled "Account
+      // credit applied" line and a double-subtracted card total (Todd Bower #7240:
+      // receipt said $20.75 when the card was charged $54.85). When there is no
+      // txn credit (legacy / fully-paid-by-credit orders) we still render the
+      // line-item credit so its deduction stays visible.
+      const fullyPaidViaCredit = (o.billing_payment_method === 'credit');
+      const creditFromTxn = fullyPaidViaCredit ? 0 : (_creditByOrder[o.id] || 0);
       // Show charge items (>0) and credit items (<0), skip $0 preference flags
       const displayItems = items.filter(li => parseFloat(li.amount || 0) !== 0);
-      const creditItems = displayItems.filter(li => parseFloat(li.amount || 0) < 0);
+      const creditItems = displayItems.filter(li => parseFloat(li.amount || 0) < 0
+        && !(li.type === 'credit' && creditFromTxn > 0));
       const chargeItems = displayItems.filter(li => parseFloat(li.amount || 0) > 0);
       const lineRows = chargeItems.length
         ? chargeItems.map(li => `
@@ -20048,9 +20058,10 @@ ${oneCopy}
       // Skip the split when the order was paid entirely from credit
       // (billing_payment_method='credit') — that path already shows
       // "(Account Credit)" as the single paid line and there's no card amount.
-      const fullyPaidViaCredit = (o.billing_payment_method === 'credit');
-      const creditFromTxn = fullyPaidViaCredit ? 0 : (_creditByOrder[o.id] || 0);
-      const cardPaid = Math.round((chargedTotal - creditFromTxn) * 100) / 100;
+      // chargedTotal = total_amount + tip, and total_amount is ALREADY net of any
+      // account credit, so chargedTotal is exactly what hit the card. Do NOT
+      // subtract creditFromTxn again (that was the double-subtract bug).
+      const cardPaid = chargedTotal;
       const creditAppliedRow = creditFromTxn > 0 ? `
             <tr>
               <td style="padding:2px 0 2px 24px;font-size:12px;color:#059669">Account credit applied</td>

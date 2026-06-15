@@ -6357,10 +6357,17 @@ ${detailXml}
     const taxAmt      = taxFromCol > 0 ? taxFromCol : Number(taxLegacy?.amount || 0);
     const subtotal    = Math.max(0, preTipTotal - taxAmt);
     const grandTotal  = (preTipTotal + tipAmt).toFixed(2);
+    // Session 150 fix (June 2026): account credit is shown ONCE, in the tender
+    // block below (from the credit_use transaction sum). Exclude the type:'credit'
+    // line item here so it isn't also printed in the item list — printing both
+    // doubled the credit and double-subtracted the card total (see send-receipt
+    // / admin printInvoice; Todd Bower #7240).
+    const _credApp = Math.max(0, Number(order._creditApplied || 0));
     // Render line items (excluding the synthetic tax row, which we now
     // surface explicitly below).
     const lineItemsXml = (order.line_items || [])
-      .filter(li => li.type !== 'price_mod' && li.type !== 'tax' && Number(li.amount || 0) !== 0)
+      .filter(li => li.type !== 'price_mod' && li.type !== 'tax' && Number(li.amount || 0) !== 0
+        && !(li.type === 'credit' && _credApp > 0))
       .map(li => {
         const lbl = String(li.label || '').replace(/[<>&]/g, '').slice(0, 28).padEnd(28, ' ');
         const amt = ('$' + Number(li.amount || 0).toFixed(2)).padStart(10, ' ');
@@ -6379,9 +6386,10 @@ ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').
     // Session 150: split tender block. When the customer paid part with
     // account credit, follow TOTAL with "Credit applied" + "Paid by card"
     // lines so the receipt matches the customer's bank statement.
-    const _credApp = Math.max(0, Number(order._creditApplied || 0));
     const _grandNum = Number(grandTotal);
-    const _cardPaid = Math.max(0, Math.round((_grandNum - _credApp) * 100) / 100);
+    // grandTotal = total_amount + tip, and total_amount is ALREADY net of the
+    // account credit, so it equals the card charge. Do NOT subtract _credApp again.
+    const _cardPaid = _grandNum;
     const tenderXml = _credApp > 0 ? `
   <align mode="left">
     <text-line>${'Credit applied'.padEnd(28, ' ')}${('-$' + _credApp.toFixed(2)).padStart(10, ' ')}</text-line>
@@ -6483,8 +6491,13 @@ ${lineItemsXml}
     const taxAmt      = taxFromCol > 0 ? taxFromCol : Number(taxLegacy?.amount || 0);
     const subtotal    = Math.max(0, preTipTotal - taxAmt);
     const grandTotal  = (preTipTotal + tipAmt).toFixed(2);
+    // Session 150 fix (June 2026): account credit shown once in the tender block;
+    // exclude the type:'credit' line item here so it isn't printed twice (see the
+    // markup builder above; Todd Bower #7240).
+    const _credApp = Math.max(0, Number(order._creditApplied || 0));
     const rows = (order.line_items || [])
-      .filter(li => li.type !== 'price_mod' && li.type !== 'tax' && Number(li.amount || 0) !== 0)
+      .filter(li => li.type !== 'price_mod' && li.type !== 'tax' && Number(li.amount || 0) !== 0
+        && !(li.type === 'credit' && _credApp > 0))
       .map(li => `<tr><td>${String(li.label || '').replace(/[<>&]/g, '')}</td><td style="text-align:right">$${Number(li.amount || 0).toFixed(2)}</td></tr>`)
       .join('');
     // session 140 + 132: subtotal/tax/tip block when any of them are non-zero.
@@ -6494,9 +6507,10 @@ ${lineItemsXml}
       ${taxAmt > 0 ? `<tr><td>Tax (${(TAX_RATE * 100).toFixed(2)}%)</td><td style="text-align:right">$${taxAmt.toFixed(2)}</td></tr>` : ''}
       ${tipAmt > 0 ? `<tr><td>Tip</td><td style="text-align:right">$${tipAmt.toFixed(2)}</td></tr>` : ''}`;
     // Session 150: split tender — same logic as the markup builder.
-    const _credApp = Math.max(0, Number(order._creditApplied || 0));
+    // total_amount is already net of the account credit, so grandTotal IS the
+    // card charge — don't subtract _credApp again (was the double-subtract bug).
     const _grandNum = Number(grandTotal);
-    const _cardPaid = Math.max(0, Math.round((_grandNum - _credApp) * 100) / 100);
+    const _cardPaid = _grandNum;
     const tenderRows = _credApp > 0 ? `
       <tr><td>Credit applied</td><td style="text-align:right;color:#059669">−$${_credApp.toFixed(2)}</td></tr>
       <tr><td><strong>${_cardPaid > 0 ? 'Paid by card' : 'Paid by credit'}</strong></td><td style="text-align:right"><strong>$${_cardPaid.toFixed(2)}</strong></td></tr>` : '';
