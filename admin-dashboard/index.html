@@ -19395,7 +19395,7 @@ ${oneCopy}
       // and NON PROFIT set orders.discount_id directly and never create a claim row, so
       // they always showed "—". Count REAL usage from orders.discount_id instead.
       db.from('orders')
-        .select('discount_id, created_at, status')
+        .select('discount_id, created_at, status, line_items')
         .not('discount_id', 'is', null)
     ]);
     const data = discRes.data || [];
@@ -19407,9 +19407,15 @@ ${oneCopy}
     const usageByDisc = {};
     (usageRes.data || []).forEach(o => {
       if (o.status === 'cancelled' || o.status === 'skipped') return;
-      const u = (usageByDisc[o.discount_id] ||= { count: 0, last: null });
+      const u = (usageByDisc[o.discount_id] ||= { count: 0, last: null, dollars: 0 });
       u.count++;
       if (!u.last || o.created_at > u.last) u.last = o.created_at;
+      // Discount $ is stored as a negative type:'discount' line in line_items.
+      if (Array.isArray(o.line_items)) {
+        for (const li of o.line_items) {
+          if (li && li.type === 'discount') u.dollars += Math.abs(Number(li.amount) || 0);
+        }
+      }
     });
     data.forEach(d => {
       d._redemptions = redsByDisc[d.id] || [];
@@ -19428,28 +19434,32 @@ ${oneCopy}
   //   value + claim date from the redemption ledger, or "—".
   function _redemptionCells(d, opts) {
     const muted = opts?.muted ? 'var(--gray-400)' : 'var(--gray-700)';
-    let amountTxt, dateTxt;
+    let countTxt, valueTxt, dateTxt;
     if (d.type === 'percent') {
-      const u = d._orderUsage || { count: 0, last: null };
+      // % discounts are applied to orders → count of orders + total $ discounted.
+      const u = d._orderUsage || { count: 0, last: null, dollars: 0 };
       if (u.count === 0) {
-        amountTxt = '—';
-        dateTxt   = '—';
+        countTxt = '—'; valueTxt = '—'; dateTxt = '—';
       } else {
-        amountTxt = `${u.count} order${u.count === 1 ? '' : 's'}`;
-        dateTxt   = fmtDate(u.last);
+        countTxt = `${u.count} order${u.count === 1 ? '' : 's'}`;
+        valueTxt = fmtMoney(u.dollars);
+        dateTxt  = fmtDate(u.last);
       }
     } else {
+      // $ coupons add account credit on claim → number of claims + total $ credited.
       const reds = d._redemptions || [];
       if (reds.length === 0) {
-        amountTxt = '—';
-        dateTxt   = '—';
+        countTxt = '—'; valueTxt = '—'; dateTxt = '—';
       } else {
-        amountTxt = fmtMoney(reds[0].discount_value_snapshot);
-        dateTxt   = fmtDate(reds[0].redeemed_at);
+        const total = reds.reduce((s, r) => s + (Number(r.discount_value_snapshot) || 0), 0);
+        countTxt = `${reds.length} use${reds.length === 1 ? '' : 's'}`;
+        valueTxt = fmtMoney(total);
+        dateTxt  = fmtDate(reds[0].redeemed_at);
       }
     }
     return `
-      <div style="width:120px;text-align:right;font-size:12.5px;color:${muted}">${amountTxt}</div>
+      <div style="width:96px;text-align:right;font-size:12.5px;color:${muted}">${countTxt}</div>
+      <div style="width:96px;text-align:right;font-size:12.5px;color:${muted}">${valueTxt}</div>
       <div style="width:110px;text-align:right;font-size:12.5px;color:${muted}">${dateTxt}</div>`;
   }
 
@@ -19462,7 +19472,8 @@ ${oneCopy}
       <div style="display:flex;align-items:center;padding:8px 16px;gap:12px;background:var(--gray-50);border-top:1px solid var(--gray-100)">
         <div style="flex:1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Code</div>
         <div style="width:110px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Created</div>
-        <div style="width:120px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Redeemed</div>
+        <div style="width:96px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Count</div>
+        <div style="width:96px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Value</div>
         <div style="width:110px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Last&nbsp;Use</div>
         <div style="width:72px"></div>
       </div>` : '';
