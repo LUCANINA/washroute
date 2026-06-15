@@ -19385,39 +19385,68 @@ ${oneCopy}
   async function loadDiscounts() {
     // Session 141: also fetch redemptions so the list can show
     // "Redeemed ($)" + "Redeemed (date)" columns alongside each code.
-    const [discRes, redRes] = await Promise.all([
+    const [discRes, redRes, usageRes] = await Promise.all([
       db.from('discounts').select('*').order('name'),
       db.from('discount_redemptions')
         .select('discount_id, discount_type_snapshot, discount_value_snapshot, redeemed_at')
-        .order('redeemed_at', { ascending: false })
+        .order('redeemed_at', { ascending: false }),
+      // Session 178: actual per-order usage. discount_redemptions is a CLAIM ledger
+      // (a customer typed a code into the app) — staff-applied % discounts like SENIORS
+      // and NON PROFIT set orders.discount_id directly and never create a claim row, so
+      // they always showed "—". Count REAL usage from orders.discount_id instead.
+      db.from('orders')
+        .select('discount_id, created_at, status')
+        .not('discount_id', 'is', null)
     ]);
     const data = discRes.data || [];
     const redsByDisc = {};
     (redRes.data || []).forEach(r => {
       (redsByDisc[r.discount_id] ||= []).push(r);
     });
-    data.forEach(d => { d._redemptions = redsByDisc[d.id] || []; });
+    // Aggregate order usage per discount (count + most-recent date), skipping voided orders.
+    const usageByDisc = {};
+    (usageRes.data || []).forEach(o => {
+      if (o.status === 'cancelled' || o.status === 'skipped') return;
+      const u = (usageByDisc[o.discount_id] ||= { count: 0, last: null });
+      u.count++;
+      if (!u.last || o.created_at > u.last) u.last = o.created_at;
+    });
+    data.forEach(d => {
+      d._redemptions = redsByDisc[d.id] || [];
+      d._orderUsage  = usageByDisc[d.id] || { count: 0, last: null };
+    });
     allDiscounts      = data.filter(d => d.active && !d.deleted_at);
     archivedDiscounts = data.filter(d => !d.active || d.deleted_at);
     renderDiscounts();
   }
 
-  // Build the two redemption columns for one discount row.
-  // - $ codes: one redemption max → show its value + date, or "—"
-  // - % codes: many redemptions → show count + most-recent date, or "—"
+  // Build the two usage columns for one discount row.
+  // - % discounts: applied to orders (orders.discount_id) → show count of orders
+  //   actually using it + most-recent order date. (Session 178: was reading the
+  //   claim ledger, which is 0 for staff-applied codes like SENIORS / NON PROFIT.)
+  // - $ codes: one-time coupons that add account credit on claim → show the credited
+  //   value + claim date from the redemption ledger, or "—".
   function _redemptionCells(d, opts) {
     const muted = opts?.muted ? 'var(--gray-400)' : 'var(--gray-700)';
-    const reds = d._redemptions || [];
     let amountTxt, dateTxt;
-    if (reds.length === 0) {
-      amountTxt = '—';
-      dateTxt   = '—';
-    } else if (d.type === 'fixed') {
-      amountTxt = fmtMoney(reds[0].discount_value_snapshot);
-      dateTxt   = fmtDate(reds[0].redeemed_at);
+    if (d.type === 'percent') {
+      const u = d._orderUsage || { count: 0, last: null };
+      if (u.count === 0) {
+        amountTxt = '—';
+        dateTxt   = '—';
+      } else {
+        amountTxt = `${u.count} order${u.count === 1 ? '' : 's'}`;
+        dateTxt   = fmtDate(u.last);
+      }
     } else {
-      amountTxt = `${reds.length} customer${reds.length === 1 ? '' : 's'}`;
-      dateTxt   = fmtDate(reds[0].redeemed_at); // already DESC-ordered
+      const reds = d._redemptions || [];
+      if (reds.length === 0) {
+        amountTxt = '—';
+        dateTxt   = '—';
+      } else {
+        amountTxt = fmtMoney(reds[0].discount_value_snapshot);
+        dateTxt   = fmtDate(reds[0].redeemed_at);
+      }
     }
     return `
       <div style="width:120px;text-align:right;font-size:12.5px;color:${muted}">${amountTxt}</div>
