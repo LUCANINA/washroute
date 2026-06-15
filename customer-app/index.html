@@ -1981,6 +1981,43 @@ function showToast(msg, type = '') {
   toastTimer = setTimeout(() => { t.classList.remove('show'); }, dur);
 }
 
+// In-app confirmation dialog — returns a Promise<boolean>.
+// Replaces native window.confirm(), which is silently suppressed (returns
+// false with no dialog) inside in-app webviews like the Gmail/Facebook
+// browser and some installed-PWA contexts. That suppression is why a
+// customer who tapped "Cancel Order" from a link opened inside Gmail saw
+// nothing happen — "it would not confirm a cancellation." This modal renders
+// in-page so it works everywhere. Usage:
+//   if (!await confirmDialog({ title, message, confirmLabel, danger })) return;
+function confirmDialog({ title = 'Are you sure?', message = '', confirmLabel = 'Confirm', cancelLabel = 'Keep', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const prev = document.getElementById('wr-confirm-overlay');
+    if (prev) prev.remove();
+    const ov = document.createElement('div');
+    ov.id = 'wr-confirm-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+    const confirmBg = danger ? 'var(--red)' : 'var(--navy)';
+    ov.innerHTML = `
+      <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:520px;padding:26px 22px calc(22px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 32px rgba(0,0,0,.18);">
+        <div style="font-size:19px;font-weight:800;color:var(--navy);margin-bottom:8px;text-align:center;">${escHtml(title)}</div>
+        <div style="font-size:14.5px;color:var(--gray-600);line-height:1.6;text-align:center;margin-bottom:22px;">${escHtml(message)}</div>
+        <button id="wr-confirm-go" style="width:100%;background:${confirmBg};color:#fff;border:none;padding:15px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">${escHtml(confirmLabel)}</button>
+        <button id="wr-confirm-cancel" style="width:100%;background:transparent;color:var(--gray-500);border:none;padding:13px;margin-top:6px;font-size:14px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;">${escHtml(cancelLabel)}</button>
+      </div>`;
+    document.body.appendChild(ov);
+    function done(val) {
+      document.removeEventListener('keydown', onKey);
+      ov.remove();
+      resolve(val);
+    }
+    function onKey(e) { if (e.key === 'Escape') done(false); }
+    ov.querySelector('#wr-confirm-go').onclick = () => done(true);
+    ov.querySelector('#wr-confirm-cancel').onclick = () => done(false);
+    ov.addEventListener('click', (e) => { if (e.target === ov) done(false); });
+    document.addEventListener('keydown', onKey);
+  });
+}
+
 function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
 // Session 137: charged total = subtotal + tip dollars (matches charge-order math).
 // Use everywhere a customer sees an order amount so the My Orders cards agree
@@ -5378,9 +5415,12 @@ async function placeOrder() {
           const c = conflicting[0];
           const delivDisplay = new Date(c.delivery_window_start)
             .toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
-          const proceed = confirm(
-            `You already have a delivery scheduled for ${delivDisplay} (Order #${c.order_number}). Do you still want to book a new pickup for the same day?`
-          );
+          const proceed = await confirmDialog({
+            title: 'Delivery already booked that day',
+            message: `You already have a delivery scheduled for ${delivDisplay} (Order #${c.order_number}). Do you still want to book a new pickup for the same day?`,
+            confirmLabel: 'Book anyway',
+            cancelLabel: 'Never mind'
+          });
           if (!proceed) {
             btn.disabled = false;
             btn.textContent = 'Place Order';
@@ -6143,7 +6183,7 @@ async function saveAddressForm(existingId) {
 }
 
 async function deleteAddress(id) {
-  if (!confirm('Remove this address?')) return;
+  if (!await confirmDialog({ title: 'Remove this address?', message: 'It will be removed from your account.', confirmLabel: 'Remove', danger: true })) return;
   const { error } = await db.from('addresses').delete().eq('id', id);
   if (error) { toast('Could not remove address'); return; }
   toast('Address removed');
@@ -6792,7 +6832,7 @@ async function saveEditOrder() {
 }
 
 async function skipPickup(orderId) {
-  if (!confirm('Skip this pickup? Your subscription continues — we\'ll schedule your next pickup automatically.')) return;
+  if (!await confirmDialog({ title: 'Skip this pickup?', message: "Your subscription continues — we'll schedule your next pickup automatically.", confirmLabel: 'Skip pickup' })) return;
   // Session 148: route through advance_order_status RPC instead of raw UPDATE.
   // The RPC enforces cancelled_by attribution, blocks re-advance from terminal
   // states, and writes an attributed order_event in the same transaction.
@@ -6809,7 +6849,7 @@ async function skipPickup(orderId) {
 }
 
 async function cancelOrder(orderId) {
-  if (!confirm('Cancel this order? This cannot be undone.')) return;
+  if (!await confirmDialog({ title: 'Cancel this order?', message: 'This cannot be undone.', confirmLabel: 'Cancel order', cancelLabel: 'Keep order', danger: true })) return;
   // Session 148: route through advance_order_status RPC. The RPC enforces
   // cancelled_by attribution (admin reports filter by this field to separate
   // customer cancels from admin/system ones), blocks re-advance from terminal
@@ -8021,7 +8061,7 @@ async function startCardSetup() {
 
 async function removeCard(paymentMethodId) {
   if (!currentCustomer) return;
-  if (!confirm('Remove this card? You can add a new one any time.')) return;
+  if (!await confirmDialog({ title: 'Remove this card?', message: 'You can add a new one any time.', confirmLabel: 'Remove card', danger: true })) return;
   try {
     const body = paymentMethodId
       ? { customer_id: currentCustomer.id, payment_method_id: paymentMethodId }
@@ -8793,7 +8833,7 @@ async function selectPlan(planId, isFree) {
 /* ── Subscription lifecycle stubs (wired to Stripe in Phase 4) ── */
 async function pauseSubscription() {
   if (!_activeSub) return;
-  if (!confirm('Pause your subscription? You won\'t be charged while paused, and you can resume anytime.')) return;
+  if (!await confirmDialog({ title: 'Pause your subscription?', message: "You won't be charged while paused, and you can resume anytime.", confirmLabel: 'Pause' })) return;
 
   try {
     const { data: { session } } = await db.auth.getSession();
@@ -8822,7 +8862,7 @@ async function pauseSubscription() {
 
 async function resumeSubscription() {
   if (!_activeSub) return;
-  if (!confirm('Resume your subscription? Your next charge will be on the renewal date.')) return;
+  if (!await confirmDialog({ title: 'Resume your subscription?', message: 'Your next charge will be on the renewal date.', confirmLabel: 'Resume' })) return;
 
   try {
     const { data: { session } } = await db.auth.getSession();
@@ -8851,7 +8891,7 @@ async function resumeSubscription() {
 
 async function cancelSubscription() {
   if (!_activeSub) return;
-  if (!confirm('Cancel your subscription? You\'ll still have access until the end of your current billing period.')) return;
+  if (!await confirmDialog({ title: 'Cancel your subscription?', message: "You'll still have access until the end of your current billing period.", confirmLabel: 'Cancel subscription', cancelLabel: 'Keep subscription', danger: true })) return;
 
   const btn = document.querySelector('#plan-detail-actions button');
   const origText = btn?.textContent;
@@ -8888,7 +8928,7 @@ async function cancelSubscription() {
 // cancel_at_period_end=false (effectively the inverse of cancelSubscription).
 async function reactivateSubscription() {
   if (!_activeSub) return;
-  if (!confirm('Reactivate your subscription? You\'ll continue to be billed monthly after the current period ends.')) return;
+  if (!await confirmDialog({ title: 'Reactivate your subscription?', message: "You'll continue to be billed monthly after the current period ends.", confirmLabel: 'Reactivate' })) return;
 
   const btn = document.querySelector('#plan-detail-actions button');
   const origText = btn?.textContent;
