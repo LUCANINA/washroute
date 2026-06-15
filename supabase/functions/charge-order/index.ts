@@ -32,6 +32,9 @@ async function stampChargeFailed(db: any, orderId: string) {
   await db.from('orders').update({
     billing_status: 'failed',
     charge_failed_at: new Date().toISOString(),
+    // v48 (session 176): release the anti-double-charge claim on failure so a
+    // later legitimate retry (e.g. after the customer updates their card) can run.
+    charge_in_progress_at: null,
     updated_at: new Date().toISOString(),
   }).eq('id', orderId);
 }
@@ -122,6 +125,27 @@ Deno.serve(async (req) => {
       throw new Error(`Order #${order.order_number} belongs to an on-account customer — bill via invoice, not card`)
     }
 
+    // ── v48 (session 176): ATOMIC ANTI-DOUBLE-CHARGE CLAIM ──
+    // The stripe_payment_intent_id / billing_status guards above are read-check-write:
+    // two sub-second submits both load the order before either writes the PI back, so
+    // both passed and created two PaymentIntents (the credit audit found 4 such double
+    // charges, e.g. Ray Thomas #1054 — two $245.95 charges 1.6s apart). This claim makes
+    // the check atomic: only one concurrent request can flip charge_in_progress_at from
+    // NULL (or a >2-min-stale value) to now(); the loser bails before touching Stripe.
+    // Cleared on success (below) and on every failure (stampChargeFailed).
+    const claimTs = new Date().toISOString()
+    const staleCutoff = new Date(Date.now() - 120000).toISOString()
+    const { data: claimRows, error: claimErr } = await db.from('orders')
+      .update({ charge_in_progress_at: claimTs })
+      .eq('id', orderId)
+      .is('stripe_payment_intent_id', null)
+      .or(`charge_in_progress_at.is.null,charge_in_progress_at.lt.${staleCutoff}`)
+      .select('id')
+    if (claimErr) throw new Error('Could not acquire charge lock: ' + claimErr.message)
+    if (!claimRows || claimRows.length === 0) {
+      throw new Error(`Order #${order.order_number} already has a charge in progress or completed — refusing to avoid a double charge`)
+    }
+
     // v33: charge = pre-tip total + team tip
     const preTipAmount = Number(order.total_amount)
     const tipDollars   = computeTipDollars(preTipAmount, order.tip_amount, order.tip_type)
@@ -209,6 +233,12 @@ Deno.serve(async (req) => {
               tip_type: String(order.tip_type || ''),
               subtotal: preTipAmount.toFixed(2),
             },
+          }, {
+            // v48 (session 176): Stripe idempotency key — defense-in-depth behind the
+            // DB claim above. Keyed on order + this claim's timestamp + the card, so a
+            // duplicate request collapses to one charge, while a genuine later retry
+            // (new claim → new claimTs) still gets a fresh key.
+            idempotencyKey: `co_${order.id}_${claimTs}_${card.stripe_payment_method_id}`,
           })
 
           if (pi.status === 'succeeded') {
@@ -248,6 +278,7 @@ Deno.serve(async (req) => {
       billing_status: 'paid',
       billed_at: new Date().toISOString(),
       charge_failed_at: null,
+      charge_in_progress_at: null, // v48 (session 176): release the anti-double-charge claim
       updated_at: new Date().toISOString(),
     }
     if (paymentIntent) {
