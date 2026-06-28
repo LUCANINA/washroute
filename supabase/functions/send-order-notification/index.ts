@@ -54,7 +54,7 @@ async function sendSms(to: string, body: string) {
       'Content-Type': 'application/x-www-form-urlencoded',
       Authorization: 'Basic ' + btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`),
     },
-    body: new URLSearchParams({ To: phone, From: TWILIO_FROM, Body: body }).toString(),
+    body: new URLSearchParams({ To: phone, From: TWILIO_FROM, Body: body, StatusCallback: `${SUPABASE_URL}/functions/v1/twilio-status-callback` }).toString(),
   });
   const data = await res.json();
   if (!res.ok) return { ok: false, reason: data.message };

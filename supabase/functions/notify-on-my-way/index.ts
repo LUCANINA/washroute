@@ -146,7 +146,7 @@ Deno.serve(async (req: Request) => {
             'Authorization': 'Basic ' + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`),
             'Content-Type': 'application/x-www-form-urlencoded',
           },
-          body: new URLSearchParams({ To: phone, From: TWILIO_FROM, Body: msgBody }),
+          body: new URLSearchParams({ To: phone, From: TWILIO_FROM, Body: msgBody, StatusCallback: `${SUPABASE_URL}/functions/v1/twilio-status-callback` }),
         }
       );
       const twilioData = await twilioRes.json();

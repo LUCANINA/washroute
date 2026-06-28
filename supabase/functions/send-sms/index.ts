@@ -102,6 +102,10 @@ Deno.serve(async (req: Request) => {
     else                         tParams.append('From', TWILIO_FROM);
     for (const u of mediaList) tParams.append('MediaUrl', u);
 
+    // Delivery receipts (session 178): tell Twilio where to POST each
+    // message's final status (delivered / failed / undelivered + ErrorCode).
+    tParams.append('StatusCallback', `${SUPABASE_URL}/functions/v1/twilio-status-callback`);
+
     const twilioRes = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
       {
