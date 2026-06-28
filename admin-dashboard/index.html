@@ -13694,6 +13694,24 @@ ${oneCopy}
     return `<div class="message-bubble message-${m.direction}${media.length ? ' has-media' : ''}">${mediaHtml}${bodyHtml}</div>`;
   }
 
+  // Inline delivery indicator shown next to an outbound bubble's timestamp
+  // (session 178). Reads Twilio delivery receipts captured on sms_messages.
+  // Historical messages (pre-tracking) are all 'sent' → grey "Sent".
+  function _smsDeliveryBadge(m) {
+    if (!m || m.direction !== 'outbound') return '';
+    const s = (m.status || '').toLowerCase();
+    if (s === 'delivered') {
+      return ` · <span style="color:var(--green);font-weight:600" title="Delivered to the recipient">✓ Delivered</span>`;
+    }
+    if (s === 'failed' || s === 'undelivered') {
+      const reason = m.error_message || (m.error_code ? ('Error ' + m.error_code) : 'Not delivered');
+      const label = (s === 'undelivered') ? 'Undelivered' : 'Failed';
+      return ` · <span style="color:var(--red);font-weight:600" title="${esc(reason)}">✗ ${label}</span>`;
+    }
+    // queued / sent / accepted — handed to the carrier, no receipt yet
+    return ` · <span style="color:var(--gray-400)" title="Sent — awaiting delivery confirmation">✓ Sent</span>`;
+  }
+
   // ── convertMsgToLostFound ──
   // One-click handler attached to inbound message bubbles. Looks up the
   // message by id, then opens the Lost & Found create modal pre-filled
@@ -13844,7 +13862,7 @@ ${oneCopy}
                   <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','lost')" title="Add to Lost &amp; Found as Lost">+ Lost</button>
                 </div>
               ` : ''}
-              <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
+              <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}${_smsDeliveryBadge(m)}</div>
             </div>`).join('')}
           ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
         </div>
