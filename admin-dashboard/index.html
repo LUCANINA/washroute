@@ -1451,6 +1451,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Reports
       </div>
+      <div id="nav-smsdelivery" class="nav-item" data-page="smsdelivery" data-section="analytics" onclick="showPage('smsdelivery',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        SMS Delivery
+      </div>
       <div class="sidebar-section-label" data-section="settings" id="settings-nav-toggle" onclick="toggleSettingsNav()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding-right:20px;user-select:none;">
         <span>Settings</span>
         <span id="settings-nav-chevron" style="font-size:10px;opacity:.6;transition:transform .2s;">▸</span>
@@ -3072,6 +3076,24 @@
             </div>
           </div>
         </div><!-- /page-discounts -->
+
+        <!-- ── SMS DELIVERY (session 178) ── -->
+        <div class="page" id="page-smsdelivery">
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title">SMS Delivery</div>
+              <div class="card-sub">Delivery status of outbound texts. Tracking started June 28, 2026 — texts sent before then show as “Sent (no receipt).”</div>
+            </div>
+            <div id="smsd-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px;align-items:center">
+              <div id="smsd-filters" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+              <button class="btn btn-ghost" style="margin-left:auto;font-size:12px;padding:5px 10px" onclick="loadSmsDelivery()">↻ Refresh</button>
+            </div>
+            <div id="smsd-list" style="padding:4px 0 16px">
+              <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
+            </div>
+          </div>
+        </div><!-- /page-smsdelivery -->
 
         <!-- page-driver-messages removed — merged into page-drivers -->
 
@@ -6119,7 +6141,7 @@
   // intent across roles.
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Kanban', attendant: 'Attendant', pos_device: 'POS Terminal' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
-                        'reports','services','notifications','maps','launderers','racks',
+                        'reports','smsdelivery','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
 
   function canAccessPage(pageId) {
@@ -6160,7 +6182,7 @@
 
   const PAGE_LABELS = {
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
-    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', services:'Services',
+    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', smsdelivery:'SMS Delivery', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
     racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
@@ -6706,8 +6728,8 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'General', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', discounts:'Discounts', settings:'General', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', discounts:'', settings:'', team:'' };
 
   // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
   function openPosLauncher() {
@@ -6772,6 +6794,7 @@
     if (id === 'overview') loadOverview();
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
+    if (id === 'smsdelivery') loadSmsDelivery();
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -6796,6 +6819,119 @@
     grp.style.display = isHidden ? '' : 'none';
     if (chev) chev.textContent = isHidden ? '▾' : '▸';
     try { sessionStorage.setItem('wr-settings-nav', isHidden ? 'open' : 'closed'); } catch(_) {}
+  }
+
+  // ── SMS Delivery view (session 178) ──
+  // Surfaces Twilio delivery receipts captured by the twilio-status-callback
+  // edge function. Defaults to failures so problems are front-and-center.
+  let _smsdFilter = 'failures';
+  const _SMSD_BUCKETS = {
+    failures:  { label: 'Failures',          statuses: ['failed','undelivered'] },
+    delivered: { label: 'Delivered',         statuses: ['delivered'] },
+    pending:   { label: 'Awaiting receipt',  statuses: ['queued','sent','accepted','sending','scheduled'] },
+    all:       { label: 'All',               statuses: null },
+  };
+
+  function _smsdFmtWhen(iso) {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleString('en-US', { timeZone: BIZ_TZ, month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    } catch { return ''; }
+  }
+
+  function _smsdStatusPill(status) {
+    const s = (status || '').toLowerCase();
+    let bg = 'var(--gray-100)', fg = 'var(--gray-600)', label = 'Sent';
+    if (s === 'delivered') { bg = 'var(--green-light)'; fg = 'var(--green)'; label = '✓ Delivered'; }
+    else if (s === 'failed') { bg = 'var(--red-light)'; fg = 'var(--red)'; label = '✗ Failed'; }
+    else if (s === 'undelivered') { bg = 'var(--red-light)'; fg = 'var(--red)'; label = '✗ Undelivered'; }
+    // queued / sent / accepted → handed to carrier, no receipt yet → "Sent"
+    return `<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;background:${bg};color:${fg};white-space:nowrap">${esc(label)}</span>`;
+  }
+
+  function setSmsdFilter(key) { _smsdFilter = key; loadSmsDelivery(); }
+
+  async function loadSmsDelivery() {
+    const summaryEl = document.getElementById('smsd-summary');
+    const filtersEl = document.getElementById('smsd-filters');
+    const listEl    = document.getElementById('smsd-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>';
+
+    // Filter chips
+    if (filtersEl) {
+      filtersEl.innerHTML = Object.entries(_SMSD_BUCKETS).map(([key, b]) => {
+        const active = key === _smsdFilter;
+        return `<button onclick="setSmsdFilter('${key}')" style="cursor:pointer;border:1px solid ${active?'var(--accent)':'var(--gray-200)'};background:${active?'var(--accent)':'#fff'};color:${active?'#fff':'var(--gray-700)'};padding:5px 12px;border-radius:8px;font-size:12.5px;font-weight:600">${esc(b.label)}</button>`;
+      }).join('');
+    }
+
+    // Summary counts over the last 7 days (lightweight head-count queries)
+    if (summaryEl) {
+      const since = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+      const countFor = async (statuses) => {
+        const { count } = await db.from('sms_messages')
+          .select('id', { count:'exact', head:true })
+          .eq('direction','outbound').gte('created_at', since).in('status', statuses);
+        return count || 0;
+      };
+      try {
+        const [nFailed, nDelivered, nPending] = await Promise.all([
+          countFor(['failed','undelivered']),
+          countFor(['delivered']),
+          countFor(['queued','sent','accepted','sending','scheduled']),
+        ]);
+        const card = (label, n, color) => `<div style="flex:1;min-width:130px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:10px;padding:12px 14px">
+          <div style="font-size:22px;font-weight:800;color:${color}">${n}</div>
+          <div style="font-size:11px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:.04em">${label}</div></div>`;
+        summaryEl.innerHTML =
+          card('Failed · 7 days', nFailed, 'var(--red)') +
+          card('Delivered · 7 days', nDelivered, 'var(--green)') +
+          card('Awaiting receipt · 7 days', nPending, 'var(--gray-700)');
+      } catch (_) { summaryEl.innerHTML = ''; }
+    }
+
+    // List for the active filter
+    const bucket = _SMSD_BUCKETS[_smsdFilter] || _SMSD_BUCKETS.all;
+    let q = db.from('sms_messages')
+      .select('id,created_at,status,error_code,error_message,delivered_at,to_number,body,customers(first_name_cache,last_name_cache)')
+      .eq('direction','outbound')
+      .order('created_at', { ascending:false })
+      .limit(200);
+    if (bucket.statuses) q = q.in('status', bucket.statuses);
+    const { data, error } = await q;
+
+    if (error) {
+      listEl.innerHTML = `<div style="color:var(--red);font-size:13px;padding:16px">Couldn’t load messages: ${esc(error.message)}</div>`;
+      return;
+    }
+    if (!data || !data.length) {
+      const nice = _smsdFilter === 'failures' ? 'No failed texts in this window 🎉' : 'No messages found.';
+      listEl.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">${nice}</div>`;
+      return;
+    }
+
+    const th = (t) => `<th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--gray-200);font-weight:600;color:var(--gray-600);font-size:11px;text-transform:uppercase;letter-spacing:.04em">${t}</th>`;
+    const rows = data.map(m => {
+      const c = m.customers;
+      const name = c ? ((c.first_name_cache||'') + ' ' + (c.last_name_cache||'')).trim() : '';
+      const who = esc(name || m.to_number || '—');
+      const isFail = (m.status === 'failed' || m.status === 'undelivered');
+      const reason = isFail ? esc(m.error_message || (m.error_code ? ('Error ' + m.error_code) : '—')) : '';
+      const bodyTxt = m.body || '';
+      const snippet = esc(bodyTxt.slice(0, 60)) + (bodyTxt.length > 60 ? '…' : '');
+      return `<tr style="border-bottom:1px solid var(--gray-100)">
+        <td style="padding:9px 12px;color:var(--gray-500);font-size:12px;white-space:nowrap">${esc(_smsdFmtWhen(m.created_at))}</td>
+        <td style="padding:9px 12px;color:var(--gray-800);font-size:13px">${who}</td>
+        <td style="padding:9px 12px">${_smsdStatusPill(m.status)}</td>
+        <td style="padding:9px 12px;color:var(--red);font-size:12.5px">${reason}</td>
+        <td style="padding:9px 12px;color:var(--gray-500);font-size:12px">${snippet}</td>
+      </tr>`;
+    }).join('');
+
+    listEl.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr>${th('When')}${th('Customer')}${th('Status')}${th('Reason')}${th('Message')}</tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
   }
 
   // Restore settings nav state on load
