@@ -9955,6 +9955,59 @@
   // Ordered status list for detecting rollbacks
   const _STATUS_ORDER = ['scheduled','picked_up','processing','ready_for_delivery','out_for_delivery','delivered'];
 
+  // ── CENTRALIZED CHARGE-ON-READY (session 178) ──
+  // Single source of truth for the "charge the card when an order reaches
+  // Ready for Delivery" invariant. EVERY admin status path that advances an
+  // order to ready_for_delivery MUST call this — do NOT inline a charge-order
+  // fetch or a billing_type check anywhere else. It owns three things so no
+  // caller can drift out of sync again: (1) the on-account skip, (2) the Stripe
+  // charge-order call, (3) stamping billing_status='failed' + charge_failed_at
+  // so a declined card surfaces in the Issues tab and unpaid widget.
+  //   The rack flow (saveRacking → rack_order RPC) is the one exception: it runs
+  //   its own credit/tip-aware billing server-side and is already centralized.
+  // Root cause of the June 2026 "commercial orders delivered unpaid" bug:
+  // setSingleOrderStatus advanced to ready_for_delivery without any charge step.
+  // Returns { outcome, card, error, billTotal } where outcome is one of:
+  //   'noop'       — not a transition into ready_for_delivery; nothing to do
+  //   'on_account' — invoiced customer; balance grows, no card charged
+  //   'charged'    — card charged successfully (or was already paid)
+  //   'failed'     — charge declined; failure stamped on the order
+  async function chargeOnReady(order, newStatus) {
+    // Only charge on the transition INTO ready_for_delivery.
+    if (newStatus !== 'ready_for_delivery' || !order || order.status === 'ready_for_delivery') {
+      return { outcome: 'noop' };
+    }
+    // On-account customers are invoiced, not card-charged (balance includes tip).
+    if (order.customers?.billing_type === 'on_account') {
+      return { outcome: 'on_account', billTotal: _orderTipBreakdown(order).totalWithTip };
+    }
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
+      order.billing_status = 'paid';
+      return { outcome: 'charged', card: result.card || '' };
+    } catch (e) {
+      // "already been charged" means it WAS paid — preserve that, don't mark failed.
+      if (e.message && e.message.includes('already been charged')) {
+        order.billing_status = 'paid';
+        return { outcome: 'charged', card: '' };
+      }
+      // Stamp the failure so the order surfaces in Issues + dunning outreach.
+      await db.from('orders').update({
+        billing_status:  'failed',
+        charge_failed_at: new Date().toISOString(),
+        billing_notes:   `Charge failed advancing to ready: ${e.message || 'unknown'}`,
+      }).eq('id', order.id);
+      order.billing_status = 'failed';
+      return { outcome: 'failed', error: e.message };
+    }
+  }
+
   async function opSetOrderStatus(newStatus) {
     if (!opCurrentOrderId) return;
     const o = allOrders.find(x => x.id === opCurrentOrderId);
@@ -10006,29 +10059,12 @@
       return;
     }
 
-    // Charge when moving to ready_for_delivery (skip for on-account customers)
-    if (newStatus === 'ready_for_delivery' && o.status !== 'ready_for_delivery') {
-      const custBillingType = o.customers?.billing_type;
-      if (custBillingType === 'on_account') {
-        // On-account balance includes tip — mirror what charge-order v33 would have collected.
-        const billTotal = _orderTipBreakdown(o).totalWithTip;
-        showToast(`📋 On Account — ${fmtMoney(billTotal)} added to balance`, 'success');
-      } else {
-        try {
-          const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-            method:'POST',
-            headers:{'Content-Type':'application/json','apikey': SUPA_ANON_KEY},
-            body: JSON.stringify({ orderId: o.id }),
-          });
-          const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-          showToast(`💳 Charged — ${result.card || ''}`, 'success');
-        } catch(e) {
-          showToast('⚠️ Charge failed: ' + e.message, 'error');
-          // Still advance status — admin chose this deliberately from the dropdown
-        }
-      }
-    }
+    // Charge when moving to ready_for_delivery — centralized via chargeOnReady (session 178).
+    const _cor = await chargeOnReady(o, newStatus);
+    if (_cor.outcome === 'on_account')   showToast(`📋 On Account — ${fmtMoney(_cor.billTotal)} added to balance`, 'success');
+    else if (_cor.outcome === 'charged') showToast(`💳 Charged — ${_cor.card}`, 'success');
+    else if (_cor.outcome === 'failed')  showToast('⚠️ Charge failed: ' + _cor.error + ' — advancing anyway (see Issues)', 'error');
+    // Still advance status even on a failed charge — admin chose this deliberately.
 
     // Session 135: advance_order_status RPC handles status + timestamps + cancelled_by + routing_error clear atomically
     const statusLabel = _OP_STATUS_LABELS[newStatus] || newStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -11741,23 +11777,11 @@ ${oneCopy}
     const now = new Date().toISOString();
     let succeeded = 0, chargeCount = 0;
     for (const s of sel) {
-      // Charge step when moving to ready_for_delivery (skip on-account customers)
-      if (newStatus === 'ready_for_delivery' && s.status === 'processing') {
+      // Charge step when moving to ready_for_delivery — centralized (session 178).
+      if (newStatus === 'ready_for_delivery') {
         const orderObj = allOrders.find(o => o.id === s.id);
-        if (orderObj?.customers?.billing_type === 'on_account') {
-          // On Account — skip Stripe, balance increases naturally
-        } else {
-          try {
-            const { data: { session } } = await db.auth.getSession();
-            const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-              body: JSON.stringify({ orderId: s.id }),
-            });
-            const r = await res.json();
-            if (!r.error) chargeCount++;
-          } catch(e) { console.warn('Charge failed for', s.num, e); }
-        }
+        const _cor = await chargeOnReady(orderObj, newStatus);
+        if (_cor.outcome === 'charged') chargeCount++;
       }
       // Session 135: advance_order_status RPC handles timestamps, cancelled_by (for skip/cancel/fail), and events atomically
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
@@ -11801,41 +11825,13 @@ ${oneCopy}
     for (const s of advanceable) {
       const nextStatus = STATUS_FLOW[s.status];
       if (nextStatus === 'ready_for_delivery') {
+        // Centralized (session 178): chargeOnReady owns the on-account skip, the
+        // Stripe call, and the billing_status='failed' stamp so a declined card
+        // still surfaces in the Issues tab + unpaid widget.
         const orderObj = allOrders.find(o => o.id === s.id);
-        if (orderObj?.customers?.billing_type === 'on_account') {
-          // On Account — skip Stripe, balance increases naturally
-        } else {
-          // Track charge outcome — must propagate to the orders update so a failed
-          // charge doesn't silently advance the order without a billing_status='failed'
-          // stamp (the order would be marked ready_for_delivery with no record of the
-          // failed payment, and would not appear in the Issues tab).
-          let chargeOk = false, chargeErrMsg = null;
-          try {
-            const { data: { session } } = await db.auth.getSession();
-            const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-              method:'POST',
-              headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},
-              body: JSON.stringify({ orderId: s.id }),
-            });
-            const result = await res.json().catch(() => ({}));
-            chargeOk = res.ok && !result.error;
-            if (!chargeOk) chargeErrMsg = result.error || `HTTP ${res.status}`;
-          } catch(e) {
-            chargeErrMsg = e.message || 'network error';
-            console.warn('Charge failed for', s.num, e);
-          }
-          if (chargeOk) {
-            chargeNeeded++;
-          } else {
-            // Stamp the failure on the order so it surfaces in Issues tab + customer outreach.
-            chargeFailedCount++;
-            await db.from('orders').update({
-              billing_status: 'failed',
-              charge_failed_at: now,
-              billing_notes: `Charge failed during batch advance: ${chargeErrMsg || 'unknown'}`
-            }).eq('id', s.id);
-          }
-        }
+        const _cor = await chargeOnReady(orderObj, nextStatus);
+        if (_cor.outcome === 'charged')     chargeNeeded++;
+        else if (_cor.outcome === 'failed') chargeFailedCount++;
       }
       // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
@@ -12003,6 +11999,14 @@ ${oneCopy}
       showToast(`✓ Order #${orderNum} deleted`);
     } else {
       const label = ALL_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+      // Charge on the transition into ready_for_delivery — centralized (session 178).
+      // ROOT CAUSE FIX: this override path previously skipped charging entirely,
+      // which let commercial orders reach Ready for Delivery / Delivered unpaid.
+      const _order = allOrders.find(o => o.id === orderId);
+      const _cor = await chargeOnReady(_order, newStatus);
+      if (_cor.outcome === 'on_account')   showToast(`📋 On Account — ${fmtMoney(_cor.billTotal)} added to balance`, 'success');
+      else if (_cor.outcome === 'charged') showToast(`💳 Charged — ${_cor.card}`, 'success');
+      else if (_cor.outcome === 'failed')  showToast('⚠️ Charge failed: ' + _cor.error + ' — advancing anyway (see Issues)', 'error');
       // Session 135: advance_order_status RPC handles timestamps + cancelled_by + events atomically
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
       const _cancel = ['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus) ? 'admin' : null;
@@ -13174,16 +13178,15 @@ ${oneCopy}
     const origText = btn.textContent;
     btn.textContent = '…';
     try {
-      // charge before advancing to ready_for_delivery
+      // charge before advancing to ready_for_delivery — centralized (session 178).
+      // Now also correctly skips card-charging on-account customers (this path
+      // used to charge everyone). A declined card aborts the advance, as before.
       if (isChargeStep) {
-        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-          body: JSON.stringify({ orderId }),
-        });
-        const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-        showToast(`💳 Order #${orderNum} charged — ${result.card || ''}`);
+        const _order = allOrders.find(o => o.id === orderId);
+        const _cor = await chargeOnReady(_order, newStatus);
+        if (_cor.outcome === 'failed')          throw new Error(_cor.error);
+        else if (_cor.outcome === 'on_account') showToast(`📋 Order #${orderNum} — On Account · ${fmtMoney(_cor.billTotal)} added to balance`, 'success');
+        else if (_cor.outcome === 'charged')    showToast(`💳 Order #${orderNum} charged — ${_cor.card}`);
       }
       // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
