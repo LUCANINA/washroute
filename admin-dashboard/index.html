@@ -4245,6 +4245,19 @@
   <!-- ── SCHEDULE TAB ── -->
   <div class="op-tab-body" id="op-tab-schedule">
 
+    <!-- Recurring scope: shown only for recurring orders (toggled in opRefreshScheduleUI).
+         Governs both legs — when checked, a pickup/delivery change becomes the new
+         permanent cadence; unchecked (default) changes only this occurrence. -->
+    <div id="op-recurring-scope" style="display:none;margin-bottom:12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="op-apply-future" style="accent-color:var(--accent);cursor:pointer;width:15px;height:15px;margin-top:1px;flex-shrink:0">
+        <span style="font-size:12.5px;line-height:1.4;color:var(--gray-700)">
+          <strong>Apply changes to all future occurrences</strong><br>
+          <span style="color:var(--gray-500);font-size:11.5px">Leave unchecked to change just this one — the recurring schedule reverts next time.</span>
+        </span>
+      </label>
+    </div>
+
     <div class="op-sec-head">Pickup</div>
     <div class="op-sched-card">
       <div class="op-sched-row">
@@ -9217,6 +9230,11 @@
     recurSelect.value = o.recurring_interval || '';
     recurSelect.style.color = o.recurring_interval ? '#10b981' : 'var(--gray-700)';
 
+    // Reset the "apply to all future" recurring-scope checkbox on every panel open
+    // so one order's choice never carries into the next order.
+    const _applyFutureChk = document.getElementById('op-apply-future');
+    if (_applyFutureChk) _applyFutureChk.checked = false;
+
     // Default to Schedule tab
     opSwitchTab('schedule', document.getElementById('op-tab-btn-schedule'));
 
@@ -9290,6 +9308,13 @@
   }
 
   function opRefreshScheduleUI(o) {
+    // Recurring scope checkbox — visibility only (show for recurring orders).
+    // The checked state is reset when the panel opens for a new order (see the
+    // Recurring control block), so it persists across a pickup+delivery edit
+    // within one panel session but never leaks into the next order.
+    const scopeWrap = document.getElementById('op-recurring-scope');
+    if (scopeWrap) scopeWrap.style.display = o.recurring_interval ? '' : 'none';
+
     // Pickup
     const puName = o.pickup_run?.name || null;
     const puRouteEl = document.getElementById('op-pickup-route-val');
@@ -10440,6 +10465,11 @@
     // auto-snaps the window to the new template's first sub-window when the route changes
     // without an explicit window passed in.
     const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    // Recurring scope: for recurring orders, "Apply to all future occurrences"
+    // (checkbox at top of the Schedule tab) advances the recurring anchor so this
+    // new day/time becomes the permanent cadence. Unchecked (default) or one-time
+    // orders → this occurrence only; the RPC ignores the flag on non-recurring orders.
+    const _applyFuture = document.getElementById('op-apply-future')?.checked || false;
     const { data: rpcRes, error } = await db.rpc('reschedule_order_leg', {
       p_order_id:         opCurrentOrderId,
       p_leg:              leg,
@@ -10447,6 +10477,7 @@
       p_new_window_start: startIso || null,
       p_new_window_end:   endIso || null,
       p_actor_name:       actorName,
+      p_apply_to_future:  _applyFuture,
     });
     if (error) {
       showToast('Failed to save: ' + error.message, 'error');

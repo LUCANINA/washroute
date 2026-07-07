@@ -6557,6 +6557,18 @@ async function openEditOrder() {
             ${addrPickerRow('Pickup', pAddr)}
           </div>
 
+          ${o.recurring_interval ? `
+          <!-- Recurring scope (only for recurring orders) -->
+          <div id="edit-recurring-scope" style="padding:16px 0;border-bottom:1px solid var(--gray-100)">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+              <input type="checkbox" id="edit-apply-future" style="width:18px;height:18px;margin-top:1px;accent-color:var(--navy);flex-shrink:0">
+              <span style="font-size:14px;color:var(--text);line-height:1.45">
+                <strong>Apply to all future pickups</strong><br>
+                <span style="color:var(--gray-500);font-size:12px">Leave unchecked to change just this one — your regular schedule stays the same.</span>
+              </span>
+            </label>
+          </div>` : ''}
+
           <!-- Footer note -->
           <div style="display:flex;align-items:center;gap:6px;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-top:16px;margin-bottom:20px">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--gray-400)" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -6788,11 +6800,17 @@ async function saveEditOrder() {
   // If neither leg actually has changes to push, skip the RPC entirely.
   // (Step 1 above already wrote bag count / instructions / addresses.)
   if (Object.keys(_pickupArgs).length || Object.keys(_deliveryArgs).length) {
+    // Recurring scope: when the customer ticks "Apply to all future pickups",
+    // the RPC also advances the recurring anchors so the new day/time becomes
+    // their permanent schedule. Unchecked (default) = this occurrence only, and
+    // next cycle reverts to the established cadence.
+    const _applyFuture = document.getElementById('edit-apply-future')?.checked || false;
     const { data: rescheduleResult, error: rErr } = await db.rpc('reschedule_order', {
       p_order_id:    orderId,
       ..._pickupArgs,
       ..._deliveryArgs,
       p_actor_name:  'Customer',
+      p_apply_to_future: _applyFuture,
     });
     if (rErr) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
