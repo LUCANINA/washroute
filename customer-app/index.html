@@ -22,8 +22,13 @@
       --gray-200: #e2e8f0;
       --gray-300: #cbd5e1;
       --gray-400: #94a3b8;
+      --gray-500: #6b7280;
       --gray-600: #64748b;
+      --gray-700: #475569;
+      --gray-900: #1e293b;
       --success:  #22c55e;
+      --green:    #16a34a;
+      --red:      #dc2626;
       --radius:   12px;
       --shadow:   0 2px 16px rgba(0,0,0,.08);
     }
@@ -5362,9 +5367,12 @@ async function placeOrder() {
   // delivery window that's after pickup end, block the submission.
   if (draft.isSameDay && pw && _effectiveDW) {
     const pickupEndMs  = new Date(pw.slotEnd).getTime();
-    const delivStartMs = new Date(
-      `${deliveryDate}T${String(Math.floor(_effectiveDW.startMins/60)).padStart(2,'0')}:${String(_effectiveDW.startMins%60).padStart(2,'0')}:00`
-    ).getTime();
+    // pw.slotEnd is a true UTC instant, so the delivery side must be too.
+    // Build it with the Pacific-safe helper — the prior `new Date(`${date}T${HH}:${MM}:00`)`
+    // (no offset) parsed in the BROWSER's timezone, so a valid same-day delivery
+    // (e.g. 6pm after a 9am pickup) was falsely rejected whenever the phone
+    // wasn't set to Pacific time.
+    const delivStartMs = new Date(pacificIsoFromMins(deliveryDate, _effectiveDW.startMins)).getTime();
     if (delivStartMs <= pickupEndMs) {
       btn.disabled = false; btn.textContent = 'Place Order';
       showToast('Delivery time must be after your pickup window. Please go back and update your schedule.', 'error');
