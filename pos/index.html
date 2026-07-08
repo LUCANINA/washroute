@@ -4211,7 +4211,7 @@
       // The badge in the card render distinguishes walk-in counter-pickups
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id')
+        .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id, pickup_window_start, delivery_window_start, pickup_run_id, delivery_run_id')
         // Session 156: include 'folding' so bags stay visible through the
         // folding stage. Earlier filter missed it — when an admin assigned
         // a launderer, the bag advanced processing→folding and silently
@@ -4279,6 +4279,24 @@
         }
       }
 
+      // Session 182: hydrate the route name for delivery/intake orders so the
+      // Foothill receipt (which doubles as a bag tag) shows which route the bag
+      // goes out on. Prefer the DELIVERY route (where the bag is headed); fall
+      // back to the pickup route. Retail walk-ins have neither and are skipped.
+      // One batched query keyed on both run-id sets keeps this at a single
+      // round-trip regardless of queue length.
+      const runIds = [...new Set((data || [])
+        .flatMap(o => [o.delivery_run_id, o.pickup_run_id])
+        .filter(Boolean))];
+      let routeMap = {};
+      if (runIds.length) {
+        const { data: routeRows } = await db
+          .from('routes')
+          .select('id, name')
+          .in('id', runIds);
+        for (const r of (routeRows || [])) routeMap[r.id] = r.name || '';
+      }
+
       // Attach name + phone + address to each order. Address prints on the
       // receipt below the customer name (session 149) — the printed copy
       // doubles as a bag tag, and the laundering team needs to see where
@@ -4294,6 +4312,8 @@
           _customerAddress: c ? c.address : '',
           _cashierFirstName: s ? s.firstName : '',
           _cashierLastName:  s ? s.lastName  : '',
+          // Session 182: delivery route name for the receipt/bag tag.
+          _routeName:       routeMap[o.delivery_run_id] || routeMap[o.pickup_run_id] || '',
         };
       });
 
@@ -6448,6 +6468,25 @@ ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').
     const custAddrLine = custAddr
       ? `\n    <text-line>${escMarkup(custAddr)}</text-line>`
       : '';
+    // Session 182: delivery-info block. Delivery/intake bags processed at the
+    // POS (Foothill) need the pickup + delivery dates, bag count, and route on
+    // the printed receipt (which doubles as a bag tag) so the laundering team
+    // and drivers have the full picture. Retail walk-ins (source='walk_in')
+    // have no dates/route and skip this block entirely — their receipts stay
+    // clean. Each line only prints if its value is present, so partial data
+    // (e.g. delivery not yet scheduled) degrades gracefully.
+    const _fmtRcptDate = ts => ts
+      ? new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', month: 'numeric', day: 'numeric' })
+      : '';
+    const _isDelivery   = order.source && order.source !== 'walk_in';
+    const _pickupDate   = _fmtRcptDate(order.pickup_window_start);
+    const _deliveryDate = _fmtRcptDate(order.delivery_window_start);
+    const _bagsCount    = Number(order.total_bags || 0);
+    const _routeName    = escMarkup(order._routeName || '');
+    const deliveryInfoXml = _isDelivery ? `
+  <align mode="left">
+${_pickupDate   ? `    <text-line>Pickup:   ${_pickupDate}</text-line>\n`   : ''}${_deliveryDate ? `    <text-line>Delivery: ${_deliveryDate}</text-line>\n` : ''}${_bagsCount    ? `    <text-line>Bags:     ${_bagsCount}</text-line>\n`      : ''}${_routeName    ? `    <text-line>Route:    ${_routeName}</text-line>\n`     : ''}  </align>
+  <ruled-line/>` : '';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <document>
   <align mode="center">
@@ -6455,7 +6494,7 @@ ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').
     <text-line size="1:2"><bold>Order ${orderNum}</bold></text-line>
     <text-line>${now}</text-line>
   </align>
-  <ruled-line/>
+  <ruled-line/>${deliveryInfoXml}
   <align mode="left">
 ${lineItemsXml}
   </align>
@@ -6520,6 +6559,23 @@ ${lineItemsXml}
     const custAddrLineH = custAddrH
       ? `<div class="cust-addr">${esc(custAddrH)}</div>`
       : '';
+    // Session 182: same delivery-info block as the thermal builder — pickup +
+    // delivery dates, bag count, route for delivery/intake orders; skipped for
+    // retail walk-ins.
+    const _fmtRcptDateH = ts => ts
+      ? new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', month: 'numeric', day: 'numeric' })
+      : '';
+    const _isDeliveryH   = order.source && order.source !== 'walk_in';
+    const _pickupDateH   = _fmtRcptDateH(order.pickup_window_start);
+    const _deliveryDateH = _fmtRcptDateH(order.delivery_window_start);
+    const _bagsCountH    = Number(order.total_bags || 0);
+    const _routeNameH    = esc(order._routeName || '');
+    const deliveryInfoH = _isDeliveryH ? `<table class="delivery-info">
+${_pickupDateH   ? `<tr><td>Pickup</td><td style="text-align:right">${_pickupDateH}</td></tr>` : ''}
+${_deliveryDateH ? `<tr><td>Delivery</td><td style="text-align:right">${_deliveryDateH}</td></tr>` : ''}
+${_bagsCountH    ? `<tr><td>Bags</td><td style="text-align:right">${_bagsCountH}</td></tr>` : ''}
+${_routeNameH    ? `<tr><td>Route</td><td style="text-align:right">${_routeNameH}</td></tr>` : ''}
+</table>` : '';
     return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
 <style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
 .cust{font-size:22px;font-weight:800;text-align:center;letter-spacing:.02em;text-transform:uppercase;margin:0 0 2px}
@@ -6536,6 +6592,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
 ${custAddrLineH}
 <div class="ord">Order ${orderNum}</div>
 <div class="meta">${now}</div>
+${deliveryInfoH}
 <table>${rows}${tipRows}</table>
 <div class="total">TOTAL: $${grandTotal}</div>
 ${tenderRows ? `<table>${tenderRows}</table>` : ''}
