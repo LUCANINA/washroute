@@ -1327,6 +1327,8 @@
     .billing-bar { display:none;align-items:center;justify-content:space-between;gap:12px;background:var(--gray-50);border-top:1.5px solid var(--gray-100);padding:10px 14px;position:sticky;bottom:0; }
     .billing-bar.visible { display:flex; }
     .cp-order-row.billing-selected { background:var(--accent-light); }
+    .cp-range-btn { font-size:12px;padding:3px 9px;border-radius:6px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-600);cursor:pointer; }
+    .cp-range-btn.active { background:var(--accent);border-color:var(--accent);color:#fff; }
     .cp-order-row.billing-row { cursor:pointer; }
     .cp-order-row.billing-row:hover { background:var(--gray-50); }
     input[type=checkbox].bill-cb { width:15px;height:15px;cursor:pointer;accent-color:var(--accent);flex-shrink:0;margin:0; }
@@ -4800,10 +4802,16 @@
   <div class="cp-body" id="cptab-orders" style="display:none">
     <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="filter-tab active" id="cpof-scheduled" onclick="filterCpOrders('scheduled',this)">Scheduled</button>
-        <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
-        <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('billing',this)">Completed</button>
-        <button class="filter-tab" id="cpof-archived" onclick="filterCpOrders('archived',this)" title="Archived failed/skipped orders for this customer">Archived</button>
+        <button class="filter-tab active" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
+        <button class="filter-tab" id="cpof-completed" onclick="filterCpOrders('completed',this)">Completed</button>
+      </div>
+      <div id="cpof-range" style="display:none;gap:4px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--gray-400);margin-right:2px">Days:</span>
+        <button class="cp-range-btn" onclick="setCpRange(7,this)">7</button>
+        <button class="cp-range-btn" onclick="setCpRange(30,this)">30</button>
+        <button class="cp-range-btn" onclick="setCpRange(60,this)">60</button>
+        <button class="cp-range-btn" onclick="setCpRange(120,this)">120</button>
+        <button class="cp-range-btn active" onclick="setCpRange(0,this)">All</button>
       </div>
     </div>
     <div class="cp-card" style="padding:0;overflow:hidden">
@@ -8565,11 +8573,13 @@
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
                actual_pickup_at, actual_delivery_at,
+               folded_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
                created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id, source,
                archived_at, archived_reason, archived_by,
                services(name),
+               folded_by:folded_by_id(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, pricelist),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name),
@@ -10728,6 +10738,10 @@
         <span style="font-weight:600;color:var(--gray-400);font-size:12px;text-transform:uppercase;letter-spacing:.04em">Weight</span>
         <strong>${lbs ? lbs + ' lbs' : '—'}</strong>
       </div>
+      ${o.folded_by?.name ? `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--gray-700)">
+        <span style="font-weight:600;color:var(--gray-400);font-size:12px;text-transform:uppercase;letter-spacing:.04em">Processed by</span>
+        <strong>${esc(o.folded_by.name)}${o.folded_at ? ` <span style="font-weight:400;color:var(--gray-400)">· ${fmtDate(o.folded_at)}</span>` : ''}</strong>
+      </div>` : ''}
       ${addonChips}
       <div style="margin-top:12px;line-height:2">${breakdownHTML}${totalLine}</div>
       ${notes ? `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px">
@@ -18550,6 +18564,7 @@ ${oneCopy}
   let _panelCustomerData = null;  // full customer object, used for invoice generation
   let cpAllOrders = [];
   let cpBillingMode = false;
+  let cpOrdersRangeDays = 0; // Days-Previous filter for the Completed tab; 0 = All
   let cpBillingSelection = new Set();
 
   function openOrderForCustomer() {
@@ -19759,29 +19774,45 @@ ${oneCopy}
     // from delivery orders so the service column reads "Retail - Wash & Fold"
     // instead of '—' for POS rows (which have no service_id join target).
     const { data } = await db.from('orders')
-      .select('id, order_number, status, source, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, archived_at, archived_reason, services:service_id(name), pickup_run:pickup_run_id(id, name)')
+      .select('id, order_number, status, source, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, delivery_window_start, actual_delivery_at, cancelled_by, driver_skip_reason, created_at, archived_at, archived_reason, services:service_id(name), pickup_run:pickup_run_id(id, name)')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
     // Sync last_order date if stale
     const latest = cpAllOrders.reduce((best,o)=>o.created_at&&(!best||o.created_at>best)?o.created_at:best, null);
     if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).catch(e=>console.warn('last_order_at sync failed:',e)); } }
-    // Reset filter tab UI and billing state to default 'scheduled'
+    // Reset filter tab UI and billing state to default 'active'
     document.querySelectorAll('#cptab-orders .filter-tab').forEach(t => t.classList.remove('active'));
-    const schedTab = document.getElementById('cpof-scheduled'); if (schedTab) schedTab.classList.add('active');
+    const activeTab = document.getElementById('cpof-active'); if (activeTab) activeTab.classList.add('active');
+    const rangeBar = document.getElementById('cpof-range'); if (rangeBar) rangeBar.style.display = 'none';
+    cpOrdersRangeDays = 0; // 'All' — default range for the Completed tab
+    // Reset the Days-Previous buttons back to 'All' (last button) so the highlight
+    // doesn't carry a prior customer's selection into this one (shared panel DOM).
+    document.querySelectorAll('#cpof-range .cp-range-btn').forEach((b,i,arr) => b.classList.toggle('active', i === arr.length - 1));
     cpBillingMode = false;
     cpBillingSelection.clear();
     updateBillingBar();
-    renderCpOrders(cpAllOrders, 'scheduled');
+    renderCpOrders(cpAllOrders, 'active');
   }
 
   function filterCpOrders(filter, btn) {
     document.querySelectorAll('#cptab-orders .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
-    cpBillingMode = (filter === 'billing');
+    // Billing selection + the Days-Previous range filter only apply to Completed.
+    cpBillingMode = (filter === 'completed');
+    const rangeBar = document.getElementById('cpof-range');
+    if (rangeBar) rangeBar.style.display = (filter === 'completed') ? 'flex' : 'none';
     cpBillingSelection.clear();
     updateBillingBar();
     renderCpOrders(cpAllOrders, filter);
+  }
+
+  // Days-Previous range filter for the Completed tab (0 = All).
+  function setCpRange(days, btn) {
+    cpOrdersRangeDays = days;
+    document.querySelectorAll('#cpof-range .cp-range-btn').forEach(b=>b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderCpOrders(cpAllOrders, 'completed');
   }
 
   // Format the compact sub-line shown on customer panel order rows: "Oakland AM · Feb 28 · 7 – 9 am"
@@ -19800,104 +19831,111 @@ ${oneCopy}
     return '';
   }
 
+  // Session 182: customer-panel Orders is now two tabs.
+  //   Active    = still open/in progress (scheduled → out_for_delivery, plus on_hold)
+  //   Completed = everything terminal (delivered, skipped, failed, cancelled) PLUS
+  //               any archived order. Archived is no longer its own tab — it folds
+  //               into Completed with a 📦 line so nothing is hidden.
+  const CP_ACTIVE_STATUSES = ['scheduled','pending_pickup','picked_up','in_transit','washing','drying','folding','processing','ready_for_delivery','out_for_delivery','on_hold'];
+  const cpIsActiveOrder = o => !o.archived_at && CP_ACTIVE_STATUSES.includes(o.status);
+
   function renderCpOrders(data, filter) {
-    const activeStatuses = ['pending_pickup','picked_up','in_transit','washing','drying','folding','processing','ready_for_delivery'];
-    const doneStatuses   = ['delivered'];
-    const scheduledStatuses = ['scheduled'];
-    let filtered = data;
-    // Exclude archived from all non-archived tabs; show only archived on the archived tab.
-    if (filter==='archived') {
-      filtered = data.filter(o => o.archived_at);
-    } else {
-      filtered = data.filter(o => !o.archived_at);
-      if (filter==='scheduled') filtered = filtered.filter(o=>scheduledStatuses.includes(o.status));
-      if (filter==='active')    filtered = filtered.filter(o=>activeStatuses.includes(o.status));
-      if (filter==='billing')   filtered = filtered.filter(o=>o.status==='delivered' || o.billing_status);
+    let filtered;
+    if (filter === 'active') {
+      filtered = data.filter(cpIsActiveOrder);
+    } else { // completed
+      filtered = data.filter(o => !cpIsActiveOrder(o));
+      // Days-Previous range filter (0 = All). Use the most representative date:
+      // actual delivery → scheduled delivery/pickup window → created_at.
+      if (cpOrdersRangeDays > 0) {
+        const cutoff = Date.now() - cpOrdersRangeDays * 86400000;
+        filtered = filtered.filter(o => {
+          const d = o.actual_delivery_at || o.delivery_window_start || o.pickup_window_start || o.created_at;
+          return d && new Date(d).getTime() >= cutoff;
+        });
+      }
     }
+
     const el = document.getElementById('cp-orders-list');
     if (!filtered.length) {
-      const msg = filter==='scheduled' ? 'No scheduled orders.'
-                : filter==='billing'  ? 'No completed orders yet.'
-                : filter==='archived' ? 'No archived orders for this customer.'
-                : 'No orders in this filter.';
+      const msg = filter === 'active'
+        ? 'No active orders.'
+        : (cpOrdersRangeDays > 0 ? 'No completed orders in this range.' : 'No completed orders yet.');
       el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">${msg}</div>`;
       return;
     }
 
-    // Archived tab: simple list with reason + restore button, no billing selection
-    if (filter === 'archived') {
-      el.innerHTML = filtered.map(o => {
-        const dateStr = fmtDate(o.pickup_window_start || o.created_at);
-        const archDate = fmtDate(o.archived_at);
-        return `<div class="cp-order-row" style="padding:10px 14px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:center" onclick="openOrderPanel('${o.id}')">
-          <span class="cp-order-num" style="font-weight:600;color:var(--gray-400);font-size:11.5px">#${o.order_number}</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:500;font-size:13px;display:flex;gap:6px;align-items:center">${(o.status||'').replace(/_/g,' ')} <span style="font-size:10.5px;color:var(--gray-400);font-weight:400">· ${dateStr}</span></div>
-            <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">📦 ${archDate}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>
-          </div>
-          <button onclick="event.stopPropagation();unarchiveOrder('${o.id}','${o.order_number}');setTimeout(()=>loadPanelOrders(panelCustomerId),400)" style="font-size:11px;font-weight:600;color:var(--accent);background:white;border:1px solid var(--accent);border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap">Restore</button>
-        </div>`;
-      }).join('');
-      return;
-    }
-
-    if (filter === 'billing') {
-      // Billing mode: checkboxes, paid/outstanding badge, click to select
+    // ACTIVE tab — status badge + amount + per-row Receipt/Charge action; click opens panel.
+    if (filter === 'active') {
       el.innerHTML = filtered.map(o=>{
-        const isPaid = !!o.stripe_payment_intent_id || o.billing_status === 'paid';
-        // Session 175: written_off is terminal — show its own grey badge (was
-        // falling through to "Outstanding") and block selection so a written-off
-        // order can't be re-billed from this panel.
-        const isWrittenOff = o.billing_status === 'written_off';
-        const checked = !isWrittenOff && cpBillingSelection.has(o.id);
-        // Session 137: show charged total (subtotal + tip) so list rows agree
-        // with the receipt and Stripe.
-        const amt = orderChargedTotal(o);
-        const dateStr = fmtDate(o.pickup_window_start || o.created_at);
-        const methodLabel = !isPaid ? '' : o.billing_payment_method === 'credit' ? ' (credit)' : o.billing_payment_method === 'check' ? ' (check)' : o.billing_payment_method === 'cash' ? ' (cash)' : '';
-        const paidBadge = isWrittenOff
-          ? `<span style="font-size:11px;font-weight:600;color:var(--gray-400);white-space:nowrap">✕ Written off</span>`
-          : isPaid
-          ? `<span style="font-size:11px;font-weight:600;color:#059669;white-space:nowrap">✅ Paid${methodLabel}</span>`
-          : `<span style="font-size:11px;font-weight:600;color:#b45309;white-space:nowrap">◻ Outstanding</span>`;
-        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}${(isPaid||isWrittenOff)?' billing-paid':''}" id="brow-${o.id}" ${isWrittenOff?'':`onclick="toggleBillingOrder('${o.id}')"`} style="${(isPaid||isWrittenOff) ? 'opacity:0.7' : ''}">
-          ${isWrittenOff ? '<input type="checkbox" class="bill-cb" disabled>' : `<input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">`}
+        // Session 175: cash/credit-paid orders have NO Stripe PI (the known paid-status
+        // antipattern) and written_off orders must never grow a Charge button.
+        const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id
+          && o.billing_status !== 'paid' && o.billing_status !== 'written_off'
+          && o.status==='ready_for_delivery';
+        const receiptable = !!o.stripe_payment_intent_id;
+        const actionBtn = receiptable
+          ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="event.stopPropagation();sendReceipt('${o.id}','${o.order_number}',this)" title="Email receipt to customer">📧 Receipt</button>`
+          : chargeable
+            ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="event.stopPropagation();chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
+            : '';
+        return `<div class="cp-order-row" style="cursor:pointer" onclick="cpOpenOrder('${o.id}')">
           <span class="cp-order-num">#${o.order_number}</span>
           <div class="cp-order-svc">
             <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
-            <div style="font-size:11.5px;color:var(--gray-400)">${dateStr}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
+            <div style="font-size:11.5px;color:var(--gray-400)">${cpOrderMeta(o)}</div>
           </div>
-          ${paidBadge}
-          <span class="cp-order-amt" style="margin-left:auto">${fmtMoney(amt)}</span>
+          ${statusBadge(o.status)}
+          <span class="cp-order-amt">${fmtMoney(orderChargedTotal(o))}</span>
+          ${actionBtn}
         </div>`;
       }).join('');
       return;
     }
 
-    // Normal mode (All / Active / Completed)
+    // COMPLETED tab — clicking a row opens the full order panel (times, photos, who
+    // processed, receipt). Billing checkboxes appear ONLY on billable rows
+    // (delivered/ready + unpaid + not written off); skipped/failed/cancelled/archived
+    // show a status badge + reason instead. The checkbox toggles batch-billing
+    // selection without opening the panel.
     el.innerHTML = filtered.map(o=>{
-      // Session 175: must also check billing_status — cash/credit-paid orders have NO
-      // Stripe PI (the known paid-status antipattern) and written_off orders must
-      // never grow a Charge button (Valerie #7081 was one click from being charged
-      // against a write-off decision).
-      const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id
-        && o.billing_status !== 'paid' && o.billing_status !== 'written_off'
-        && o.status==='ready_for_delivery';
-      const receiptable = !!o.stripe_payment_intent_id || o.status==='delivered';
-      const actionBtn = receiptable
-        ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="event.stopPropagation();sendReceipt('${o.id}','${o.order_number}',this)" title="Email receipt to customer">📧 Receipt</button>`
-        : chargeable
-          ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="event.stopPropagation();chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
-          : '';
-      return `<div class="cp-order-row" style="cursor:pointer" onclick="cpOpenOrder('${o.id}')">
+      const isPaid = o.billing_status === 'paid' || !!o.stripe_payment_intent_id;
+      const isWrittenOff = o.billing_status === 'written_off';
+      const isFailed = ['skipped','pickup_failed','delivery_failed','cancelled'].includes(o.status);
+      const billable = Number(o.total_amount)>0 && !isPaid && !isWrittenOff
+        && (o.status==='delivered' || o.status==='ready_for_delivery');
+      const checked = billable && cpBillingSelection.has(o.id);
+      const amt = orderChargedTotal(o);
+      const dateStr = fmtDate(o.actual_delivery_at || o.delivery_window_start || o.pickup_window_start || o.created_at);
+      const methodLabel = !isPaid ? '' : o.billing_payment_method === 'credit' ? ' (credit)' : o.billing_payment_method === 'check' ? ' (check)' : o.billing_payment_method === 'cash' ? ' (cash)' : '';
+
+      const badge = isFailed
+        ? statusBadge(o.status)
+        : isWrittenOff
+          ? `<span style="font-size:11px;font-weight:600;color:var(--gray-400);white-space:nowrap">✕ Written off</span>`
+          : isPaid
+            ? `<span style="font-size:11px;font-weight:600;color:#059669;white-space:nowrap">✅ Paid${methodLabel}</span>`
+            : `<span style="font-size:11px;font-weight:600;color:#b45309;white-space:nowrap">◻ Outstanding</span>`;
+
+      const reasonLine = (o.driver_skip_reason && isFailed)
+        ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:2px">${esc(o.driver_skip_reason)}</div>` : '';
+      const archLine = o.archived_at
+        ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:2px">📦 Archived ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : '';
+
+      const cb = billable
+        ? `<input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">`
+        : `<span style="width:15px;flex-shrink:0"></span>`;
+
+      return `<div class="cp-order-row${checked?' billing-selected':''}" id="brow-${o.id}" style="cursor:pointer${isFailed?';opacity:0.85':''}" onclick="cpOpenOrder('${o.id}')">
+        ${cb}
         <span class="cp-order-num">#${o.order_number}</span>
         <div class="cp-order-svc">
           <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
-          <div style="font-size:11.5px;color:var(--gray-400)">${cpOrderMeta(o)}</div>
+          <div style="font-size:11.5px;color:var(--gray-400)">${dateStr}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
+          ${reasonLine}${archLine}
         </div>
-        ${statusBadge(o.status)}
-        <span class="cp-order-amt">${fmtMoney(orderChargedTotal(o))}</span>
-        ${actionBtn}
+        ${badge}
+        <span class="cp-order-amt" style="margin-left:auto">${fmtMoney(amt)}</span>
       </div>`;
     }).join('');
   }
@@ -20089,7 +20127,7 @@ ${oneCopy}
         if (successIds.length > 0) {
           cpBillingSelection.clear();
           await loadPanelOrders(panelCustomerId);
-          filterCpOrders('billing', document.getElementById('cpof-done'));
+          filterCpOrders('completed', document.getElementById('cpof-completed'));
           closeBillModal();
         }
         return;
@@ -20107,7 +20145,7 @@ ${oneCopy}
         }).catch(e => console.warn('Receipt failed for', orderId, e));
       }
       await loadPanelOrders(panelCustomerId);
-      filterCpOrders('billing', document.getElementById('cpof-done'));
+      filterCpOrders('completed', document.getElementById('cpof-completed'));
       return;
     }
 
@@ -20155,7 +20193,7 @@ ${oneCopy}
         cpBillingSelection.clear();
         showToast(`${fmtMoney(applied)} credit applied to ${ids.length} order${ids.length !== 1 ? 's' : ''} ✓`, 'success');
         await loadPanelOrders(panelCustomerId);
-        filterCpOrders('billing', document.getElementById('cpof-done'));
+        filterCpOrders('completed', document.getElementById('cpof-completed'));
       } catch (e) {
         console.error('Credit billing error:', e);
         showToast('Error applying credit: ' + (e.message || 'Unknown error'), 'error');
@@ -20182,7 +20220,7 @@ ${oneCopy}
     cpBillingSelection.clear();
     showToast(`${ids.length} order${ids.length > 1 ? 's' : ''} marked as paid ✓`, 'success');
     await loadPanelOrders(panelCustomerId);
-    filterCpOrders('billing', document.getElementById('cpof-done'));
+    filterCpOrders('completed', document.getElementById('cpof-completed'));
   }
 
   async function printInvoice() {
