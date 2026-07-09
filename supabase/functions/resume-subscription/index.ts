@@ -59,14 +59,22 @@ Deno.serve(async (req) => {
     //   (b) Cancel scheduled cancellation (clear cancel_at_period_end) — new reactivate flow
     // The customer-app's reactivateSubscription() calls this endpoint for case (b).
     // Stripe's API accepts both fields in a single update call.
-    await stripe.subscriptions.update(sub.stripe_subscription_id, {
+    const updatedStripeSub = await stripe.subscriptions.update(sub.stripe_subscription_id, {
       pause_collection: '',
       cancel_at_period_end: false,
     })
 
+    // v3 (session 178): mirror Stripe's REAL status instead of blindly writing
+    // 'active'. Reactivating a past-due sub (scheduled-to-cancel + failed renewal)
+    // must stay past_due locally — otherwise the dunning state disappears from
+    // both the admin panel and the customer app until the next webhook event.
+    const localStatus = (updatedStripeSub.status === 'past_due' || updatedStripeSub.status === 'unpaid')
+      ? 'past_due'
+      : 'active'
+
     const now = new Date().toISOString()
     await db.from('subscriptions').update({
-      status: 'active',
+      status: localStatus,
       paused_at: null,
       cancel_at_period_end: false,
       updated_at: now,

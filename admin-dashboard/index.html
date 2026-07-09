@@ -12394,13 +12394,22 @@ ${oneCopy}
                           : sub.status === 'paused'   ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">PAUSED</span>'
                           : sub.status === 'past_due' ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">PAST DUE</span>'
                           : '';
+        // Session 178: surface a scheduled cancellation. Previously the panel ignored
+        // cancel_at_period_end entirely — admin clicked Cancel, the call succeeded, and
+        // the card still said "Renews on …" with a Cancel button, so it looked broken.
+        const cancellingBadge = (sub.cancel_at_period_end && sub.status !== 'cancelled')
+          ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">CANCELS AT PERIOD END</span>'
+          : '';
         const renewTxt = sub.current_period_end
           ? new Date(sub.current_period_end).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' })
           : '—';
+        const renewLabel = (sub.cancel_at_period_end && sub.status !== 'cancelled')
+          ? `Cancels on ${renewTxt}`
+          : `Renews on ${renewTxt}`;
         el.innerHTML = `
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
             <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${esc(plan.name || '—')}</div>
-            ${statusBadge}
+            ${statusBadge}${cancellingBadge}
             <div style="margin-left:auto;font-size:12px;color:var(--gray-500)">$${Number(plan.price_monthly||0).toFixed(0)}/mo</div>
           </div>
           ${plan.weight_limit_lbs ? `
@@ -12417,7 +12426,7 @@ ${oneCopy}
           <div style="display:flex;gap:16px;font-size:12px;color:var(--gray-500);margin-top:4px">
             <span>Pickups: <strong style="color:var(--gray-900)">${sub.pickups_this_period || 0}${plan.pickup_limit ? ' / ' + plan.pickup_limit : ' <span style=\"color:var(--gray-400);font-size:11px\">(unlimited)</span>'}</strong></span>
             ${Number(sub.overage_amount_due || 0) > 0 ? `<span>Overage: <strong style="color:var(--red)">${fmtMoney(sub.overage_amount_due)}</strong></span>` : ''}
-            <span style="margin-left:auto">Renews on ${renewTxt}</span>
+            <span style="margin-left:auto">${renewLabel}</span>
           </div>
           <div id="cpb-sub-actions" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
             <!-- Phase 3 row actions (pause/resume/cancel/adjust) will mount here -->
@@ -12475,11 +12484,26 @@ ${oneCopy}
     if (!el) return;
     const id = sub.id;
     const cancelled = sub.status === 'cancelled';
+    // Session 178: when a cancellation is already scheduled, show Reactivate instead
+    // of Cancel (mirrors the customer-app's session 167 phase 7 behavior). Previously
+    // this only checked status==='cancelled', so a scheduled-to-cancel sub still
+    // showed a Cancel button — clicking it "did nothing" visible.
+    const scheduling = !cancelled && sub.cancel_at_period_end;
+    // Past-due + scheduled-to-cancel is a real state (a period-end cancel was placed
+    // BEFORE v10 shipped, or dunning started after the cancel was scheduled). The
+    // customer is still being dunned until period end, so offer "Cancel now" —
+    // cancel-subscription v10 takes the immediate path for past-due subs regardless
+    // of the existing schedule flag.
+    const primaryAction = cancelled
+      ? '<span style="font-size:12px;color:var(--gray-400);padding:6px 0">Subscription cancelled</span>'
+      : scheduling
+        ? `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--accent)" onclick="adminReactivateSubscription('${id}')">↺ Reactivate</button>` +
+          (sub.status === 'past_due'
+            ? `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="adminCancelSubscription('${id}', true)">✕ Cancel now</button>`
+            : '')
+        : `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="adminCancelSubscription('${id}', ${sub.status === 'past_due'})">✕ Cancel</button>`;
     el.innerHTML = `
-      ${cancelled
-        ? '<span style="font-size:12px;color:var(--gray-400);padding:6px 0">Subscription cancelled</span>'
-        : `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="adminCancelSubscription('${id}')">✕ Cancel</button>`
-      }
+      ${primaryAction}
       <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;margin-left:auto" onclick="adminAdjustUsage('${id}')">✎ Adjust usage</button>
     `;
   }
@@ -12576,8 +12600,19 @@ ${oneCopy}
   function adminResumeSubscription(id) {
     return _callSubscriptionFn('resume-subscription', id, 'Resume this subscription? The next charge will be on the renewal date.');
   }
-  function adminCancelSubscription(id) {
-    return _callSubscriptionFn('cancel-subscription', id, 'Cancel this subscription? This stops future billing. Usage from the current period stays on record.');
+  function adminCancelSubscription(id, isPastDue) {
+    // Session 178: cancel-subscription v10 cancels past-due subs IMMEDIATELY and
+    // voids the unpaid renewal invoice (Stripe stops retrying the card). Paid-up
+    // subs still cancel gracefully at period end.
+    const msg = isPastDue
+      ? 'Cancel this subscription NOW? The failed renewal invoice will be voided — Stripe stops retrying the customer\'s card and the subscription ends immediately.'
+      : 'Cancel this subscription? It stays active until the end of the current billing period, then stops. Usage from the current period stays on record.';
+    return _callSubscriptionFn('cancel-subscription', id, msg);
+  }
+  function adminReactivateSubscription(id) {
+    // Session 178: clears a scheduled cancellation (cancel_at_period_end) via the
+    // resume-subscription edge function — same endpoint the customer-app uses.
+    return _callSubscriptionFn('resume-subscription', id, 'Reactivate this subscription? The scheduled cancellation is removed and billing continues at the next renewal.');
   }
 
   // Helper — open customer profile directly to the Billing tab

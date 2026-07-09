@@ -8781,11 +8781,18 @@ function renderPlanCards(activePlanId) {
         <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Subscription</button>
         <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">You'll keep service through the end of this billing period, then your subscription will end.</div>`;
     } else if (_activeSub.status === 'past_due') {
+      // Session 178 fix: the past_due branch used to show ONLY "Update Payment
+      // Method" — the Cancel button vanished entirely, leaving a customer whose
+      // renewal failed with no way out (Maria Markison, Jul 2026). Cancelling a
+      // past-due sub now ends it immediately and voids the failed invoice
+      // (cancel-subscription v10), so the copy below reflects that.
       actionsEl.innerHTML = `
         <div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;margin-bottom:6px">
           Your last payment failed. Please update your payment method.
         </div>
-        <button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white" onclick="openSubPanel('sub-payment')">Update Payment Method</button>`;
+        <button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white" onclick="openSubPanel('sub-payment')">Update Payment Method</button>
+        <button class="plan-select-btn danger" style="margin-top:8px" onclick="cancelSubscription()">Cancel Subscription</button>
+        <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Cancelling ends your subscription right away — you won't be charged for this period.</div>`;
     }
 
     detailEl.style.display = '';
@@ -8917,9 +8924,18 @@ async function resumeSubscription() {
 
 async function cancelSubscription() {
   if (!_activeSub) return;
-  if (!await confirmDialog({ title: 'Cancel your subscription?', message: "You'll still have access until the end of your current billing period.", confirmLabel: 'Cancel subscription', cancelLabel: 'Keep subscription', danger: true })) return;
+  // Session 178: past-due cancels are IMMEDIATE (failed renewal invoice is voided,
+  // no more card retries) — the dialog copy must match what actually happens.
+  const isPastDue = _activeSub.status === 'past_due';
+  const dialogMsg = isPastDue
+    ? "Your subscription will end right away and we'll stop trying to charge your card for this period."
+    : "You'll still have access until the end of your current billing period.";
+  if (!await confirmDialog({ title: 'Cancel your subscription?', message: dialogMsg, confirmLabel: 'Cancel subscription', cancelLabel: 'Keep subscription', danger: true })) return;
 
-  const btn = document.querySelector('#plan-detail-actions button');
+  // Session 178 QA fix: target the Cancel button specifically (.danger). The old
+  // first-button selector grabbed "Update Payment Method" in the past_due layout
+  // (and "Schedule weekly pickup" in the no-preference layout) for the spinner.
+  const btn = document.querySelector('#plan-detail-actions button.danger') || document.querySelector('#plan-detail-actions button');
   const origText = btn?.textContent;
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="sub-spinner"></span> Cancelling…'; btn.style.opacity = '0.85'; }
 
@@ -8942,7 +8958,9 @@ async function cancelSubscription() {
     await loadUserData();
     if (typeof loadAccount === 'function') await loadAccount();
     if (typeof renderHomeSubscriptionCard === 'function') await renderHomeSubscriptionCard();
-    toast('Subscription will be cancelled at the end of your current billing period ✓', '');
+    toast(result.immediate
+      ? 'Subscription cancelled ✓ You won\'t be charged for this period.'
+      : 'Subscription will be cancelled at the end of your current billing period ✓', '');
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = origText || 'Cancel Subscription'; btn.style.opacity = '1'; }
     toast('Error cancelling subscription: ' + e.message, '');

@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     if (!subscription_id) throw new Error('subscription_id is required')
 
     const { data: sub, error: subErr } = await db.from('subscriptions')
-      .select('id, stripe_subscription_id, customer_id')
+      .select('id, stripe_subscription_id, customer_id, status')
       .eq('id', subscription_id)
       .single()
 
@@ -56,11 +56,59 @@ Deno.serve(async (req) => {
     const auth = await assertOwnership(req, sub.customer_id);
     if (!auth.ok) return new Response(JSON.stringify({ error: auth.msg }), { status: auth.status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
+    const now = new Date().toISOString()
+
+    // v10 (session 178): PAST-DUE subscriptions cancel IMMEDIATELY and their unpaid
+    // renewal invoice(s) are voided. Rationale: the renewal payment already failed —
+    // "cancel at period end" would keep Stripe dunning the customer's card all month
+    // for a period they're cancelling out of (Maria Markison, Jul 2026). The
+    // stripe-webhook customer.subscription.deleted handler does the full bookkeeping
+    // (final overage invoice, pricelist restore, dunning clear); the local update
+    // below is an optimistic mirror so the UI reflects the cancel instantly.
+    // Stripe status can drift from our cache, so check BOTH sides.
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id)
+    const isPastDue = sub.status === 'past_due' || stripeSub.status === 'past_due' || stripeSub.status === 'unpaid'
+
+    if (isPastDue) {
+      // Cancel now — no proration, no final invoice for the unpaid period.
+      await stripe.subscriptions.cancel(sub.stripe_subscription_id, {
+        invoice_now: false,
+        prorate: false,
+      })
+
+      // Void every open invoice on this subscription so Stripe stops retrying the card.
+      const openInvoices = await stripe.invoices.list({
+        subscription: sub.stripe_subscription_id,
+        status: 'open',
+        limit: 10,
+      })
+      for (const inv of openInvoices.data) {
+        await stripe.invoices.voidInvoice(inv.id)
+        console.log('Voided unpaid invoice on past-due cancel:', inv.id, 'amount:', (inv.amount_due || 0) / 100)
+      }
+
+      // Optimistic local update — the customer.subscription.deleted webhook writes
+      // the same terminal state (idempotent) plus pricelist/plan cleanup.
+      await db.from('subscriptions').update({
+        status: 'cancelled',
+        cancelled_at: now,
+        cancel_at_period_end: false,
+        dunning_started_at: null,
+        updated_at: now,
+      }).eq('id', subscription_id)
+
+      console.log('Past-due subscription cancelled immediately:', subscription_id, sub.stripe_subscription_id, 'invoices voided:', openInvoices.data.length)
+
+      return new Response(JSON.stringify({ success: true, immediate: true, message: 'Subscription cancelled immediately; unpaid invoice voided' }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Active (paid-up) subscription — graceful cancel at period end, unchanged.
     await stripe.subscriptions.update(sub.stripe_subscription_id, {
       cancel_at_period_end: true,
     })
 
-    const now = new Date().toISOString()
     await db.from('subscriptions').update({
       cancel_at_period_end: true,
       updated_at: now,
@@ -68,7 +116,7 @@ Deno.serve(async (req) => {
 
     console.log('Subscription marked for cancellation at period end:', subscription_id, sub.stripe_subscription_id)
 
-    return new Response(JSON.stringify({ success: true, message: 'Subscription will cancel at period end' }), {
+    return new Response(JSON.stringify({ success: true, immediate: false, message: 'Subscription will cancel at period end' }), {
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
 
