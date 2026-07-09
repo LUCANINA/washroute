@@ -5142,6 +5142,23 @@ async function placeOrder() {
   // Prevent double-tap / double-submit immediately
   if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; }
 
+  // Session 183: subscription customers with a past-due payment can't book new
+  // pickups until the card is fixed (fairness rule — grace period is for fixing
+  // payment, not free service). The DB trigger trg_enforce_sub_not_past_due is
+  // the real enforcement; this is the friendly version with a working CTA.
+  if (currentCustomer?.pricelist === 'Subscription') {
+    const { data: pdSub } = await db.from('subscriptions')
+      .select('id').eq('customer_id', currentCustomer.id).eq('status', 'past_due').limit(1);
+    if (pdSub?.length) {
+      if (errEl) {
+        errEl.textContent = 'Your subscription payment failed — please update your payment method (Account → My Plan) before booking a new pickup.';
+        errEl.classList.add('show');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+      return;
+    }
+  }
+
   // If not logged in, create account first
   if (!currentCustomer) {
     const first = document.getElementById('c-first')?.value.trim();

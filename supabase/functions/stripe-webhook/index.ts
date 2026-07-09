@@ -492,7 +492,7 @@ Deno.serve(async (req) => {
       // Session 166 (v2 rebuild): also fetch previous_pricelist so we can
       // restore the customer's original pricelist after cancellation.
       const { data: localSub } = await db.from('subscriptions')
-        .select('id, overage_amount_due, previous_pricelist')
+        .select('id, customer_id, overage_amount_due, previous_pricelist, dunning_started_at')
         .eq('stripe_subscription_id', sub.id)
         .single()
 
@@ -591,6 +591,52 @@ Deno.serve(async (req) => {
 
       if (updateErr) {
         console.error('customer.subscription.deleted subscriptions update error:', updateErr.message)
+      }
+
+      // Session 183: dunning-driven cancel = the 7-day grace period expired unpaid.
+      // Fairness rules (David, Jul 9 2026):
+      //   * void open invoices — the failed renewal is forgiven, card retries stop
+      //   * cancel unstarted $0 subscription orders from the unpaid period
+      //   * reprice serviced-but-unbilled orders at pay-per-order Delivery rates so
+      //     laundry actually done gets billed (lands in the normal unpaid machinery)
+      //   * open a cs_issue so staff sees exactly what happened
+      // Voluntary cancels (dunning_started_at NULL) skip all of this. Immediate
+      // past-due cancels via cancel-subscription v10 also arrive here with dunning
+      // set — invoice voiding is idempotent (already-voided invoices aren't 'open').
+      if (localSub && localSub.dunning_started_at) {
+        try {
+          const openInvoices = await stripe.invoices.list({ subscription: sub.id, status: 'open', limit: 10 })
+          for (const inv of openInvoices.data) {
+            await stripe.invoices.voidInvoice(inv.id)
+            console.log('Voided unpaid invoice on grace expiry:', inv.id, 'amount:', (inv.amount_due || 0) / 100)
+          }
+        } catch (e: any) {
+          console.error('Failed voiding open invoices on grace expiry:', e.message)
+        }
+
+        const { data: expiry, error: expiryErr } = await db.rpc('handle_subscription_grace_expiry', {
+          p_subscription_id: localSub.id,
+        })
+        if (expiryErr) {
+          console.error('handle_subscription_grace_expiry error (orders need manual cleanup!):', expiryErr.message)
+        } else {
+          console.log('Grace expiry handled:', JSON.stringify(expiry))
+        }
+
+        const repricedArr = (expiry?.repriced || []) as Array<{ order_id: string, new_total: number }>
+        const repricedTotal = repricedArr.reduce((s, r) => s + Number(r.new_total || 0), 0)
+        const { error: issueErr } = await db.from('cs_issues').insert({
+          customer_id: localSub.customer_id,
+          title: 'Subscription ended unpaid — grace period expired',
+          category: 'Billing',
+          priority: 'high',
+          status: 'open',
+          created_by: 'system',
+          notes: expiryErr
+            ? 'Renewal invoice voided, but automatic order cleanup FAILED — review this customer\'s subscription orders manually.'
+            : `Renewal invoice voided. ${expiry?.cancelled_count || 0} unstarted order(s) cancelled; ${repricedArr.length} serviced order(s) rebilled at pay-per-order rates totalling $${repricedTotal.toFixed(2)} (unpaid — collect via the normal billing flow).`,
+        })
+        if (issueErr) console.error('cs_issues insert error on grace expiry:', issueErr.message)
       }
 
       console.log('Subscription deleted:', sub.id, 'for Stripe customer:', stripeCustomerId)
@@ -727,6 +773,18 @@ Deno.serve(async (req) => {
           // Send recovery notification
           await sendDunningNotification(localSub.customer_id, 'recovered')
           console.log('Recovery notification sent for subscription:', localSub.id)
+
+          // Session 183: release any recurring pickups that were parked on_hold by
+          // trg_enforce_sub_not_past_due while the subscription was past_due.
+          // The RPC flips them back to scheduled and routes them.
+          const { data: released, error: relErr } = await db.rpc('release_subscription_held_orders', {
+            p_subscription_id: localSub.id,
+          })
+          if (relErr) {
+            console.error('release_subscription_held_orders error (held orders need manual release):', relErr.message)
+          } else if (released?.released_count > 0) {
+            console.log('Released held recurring orders on recovery:', JSON.stringify(released))
+          }
         }
       }
     }
