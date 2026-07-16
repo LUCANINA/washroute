@@ -9236,6 +9236,7 @@
     opCurrentCustId  = o.customers?.id || null;
     _opHistoryLoaded = null; // reset history cache for new order
     _opStopInfo = null;      // reset pickup/delivery driver cache for new order
+    _opFolderName = null;    // reset folder attribution for new order
 
     // Header
     document.getElementById('op-num').textContent = `Order #${o.order_number || '—'}`;
@@ -9421,6 +9422,22 @@
     } catch (e) { /* leave info empty */ }
     _opStopInfo = info;
     return info;
+  }
+
+  // Launderer id → name map (fetched once) + the current order's primary folder,
+  // used to attribute processing/History events done under the shared "Laundry
+  // Tech" station login to the actual person (session 184g).
+  let _launderersById = null;
+  let _opFolderName = null;
+  async function opEnsureLaunderers() {
+    if (_launderersById) return _launderersById;
+    const map = {};
+    try {
+      const { data } = await db.from('launderers').select('id, name');
+      (data || []).forEach(l => { map[l.id] = l.name; });
+    } catch (e) { /* leave empty */ }
+    _launderersById = map;
+    return map;
   }
 
   // Lock the pickup leg once the order is picked up: hide Edit/Change and show a
@@ -9956,9 +9973,13 @@
     }
 
     _opHistoryLoaded = opCurrentOrderId;
-    // Resolve pickup/delivery drivers so the picked_up/delivered events can be
-    // attributed to the actual driver instead of "System" (session 184f).
-    await opEnsureStopInfo(opCurrentOrderId);
+    // Resolve pickup/delivery drivers (for picked_up/delivered events) + the
+    // order's folder and the launderer name map, so processing events logged
+    // under the shared station account can be attributed (sessions 184f/184g).
+    const _ho = allOrders.find(x => x.id === opCurrentOrderId);
+    _opFolderName = (_ho && _ho.folded_by && _ho.folded_by.name) ? _ho.folded_by.name : null;
+    await Promise.all([opEnsureStopInfo(opCurrentOrderId), opEnsureLaunderers()]);
+    if (opCurrentOrderId == null) return;
     listEl.innerHTML = data.map(ev => opRenderHistoryEvent(ev)).join('');
   }
 
@@ -9973,6 +9994,18 @@
     if (ev.event_type === 'status_change' && (!ev.actor_name || ev.actor_name === 'System') && _opStopInfo) {
       if (ev.new_value === 'picked_up' && _opStopInfo.pickup && _opStopInfo.pickup.driver) actor = _opStopInfo.pickup.driver;
       else if (ev.new_value === 'delivered' && _opStopInfo.delivery && _opStopInfo.delivery.driver) actor = _opStopInfo.delivery.driver;
+    }
+    // Processing steps are logged under the shared "Laundry Tech" station login —
+    // attribute to the actual launderer where the data supports it (session 184g):
+    // the `folded` event names the assigned folder (new_value = launderer id);
+    // folding/racking/ready are that folder's continuous work. Intake measurements
+    // (weight/bags/total/processing) aren't tied to an individual, so they just get
+    // the clearer "Laundry Tech" label.
+    if (actor === 'Laundry T' || actor === 'Laundry' || actor === 'Laundry Tech') {
+      let who = null;
+      if (ev.event_type === 'folded') who = (_launderersById && _launderersById[ev.new_value]) || _opFolderName;
+      else if (ev.event_type === 'racked' || (ev.event_type === 'status_change' && (ev.new_value === 'folding' || ev.new_value === 'ready_for_delivery'))) who = _opFolderName;
+      actor = who || 'Laundry Tech';
     }
 
     // Icon + color per event type
