@@ -1047,7 +1047,7 @@
             <span>Subscribe to Family Laundry's newsletter for occasional deals and updates.</span>
           </label>
           <div class="field">
-            <label>How did you find us? <span style="font-size:11px;color:var(--gray-400);font-weight:400">(optional)</span></label>
+            <label>How did you find us? <span style="font-size:11px;color:#dc2626;font-weight:600">*</span></label>
             <select id="s-source" style="width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:15px;font-family:inherit;color:var(--text);background:white;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:12px">
               <option value="">— Select one —</option>
               <option value="nextdoor">Nextdoor</option>
@@ -1317,7 +1317,7 @@
                 <span>Subscribe to Family Laundry's newsletter for occasional deals and updates.</span>
               </label>
               <div class="field">
-                <label>How did you find us? <span style="font-size:11px;color:var(--gray-400);font-weight:400">(optional)</span></label>
+                <label>How did you find us? <span style="font-size:11px;color:#dc2626;font-weight:600">*</span></label>
                 <select id="c-source" style="width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:15px;font-family:inherit;color:var(--text);background:white;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:12px">
                   <option value="">— Select one —</option>
                   <option value="nextdoor">Nextdoor</option>
@@ -2526,6 +2526,11 @@ async function handleSignup(e) {
   }
   if (!phone || phone.replace(/\D/g,'').length < 10) {
     errEl.textContent = 'Please enter a valid phone number.';
+    errEl.classList.add('show');
+    return;
+  }
+  if (!referralSource) {
+    errEl.textContent = 'Please let us know how you heard about us.';
     errEl.classList.add('show');
     return;
   }
@@ -5175,6 +5180,11 @@ async function placeOrder() {
     const referralSource = document.getElementById('c-source')?.value || null;
     if (!first || !last || !email || !pass || !phone) {
       if (errEl) { errEl.textContent = 'Please fill in all fields (including name, phone, email, and password).'; errEl.classList.add('show'); }
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Account & Place Order'; }
+      return;
+    }
+    if (!referralSource) {
+      if (errEl) { errEl.textContent = 'Please let us know how you heard about us.'; errEl.classList.add('show'); }
       if (btn) { btn.disabled = false; btn.textContent = 'Create Account & Place Order'; }
       return;
     }
