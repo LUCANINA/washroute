@@ -6039,9 +6039,12 @@
         currentUserRole = role;
         currentUserId   = session.user.id;
         currentUserFirstName = profile?.first_name || null;
-        const _lastInitial = (profile?.last_name || '').trim().charAt(0).toUpperCase();
+        // Full "First Last" so order-history + issue-comment attribution names the
+        // admin clearly (was "First L" — kept disambiguating same-first-name admins
+        // but read as cryptic; session 184h).
+        const _lastName = (profile?.last_name || '').trim();
         currentUserDisplayName = currentUserFirstName
-          ? (_lastInitial ? `${currentUserFirstName} ${_lastInitial}` : currentUserFirstName)
+          ? (_lastName ? `${currentUserFirstName} ${_lastName}` : currentUserFirstName)
           : null;
 
         // Load permissions for this role from role_permissions table
@@ -10007,6 +10010,9 @@
       else if (ev.event_type === 'racked' || (ev.event_type === 'status_change' && (ev.new_value === 'folding' || ev.new_value === 'ready_for_delivery'))) who = _opFolderName;
       actor = who || 'Laundry Tech';
     }
+    // "Folded" completion events are logged as "Unknown" (no launderer id) —
+    // attribute to the order's folder (session 184h).
+    if (actor === 'Unknown' && ev.event_type === 'folded' && _opFolderName) actor = _opFolderName;
 
     // Icon + color per event type
     let icon = '•', color = 'var(--gray-400)';
