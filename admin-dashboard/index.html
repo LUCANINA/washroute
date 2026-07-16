@@ -855,13 +855,13 @@
     .rcc-chip-row { display:flex;align-items:center;flex-wrap:wrap;gap:4px; }
     .rcc-slot-label { font-size:10px;font-weight:700;letter-spacing:0;color:var(--gray-400);width:22px;flex-shrink:0;user-select:none; }
     /* AM/PM segmented toggle */
-    .rcc-slot-toggle { display:inline-flex;border:1px solid var(--gray-200);border-radius:8px;overflow:hidden;background:#fff;flex-shrink:0;margin-right:6px; }
-    .rcc-slot-btn { border:none;background:transparent;font-size:10.5px;font-weight:700;letter-spacing:0;color:var(--gray-500);padding:3px 9px;cursor:pointer;transition:all .14s;user-select:none; }
+    .rcc-slot-toggle { display:inline-flex;align-items:stretch;height:34px;box-sizing:border-box;border:1px solid var(--gray-200);border-radius:8px;overflow:hidden;background:#fff;flex-shrink:0;margin-right:6px; }
+    .rcc-slot-btn { display:inline-flex;align-items:center;border:none;background:transparent;font-size:10.5px;font-weight:700;letter-spacing:0;color:var(--gray-500);padding:0 12px;cursor:pointer;transition:all .14s;user-select:none; }
     .rcc-slot-btn:hover { background:var(--gray-50);color:var(--gray-700); }
     .rcc-slot-btn.on { background:var(--gray-900);color:#fff; }
     .rcc-slot-btn.on:hover { background:var(--gray-800); }
     /* Planned pickups/deliveries summary for the selected window (Orders → Map bar) */
-    .rcc-summary { display:inline-flex;align-items:center;gap:14px;padding:3px 12px;border:1px solid var(--gray-200);border-radius:8px;background:var(--gray-50); }
+    .rcc-summary { display:inline-flex;align-items:center;height:34px;box-sizing:border-box;gap:14px;padding:0 14px;border:1px solid var(--gray-200);border-radius:8px;background:var(--gray-50); }
     .rcc-summary-item { display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--gray-500); }
     .rcc-summary-item b { font-size:14px;font-weight:700;color:var(--gray-900);font-variant-numeric:tabular-nums; }
     .rcc-summary-win { font-size:10px;font-weight:700;color:var(--gray-400);padding-right:10px;border-right:1px solid var(--gray-200); }
@@ -1805,7 +1805,7 @@
             <!-- ── RCC: Date + Optimize bar ── -->
             <div style="padding:10px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-shrink:0;background:#fff;">
               <span style="font-size:13px;font-weight:600;color:var(--gray-700)">Date:</span>
-              <input type="date" id="runs-date-picker" class="form-input" style="width:155px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
+              <input type="date" id="runs-date-picker" class="form-input" style="width:155px;height:34px;box-sizing:border-box;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
               <!-- AM/PM toggle (rendered by rccRenderChips) sits right of the date -->
               <div id="rcc-slot-host" style="display:flex;align-items:center;"></div>
               <!-- Planned pickups/deliveries summary for the selected window (rendered by rccRenderDaySummary) -->
