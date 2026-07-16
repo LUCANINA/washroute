@@ -439,8 +439,9 @@
     .panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 1099; display: none; }
     .panel-backdrop.open { display: block; }
     .cp-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
-    /* Match the header status pill height to the Issue/Order buttons so they align (session 184b). */
-    .cp-header #cp-status-badge .badge { padding: 5px 12px; font-size: 12px; }
+    /* Pin the header status pill + action buttons to one explicit height so they align (session 184b). */
+    .cp-header button:not(.modal-close) { height: 28px; box-sizing: border-box; }
+    .cp-header #cp-status-badge .badge { height: 28px; box-sizing: border-box; padding: 0 12px; font-size: 12px; }
     .cp-name { font-size: 20px; font-weight: 600; color: var(--gray-900); letter-spacing: -.02em; margin-bottom: 5px; }
     .cp-meta { font-size: 12.5px; color: var(--gray-500); display: flex; gap: 14px; flex-wrap: wrap; }
     .cp-meta a { color: var(--accent); text-decoration: none; }
