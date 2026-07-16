@@ -19965,7 +19965,7 @@ ${oneCopy}
       // which renders a paid order as a "RECEIPT" with the PAID line and a
       // "Print / Save as PDF" button — so an individual customer's receipt can
       // be pulled straight from the Completed list without opening the panel.
-      const receiptBtn = isPaid
+      const receiptBtn = (isPaid && !isFailed)
         ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200);margin-left:8px;flex-shrink:0" onclick="event.stopPropagation();printInvoice(['${o.id}'])" title="Download / print receipt for this order">🧾 Receipt</button>`
         : '';
 
