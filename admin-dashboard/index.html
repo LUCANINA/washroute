@@ -19870,11 +19870,14 @@ ${oneCopy}
   async function loadPanelOrders(customerId) {
     const el = document.getElementById('cp-orders-list');
     el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
+    // Driver names in the order quick-summary resolve from this cache (session 184b);
+    // it's only auto-loaded on the Routes page, so ensure it's ready here.
+    if (!allDriversCache.length) { try { await loadAllDriversCache(); } catch (e) {} }
     // `source` lets _serviceLabelForOrder distinguish retail (POS) orders
     // from delivery orders so the service column reads "Retail - Wash & Fold"
     // instead of '—' for POS rows (which have no service_id join target).
     const { data } = await db.from('orders')
-      .select('id, order_number, status, source, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, delivery_window_start, actual_delivery_at, cancelled_by, driver_skip_reason, created_at, archived_at, archived_reason, folded_at, services:service_id(name), pickup_run:pickup_run_id(id, name), folded_by:folded_by_id(name), route_stops(stop_type, driver_id, proof_photo_url)')
+      .select('id, order_number, status, source, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, delivery_window_start, actual_delivery_at, cancelled_by, driver_skip_reason, created_at, archived_at, archived_reason, folded_at, services:service_id(name), pickup_run:pickup_run_id(id, name), folded_by:folded_by_id(name), route_stops(stop_type, driver_id, proof_photo_url, routes:route_id(driver_id, pickup_driver_id, delivery_driver_id))')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
@@ -20088,7 +20091,14 @@ ${oneCopy}
     const pickupStop   = stops.find(s => s.stop_type === 'pickup');
     const deliveryStop = stops.find(s => s.stop_type === 'delivery');
     const driverMap = Object.fromEntries((allDriversCache || []).map(d => [d.id, d.name]));
-    const drvName = st => (st && st.driver_id && driverMap[st.driver_id]) ? driverMap[st.driver_id] : '—';
+    // Stops with no explicit driver_id inherited the route's default driver, so
+    // fall back to the route's pickup/delivery/legacy driver (session 184b).
+    const drvName = (st, isPickup) => {
+      if (!st) return '—';
+      const r = st.routes || {};
+      const id = st.driver_id || (isPickup ? (r.pickup_driver_id || r.driver_id) : (r.delivery_driver_id || r.driver_id));
+      return (id && driverMap[id]) ? driverMap[id] : '—';
+    };
     const processedBy = (o.folded_by && o.folded_by.name) ? o.folded_by.name + (o.folded_at ? ' · ' + fmtDate(o.folded_at) : '') : '—';
     // Proof photos, shown side by side (with a placeholder when one is missing).
     const photo = (label, st) => `<div style="flex:1;min-width:0">
@@ -20107,9 +20117,9 @@ ${oneCopy}
           <div style="font-size:13px;font-weight:700;color:var(--gray-900);margin-bottom:7px">Details</div>
           ${D('Status', esc(statusText))}
           ${D('Pickup', dt(o.pickup_window_start))}
-          ${D('Pickup by', esc(drvName(pickupStop)))}
+          ${D('Pickup by', esc(drvName(pickupStop, true)))}
           ${D('Delivery', dt(o.actual_delivery_at || o.delivery_window_start))}
-          ${D('Delivery by', esc(drvName(deliveryStop)))}
+          ${D('Delivery by', esc(drvName(deliveryStop, false)))}
           ${D('Route', esc(o.pickup_run && o.pickup_run.name ? o.pickup_run.name : '—'))}
           ${D('Source', esc(o.source ? cap(o.source.replace(/_/g, ' ')) : '—'))}
           ${D('Processed by', esc(processedBy))}
