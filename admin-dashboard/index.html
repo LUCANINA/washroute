@@ -35,7 +35,7 @@
       --rcc-col-w: 290;
       --accent: #3b82f6;       /* vibrant blue — replaces purple */
       --accent-light: #dbeafe;  /* pale blue tint for hover/chips */
-      --green: #0ba25a; --green-light: #d1fae5;
+      --green: #059669; --green-light: #d1fae5;
       --amber: #d97706; --amber-light: #fef3c7;
       --red: #dc2626;   --red-light: #fee2e2;
       --blue: #2563eb;  --blue-light: #dbeafe;
@@ -890,7 +890,7 @@
     .rcc-body::-webkit-scrollbar { width:3px; }
     .rcc-body::-webkit-scrollbar-thumb { background:var(--gray-200);border-radius:3px; }
     .rcc-drop-hint { border:1.5px dashed var(--gray-200);border-radius:8px;padding:14px;text-align:center;font-size:11.5px;color:var(--gray-400);display:none;margin-top:2px; }
-    .rcc-drop-over .rcc-drop-hint { display:block;border-color:#86efac;color:#16a34a;background:rgba(134,239,172,.07); }
+    .rcc-drop-over .rcc-drop-hint { display:block;border-color:#86efac;color:#059669;background:rgba(134,239,172,.07); }
     /* Stop cards — max 3 colors: stop-num circle (route color), name (gray-900), everything else (gray-400) */
     .rcc-card { background:#fff;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px 8px 36px;cursor:grab;transition:box-shadow .12s,border-color .12s,transform .12s;user-select:none;position:relative; }
     .rcc-card:hover { border-color:var(--gray-400);box-shadow:0 2px 6px rgba(0,0,0,.06);transform:translateY(-1px); }
@@ -4610,9 +4610,9 @@
       </div>
     </div>
     <style>
-      #cp-sms-mkt-toggle:checked + span { background: #16a34a !important; }
+      #cp-sms-mkt-toggle:checked + span { background: #059669 !important; }
       #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px !important; }
-      #cp-email-mkt-toggle:checked + span { background: #16a34a !important; }
+      #cp-email-mkt-toggle:checked + span { background: #059669 !important; }
       #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px !important; }
     </style>
     </div><!-- /cpc-pane-marketing -->
@@ -5907,7 +5907,7 @@
       });
       if (error) throw error;
       msg.textContent = 'Check your inbox — we sent a reset link to ' + email;
-      msg.style.color = 'var(--green, #16a34a)';
+      msg.style.color = 'var(--green, #059669)';
       msg.style.display = 'block';
     } catch (e) {
       msg.textContent = e.message || 'Error sending reset link.';
@@ -5948,7 +5948,7 @@
       const { error } = await db.auth.updateUser({ password: pw });
       if (error) throw error;
       msg.textContent = 'Password updated! Signing you in…';
-      msg.style.color = 'var(--green, #16a34a)'; msg.style.display = 'block';
+      msg.style.color = 'var(--green, #059669)'; msg.style.display = 'block';
       // Restore title for next visit
       document.querySelector('.login-title').textContent = 'Sign in to your dashboard';
       document.querySelector('.login-sub').textContent = 'Admin access only';
@@ -7375,7 +7375,7 @@
               <button class="btn btn-primary" onclick="savePrinterToken()" style="font-size:13.5px;padding:8px 20px">Save</button>
               <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">Test Print</button>
             </div>
-            ${BIZ_PRINTER_TOKEN ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">Printer connected — token saved</div>` : ''}
+            ${BIZ_PRINTER_TOKEN ? `<div style="margin-top:12px;font-size:12px;color:#059669;font-weight:600">Printer connected — token saved</div>` : ''}
             ` : isPp ? `
             <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
               <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Setup Instructions</div>
@@ -7412,7 +7412,7 @@
               <div style="font-size:11px;color:var(--gray-400)">This URL is substituted into the <strong>{{review_link}}</strong> tag in the Review Request template (Notifications → Message Templates).</div>
             </div>
             <button class="btn btn-primary" onclick="saveReviewLink()" style="font-size:13.5px;padding:8px 20px">Save</button>
-            ${BIZ_REVIEW_LINK ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">Review link set</div>` : `<div style="margin-top:12px;font-size:12px;color:var(--gray-400)">No review link set — review request SMS will not include a link.</div>`}
+            ${BIZ_REVIEW_LINK ? `<div style="margin-top:12px;font-size:12px;color:#059669;font-weight:600">Review link set</div>` : `<div style="margin-top:12px;font-size:12px;color:var(--gray-400)">No review link set — review request SMS will not include a link.</div>`}
           </div>
         </div>
       </div>`;
@@ -8497,7 +8497,7 @@
                 : (method === 'card' || method === 'credit_card')
                     ? (last4 ? `Paid by card ····${last4}` : 'Paid by card')
                 : 'Paid';
-      return `<span class="pay-tip" data-tip="${tip}" style="color:#16a34a;font-size:13px;font-weight:800;line-height:1">$</span>`;
+      return `<span class="pay-tip" data-tip="${tip}" style="color:#059669;font-size:13px;font-weight:800;line-height:1">$</span>`;
     }
     // Charge failed
     if (o.billing_status === 'failed') {
@@ -8522,7 +8522,7 @@
     }
     // Has a card on file
     if (custId && _custWithCard.has(custId)) {
-      return `<span class="pay-tip" data-tip="Card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
+      return `<span class="pay-tip" data-tip="Card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
     }
     // No card on file
     return `<span class="pay-tip" data-tip="No card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
@@ -8535,7 +8535,7 @@
       return `<span class="pay-tip" data-tip="On account"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 21V12h6v9"/><path d="M3 9h18"/></svg></span>`;
     }
     if (_custWithCard.has(c.id)) {
-      return `<span class="pay-tip" data-tip="Card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
+      return `<span class="pay-tip" data-tip="Card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
     }
     return `<span class="pay-tip" data-tip="No card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
   }
@@ -11591,10 +11591,10 @@ ${oneCopy}
       if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${parseFloat(delivFeeItem.amount||0) > 0 ? 'Delivery Fee' : _escHtml(delivFeeItem.label || 'Delivery — included')}</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
       discountItems.forEach(d => {
-        totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#16a34a">\u2212${fmt(d.amount)}</span></div>`;
+        totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#059669">\u2212${fmt(d.amount)}</span></div>`;
       });
       if (ppHasTip)     totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(ppTipLabel)}</span><span>+${fmt(ppTipDollars)}</span></div>`;
-      if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">\u2212${fmt(creditItem.amount)}</span></div>`;
+      if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#059669">\u2212${fmt(creditItem.amount)}</span></div>`;
     }
 
     // Build single-copy receipt body (PassPRNT handles its own rendering width)
@@ -11779,10 +11779,10 @@ ${oneCopy}
       if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${parseFloat(delivFeeItem.amount||0) > 0 ? 'Delivery Fee' : _escHtml(delivFeeItem.label || 'Delivery — included')}</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
       discountItems.forEach(d => {
-        totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#16a34a">&#8722;${fmt(d.amount)}</span></div>`;
+        totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#059669">&#8722;${fmt(d.amount)}</span></div>`;
       });
       if (hasTip)       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(rTipLabel)}</span><span>+${fmt(rTipDollars)}</span></div>`;
-      if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">&#8722;${fmt(creditItem.amount)}</span></div>`;
+      if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#059669">&#8722;${fmt(creditItem.amount)}</span></div>`;
     }
 
     // Safe order number for CSS class names and barcode (uses raw unescaped value)
@@ -13306,7 +13306,7 @@ ${oneCopy}
       showToast(`App invite sent to ${email}`, 'success');
       if (btn) {
         btn.textContent = '✓ Sent!';
-        btn.style.color = '#16a34a';
+        btn.style.color = '#059669';
         btn.style.borderColor = '#86efac';
         setTimeout(() => {
           btn.textContent = originalText;
@@ -18993,7 +18993,7 @@ ${oneCopy}
     const appStatusEl = document.getElementById('cp-app-status');
     if (appStatusEl) {
       if (c.profile_id) {
-        appStatusEl.innerHTML = `<span style="font-size:15px">✅</span><span style="color:#16a34a;font-weight:600">Linked to customer app</span>`;
+        appStatusEl.innerHTML = `<span style="font-size:15px">✅</span><span style="color:#059669;font-weight:600">Linked to customer app</span>`;
       } else {
         const hasEmail = !!(c.email_cache && c.email_cache.trim());
         if (hasEmail) {
