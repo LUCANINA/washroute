@@ -9477,8 +9477,11 @@
     // The checked state is reset when the panel opens for a new order (see the
     // Recurring control block), so it persists across a pickup+delivery edit
     // within one panel session but never leaks into the next order.
+    // The "Apply changes to all future occurrences" scope checkbox is only relevant
+    // while actually editing a leg, so it's hidden by default and shown by
+    // opSyncRecurringScope() when a pickup/delivery edit picker opens (session 184i).
     const scopeWrap = document.getElementById('op-recurring-scope');
-    if (scopeWrap) scopeWrap.style.display = o.recurring_interval ? '' : 'none';
+    if (scopeWrap) scopeWrap.style.display = 'none';
 
     // Pickup
     const puName = o.pickup_run?.name || null;
@@ -10334,6 +10337,20 @@
     showToast(newVal ? `Set to ${_recurLabel[newVal] || newVal}` : 'Set to one-time', 'success');
   }
 
+  // Show the recurring-scope checkbox only while a pickup/delivery edit picker is
+  // open on a recurring order (session 184i).
+  function opSyncRecurringScope() {
+    const wrap = document.getElementById('op-recurring-scope');
+    if (!wrap) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    const recurring = !!(o && o.recurring_interval);
+    const pickerOpen = ['op-pickup-picker','op-delivery-picker'].some(id => {
+      const p = document.getElementById(id);
+      return p && p.style.display !== 'none';
+    });
+    wrap.style.display = (recurring && pickerOpen) ? '' : 'none';
+  }
+
   // ── PICKUP SCHEDULE EDIT ──
   async function opTogglePickupEdit() {
     if (opPickupGuard()) return;
@@ -10343,6 +10360,7 @@
     picker.style.display = open ? '' : 'none';
     btn.textContent = open ? 'Cancel' : 'Edit';
     btn.classList.toggle('cancel-btn', open);
+    opSyncRecurringScope();
     if (open) await opLoadRoutePicker('pickup');
   }
 
@@ -10354,6 +10372,7 @@
     picker.style.display = open ? '' : 'none';
     btn.textContent = open ? 'Cancel' : 'Edit';
     btn.classList.toggle('cancel-btn', open);
+    opSyncRecurringScope();
     if (open) await opLoadRoutePicker('delivery');
   }
 
