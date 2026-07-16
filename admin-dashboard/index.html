@@ -4281,6 +4281,8 @@
         <span class="op-sched-lbl">Window</span>
         <span class="op-sched-val unset" id="op-pickup-time-val">No window set</span>
       </div>
+      <!-- Pickup-complete note (shown once the order is picked up; session 184f) -->
+      <div id="op-pickup-done-note" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-100);font-size:12px;color:#166534;font-weight:500"></div>
       <!-- Inline picker -->
       <div id="op-pickup-picker" style="display:none">
         <div class="op-picker-section">
@@ -9233,6 +9235,7 @@
     opCurrentOrderId = orderId;
     opCurrentCustId  = o.customers?.id || null;
     _opHistoryLoaded = null; // reset history cache for new order
+    _opStopInfo = null;      // reset pickup/delivery driver cache for new order
 
     // Header
     document.getElementById('op-num').textContent = `Order #${o.order_number || '—'}`;
@@ -9335,6 +9338,7 @@
     // address/details edit controls and disable the same-day / different-address
     // toggles. Recall to Route (which changes the status) is the way back to editable.
     opApplyDeliveredLock(o);
+    opApplyPickupLock(o);
 
     // Open panel
     document.getElementById('order-panel').classList.add('open');
@@ -9353,7 +9357,8 @@
   // changes the status, which re-enables editing on the next open).
   function opApplyDeliveredLock(o) {
     const locked = !!(o && o.status === 'delivered');
-    ['op-pickup-edit-btn','op-pickup-addr-btn','op-delivery-edit-btn','op-delivery-addr-btn','op-details-edit-btn'].forEach(id => {
+    // Pickup buttons are handled by opApplyPickupLock (they lock earlier — at pickup).
+    ['op-delivery-edit-btn','op-delivery-addr-btn','op-details-edit-btn'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = locked ? 'none' : '';
     });
@@ -9378,6 +9383,64 @@
       return true;
     }
     return false;
+  }
+
+  // The pickup leg is complete (and no longer editable) once the order has
+  // moved past 'scheduled'. Delivery stays editable until delivered (session 184f).
+  const _PICKUP_DONE_STATUSES = ['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'];
+  function opPickupLocked() {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    return !!(o && _PICKUP_DONE_STATUSES.includes(o.status));
+  }
+  function opPickupGuard() {
+    if (opPickupLocked()) { showToast('Pickup already completed — not editable', ''); return true; }
+    return false;
+  }
+
+  // Fetch pickup/delivery stop drivers (resolving the route default when a stop
+  // has no explicit driver) + completion times, once per order. Feeds both the
+  // pickup-complete note and the History driver attribution (session 184f).
+  let _opStopInfo = null; // { orderId, pickup:{driver,completed_at}, delivery:{driver,completed_at} }
+  async function opEnsureStopInfo(orderId) {
+    if (_opStopInfo && _opStopInfo.orderId === orderId) return _opStopInfo;
+    if (!allDriversCache.length) { try { await loadAllDriversCache(); } catch (e) {} }
+    const dm = Object.fromEntries((allDriversCache || []).map(d => [d.id, d.name]));
+    const info = { orderId, pickup: {}, delivery: {} };
+    try {
+      const { data } = await db.from('route_stops')
+        .select('stop_type, driver_id, completed_at, routes:route_id(driver_id, pickup_driver_id, delivery_driver_id)')
+        .eq('order_id', orderId);
+      (data || []).forEach(s => {
+        const r = s.routes || {};
+        const isPk = s.stop_type === 'pickup';
+        const id = s.driver_id || (isPk ? (r.pickup_driver_id || r.driver_id) : (r.delivery_driver_id || r.driver_id));
+        const slot = isPk ? info.pickup : info.delivery;
+        slot.driver = (id && dm[id]) ? dm[id] : null;
+        slot.completed_at = s.completed_at || null;
+      });
+    } catch (e) { /* leave info empty */ }
+    _opStopInfo = info;
+    return info;
+  }
+
+  // Lock the pickup leg once the order is picked up: hide Edit/Change and show a
+  // "🚗 Picked up <time> · by <driver>" note in place of editing (session 184f).
+  async function opApplyPickupLock(o) {
+    const done = !!(o && _PICKUP_DONE_STATUSES.includes(o.status));
+    const editBtn = document.getElementById('op-pickup-edit-btn');
+    const addrBtn = document.getElementById('op-pickup-addr-btn');
+    const note = document.getElementById('op-pickup-done-note');
+    if (editBtn) editBtn.style.display = done ? 'none' : '';
+    if (addrBtn) addrBtn.style.display = done ? 'none' : '';
+    if (!note) return;
+    if (!done) { note.style.display = 'none'; note.textContent = ''; return; }
+    const t = o.actual_pickup_at ? `${fmtDate(o.actual_pickup_at)} · ${fmtTime(o.actual_pickup_at)}` : '';
+    note.style.display = '';
+    note.textContent = `🚗 Picked up${t ? ' ' + t : ''}`;
+    const info = await opEnsureStopInfo(o.id);
+    if (opCurrentOrderId !== o.id) return; // panel moved on
+    const drv = info && info.pickup && info.pickup.driver;
+    note.textContent = `🚗 Picked up${t ? ' ' + t : ''}${drv ? ' · by ' + drv : ''}`;
   }
 
   // Open panel and immediately expand the schedule picker for a given leg
@@ -9893,6 +9956,9 @@
     }
 
     _opHistoryLoaded = opCurrentOrderId;
+    // Resolve pickup/delivery drivers so the picked_up/delivered events can be
+    // attributed to the actual driver instead of "System" (session 184f).
+    await opEnsureStopInfo(opCurrentOrderId);
     listEl.innerHTML = data.map(ev => opRenderHistoryEvent(ev)).join('');
   }
 
@@ -9900,7 +9966,14 @@
     const dt = new Date(ev.created_at);
     const dateStr = dt.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'numeric', day: 'numeric', year: '2-digit' });
     const timeStr = dt.toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
-    const actor = ev.actor_name || 'System';
+    // Automated pickup/delivery completions log actor "System" — attribute the
+    // actual driver instead when we know it (session 184f). Manual admin changes
+    // (a real actor_name) are left as-is.
+    let actor = ev.actor_name || 'System';
+    if (ev.event_type === 'status_change' && (!ev.actor_name || ev.actor_name === 'System') && _opStopInfo) {
+      if (ev.new_value === 'picked_up' && _opStopInfo.pickup && _opStopInfo.pickup.driver) actor = _opStopInfo.pickup.driver;
+      else if (ev.new_value === 'delivered' && _opStopInfo.delivery && _opStopInfo.delivery.driver) actor = _opStopInfo.delivery.driver;
+    }
 
     // Icon + color per event type
     let icon = '•', color = 'var(--gray-400)';
@@ -10224,7 +10297,7 @@
 
   // ── PICKUP SCHEDULE EDIT ──
   async function opTogglePickupEdit() {
-    if (opDeliveredGuard()) return;
+    if (opPickupGuard()) return;
     const picker = document.getElementById('op-pickup-picker');
     const btn    = document.getElementById('op-pickup-edit-btn');
     const open   = picker.style.display === 'none';
@@ -10633,7 +10706,8 @@
 
   // ── ADDRESS PICKER ──
   function opToggleAddrPicker(leg) {
-    if (opDeliveredGuard()) return;
+    if (leg === 'pickup' && opPickupGuard()) return;
+    if (leg === 'delivery' && opDeliveredGuard()) return;
     const picker = document.getElementById(`op-${leg}-addr-picker`);
     const btn    = document.getElementById(`op-${leg}-addr-btn`);
     const open   = picker.style.display === 'none';
