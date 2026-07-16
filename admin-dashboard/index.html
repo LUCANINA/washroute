@@ -254,7 +254,7 @@
 
     /* ── LOADING ── */
     .loading { display: flex; align-items: center; justify-content: center; padding: 48px; color: var(--gray-400); gap: 10px; }
-    .spinner { width: 18px; height: 18px; border: 2px solid var(--gray-200); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+    .spinner { width: 18px; height: 18px; border: 1px solid var(--gray-200); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── EMPTY STATE ── */
@@ -345,7 +345,7 @@
     .cat-del-btn:hover { color: var(--red); background: var(--red-light); }
     .cat-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
     /* Services — Main/Add-on split */
-    .svc-section-divider { display:flex; align-items:center; gap:10px; padding:14px 20px 8px; border-top:2px solid var(--gray-100); margin-top:4px; }
+    .svc-section-divider { display:flex; align-items:center; gap:10px; padding:14px 20px 8px; border-top:1px solid var(--gray-100); margin-top:4px; }
     .svc-section-divider:first-child { border-top:none; margin-top:0; }
     .svc-section-title { font-size:11px; font-weight: 600; letter-spacing: 0; color:var(--gray-500); }
     .svc-addon-toggle { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; border:none; cursor:pointer; transition:all .15s; margin-left:auto; }
@@ -560,7 +560,7 @@
     .inbox-section-left { display: flex; align-items: center; gap: 7px; }
     .inbox-section-label { font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--gray-500); }
     .inbox-section-count { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 12px; }
-    .cnt-needs  { background: #fee2e2; color: #b91c1c; }
+    .cnt-needs  { background: #fee2e2; color: #991b1b; }
     .cnt-waiting { background: #fef3c7; color: #92400e; }
     .cnt-resolved { background: var(--gray-100); color: var(--gray-500); }
     .inbox-section-chevron { font-size: 10px; color: var(--gray-400); transition: transform .15s; }
@@ -661,7 +661,7 @@
     .attach-chip .chip-x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 12px; background: rgba(0,0,0,0.7); color: white; border: none; font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
     .attach-chip .chip-x:hover { background: rgba(0,0,0,0.9); }
     .attach-chip.uploading::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.6); border-radius: 8px; }
-    .attach-chip .chip-spinner { position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 1; }
+    .attach-chip .chip-spinner { position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 1px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 1; }
     /* Composer character counter — sits below the composer row, right-aligned.
        Color shifts at SMS-segment boundaries so the cost implication is visible. */
     .compose-counter { padding: 2px 20px 8px 20px; font-size: 11px; color: var(--gray-400); text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
@@ -725,7 +725,7 @@
     .lf-photo-tile .tile-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 11px; background: rgba(0,0,0,0.7); color: white; border: none; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }
     .lf-photo-tile .tile-x:hover { background: rgba(0,0,0,0.9); }
     .lf-photo-tile.uploading::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.6); }
-    .lf-photo-tile.uploading::before { content: ''; position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border: 2px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 1; }
+    .lf-photo-tile.uploading::before { content: ''; position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border: 1px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 1; }
     .lf-photo-add { width: 88px; height: 88px; border: 2px dashed var(--gray-300); border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; cursor: pointer; color: var(--gray-500); font-size: 11px; background: white; transition: all .15s; }
     .lf-photo-add:hover { border-color: var(--accent); color: var(--accent); }
     .lf-photo-add svg { width: 22px; height: 22px; }
@@ -775,7 +775,7 @@
     .issue-row-title { font-size: 13px; font-weight: 600; color: var(--gray-900); flex: 1; }
     .issue-row-meta { font-size: 12px; color: var(--gray-400); white-space: nowrap; }
     .issue-pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; flex-shrink: 0; }
-    .pri-badge-urgent { background: #fee2e2; color: #b91c1c; }
+    .pri-badge-urgent { background: #fee2e2; color: #991b1b; }
     .pri-badge-high   { background: #ffedd5; color: #c2410c; }
     .pri-badge-normal { background: #dbeafe; color: #1d4ed8; }
     .pri-badge-low    { background: var(--gray-100); color: var(--gray-500); }
@@ -790,7 +790,7 @@
     .issue-meta-item { font-size:12px; }
     .issue-meta-label { color:var(--gray-400);font-weight:600;letter-spacing: 0;font-size:10px;margin-bottom:3px; }
     .issue-meta-value { color:var(--gray-900);font-weight:500; }
-    .issue-timeline { border-left:2px solid var(--gray-200);margin-left:8px;padding-left:16px; }
+    .issue-timeline { border-left:1px solid var(--gray-200);margin-left:8px;padding-left:16px; }
     .issue-event { position:relative;padding-bottom:16px; }
     .issue-event:last-child { padding-bottom:0; }
     .issue-event::before { content:'';position:absolute;left:-21px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--gray-300);border:2px solid white; }
@@ -954,7 +954,7 @@
     .tpl-badge { font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:8px;flex-shrink:0; }
     /* Weekly schedule grid */
     .sched-grid { border-collapse:collapse;width:100%;min-width:600px; }
-    .sched-grid th { font-size:10px;font-weight:700;letter-spacing:0;color:var(--gray-500);padding:5px 6px;text-align:center;border-bottom:2px solid var(--gray-200); }
+    .sched-grid th { font-size:10px;font-weight:700;letter-spacing:0;color:var(--gray-500);padding:5px 6px;text-align:center;border-bottom:1px solid var(--gray-200); }
     .sched-grid th:first-child { text-align:left;min-width:130px; }
     .sched-grid td { padding:3px 4px;border-bottom:1px solid var(--gray-100);text-align:center;vertical-align:middle; }
     .sched-grid td:first-child { text-align:left; }
@@ -968,7 +968,7 @@
     .slide-over-body { flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px; }
     .slide-over-footer { padding:14px 24px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0; }
     .day-chips { display:flex;gap:6px; }
-    .day-chip { width:36px;height:36px;border-radius:50%;border:2px solid var(--gray-200);background:white;font-size:11px;font-weight:700;color:var(--gray-500);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s; }
+    .day-chip { width:36px;height:36px;border-radius:50%;border:1px solid var(--gray-200);background:white;font-size:11px;font-weight:700;color:var(--gray-500);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s; }
     .day-chip.active { border-color:var(--accent);background:var(--accent);color:white; }
     .so-section { }
     .so-label { font-size:11px;font-weight: 600;letter-spacing: 0;color:var(--gray-500);margin-bottom:6px; }
@@ -1039,7 +1039,7 @@
     .trend-flat { color: var(--gray-400); }
     /* Driver stats table */
     .rpt-drv-tbl { width:100%;border-collapse:collapse; }
-    .rpt-drv-tbl th { padding:9px 16px;text-align:left;font-size:10.5px;font-weight:700;letter-spacing:0;color:var(--gray-400);border-bottom:2px solid var(--gray-200);white-space:nowrap; }
+    .rpt-drv-tbl th { padding:9px 16px;text-align:left;font-size:10.5px;font-weight:700;letter-spacing:0;color:var(--gray-400);border-bottom:1px solid var(--gray-200);white-space:nowrap; }
     .rpt-drv-tbl td { padding:12px 16px;border-bottom:1px solid var(--gray-100);font-size:13px;vertical-align:middle; }
     .rpt-drv-tbl tr:last-child td { border-bottom:none; }
     .rpt-drv-tbl tbody tr:hover td { background:var(--gray-50); }
@@ -1056,7 +1056,7 @@
     /* ── DAILY REVENUE REPORT ── */
     .rev-tbl-wrap { overflow-x: auto; }
     .rev-tbl { width:100%; border-collapse:collapse; font-size:13px; }
-    .rev-tbl th { padding:10px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:0;  color:var(--gray-400); border-bottom:2px solid var(--gray-200); white-space:nowrap; }
+    .rev-tbl th { padding:10px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:0;  color:var(--gray-400); border-bottom:1px solid var(--gray-200); white-space:nowrap; }
     .rev-tbl th:first-child { text-align:left; }
     .rev-tbl td { padding:11px 14px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-800); }
     .rev-tbl td:first-child { text-align:left; font-weight:500; color:var(--gray-900); }
@@ -1065,11 +1065,11 @@
     .rev-detail-row .rev-tbl td { padding:5px 14px; }
     .rev-detail-row .rev-tbl td:first-child { line-height:1.25; }
     .rev-tbl tbody tr:hover td { background:var(--gray-50); cursor:default; }
-    .rev-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); font-size:13.5px; }
+    .rev-tbl tfoot td { font-weight:700; border-top:1px solid var(--gray-200); border-bottom:none; background:var(--gray-50); font-size:13.5px; }
     .rev-tbl tfoot td:first-child { color:var(--gray-700); }
     /* ── ITEMS REPORT ── */
     .items-pricelist-section { margin-bottom:24px; }
-    .items-pricelist-header { display:flex; align-items:baseline; gap:16px; padding:14px 20px 10px; border-bottom:2px solid var(--gray-200); }
+    .items-pricelist-header { display:flex; align-items:baseline; gap:16px; padding:14px 20px 10px; border-bottom:1px solid var(--gray-200); }
     .items-pricelist-name { font-size:15px; font-weight:700; color:var(--gray-900); }
     .items-pricelist-meta { font-size:12px; color:var(--gray-400); font-weight:500; }
     .items-tbl { width:100%; border-collapse:collapse; font-size:13px; }
@@ -1078,7 +1078,7 @@
     .items-tbl td { padding:10px 16px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-700); }
     .items-tbl td:first-child { text-align:left; color:var(--gray-900); font-weight:500; }
     .items-tbl tbody tr:hover td { background:var(--gray-50); }
-    .items-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
+    .items-tbl tfoot td { font-weight:700; border-top:1px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
     .items-tbl tr.items-subhead td { padding:8px 16px; font-size:10.5px; font-weight:700; letter-spacing:0;  color:var(--gray-400); background:var(--gray-50); border-bottom:1px solid var(--gray-100); }
     .items-tbl tr.items-subhead:hover td { background:var(--gray-50); }
     .items-tbl tr.items-subtotal td { font-weight:700; color:var(--gray-800); background:var(--gray-50); }
@@ -1123,7 +1123,7 @@
     .ps-by-order-tbl tbody tr.clickable:hover td { background:var(--gray-50); }
     .ps-by-order-tbl tbody tr.refunded td { background:#fef2f2; color:var(--gray-500); }
     .ps-by-order-tbl tbody tr.refunded:hover td { background:#fee2e2; }
-    .ps-by-order-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
+    .ps-by-order-tbl tfoot td { font-weight:700; border-top:1px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
     .ps-order-num { color:var(--accent); font-weight:600; }
     .ps-pm-tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:12px; background:var(--gray-100); color:var(--gray-700); white-space:nowrap; }
     .ps-pm-tag.card { background:#dbeafe; color:#1e40af; }
@@ -1206,7 +1206,7 @@
     .laun-hist-order-time { font-size:11px;color:var(--gray-400); }
     /* ── FOLD PANEL ── */
     .fold-laun-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px; }
-    .fold-laun-btn { padding:14px 16px;border-radius:12px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;color:var(--gray-700);transition:all .12s;text-align:left; }
+    .fold-laun-btn { padding:14px 16px;border-radius:12px;border:1px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;color:var(--gray-700);transition:all .12s;text-align:left; }
     .fold-laun-btn.selected { border-color:var(--accent);background:#ede9ff;color:var(--accent); }
     .fold-laun-btn:hover:not(.selected) { border-color:var(--gray-300);background:var(--gray-50); }
     .fold-order-summary { background:var(--gray-50);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px; }
@@ -1264,7 +1264,7 @@
     .kcol-rack.drag-over    .kanban-drop-label { opacity:1; }
     /* Rack picker */
     .rack-grid { display:flex;flex-direction:column;gap:8px; }
-    .rack-btn { padding:11px 16px;border-radius:12px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600; }
+    .rack-btn { padding:11px 16px;border-radius:12px;border:1px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600; }
     .rack-btn:hover { border-color:var(--accent);background:var(--accent-light); }
     .rack-btn.selected { border-color:var(--accent);background:#ede9ff;color:var(--accent); }
     /* Intake panel */
@@ -1276,12 +1276,12 @@
     .proc-top-row { display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:4px; }
     .proc-top-col-label { font-size:13px;font-weight: 600;letter-spacing: 0;color:var(--gray-800);margin-bottom:8px; }
     /* Bag stepper */
-    .proc-stepper { display:flex;align-items:center;border:2px solid var(--gray-200);border-radius:12px;overflow:hidden;width:100%; }
+    .proc-stepper { display:flex;align-items:center;border:1px solid var(--gray-200);border-radius:12px;overflow:hidden;width:100%; }
     .proc-stepper-btn { flex:0 0 46px;height:58px;border:none;background:var(--gray-50);font-size:22px;font-weight:300;cursor:pointer;color:var(--gray-600);display:flex;align-items:center;justify-content:center;transition:background .1s; }
     .proc-stepper-btn:hover { background:var(--gray-100); }
     .proc-stepper-val { flex:1;text-align:center;font-size:22px;font-weight:700;color:var(--gray-900);font-variant-numeric:tabular-nums; }
     /* Weight input */
-    .proc-weight-wrap { display:flex;align-items:center;background:var(--gray-50);border:2px solid var(--gray-200);border-radius:12px;padding:4px 14px 4px 10px;gap:0;transition:border-color .15s,box-shadow .15s;cursor:text;height:62px; }
+    .proc-weight-wrap { display:flex;align-items:center;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:4px 14px 4px 10px;gap:0;transition:border-color .15s,box-shadow .15s;cursor:text;height:62px; }
     .proc-weight-wrap:focus-within { border-color:var(--accent);box-shadow:0 0 0 4px rgba(59,130,246,.12);background:#fff; }
     .proc-weight-input { font-size:30px;font-weight:700;color:var(--gray-900);border:none;background:transparent;width:100%;text-align:right;font-family:inherit;outline:none;line-height:1;padding:0; }
     .proc-weight-input::placeholder { color:var(--gray-300); }
@@ -1292,7 +1292,7 @@
     .proc-addon-group { margin-bottom:14px; }
     .proc-addon-group-label { font-size:13px;font-weight: 600;letter-spacing: 0;color:var(--gray-800);margin-bottom:8px; }
     .proc-addon-options { display:flex;flex-wrap:wrap;gap:8px; }
-    .proc-addon-btn { padding:10px 22px;border-radius:12px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:120px;height:80px;box-sizing:border-box;text-align:center; }
+    .proc-addon-btn { padding:10px 22px;border-radius:12px;border:1px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:120px;height:80px;box-sizing:border-box;text-align:center; }
     .proc-addon-btn.selected { border-color:var(--accent);background:#ede9ff; }
     .proc-addon-btn-name { font-size:16px;font-weight:600;color:var(--gray-800); }
     .proc-addon-btn.selected .proc-addon-btn-name { color:var(--accent); }
@@ -1326,7 +1326,7 @@
     .team-actions { display:flex;gap:8px; }
     /* Billing feature */
     .bill-badge { display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:0;white-space:nowrap; }
-    .bill-badge-invoiced { background:#fef9c3;color:#854d0e; }
+    .bill-badge-invoiced { background:#fef9c3;color:#92400e; }
     .bill-badge-paid { background:#dcfce7;color:#166534; }
     .billing-bar { display:none;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:.5px solid var(--gray-200);border-radius:12px;padding:10px 14px;position:sticky;bottom:8px;margin-top:12px;box-shadow:0 6px 20px rgba(0,0,0,.12); }
     .billing-bar.visible { display:flex; }
@@ -1544,7 +1544,7 @@
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
                   <div class="card-title">Requires Rescheduling</div>
-                  <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:#b91c1c;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                  <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
@@ -1558,7 +1558,7 @@
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
                   <div class="card-title">Unpaid Delivered Orders</div>
-                  <span id="unpaid-count-badge" style="font-size:13px;font-weight:700;color:#b91c1c;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                  <span id="unpaid-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
                 <div class="card-sub" id="unpaid-count-sub" style="margin-top:2px">Loading…</div>
               </div>
@@ -1829,7 +1829,7 @@
                 <!-- Map legend -->
                 <div id="rcc-legend" style="position:absolute;bottom:14px;left:12px;z-index:500;background:rgba(255,255,255,.95);border:1px solid var(--gray-200);border-radius:8px;padding:9px 12px;font-size:11.5px;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;line-height:1.8;"></div>
                 <!-- Missing-coords warning (shown when stops can't be pinned because lat/lng is null) -->
-                <div id="rcc-missing-coords-warn" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:500;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 14px;font-size:12px;color:#78350f;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;align-items:center;gap:10px;max-width:92%;">
+                <div id="rcc-missing-coords-warn" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:500;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 14px;font-size:12px;color:#92400e;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;align-items:center;gap:10px;max-width:92%;">
                   <span style="font-size:14px;">⚠</span>
                   <span id="rcc-missing-coords-text" style="font-weight:600;"></span>
                   <button onclick="rccFixMissingCoords()" style="background:#f59e0b;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Fix now</button>
@@ -2675,7 +2675,7 @@
                   <tbody id="oa-summary-tbody">
                     <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
-                  <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
+                  <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:1px solid var(--gray-200)"></tfoot>
                 </table>
               </div>
             </div>
@@ -2923,7 +2923,7 @@
         <div class="page" id="page-drivers">
           <!-- ── Tab bar — session 147: Messages hidden, team uses Slack instead ── -->
           <!-- Whole bar hidden (only one visible tab left). Restore = remove display:none. -->
-          <div style="display:none;align-items:center;gap:0;margin-bottom:20px;border-bottom:2px solid var(--gray-100)">
+          <div style="display:none;align-items:center;gap:0;margin-bottom:20px;border-bottom:1px solid var(--gray-100)">
             <button class="filter-tab" id="drv-tab-messages" onclick="switchDriverTab('messages')"
               style="display:none;padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
               Messages
@@ -6379,8 +6379,8 @@
 
     let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr>
-        <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--gray-200);font-weight:600;color:var(--gray-700)">Page</th>
-        ${roles.map(r => `<th style="text-align:center;padding:8px 12px;border-bottom:2px solid var(--gray-200);font-weight:600;color:var(--gray-700)">${roleHeaders[r]}</th>`).join('')}
+        <th style="text-align:left;padding:8px 12px;border-bottom:1px solid var(--gray-200);font-weight:600;color:var(--gray-700)">Page</th>
+        ${roles.map(r => `<th style="text-align:center;padding:8px 12px;border-bottom:1px solid var(--gray-200);font-weight:600;color:var(--gray-700)">${roleHeaders[r]}</th>`).join('')}
       </tr></thead><tbody>`;
 
     ALL_PAGE_IDS.forEach(pageId => {
@@ -6968,7 +6968,7 @@
       return;
     }
 
-    const th = (t) => `<th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--gray-200);font-weight:600;color:var(--gray-600);font-size:11px;letter-spacing:0">${t}</th>`;
+    const th = (t) => `<th style="text-align:left;padding:8px 12px;border-bottom:1px solid var(--gray-200);font-weight:600;color:var(--gray-600);font-size:11px;letter-spacing:0">${t}</th>`;
     const rows = data.map(m => {
       const c = m.customers;
       const name = c ? ((c.first_name_cache||'') + ' ' + (c.last_name_cache||'')).trim() : '';
@@ -7193,7 +7193,7 @@
       const d = new Date(h.holiday_date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric', timeZone: BIZ_TZ });
       return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--gray-100)">
         <div><span style="font-weight:600;color:var(--gray-900)">${esc(h.name)}</span> <span style="color:var(--gray-500);font-size:13px">· ${d}</span></div>
-        <button onclick="deleteHoliday('${h.id}',this)" style="font-size:12px;font-weight:600;color:#b91c1c;background:#fee2e2;border:none;border-radius:8px;padding:5px 12px;cursor:pointer;white-space:nowrap">Remove</button>
+        <button onclick="deleteHoliday('${h.id}',this)" style="font-size:12px;font-weight:600;color:#991b1b;background:#fee2e2;border:none;border-radius:8px;padding:5px 12px;cursor:pointer;white-space:nowrap">Remove</button>
       </div>`;
     }).join('');
   }
@@ -7664,7 +7664,7 @@
       let html = '<div style="display:flex;flex-direction:column;gap:6px;padding-top:4px">';
 
       const renderRow = (r) => {
-        const badge = r.severity === 'P0' ? '<span style="background:#fef2f2;color:#b91c1c;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P0</span>'
+        const badge = r.severity === 'P0' ? '<span style="background:#fef2f2;color:#991b1b;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P0</span>'
           : r.severity === 'P1' ? '<span style="background:#fffbeb;color:#92400e;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P1</span>'
           : r.severity === 'P2' ? '<span style="background:#f0f9ff;color:#0369a1;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P2</span>'
           : r.severity === 'P3' ? '<span style="background:var(--gray-50);color:var(--gray-500);font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P3</span>'
@@ -7994,7 +7994,7 @@
         const cust = o.customers;
         const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
         const billingBadge = o.billing_status === 'failed'
-          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#b91c1c">FAILED</span>'
+          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#991b1b">FAILED</span>'
           : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e">UNPAID</span>';
         const action = _deliveredActionBtn(o);
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
@@ -18901,7 +18901,7 @@ ${oneCopy}
       const pri      = iss.priority || 'normal';
       const resolved = iss.status === 'resolved' || iss.status === 'closed';
       const statusBadge = resolved
-        ? '<span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;padding:1px 7px;border-radius:8px;white-space:nowrap">RESOLVED</span>'
+        ? '<span style="font-size:10px;font-weight:700;color:#166534;background:#dcfce7;padding:1px 7px;border-radius:8px;white-space:nowrap">RESOLVED</span>'
         : `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;padding:1px 7px;border-radius:8px;white-space:nowrap">${esc((iss.status||'open').replace('_',' ').toUpperCase())}</span>`;
       const noteSnippet = iss.notes ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:5px;white-space:pre-wrap;line-height:1.4">${esc(iss.notes)}</div>` : '';
       return `<div class="issue-row" style="display:block;cursor:pointer;${resolved?'opacity:.8':''}" onclick="openIssueDetail(${iss.id})">
@@ -19583,7 +19583,7 @@ ${oneCopy}
     el.innerHTML = `
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
-          <tr style="border-bottom:2px solid var(--gray-100)">
+          <tr style="border-bottom:1px solid var(--gray-100)">
             <th style="text-align:left;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;letter-spacing:0">Date</th>
             <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;letter-spacing:0">Type</th>
             <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;letter-spacing:0">Order #</th>
@@ -20004,7 +20004,7 @@ ${oneCopy}
       : '<div style="color:var(--gray-400);font-size:13px;padding:16px">No discounts yet. Create one above.</div>';
 
     const archivedHtml = archivedDiscounts.length
-      ? `<div style="border-top:2px solid var(--gray-100);margin-top:4px;padding:10px 16px 4px">
+      ? `<div style="border-top:1px solid var(--gray-100);margin-top:4px;padding:10px 16px 4px">
           <div style="font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-400);margin-bottom:4px">Archived</div>
           ${archivedDiscounts.map(d => `
             <div style="display:flex;align-items:center;padding:10px 0;border-top:1px solid var(--gray-100);gap:12px;opacity:.65">
@@ -22125,7 +22125,7 @@ ${oneCopy}
       <tbody>
       ${bands.map((band, bi) => {
         const timeLabel = band.ws ? `${fmtT(band.ws)} – ${fmtT(band.we)}` : 'Unscheduled';
-        const bandBorder = bi > 0 ? 'border-top:2px solid var(--gray-200)' : '';
+        const bandBorder = bi > 0 ? 'border-top:1px solid var(--gray-200)' : '';
         // One <tr> per route; time cell uses rowspan to span all routes in band
         return band.routes.map((t, ri) => {
           const isFirstInBand = ri === 0;
@@ -22345,7 +22345,7 @@ ${oneCopy}
       <tbody>
       ${bands.map((band, bi) => {
         const timeLabel = band.ws ? `${fmtT(band.ws)} – ${fmtT(band.we)}` : 'Unscheduled';
-        const bandBorder = bi > 0 ? 'border-top:2px solid var(--gray-200)' : '';
+        const bandBorder = bi > 0 ? 'border-top:1px solid var(--gray-200)' : '';
         return band.routes.map((t, ri) => {
           const isFirstInBand = ri === 0;
           const rowBorder = isFirstInBand ? bandBorder : '';
@@ -26208,7 +26208,7 @@ ${oneCopy}
       `padding:6px 18px;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .12s;` +
       (foldSplitCount === n
         ? `border:2px solid var(--accent);background:#ede9ff;color:var(--accent);`
-        : `border:2px solid var(--gray-200);background:white;color:var(--gray-600);`);
+        : `border:1px solid var(--gray-200);background:white;color:var(--gray-600);`);
     const allPicked = foldSplitSelections.slice(0, foldSplitCount).every(Boolean);
     const slots = Array.from({length: foldSplitCount}).map((_, i) => {
       const usedByOthers = foldSplitSelections.filter((id, j) => j !== i && id);
@@ -28010,9 +28010,9 @@ ${oneCopy}
 
   function _dkChip(tone, text) {
     const styles = {
-      good:    'color:#15803d;background:#dcfce7',
-      goodNew: 'color:#15803d;background:#dcfce7',
-      bad:     'color:#b91c1c;background:#fee2e2',
+      good:    'color:#166534;background:#dcfce7',
+      goodNew: 'color:#166534;background:#dcfce7',
+      bad:     'color:#991b1b;background:#fee2e2',
       flat:    'color:#6b7280;background:#f3f4f6',
     };
     return `<span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;${styles[tone] || styles.flat}">${text}</span>`;
@@ -29935,7 +29935,7 @@ ${oneCopy}
       <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:13px;">
         <span style="font-weight:700;color:#166534;letter-spacing:0;font-size:11px;">Sales Tax Collected</span>
         <span style="font-weight:700;color:#166534;font-size:15px;">$${$fmt(tot.tax)}</span>
-        <span style="color:#15803d;font-size:11.5px;">POS merchandise · ${(BIZ_TAX_RATE * 100).toFixed(2)}% rate</span>
+        <span style="color:#166534;font-size:11.5px;">POS merchandise · ${(BIZ_TAX_RATE * 100).toFixed(2)}% rate</span>
       </div>` : '';
 
     body.innerHTML = `${taxBanner}
@@ -31561,7 +31561,7 @@ ${oneCopy}
       const badge = g.invoice_style === 'consolidated' ? 'Consolidated' : 'Separate';
 
       // Group header row — checkbox to select, click to expand/collapse members
-      html += `<tr class="oa-group-header" data-group="${gid}" onclick="toggleOAGroup('${escJS(gid)}')" style="background:var(--gray-50);border-top:2px solid var(--gray-200);cursor:pointer">
+      html += `<tr class="oa-group-header" data-group="${gid}" onclick="toggleOAGroup('${escJS(gid)}')" style="background:var(--gray-50);border-top:1px solid var(--gray-200);cursor:pointer">
         <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="oa-select-cb" data-type="group" data-id="${gid}" data-name="${esc(g.name)}" onchange="updateOABatchBar()"></td>
         <td style="font-weight:700;font-size:13px">
           <svg class="oa-chevron" data-group-chevron="${gid}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;margin-right:4px;transition:transform .15s;transform:rotate(-90deg)"><polyline points="6 9 12 15 18 9"/></svg>
@@ -31586,7 +31586,7 @@ ${oneCopy}
 
     // Render ungrouped standalone accounts
     if (ungrouped.length && groupIds.length) {
-      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="10" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
+      html += `<tr style="border-top:1px solid var(--gray-200)"><td colspan="10" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
     }
     ungrouped.forEach(([cid, r]) => { html += custRow(cid, r, false, true); });
 
