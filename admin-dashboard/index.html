@@ -438,32 +438,33 @@
     .side-panel.open { right: 0; }
     .panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 1099; display: none; }
     .panel-backdrop.open { display: block; }
-    .cp-header { padding: 18px 24px 14px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
-    .cp-name { font-size: 19px; font-weight: 700; color: var(--gray-900); letter-spacing: -.02em; margin-bottom: 5px; }
+    .cp-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .cp-name { font-size: 20px; font-weight: 600; color: var(--gray-900); letter-spacing: -.02em; margin-bottom: 5px; }
     .cp-meta { font-size: 12.5px; color: var(--gray-500); display: flex; gap: 14px; flex-wrap: wrap; }
     .cp-meta a { color: var(--accent); text-decoration: none; }
     .cp-stats-strip { display: grid; grid-template-columns: repeat(4,1fr); gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
-    .cp-stat { padding: 12px 10px; text-align: center; }
+    .cp-stat { padding: 14px 10px; text-align: center; }
     .cp-stat + .cp-stat { border-left: 1px solid var(--gray-100); }
-    .cp-stat-label { font-size: 11px; color: var(--gray-400); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
-    .cp-stat-value { font-size: 16px; font-weight: 700; color: var(--gray-900); }
-    .cp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 20px; overflow-x: auto; }
-    .cp-tab { padding: 11px 14px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; }
-    .cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-    .cp-body { flex: 1; overflow-y: auto; padding: 16px 60px 32px 20px; background: #f5f5f7; }
-    .cp-field { margin-bottom: 14px; }
+    .cp-stat-label { font-size: 11.5px; color: var(--gray-400); font-weight: 400; letter-spacing: 0; margin-bottom: 4px; }
+    .cp-stat-value { font-size: 18px; font-weight: 600; color: var(--gray-900); }
+    .cp-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 20px; overflow-x: auto; }
+    .cp-tab { padding: 12px 15px; font-size: 13.5px; font-weight: 400; color: var(--gray-500); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; }
+    .cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+    .cp-body { flex: 1; overflow-y: auto; padding: 20px 24px 36px; background: #f7f7f9; }
+    .cp-field { margin-bottom: 15px; }
     .cp-field:last-child { margin-bottom: 0; }
-    .cp-field-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 4px; }
+    .cp-field-label { font-size: 12px; font-weight: 500; letter-spacing: 0; color: var(--gray-500); margin-bottom: 5px; }
     .cp-field-value { font-size: 14px; color: var(--gray-800); }
     .cp-field-value.empty { color: var(--gray-300); font-style: italic; }
-    .cp-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); margin: 20px 0 6px 4px; display: flex; align-items: center; justify-content: space-between; padding-bottom: 0; border-bottom: none; }
-    .cp-section-head:first-child { margin-top: 4px; }
-    .cp-card { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,.06); padding: 14px 16px; margin-bottom: 2px; }
-    .cp-input { display: block; width: 100%; padding: 8px 10px; font-size: 13.5px; border: 1px solid var(--gray-200); border-radius: 7px; background: white; color: var(--gray-900); outline: none; box-sizing: border-box; font-family: inherit; transition: border-color .12s; }
-    .cp-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .cp-section-head { font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--gray-500); margin: 24px 0 9px 2px; display: flex; align-items: center; justify-content: space-between; padding-bottom: 0; border-bottom: none; }
+    .cp-section-head:first-child { margin-top: 6px; }
+    .cp-subhead { font-size: 11.5px; font-weight: 600; letter-spacing: 0; color: var(--gray-500); margin-bottom: 8px; }
+    .cp-card { background: #fff; border-radius: 12px; border: .5px solid rgba(0,0,0,.08); padding: 16px 18px; margin-bottom: 10px; }
+    .cp-input { display: block; width: 100%; padding: 9px 11px; font-size: 13.5px; border: 1px solid var(--gray-200); border-radius: 8px; background: white; color: var(--gray-900); outline: none; box-sizing: border-box; font-family: inherit; transition: border-color .12s, box-shadow .12s; }
+    .cp-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
     .cp-input::placeholder { color: var(--gray-300); }
     textarea.cp-input { resize: vertical; line-height: 1.55; }
-    .cp-save-btn { width: 100%; padding: 10px; font-size: 14px; font-weight: 600; border-radius: 8px; margin-top: 4px; }
+    .cp-save-btn { width: 100%; padding: 11px; font-size: 14px; font-weight: 500; border-radius: 8px; margin-top: 4px; }
     .cp-save-msg { text-align: center; font-size: 12px; margin-top: 6px; color: #059669; display: none; }
     .cp-order-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--gray-100); font-size: 13px; flex-wrap: wrap; }
     .cp-order-row:last-child { border-bottom: none; }
@@ -4470,11 +4471,9 @@
   </div>
   <div class="cp-tabs">
     <button class="cp-tab active" onclick="cpTab('contact',this)">Contact</button>
+    <button class="cp-tab" onclick="cpTab('preferences',this)">Preferences</button>
     <button class="cp-tab" onclick="cpTab('billing',this)">Billing</button>
     <button class="cp-tab" onclick="cpTab('orders',this)">Orders</button>
-    <button class="cp-tab" onclick="cpTab('transactions',this)">Transactions</button>
-    <button class="cp-tab" onclick="cpTab('engagement',this)">Engagement</button>
-    <button class="cp-tab" onclick="cpTab('preferences',this)">Preferences</button>
     <button class="cp-tab" onclick="cpTab('issues',this)">Issues</button>
   </div>
 
@@ -4520,7 +4519,7 @@
     <div id="cp-addresses"></div>
     <!-- Inline add-address form -->
     <div id="cp-add-addr-form" style="display:none;background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:12px;padding:14px 16px;margin-bottom:12px">
-      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">New Address</div>
+      <div class="cp-subhead">New Address</div>
       <div class="cp-field"><input class="cp-input" id="cpna-label" placeholder="Label (e.g. Home, Work)"></div>
       <div class="cp-field"><input class="cp-input" id="cpna-line1" placeholder="Street address"></div>
       <div class="cp-field"><input class="cp-input" id="cpna-line2" placeholder="Apt / Unit (optional)"></div>
@@ -4561,6 +4560,48 @@
       <button class="btn btn-primary cp-save-btn" onclick="saveCustomerContact()">Save Contact Info</button>
       <div class="cp-save-msg" id="cp-contact-msg">✓ Saved</div>
     </div>
+
+    <!-- Marketing preferences + message history (folded in from the old Engagement tab, session 184).
+         Toggles auto-save; message history is read-only — so they sit below the Save Contact button. -->
+    <div class="cp-section-head"><span>Marketing</span></div>
+    <div class="cp-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--gray-800)">SMS Marketing</div>
+          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-sms-mkt-detail"></div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
+          <input type="checkbox" id="cp-sms-mkt-toggle" onchange="toggleMarketingOpt('sms')" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
+          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-sms-mkt-knob"></span>
+        </label>
+      </div>
+      <div style="border-top:1px solid var(--gray-100);margin:10px 0"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--gray-800)">Email Marketing</div>
+          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-email-mkt-detail"></div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
+          <input type="checkbox" id="cp-email-mkt-toggle" onchange="toggleMarketingOpt('email')" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
+          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-email-mkt-knob"></span>
+        </label>
+      </div>
+    </div>
+    <style>
+      #cp-sms-mkt-toggle:checked + span { background: #16a34a; }
+      #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px; }
+      #cp-email-mkt-toggle:checked + span { background: #16a34a; }
+      #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px; }
+    </style>
+    <div class="cp-section-head"><span>Message history</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <button class="filter-tab active" onclick="filterCpEngagement('all',this)" id="cpeng-all">All</button>
+      <button class="filter-tab" onclick="filterCpEngagement('sms',this)" id="cpeng-sms">SMS</button>
+      <button class="filter-tab" onclick="filterCpEngagement('email',this)" id="cpeng-email">Email</button>
+    </div>
+    <div id="cp-engagement-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
   </div>
 
   <!-- ── BILLING TAB ── -->
@@ -4582,6 +4623,7 @@
       <button class="filter-tab active" data-subtab="plan"    onclick="cpBillingSubtab('plan',this)">Plan</button>
       <button class="filter-tab"        data-subtab="payment" onclick="cpBillingSubtab('payment',this)">Payment</button>
       <button class="filter-tab"        data-subtab="balance" onclick="cpBillingSubtab('balance',this)">Balance</button>
+      <button class="filter-tab"        data-subtab="history" onclick="cpBillingSubtab('history',this)">History</button>
     </div>
 
     <!-- 1. PLAN — what this customer is on (price list + subscription) -->
@@ -4597,7 +4639,7 @@
       <!-- Subscription content (Assign Plan + Start Checkout, or active sub display).
            Populated by renderCpSubscription() into #cpb-sub-content. -->
       <div style="border-top:1px solid var(--gray-100);margin-top:12px;padding-top:14px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Subscription</div>
+        <div class="cp-subhead">Subscription</div>
         <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
       </div>
     </div>
@@ -4633,11 +4675,11 @@
 
       <!-- Card on file -->
       <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Card on File</div>
+        <div class="cp-subhead">Card on File</div>
         <div id="cp-payment-info" style="margin-bottom:4px">—</div>
         <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
         <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
-          <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
+          <div class="cp-subhead">Enter Card Details</div>
           <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
           <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
           <div style="display:flex;gap:8px">
@@ -4649,7 +4691,7 @@
 
       <!-- Default Tip -->
       <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Default Tip</div>
+        <div class="cp-subhead">Default Tip</div>
         <div style="display:flex;gap:8px;align-items:center">
           <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
           <div class="filter-tabs" style="flex-shrink:0">
@@ -4667,7 +4709,7 @@
     <div class="cp-section-head"><span>Balance &amp; Adjustments</span></div>
     <div class="cp-card">
       <!-- Account Credit -->
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Account Credit</div>
+      <div class="cp-subhead">Account Credit</div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
         <div style="display:flex;gap:6px;margin-left:4px">
@@ -4688,7 +4730,7 @@
 
       <!-- Outstanding Balance -->
       <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Outstanding Balance</div>
+        <div class="cp-subhead">Outstanding Balance</div>
         <div style="display:flex;align-items:baseline;gap:8px">
           <div style="font-size:22px;font-weight:700" id="cpb-balance-display">$0.00</div>
           <div style="font-size:12px;color:var(--gray-400)" id="cpb-balance-label">outstanding</div>
@@ -4698,7 +4740,7 @@
 
       <!-- Discount + Fee Exempt -->
       <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Discount</div>
+        <div class="cp-subhead">Discount</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
           <div class="cp-field" style="margin-bottom:0">
             <select class="cp-input" id="cpb-discount">
@@ -4706,7 +4748,7 @@
             </select>
           </div>
           <div class="cp-field" style="margin-bottom:0">
-            <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:5px;font-weight:500;font-size:12.5px;letter-spacing:0;color:var(--gray-600);cursor:pointer;margin-top:6px">
               <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
             </label>
             <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
@@ -4716,7 +4758,7 @@
 
       <!-- Apply Promo Code (session 141) — admin-applied $ codes -->
       <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Apply Promo Code</div>
+        <div class="cp-subhead">Apply Promo Code</div>
         <div style="display:flex;gap:8px;align-items:stretch">
           <select class="cp-input" id="cpb-promo-code" style="flex:1">
             <option value="">— Choose a code —</option>
@@ -4731,15 +4773,9 @@
     </div>
     </div><!-- /cpb-pane-balance -->
 
-    <!-- Shared Save Billing button — saves all 3 sub-tabs in one UPDATE. -->
-    <div style="margin-top:20px">
-      <button class="btn btn-primary cp-save-btn" onclick="saveBilling()">Save Billing</button>
-      <div class="cp-save-msg" id="cp-billing-msg">✓ Saved</div>
-    </div>
-  </div>
-
-  <!-- ── TRANSACTIONS TAB ── -->
-  <div class="cp-body" id="cptab-transactions" style="display:none">
+    <!-- 4. HISTORY — transaction ledger (folded in from the old Transactions tab, session 184) -->
+    <div class="cpb-pane" id="cpb-pane-history" style="display:none">
+    <div class="cp-section-head"><span>Transaction history</span></div>
     <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <button class="filter-tab active" onclick="filterCpTxns(0,this)">All</button>
       <button class="filter-tab" onclick="filterCpTxns(7,this)">7 days</button>
@@ -4751,52 +4787,19 @@
     <div class="cp-card" style="padding:0;overflow:hidden">
       <div id="cp-transactions-list" style="padding:4px 0"><div style="color:var(--gray-400);font-size:13px;padding:12px 16px">Loading…</div></div>
     </div>
+    </div><!-- /cpb-pane-history -->
+
+    <!-- Shared Save Billing button — saves the Plan/Payment/Balance sub-tabs in one UPDATE.
+         Hidden on the read-only History sub-tab (session 184). -->
+    <div style="margin-top:20px" id="cpb-save-wrap">
+      <button class="btn btn-primary cp-save-btn" onclick="saveBilling()">Save Billing</button>
+      <div class="cp-save-msg" id="cp-billing-msg">✓ Saved</div>
+    </div>
   </div>
 
-  <!-- ── ENGAGEMENT TAB ── -->
-  <div class="cp-body" id="cptab-engagement" style="display:none">
-    <!-- Marketing Preferences -->
-    <div class="cp-section-head"><span>Marketing Preferences</span></div>
-    <div class="cp-card" style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">SMS Marketing</div>
-          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-sms-mkt-detail"></div>
-        </div>
-        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
-          <input type="checkbox" id="cp-sms-mkt-toggle" onchange="toggleMarketingOpt('sms')" style="opacity:0;width:0;height:0">
-          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
-          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-sms-mkt-knob"></span>
-        </label>
-      </div>
-      <div style="border-top:1px solid var(--gray-100);margin:10px 0"></div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">Email Marketing</div>
-          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-email-mkt-detail"></div>
-        </div>
-        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
-          <input type="checkbox" id="cp-email-mkt-toggle" onchange="toggleMarketingOpt('email')" style="opacity:0;width:0;height:0">
-          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
-          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-email-mkt-knob"></span>
-        </label>
-      </div>
-    </div>
-    <style>
-      #cp-sms-mkt-toggle:checked + span { background: #16a34a; }
-      #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px; }
-      #cp-email-mkt-toggle:checked + span { background: #16a34a; }
-      #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px; }
-    </style>
-    <!-- Message History -->
-    <div class="cp-section-head"><span>Message History</span></div>
-    <div style="display:flex;gap:6px;margin-bottom:14px">
-      <button class="filter-tab active" onclick="filterCpEngagement('all',this)" id="cpeng-all">All</button>
-      <button class="filter-tab" onclick="filterCpEngagement('sms',this)" id="cpeng-sms">SMS</button>
-      <button class="filter-tab" onclick="filterCpEngagement('email',this)" id="cpeng-email">Email</button>
-    </div>
-    <div id="cp-engagement-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
-  </div>
+  <!-- Transactions folded into Billing → History sub-tab (session 184). -->
+
+  <!-- Engagement (marketing prefs + message history) now lives inside the Contact tab (session 184). -->
 
   <!-- ── ORDERS TAB ── -->
   <div class="cp-body" id="cptab-orders" style="display:none">
@@ -4838,7 +4841,7 @@
     <div class="cp-card">
       <div id="cp-global-prefs-list"></div>
       <div style="margin-top:18px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Special Care Notes</div>
+        <div class="cp-subhead">Special Care Notes</div>
         <textarea class="cp-input" id="cp-pref-notes" rows="4" placeholder="e.g. Hang dry delicates, wash whites separately, no fabric softener… (shows in Processing Queue)"></textarea>
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">Visible to cleaners and folders on every new order. Editable by the customer in their app.</div>
       </div>
@@ -18610,16 +18613,18 @@ ${oneCopy}
   function cpTab(name, btn) {
     document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
-    ['contact','billing','orders','transactions','engagement','preferences','issues'].forEach(n=>{
+    // Session 184 — consolidated to 5 tabs: Contact (now hosts marketing + message
+    // history, formerly Engagement), Preferences, Billing (History sub-tab holds the
+    // former Transactions), Orders, Issues.
+    ['contact','preferences','billing','orders','issues'].forEach(n=>{
       const el = document.getElementById('cptab-'+n);
       if (el) el.style.display = (n===name) ? '' : 'none';
     });
     if (name==='orders' && panelCustomerId) loadPanelOrders(panelCustomerId);
     if (name==='issues' && panelCustomerId) loadCpIssues(panelCustomerId);
     if (name==='preferences' && panelCustomerId) loadPanelPreferences(panelCustomerId);
-    // Lazy loads
-    if (name === 'transactions') loadCpTransactions(panelCustomerId);
-    if (name === 'engagement')   loadCpEngagement(panelCustomerId, _panelPhone);
+    // Contact now also renders the marketing message history (lazy).
+    if (name==='contact' && panelCustomerId) loadCpEngagement(panelCustomerId, _panelPhone);
     // When entering Billing, restore the last-used sub-tab (session 152).
     if (name === 'billing') {
       const last = localStorage.getItem('wr-cpb-subtab') || 'plan';
@@ -18636,10 +18641,15 @@ ${oneCopy}
     document.querySelectorAll('#cptab-billing .filter-tab[data-subtab]').forEach(t => t.classList.remove('active'));
     const activeBtn = btn || document.querySelector(`#cptab-billing .filter-tab[data-subtab="${name}"]`);
     if (activeBtn) activeBtn.classList.add('active');
-    ['plan','payment','balance'].forEach(n => {
+    ['plan','payment','balance','history'].forEach(n => {
       const el = document.getElementById('cpb-pane-' + n);
       if (el) el.style.display = (n === name) ? '' : 'none';
     });
+    // History = read-only transaction ledger (folded in from the old Transactions
+    // tab, session 184). Hide the Save Billing button there; lazy-load the ledger.
+    const saveWrap = document.getElementById('cpb-save-wrap');
+    if (saveWrap) saveWrap.style.display = (name === 'history') ? 'none' : '';
+    if (name === 'history' && panelCustomerId) loadCpTransactions(panelCustomerId);
     try { localStorage.setItem('wr-cpb-subtab', name); } catch (e) { /* private mode */ }
   }
 
@@ -18688,7 +18698,7 @@ ${oneCopy}
     cpBillingMode = false;
     cpBillingSelection.clear();
     updateBillingBar();
-    const tabs = ['contact','billing','orders','transactions','engagement','preferences','issues'];
+    const tabs = ['contact','preferences','billing','orders','issues'];
     const activeIdx = startTab ? Math.max(0, tabs.indexOf(startTab)) : 0;
     document.querySelectorAll('.cp-tab').forEach((t,i)=>{ t.classList.toggle('active', i===activeIdx); });
     tabs.forEach((n,i)=>{
@@ -18853,6 +18863,10 @@ ${oneCopy}
 
     // Marketing opt-in/out toggles
     populateMarketingToggles(c);
+
+    // Contact tab now hosts the marketing message history (session 184) — load it
+    // on open so it's ready whether or not Contact is the starting tab.
+    loadCpEngagement(customerId, phone);
 
     // Notes tab replaced by Issues tab (session 173) — these inputs no longer exist
     // in the panel. Guard so opening a customer panel never throws (cpnote-text was
@@ -19269,7 +19283,7 @@ ${oneCopy}
 
   function filterCpTxns(days, btn) {
     _cpTxnDays = days;
-    document.querySelectorAll('#cptab-transactions .filter-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#cpb-pane-history .filter-tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
     renderCpTxns();
   }
@@ -19587,7 +19601,7 @@ ${oneCopy}
 
   function filterCpEngagement(type, btn) {
     _cpEngFilter = type;
-    document.querySelectorAll('#cptab-engagement .filter-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#cptab-contact .filter-tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
     renderCpEngagement();
   }
