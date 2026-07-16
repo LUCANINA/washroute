@@ -879,7 +879,7 @@
     .rcc-col.rcc-drop-over { background:#f0fdf4; }
     .rcc-col-hdr { padding:10px 13px 8px;border-bottom:1px solid var(--gray-200);flex-shrink:0; }
     .rcc-col-top { display:flex;align-items:center;gap:8px;margin-bottom:6px; }
-    .rcc-avatar { width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0; }
+    .rcc-avatar { width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0; }
     .rcc-d-name  { font-size:12.5px;font-weight:700;color:var(--gray-900);line-height:1.2; }
     .rcc-d-route { font-size:10.5px;color:var(--gray-400); }
     .rcc-col-meta { display:flex;align-items:center;gap:5px; }
@@ -898,7 +898,7 @@
     .rcc-card.rcc-lit { border-color:var(--gray-500);box-shadow:0 0 0 3px rgba(100,116,139,.12);transform:translateY(-1px); }
     .rcc-card.rcc-popin { animation:rccPopin .25s ease; }
     @keyframes rccPopin { from{transform:scale(.9) translateY(4px);opacity:0} to{transform:none;opacity:1} }
-    .rcc-stop-num { position:absolute;left:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff; }
+    .rcc-stop-num { position:absolute;left:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff; }
     .rcc-card-name { font-size:12.5px;font-weight:700;color:var(--gray-900);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .rcc-card-name[onclick]:hover { color:var(--accent);text-decoration:underline; }
     .rcc-card-addr { font-size:11px;color:var(--gray-400);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
@@ -990,7 +990,7 @@
     /* Driver workload cards */
     .workload-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;padding:20px; }
     .workload-card { background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:14px; }
-    .workload-avatar { width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:white;background:#6b7280;flex-shrink:0; }
+    .workload-avatar { width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;background:#6b7280;flex-shrink:0; }
     .slide-backdrop { display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:899; }
 
     /* ── SLOT PICKER SLIDE-OVER ── */
@@ -1004,7 +1004,7 @@
     .sp-day-btn.selected { border-color:var(--accent);background:var(--accent);color:white; }
     .sp-day-btn:disabled,.sp-day-disabled { opacity:.28;cursor:default;pointer-events:none; }
     .sp-day-abbr { font-size:10px;font-weight: 600;letter-spacing: 0; }
-    .sp-day-num  { font-size:15px;font-weight:800;line-height:1; }
+    .sp-day-num  { font-size:15px;font-weight:700;line-height:1; }
     .sp-day-mon  { font-size:9px;color:inherit;opacity:.7; }
     .sp-slot-grid { display:flex;flex-direction:column;gap:7px; }
     .sp-slot-btn { padding:12px 16px;border:1px solid var(--gray-200);border-radius:10px;background:white;cursor:pointer;font-size:14px;font-weight:600;color:var(--gray-800);transition:all .13s;text-align:left; }
@@ -1283,7 +1283,7 @@
     /* Weight input */
     .proc-weight-wrap { display:flex;align-items:center;background:var(--gray-50);border:2px solid var(--gray-200);border-radius:12px;padding:4px 14px 4px 10px;gap:0;transition:border-color .15s,box-shadow .15s;cursor:text;height:62px; }
     .proc-weight-wrap:focus-within { border-color:var(--accent);box-shadow:0 0 0 4px rgba(59,130,246,.12);background:#fff; }
-    .proc-weight-input { font-size:30px;font-weight:800;color:var(--gray-900);border:none;background:transparent;width:100%;text-align:right;font-family:inherit;outline:none;line-height:1;padding:0; }
+    .proc-weight-input { font-size:30px;font-weight:700;color:var(--gray-900);border:none;background:transparent;width:100%;text-align:right;font-family:inherit;outline:none;line-height:1;padding:0; }
     .proc-weight-input::placeholder { color:var(--gray-300); }
     .proc-weight-unit { font-size:18px;font-weight:600;color:var(--gray-400);padding-left:8px;flex-shrink:0; }
     /* Overage */
@@ -1351,7 +1351,7 @@
 <div id="login-screen">
   <div class="login-card">
     <div style="margin:-40px -40px 24px;border-radius:12px 12px 0 0;overflow:hidden;background:#0f2744;display:flex;align-items:center;justify-content:center;padding:16px 24px;">
-      <img src="../assets/logo.png" alt="Family Laundry" style="height:48px;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:20px;font-weight:800;color:white;letter-spacing:-.02em;\'>Family Laundry</div>'" />
+      <img src="../assets/logo.png" alt="Family Laundry" style="height:48px;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:20px;font-weight:700;color:white;letter-spacing:-.02em;\'>Family Laundry</div>'" />
     </div>
     <div class="login-title">Sign in to your dashboard</div>
     <div class="login-sub">Admin access only</div>
@@ -1412,7 +1412,7 @@
   <div class="layout">
     <nav class="sidebar">
       <div class="sidebar-logo" style="padding:18px 14px 14px;justify-content:center;">
-        <img src="../assets/logo.png" alt="Family Laundry" style="width:100%;max-width:90px;height:auto;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:14px;font-weight:800;color:white;letter-spacing:-.02em;\'>Family <span style=\'font-weight:400;opacity:.5\'>Laundry</span></div>'" />
+        <img src="../assets/logo.png" alt="Family Laundry" style="width:100%;max-width:90px;height:auto;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:14px;font-weight:700;color:white;letter-spacing:-.02em;\'>Family <span style=\'font-weight:400;opacity:.5\'>Laundry</span></div>'" />
       </div>
       <div class="sidebar-section-label" data-section="main">Main</div>
       <div id="nav-overview" class="nav-item active" data-page="overview" data-section="main" onclick="showPage('overview',this)">
@@ -6939,7 +6939,7 @@
           countFor(['queued','sent','accepted','sending','scheduled']),
         ]);
         const card = (label, n, color) => `<div style="flex:1;min-width:130px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:10px;padding:12px 14px">
-          <div style="font-size:22px;font-weight:800;color:${color}">${n}</div>
+          <div style="font-size:22px;font-weight:700;color:${color}">${n}</div>
           <div style="font-size:11px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:.04em">${label}</div></div>`;
         summaryEl.innerHTML =
           card('Failed · 7 days', nFailed, 'var(--red)') +
@@ -8497,7 +8497,7 @@
                 : (method === 'card' || method === 'credit_card')
                     ? (last4 ? `Paid by card ····${last4}` : 'Paid by card')
                 : 'Paid';
-      return `<span class="pay-tip" data-tip="${tip}" style="color:#059669;font-size:13px;font-weight:800;line-height:1">$</span>`;
+      return `<span class="pay-tip" data-tip="${tip}" style="color:#059669;font-size:13px;font-weight:700;line-height:1">$</span>`;
     }
     // Charge failed
     if (o.billing_status === 'failed') {
@@ -11558,23 +11558,23 @@ ${oneCopy}
     // Add-on tags (already escaped via addonTags map above)
     const addonHtml = (addonTags && addonTags.length)
       ? `<div style="margin:7px 0 8px">` +
-        `<div style="font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:3px">Add-ons</div>` +
+        `<div style="font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:3px">Add-ons</div>` +
         addonTags.map(t =>
-          `<span style="display:inline-block;border:2px solid #000;border-radius:3px;padding:2px 6px;font-size:11.5px;font-weight:800;text-transform:uppercase;margin:2px 3px 2px 0">${t}</span>`
+          `<span style="display:inline-block;border:2px solid #000;border-radius:3px;padding:2px 6px;font-size:11.5px;font-weight:700;text-transform:uppercase;margin:2px 3px 2px 0">${t}</span>`
         ).join('') + `</div>` : '';
 
     // Schedule box
     const hasRoute = stopNum || routeName;
     const routePart = hasRoute
-      ? `<div style="text-align:right"><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop / Route</div>` +
+      ? `<div style="text-align:right"><div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop / Route</div>` +
         `<div style="font-size:11px;font-weight:700">${stopNum}${stopNum && routeName ? ' / ' : ''}${routeName}</div></div>` : '';
     const schedHtml =
       `<div style="border:2px solid #000;border-radius:3px;padding:7px 9px;margin:7px 0">` +
-      `<div style="margin-bottom:5px"><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">PICKUP</div>` +
+      `<div style="margin-bottom:5px"><div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">PICKUP</div>` +
       `<div style="font-size:12px;font-weight:700">${pickupStr || '\u2014'}</div></div>` +
       `<div style="border-top:1px dashed #ccc;margin-bottom:5px"></div>` +
       `<div style="display:flex;justify-content:space-between;align-items:flex-start">` +
-      `<div><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">DELIVERY</div>` +
+      `<div><div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">DELIVERY</div>` +
       `<div style="font-size:12px;font-weight:700">${delivStr || '\u2014'}</div></div>${routePart}</div></div>`;
 
     // Tip calculation
@@ -11614,7 +11614,7 @@ ${oneCopy}
       `<div style="font-size:14px;font-weight:700;color:#333">${bags || '\u2014'} BAGS / ${weightLbs ? weightLbs + ' LBS' : '\u2014 LBS'}</div></div>` +
       schedHtml + addonHtml +
       `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
-      `<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px">Invoice</div>` +
+      `<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px">Invoice</div>` +
       `<div style="border-top:1px solid #000;margin-bottom:3px"></div>` +
       lineItemsHtml +
       `<hr style="border:none;border-top:1px solid #ccc;margin:5px 0 4px">` +
@@ -11741,10 +11741,10 @@ ${oneCopy}
     // Add-on tags
     const addonTagsHtml = (addonTags && addonTags.length)
       ? `<div style="margin:7px 0 8px">` +
-        `<div style="font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:3px">Add-ons</div>` +
+        `<div style="font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:3px">Add-ons</div>` +
         addonTags.map(t =>
           `<span style="display:inline-block;border:2px solid #000;border-radius:3px;padding:2px 6px;` +
-          `font-size:11.5px;font-weight:800;text-transform:uppercase;margin:2px 3px 2px 0">${t}</span>`
+          `font-size:11.5px;font-weight:700;text-transform:uppercase;margin:2px 3px 2px 0">${t}</span>`
         ).join('') + `</div>`
       : '';
 
@@ -11752,17 +11752,17 @@ ${oneCopy}
     const hasRoute  = stopNum || routeName;
     const routePart = hasRoute
       ? `<div style="text-align:right">` +
-        `<div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop · Route</div>` +
+        `<div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop · Route</div>` +
         `<div style="font-size:11px;font-weight:700">${stopNum}${stopNum && routeName ? ' · ' : ''}${routeName}</div></div>`
       : '';
     const schedHtml =
       `<div style="border:2px solid #000;border-radius:3px;padding:7px 9px;margin:7px 0">` +
       `<div style="margin-bottom:5px">` +
-      `<div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">📦 Pickup Due</div>` +
+      `<div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">📦 Pickup Due</div>` +
       `<div style="font-size:12px;font-weight:700">${pickupStr}</div></div>` +
       `<div style="border-top:1px dashed #ccc;margin-bottom:5px"></div>` +
       `<div style="display:flex;justify-content:space-between;align-items:flex-start">` +
-      `<div><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">🚐 Delivery</div>` +
+      `<div><div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">🚐 Delivery</div>` +
       `<div style="font-size:12px;font-weight:700">${delivStr}</div></div>${routePart}</div></div>`;
 
     // Tip calculation
@@ -11803,7 +11803,7 @@ ${oneCopy}
         schedHtml +
         addonTagsHtml +
         `<hr class="dash">` +
-        `<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px">Invoice</div>` +
+        `<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px">Invoice</div>` +
         `<div style="border-top:1px solid #000;margin-bottom:3px"></div>` +
         lineItemsHtml +
         `<hr class="thin" style="margin-top:5px">` +
@@ -21263,7 +21263,7 @@ ${oneCopy}
       className: '',
       iconSize: [22, 22],
       iconAnchor: [11, 11],
-      html: `<div style="width:22px;height:22px;border-radius:50%;background:#1a1a1a;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:white;letter-spacing:-.3px;position:relative">
+      html: `<div style="width:22px;height:22px;border-radius:50%;background:#1a1a1a;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:white;letter-spacing:-.3px;position:relative">
         ${initials}
         <div style="position:absolute;top:-1px;right:-1px;width:7px;height:7px;border-radius:50%;background:#22c55e;border:1px solid white;"></div>
       </div>`
@@ -21492,7 +21492,7 @@ ${oneCopy}
         : `<span style="font-size:10.5px;font-weight:700;background:var(--gray-100);color:var(--gray-400);padding:2px 8px;border-radius:10px">Inactive</span>`;
 
       return `<div class="card" style="padding:16px 18px;display:flex;gap:14px;align-items:flex-start;cursor:pointer;transition:background .1s" onclick="openDriverEditor('${d.id}')">
-        <div style="width:42px;height:42px;border-radius:50%;background:#9ca3af;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:white;flex-shrink:0">${initials}</div>
+        <div style="width:42px;height:42px;border-radius:50%;background:#9ca3af;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;flex-shrink:0">${initials}</div>
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
             <span style="font-size:14px;font-weight:700;color:var(--gray-900)">${name}</span>
@@ -29431,7 +29431,7 @@ ${oneCopy}
             <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
             <span style="font-size:14px;font-weight:700;color:${isOnline ? 'var(--gray-800)' : 'var(--gray-500)'}">${adminDriverName(drv)}</span>
           </div>
-          ${unread > 0 ? `<span style="background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 7px">${unread}</span>` : `<span style="font-size:11px;color:var(--gray-400)">${lastTime}</span>`}
+          ${unread > 0 ? `<span style="background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:700;padding:1px 7px">${unread}</span>` : `<span style="font-size:11px;color:var(--gray-400)">${lastTime}</span>`}
         </div>
         <div style="font-size:12px;color:${unread > 0 ? 'var(--gray-700)' : 'var(--gray-400)'};font-weight:${unread > 0 ? '600' : '400'};padding-left:14px">${lastText}</div>
       </div>`;
@@ -29467,7 +29467,7 @@ ${oneCopy}
     const hdr    = document.getElementById('admin-thread-hdr');
     if (!thread || !drv) return;
 
-    hdr.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:var(--accent);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">${adminDriverName(drv)[0]}</div>
+    hdr.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:var(--accent);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${adminDriverName(drv)[0]}</div>
       <div>
         <div style="font-size:15px;font-weight:700;color:var(--gray-800)">${adminDriverName(drv)}</div>
         <div style="font-size:12px;color:var(--gray-400)">${drv.profiles?.email || ''}</div>
@@ -29484,7 +29484,7 @@ ${oneCopy}
       const isAdmin = m.sender_type === 'admin';
       const timeStr = new Date(m.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone: BIZ_TZ });
       return `<div style="display:flex;flex-direction:${isAdmin ? 'row-reverse' : 'row'};gap:10px;align-items:flex-end;margin-bottom:14px">
-        <div style="width:30px;height:30px;border-radius:50%;background:${isAdmin ? '#1e40af' : 'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">
+        <div style="width:30px;height:30px;border-radius:50%;background:${isAdmin ? '#1e40af' : 'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">
           ${isAdmin ? 'CS' : adminDriverName(drv)[0]}
         </div>
         <div style="max-width:72%;display:flex;flex-direction:column;align-items:${isAdmin ? 'flex-end' : 'flex-start'}">
