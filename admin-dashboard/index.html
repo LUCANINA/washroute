@@ -803,6 +803,8 @@
     .issue-comment-input { flex:1;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;resize:none;outline:none;min-height:38px;max-height:100px; }
     .issue-comment-input:focus { border-color:var(--accent); }
     .issue-cat-badge { font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:#f0fdf4;color:#166534; }
+    /* Open issue that's gone 7+ days without resolution — flags admin to act. */
+    .issue-attention-badge { font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;white-space:nowrap;flex-shrink:0; }
 
     /* Issue create modal */
     .issue-create-overlay { position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1300;display:flex;align-items:center;justify-content:center; }
@@ -7901,7 +7903,9 @@
     }
     const urgentCount = issues.filter(i => i.priority === 'urgent').length;
     const highCount   = issues.filter(i => i.priority === 'high').length;
+    const attnCount   = issues.filter(issueNeedsAttention).length;
     const parts = [];
+    if (attnCount)   parts.push(`⚠ ${attnCount} need attention`);
     if (urgentCount) parts.push(`${urgentCount} urgent`);
     if (highCount)   parts.push(`${highCount} high`);
     parts.push(`${issues.length} total`);
@@ -7917,6 +7921,7 @@
         <span class="issue-pri-badge ${priBadgeClass(iss.priority)}">${iss.priority.toUpperCase()}</span>
         <span class="issue-row-title">${esc(iss.title)}</span>
         ${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}
+        ${issueAttentionBadge(iss)}
         <span class="issue-row-meta">${esc(custName)} · ${age}${iss.assigned_to ? ' · ' + esc(iss.assigned_to) : ''}</span>
       </div>`;
     }).join('');
@@ -15586,10 +15591,31 @@ ${oneCopy}
   }
 
   // ── ISSUE MANAGEMENT ──
+  // Human-readable labels for every issue category. Keep this in sync with any
+  // category value that can reach cs_issues — including ones created outside the
+  // New Issue dropdown: 'lost_found' (Lost & Found feature) and 'note' (migrated
+  // customer notes, session 173). Render sites fall back to the raw value, so a
+  // missing key shows a database-style label like "lost_found".
   const ISSUE_CATEGORIES = {
     pickup: 'Pickup Issue', delivery: 'Delivery Issue', billing: 'Billing / Payment',
-    damaged: 'Damaged / Lost', schedule: 'Schedule Change', complaint: 'Complaint', other: 'Other'
+    damaged: 'Damaged / Lost', schedule: 'Schedule Change', complaint: 'Complaint',
+    lost_found: 'Lost & Found', note: 'Note', other: 'Other'
   };
+
+  // A still-open issue (open/in_progress) that's gone 7+ days without resolution
+  // needs admin action. Visual-only flag derived from created_at — no stored
+  // field to keep in sync. Function declaration (hoisted) so render sites earlier
+  // in the file can call it.
+  function issueNeedsAttention(iss) {
+    if (!iss || !iss.created_at) return false;
+    if (iss.status !== 'open' && iss.status !== 'in_progress') return false;
+    return (Date.now() - new Date(iss.created_at).getTime()) >= 7 * 86_400_000;
+  }
+  function issueAttentionBadge(iss) {
+    return issueNeedsAttention(iss)
+      ? '<span class="issue-attention-badge">⚠ Needs attention</span>'
+      : '';
+  }
 
   let _currentIssueId = null;
   let _currentIssueData = null;
@@ -15616,6 +15642,7 @@ ${oneCopy}
     const actionsEl = document.getElementById('iss-detail-actions');
     if (iss.status === 'open' || iss.status === 'in_progress') {
       actionsEl.innerHTML = `
+        ${issueAttentionBadge(iss)}
         <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="changeIssueStatus('in_progress')">In Progress</button>
         <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;background:#10b981;border-color:#10b981" onclick="changeIssueStatus('resolved')">✓ Resolve</button>`;
     } else {
@@ -18916,6 +18943,7 @@ ${oneCopy}
           <span class="issue-row-title">${esc(iss.title || '(untitled)')}</span>
           ${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}
           ${statusBadge}
+          ${issueAttentionBadge(iss)}
           <span class="issue-row-meta" style="margin-left:auto">${esc(age)}${iss.created_by ? ' · ' + esc(iss.created_by) : ''}</span>
         </div>
         ${noteSnippet}
