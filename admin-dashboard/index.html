@@ -4792,12 +4792,13 @@
     <!-- 4. HISTORY — transaction ledger (folded in from the old Transactions tab, session 184) -->
     <div class="cpb-pane" id="cpb-pane-history" style="display:none">
     <div class="cp-section-head"><span>Transaction history</span></div>
-    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
-      <button class="filter-tab active" onclick="filterCpTxns(0,this)">All</button>
-      <button class="filter-tab" onclick="filterCpTxns(7,this)">7 days</button>
-      <button class="filter-tab" onclick="filterCpTxns(30,this)">30 days</button>
-      <button class="filter-tab" onclick="filterCpTxns(60,this)">60 days</button>
-      <button class="filter-tab" onclick="filterCpTxns(120,this)">120 days</button>
+    <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12px;color:var(--gray-400);margin-right:2px">Days:</span>
+      <button class="cp-range-btn" onclick="filterCpTxns(7,this)">7</button>
+      <button class="cp-range-btn" onclick="filterCpTxns(30,this)">30</button>
+      <button class="cp-range-btn" onclick="filterCpTxns(60,this)">60</button>
+      <button class="cp-range-btn" onclick="filterCpTxns(120,this)">120</button>
+      <button class="cp-range-btn active" onclick="filterCpTxns(0,this)">All</button>
       <span id="cp-txn-summary" style="margin-left:auto;font-size:12px;color:var(--gray-500);font-weight:600"></span>
     </div>
     <div class="cp-card" style="padding:0;overflow:hidden">
@@ -19313,7 +19314,7 @@ ${oneCopy}
 
   function filterCpTxns(days, btn) {
     _cpTxnDays = days;
-    document.querySelectorAll('#cpb-pane-history .filter-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#cpb-pane-history .cp-range-btn').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
     renderCpTxns();
   }
