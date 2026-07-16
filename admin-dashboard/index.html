@@ -25921,10 +25921,34 @@ ${oneCopy}
     if (dlDate) rows += `<div class="fold-order-row"><span>Delivery due</span><strong style="${dlHighlight}">${dlDate}${dlSlot ? ' · '+dlSlot : ''}${dlLabel}</strong></div>`;
     if (dlRoute) rows += `<div class="fold-order-row"><span>Delivery route</span><strong>${dlRoute}</strong></div>`;
     if (!rows) return ''; // no pickup/delivery data at all
+    // Pickup proof photo (filled async once the container mounts) — session 184g.
+    if (o && o.id) setTimeout(() => _loadPickupPhoto(o.id), 0);
     return `<div class="intake-section" style="margin-top:4px">
       <div class="intake-section-label">Pickup & Delivery</div>
       <div class="fold-order-summary">${rows}</div>
+      <div id="pd-pickup-photo-${o.id}" style="margin-top:12px"></div>
     </div>`;
+  }
+
+  // Load the pickup proof photo for an order into its Pickup & Delivery block
+  // (shared by the Intake / Fold / Rack panels) — session 184g.
+  async function _loadPickupPhoto(orderId) {
+    if (!document.getElementById('pd-pickup-photo-' + orderId)) return;
+    let url = null;
+    try {
+      const { data } = await db.from('route_stops')
+        .select('proof_photo_url')
+        .eq('order_id', orderId).eq('stop_type', 'pickup')
+        .not('proof_photo_url', 'is', null)
+        .limit(1).maybeSingle();
+      url = data ? data.proof_photo_url : null;
+    } catch (e) { return; }
+    const el = document.getElementById('pd-pickup-photo-' + orderId);
+    if (!el) return;
+    el.innerHTML = url
+      ? `<div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:5px">Pickup photo</div>
+         <img src="${url}" style="width:100%;max-width:170px;height:120px;border-radius:8px;border:.5px solid var(--gray-200);object-fit:cover;cursor:pointer" onclick="window.open('${url}','_blank')" title="Open full size" alt="Pickup photo">`
+      : '';
   }
 
   // ── FOLDING QUEUE ──
