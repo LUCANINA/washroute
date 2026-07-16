@@ -860,6 +860,11 @@
     .rcc-slot-btn:hover { background:var(--gray-50);color:var(--gray-700); }
     .rcc-slot-btn.on { background:var(--gray-900);color:#fff; }
     .rcc-slot-btn.on:hover { background:var(--gray-800); }
+    /* Planned pickups/deliveries summary for the selected window (Orders → Map bar) */
+    .rcc-summary { display:inline-flex;align-items:center;gap:14px;padding:3px 12px;border:1px solid var(--gray-200);border-radius:8px;background:var(--gray-50); }
+    .rcc-summary-item { display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--gray-500); }
+    .rcc-summary-item b { font-size:14px;font-weight:700;color:var(--gray-900);font-variant-numeric:tabular-nums; }
+    .rcc-summary-win { font-size:10px;font-weight:700;color:var(--gray-400);padding-right:10px;border-right:1px solid var(--gray-200); }
     /* Chips — compact */
     .rcc-chip { display:flex;align-items:center;gap:4px;padding:2px 6px 2px 5px;border-radius:8px;border:1.25px solid var(--gray-200);background:#fff;cursor:pointer;transition:all .14s;white-space:nowrap;user-select:none;flex-shrink:0; }
     .rcc-chip:hover { border-color:var(--gray-400);background:var(--gray-50); }
@@ -1801,6 +1806,10 @@
             <div style="padding:10px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-shrink:0;background:#fff;">
               <span style="font-size:13px;font-weight:600;color:var(--gray-700)">Date:</span>
               <input type="date" id="runs-date-picker" class="form-input" style="width:155px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
+              <!-- AM/PM toggle (rendered by rccRenderChips) sits right of the date -->
+              <div id="rcc-slot-host" style="display:flex;align-items:center;"></div>
+              <!-- Planned pickups/deliveries summary for the selected window (rendered by rccRenderDaySummary) -->
+              <div id="rcc-day-summary" style="display:flex;align-items:center;"></div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
                 <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;" onclick="optimizeRoute()">Optimize</button>
                 <button class="btn btn-ghost" id="btn-map-fullscreen" style="font-size:12px;padding:5px 10px;display:flex;align-items:center;gap:5px;" onclick="toggleMapFullscreen()" title="Maximize map (Esc to exit)">
@@ -22638,6 +22647,7 @@ ${oneCopy}
 
   // RCC state
   let _dsTemplates = [], _dsRoutes = [], _dsCountMap = {}, _dsOvercapMap = {}, _dsDateStr = '';
+  let _dsAllStops = []; // raw route_stops for the day's routes — feeds the window summary
   let _rccDriverSched = {};            // `${template_id}-${dow}` → driver_id (for RCC fallback)
   let _dsActiveZone = null, _dsActiveSlot = null; // kept for backward-compat with autoOptimizeRoute refresh
   let _rccActiveRoutes = new Set();   // routeId → open column
@@ -22711,9 +22721,11 @@ ${oneCopy}
     // when the route is carrying orders booked above base capacity (within 125% ceiling).
     _dsCountMap = {};
     _dsOvercapMap = {};
+    _dsAllStops = [];
     const routeIds = _dsRoutes.map(r => r.id);
     if (routeIds.length) {
       const { data: sc } = await db.from('route_stops').select('route_id, status, stop_type, orders(status, overcap_booking)').in('route_id', routeIds);
+      _dsAllStops = sc || [];
       // Show ALL planned stops on the Map view regardless of order processing
       // status — the chip count is a planning view, not a "ready to dispatch"
       // view. Cards display a "not ready" badge for delivery stops whose order
@@ -22729,9 +22741,40 @@ ${oneCopy}
     }
 
     rccRenderChips();
+    rccRenderDaySummary();
     rccUpdateOptimizeBtn();
     // Auto-open every route that has a run in the current slot
     rccAutoOpenSlotRoutes();
+  }
+
+  // ── RCC: Planned pickups/deliveries summary for the SELECTED window ──
+  // Scoped to the currently-toggled AM/PM slot (not the whole day), and counts
+  // ALL planned stops in that window including completed ones — only truly
+  // cancelled orders are excluded. Re-renders on date load and on AM/PM toggle.
+  function rccRenderDaySummary() {
+    const el = document.getElementById('rcc-day-summary');
+    if (!el) return;
+    if (!_dsTemplates.length) { el.innerHTML = ''; return; }
+    const parseH = v => v == null ? null : parseInt(v);
+    const inSlot = t => {
+      if (!t) return false;
+      if (_rccSlot === 'AM') { const s = parseH(t.window_start); return s == null || s < 12; }
+      const e = parseH(t.window_end); return e != null && e > 12;
+    };
+    const slotRouteIds = new Set(
+      _dsRoutes.filter(r => inSlot(_dsTemplates.find(t => t.id === r.template_id))).map(r => r.id)
+    );
+    let pickups = 0, deliveries = 0;
+    (_dsAllStops || []).forEach(s => {
+      if (!slotRouteIds.has(s.route_id)) return;
+      if (!s.orders || s.orders.status === 'cancelled') return; // exclude only truly cancelled
+      if (s.stop_type === 'delivery') deliveries++; else pickups++;
+    });
+    el.innerHTML = `<div class="rcc-summary" title="All planned stops for the ${_rccSlot} window (includes completed)">
+      <span class="rcc-summary-win">${_rccSlot} window</span>
+      <span class="rcc-summary-item">Pickups <b>${pickups}</b></span>
+      <span class="rcc-summary-item">Deliveries <b>${deliveries}</b></span>
+    </div>`;
   }
 
   // ── RCC: Auto-open all routes in the current AM/PM slot that have pending stops ──
@@ -22770,6 +22813,8 @@ ${oneCopy}
 
     if (!_dsTemplates.length) {
       el.innerHTML = '<span style="font-size:12.5px;color:var(--gray-400);padding:6px 0;">No route templates configured</span>';
+      const slotHost0 = document.getElementById('rcc-slot-host');
+      if (slotHost0) slotHost0.innerHTML = '';
       return;
     }
 
@@ -22827,10 +22872,15 @@ ${oneCopy}
       <button type="button" class="rcc-slot-btn${_rccSlot==='PM'?' on':''}" onclick="rccSetSlot('PM')" aria-pressed="${_rccSlot==='PM'}">PM</button>
     </div>`;
 
+    // The AM/PM toggle now lives in the Date bar (right of the date), not in the
+    // chip row — render it into its host there.
+    const slotHost = document.getElementById('rcc-slot-host');
+    if (slotHost) slotHost.innerHTML = toggle;
+
     const chipsHtml = bucket.length
       ? bucket.map(buildChip).join('')
       : `<span style="font-size:11px;color:var(--gray-400);padding:2px 0;">No ${_rccSlot} routes</span>`;
-    el.innerHTML = `<div class="rcc-chip-row">${toggle}${chipsHtml}</div>`;
+    el.innerHTML = `<div class="rcc-chip-row">${chipsHtml}</div>`;
   }
 
   // ── RCC: Scroll helpers kept as no-ops for any lingering references ──
@@ -22848,6 +22898,7 @@ ${oneCopy}
     _rccActiveRoutes.clear();
     _rccRouteData = {};
     rccRenderChips();
+    rccRenderDaySummary();
     rccRenderColumns();
     rccRenderMap();
     rccUpdatePanelWidth();
