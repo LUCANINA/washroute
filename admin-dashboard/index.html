@@ -4264,6 +4264,12 @@
       </label>
     </div>
 
+    <!-- Delivered orders are locked from editing; recall to the route to make changes (session 184d). -->
+    <div id="op-delivered-lock" style="display:none;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:14px">
+      <span style="font-size:14px">🔒</span>
+      <span>This order is <strong>delivered</strong> and locked. Use <strong>Recall to Route</strong> below to make changes.</span>
+    </div>
+
     <div class="op-sec-head">Pickup</div>
     <div class="op-sched-card">
       <div class="op-sched-row">
@@ -9322,6 +9328,11 @@
       if (ab) { ab.textContent = 'Change'; ab.classList.remove('cancel-btn'); }
     });
 
+    // Delivered orders are locked from editing (session 184d) — hide the schedule/
+    // address/details edit controls and disable the same-day / different-address
+    // toggles. Recall to Route (which changes the status) is the way back to editable.
+    opApplyDeliveredLock(o);
+
     // Open panel
     document.getElementById('order-panel').classList.add('open');
     document.getElementById('order-panel-backdrop').classList.add('open');
@@ -9331,6 +9342,39 @@
 
     // Load proof photos from driver app (non-blocking — populates Details tab)
     opRefreshProofPhotos(orderId);
+  }
+
+  // Session 184d — lock a delivered order from editing. Hides the schedule/address/
+  // details Edit·Change buttons and disables the Same-day + Different-delivery-address
+  // toggles; shows a "recall to edit" hint. Recall to Route remains available (it
+  // changes the status, which re-enables editing on the next open).
+  function opApplyDeliveredLock(o) {
+    const locked = !!(o && o.status === 'delivered');
+    ['op-pickup-edit-btn','op-pickup-addr-btn','op-delivery-edit-btn','op-delivery-addr-btn','op-details-edit-btn'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = locked ? 'none' : '';
+    });
+    ['op-sameday-chk','op-diff-addr-chk'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = locked;
+      const lbl = el.closest('label');
+      if (lbl) { lbl.style.opacity = locked ? '.45' : ''; lbl.style.pointerEvents = locked ? 'none' : ''; }
+    });
+    const hint = document.getElementById('op-delivered-lock');
+    if (hint) hint.style.display = locked ? 'flex' : 'none';
+  }
+
+  // Function-level backstop so a delivered order can't be edited even via a
+  // deep-link (e.g. the orders-list "✎ change slot" affordance) that bypasses
+  // the hidden buttons. Returns true (and toasts) when the order is locked.
+  function opDeliveredGuard() {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (o && o.status === 'delivered') {
+      showToast('Order is delivered — recall it to the route to edit', '');
+      return true;
+    }
+    return false;
   }
 
   // Open panel and immediately expand the schedule picker for a given leg
@@ -10177,6 +10221,7 @@
 
   // ── PICKUP SCHEDULE EDIT ──
   async function opTogglePickupEdit() {
+    if (opDeliveredGuard()) return;
     const picker = document.getElementById('op-pickup-picker');
     const btn    = document.getElementById('op-pickup-edit-btn');
     const open   = picker.style.display === 'none';
@@ -10187,6 +10232,7 @@
   }
 
   async function opToggleDeliveryEdit() {
+    if (opDeliveredGuard()) return;
     const picker = document.getElementById('op-delivery-picker');
     const btn    = document.getElementById('op-delivery-edit-btn');
     const open   = picker.style.display === 'none';
@@ -10584,6 +10630,7 @@
 
   // ── ADDRESS PICKER ──
   function opToggleAddrPicker(leg) {
+    if (opDeliveredGuard()) return;
     const picker = document.getElementById(`op-${leg}-addr-picker`);
     const btn    = document.getElementById(`op-${leg}-addr-btn`);
     const open   = picker.style.display === 'none';
