@@ -4421,15 +4421,15 @@
     <div class="op-sched-card">
       <div class="op-sched-row" style="margin-bottom:6px">
         <span class="op-sched-lbl">Total</span>
-        <span class="op-sched-val" id="op-bill-total" style="font-weight:700;font-size:16px">—</span>
+        <span class="op-sched-val" id="op-bill-total" style="font-weight:600;font-size:14px">—</span>
       </div>
       <div class="op-sched-row" style="margin-bottom:6px">
         <span class="op-sched-lbl">Card</span>
-        <span class="op-sched-val" id="op-bill-card" style="font-size:12.5px">—</span>
+        <span class="op-sched-val" id="op-bill-card" style="font-size:14px">—</span>
       </div>
       <div class="op-sched-row">
         <span class="op-sched-lbl">Charged</span>
-        <span class="op-sched-val" id="op-bill-charged" style="font-size:12.5px">—</span>
+        <span class="op-sched-val" id="op-bill-charged" style="font-size:14px">—</span>
       </div>
     </div>
     <div id="op-bill-actions" style="margin-top:14px;display:flex;flex-direction:column;gap:8px"></div>
@@ -8611,7 +8611,7 @@
                archived_at, archived_reason, archived_by,
                services(name),
                folded_by:folded_by_id(name),
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, pricelist),
+               customers(id, first_name_cache, last_name_cache, phone_cache, email_cache, billing_type, pricelist),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name),
                pickup_address:pickup_address_id(id, label, line1, line2, city, state, zip),
@@ -9242,7 +9242,10 @@
     // Customer strip
     const custLink = document.getElementById('op-cust-name');
     if (custLink) custLink.textContent = orderCustomerName(o);
-    document.getElementById('op-cust-phone').textContent = o.customers?.phone_cache || '—';
+    const _opPhone = o.customers?.phone_cache || '';
+    const _opEmail = o.customers?.email_cache || '';
+    document.getElementById('op-cust-phone').innerHTML =
+      [_opPhone, _opEmail].filter(Boolean).map(esc).join(' &nbsp;·&nbsp; ') || '—';
 
     // Routing error banner
     let routeErrEl = document.getElementById('op-routing-error');
@@ -11091,14 +11094,31 @@
     // Show tip-inclusive total so what admin sees matches what charge-order will charge.
     const billTotal = _orderTipBreakdown(o).totalWithTip;
     document.getElementById('op-bill-total').textContent = fmtMoney(billTotal);
-    // Card info: customer table may have card_last4/card_brand as legacy columns
-    const cust = allCustomers.find(c => c.id === opCurrentCustId);
-    const cardLast4 = cust?.card_last4;
-    const cardBrand = cust?.card_brand;
-    document.getElementById('op-bill-card').textContent = cardLast4
-      ? `${cardBrand || 'Card'} ····${cardLast4}`
-      : 'See customer profile';
     document.getElementById('op-bill-charged').textContent = o.stripe_payment_intent_id ? 'Yes' : 'Not yet charged';
+    // Card: order-level card_last4 is never populated — the actual card lives on the
+    // order's charge transaction (session 184e). Optimistically show the customer's
+    // card on file, then refine from the charge txn. Async; guard against stale panel.
+    const cardEl = document.getElementById('op-bill-card');
+    const cust = allCustomers.find(c => c.id === opCurrentCustId);
+    const _capBrand = b => b ? b.charAt(0).toUpperCase() + b.slice(1) : 'Card';
+    const _fbLast4 = cust?.card_last4, _fbBrand = cust?.card_brand;
+    cardEl.textContent = _fbLast4
+      ? `${_capBrand(_fbBrand)} •••• ${_fbLast4}`
+      : (o.stripe_payment_intent_id ? 'Loading…' : 'No card on file');
+    db.from('customer_transactions')
+      .select('card_brand, card_last4')
+      .eq('order_id', o.id)
+      .in('type', ['charge', 'subscription_invoice'])
+      .not('card_last4', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (opCurrentOrderId !== o.id) return; // panel moved to another order
+        if (data && data.card_last4) cardEl.textContent = `${_capBrand(data.card_brand)} •••• ${data.card_last4}`;
+        else if (!_fbLast4) cardEl.textContent = o.stripe_payment_intent_id ? 'Card not recorded' : 'No card on file';
+      })
+      .catch(() => {});
     const actEl = document.getElementById('op-bill-actions');
     actEl.innerHTML = '';
     // Session 175: never offer the Charge button for on-account customers (they pay
