@@ -19396,6 +19396,12 @@ ${oneCopy}
             // to the order when we have its id. Non-order rows (e.g. manual credit) show —.
             const _om = (t.description || '').match(/#(\d+)/);
             const _onum = _om ? _om[1] : null;
+            // Card (or ACH/Check) used, shown under the Type badge (session 184b).
+            let _payLine = '';
+            if (t.card_last4) _payLine = `${t.card_brand ? t.card_brand.charAt(0).toUpperCase()+t.card_brand.slice(1)+' ' : ''}•••• ${t.card_last4}`;
+            else if (t.payment_method === 'ach')   _payLine = 'ACH';
+            else if (t.payment_method === 'check') _payLine = 'Check';
+            const payCell = _payLine ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">${_payLine}</div>` : '';
             const orderCell = (_onum && t.order_id)
               ? `<a href="#" onclick="event.preventDefault();cpOpenOrder('${t.order_id}')" style="font-weight:500;color:var(--accent);text-decoration:none" title="Open order #${_onum}">#${_onum}</a>`
               : _onum
@@ -19404,7 +19410,7 @@ ${oneCopy}
             return `
             <tr style="border-bottom:1px solid var(--gray-100)">
               <td style="padding:9px 16px;color:var(--gray-500);white-space:nowrap">${fmtDate(t.created_at)}</td>
-              <td style="padding:9px 8px">${txnTypeBadge(t.type)}</td>
+              <td style="padding:9px 8px;vertical-align:top">${txnTypeBadge(t.type)}${payCell}</td>
               <td style="padding:9px 8px">
                 ${orderCell}
                 ${alreadyRefunded > 0 && t.type === 'charge' ? `<div style="font-size:11px;color:var(--accent);margin-top:2px">↩ ${fmtMoney(alreadyRefunded)} refunded</div>` : ''}
