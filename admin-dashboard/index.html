@@ -4602,10 +4602,10 @@
       </div>
     </div>
     <style>
-      #cp-sms-mkt-toggle:checked + span { background: #16a34a; }
-      #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px; }
-      #cp-email-mkt-toggle:checked + span { background: #16a34a; }
-      #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px; }
+      #cp-sms-mkt-toggle:checked + span { background: #16a34a !important; }
+      #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px !important; }
+      #cp-email-mkt-toggle:checked + span { background: #16a34a !important; }
+      #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px !important; }
     </style>
     </div><!-- /cpc-pane-marketing -->
 
@@ -19326,10 +19326,11 @@ ${oneCopy}
 
   function txnTypeBadge(type) {
     const map = {
-      charge:       { label: '💳 Charge',       color: '#1d4ed8', bg: '#eff6ff' },
-      credit_add:   { label: '＋ Credit',        color: '#059669', bg: '#ecfdf5' },
-      credit_remove:{ label: '－ Credit',        color: '#dc2626', bg: '#fef2f2' },
-      refund:       { label: '↩ Refund',         color: '#3b82f6', bg: '#dbeafe' },
+      charge:               { label: '💳 Charge',              color: '#1d4ed8', bg: '#eff6ff' },
+      subscription_invoice: { label: '🔁 Subscription charge', color: '#1d4ed8', bg: '#eff6ff' },
+      credit_add:           { label: '＋ Credit',              color: '#059669', bg: '#ecfdf5' },
+      credit_remove:        { label: '－ Credit',              color: '#dc2626', bg: '#fef2f2' },
+      refund:               { label: '↩ Refund',               color: '#3b82f6', bg: '#dbeafe' },
     };
     const t = map[type] || { label: type, color: 'var(--gray-500)', bg: 'var(--gray-100)' };
     return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;color:${t.color};background:${t.bg}">${t.label}</span>`;
@@ -19884,18 +19885,14 @@ ${oneCopy}
     // Sync last_order date if stale
     const latest = cpAllOrders.reduce((best,o)=>o.created_at&&(!best||o.created_at>best)?o.created_at:best, null);
     if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).catch(e=>console.warn('last_order_at sync failed:',e)); } }
-    // Reset filter tab UI and billing state to default 'active'
-    document.querySelectorAll('#cptab-orders .filter-tab').forEach(t => t.classList.remove('active'));
-    const activeTab = document.getElementById('cpof-active'); if (activeTab) activeTab.classList.add('active');
-    const rangeBar = document.getElementById('cpof-range'); if (rangeBar) rangeBar.style.display = 'none';
-    cpOrdersRangeDays = 0; // 'All' — default range for the Completed tab
-    // Reset the Days-Previous buttons back to 'All' (last button) so the highlight
-    // doesn't carry a prior customer's selection into this one (shared panel DOM).
+    // Default the Orders tab to the Completed section (session 184b). Reset the
+    // Days-Previous buttons to 'All' first so a prior customer's selection doesn't
+    // carry over; filterCpOrders sets the tab / billing-mode / range-bar state.
+    cpOrdersRangeDays = 0; // 'All'
     document.querySelectorAll('#cpof-range .cp-range-btn').forEach((b,i,arr) => b.classList.toggle('active', i === arr.length - 1));
-    cpBillingMode = false;
-    cpBillingSelection.clear();
-    updateBillingBar();
-    renderCpOrders(cpAllOrders, 'active');
+    const completedBtn = document.getElementById('cpof-completed');
+    if (completedBtn) filterCpOrders('completed', completedBtn);
+    else renderCpOrders(cpAllOrders, 'completed');
   }
 
   function filterCpOrders(filter, btn) {
