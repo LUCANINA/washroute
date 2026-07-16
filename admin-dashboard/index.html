@@ -4484,6 +4484,15 @@
        Card 3 = Operations (Route Override + Default Processing Site).
        Price List moved entirely to Billing tab (saved by saveBilling, not saveCustomerContact). -->
   <div class="cp-body" id="cptab-contact">
+    <!-- Session 184b — Contact split into sub-tabs (Details / Marketing / Messages)
+         so the identity form isn't buried under marketing + message history. -->
+    <div class="filter-tabs" style="margin-bottom:16px">
+      <button class="filter-tab active" data-csub="details"   onclick="cpContactSubtab('details',this)">Details</button>
+      <button class="filter-tab"        data-csub="marketing" onclick="cpContactSubtab('marketing',this)">Marketing</button>
+      <button class="filter-tab"        data-csub="messages"  onclick="cpContactSubtab('messages',this)">Messages</button>
+    </div>
+
+    <div class="cpc-pane" id="cpc-pane-details">
     <div class="cp-section-head"><span>Name &amp; Contact</span></div>
     <div class="cp-card">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
@@ -4560,10 +4569,10 @@
       <button class="btn btn-primary cp-save-btn" onclick="saveCustomerContact()">Save Contact Info</button>
       <div class="cp-save-msg" id="cp-contact-msg">✓ Saved</div>
     </div>
+    </div><!-- /cpc-pane-details -->
 
-    <!-- Marketing preferences + message history (folded in from the old Engagement tab, session 184).
-         Toggles auto-save; message history is read-only — so they sit below the Save Contact button. -->
-    <div class="cp-section-head"><span>Marketing</span></div>
+    <!-- Marketing sub-tab — SMS/email opt-in toggles (auto-save). -->
+    <div class="cpc-pane" id="cpc-pane-marketing" style="display:none">
     <div class="cp-card">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
         <div>
@@ -4595,13 +4604,17 @@
       #cp-email-mkt-toggle:checked + span { background: #16a34a; }
       #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px; }
     </style>
-    <div class="cp-section-head"><span>Message history</span></div>
+    </div><!-- /cpc-pane-marketing -->
+
+    <!-- Messages sub-tab — read-only SMS/email history. -->
+    <div class="cpc-pane" id="cpc-pane-messages" style="display:none">
     <div style="display:flex;gap:6px;margin-bottom:14px">
       <button class="filter-tab active" onclick="filterCpEngagement('all',this)" id="cpeng-all">All</button>
       <button class="filter-tab" onclick="filterCpEngagement('sms',this)" id="cpeng-sms">SMS</button>
       <button class="filter-tab" onclick="filterCpEngagement('email',this)" id="cpeng-email">Email</button>
     </div>
     <div id="cp-engagement-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
+    </div><!-- /cpc-pane-messages -->
   </div>
 
   <!-- ── BILLING TAB ── -->
@@ -18623,13 +18636,27 @@ ${oneCopy}
     if (name==='orders' && panelCustomerId) loadPanelOrders(panelCustomerId);
     if (name==='issues' && panelCustomerId) loadCpIssues(panelCustomerId);
     if (name==='preferences' && panelCustomerId) loadPanelPreferences(panelCustomerId);
-    // Contact now also renders the marketing message history (lazy).
-    if (name==='contact' && panelCustomerId) loadCpEngagement(panelCustomerId, _panelPhone);
+    // Contact opens on its Details sub-tab; Marketing + Messages are lazy sub-tabs (session 184b).
+    if (name==='contact') cpContactSubtab('details');
     // When entering Billing, restore the last-used sub-tab (session 152).
     if (name === 'billing') {
       const last = localStorage.getItem('wr-cpb-subtab') || 'plan';
       cpBillingSubtab(last);
     }
+  }
+
+  // Session 184b — Contact sub-tabs (Details / Marketing / Messages). Details is the
+  // identity form; Marketing holds the opt-in toggles; Messages is the read-only
+  // SMS/email history (lazy-loaded on first view). `btn` optional (reset on open).
+  function cpContactSubtab(name, btn) {
+    document.querySelectorAll('#cptab-contact .filter-tab[data-csub]').forEach(t => t.classList.remove('active'));
+    const activeBtn = btn || document.querySelector(`#cptab-contact .filter-tab[data-csub="${name}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+    ['details','marketing','messages'].forEach(n => {
+      const el = document.getElementById('cpc-pane-' + n);
+      if (el) el.style.display = (n === name) ? '' : 'none';
+    });
+    if (name === 'messages' && panelCustomerId) loadCpEngagement(panelCustomerId, _panelPhone);
   }
 
   // Session 152 — Billing sub-tabs (Plan / Payment / Balance).
@@ -18864,9 +18891,9 @@ ${oneCopy}
     // Marketing opt-in/out toggles
     populateMarketingToggles(c);
 
-    // Contact tab now hosts the marketing message history (session 184) — load it
-    // on open so it's ready whether or not Contact is the starting tab.
-    loadCpEngagement(customerId, phone);
+    // Contact tab now has Details / Marketing / Messages sub-tabs (session 184b).
+    // Always reset to Details on open; the Messages history lazy-loads when viewed.
+    cpContactSubtab('details');
 
     // Notes tab replaced by Issues tab (session 173) — these inputs no longer exist
     // in the panel. Guard so opening a customer panel never throws (cpnote-text was
@@ -19601,7 +19628,7 @@ ${oneCopy}
 
   function filterCpEngagement(type, btn) {
     _cpEngFilter = type;
-    document.querySelectorAll('#cptab-contact .filter-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#cpc-pane-messages .filter-tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
     renderCpEngagement();
   }
