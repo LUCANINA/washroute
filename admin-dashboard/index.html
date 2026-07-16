@@ -4842,10 +4842,13 @@
           <span id="billing-bar-count">0</span> order<span id="billing-bar-plural">s</span> selected &nbsp;·&nbsp; <span id="billing-bar-total" style="color:var(--accent)">$0.00</span>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn" style="font-size:12px;padding:5px 12px" onclick="printInvoice()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print Invoice
+          <button id="cpbar-print" class="btn" style="font-size:12px;padding:5px 12px" onclick="printInvoice()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Show Receipts
           </button>
-          <button class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openBillModal()">
+          <button id="cpbar-email" class="btn" style="font-size:12px;padding:5px 12px" onclick="cpEmailReceipts(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Email Receipts
+          </button>
+          <button id="cpbar-bill" class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openBillModal()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Bill Orders
           </button>
         </div>
@@ -19999,7 +20002,10 @@ ${oneCopy}
       const isFailed = ['skipped','pickup_failed','delivery_failed','cancelled'].includes(o.status);
       const billable = Number(o.total_amount)>0 && !isPaid && !isWrittenOff
         && (o.status==='delivered' || o.status==='ready_for_delivery');
-      const checked = billable && cpBillingSelection.has(o.id);
+      // Any delivered/ready row (paid or unpaid) is selectable for batch receipt
+      // actions (session 184b); failed/skipped/cancelled are not.
+      const selectable = (o.status==='delivered' || o.status==='ready_for_delivery');
+      const checked = selectable && cpBillingSelection.has(o.id);
       const amt = orderChargedTotal(o);
       const dateStr = fmtDate(o.actual_delivery_at || o.delivery_window_start || o.pickup_window_start || o.created_at);
       const methodLabel = !isPaid ? '' : o.billing_payment_method === 'credit' ? ' (credit)' : o.billing_payment_method === 'check' ? ' (check)' : o.billing_payment_method === 'cash' ? ' (cash)' : '';
@@ -20017,7 +20023,7 @@ ${oneCopy}
       const archLine = o.archived_at
         ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:2px">📦 Archived ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : '';
 
-      const cb = billable
+      const cb = selectable
         ? `<input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">`
         : `<span style="width:15px;flex-shrink:0"></span>`;
 
@@ -20133,11 +20139,38 @@ ${oneCopy}
     document.getElementById('billing-bar-count').textContent = selectedAll.length;
     document.getElementById('billing-bar-plural').textContent = selectedAll.length === 1 ? '' : 's';
     document.getElementById('billing-bar-total').textContent = fmtMoney(total);
-    // Show/hide buttons based on selection mix
-    const billBtn = bar.querySelector('.btn-primary');
-    const printBtn = bar.querySelector('.btn:not(.btn-primary)');
+    // Show Receipts + Email Receipts are available for any selection; Bill Orders
+    // only when the selection includes at least one unpaid order (session 184b).
+    const billBtn = document.getElementById('cpbar-bill');
     if (billBtn) billBtn.style.display = selectedUnpaid.length > 0 ? '' : 'none';
-    if (printBtn) printBtn.style.display = '';
+  }
+
+  // Batch-email a receipt for every selected order to the customer's email on file.
+  // Reuses the send-receipt edge function (same as the per-row Receipt email).
+  async function cpEmailReceipts(btn) {
+    const ids = [...cpBillingSelection];
+    if (!ids.length) return;
+    const email = _panelCustomerData && _panelCustomerData.email_cache;
+    if (!email) { showToast('No email on file for this customer', 'error'); return; }
+    if (!confirm(`Email ${ids.length} receipt${ids.length > 1 ? 's' : ''} to ${email}?`)) return;
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'Emailing…';
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          body: JSON.stringify({ order_id: id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) ok++; else fail++;
+      } catch (e) { fail++; }
+    }
+    btn.disabled = false; btn.innerHTML = orig;
+    if (fail === 0)    showToast(`Emailed ${ok} receipt${ok > 1 ? 's' : ''} to ${email} ✓`, 'success');
+    else if (ok === 0) showToast(`Could not email receipts (${fail} failed)`, 'error');
+    else               showToast(`Emailed ${ok}; ${fail} failed`, '');
   }
 
   function onBillMethodChange() {
