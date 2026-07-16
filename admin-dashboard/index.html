@@ -89,7 +89,7 @@
     /* ── SIDEBAR ── */
     .sidebar { width: var(--sidebar-w); background: var(--sidebar-bg); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; overflow-x: hidden; }
     .sidebar-logo { padding: 16px 14px 14px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,.06); }
-    .logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+    .logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
     .logo-icon svg { width: 14px; height: 14px; fill: white; }
     .logo-name { font-size: 14px; font-weight: 600; color: white; letter-spacing: -.01em; }
     .logo-name span { color: rgba(255,255,255,.4); font-weight: 400; }
@@ -195,7 +195,7 @@
     .orders-tbl thead th { padding:8px 8px;font-size:10.5px; }
     .orders-tbl td { padding:8px 8px;font-size:12.5px; }
     .pay-tip { position:relative; display:inline-flex; cursor:pointer; }
-    .pay-tip::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); background:#1e293b; color:white; font-size:11px; font-weight:500; padding:4px 8px; border-radius:6px; white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .15s; z-index:99; }
+    .pay-tip::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); background:#1e293b; color:white; font-size:11px; font-weight:500; padding:4px 8px; border-radius:8px; white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .15s; z-index:99; }
     .pay-tip:hover::after { opacity:1; }
 
     /* ── BADGES ── */
@@ -217,7 +217,7 @@
 
     /* ── FILTER TABS ── */
     .filter-tabs { display: flex; gap: 2px; background: var(--gray-100); border-radius: var(--radius); padding: 3px; flex-shrink:0; }
-    .filter-tab { padding: 4px 9px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--gray-600); cursor: pointer; border: none; background: transparent; transition: all .12s; white-space:nowrap; }
+    .filter-tab { padding: 4px 9px; border-radius: 8px; font-size: 12px; font-weight: 500; color: var(--gray-600); cursor: pointer; border: none; background: transparent; transition: all .12s; white-space:nowrap; }
     .filter-tab.active { background: white; color: var(--gray-900); font-weight: 600; box-shadow: var(--shadow-sm); }
     .tab-count { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 15px; padding: 0 4px; background: var(--gray-200); border-radius: 20px; font-size: 10.5px; font-weight: 700; margin-left: 4px; color: var(--gray-600); vertical-align: middle; }
     .filter-tab.active .tab-count { background: var(--gray-200); color: var(--gray-700); }
@@ -269,7 +269,7 @@
     .modal { background: white; border-radius: 12px; width: 480px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
     .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--gray-100); }
     .modal-title { font-size: 15px; font-weight: 700; color: var(--gray-900); }
-    .modal-close { background: none; border: none; cursor: pointer; color: var(--gray-400); padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all .12s; flex-shrink: 0; }
+    .modal-close { background: none; border: none; cursor: pointer; color: var(--gray-400); padding: 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all .12s; flex-shrink: 0; }
     .modal-close:hover { color: var(--gray-700); background: var(--gray-100); }
     .modal-close svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none; }
     .modal-body { padding: 24px; }
@@ -301,15 +301,15 @@
     .svc-section-btn { padding: 3px 7px; background: none; border: 1.5px solid var(--gray-200); cursor: pointer; color: var(--gray-500); border-radius: 5px; font-size: 11px; font-weight: 600; font-family: inherit; transition: all .12s; white-space: nowrap; }
     .svc-section-btn:hover { border-color: var(--accent); color: var(--accent); background: #ede9ff; }
     .svc-drop-zone { transition: background .15s; }
-    .svc-input { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 14px; font-weight: 500; color: var(--gray-800); background: transparent; transition: all .12s; font-family: inherit; }
+    .svc-input { width: 100%; border: 1.5px solid transparent; border-radius: 8px; padding: 5px 8px; font-size: 14px; font-weight: 500; color: var(--gray-800); background: transparent; transition: all .12s; font-family: inherit; }
     .svc-input:hover { border-color: var(--gray-200); background: white; }
     .svc-input:focus { border-color: var(--accent); background: white; outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,.08); }
-    .svc-select { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 13px; color: var(--gray-700); background: transparent; cursor: pointer; transition: all .12s; font-family: inherit; }
+    .svc-select { width: 100%; border: 1.5px solid transparent; border-radius: 8px; padding: 5px 8px; font-size: 13px; color: var(--gray-700); background: transparent; cursor: pointer; transition: all .12s; font-family: inherit; }
     .svc-select:hover { border-color: var(--gray-200); background: white; }
     .svc-select:focus { border-color: var(--accent); background: white; outline: none; }
     .svc-price-wrap { display: flex; align-items: center; gap: 2px; }
     .svc-price-prefix { color: var(--gray-400); font-size: 13px; }
-    .svc-save-btn { display: none; padding: 4px 10px; font-size: 12px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; transition: background .12s; }
+    .svc-save-btn { display: none; padding: 4px 10px; font-size: 12px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 8px; cursor: pointer; transition: background .12s; }
     .svc-save-btn:hover { background: #5046e5; }
     .svc-del-btn { padding: 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 5px; transition: all .12s; display: flex; align-items: center; }
     .svc-del-btn:hover { color: var(--red); background: var(--red-light); }
@@ -321,9 +321,9 @@
     .toggle-switch input:checked + .toggle-slider { background: var(--green); }
     .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
     .svc-add-row { display: grid; grid-template-columns: 1fr 112px 116px 120px; gap: 10px; padding: 9px 20px; align-items: center; border-top: 2px dashed var(--gray-200); background: var(--gray-50); border-radius: 0 0 var(--radius) var(--radius); max-width: 700px; }
-    .svc-add-input { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--gray-800); background: white; font-family: inherit; }
+    .svc-add-input { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--gray-800); background: white; font-family: inherit; }
     .svc-add-input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,.08); }
-    .svc-add-select { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--gray-700); background: white; font-family: inherit; }
+    .svc-add-select { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--gray-700); background: white; font-family: inherit; }
     .svc-add-select:focus { border-color: var(--accent); outline: none; }
     /* Services page tab bar */
     .svc-page-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--gray-100); padding: 0 20px; background: white; }
@@ -337,10 +337,10 @@
     .cat-drag-handle { color: var(--gray-300); cursor: grab; font-size: 16px; flex-shrink: 0; }
     .cat-name-display { flex: 1; font-size: 14px; font-weight: 500; color: var(--gray-800); }
     .cat-svc-count { font-size: 12px; color: var(--gray-400); margin-right: 6px; white-space: nowrap; }
-    .cat-name-input { flex: 1; border: 1.5px solid var(--accent); border-radius: 6px; padding: 5px 10px; font-size: 14px; font-weight: 500; color: var(--gray-800); font-family: inherit; outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,.08); }
-    .cat-rename-btn { padding: 4px 10px; font-size: 12px; font-weight: 600; background: white; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 6px; cursor: pointer; transition: all .12s; white-space: nowrap; }
+    .cat-name-input { flex: 1; border: 1.5px solid var(--accent); border-radius: 8px; padding: 5px 10px; font-size: 14px; font-weight: 500; color: var(--gray-800); font-family: inherit; outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,.08); }
+    .cat-rename-btn { padding: 4px 10px; font-size: 12px; font-weight: 600; background: white; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 8px; cursor: pointer; transition: all .12s; white-space: nowrap; }
     .cat-rename-btn:hover { background: var(--accent); color: white; }
-    .cat-save-btn { padding: 4px 12px; font-size: 12px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .cat-save-btn { padding: 4px 12px; font-size: 12px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 8px; cursor: pointer; }
     .cat-del-btn { padding: 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 5px; transition: all .12s; display: flex; align-items: center; flex-shrink: 0; }
     .cat-del-btn:hover { color: var(--red); background: var(--red-light); }
     .cat-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
@@ -359,13 +359,13 @@
     .merch-name input { font-size:14px; font-weight:500; color:var(--gray-800); border:none; background:transparent; width:100%; padding:0; font-family:inherit; }
     .merch-name input:focus { outline:none; background:var(--gray-50); border-radius:4px; padding:2px 4px; }
     .merch-cat { font-size:12px; color:var(--gray-400); font-weight:500; }
-    .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:6px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
+    .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:8px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
     .merch-price input:focus { outline:none; border-color:var(--accent); }
     .pos-retail-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 50px 36px; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--gray-100); }
     .pos-retail-row:last-child { border-bottom:none; }
     .pos-retail-row .merch-name input { font-size:14px; font-weight:500; color:var(--gray-800); border:none; background:transparent; width:100%; padding:0; font-family:inherit; }
     .pos-retail-row .merch-name input:focus { outline:none; background:var(--gray-50); border-radius:4px; padding:2px 4px; }
-    .pos-retail-row .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:6px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
+    .pos-retail-row .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:8px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
     .pos-retail-row .merch-price input:focus { outline:none; border-color:var(--accent); }
     /* Prices tab */
     .prices-section { border-bottom:1px solid var(--gray-100); padding-bottom:4px; margin-bottom:4px; }
@@ -424,11 +424,11 @@
     .pref-link-unlink-btn:hover { color:var(--red); opacity:1; }
     .pref-link-select-wrap { display:none; align-items:center; gap:6px; margin-top:5px; }
     .pref-link-select-wrap.open { display:flex; }
-    .pref-link-select { font-size:12px; padding:4px 8px; border:1.5px solid var(--accent); border-radius:6px; background:white; color:var(--gray-800); font-family:inherit; cursor:pointer; outline:none; max-width:200px; }
+    .pref-link-select { font-size:12px; padding:4px 8px; border:1.5px solid var(--accent); border-radius:8px; background:white; color:var(--gray-800); font-family:inherit; cursor:pointer; outline:none; max-width:200px; }
     .pref-link-cancel-btn { font-size:11.5px; color:var(--gray-400); background:none; border:none; cursor:pointer; font-family:inherit; padding:0 2px; }
     .pref-add-option-form { display: none; gap: 6px; align-items: center; flex-wrap: wrap; }
     .pref-add-option-form.open { display: flex; }
-    .pref-opt-input { border: 1.5px solid var(--gray-200); border-radius: 7px; padding: 5px 10px; font-size: 13px; font-family: inherit; color: var(--gray-800); background: white; transition: border-color .12s; }
+    .pref-opt-input { border: 1.5px solid var(--gray-200); border-radius: 8px; padding: 5px 10px; font-size: 13px; font-family: inherit; color: var(--gray-800); background: white; transition: border-color .12s; }
     .pref-opt-input:focus { border-color: var(--accent); outline: none; }
     .pref-row-actions { display: flex; align-items: flex-start; justify-content: flex-end; gap: 6px; padding-top: 4px; }
     .pref-hint { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
@@ -492,7 +492,7 @@
     .op-sched-lbl { font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--gray-400); width: 54px; flex-shrink: 0; }
     .op-sched-val { flex: 1; font-size: 13px; font-weight: 500; color: var(--gray-800); }
     .op-sched-val.unset { color: var(--gray-400); font-style: italic; }
-    .op-edit-btn { font-size: 11.5px; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 3px 8px; border-radius: 6px; flex-shrink: 0; white-space: nowrap; }
+    .op-edit-btn { font-size: 11.5px; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 3px 8px; border-radius: 8px; flex-shrink: 0; white-space: nowrap; }
     .op-edit-btn:hover { background: rgba(59,130,246,.08); }
     .op-edit-btn.cancel-btn { color: var(--gray-500); }
     .op-picker-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--gray-100); }
@@ -736,7 +736,7 @@
     .lf-match-result { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--gray-100); display: flex; gap: 10px; align-items: flex-start; }
     .lf-match-result:last-child { border-bottom: none; }
     .lf-match-result:hover { background: var(--gray-50); }
-    .lf-match-result-thumb { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; background: var(--gray-100); flex-shrink: 0; }
+    .lf-match-result-thumb { width: 36px; height: 36px; border-radius: 8px; overflow: hidden; background: var(--gray-100); flex-shrink: 0; }
     .lf-match-result-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .lf-match-result-body { flex: 1; min-width: 0; font-size: 12.5px; }
     .lf-match-result-name { font-weight: 600; color: var(--gray-900); margin-bottom: 2px; }
@@ -748,7 +748,7 @@
     .lf-suggest-item:last-child { margin-bottom: 0; }
     .lf-suggest-item:hover { border-color: var(--accent); }
     .lf-suggest-item.selected { border-color: var(--green); background: var(--green-light); }
-    .lf-suggest-thumb { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; background: var(--gray-100); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--gray-400); }
+    .lf-suggest-thumb { width: 36px; height: 36px; border-radius: 8px; overflow: hidden; background: var(--gray-100); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--gray-400); }
     .lf-suggest-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .lf-suggest-body { flex: 1; min-width: 0; font-size: 12.5px; }
     .lf-suggest-title { font-weight: 600; color: var(--gray-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -761,7 +761,7 @@
     .inbox-action-card .action-icon { font-size: 16px; flex-shrink: 0; }
     .inbox-action-card .action-label { flex: 1; color: var(--gray-700); font-weight: 500; line-height: 1.3; }
     .inbox-action-card .action-label small { display: block; color: var(--gray-500); font-weight: 400; font-size: 11.5px; margin-top: 1px; }
-    .btn-action-confirm { background: var(--accent); color: #fff; border: none; border-radius: 7px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .btn-action-confirm { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
     .btn-action-confirm:hover { opacity: .88; }
     .btn-action-dismiss { background: none; border: none; color: var(--gray-400); font-size: 18px; cursor: pointer; padding: 0 2px; line-height: 1; flex-shrink: 0; }
     .btn-action-dismiss:hover { color: var(--gray-600); }
@@ -774,7 +774,7 @@
     .issue-row:hover { background: var(--gray-50); }
     .issue-row-title { font-size: 13px; font-weight: 600; color: var(--gray-900); flex: 1; }
     .issue-row-meta { font-size: 12px; color: var(--gray-400); white-space: nowrap; }
-    .issue-pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; flex-shrink: 0; }
+    .issue-pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; flex-shrink: 0; }
     .pri-badge-urgent { background: #fee2e2; color: #b91c1c; }
     .pri-badge-high   { background: #ffedd5; color: #c2410c; }
     .pri-badge-normal { background: #dbeafe; color: #1d4ed8; }
@@ -853,13 +853,13 @@
     .rcc-chip-row { display:flex;align-items:center;flex-wrap:wrap;gap:4px; }
     .rcc-slot-label { font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--gray-400);width:22px;flex-shrink:0;user-select:none; }
     /* AM/PM segmented toggle */
-    .rcc-slot-toggle { display:inline-flex;border:1px solid var(--gray-200);border-radius:6px;overflow:hidden;background:#fff;flex-shrink:0;margin-right:6px; }
+    .rcc-slot-toggle { display:inline-flex;border:1px solid var(--gray-200);border-radius:8px;overflow:hidden;background:#fff;flex-shrink:0;margin-right:6px; }
     .rcc-slot-btn { border:none;background:transparent;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--gray-500);padding:3px 9px;cursor:pointer;transition:all .14s;user-select:none; }
     .rcc-slot-btn:hover { background:var(--gray-50);color:var(--gray-700); }
     .rcc-slot-btn.on { background:var(--gray-900);color:#fff; }
     .rcc-slot-btn.on:hover { background:var(--gray-800); }
     /* Chips — compact */
-    .rcc-chip { display:flex;align-items:center;gap:4px;padding:2px 6px 2px 5px;border-radius:6px;border:1.25px solid var(--gray-200);background:#fff;cursor:pointer;transition:all .14s;white-space:nowrap;user-select:none;flex-shrink:0; }
+    .rcc-chip { display:flex;align-items:center;gap:4px;padding:2px 6px 2px 5px;border-radius:8px;border:1.25px solid var(--gray-200);background:#fff;cursor:pointer;transition:all .14s;white-space:nowrap;user-select:none;flex-shrink:0; }
     .rcc-chip:hover { border-color:var(--gray-400);background:var(--gray-50); }
     .rcc-chip.rcc-on { border-color:var(--rcc-color);background:color-mix(in srgb,var(--rcc-color) 7%,#fff); }
     .rcc-chip .rcc-dot { width:6px;height:6px;border-radius:50%;background:var(--gray-300);transition:background .14s;flex-shrink:0; }
@@ -951,7 +951,7 @@
     .tpl-card:last-child { border-bottom:none; }
     .tpl-name { font-weight:600;font-size:13.5px;color:var(--gray-900); }
     .tpl-meta { font-size:12px;color:var(--gray-500);margin-top:1px; }
-    .tpl-badge { font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;flex-shrink:0; }
+    .tpl-badge { font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:8px;flex-shrink:0; }
     /* Weekly schedule grid */
     .sched-grid { border-collapse:collapse;width:100%;min-width:600px; }
     .sched-grid th { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);padding:5px 6px;text-align:center;border-bottom:2px solid var(--gray-200); }
@@ -982,7 +982,7 @@
     .preview-banner { background:var(--accent-light);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px 14px; }
     .preview-banner-title { font-size:10px;font-weight: 600;color:var(--accent);margin-bottom:8px;letter-spacing: 0; }
     .preview-runs { display:flex;gap:6px;flex-wrap:wrap; }
-    .preview-run { background:white;border:1px solid rgba(59,130,246,.25);border-radius:6px;padding:4px 10px;font-size:11.5px;font-weight:600;color:var(--gray-700); }
+    .preview-run { background:white;border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:4px 10px;font-size:11.5px;font-weight:600;color:var(--gray-700); }
     .preview-run .run-date { color:var(--gray-400);font-weight:400;font-size:10px;display:block; }
     /* Weekly schedule week nav */
     .sched-week-nav { display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap; }
@@ -1110,7 +1110,7 @@
        primary tabs use underline (.rpt-page-tab); secondary nav uses pills. */
     .ps-subtabs-row { display:flex; gap:10px; align-items:center; padding:14px 0; }
     .ps-subtabs { display:flex; gap:2px; background:var(--gray-100); border-radius:var(--radius); padding:3px; }
-    .ps-subtab { padding:6px 14px; border-radius:6px; font-size:12.5px; font-weight:500; color:var(--gray-600); cursor:pointer; border:none; background:transparent; transition:all .12s; font-family:inherit; }
+    .ps-subtab { padding:6px 14px; border-radius:8px; font-size:12.5px; font-weight:500; color:var(--gray-600); cursor:pointer; border:none; background:transparent; transition:all .12s; font-family:inherit; }
     .ps-subtab.active { background:#fff; color:var(--gray-900); font-weight:600; box-shadow:var(--shadow-sm); }
     /* By Order table — wide; needs horizontal scroll on narrow screens */
     .ps-by-order-wrap { overflow-x:auto; }
@@ -1177,7 +1177,7 @@
     .proc-tab-bar { display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 20px;background:white; }
     .proc-tab { padding:10px 18px;font-size:13.5px;font-weight:500;color:var(--gray-500);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;font-family:inherit;display:flex;align-items:center;gap:7px; }
     .proc-tab.active { color:var(--accent);border-bottom-color:var(--accent);font-weight:600; }
-    .proc-tab-badge { min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--gray-100);color:var(--gray-500);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center; }
+    .proc-tab-badge { min-width:18px;height:18px;padding:0 5px;border-radius:8px;background:var(--gray-100);color:var(--gray-500);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center; }
     .proc-tab.active .proc-tab-badge { background:var(--accent-light);color:var(--accent); }
     /* ── LAUNDERERS PAGE ── */
     .laun-list { display:flex;flex-direction:column; }
@@ -1252,7 +1252,7 @@
     .kcol-clean.drag-over   { background:rgba(58,155,181,.10) !important;outline:2px dashed #3a9bb5;outline-offset:-4px; }
     .kcol-folding.drag-over { background:rgba(91,141,184,.10) !important;outline:2px dashed #5b8db8;outline-offset:-4px; }
     .kcol-rack.drag-over    { background:rgba(58,155,181,.10) !important;outline:2px dashed #3a9bb5;outline-offset:-4px; }
-    .kanban-search { padding:5px 10px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12px;font-family:inherit;outline:none;width:100%;box-sizing:border-box;transition:border-color .15s,box-shadow .15s;background:white; }
+    .kanban-search { padding:5px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;font-family:inherit;outline:none;width:100%;box-sizing:border-box;transition:border-color .15s,box-shadow .15s;background:white; }
     .kanban-search:focus { border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.10); }
     .kanban-search::placeholder { color:var(--gray-300); }
     .kanban-search-wrap { padding:6px 12px 2px; }
@@ -1331,7 +1331,7 @@
     .billing-bar { display:none;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:.5px solid var(--gray-200);border-radius:10px;padding:10px 14px;position:sticky;bottom:8px;margin-top:12px;box-shadow:0 6px 20px rgba(0,0,0,.12); }
     .billing-bar.visible { display:flex; }
     .cp-order-row.billing-selected { background:var(--accent-light); }
-    .cp-range-btn { font-size:12px;padding:3px 9px;border-radius:6px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-600);cursor:pointer; }
+    .cp-range-btn { font-size:12px;padding:3px 9px;border-radius:8px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-600);cursor:pointer; }
     .cp-range-btn.active { background:var(--accent);border-color:var(--accent);color:#fff; }
     .cp-order-row.billing-row { cursor:pointer; }
     .cp-order-row.billing-row:hover { background:var(--gray-50); }
@@ -1827,12 +1827,12 @@
                   </div>
                 </div>
                 <!-- Map legend -->
-                <div id="rcc-legend" style="position:absolute;bottom:14px;left:12px;z-index:500;background:rgba(255,255,255,.95);border:1px solid var(--gray-200);border-radius:9px;padding:9px 12px;font-size:11.5px;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;line-height:1.8;"></div>
+                <div id="rcc-legend" style="position:absolute;bottom:14px;left:12px;z-index:500;background:rgba(255,255,255,.95);border:1px solid var(--gray-200);border-radius:8px;padding:9px 12px;font-size:11.5px;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;line-height:1.8;"></div>
                 <!-- Missing-coords warning (shown when stops can't be pinned because lat/lng is null) -->
-                <div id="rcc-missing-coords-warn" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:500;background:#fef3c7;border:1px solid #f59e0b;border-radius:9px;padding:8px 14px;font-size:12px;color:#78350f;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;align-items:center;gap:10px;max-width:92%;">
+                <div id="rcc-missing-coords-warn" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:500;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 14px;font-size:12px;color:#78350f;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;align-items:center;gap:10px;max-width:92%;">
                   <span style="font-size:14px;">⚠</span>
                   <span id="rcc-missing-coords-text" style="font-weight:600;"></span>
-                  <button onclick="rccFixMissingCoords()" style="background:#f59e0b;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Fix now</button>
+                  <button onclick="rccFixMissingCoords()" style="background:#f59e0b;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Fix now</button>
                 </div>
               </div>
               <!-- Columns panel — grows as routes are activated -->
@@ -1976,7 +1976,7 @@
         <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:250px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
           <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;" id="driver-popover-title">Assign Driver</div>
           <!-- Status banner: shows in-progress / complete warning for today's routes -->
-          <div id="driver-popover-status" style="display:none;font-size:11px;border-radius:7px;padding:7px 9px;margin-bottom:10px;line-height:1.4;"></div>
+          <div id="driver-popover-status" style="display:none;font-size:11px;border-radius:8px;padding:7px 9px;margin-bottom:10px;line-height:1.4;"></div>
           <div id="driver-popover-options" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;"></div>
           <button class="btn btn-ghost" style="width:100%;margin-top:10px;font-size:12px;" onclick="closeDriverPopover()">Cancel</button>
         </div>
@@ -2007,7 +2007,7 @@
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;">
                 <div style="font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;">Polygon drawn — name this zone:</div>
                 <input class="form-input" id="new-zone-name" placeholder="e.g. Oakland North" style="width:180px;padding:6px 10px;">
-                <input type="color" id="new-zone-color" value="#3b82f6" style="width:38px;height:34px;border:1.5px solid rgba(59,130,246,.3);border-radius:6px;cursor:pointer;padding:2px;background:white;">
+                <input type="color" id="new-zone-color" value="#3b82f6" style="width:38px;height:34px;border:1.5px solid rgba(59,130,246,.3);border-radius:8px;cursor:pointer;padding:2px;background:white;">
                 <button class="btn btn-primary" onclick="saveNewZone()" style="padding:6px 14px;font-size:12.5px;">Save Zone</button>
                 <button class="btn btn-ghost" onclick="cancelZoneDraw()" style="padding:6px 12px;font-size:12.5px;">Cancel</button>
               </div>
@@ -2049,7 +2049,7 @@
 
                     <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Color</div>
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
-                      <input type="color" id="edit-zone-color" style="width:38px;height:30px;border:1.5px solid var(--gray-200);border-radius:6px;cursor:pointer;padding:1px;">
+                      <input type="color" id="edit-zone-color" style="width:38px;height:30px;border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;padding:1px;">
                       <span style="font-size:12px;color:var(--gray-500);">Used on the map and route list</span>
                     </div>
 
@@ -2195,7 +2195,7 @@
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
                 <span id="svc-pricelist-label" style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;">Price List</span>
                 <select class="form-select" id="svc-cat-filter" onchange="onPricelistFilterChange()" style="font-size:13px;padding:6px 10px;width:190px"></select>
-                <button class="btn btn-ghost" id="svc-edit-toggle" onclick="toggleSvcEditMode()" style="font-size:13px;padding:6px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:6px;transition:all .15s;margin-left:4px;" title="Edit services"><i data-lucide="lock" style="width:14px;height:14px;"></i> Edit</button>
+                <button class="btn btn-ghost" id="svc-edit-toggle" onclick="toggleSvcEditMode()" style="font-size:13px;padding:6px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:8px;transition:all .15s;margin-left:4px;" title="Edit services"><i data-lucide="lock" style="width:14px;height:14px;"></i> Edit</button>
               </div>
             </div>
             <!-- Tab bar -->
@@ -2716,8 +2716,8 @@
             </div>
             <!-- Analytics sub-tabs -->
             <div style="display:flex;gap:8px;margin-bottom:16px">
-              <button class="btn btn-ghost rpt-sub-subtab active" onclick="switchSubAnalyticsTab('overview',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Overview</button>
-              <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('trends',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Usage Trends</button>
+              <button class="btn btn-ghost rpt-sub-subtab active" onclick="switchSubAnalyticsTab('overview',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:8px">Overview</button>
+              <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('trends',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:8px">Usage Trends</button>
             </div>
 
             <!-- Sub-tab: Overview (existing subscriber table) -->
@@ -3990,7 +3990,7 @@
         <div style="position:relative">
           <div id="lf-create-customer-results" class="lf-match-results"></div>
         </div>
-        <div id="lf-create-customer-chip" style="display:none;font-size:12.5px;background:var(--gray-100);padding:6px 10px;border-radius:6px;display:none;align-items:center;gap:8px;width:fit-content;margin-top:4px"></div>
+        <div id="lf-create-customer-chip" style="display:none;font-size:12.5px;background:var(--gray-100);padding:6px 10px;border-radius:8px;display:none;align-items:center;gap:8px;width:fit-content;margin-top:4px"></div>
       </div>
 
       <div class="lf-form-row">
@@ -4210,7 +4210,7 @@
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div class="op-num" id="op-num">Order #—</div>
         <div style="position:relative;display:inline-block">
-          <div id="op-site-badge" style="display:none;cursor:pointer;font-size:11px;font-weight:500;letter-spacing:0;padding:3px 9px;border-radius:6px;border:.5px solid var(--gray-200);background:var(--gray-50);color:var(--gray-600);user-select:none" onclick="opToggleSiteDropdown(event)" title="Click to change processing site"></div>
+          <div id="op-site-badge" style="display:none;cursor:pointer;font-size:11px;font-weight:500;letter-spacing:0;padding:3px 9px;border-radius:8px;border:.5px solid var(--gray-200);background:var(--gray-50);color:var(--gray-600);user-select:none" onclick="opToggleSiteDropdown(event)" title="Click to change processing site"></div>
           <div id="op-site-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;margin-top:4px"></div>
         </div>
       </div>
@@ -4231,7 +4231,7 @@
     </div>
     <div style="font-size:12px;color:var(--gray-500);margin-top:1px" id="op-cust-phone">—</div>
     <div id="op-recur-control" style="margin-top:4px;display:flex;align-items:center;gap:6px">
-      <select id="op-recur-select" onchange="opSaveRecurring(this.value)" style="font-size:11px;font-weight:600;border:1px solid var(--gray-200);border-radius:6px;padding:2px 6px;background:#fff;color:var(--gray-700);cursor:pointer">
+      <select id="op-recur-select" onchange="opSaveRecurring(this.value)" style="font-size:11px;font-weight:600;border:1px solid var(--gray-200);border-radius:8px;padding:2px 6px;background:#fff;color:var(--gray-700);cursor:pointer">
         <option value="">One-time</option>
         <option value="weekly">Repeats weekly</option>
         <option value="biweekly">Repeats every 2 weeks</option>
@@ -4704,7 +4704,7 @@
         <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
         <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
           <div class="cp-subhead">Enter Card Details</div>
-          <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
+          <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:8px;margin-bottom:10px;font-size:14px"></div>
           <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
           <div style="display:flex;gap:8px">
             <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
@@ -5679,9 +5679,9 @@
           // Same card already tried and declined — admin should call customer to update
           const phone = o.customers?.phone_cache || '';
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
-        return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
+        return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
       const phone  = o.customers?.phone_cache || '';
       if (custId && _cardRequestSent.has(custId)) {
@@ -5689,11 +5689,11 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
-        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
+        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
-      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
+      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
     }
     // Non-billing issue (pickup_failed, delivery_failed, on_hold, skipped) —
     // offer Reschedule + Archive side-by-side. Archive is only visible for
@@ -5701,9 +5701,9 @@
     const ARCHIVABLE = ['pickup_failed','delivery_failed','skipped','cancelled'];
     const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
     const archiveBtn = ARCHIVABLE.includes(o.status)
-      ? `<button onclick="event.stopPropagation();openArchiveModal('${o.id}','${o.order_number}',${escAttrJSArg(name)},'${o.status}')" style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap;margin-left:4px" title="Archive — hide but keep history">Archive</button>`
+      ? `<button onclick="event.stopPropagation();openArchiveModal('${o.id}','${o.order_number}',${escAttrJSArg(name)},'${o.status}')" style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap;margin-left:4px" title="Archive — hide but keep history">Archive</button>`
       : '';
-    return `<span style="display:inline-flex;gap:0;align-items:center;white-space:nowrap"><button onclick="event.stopPropagation();openOrderPanel('${o.id}')" style="font-size:11px;font-weight:700;color:#1a56db;background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Reschedule →</button>${archiveBtn}</span>`;
+    return `<span style="display:inline-flex;gap:0;align-items:center;white-space:nowrap"><button onclick="event.stopPropagation();openOrderPanel('${o.id}')" style="font-size:11px;font-weight:700;color:#1a56db;background:#eff6ff;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Reschedule →</button>${archiveBtn}</span>`;
   };
 
   // Action button for Delivered tab — shows card request / retry for unpaid orders
@@ -5721,9 +5721,9 @@
         if (cardIsStale) {
           const phone = o.customers?.phone_cache || '';
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
-        return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
+        return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
       const phone = o.customers?.phone_cache || '';
       if (custId && _cardRequestSent.has(custId)) {
@@ -5731,11 +5731,11 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
-        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
+        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
-      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
+      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
     }
     // No card on file but not failed yet — still show request option
     const custId = o.customers?.id || '';
@@ -5746,11 +5746,11 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
-        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
+        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
-      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
+      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
     }
     return '';
   };
@@ -7193,7 +7193,7 @@
       const d = new Date(h.holiday_date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric', timeZone: BIZ_TZ });
       return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--gray-100)">
         <div><span style="font-weight:600;color:var(--gray-900)">${esc(h.name)}</span> <span style="color:var(--gray-500);font-size:13px">· ${d}</span></div>
-        <button onclick="deleteHoliday('${h.id}',this)" style="font-size:12px;font-weight:600;color:#b91c1c;background:#fee2e2;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;white-space:nowrap">Remove</button>
+        <button onclick="deleteHoliday('${h.id}',this)" style="font-size:12px;font-weight:600;color:#b91c1c;background:#fee2e2;border:none;border-radius:8px;padding:5px 12px;cursor:pointer;white-space:nowrap">Remove</button>
       </div>`;
     }).join('');
   }
@@ -7359,7 +7359,7 @@
             <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
               <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">CloudPRNT Server URL</div>
               <div style="display:flex;align-items:center;gap:8px">
-                <code style="flex:1;font-size:12px;background:var(--gray-100);padding:8px 10px;border-radius:6px;word-break:break-all">${cloudprintUrl}</code>
+                <code style="flex:1;font-size:12px;background:var(--gray-100);padding:8px 10px;border-radius:8px;word-break:break-all">${cloudprintUrl}</code>
                 <button class="btn" style="font-size:12px;padding:6px 12px;white-space:nowrap" onclick="navigator.clipboard.writeText('${cloudprintUrl}').then(()=>showToast('Copied','success'))">Copy</button>
               </div>
             </div>
@@ -7838,9 +7838,9 @@
         let actionCell = '';
         if (!hasOrder && phone) {
           if (_nudgeSent.has(c.id)) {
-            actionCell = `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Nudged</span>`;
+            actionCell = `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">✓ Nudged</span>`;
           } else {
-            actionCell = `<button onclick="event.stopPropagation();nudgeNewCustomer('${c.id}','${esc(firstName.replace(/'/g,"\\\\'"))}','${esc(phone)}',this)" style="font-size:11px;font-weight:700;color:var(--accent);background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Nudge</button>`;
+            actionCell = `<button onclick="event.stopPropagation();nudgeNewCustomer('${c.id}','${esc(firstName.replace(/'/g,"\\\\'"))}','${esc(phone)}',this)" style="font-size:11px;font-weight:700;color:var(--accent);background:#eff6ff;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Nudge</button>`;
           }
         } else if (!hasOrder && !phone) {
           actionCell = `<span style="font-size:11px;color:var(--gray-400)">No phone</span>`;
@@ -7994,8 +7994,8 @@
         const cust = o.customers;
         const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
         const billingBadge = o.billing_status === 'failed'
-          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#fee2e2;color:#b91c1c">FAILED</span>'
-          : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#fef3c7;color:#92400e">UNPAID</span>';
+          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#b91c1c">FAILED</span>'
+          : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e">UNPAID</span>';
         const action = _deliveredActionBtn(o);
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
@@ -8467,7 +8467,7 @@
     const label = _recurLabel[interval] || ('Every ' + interval);
     return '<span style="position:relative;display:inline-flex;align-items:center" class="recur-tip-wrap">'
       + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="cursor:pointer"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 11.5a10 10 0 0 1 18.3-4.4l.7.9"/><path d="M21.5 12.5a10 10 0 0 1-18.3 4.4l-.7-.9"/></svg>'
-      + '<span class="recur-tip" style="display:none;position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);background:#374151;color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:999">' + label + '</span>'
+      + '<span class="recur-tip" style="display:none;position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);background:#374151;color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;white-space:nowrap;pointer-events:none;z-index:999">' + label + '</span>'
       + '</span>';
   }
   function orderCustomerName(o) {
@@ -9089,7 +9089,7 @@
         if (inIssues) {
           actionCell = issueActionBtn(o);
         } else if (inArchived) {
-          actionCell = `<button onclick="event.stopPropagation();unarchiveOrder('${o.id}','${o.order_number}')" style="font-size:11px;font-weight:600;color:var(--accent);background:white;border:1px solid var(--accent);border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap" title="Restore order — clears the archive flag">Restore</button>`;
+          actionCell = `<button onclick="event.stopPropagation();unarchiveOrder('${o.id}','${o.order_number}')" style="font-size:11px;font-weight:600;color:var(--accent);background:white;border:1px solid var(--accent);border-radius:8px;padding:4px 10px;cursor:pointer;white-space:nowrap" title="Restore order — clears the archive flag">Restore</button>`;
         } else if (showAction) {
           actionCell = _deliveredActionBtn(o);
         }
@@ -12380,7 +12380,7 @@ ${oneCopy}
         const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr===now.getFullYear() && expMo < now.getMonth()+1));
         const pmId   = card.stripe_payment_method_id;
         return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
-          <span style="flex:1;display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:6px 11px;font-size:13px;min-width:0">
+          <span style="flex:1;display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:6px 11px;font-size:13px;min-width:0">
             💳 <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${brand} ···· ${card.card_last4}${exp}</span>
             ${card.is_default ? '<span style="background:#ede9ff;color:var(--accent);font-size:10.5px;font-weight:700;border-radius:4px;padding:2px 6px;flex-shrink:0">DEFAULT</span>' : ''}
             ${expired ? '<span style="color:var(--red);font-size:11px;font-weight:600;flex-shrink:0">EXPIRED</span>' : ''}
@@ -12605,15 +12605,15 @@ ${oneCopy}
           ? Math.min(100, Math.round(100 * (Number(sub.usage_lbs_this_period || 0) / plan.weight_limit_lbs)))
           : 0;
         const usageColor = usagePct >= 90 ? 'var(--red)' : usagePct >= 75 ? '#f59e0b' : 'var(--green)';
-        const statusBadge = sub.status === 'active'   ? '<span style="background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">ACTIVE</span>'
-                          : sub.status === 'paused'   ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">PAUSED</span>'
-                          : sub.status === 'past_due' ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">PAST DUE</span>'
+        const statusBadge = sub.status === 'active'   ? '<span style="background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">ACTIVE</span>'
+                          : sub.status === 'paused'   ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">PAUSED</span>'
+                          : sub.status === 'past_due' ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">PAST DUE</span>'
                           : '';
         // Session 178: surface a scheduled cancellation. Previously the panel ignored
         // cancel_at_period_end entirely — admin clicked Cancel, the call succeeded, and
         // the card still said "Renews on …" with a Cancel button, so it looked broken.
         const cancellingBadge = (sub.cancel_at_period_end && sub.status !== 'cancelled')
-          ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">CANCELS AT PERIOD END</span>'
+          ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">CANCELS AT PERIOD END</span>'
           : '';
         const renewTxt = sub.current_period_end
           ? new Date(sub.current_period_end).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' })
@@ -13061,8 +13061,8 @@ ${oneCopy}
                 ? '<span style="color:var(--gray-400)">unlimited</span>'
                 : p.pickup_limit;
               const status = p.is_active
-                ? '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">ACTIVE</span>'
-                : '<span style="background:var(--gray-100);color:var(--gray-500);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">INACTIVE</span>';
+                ? '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">ACTIVE</span>'
+                : '<span style="background:var(--gray-100);color:var(--gray-500);padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">INACTIVE</span>';
               return `<tr style="border-bottom:1px solid var(--gray-100)">
                 <td style="padding:10px 10px 10px 0">
                   <div style="font-weight:600;color:var(--gray-900)">${esc(p.name || '—')}</div>
@@ -15638,7 +15638,7 @@ ${oneCopy}
       <div class="issue-meta-item">
         <div class="issue-meta-label">Priority</div>
         <div class="issue-meta-value">
-          <select id="iss-priority-select" onchange="changeIssuePriority(this.value)" style="padding:3px 6px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;outline:none;background:white">
+          <select id="iss-priority-select" onchange="changeIssuePriority(this.value)" style="padding:3px 6px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;outline:none;background:white">
             <option value="low" ${iss.priority==='low'?'selected':''}>LOW</option>
             <option value="normal" ${iss.priority==='normal'?'selected':''}>NORMAL</option>
             <option value="high" ${iss.priority==='high'?'selected':''}>HIGH</option>
@@ -15708,10 +15708,10 @@ ${oneCopy}
     const current = _currentIssueData?.assigned_to || '';
     cell.innerHTML = `
       <input type="text" id="iss-assign-input" value="${esc(current)}" placeholder="Name…"
-        style="padding:4px 8px;border:1.5px solid var(--accent);border-radius:6px;font-size:12px;width:120px;outline:none"
+        style="padding:4px 8px;border:1.5px solid var(--accent);border-radius:8px;font-size:12px;width:120px;outline:none"
         onkeydown="if(event.key==='Enter')saveAssignment();if(event.key==='Escape')openIssueDetail(_currentIssueId)"
         autofocus />
-      <button onclick="saveAssignment()" style="margin-left:4px;padding:3px 8px;background:var(--accent);color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Save</button>`;
+      <button onclick="saveAssignment()" style="margin-left:4px;padding:3px 8px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Save</button>`;
     document.getElementById('iss-assign-input').focus();
   }
 
@@ -16303,7 +16303,7 @@ ${oneCopy}
                  onkeydown="if(event.key==='Enter')saveRenameCategory('${c.id}');if(event.key==='Escape')cancelRenameCategory('${c.id}')" />
           <span class="cat-svc-count">${inUse} service${inUse !== 1 ? 's' : ''}</span>
           <button class="cat-rename-btn" id="cat-rename-btn-${c.id}" onclick="startRenameCategory('${c.id}')">Rename</button>
-          <button class="cat-save-btn"   id="cat-save-btn-${c.id}"   onclick="saveRenameCategory('${c.id}')" style="display:none;padding:4px 10px;font-size:12px;font-weight:600;background:var(--accent);color:white;border:none;border-radius:6px;cursor:pointer;">Save</button>
+          <button class="cat-save-btn"   id="cat-save-btn-${c.id}"   onclick="saveRenameCategory('${c.id}')" style="display:none;padding:4px 10px;font-size:12px;font-weight:600;background:var(--accent);color:white;border:none;border-radius:8px;cursor:pointer;">Save</button>
           <button class="cat-del-btn" onclick="deleteCategory('${c.id}','${svcEsc(c.name)}',${inUse})" title="Delete category">🗑</button>
         </div>`;
     }).join('');
@@ -16587,7 +16587,7 @@ ${oneCopy}
     // Subscription Delivery Fee) so the two "Delivery Fee" rows are no longer
     // an indistinguishable duplicate. Global fees (no pricelist) get no badge.
     const plBadge = f.pricelist
-      ? ` <span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-light,#e0e7ff);padding:1px 7px;border-radius:6px;vertical-align:middle;letter-spacing:.02em">${svcEsc(f.pricelist)}</span>`
+      ? ` <span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-light,#e0e7ff);padding:1px 7px;border-radius:8px;vertical-align:middle;letter-spacing:.02em">${svcEsc(f.pricelist)}</span>`
       : '';
     const hiddenBadge = f.show_in_app === false
       ? ` <span style="font-size:10px;font-weight:600;color:var(--gray-400);">· hidden from app</span>`
@@ -16966,19 +16966,19 @@ ${oneCopy}
       // Edit-mode toggle button (lock/unlock icon)
       const editIcon = merchEditMode ? 'lock-open' : 'lock';
       const editLabel = merchEditMode ? 'Done' : 'Edit';
-      html += `<button class="btn btn-ghost" onclick="toggleMerchEditMode()" style="font-size:11px;padding:3px 10px;margin-left:auto;display:inline-flex;align-items:center;gap:4px;color:${merchEditMode ? 'var(--accent)' : 'var(--gray-400)'};border:1px solid ${merchEditMode ? 'var(--accent)' : 'var(--gray-200)'};border-radius:6px;transition:all .15s;" title="${merchEditMode ? 'Lock categories' : 'Edit categories'}">${lucideIcon(editIcon, 14)} ${editLabel}</button>`;
+      html += `<button class="btn btn-ghost" onclick="toggleMerchEditMode()" style="font-size:11px;padding:3px 10px;margin-left:auto;display:inline-flex;align-items:center;gap:4px;color:${merchEditMode ? 'var(--accent)' : 'var(--gray-400)'};border:1px solid ${merchEditMode ? 'var(--accent)' : 'var(--gray-200)'};border-radius:8px;transition:all .15s;" title="${merchEditMode ? 'Lock categories' : 'Edit categories'}">${lucideIcon(editIcon, 14)} ${editLabel}</button>`;
       // Edit-mode controls: rename, delete, + add — only when unlocked
       if (merchEditMode) {
         html += `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px;border-top:1px dashed var(--gray-200);margin-top:4px;">`;
         merchCategories.forEach(cat => {
           const esc = svcEsc(cat);
-          html += `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:4px 10px;font-size:12px;font-weight:500;color:var(--gray-700);">
+          html += `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:500;color:var(--gray-700);">
             ${esc}
             <button onclick="renameMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;color:var(--gray-400);" title="Rename">${lucideIcon('pencil', 13)}</button>
             <button onclick="deleteMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;color:var(--red);opacity:.6;" title="Delete category">${lucideIcon('trash-2', 13)}</button>
           </span>`;
         });
-        html += `<button class="btn btn-ghost" onclick="promptNewMerchCategory()" style="font-size:12px;padding:4px 10px;color:var(--accent);border:1px dashed var(--accent);border-radius:6px;opacity:.7;" title="Add a new category">+ Category</button>`;
+        html += `<button class="btn btn-ghost" onclick="promptNewMerchCategory()" style="font-size:12px;padding:4px 10px;color:var(--accent);border:1px dashed var(--accent);border-radius:8px;opacity:.7;" title="Add a new category">+ Category</button>`;
         html += `</div>`;
       }
       bar.innerHTML = html;
@@ -18901,8 +18901,8 @@ ${oneCopy}
       const pri      = iss.priority || 'normal';
       const resolved = iss.status === 'resolved' || iss.status === 'closed';
       const statusBadge = resolved
-        ? '<span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;padding:1px 7px;border-radius:6px;white-space:nowrap">RESOLVED</span>'
-        : `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;padding:1px 7px;border-radius:6px;white-space:nowrap">${esc((iss.status||'open').replace('_',' ').toUpperCase())}</span>`;
+        ? '<span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;padding:1px 7px;border-radius:8px;white-space:nowrap">RESOLVED</span>'
+        : `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;padding:1px 7px;border-radius:8px;white-space:nowrap">${esc((iss.status||'open').replace('_',' ').toUpperCase())}</span>`;
       const noteSnippet = iss.notes ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:5px;white-space:pre-wrap;line-height:1.4">${esc(iss.notes)}</div>` : '';
       return `<div class="issue-row" style="display:block;cursor:pointer;${resolved?'opacity:.8':''}" onclick="openIssueDetail(${iss.id})">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -19262,7 +19262,7 @@ ${oneCopy}
       return acc;
     }, {});
     el.innerHTML = Object.values(byRoute).sort((a,b)=>a.date.localeCompare(b.date)).map(r=>`
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:7px;margin-bottom:6px;font-size:13px">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:8px;margin-bottom:6px;font-size:13px">
         <span style="font-weight:600;color:var(--gray-800)">${r.name}</span>
         <span style="color:var(--gray-400);font-size:12px">${r.types.map(t=>t==='pickup'?'Pickup':'Delivery').join(' + ')}</span>
         <span style="color:var(--gray-400);font-size:11.5px">${r.date===today?'Today':r.date}</span>
@@ -19630,7 +19630,7 @@ ${oneCopy}
               <td style="padding:9px 16px;text-align:right;font-weight:700;color:${amountColor}">${amountPrefix}${fmtMoney(t.amount || 0)}</td>
               <td style="padding:9px 8px;text-align:right">
                 ${refundable ? `<button onclick="openRefundModal('${t.id}','${t.description ? esc(t.description) : ''}',${parseFloat(t.amount||0)},${maxRefund},'${t.card_brand||''}','${t.card_last4||''}')"
-                  style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--accent-light);background:var(--accent-light);color:var(--accent);cursor:pointer;white-space:nowrap;font-weight:600"
+                  style="font-size:11px;padding:4px 10px;border-radius:8px;border:1px solid var(--accent-light);background:var(--accent-light);color:var(--accent);cursor:pointer;white-space:nowrap;font-weight:600"
                   title="Issue a refund for this charge">↩ Refund</button>` : ''}
               </td>
             </tr>`;
@@ -20818,7 +20818,7 @@ ${oneCopy}
 
   <!-- Print toolbar (screen only) -->
   <div class="no-print" style="background:#3b82f6;padding:10px 24px;display:flex;align-items:center;justify-content:flex-end;position:sticky;top:0;z-index:10">
-    <button onclick="window.print()" style="background:white;color:#3b82f6;border:none;padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:6px">
+    <button onclick="window.print()" style="background:white;color:#3b82f6;border:none;padding:7px 18px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:6px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
       Print / Save as PDF
     </button>
@@ -22469,17 +22469,17 @@ ${oneCopy}
       if (windowClosed) {
         // Window + 2hr buffer has passed — disable reassignment
         renderOptions(true);
-        statusBanner.style.cssText = 'display:block;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
+        statusBanner.style.cssText = 'display:block;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
         statusBanner.innerHTML = done === total
           ? `🔒 <strong>Route complete</strong><br>All ${total} stops are done and the route window has passed.`
           : `🔒 <strong>Route locked</strong><br>${done} of ${total} stops done. Route window + buffer has passed.`;
       } else if (done === total) {
         // All current stops done but window still open — allow reassignment, show info
-        statusBanner.style.cssText = 'display:block;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
+        statusBanner.style.cssText = 'display:block;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:8px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
         statusBanner.innerHTML = `✓ <strong>All ${total} current stops done</strong><br>Route window still open — new orders can still be added.`;
       } else if (done > 0) {
         // Route in progress — warn but allow reassigning the remaining stops
-        statusBanner.style.cssText = 'display:block;background:#fffbeb;color:#92400e;border:1px solid #fcd34d;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
+        statusBanner.style.cssText = 'display:block;background:#fffbeb;color:#92400e;border:1px solid #fcd34d;border-radius:8px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
         statusBanner.innerHTML = `⚡ <strong>Route in progress</strong><br>${done} of ${total} stops already done. Only the ${pending} remaining stop${pending!==1?'s':''} will be reassigned.`;
       }
     } catch (_) { /* non-critical */ }
@@ -25560,7 +25560,7 @@ ${oneCopy}
       const myLbs  = parseFloat(o._myLbs  ?? o.weight_lbs) || 0;
       const bagLbl = `${fmtCnt(myBags)} bag${myBags !== 1 ? 's' : ''}${myLbs ? ` · ${myLbs.toFixed(1)} lbs` : ''}`;
       const splitTag = o._isSplit
-        ? `<span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-light);padding:1px 6px;border-radius:6px;margin-left:6px">👥 Split share</span>`
+        ? `<span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-light);padding:1px 6px;border-radius:8px;margin-left:6px">👥 Split share</span>`
         : '';
       return `<div class="laun-hist-order-row">
         <div class="laun-hist-order-num">#${o.order_number}${splitTag}</div>
@@ -26069,7 +26069,7 @@ ${oneCopy}
           ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:var(--accent-light);color:var(--blue);padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Retail</span>`:''}
           ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
         </div>
-        ${zoneName ? `<div style="display:inline-flex;align-items:center;gap:5px;margin-top:4px;padding:3px 9px;border-radius:6px;background:${zoneColor}15;border:1.5px solid ${zoneColor}40">
+        ${zoneName ? `<div style="display:inline-flex;align-items:center;gap:5px;margin-top:4px;padding:3px 9px;border-radius:8px;background:${zoneColor}15;border:1.5px solid ${zoneColor}40">
           <span style="width:8px;height:8px;border-radius:50%;background:${zoneColor};flex-shrink:0"></span>
           <span style="font-size:11.5px;font-weight:700;color:var(--gray-700)">📍 ${zoneName}</span>
         </div>` : ''}
@@ -28015,7 +28015,7 @@ ${oneCopy}
       bad:     'color:#b91c1c;background:#fee2e2',
       flat:    'color:#6b7280;background:#f3f4f6',
     };
-    return `<span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;${styles[tone] || styles.flat}">${text}</span>`;
+    return `<span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;${styles[tone] || styles.flat}">${text}</span>`;
   }
 
   async function loadDeliveryKpis() {
@@ -28837,7 +28837,7 @@ ${oneCopy}
       return `<tr ${rowClick}>
         <td style="font-weight:600">${custName}</td>
         <td>${planName}</td>
-        <td><span style="padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;${statusStyle}">${s.status}</span></td>
+        <td><span style="padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;${statusStyle}">${s.status}</span></td>
         <td>
           <div style="display:flex;align-items:center;gap:8px">
             <div style="flex:1;height:6px;background:var(--gray-100);border-radius:3px;min-width:60px;max-width:100px">
@@ -29013,12 +29013,12 @@ ${oneCopy}
       const rowClick = custId ? `onclick="_openCustomerOnBillingTab('${custId}')" style="cursor:pointer"` : '';
 
       const signalBadges = signals.map(sig =>
-        `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin:1px 3px;${sevColors[sig.severity] || ''}">${sig.label}</span>`
+        `<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;margin:1px 3px;${sevColors[sig.severity] || ''}">${sig.label}</span>`
       ).join('');
 
       return `<tr ${rowClick}>
         <td style="font-weight:600">${custName}</td>
-        <td><span style="padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;${statusColors[s.status] || ''}">${s.status}</span></td>
+        <td><span style="padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;${statusColors[s.status] || ''}">${s.status}</span></td>
         <td>${signalBadges}</td>
         <td>${usage.toFixed(1)} / ${limit} lbs</td>
         <td>${pickups} / ${pickLim}</td>
@@ -29104,7 +29104,7 @@ ${oneCopy}
       const rowClick = custId ? `onclick="_openCustomerOnBillingTab('${custId}')" style="cursor:pointer"` : '';
 
       const signalBadges = signals.map(sig =>
-        `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin:1px 3px;${sevColors[sig.severity] || ''}">${sig.label}</span>`
+        `<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;margin:1px 3px;${sevColors[sig.severity] || ''}">${sig.label}</span>`
       ).join('');
 
       return `<tr ${rowClick}>
@@ -32078,7 +32078,7 @@ ${oneCopy}
 </style>
 </head><body>
 <div class="no-print" style="text-align:center;padding:10px;background:#f0f9ff;border-radius:8px;margin:12px 0;font-size:13px;color:#1e40af">
-  Press <strong>Ctrl+P</strong> (or ⌘P) to save as PDF &nbsp;|&nbsp; <button onclick="window.print()" style="padding:5px 14px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;border-radius:6px;cursor:pointer;font-size:12px">Print / Save PDF</button>
+  Press <strong>Ctrl+P</strong> (or ⌘P) to save as PDF &nbsp;|&nbsp; <button onclick="window.print()" style="padding:5px 14px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;border-radius:8px;cursor:pointer;font-size:12px">Print / Save PDF</button>
 </div>
 
 <!-- Dark header with logo -->
