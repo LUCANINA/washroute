@@ -20029,9 +20029,9 @@ ${oneCopy}
         ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200);margin-left:8px;flex-shrink:0" onclick="event.stopPropagation();printInvoice(['${o.id}'])" title="Download / print receipt for this order">🧾 Receipt</button>`
         : '';
 
-      return `<div class="cp-order-row${checked?' billing-selected':''}" id="brow-${o.id}" style="cursor:pointer${isFailed?';opacity:0.85':''}" onclick="cpOpenOrder('${o.id}')">
+      return `<div class="cp-order-row${checked?' billing-selected':''}" id="brow-${o.id}" style="cursor:pointer${isFailed?';opacity:0.85':''}" onclick="cpToggleOrderSummary('${o.id}',this)" title="Click for a quick summary">
         ${cb}
-        <span class="cp-order-num">#${o.order_number}</span>
+        <a class="cp-order-num" onclick="event.stopPropagation();cpOpenOrder('${o.id}')" style="cursor:pointer;text-decoration:none" title="Open full order">#${o.order_number}</a>
         <div class="cp-order-svc">
           <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
           <div style="font-size:11.5px;color:var(--gray-400)">${dateStr}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
@@ -20040,13 +20040,71 @@ ${oneCopy}
         ${badge}
         <span class="cp-order-amt" style="margin-left:auto">${fmtMoney(amt)}</span>
         ${receiptBtn}
-      </div>`;
+        <span id="cpchev-${o.id}" style="color:var(--gray-300);font-size:11px;transition:transform .15s;flex-shrink:0;margin-left:2px" aria-hidden="true">▼</span>
+      </div>
+      <div class="cp-order-summary" id="cpsum-${o.id}" style="display:none"></div>`;
     }).join('');
   }
 
   function cpOpenOrder(orderId) {
     closeCustomerPanel();
     setTimeout(() => openOrderPanel(orderId), 200);
+  }
+
+  // Session 184b — inline quick summary for a completed order (Starchup-style),
+  // so an order can be audited without leaving the customer panel. Lazy-rendered
+  // from cpAllOrders on first expand; the full order is one click away.
+  function cpToggleOrderSummary(orderId) {
+    const sum  = document.getElementById('cpsum-' + orderId);
+    const chev = document.getElementById('cpchev-' + orderId);
+    if (!sum) return;
+    const opening = sum.style.display === 'none';
+    if (opening && !sum.dataset.loaded) {
+      const o = (cpAllOrders || []).find(x => x.id === orderId);
+      sum.innerHTML = o ? cpOrderSummaryHtml(o)
+        : '<div style="padding:12px 18px;color:var(--gray-400);font-size:12px">Summary unavailable</div>';
+      sum.dataset.loaded = '1';
+    }
+    sum.style.display = opening ? '' : 'none';
+    if (chev) chev.style.transform = opening ? 'rotate(180deg)' : '';
+  }
+
+  function cpOrderSummaryHtml(o) {
+    const dt = x => x ? new Date(x).toLocaleString('en-US', { timeZone: BIZ_TZ, month:'numeric', day:'numeric', year:'2-digit', hour:'numeric', minute:'2-digit' }) : '—';
+    const money = n => fmtMoney(n || 0);
+    const items = Array.isArray(o.line_items) ? o.line_items.filter(li => parseFloat(li.amount || 0) !== 0) : [];
+    const itemRows = items.length
+      ? items.map(li => `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--gray-600)">${esc(li.label || li.description || 'Item')}</span><span style="color:var(--gray-800);white-space:nowrap">${money(li.amount)}</span></div>`).join('')
+      : '<div style="color:var(--gray-400)">No itemized lines</div>';
+    const tipDol = o.tip_amount ? (o.tip_type === 'pct' ? Math.round((o.total_amount || 0) * o.tip_amount) / 100 : Math.round(parseFloat(o.tip_amount) * 100) / 100) : 0;
+    const grand = orderChargedTotal(o);
+    const payMethod  = o.billing_payment_method ? o.billing_payment_method.replace(/_/g, ' ') : '';
+    const billStatus = o.billing_status ? (o.billing_status.charAt(0).toUpperCase() + o.billing_status.slice(1)) : '—';
+    const statusText = (o.status || '').replace(/_/g, ' ');
+    const wb = (o.weight_lbs ? o.weight_lbs + ' lbs' : '') + (o.total_bags ? (o.weight_lbs ? ' · ' : '') + o.total_bags + ' bag' + (o.total_bags > 1 ? 's' : '') : '');
+    const D = (l, v) => `<div style="display:flex;gap:8px"><span style="color:var(--gray-400);min-width:70px;flex-shrink:0">${l}</span><span style="color:var(--gray-800)">${v}</span></div>`;
+    return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:14px 18px;background:#fbfbfc;border-bottom:1px solid var(--gray-100)">
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:12.5px">
+        <div class="cp-subhead">Details</div>
+        ${D('Status', esc(statusText))}
+        ${D('Pickup', dt(o.pickup_window_start))}
+        ${D('Delivery', dt(o.actual_delivery_at || o.delivery_window_start))}
+        ${D('Route', esc(o.pickup_run && o.pickup_run.name ? o.pickup_run.name : '—'))}
+        ${D('Source', esc(o.source || '—'))}
+        ${wb ? D('Weight', esc(wb)) : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:12.5px">
+        <div class="cp-subhead">Items</div>
+        ${itemRows}
+        <div style="border-top:1px solid var(--gray-100);margin-top:6px;padding-top:6px;display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;justify-content:space-between;color:var(--gray-600)"><span>Subtotal</span><span>${money(o.total_amount)}</span></div>
+          ${tipDol > 0 ? `<div style="display:flex;justify-content:space-between;color:var(--gray-600)"><span>Tip</span><span>${money(tipDol)}</span></div>` : ''}
+          <div style="display:flex;justify-content:space-between;font-weight:600;color:var(--gray-900)"><span>Grand total</span><span>${money(grand)}</span></div>
+          <div style="display:flex;justify-content:space-between;color:var(--gray-500)"><span>Billing</span><span>${esc(billStatus)}${payMethod ? ' · ' + esc(payMethod) : ''}</span></div>
+        </div>
+        <div style="margin-top:8px"><a href="#" onclick="event.preventDefault();event.stopPropagation();cpOpenOrder('${o.id}')" style="font-size:12.5px;color:var(--accent);text-decoration:none;font-weight:500">Open full order →</a></div>
+      </div>
+    </div>`;
   }
 
   // ── BILLING FUNCTIONS ──
