@@ -8091,7 +8091,7 @@
     let keepGoing = true;
     while (keepGoing) {
       const { data, error } = await db.from('customers')
-          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, last_delivered_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
       if (error) {
@@ -8241,7 +8241,10 @@
     document.getElementById('cstat-total').textContent = data.length;
     const now = Date.now();
     const DAY = 86_400_000;
-    const activeIn = (days) => data.filter(c => c.last_order_at && (now - new Date(c.last_order_at).getTime()) <= days * DAY).length;
+    // "Active" = COMPLETED (delivered) an order within the window — NOT just any
+    // order created. Uses last_delivered_order_at so recurring customers who skip
+    // every occurrence no longer count as active (session 184b).
+    const activeIn = (days) => data.filter(c => c.last_delivered_order_at && (now - new Date(c.last_delivered_order_at).getTime()) <= days * DAY).length;
     document.getElementById('cstat-7d').textContent  = activeIn(7);
     document.getElementById('cstat-30d').textContent = activeIn(30);
     document.getElementById('cstat-90d').textContent = activeIn(90);
@@ -8266,12 +8269,14 @@
           bv = Number(b.lifetime_value || 0);
           break;
         case 'last_order':
-          av = a.last_order_at || '';
-          bv = b.last_order_at || '';
+          // "Last Order" = most recent delivered order (session 184b), matching
+          // the customer panel + activity badge.
+          av = a.last_delivered_order_at || '';
+          bv = b.last_delivered_order_at || '';
           break;
         case 'status':
-          av = a.last_order_at || '';
-          bv = b.last_order_at || '';
+          av = a.last_delivered_order_at || '';
+          bv = b.last_delivered_order_at || '';
           break;
         default: av = ''; bv = '';
       }
@@ -8344,7 +8349,7 @@
           <td>${c.total_orders||0}</td>
           <td style="font-weight:600">${fmtMoney(c.lifetime_value)}</td>
           <td style="text-align:center">${_custPayIcon(c)}</td>
-          <td style="color:var(--gray-500)">${fmtDate(c.last_order_at)}</td>
+          <td style="color:var(--gray-500)">${c.last_delivered_order_at ? fmtDate(c.last_delivered_order_at) : '—'}</td>
           <td>${custActivityBadge(c)}</td>
         </tr>`;
       }).join('')}
@@ -8420,7 +8425,8 @@
       const days = daysMap[status];
       if (days) {
         const cutoff = Date.now() - days * 86_400_000;
-        data = data.filter(c => c.last_order_at && new Date(c.last_order_at).getTime() >= cutoff);
+        // Match the "Active (N days)" stat cards: filter on delivered-order recency.
+        data = data.filter(c => c.last_delivered_order_at && new Date(c.last_delivered_order_at).getTime() >= cutoff);
       }
     }
     // text search across name, email, phone
@@ -18942,7 +18948,7 @@ ${oneCopy}
     try { cpBillingSubtab(localStorage.getItem('wr-cpb-subtab') || 'plan'); } catch (e) { cpBillingSubtab('plan'); }
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, last_delivered_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -18966,7 +18972,7 @@ ${oneCopy}
     document.getElementById('cp-ltv').textContent = fmtMoney(ltv);
     document.getElementById('cp-total-orders').textContent = tot;
     document.getElementById('cp-avg-order').textContent = fmtMoney(avg);
-    document.getElementById('cp-last-order').textContent = c.last_order_at ? fmtDate(c.last_order_at) : '—';
+    document.getElementById('cp-last-order').textContent = c.last_delivered_order_at ? fmtDate(c.last_delivered_order_at) : '—';
     // "Last Order" = most recent COMPLETED (delivered) order only — skips and
     // cancels don't count (session 184f). Resolve directly; guard stale panel.
     db.from('orders')
@@ -20092,7 +20098,7 @@ ${oneCopy}
     // Completed orders only (skips/cancels don't count) — session 184f.
     const _delivDates = cpAllOrders.filter(o=>o.status==='delivered').map(o=>o.actual_delivery_at||o.delivery_window_start||o.pickup_window_start||o.created_at).filter(Boolean);
     const latest = _delivDates.length ? _delivDates.reduce((a,b)=>a>b?a:b) : null;
-    if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).catch(e=>console.warn('last_order_at sync failed:',e)); } }
+    if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_delivered_order_at:latest}).eq('id',customerId).catch(e=>console.warn('last_delivered_order_at sync failed:',e)); } }
     // Default the Orders tab to the Completed section (session 184b). Reset the
     // Days-Previous buttons to 'All' first so a prior customer's selection doesn't
     // carry over; filterCpOrders sets the tab / billing-mode / range-bar state.
@@ -21222,16 +21228,19 @@ ${oneCopy}
   let _custZonesData = null;       // cached result from get_service_zones_geojson
   let _custZoneOverlayLayers = []; // Leaflet layers added to custMap
   let _custZoneOverlayOn = false;
+  // Activity recency is based on the last COMPLETED (delivered) order, not the
+  // last order created — so recurring customers who skip every occurrence show
+  // as inactive/"No orders" instead of falsely active (session 184b).
   function custActivityColor(c) {
-    if (!c.last_order_at) return '#9ca3af';
-    const days = (Date.now() - new Date(c.last_order_at).getTime()) / 86_400_000;
+    if (!c.last_delivered_order_at) return '#9ca3af';
+    const days = (Date.now() - new Date(c.last_delivered_order_at).getTime()) / 86_400_000;
     if (days <= 30) return '#0ba25a';
     if (days <= 90) return '#d97706';
     return '#9ca3af';
   }
   function custActivityBadge(c) {
-    if (!c.last_order_at) return '<span class="badge badge-gray">No orders</span>';
-    const days = Math.floor((Date.now() - new Date(c.last_order_at).getTime()) / 86_400_000);
+    if (!c.last_delivered_order_at) return '<span class="badge badge-gray">No orders</span>';
+    const days = Math.floor((Date.now() - new Date(c.last_delivered_order_at).getTime()) / 86_400_000);
     if (days <= 7)  return '<span class="badge badge-green">7 days</span>';
     if (days <= 30) return '<span class="badge badge-green">30 days</span>';
     if (days <= 90) return '<span class="badge badge-amber">90 days</span>';
