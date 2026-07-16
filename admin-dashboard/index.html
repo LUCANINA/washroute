@@ -162,7 +162,6 @@
     /* Laptop-friendly: narrower sidebar + slimmer route columns */
     @media (max-width: 1440px) {
       :root { --rcc-col-w: 260; }
-      .rcc-col { width:260px;min-width:260px; }
     }
     .stat-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow-sm); }
     .stat-card-link { cursor: pointer; transition: border-color .12s, box-shadow .12s; }
@@ -881,19 +880,39 @@
     /* Driver columns */
     #rcc-cols-panel::-webkit-scrollbar { height:4px; }
     #rcc-cols-panel::-webkit-scrollbar-thumb { background:var(--gray-200);border-radius:4px; }
-    .rcc-col { width:calc(var(--rcc-col-w) * 1px);min-width:calc(var(--rcc-col-w) * 1px);display:flex;flex-direction:column;background:#fff;border-right:1px solid var(--gray-200);overflow:hidden; }
-    .rcc-col:last-child { border-right:none; }
-    .rcc-col.rcc-drop-over { background:#f0fdf4; }
-    .rcc-col-hdr { padding:10px 13px 8px;border-bottom:1px solid var(--gray-200);flex-shrink:0; }
-    .rcc-col-top { display:flex;align-items:center;gap:8px;margin-bottom:6px; }
-    .rcc-avatar { width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0; }
-    .rcc-d-name  { font-size:12.5px;font-weight:700;color:var(--gray-900);line-height:1.2; }
-    .rcc-d-route { font-size:10.5px;color:var(--gray-400); }
-    .rcc-col-meta { display:flex;align-items:center;gap:5px; }
+    /* Route accordion — each route is a full-width collapsible section, stacked
+       vertically so adding routes never runs off the side of the screen. */
+    .rcc-col { width:100%;display:flex;flex-direction:column;background:#fff;border-bottom:1px solid var(--gray-200);overflow:visible; }
+    .rcc-col.rcc-drop-over > .rcc-col-hdr { box-shadow:inset 0 0 0 2px #86efac;background:#f0fdf4; }
+    .rcc-col-hdr { padding:9px 12px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;gap:9px;transition:background .1s; }
+    .rcc-col-hdr:hover { background:var(--gray-50); }
+    .rcc-col-chevron { color:var(--gray-400);font-size:9px;line-height:1;transition:transform .15s;flex-shrink:0;width:9px;text-align:center; }
+    .rcc-col.rcc-expanded .rcc-col-chevron { transform:rotate(90deg); }
+    .rcc-col-hdr-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0; }
+    .rcc-d-name  { font-size:12.5px;font-weight:600;color:var(--gray-900);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .rcc-d-route { font-size:10.5px;color:var(--gray-400);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .rcc-col-meta { display:flex;align-items:center;gap:5px;flex-shrink:0; }
     .rcc-col-n   { font-size:12px;font-weight:700;color:var(--gray-900); }
-    .rcc-col-lbl { font-size:12px;color:var(--gray-400); }
-    /* Card body */
-    .rcc-body { flex:1;min-height:0;overflow-y:auto;padding:7px;display:flex;flex-direction:column;gap:5px; }
+    .rcc-col-lbl { font-size:11px;color:var(--gray-400); }
+    /* Sticky filter/collapse toolbar at the top of the panel */
+    .rcc-panel-toolbar { position:sticky;top:0;z-index:3;display:flex;align-items:center;padding:8px 12px;background:#fff;border-bottom:1px solid var(--gray-200); }
+    /* Accordion body + dense single-line stop rows */
+    .rcc-body { overflow:visible;padding:2px 0 5px;display:block; }
+    .rcc-row { display:flex;align-items:center;gap:8px;padding:5px 12px 5px 30px;cursor:grab;user-select:none;position:relative;transition:background .1s; }
+    .rcc-row:hover { background:var(--gray-50); }
+    .rcc-row.rcc-dragging { opacity:.3; }
+    .rcc-row-num { position:absolute;left:9px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0; }
+    .rcc-row-name { font-size:12px;font-weight:600;color:var(--gray-900);white-space:nowrap;flex-shrink:0;max-width:120px;overflow:hidden;text-overflow:ellipsis; }
+    .rcc-row-name[onclick]:hover { color:var(--accent);text-decoration:underline; }
+    .rcc-row-addr { font-size:11.5px;color:var(--gray-400);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .rcc-row-meta { display:flex;align-items:center;gap:6px;flex-shrink:0;font-size:10.5px;color:var(--gray-500); }
+    .rcc-row.rcc-selectable { cursor:pointer; }
+    .rcc-row.rcc-selectable:hover { background:#f5f4ff; }
+    .rcc-row.rcc-selected { background:#f5f4ff; }
+    .rcc-row-num.rcc-checkbox { background:#fff !important;border:1px solid var(--gray-300);color:transparent; }
+    .rcc-row.rcc-selected .rcc-row-num.rcc-checkbox { background:var(--accent) !important;border-color:var(--accent);color:#fff; }
+    /* legacy card body scroll (unused by accordion, kept harmless) */
+    .rcc-body-legacy { flex:1;min-height:0;overflow-y:auto;padding:7px;display:flex;flex-direction:column;gap:5px; }
     .rcc-body::-webkit-scrollbar { width:3px; }
     .rcc-body::-webkit-scrollbar-thumb { background:var(--gray-200);border-radius:4px; }
     .rcc-drop-hint { border:1.5px dashed var(--gray-200);border-radius:8px;padding:14px;text-align:center;font-size:11.5px;color:var(--gray-400);display:none;margin-top:2px; }
@@ -1847,7 +1866,7 @@
                 </div>
               </div>
               <!-- Columns panel — grows as routes are activated -->
-              <div id="rcc-cols-panel" style="display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-left:1px solid var(--gray-200);background:var(--gray-50);transition:width .25s ease;width:0;flex-shrink:0;"></div>
+              <div id="rcc-cols-panel" style="display:flex;flex-direction:column;overflow-x:hidden;overflow-y:auto;border-left:1px solid var(--gray-200);background:#fff;transition:width .25s ease;width:0;flex-shrink:0;"></div>
             </div>
           </div>
 
@@ -22650,7 +22669,9 @@ ${oneCopy}
   let _dsAllStops = []; // raw route_stops for the day's routes — feeds the window summary
   let _rccDriverSched = {};            // `${template_id}-${dow}` → driver_id (for RCC fallback)
   let _dsActiveZone = null, _dsActiveSlot = null; // kept for backward-compat with autoOptimizeRoute refresh
-  let _rccActiveRoutes = new Set();   // routeId → open column
+  let _rccActiveRoutes = new Set();   // routeId → selected (pins on map + accordion section)
+  let _rccExpanded     = new Set();   // routeId → accordion section expanded (stops visible)
+  let _rccStopFilter   = 'all';       // 'all' | 'pickup' | 'delivery' — row filter in the accordion
   let _rccRouteData    = {};          // routeId → { route, color, driverName, stops, routeWindow }
   let _rccDragStopId   = null;        // stop id being dragged
   let _rccStopMarkers  = {};          // stopId → L.marker (for hover)
@@ -22679,6 +22700,7 @@ ${oneCopy}
 
     // Reset active state
     _rccActiveRoutes = new Set();
+    _rccExpanded.clear();
     _rccRouteData = {};
     _rccReassigned = {}; // legacy in-memory map — kept for safety but no longer the source of truth
     // Clear bulk-select state on date change — stale selections from yesterday's view
@@ -22801,8 +22823,10 @@ ${oneCopy}
       const tpl = _dsTemplates.find(t => t.id === r.template_id);
       return inSlot(tpl);
     });
+    // Auto-open collapsed — headers appear (and pins on the map) but the panel
+    // stays scannable; the user expands the routes they want to work.
     for (const route of toOpen) {
-      await rccToggleRoute(route.id);
+      await rccToggleRoute(route.id, false);
     }
   }
 
@@ -22896,6 +22920,7 @@ ${oneCopy}
     if (_rccSlot === slot) return;
     _rccSlot = slot;
     _rccActiveRoutes.clear();
+    _rccExpanded.clear();
     _rccRouteData = {};
     rccRenderChips();
     rccRenderDaySummary();
@@ -22905,12 +22930,16 @@ ${oneCopy}
     rccUpdateOptimizeBtn();
   }
 
-  // ── RCC: Toggle a route column open/closed ──
-  async function rccToggleRoute(routeId) {
+  // ── RCC: Toggle a route section open/closed ──
+  // expand=true (manual chip click) opens the section expanded so its stops show;
+  // expand=false (auto-open on load) selects the route collapsed so the panel
+  // stays scannable when many routes qualify for the slot.
+  async function rccToggleRoute(routeId, expand = true) {
     if (!routeId) return;
     if (_rccActiveRoutes.has(routeId)) {
-      // Deactivate — remove column and map layer
+      // Deactivate — remove section and map layer
       _rccActiveRoutes.delete(routeId);
+      _rccExpanded.delete(routeId);
       delete _rccRouteData[routeId];
       rccRenderChips();
       rccRenderColumns();
@@ -22930,6 +22959,7 @@ ${oneCopy}
     // sees instant feedback. Columns + map will render once data arrives
     // (both rccRenderColumns and rccRenderMap guard against missing _rccRouteData).
     _rccActiveRoutes.add(routeId);
+    if (expand) _rccExpanded.add(routeId);
     rccRenderChips();
     rccUpdatePanelWidth();
 
@@ -23056,7 +23086,14 @@ ${oneCopy}
       return;
     }
 
-    let html = '';
+    // Sticky toolbar: route count · type filter · collapse-all
+    const nRoutes = _rccActiveRoutes.size;
+    const seg = (val, label) => `<button onclick="event.stopPropagation();rccSetStopFilter('${val}')" style="font-size:11px;padding:3px 10px;border:none;cursor:pointer;background:${_rccStopFilter===val?'var(--gray-900)':'transparent'};color:${_rccStopFilter===val?'#fff':'var(--gray-600)'};">${label}</button>`;
+    let html = `<div class="rcc-panel-toolbar">
+      <span style="font-size:11.5px;font-weight:600;color:var(--gray-600)">${nRoutes} route${nRoutes!==1?'s':''}</span>
+      <span style="display:inline-flex;border:1px solid var(--gray-200);border-radius:6px;overflow:hidden;margin-left:10px">${seg('all','All')}${seg('pickup','Pickups')}${seg('delivery','Deliveries')}</span>
+      <button onclick="rccCollapseAll()" style="margin-left:auto;font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 4px">Collapse all</button>
+    </div>`;
     _rccActiveRoutes.forEach(routeId => {
       const rd = _rccRouteData[routeId];
       if (!rd) return;
@@ -23065,6 +23102,12 @@ ${oneCopy}
       const remaining = stops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed');
       const pickups = remaining.filter(s => s.stop_type !== 'delivery').length;
       const deliveries = remaining.filter(s => s.stop_type === 'delivery').length;
+      // Row-level filter (header counts stay on the full `remaining`; only the
+      // displayed rows are filtered). Body is built only for expanded sections.
+      const isExpanded = _rccExpanded.has(routeId);
+      const shown = remaining.filter(s => _rccStopFilter === 'all' ? true
+        : _rccStopFilter === 'delivery' ? s.stop_type === 'delivery'
+        : s.stop_type !== 'delivery');
 
       // ── Time-window section dividers ──
       // If the template has arrival_window_hours (e.g. 2), group stop cards by
@@ -23104,9 +23147,9 @@ ${oneCopy}
         return Math.max(0, Math.min(numSlots - 1, idx));
       };
 
-      // Collect distinct slot indices that appear in this route (remaining stops only)
+      // Collect distinct slot indices that appear in this route (shown stops only)
       const slotSet = new Set();
-      remaining.forEach(s => { const idx = getSlotIdx(s); if (idx >= 0) slotSet.add(idx); });
+      shown.forEach(s => { const idx = getSlotIdx(s); if (idx >= 0) slotSet.add(idx); });
       const sortedSlots = [...slotSet].sort((a, b) => a - b);
 
       if (numSlots > 0 && sortedSlots.length > 1) {
@@ -23127,7 +23170,7 @@ ${oneCopy}
         const groups = {};
         sortedSlots.forEach(idx => { groups[idx] = []; });
         const noWindow = [];
-        remaining.forEach(s => {
+        shown.forEach(s => {
           const idx = getSlotIdx(s);
           if (idx >= 0 && groups[idx] !== undefined) groups[idx].push(s);
           else noWindow.push(s);
@@ -23143,44 +23186,59 @@ ${oneCopy}
         });
         noWindow.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
       } else {
-        remaining.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
+        shown.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
       }
 
       const _selModeOn = _rccSelMode.has(routeId);
-      html += `<div class="rcc-col${_selModeOn ? ' rcc-in-select' : ''}" data-route-id="${routeId}"
+      const bodyHtml = isExpanded
+        ? `<div class="rcc-body" ondragover="rccDragOver(event)" ondrop="rccDrop(event,'${routeId}')">
+             <div class="rcc-drop-hint" style="margin:2px 8px">Drop here → ${templateName}</div>
+             ${cardsHtml || `<div style="padding:14px;text-align:center;color:var(--gray-400);font-size:11.5px;">No ${_rccStopFilter==='all'?'active':_rccStopFilter} stops</div>`}
+           </div>`
+        : '';
+      html += `<div class="rcc-col${isExpanded ? ' rcc-expanded' : ''}${_selModeOn ? ' rcc-in-select' : ''}" data-route-id="${routeId}"
         ondragover="rccDragOver(event)"
         ondragleave="rccDragLeave(event)"
         ondrop="rccDrop(event,'${routeId}')">
-        <div class="rcc-col-hdr" style="border-top:3px solid ${color};">
-          <div class="rcc-col-top">
-            <div class="rcc-avatar" style="background:${color};">${driverInitials}</div>
-            <div style="flex:1;min-width:0;">
-              <div class="rcc-d-name">${templateName}</div>
-              <div class="rcc-d-route">${driverName}</div>
-            </div>
-            <button class="rcc-select-btn${_selModeOn ? ' active' : ''}"
-                    onclick="rccToggleSelectMode('${routeId}', event)"
-                    title="${_selModeOn ? 'Cancel selection on this route' : 'Select stops to message or reschedule'}">${_selModeOn ? '✓ Cancel' : '☐'}</button>
-            <button onclick="rccToggleRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;line-height:1;padding:0 2px;flex-shrink:0;" title="Close">×</button>
+        <div class="rcc-col-hdr" onclick="rccToggleExpand('${routeId}')" title="${isExpanded ? 'Collapse' : 'Expand'} route">
+          <span class="rcc-col-chevron">▶</span>
+          <span class="rcc-col-hdr-dot" style="background:${color};"></span>
+          <div style="flex:1;min-width:0;">
+            <div class="rcc-d-name">${templateName}</div>
+            <div class="rcc-d-route">${driverName}</div>
           </div>
           <div class="rcc-col-meta">
-            <span class="rcc-col-n">${remaining.length}</span>
-            <span class="rcc-col-lbl">stops</span>
-            <span class="rcc-card-dot" style="margin:0 5px;"></span>
-            <span class="rcc-col-n">${pickups}</span>
-            <span class="rcc-col-lbl">P</span>
-            <span class="rcc-card-dot" style="margin:0 5px;"></span>
-            <span class="rcc-col-n">${deliveries}</span>
-            <span class="rcc-col-lbl">D</span>
+            <span class="rcc-col-n">${remaining.length}</span><span class="rcc-col-lbl">stops</span>
+            <span class="rcc-card-dot" style="margin:0 3px;"></span>
+            <span class="rcc-col-n">${pickups}</span><span class="rcc-col-lbl">P</span>
+            <span class="rcc-card-dot" style="margin:0 3px;"></span>
+            <span class="rcc-col-n">${deliveries}</span><span class="rcc-col-lbl">D</span>
           </div>
+          <button class="rcc-select-btn${_selModeOn ? ' active' : ''}"
+                  onclick="event.stopPropagation();rccToggleSelectMode('${routeId}', event)"
+                  title="${_selModeOn ? 'Cancel selection on this route' : 'Select stops to message or reschedule'}">${_selModeOn ? '✓ Cancel' : '☐'}</button>
+          <button onclick="event.stopPropagation();rccToggleRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;" title="Remove route">×</button>
         </div>
-        <div class="rcc-body" ondragover="rccDragOver(event)" ondrop="rccDrop(event,'${routeId}')">
-          <div class="rcc-drop-hint">Drop here → ${templateName}</div>
-          ${cardsHtml || '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:12px;">No active stops</div>'}
-        </div>
+        ${bodyHtml}
       </div>`;
     });
     panel.innerHTML = html;
+  }
+
+  // ── RCC: Accordion expand/collapse + row filter ──
+  function rccToggleExpand(routeId) {
+    if (_rccExpanded.has(routeId)) _rccExpanded.delete(routeId);
+    else _rccExpanded.add(routeId);
+    rccRenderColumns();
+  }
+  function rccCollapseAll() {
+    _rccExpanded.clear();
+    rccRenderColumns();
+  }
+  function rccSetStopFilter(f) {
+    if (!['all','pickup','delivery'].includes(f)) return;
+    _rccStopFilter = f;
+    rccRenderColumns();
   }
 
   // ── RCC: Check if an ETA is past the route template's operating window ──
@@ -23283,15 +23341,15 @@ ${oneCopy}
     // ("hover already moves the map, so click can be a real action").
     const inSel = _rccSelMode.has(routeId);
     const isSel = _rccSelStops.has(s.id);
-    const cardClasses = ['rcc-card','rcc-popin'];
-    if (inSel) cardClasses.push('rcc-selectable');
-    if (isSel) cardClasses.push('rcc-selected');
+    const rowClasses = ['rcc-row'];
+    if (inSel) rowClasses.push('rcc-selectable');
+    if (isSel) rowClasses.push('rcc-selected');
     const draggable = inSel ? 'false' : 'true';
     const cardOnclick = inSel
       ? `rccToggleStopSelection('${s.id}','${routeId}',event)`
       : (orderId ? `openOrderPanel('${orderId}')` : '');
     const dragHandler = inSel ? '' : `ondragstart="rccDragStart(event,'${s.id}','${routeId}')"`;
-    const numClass = inSel ? 'rcc-stop-num rcc-checkbox' : 'rcc-stop-num';
+    const numClass = inSel ? 'rcc-row-num rcc-checkbox' : 'rcc-row-num';
     const numStyle = inSel ? '' : `style="background:${color};"`;
     const numContent = inSel ? (isSel ? '✓' : '') : (s._displayNum||s.stop_number||'?');
     // In select mode, name click also toggles selection (don't open customer panel
@@ -23300,24 +23358,24 @@ ${oneCopy}
       ? ''
       : (custClick ? ` onclick="${custClick}" style="cursor:pointer;" title="Open customer account"` : '');
 
-    return `<div class="${cardClasses.join(' ')}" draggable="${draggable}"
+    // Dense single-line row: [#] Name · Address(truncates) · [P/D] · bags · badges.
+    return `<div class="${rowClasses.join(' ')}" draggable="${draggable}"
       data-stop-id="${s.id}" data-route-id="${routeId}" data-stop-type="${s.stop_type}"
       ${dragHandler}
       onclick="${cardOnclick}"
       ${hoverIn} ${hoverOut}>
       <div class="${numClass}" ${numStyle}>${numContent}</div>
-      <div class="rcc-card-name"${nameClickAttr}>${name}${statusMark}</div>
-      <div class="rcc-card-addr">${addr}</div>
-      <div class="rcc-card-foot">
-        <span style="font-size:9.5px;font-weight:600;padding:1px 5px;border-radius:4px;${typeBg}">${typeLabel}</span>
-        <span class="rcc-card-dot"></span>
+      <span class="rcc-row-name"${nameClickAttr}>${name}${statusMark}</span>
+      <span class="rcc-row-addr">${addr}</span>
+      <span class="rcc-row-meta">
+        <span style="font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:4px;${typeBg}">${typeLabel}</span>
         <span>${bags} bag${bags!==1?'s':''}</span>
         ${movedBadge}
         ${enRouteBadge}
         ${photoSkippedBadge}
         ${notReadyBadge}
         ${etaBadge}
-      </div>
+      </span>
     </div>`;
   }
 
@@ -23469,6 +23527,7 @@ ${oneCopy}
       });
     } else {
       _rccSelMode.add(routeId);
+      _rccExpanded.add(routeId); // expand so the selectable rows are visible
     }
     rccRenderColumns();
     rccUpdateBatchBar();
@@ -23503,12 +23562,12 @@ ${oneCopy}
           : (o.pickup_window_end || o.delivery_window_end),
       });
     }
-    // Snappy visual update on the card without a full column re-render.
-    const card = document.querySelector(`.rcc-card[data-stop-id="${stopId}"]`);
+    // Snappy visual update on the row without a full panel re-render.
+    const card = document.querySelector(`.rcc-row[data-stop-id="${stopId}"]`);
     if (card) {
       const sel = _rccSelStops.has(stopId);
       card.classList.toggle('rcc-selected', sel);
-      const num = card.querySelector('.rcc-stop-num');
+      const num = card.querySelector('.rcc-row-num');
       if (num) num.textContent = sel ? '✓' : '';
     }
     rccUpdateBatchBar();
@@ -23962,10 +24021,9 @@ ${oneCopy}
       panel.style.width = '0';
       if (emptyEl) emptyEl.style.display = 'flex';
     } else {
-      // Read actual column width from CSS (respects laptop media query)
-      const colW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--rcc-col-w') || '290');
-      const maxW = Math.round(window.innerWidth * 0.50);
-      panel.style.width = Math.min(n * colW, maxW) + 'px';
+      // Accordion: single fixed-width vertical panel (routes stack, they don't
+      // add columns). Width no longer scales with route count.
+      panel.style.width = Math.min(460, Math.round(window.innerWidth * 0.5)) + 'px';
       if (emptyEl) emptyEl.style.display = 'none';
     }
     // Let Leaflet recalculate its container size after CSS transition
