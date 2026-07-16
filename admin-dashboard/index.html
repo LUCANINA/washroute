@@ -10761,19 +10761,8 @@
     const lineItems = _dedupeLineItems(o.line_items);
     const notes = o.special_instructions || '';
 
-    // Add-on chips (read-only) — only show items with a charge
-    const addonItems = lineItems.filter(li =>
-      (li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0)));
-    const addonChips = addonItems.length
-      ? `<div style="margin-top:10px">
-          <span style="font-size:12px;font-weight:500;color:var(--gray-500)">Add-ons</span>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
-            ${addonItems.map(li => {
-              const amt = parseFloat(li.amount||0);
-              return `<span style="font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-light);color:var(--accent);font-weight:600">${li.label}${amt>0 ? ' '+fmtMoney(amt) : ''}</span>`;
-            }).join('')}
-          </div>
-        </div>` : '';
+    // Add-on chips removed (session 184e) — add-ons already appear as line items in
+    // the cost breakdown below, so the chips were redundant.
 
     // Cost breakdown
     let breakdownHTML = '';
@@ -10817,7 +10806,6 @@
         <span style="${_lbl}">Processed by</span>
         <span style="${_val}">${esc(o.folded_by.name)}${o.folded_at ? ` <span style="font-weight:400;color:var(--gray-400)">· ${fmtDate(o.folded_at)}</span>` : ''}</span>
       </div>` : ''}
-      ${addonChips}
       <div style="margin-top:12px;line-height:1.9">${breakdownHTML}${totalLine}</div>
       ${notes ? `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px">
         <span style="${_lbl}">Special instructions</span>
