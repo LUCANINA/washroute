@@ -478,8 +478,8 @@
     /* ── ORDER DETAIL PANEL ── */
     .order-panel { position: fixed; top: 0; right: -560px; width: 500px; height: 100vh; background: #f5f5f7; box-shadow: -6px 0 40px rgba(0,0,0,.18); z-index: 1101; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
     .order-panel.open { right: 0; }
-    .op-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; background: #fff; }
-    .op-num { font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--gray-400); margin-bottom: 4px; }
+    .op-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; background: #fff; }
+    .op-num { font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: var(--gray-900); margin-bottom: 2px; }
     .op-cust-strip { padding: 8px 20px 9px; background: #fff; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
     .op-tab-bar { display: flex; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; background: #fff; }
     .op-tab { flex: 1; padding: 9px 4px; font-size: 13px; font-weight: 600; color: var(--gray-500); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
@@ -4207,14 +4207,14 @@
   <!-- Header -->
   <div class="op-header">
     <div style="flex:1;min-width:0">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <div class="op-num" id="op-num">ORDER #—</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div class="op-num" id="op-num">Order #—</div>
         <div style="position:relative;display:inline-block">
-          <div id="op-site-badge" style="display:none;cursor:pointer;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:5px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-600);user-select:none" onclick="opToggleSiteDropdown(event)" title="Click to change processing site"></div>
+          <div id="op-site-badge" style="display:none;cursor:pointer;font-size:11px;font-weight:500;letter-spacing:0;padding:3px 9px;border-radius:6px;border:.5px solid var(--gray-200);background:var(--gray-50);color:var(--gray-600);user-select:none" onclick="opToggleSiteDropdown(event)" title="Click to change processing site"></div>
           <div id="op-site-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;margin-top:4px"></div>
         </div>
       </div>
-      <div style="position:relative;display:inline-block">
+      <div style="position:relative;display:inline-block;margin-top:7px">
         <div id="op-status-badge" style="cursor:pointer" onclick="opToggleStatusDropdown(event)"></div>
         <div id="op-status-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;max-height:320px;overflow-y:auto;margin-top:4px"></div>
       </div>
@@ -9235,7 +9235,7 @@
     _opHistoryLoaded = null; // reset history cache for new order
 
     // Header
-    document.getElementById('op-num').textContent = `ORDER #${o.order_number || '—'}`;
+    document.getElementById('op-num').textContent = `Order #${o.order_number || '—'}`;
     document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
     opRenderSiteBadge(o.site_id);
 
