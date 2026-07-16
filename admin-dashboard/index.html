@@ -1328,7 +1328,7 @@
     .bill-badge { display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap; }
     .bill-badge-invoiced { background:#fef9c3;color:#854d0e; }
     .bill-badge-paid { background:#dcfce7;color:#166534; }
-    .billing-bar { display:none;align-items:center;justify-content:space-between;gap:12px;background:var(--gray-50);border-top:1.5px solid var(--gray-100);padding:10px 14px;position:sticky;bottom:0; }
+    .billing-bar { display:none;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:.5px solid var(--gray-200);border-radius:10px;padding:10px 14px;position:sticky;bottom:8px;margin-top:12px;box-shadow:0 6px 20px rgba(0,0,0,.12); }
     .billing-bar.visible { display:flex; }
     .cp-order-row.billing-selected { background:var(--accent-light); }
     .cp-range-btn { font-size:12px;padding:3px 9px;border-radius:6px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-600);cursor:pointer; }
@@ -4836,22 +4836,24 @@
     </div>
     <div class="cp-card" style="padding:0;overflow:hidden">
       <div id="cp-orders-list" style="padding:4px 0"><div style="color:var(--gray-400);font-size:13px;padding:12px 16px">Loading…</div></div>
-      <!-- Billing action bar — shown when Billing tab active + items selected -->
-      <div class="billing-bar" id="billing-bar">
-        <div style="font-size:13px;font-weight:600;color:var(--gray-700)">
-          <span id="billing-bar-count">0</span> order<span id="billing-bar-plural">s</span> selected &nbsp;·&nbsp; <span id="billing-bar-total" style="color:var(--accent)">$0.00</span>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button id="cpbar-print" class="btn" style="font-size:12px;padding:5px 12px" onclick="printInvoice()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Show Receipts
-          </button>
-          <button id="cpbar-email" class="btn" style="font-size:12px;padding:5px 12px" onclick="cpEmailReceipts(this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Email Receipts
-          </button>
-          <button id="cpbar-bill" class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openBillModal()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Bill Orders
-          </button>
-        </div>
+    </div>
+    <!-- Selection action bar — kept OUTSIDE the overflow:hidden card so its sticky
+         positioning works against the scroll pane; floats at the bottom of the
+         Orders pane when one or more completed orders are selected (session 184b). -->
+    <div class="billing-bar" id="billing-bar">
+      <div style="font-size:13px;font-weight:600;color:var(--gray-700)">
+        <span id="billing-bar-count">0</span> order<span id="billing-bar-plural">s</span> selected &nbsp;·&nbsp; <span id="billing-bar-total" style="color:var(--accent)">$0.00</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="cpbar-print" class="btn" style="font-size:12px;padding:5px 12px" onclick="printInvoice()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Show Receipts
+        </button>
+        <button id="cpbar-email" class="btn" style="font-size:12px;padding:5px 12px" onclick="cpEmailReceipts(this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Email Receipts
+        </button>
+        <button id="cpbar-bill" class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openBillModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Bill Orders
+        </button>
       </div>
     </div>
   </div>
@@ -20027,14 +20029,6 @@ ${oneCopy}
         ? `<input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">`
         : `<span style="width:15px;flex-shrink:0"></span>`;
 
-      // Per-order receipt download for paid orders. Reuses printInvoice() —
-      // which renders a paid order as a "RECEIPT" with the PAID line and a
-      // "Print / Save as PDF" button — so an individual customer's receipt can
-      // be pulled straight from the Completed list without opening the panel.
-      const receiptBtn = (isPaid && !isFailed)
-        ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200);margin-left:8px;flex-shrink:0" onclick="event.stopPropagation();printInvoice(['${o.id}'])" title="Download / print receipt for this order">🧾 Receipt</button>`
-        : '';
-
       return `<div class="cp-order-row${checked?' billing-selected':''}" id="brow-${o.id}" style="cursor:pointer${isFailed?';opacity:0.85':''}" onclick="cpToggleOrderSummary('${o.id}',this)" title="Click for a quick summary">
         ${cb}
         <a class="cp-order-num" onclick="event.stopPropagation();cpOpenOrder('${o.id}')" style="cursor:pointer;text-decoration:none" title="Open full order">#${o.order_number}</a>
@@ -20045,8 +20039,7 @@ ${oneCopy}
         </div>
         ${badge}
         <span class="cp-order-amt" style="margin-left:auto">${fmtMoney(amt)}</span>
-        ${receiptBtn}
-        <span id="cpchev-${o.id}" style="color:var(--gray-300);font-size:11px;transition:transform .15s;flex-shrink:0;margin-left:2px" aria-hidden="true">▼</span>
+        <span id="cpchev-${o.id}" style="color:var(--gray-300);font-size:11px;transition:transform .15s;flex-shrink:0;margin-left:8px" aria-hidden="true">▼</span>
       </div>
       <div class="cp-order-summary" id="cpsum-${o.id}" style="display:none"></div>`;
     }).join('');
