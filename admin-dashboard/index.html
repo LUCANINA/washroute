@@ -899,6 +899,7 @@
     .rcc-col-hdr[draggable="true"] { cursor:grab; }
     .rcc-col-hdr[draggable="true"]:active { cursor:grabbing; }
     .rcc-col.rcc-route-drop-over { box-shadow:inset 0 3px 0 0 var(--accent); }
+    .rcc-d-win { font-weight:500;font-size:11px;color:var(--gray-400);white-space:nowrap; }
     .rcc-col-hdr { padding:9px 12px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;gap:9px;transition:background .1s; }
     .rcc-col-hdr:hover { background:var(--gray-50); }
     .rcc-col-chevron { color:var(--gray-400);font-size:9px;line-height:1;transition:transform .15s;flex-shrink:0;width:9px;text-align:center; }
@@ -23323,6 +23324,7 @@ ${oneCopy}
     let html = `<div class="rcc-panel-toolbar">
       <span style="font-size:11.5px;font-weight:600;color:var(--gray-600)">${nRoutes} route${nRoutes!==1?'s':''}</span>
       <span style="display:inline-flex;border:1px solid var(--gray-200);border-radius:6px;overflow:hidden;margin-left:10px">${seg('all','All')}${seg('pickup','Pickups')}${seg('delivery','Deliveries')}</span>
+      ${_rccGlobalSelect ? `<span style="font-size:10.5px;color:var(--gray-400);margin-left:10px">Open a route to pick its stops</span>` : ''}
       <button onclick="rccToggleGlobalSelect()" style="margin-left:auto;font-size:11px;font-weight:600;padding:4px 11px;border-radius:6px;border:1px solid ${_rccGlobalSelect?'var(--accent)':'var(--gray-300)'};background:${_rccGlobalSelect?'var(--accent)':'#fff'};color:${_rccGlobalSelect?'#fff':'var(--gray-700)'};cursor:pointer;display:inline-flex;align-items:center;gap:5px" title="${_rccGlobalSelect?'Exit selection':'Select stops across routes to move, message, or reschedule'}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="12" height="12"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         ${_rccGlobalSelect ? 'Done selecting' : 'Select stops'}
@@ -23353,6 +23355,14 @@ ${oneCopy}
       // their booked time slot (6–8 PM, 8–10 PM, etc.) with a visual header.
       const tpl = _dsTemplates.find(t => t.id === rd.route.template_id);
       const arrWinHrs = tpl?.arrival_window_hours || 0;
+      // Route time-window label for the header (e.g. "6–10 PM") — session 185.
+      const winLabel = (() => {
+        const ws = tpl?.window_start, we = tpl?.window_end;
+        if (!ws || !we) return '';
+        const p = t => { const hr = parseInt(t); return { h: (hr % 12) || 12, ap: hr >= 12 ? 'PM' : 'AM' }; };
+        const a = p(ws), b = p(we);
+        return a.ap === b.ap ? `${a.h}–${b.h} ${b.ap}` : `${a.h} ${a.ap}–${b.h} ${b.ap}`;
+      })();
 
       let cardsHtml = '';
       let _displayIdx = 0;
@@ -23442,7 +23452,7 @@ ${oneCopy}
           <span class="rcc-col-chevron">▶</span>
           <span class="rcc-col-hdr-dot" style="background:${color};"></span>
           <div style="flex:1;min-width:0;">
-            <div class="rcc-d-name">${templateName}</div>
+            <div class="rcc-d-name">${templateName}${winLabel ? ` <span class="rcc-d-win">${winLabel}</span>` : ''}</div>
             <div class="rcc-d-route">${driverName}</div>
           </div>
           <div class="rcc-col-meta">
@@ -23819,12 +23829,10 @@ ${oneCopy}
   // exclusively deliveries (mixed hides it so a pickup-shaped change can't hit a delivery).
   function rccToggleGlobalSelect() {
     _rccGlobalSelect = !_rccGlobalSelect;
-    if (_rccGlobalSelect) {
-      // Expand every open route so all their rows are visible to tick.
-      _rccActiveRoutes.forEach(rid => _rccExpanded.add(rid));
-    } else {
-      _rccSelStops.clear(); // leaving select mode clears the pending selection
-    }
+    // Do NOT auto-expand routes (session 185 pref) — the admin opens the route(s)
+    // they want to pick stops from, one at a time. Stops become tickable only in
+    // expanded routes; a collapsed route shows nothing to select.
+    if (!_rccGlobalSelect) _rccSelStops.clear(); // leaving select mode clears the pending selection
     rccRenderColumns();
     rccUpdateBatchBar();
   }
