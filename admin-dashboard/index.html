@@ -23010,8 +23010,7 @@ ${oneCopy}
 
     const { data: stops, error } = await db.from('route_stops')
       .select(`id, stop_type, completed_at, driver_id, route_id, address_id,
-               orders(order_number, customer_id, customers(first_name_cache, last_name_cache)),
-               routes(driver_id)`)
+               orders(order_number, customer_id, customers(first_name_cache, last_name_cache))`)
       .in('route_id', slotRouteIds)
       .eq('status', 'complete')
       .order('completed_at', { ascending: true });
@@ -23037,7 +23036,7 @@ ${oneCopy}
       const name = `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || 'Unknown';
       const a = addrById[s.address_id];
       const addr = a ? `${a.line1||''}${a.city ? ', ' + a.city : ''}`.replace(/^,\s*|,\s*$/g,'') : '';
-      const drv = drvName(s.driver_id) || drvName(routeById[s.route_id]?.driver_id) || drvName(s.routes?.driver_id) || '—';
+      const drv = drvName(s.driver_id) || drvName(routeById[s.route_id]?.driver_id) || '—';
       const t = s.completed_at ? new Date(s.completed_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:BIZ_TZ}) : '—';
       const badge = isDel
         ? '<span class="rcc-comp-badge" style="background:var(--gray-100);color:var(--gray-600)">D</span>'
