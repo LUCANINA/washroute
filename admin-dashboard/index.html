@@ -864,6 +864,17 @@
     .rcc-summary-item { display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--gray-500); }
     .rcc-summary-item b { font-size:14px;font-weight:700;color:var(--gray-900);font-variant-numeric:tabular-nums; }
     .rcc-summary-win { font-size:10px;font-weight:700;color:var(--gray-400);padding-right:10px;border-right:1px solid var(--gray-200); }
+    .rcc-summary-clickable { cursor:pointer;transition:border-color .14s,background .14s; }
+    .rcc-summary-clickable:hover { border-color:var(--accent);background:var(--accent-light,#eef2ff); }
+    .rcc-summary-view { font-size:10px;font-weight:600;color:var(--accent);white-space:nowrap; }
+    /* Completed-history slide-in panel (session 185) */
+    .rcc-completed-panel { position:fixed;top:0;right:0;height:100vh;width:440px;max-width:92vw;background:#fff;box-shadow:-8px 0 32px rgba(0,0,0,.14);z-index:1100;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column; }
+    .rcc-completed-panel.open { transform:translateX(0); }
+    .rcc-completed-hdr { display:flex;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--gray-200);flex-shrink:0; }
+    .rcc-completed-body { overflow-y:auto;flex:1; }
+    .rcc-completed-row { display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--gray-100); }
+    .rcc-completed-row:hover { background:var(--gray-50); }
+    .rcc-comp-badge { font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;flex-shrink:0; }
     /* Chips — compact */
     .rcc-chip { display:flex;align-items:center;gap:4px;padding:2px 6px 2px 5px;border-radius:8px;border:1.25px solid var(--gray-200);background:#fff;cursor:pointer;transition:all .14s;white-space:nowrap;user-select:none;flex-shrink:0; }
     .rcc-chip:hover { border-color:var(--gray-400);background:var(--gray-50); }
@@ -1839,10 +1850,9 @@
                 </button>
               </div>
             </div>
-            <!-- ── RCC: Route chip strip (AM/PM toggle, single row) ── -->
-            <div class="rcc-chips-wrap">
-              <div id="rcc-chips" style="padding:6px 12px;width:100%;box-sizing:border-box;"></div>
-            </div>
+            <!-- Route chip strip removed (session 185) — routes are listed in the
+                 right-hand accordion; all slot routes show by default and each
+                 route's pins hide/show via the eye toggle on its list header. -->
             <!-- ── RCC: Map + columns workspace ── -->
             <div id="rcc-workspace" style="display:flex;flex:1;overflow:hidden;min-height:0;">
               <!-- Map pane -->
@@ -3404,7 +3414,51 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
     <span id="rcc-bb-resched-label">Reschedule</span>
   </button>
+  <button class="batch-bar-btn" id="rcc-bb-move-btn" onclick="rccOpenMoveModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    Move to route
+  </button>
   <button class="batch-bar-dismiss" onclick="rccClearSelection()" title="Cancel selection">×</button>
+</div>
+
+<!-- ── RCC bulk "Move to route" modal — session 185 ── -->
+<div id="rcc-move-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1060;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:460px;width:92%">
+    <div class="modal-header">
+      <div class="modal-title">Move <span id="rcc-move-count">stops</span> to another route</div>
+      <button class="modal-close" onclick="rccCloseMoveModal()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:12.5px;color:var(--gray-600);line-height:1.5">
+        Reassigns the selected stops to another route (and its driver) for the same day. The customers' dates don't change.
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--gray-500);margin-bottom:6px">Destination route</div>
+        <select class="form-input" id="rcc-move-target"><option value="">— Select route —</option></select>
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--gray-700);cursor:pointer">
+        <input type="checkbox" id="rcc-move-notify" style="margin-top:2px">
+        <span>Text customers if their pickup/delivery time changes. Leave off for a routing-only change (no messages sent).</span>
+      </label>
+      <div id="rcc-move-error" style="color:var(--red);font-size:12px;display:none"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 20px 18px">
+      <button class="btn btn-ghost" onclick="rccCloseMoveModal()">Cancel</button>
+      <button class="btn btn-primary" id="rcc-move-confirm-btn" onclick="rccConfirmMove()">Move stops</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── RCC completed-history slide-in panel — session 185 ── -->
+<div class="rcc-completed-panel" id="rcc-completed-panel">
+  <div class="rcc-completed-hdr">
+    <div>
+      <div style="font-size:15px;font-weight:700;color:var(--gray-900)" id="rcc-completed-title">Completed</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="rcc-completed-sub"></div>
+    </div>
+    <button onclick="rccCloseCompletedPanel()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:22px;line-height:1;padding:0 4px" title="Close">×</button>
+  </div>
+  <div class="rcc-completed-body" id="rcc-completed-body"></div>
 </div>
 
 <!-- ── BULK RESCHEDULE MODAL — session 137 ── -->
@@ -22800,6 +22854,7 @@ ${oneCopy}
   let _rccDriverSched = {};            // `${template_id}-${dow}` → driver_id (for RCC fallback)
   let _dsActiveZone = null, _dsActiveSlot = null; // kept for backward-compat with autoOptimizeRoute refresh
   let _rccActiveRoutes = new Set();   // routeId → selected (pins on map + accordion section)
+  let _rccHiddenPins   = new Set();   // routeId → pins hidden on map (route still listed) — session 185
   let _rccExpanded     = new Set();   // routeId → accordion section expanded (stops visible)
   let _rccStopFilter   = 'all';       // 'all' | 'pickup' | 'delivery' — row filter in the accordion
   let _rccRouteData    = {};          // routeId → { route, color, driverName, stops, routeWindow }
@@ -22830,6 +22885,7 @@ ${oneCopy}
 
     // Reset active state
     _rccActiveRoutes = new Set();
+    _rccHiddenPins.clear();
     _rccExpanded.clear();
     _rccRouteData = {};
     _rccReassigned = {}; // legacy in-memory map — kept for safety but no longer the source of truth
@@ -22922,12 +22978,97 @@ ${oneCopy}
       if (!s.orders || s.orders.status === 'cancelled') return; // exclude only truly cancelled
       if (s.stop_type === 'delivery') deliveries++; else pickups++;
     });
-    el.innerHTML = `<div class="rcc-summary" title="All planned stops for the ${_rccSlot} window (includes completed)">
+    el.innerHTML = `<div class="rcc-summary rcc-summary-clickable" onclick="rccOpenCompletedPanel()" title="View completed pickups & deliveries for the ${_rccSlot} window">
       <span class="rcc-summary-win">${_rccSlot} window</span>
       <span class="rcc-summary-item">Pickups <b>${pickups}</b></span>
       <span class="rcc-summary-item">Deliveries <b>${deliveries}</b></span>
+      <span class="rcc-summary-view">View completed →</span>
     </div>`;
   }
+
+  // ── RCC: Completed pickups/deliveries slide-in panel (session 185) ──
+  // Opened by clicking the Pickups/Deliveries summary. Lists every completed
+  // (status='complete') stop for the selected date + AM/PM window, across all
+  // routes in that window: order #, customer, address, P/D, time completed, driver.
+  async function rccOpenCompletedPanel() {
+    const panel = document.getElementById('rcc-completed-panel');
+    const body  = document.getElementById('rcc-completed-body');
+    const sub   = document.getElementById('rcc-completed-sub');
+    const title = document.getElementById('rcc-completed-title');
+    if (!panel || !body) return;
+    panel.classList.add('open');
+    if (title) title.textContent = `Completed — ${_rccSlot} window`;
+    if (sub) sub.textContent = _dsDateStr ? fmtDate(_dsDateStr) : '';
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400)"><div class="spinner" style="margin:0 auto 8px"></div>Loading…</div>';
+
+    const parseH = v => v == null ? null : parseInt(v);
+    const inSlot = t => { if(!t) return false; if(_rccSlot==='AM'){const s=parseH(t.window_start);return s==null||s<12;} const e=parseH(t.window_end); return e!=null&&e>12; };
+    const slotRoutes = _dsRoutes.filter(r => inSlot(_dsTemplates.find(t => t.id === r.template_id)));
+    const routeById = {}; slotRoutes.forEach(r => routeById[r.id] = r);
+    const slotRouteIds = slotRoutes.map(r => r.id);
+    if (!slotRouteIds.length) { body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400)">No routes in this window.</div>'; return; }
+
+    const { data: stops, error } = await db.from('route_stops')
+      .select(`id, stop_type, completed_at, driver_id, route_id, address_id,
+               orders(order_number, customer_id, customers(first_name_cache, last_name_cache)),
+               routes(driver_id)`)
+      .in('route_id', slotRouteIds)
+      .eq('status', 'complete')
+      .order('completed_at', { ascending: true });
+    if (error) { body.innerHTML = `<div style="padding:24px;color:var(--red)">Error: ${esc(error.message)}</div>`; return; }
+    const rows = stops || [];
+    if (!rows.length) { body.innerHTML = '<div style="padding:28px 24px;text-align:center;color:var(--gray-400);font-size:13px">Nothing completed yet in this window.</div>'; return; }
+
+    // Resolve addresses in one fetch
+    const addrIds = [...new Set(rows.map(s => s.address_id).filter(Boolean))];
+    let addrById = {};
+    if (addrIds.length) {
+      const { data: addrs } = await db.from('addresses').select('id, line1, city').in('id', addrIds);
+      (addrs || []).forEach(a => { addrById[a.id] = a; });
+    }
+    const drvName = id => (id && allDriversCache.find(d => d.id === id)?.name) || null;
+
+    let nP = 0, nD = 0;
+    const rowsHtml = rows.map(s => {
+      const isDel = s.stop_type === 'delivery';
+      if (isDel) nD++; else nP++;
+      const o = s.orders || {};
+      const c = o.customers || {};
+      const name = `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || 'Unknown';
+      const a = addrById[s.address_id];
+      const addr = a ? `${a.line1||''}${a.city ? ', ' + a.city : ''}`.replace(/^,\s*|,\s*$/g,'') : '';
+      const drv = drvName(s.driver_id) || drvName(routeById[s.route_id]?.driver_id) || drvName(s.routes?.driver_id) || '—';
+      const t = s.completed_at ? new Date(s.completed_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:BIZ_TZ}) : '—';
+      const badge = isDel
+        ? '<span class="rcc-comp-badge" style="background:var(--gray-100);color:var(--gray-600)">D</span>'
+        : '<span class="rcc-comp-badge" style="background:#e0e7ff;color:#4338ca">P</span>';
+      const custClick = o.customer_id ? `onclick="openCustomerPanel('${o.customer_id}')" style="cursor:pointer;color:var(--accent)"` : 'style="color:var(--gray-900)"';
+      return `<div class="rcc-completed-row">
+        ${badge}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600" ${custClick}>${esc(name)} <span style="color:var(--gray-400);font-weight:400">#${o.order_number||''}</span></div>
+          <div style="font-size:11.5px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(addr) || '—'}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-700)">${t}</div>
+          <div style="font-size:11px;color:var(--gray-400)">${esc(drv)}</div>
+        </div>
+      </div>`;
+    }).join('');
+    if (sub) sub.textContent = `${_dsDateStr ? fmtDate(_dsDateStr) + ' · ' : ''}${nP} pickups · ${nD} deliveries completed`;
+    body.innerHTML = rowsHtml;
+  }
+
+  function rccCloseCompletedPanel() {
+    const p = document.getElementById('rcc-completed-panel');
+    if (p) p.classList.remove('open');
+  }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const p = document.getElementById('rcc-completed-panel');
+      if (p && p.classList.contains('open')) rccCloseCompletedPanel();
+    }
+  });
 
   // ── RCC: Auto-open all routes in the current AM/PM slot that have pending stops ──
   async function rccAutoOpenSlotRoutes() {
@@ -22960,81 +23101,30 @@ ${oneCopy}
     }
   }
 
-  // ── RCC: Render route chip strip (AM/PM toggle; templates whose window spans both show in both) ──
+  // ── RCC: Render the AM/PM slot toggle (chip strip removed session 185) ──
+  // The route chips are gone — routes live in the right-hand accordion and all
+  // slot routes show by default. This now only renders the AM/PM toggle into its
+  // host in the Date bar.
   function rccRenderChips() {
-    const el = document.getElementById('rcc-chips');
-    if (!el) return;
-
+    const slotHost = document.getElementById('rcc-slot-host');
     if (!_dsTemplates.length) {
-      el.innerHTML = '<span style="font-size:12.5px;color:var(--gray-400);padding:6px 0;">No route templates configured</span>';
-      const slotHost0 = document.getElementById('rcc-slot-host');
-      if (slotHost0) slotHost0.innerHTML = '';
+      if (slotHost) slotHost.innerHTML = '';
       return;
     }
-
-    // Auto-default: AM before noon Pacific, PM after. Uses BIZ_TZ so the
-    // default is correct even when the browser's clock is in a different zone.
-    // After first toggle click the choice sticks for the rest of the session.
+    // Auto-default: AM before noon Pacific, PM after. Uses BIZ_TZ so the default
+    // is correct even when the browser's clock is in a different zone. After the
+    // first toggle click the choice sticks for the rest of the session.
     if (!_rccSlot) {
       const bizHour = parseInt(new Date().toLocaleString('en-US', {
         hour: 'numeric', hour12: false, timeZone: BIZ_TZ
       }));
       _rccSlot = (bizHour < 12) ? 'AM' : 'PM';
     }
-
-    const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr===0?12:hr)}${p}`; };
-
-    // Dual-listing rule:
-    //   AM bucket = any template with window_start < 12 (or no start set)
-    //   PM bucket = any template with window_end > 12
-    //   A long template like COMMERCIAL 9AM–3PM qualifies for BOTH buckets.
-    const parseH = v => v == null ? null : parseInt(v);
-    const inAM = t => { const s = parseH(t.window_start); return s == null || s < 12; };
-    const inPM = t => { const e = parseH(t.window_end);   return e != null && e > 12; };
-
-    const bucket = [..._dsTemplates]
-      .filter(t => _rccSlot === 'AM' ? inAM(t) : inPM(t))
-      .sort((a, b) => (parseH(a.window_start)||0) - (parseH(b.window_start)||0));
-
-    const buildChip = t => {
-      const route = _dsRoutes.find(r => r.template_id === t.id) || null;
-      const routeId = route?.id || null;
-      const isActive = routeId && _rccActiveRoutes.has(routeId);
-      const cnt = routeId ? (_dsCountMap[routeId] || 0) : 0;
-      const overcap = routeId ? (_dsOvercapMap[routeId] || 0) : 0;
-      const c = t.color || '#3b82f6';
-      const noRun = !route;
-      const clickAttr = routeId ? `onclick="rccToggleRoute('${routeId}')"` : '';
-      const onClass = isActive ? ' rcc-on' : '';
-      const disabledStyle = noRun ? 'opacity:.4;cursor:default;' : '';
-      const cntBadge = cnt > 0 ? `<span class="rcc-chip-cnt">${cnt}</span>` : '';
-      const overcapBadge = overcap > 0
-        ? `<span class="rcc-chip-overcap" title="${overcap} order${overcap>1?'s':''} booked over base capacity (still within 125% ceiling)">+${overcap} over</span>`
-        : '';
-      const noRunBadge = noRun ? `<span class="rcc-chip-sub">no run</span>` : '';
-      const winLabel = t.window_start ? `${fmtH(parseH(t.window_start))}–${fmtH(parseH(t.window_end))}` : '';
-      return `<button class="rcc-chip${onClass}" style="--rcc-color:${c};${disabledStyle}" data-route-id="${routeId||''}" ${clickAttr}>
-        <div class="rcc-dot" style="background:${c};"></div>
-        <span class="rcc-chip-name">${t.name}</span>
-        ${winLabel ? `<span class="rcc-chip-sub">${winLabel}</span>` : ''}
-        ${cntBadge}${overcapBadge}${noRunBadge}
-      </button>`;
-    };
-
     const toggle = `<div class="rcc-slot-toggle" role="tablist" aria-label="AM/PM route filter">
       <button type="button" class="rcc-slot-btn${_rccSlot==='AM'?' on':''}" onclick="rccSetSlot('AM')" aria-pressed="${_rccSlot==='AM'}">AM</button>
       <button type="button" class="rcc-slot-btn${_rccSlot==='PM'?' on':''}" onclick="rccSetSlot('PM')" aria-pressed="${_rccSlot==='PM'}">PM</button>
     </div>`;
-
-    // The AM/PM toggle now lives in the Date bar (right of the date), not in the
-    // chip row — render it into its host there.
-    const slotHost = document.getElementById('rcc-slot-host');
     if (slotHost) slotHost.innerHTML = toggle;
-
-    const chipsHtml = bucket.length
-      ? bucket.map(buildChip).join('')
-      : `<span style="font-size:11px;color:var(--gray-400);padding:2px 0;">No ${_rccSlot} routes</span>`;
-    el.innerHTML = `<div class="rcc-chip-row">${chipsHtml}</div>`;
   }
 
   // ── RCC: Scroll helpers kept as no-ops for any lingering references ──
@@ -23050,6 +23140,7 @@ ${oneCopy}
     if (_rccSlot === slot) return;
     _rccSlot = slot;
     _rccActiveRoutes.clear();
+    _rccHiddenPins.clear();
     _rccExpanded.clear();
     _rccRouteData = {};
     rccRenderChips();
@@ -23347,12 +23438,27 @@ ${oneCopy}
           <button class="rcc-select-btn${_selModeOn ? ' active' : ''}"
                   onclick="event.stopPropagation();rccToggleSelectMode('${routeId}', event)"
                   title="${_selModeOn ? 'Cancel selection on this route' : 'Select stops to message or reschedule'}">${_selModeOn ? '✓ Cancel' : '☐'}</button>
-          <button onclick="event.stopPropagation();rccToggleRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;" title="Remove route">×</button>
+          <button onclick="event.stopPropagation();rccToggleRoutePins('${routeId}')" style="background:none;border:none;cursor:pointer;color:${_rccHiddenPins.has(routeId)?'var(--gray-300)':'var(--gray-500)'};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${_rccHiddenPins.has(routeId)?'Show this route’s pins on the map':'Hide this route’s pins from the map'}">
+            ${_rccHiddenPins.has(routeId)
+              ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+              : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'}
+          </button>
         </div>
         ${bodyHtml}
       </div>`;
     });
     panel.innerHTML = html;
+  }
+
+  // ── RCC: Show/hide a route's pins on the map (session 185) ──
+  // Replaces the old "remove route" ×. The route stays in the right-hand list;
+  // only its map pins toggle. Reversible from the list — important now that the
+  // chip strip (the old way to re-add a removed route) is gone.
+  function rccToggleRoutePins(routeId) {
+    if (_rccHiddenPins.has(routeId)) _rccHiddenPins.delete(routeId);
+    else _rccHiddenPins.add(routeId);
+    rccRenderColumns();
+    rccRenderMap();
   }
 
   // ── RCC: Accordion expand/collapse + row filter ──
@@ -23743,6 +23849,100 @@ ${oneCopy}
     rccUpdateBatchBar();
   }
 
+  // ── RCC bulk "Move to route" (session 185) ──
+  // Select stops on one or more routes, then reassign them all to a chosen route
+  // for the same day. Uses the reschedule_order_leg RPC per stop (same trusted
+  // path as drag-drop). Default: NO customer SMS — this is a dispatch/driver
+  // reassignment, not a promised-time change. The operator can opt in per move.
+  function rccOpenMoveModal() {
+    const n = _rccSelStops.size;
+    if (!n) return;
+    const cntEl = document.getElementById('rcc-move-count');
+    if (cntEl) cntEl.textContent = `${n} stop${n!==1?'s':''}`;
+    const parseH = v => v == null ? null : parseInt(v);
+    const inSlot = t => { if(!t) return false; if(_rccSlot==='AM'){const s=parseH(t.window_start);return s==null||s<12;} const e=parseH(t.window_end); return e!=null&&e>12; };
+    const srcRouteIds = new Set([..._rccSelStops.values()].map(s => s.routeId));
+    const opts = _dsRoutes
+      .filter(r => inSlot(_dsTemplates.find(x => x.id === r.template_id)))
+      .map(r => {
+        const t = _dsTemplates.find(x => x.id === r.template_id);
+        const isSrc = srcRouteIds.size === 1 && srcRouteIds.has(r.id);
+        const fmt = h => h ? h.slice(0,5) : '';
+        const win = t?.window_start ? ` (${fmt(t.window_start)}–${fmt(t.window_end)})` : '';
+        return `<option value="${r.id}"${isSrc?' disabled':''}>${esc(t?.name || r.name || 'Route')}${win}${isSrc?' — current':''}</option>`;
+      }).join('');
+    const sel = document.getElementById('rcc-move-target');
+    if (sel) sel.innerHTML = '<option value="">— Select route —</option>' + opts;
+    const notify = document.getElementById('rcc-move-notify'); if (notify) notify.checked = false;
+    const err = document.getElementById('rcc-move-error'); if (err) err.style.display = 'none';
+    const btn = document.getElementById('rcc-move-confirm-btn'); if (btn) { btn.disabled = false; btn.textContent = 'Move stops'; }
+    document.getElementById('rcc-move-modal').style.display = 'flex';
+  }
+
+  function rccCloseMoveModal() {
+    const m = document.getElementById('rcc-move-modal');
+    if (m) m.style.display = 'none';
+  }
+
+  async function rccConfirmMove() {
+    const targetRouteId = document.getElementById('rcc-move-target').value;
+    const notify = !!document.getElementById('rcc-move-notify')?.checked;
+    const err = document.getElementById('rcc-move-error');
+    const showErr = msg => { if (err) { err.textContent = msg; err.style.display = ''; } };
+    if (!targetRouteId) { showErr('Pick a destination route.'); return; }
+    const stops = [..._rccSelStops.values()].filter(s => s.routeId !== targetRouteId && s.orderId);
+    if (!stops.length) { showErr('Nothing to move — the selected stops are already on that route.'); return; }
+
+    const btn = document.getElementById('rcc-move-confirm-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Moving…'; }
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const affected = new Set([targetRouteId]);
+
+    // Append moved stops after the destination route's current max stop_number.
+    const { data: tgtMax } = await db.from('route_stops')
+      .select('stop_number').eq('route_id', targetRouteId).order('stop_number', { ascending: false }).limit(1);
+    let nextNum = (tgtMax?.[0]?.stop_number || 0);
+
+    let moved = 0, failed = 0;
+    for (const s of stops) {
+      try {
+        const { data: rpcRes, error: rpcErr } = await db.rpc('reschedule_order_leg', {
+          p_order_id:     s.orderId,
+          p_leg:          s.stopType,
+          p_new_route_id: targetRouteId,
+          p_actor_name:   actorName,
+        });
+        if (rpcErr) throw rpcErr;
+        nextNum += 1;
+        await db.from('route_stops').update({ stop_number: nextNum }).eq('id', s.stopId);
+        affected.add(s.routeId);
+        if (notify) _maybeNotifyReschedule(s.orderId, s.stopType, s.currentWindowStart, rpcRes?.window_start);
+        moved++;
+      } catch (e) { failed++; }
+    }
+
+    // Recount + re-optimize every affected route (sources lost stops, target gained).
+    for (const rid of affected) {
+      const { count } = await db.from('route_stops')
+        .select('*, orders!inner(status)', { count: 'exact', head: true })
+        .eq('route_id', rid).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`);
+      await db.from('routes').update({ total_stops: count || 0 }).eq('id', rid);
+      autoOptimizeRoute(rid);
+    }
+
+    rccCloseMoveModal();
+    rccClearSelection();
+    // Refresh affected routes in the UI. The target may not have been open yet
+    // (e.g. it had no pending stops before) — open it so the moved stops show.
+    for (const rid of affected) {
+      if (_rccActiveRoutes.has(rid)) await rccRefreshRoute(rid);
+      else if (rid === targetRouteId) await rccToggleRoute(rid, false);
+    }
+    const tgtRoute = _dsRoutes.find(r => r.id === targetRouteId);
+    const tgtName = _dsTemplates.find(t => tgtRoute && t.id === tgtRoute.template_id)?.name || 'route';
+    showToast(failed ? `Moved ${moved}, ${failed} failed — refresh to check` : `Moved ${moved} stop${moved!==1?'s':''} to ${tgtName}`, failed ? 'error' : 'success');
+  }
+
   // Bulk SMS — bridge to the existing batchSendSMS modal flow used by
   // Orders > List. We populate _smsBatchOrders in the shape that flow expects
   // and fill the modal's recipient summary, then the existing sendBatchSMS()
@@ -23988,6 +24188,7 @@ ${oneCopy}
       } else {
         let legendHtml = '';
         _rccActiveRoutes.forEach(routeId => {
+          if (_rccHiddenPins.has(routeId)) return;
           const rd = _rccRouteData[routeId];
           if (!rd) return;
           legendHtml += `<div style="display:flex;align-items:center;gap:7px;">
@@ -24005,6 +24206,7 @@ ${oneCopy}
     const allCoords = [];
     const missing = []; // stops with null lat/lng — will be surfaced in a warning banner
     _rccActiveRoutes.forEach(routeId => {
+      if (_rccHiddenPins.has(routeId)) return; // route hidden from map via the list toggle
       const rd = _rccRouteData[routeId];
       if (!rd) return;
       const { color, stops } = rd;
