@@ -31258,8 +31258,14 @@ ${oneCopy}
     // fallback pattern as the Daily Revenue report (admin line 27509).
     let feesByPI = {};
     let feesEstimated = false;
+    // Shares the per-window Stripe-fee cache with Daily Revenue (same {from,to}
+    // request → same fee map), so opening both reports on a window only calls
+    // Stripe once (session 185).
+    const _feesKey = `${selFrom}|${selTo}`;
     const hasStripeOrders = allOrders.some(o => !!o.stripe_payment_intent_id);
-    if (hasStripeOrders) {
+    if (_stripeFeesCache.has(_feesKey)) {
+      feesByPI = _stripeFeesCache.get(_feesKey);
+    } else if (hasStripeOrders) {
       const controller = new AbortController();
       const timeoutId  = setTimeout(() => controller.abort(), 12000);
       try {
@@ -31273,6 +31279,7 @@ ${oneCopy}
         if (feeRes.ok) {
           const payload = await feeRes.json();
           feesByPI = payload.feesByPI || {};
+          _stripeFeesCache.set(_feesKey, feesByPI); // cache only real (non-fallback) results
         } else {
           feesEstimated = true;
           console.warn('[possales] get-stripe-fees non-ok:', await feeRes.text());
