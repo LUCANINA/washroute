@@ -28872,7 +28872,19 @@ ${oneCopy}
 
   // ── Square Labor hours helper ──
   // Returns { driver_hours, laundry_hours, total_hours } — all keyed by name
+  // Session-lifetime cache of Square labor hours keyed by window (session 185).
+  // The Square timesheet API is slow (external round-trip) and was re-hit on every
+  // report load — Delivery KPIs calls it twice (current + previous) and Launderers
+  // once. Caching per window makes re-loads instant and lets the two reports share
+  // the same window's result. Only successful fetches are cached (failures retry).
+  const _squareLaborCache = new Map();
+  // Same idea for the Revenue report's Stripe fee lookup (get-stripe-fees) — its
+  // own code notes the Stripe balance-transactions pagination can take ~50s for
+  // long ranges. Cache successful results per window (session 185).
+  const _stripeFeesCache = new Map();
   async function fetchSquareLaborHours(from, to) {
+    const key = `${from}|${to}`;
+    if (_squareLaborCache.has(key)) return _squareLaborCache.get(key);
     const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {}, laundry_titles: {} };
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/square-labor`, {
@@ -28882,12 +28894,14 @@ ${oneCopy}
       });
       if (!res.ok) { console.warn('square-labor returned', res.status); return empty; }
       const data = await res.json();
-      return {
+      const result = {
         driver_hours:   data.driver_hours   || {},
         laundry_hours:  data.laundry_hours  || {},
         total_hours:    data.total_hours    || {},
         laundry_titles: data.laundry_titles || {}
       };
+      _squareLaborCache.set(key, result);
+      return result;
     } catch (e) {
       console.warn('Square labor fetch failed:', e);
       return empty;
@@ -30336,7 +30350,10 @@ ${oneCopy}
     // (observed in edge-function logs). Past 12s we abort and fall back to the
     // 2.9% + $0.30 estimate, marking the column italic via feeEstimated=true.
     let feesByPI = {};
-    {
+    const _feesKey = `${selFrom}|${selTo}`;
+    if (_stripeFeesCache.has(_feesKey)) {
+      feesByPI = _stripeFeesCache.get(_feesKey);
+    } else {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
       try {
@@ -30350,6 +30367,7 @@ ${oneCopy}
         if (feeRes.ok) {
           const payload = await feeRes.json();
           feesByPI = payload.feesByPI || {};
+          _stripeFeesCache.set(_feesKey, feesByPI); // cache only real (non-fallback) results
         } else {
           console.warn('[revenue] get-stripe-fees non-ok:', await feeRes.text());
         }
