@@ -22854,6 +22854,7 @@ ${oneCopy}
   let _rccDriverSched = {};            // `${template_id}-${dow}` → driver_id (for RCC fallback)
   let _dsActiveZone = null, _dsActiveSlot = null; // kept for backward-compat with autoOptimizeRoute refresh
   let _rccActiveRoutes = new Set();   // routeId → selected (pins on map + accordion section)
+  let _rccRouteOrder   = [];          // routeId[] — display order of the accordion (session 185, reorderable ▲▼)
   let _rccHiddenPins   = new Set();   // routeId → pins hidden on map (route still listed) — session 185
   let _rccExpanded     = new Set();   // routeId → accordion section expanded (stops visible)
   let _rccStopFilter   = 'all';       // 'all' | 'pickup' | 'delivery' — row filter in the accordion
@@ -22885,6 +22886,7 @@ ${oneCopy}
 
     // Reset active state
     _rccActiveRoutes = new Set();
+    _rccRouteOrder = [];
     _rccHiddenPins.clear();
     _rccExpanded.clear();
     _rccRouteData = {};
@@ -23139,6 +23141,7 @@ ${oneCopy}
     if (_rccSlot === slot) return;
     _rccSlot = slot;
     _rccActiveRoutes.clear();
+    _rccRouteOrder = [];
     _rccHiddenPins.clear();
     _rccExpanded.clear();
     _rccRouteData = {};
@@ -23161,6 +23164,7 @@ ${oneCopy}
     if (_rccActiveRoutes.has(routeId)) {
       // Deactivate — remove section and map layer
       _rccActiveRoutes.delete(routeId);
+      _rccRouteOrder = _rccRouteOrder.filter(id => id !== routeId);
       _rccExpanded.delete(routeId);
       delete _rccRouteData[routeId];
       rccRenderChips();
@@ -23181,6 +23185,7 @@ ${oneCopy}
     // sees instant feedback. Columns + map will render once data arrives
     // (both rccRenderColumns and rccRenderMap guard against missing _rccRouteData).
     _rccActiveRoutes.add(routeId);
+    if (!_rccRouteOrder.includes(routeId)) _rccRouteOrder.push(routeId);
     if (expand) _rccExpanded.add(routeId);
     rccRenderChips();
     rccUpdatePanelWidth();
@@ -23320,9 +23325,15 @@ ${oneCopy}
       </button>
       <button onclick="rccCollapseAll()" style="margin-left:10px;font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 4px">Collapse all</button>
     </div>`;
-    _rccActiveRoutes.forEach(routeId => {
+    // Render in the user-defined order (▲▼ reorder). Any active route not yet in
+    // the order array (safety) is appended at the end.
+    const _orderedIds = _rccRouteOrder.filter(id => _rccActiveRoutes.has(id));
+    _rccActiveRoutes.forEach(id => { if (!_orderedIds.includes(id)) _orderedIds.push(id); });
+    _orderedIds.forEach((routeId, _rIdx) => {
       const rd = _rccRouteData[routeId];
       if (!rd) return;
+      const _isFirstRoute = _rIdx === 0;
+      const _isLastRoute  = _rIdx === _orderedIds.length - 1;
       const { color, driverName, driverInitials, stops, templateName } = rd;
       // Only show remaining (non-complete, non-skipped, non-failed) stops in cards + map
       const remaining = stops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed');
@@ -23438,6 +23449,10 @@ ${oneCopy}
             <span class="rcc-card-dot" style="margin:0 3px;"></span>
             <span class="rcc-col-n">${deliveries}</span><span class="rcc-col-lbl">D</span>
           </div>
+          <div style="display:flex;flex-direction:column;gap:0;flex-shrink:0;margin-right:2px" onclick="event.stopPropagation()" title="Reorder route">
+            <button onclick="event.stopPropagation();rccMoveRoute('${routeId}',-1)" ${_isFirstRoute?'disabled':''} style="background:none;border:none;cursor:${_isFirstRoute?'default':'pointer'};color:${_isFirstRoute?'var(--gray-200)':'var(--gray-400)'};line-height:.7;padding:0 2px;display:flex" title="Move route up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="12" height="9"><polyline points="6 15 12 9 18 15"/></svg></button>
+            <button onclick="event.stopPropagation();rccMoveRoute('${routeId}',1)" ${_isLastRoute?'disabled':''} style="background:none;border:none;cursor:${_isLastRoute?'default':'pointer'};color:${_isLastRoute?'var(--gray-200)':'var(--gray-400)'};line-height:.7;padding:0 2px;display:flex" title="Move route down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="12" height="9"><polyline points="6 9 12 15 18 9"/></svg></button>
+          </div>
           <button onclick="event.stopPropagation();rccToggleRoutePins('${routeId}')" style="background:none;border:none;cursor:pointer;color:${_rccHiddenPins.has(routeId)?'var(--gray-300)':'var(--gray-500)'};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${_rccHiddenPins.has(routeId)?'Show this route’s pins on the map':'Hide this route’s pins from the map'}">
             ${_rccHiddenPins.has(routeId)
               ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
@@ -23459,6 +23474,19 @@ ${oneCopy}
     else _rccHiddenPins.add(routeId);
     rccRenderColumns();
     rccRenderMap();
+  }
+
+  // ── RCC: Reorder a route up/down in the list (session 185) ──
+  // Handy for putting two routes next to each other to compare. dir: -1 up, +1 down.
+  function rccMoveRoute(routeId, dir) {
+    const ids = _rccRouteOrder.filter(id => _rccActiveRoutes.has(id));
+    _rccActiveRoutes.forEach(id => { if (!ids.includes(id)) ids.push(id); });
+    const i = ids.indexOf(routeId);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    _rccRouteOrder = ids;
+    rccRenderColumns();
   }
 
   // ── RCC: Accordion expand/collapse + row filter ──
