@@ -28882,9 +28882,46 @@ ${oneCopy}
   // own code notes the Stripe balance-transactions pagination can take ~50s for
   // long ranges. Cache successful results per window (session 185).
   const _stripeFeesCache = new Map();
+
+  // Persistent report cache (localStorage) — the in-memory Maps above are wiped on
+  // every page reload, so the slow external calls (Square ~0.6-1.9s, Stripe ~2.5s+)
+  // were re-paid on each fresh load. localStorage survives reloads. TTL guards
+  // staleness: windows that have fully closed (end date < today) hold much longer
+  // since their data no longer changes; recent/live windows use a short TTL.
+  function _reportCacheGet(k, ttlMs) {
+    try {
+      const r = localStorage.getItem(k); if (!r) return null;
+      const o = JSON.parse(r);
+      if (!o || (Date.now() - o.t) > ttlMs) { localStorage.removeItem(k); return null; }
+      return o.v;
+    } catch (_) { return null; }
+  }
+  function _reportCacheSet(k, v) {
+    try { localStorage.setItem(k, JSON.stringify({ t: Date.now(), v })); } catch (_) {}
+  }
+  function _reportTtl(toStr, freshMs, closedMs) {
+    const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    return (toStr && toStr < todayPT) ? closedMs : freshMs;
+  }
+  // Two-layer (memory + localStorage) accessors for the Stripe fee map, shared by
+  // the Daily Revenue and POS Sales reports (same {from,to} → same fees).
+  function _stripeFeesLoad(key, toStr) {
+    if (_stripeFeesCache.has(key)) return _stripeFeesCache.get(key);
+    const v = _reportCacheGet('wr-stripefees|' + key, _reportTtl(toStr, 36e5, 30 * 864e5)); // 1h live / 30d closed
+    if (v) { _stripeFeesCache.set(key, v); return v; }
+    return null;
+  }
+  function _stripeFeesStore(key, val) {
+    _stripeFeesCache.set(key, val);
+    _reportCacheSet('wr-stripefees|' + key, val);
+  }
   async function fetchSquareLaborHours(from, to) {
     const key = `${from}|${to}`;
     if (_squareLaborCache.has(key)) return _squareLaborCache.get(key);
+    // localStorage layer — 6h for live windows, 24h for closed (timesheets can be
+    // edited after the fact, so we don't hold Square hours as long as Stripe fees).
+    const ls = _reportCacheGet('wr-sqlabor|' + key, _reportTtl(to, 6 * 36e5, 24 * 36e5));
+    if (ls) { _squareLaborCache.set(key, ls); return ls; }
     const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {}, laundry_titles: {} };
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/square-labor`, {
@@ -28901,6 +28938,7 @@ ${oneCopy}
         laundry_titles: data.laundry_titles || {}
       };
       _squareLaborCache.set(key, result);
+      _reportCacheSet('wr-sqlabor|' + key, result);
       return result;
     } catch (e) {
       console.warn('Square labor fetch failed:', e);
@@ -30351,8 +30389,9 @@ ${oneCopy}
     // 2.9% + $0.30 estimate, marking the column italic via feeEstimated=true.
     let feesByPI = {};
     const _feesKey = `${selFrom}|${selTo}`;
-    if (_stripeFeesCache.has(_feesKey)) {
-      feesByPI = _stripeFeesCache.get(_feesKey);
+    const _cachedFees = _stripeFeesLoad(_feesKey, selTo);
+    if (_cachedFees) {
+      feesByPI = _cachedFees;
     } else {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -30367,7 +30406,7 @@ ${oneCopy}
         if (feeRes.ok) {
           const payload = await feeRes.json();
           feesByPI = payload.feesByPI || {};
-          _stripeFeesCache.set(_feesKey, feesByPI); // cache only real (non-fallback) results
+          _stripeFeesStore(_feesKey, feesByPI); // cache only real (non-fallback) results
         } else {
           console.warn('[revenue] get-stripe-fees non-ok:', await feeRes.text());
         }
@@ -31263,8 +31302,9 @@ ${oneCopy}
     // Stripe once (session 185).
     const _feesKey = `${selFrom}|${selTo}`;
     const hasStripeOrders = allOrders.some(o => !!o.stripe_payment_intent_id);
-    if (_stripeFeesCache.has(_feesKey)) {
-      feesByPI = _stripeFeesCache.get(_feesKey);
+    const _cachedFees = _stripeFeesLoad(_feesKey, selTo);
+    if (_cachedFees) {
+      feesByPI = _cachedFees;
     } else if (hasStripeOrders) {
       const controller = new AbortController();
       const timeoutId  = setTimeout(() => controller.abort(), 12000);
@@ -31279,7 +31319,7 @@ ${oneCopy}
         if (feeRes.ok) {
           const payload = await feeRes.json();
           feesByPI = payload.feesByPI || {};
-          _stripeFeesCache.set(_feesKey, feesByPI); // cache only real (non-fallback) results
+          _stripeFeesStore(_feesKey, feesByPI); // cache only real (non-fallback) results
         } else {
           feesEstimated = true;
           console.warn('[possales] get-stripe-fees non-ok:', await feeRes.text());
