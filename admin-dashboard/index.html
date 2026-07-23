@@ -5020,9 +5020,16 @@
       <div class="issue-create-body">
         <div>
           <label>Customer</label>
-          <select id="ci-customer" style="width:100%">
+          <select id="ci-customer" style="width:100%" onchange="ciLoadOrders()">
             <option value="">— Select customer —</option>
           </select>
+        </div>
+        <div>
+          <label>Order <span style="color:var(--red)">*</span></label>
+          <select id="ci-order" style="width:100%" onchange="ciOnOrderChange()">
+            <option value="">— Select a customer first —</option>
+          </select>
+          <div id="ci-folder-line" style="font-size:12px;color:var(--gray-500);margin-top:5px;display:none"></div>
         </div>
         <div>
           <label>Title</label>
@@ -14195,6 +14202,15 @@ ${oneCopy}
         </div>
         <div class="issue-form-row">
           <div>
+            <label class="form-label">Order <span style="color:var(--gray-400);font-weight:400">(required for pickup / delivery / damaged)</span></label>
+            <select id="issue-order" class="form-input" onchange="ifOnOrderChange()">
+              <option value="">— None —</option>
+            </select>
+            <div id="if-folder-line" style="font-size:12px;color:var(--gray-500);margin-top:5px;display:none"></div>
+          </div>
+        </div>
+        <div class="issue-form-row">
+          <div>
             <label class="form-label">Assign to</label>
             <input type="text" id="issue-assignee" class="form-input" placeholder="Staff name…" />
           </div>
@@ -14293,8 +14309,58 @@ ${oneCopy}
     loadInbox();
   }
 
+  // Categories that are inherently tied to a specific order — the DB backstop
+  // requires an order_id for these, so both admin issue forms enforce it too.
+  // General CS categories (billing/schedule/complaint/other) stay order-optional
+  // so an issue can still be logged for an unmatched SMS number.
+  const ORDER_REQUIRED_CATS = ['pickup', 'delivery', 'damaged'];
+
+  // Order picker for the inbox quick "Create Issue" form. Populated from the
+  // conversation's customer; the order carries the launderer for attribution.
+  let _ifOrders = [];
+  async function ifLoadOrders() {
+    const orderSel   = document.getElementById('issue-order');
+    const folderLine = document.getElementById('if-folder-line');
+    if (folderLine) { folderLine.style.display = 'none'; folderLine.innerHTML = ''; }
+    if (!orderSel) return;
+    const custId = currentConv?.customer_id || null;
+    if (!custId) {
+      _ifOrders = [];
+      orderSel.innerHTML = '<option value="">— No customer on this thread —</option>';
+      return;
+    }
+    orderSel.innerHTML = '<option value="">Loading…</option>';
+    const { data, error } = await db.from('orders')
+      .select('id, order_number, status, pickup_window_start, delivery_window_start, folded_by_id, folded_by:folded_by_id(name)')
+      .eq('customer_id', custId)
+      .order('created_at', { ascending: false })
+      .limit(60);
+    if (error) { orderSel.innerHTML = '<option value="">Could not load orders</option>'; return; }
+    _ifOrders = data || [];
+    orderSel.innerHTML = '<option value="">— None —</option>' +
+      _ifOrders.map(o => {
+        const d = o.delivery_window_start || o.pickup_window_start;
+        const dateStr = d ? fmtDate(d) : '';
+        return `<option value="${o.id}">#${o.order_number}${dateStr ? ' · ' + dateStr : ''} · ${esc(o.status || '')}</option>`;
+      }).join('');
+  }
+
+  function ifOnOrderChange() {
+    const orderId    = document.getElementById('issue-order')?.value || null;
+    const folderLine = document.getElementById('if-folder-line');
+    if (!folderLine) return;
+    if (!orderId) { folderLine.style.display = 'none'; folderLine.innerHTML = ''; return; }
+    const o = _ifOrders.find(x => x.id === orderId);
+    const folder = o && o.folded_by && o.folded_by.name;
+    folderLine.style.display = '';
+    folderLine.innerHTML = folder
+      ? `Folded by <strong>${esc(folder)}</strong>.`
+      : `<span style="color:var(--gray-400)">Not folded yet.</span>`;
+  }
+
   // ── showIssueForm / hideIssueForm ──
   function showIssueForm() {
+    ifLoadOrders();
     const f = document.getElementById('issue-form');
     if (f) f.classList.add('show');
   }
@@ -14309,8 +14375,12 @@ ${oneCopy}
     const priority = document.getElementById('issue-priority')?.value || 'normal';
     const category = document.getElementById('issue-category')?.value || 'other';
     const assignee = (document.getElementById('issue-assignee')?.value || '').trim();
+    const orderId  = document.getElementById('issue-order')?.value || null;
     const author   = currentUserDisplayName || currentUserFirstName || 'Admin';
     if (!title) { showToast('Please add a title for the issue.', 'error'); return; }
+    if (ORDER_REQUIRED_CATS.includes(category) && !orderId) {
+      showToast('Pick the order this issue relates to (or choose a general category).', 'error'); return;
+    }
 
     const conv = currentConv?.conv_id
       ? { id: currentConv.conv_id }
@@ -14319,6 +14389,7 @@ ${oneCopy}
     const { data, error } = await db.from('cs_issues').insert({
       conversation_id: conv?.id || null,
       customer_id:     currentConv?.customer_id || null,
+      order_id:        orderId,
       title, priority, category,
       assigned_to:     assignee || null,
       created_by:      author,
@@ -14332,6 +14403,8 @@ ${oneCopy}
     const af = document.getElementById('issue-assignee'); if (af) af.value = '';
     const pf = document.getElementById('issue-priority'); if (pf) pf.value = 'normal';
     const cf = document.getElementById('issue-category'); if (cf) cf.value = 'other';
+    const of = document.getElementById('issue-order'); if (of) of.value = '';
+    const ofl = document.getElementById('if-folder-line'); if (ofl) { ofl.style.display = 'none'; ofl.innerHTML = ''; }
     loadOverviewIssues(); // refresh overview count
     // Refresh thread to show issue badge
     if (currentConv) openSMSConversation(currentConv.customer_id||'', currentConv.phone, null, true);
@@ -15913,6 +15986,12 @@ ${oneCopy}
         .join('');
     if (_ciCustomerId) sel.value = _ciCustomerId;
 
+    // Reset + populate the order picker (depends on the selected customer)
+    _ciOrders = [];
+    const ciFolderLine = document.getElementById('ci-folder-line');
+    if (ciFolderLine) { ciFolderLine.style.display = 'none'; ciFolderLine.innerHTML = ''; }
+    ciLoadOrders();
+
     // Clear form
     document.getElementById('ci-title').value = '';
     document.getElementById('ci-category').value = 'other';
@@ -15927,6 +16006,54 @@ ${oneCopy}
     _ciCustomerId = null;
   }
 
+  // Order picker for the Create Issue modal. The order carries the launderer
+  // (orders.folded_by_id), so linking the issue to an order is what attributes
+  // it on the Launderers report — the user never picks a launderer by hand.
+  let _ciOrders = [];
+  async function ciLoadOrders() {
+    const custId     = document.getElementById('ci-customer').value || null;
+    const orderSel   = document.getElementById('ci-order');
+    const folderLine = document.getElementById('ci-folder-line');
+    if (folderLine) { folderLine.style.display = 'none'; folderLine.innerHTML = ''; }
+    if (!orderSel) return;
+    if (!custId) {
+      _ciOrders = [];
+      orderSel.innerHTML = '<option value="">— Select a customer first —</option>';
+      return;
+    }
+    orderSel.innerHTML = '<option value="">Loading…</option>';
+    const { data, error } = await db.from('orders')
+      .select('id, order_number, status, pickup_window_start, delivery_window_start, folded_by_id, folded_by:folded_by_id(name)')
+      .eq('customer_id', custId)
+      .order('created_at', { ascending: false })
+      .limit(60);
+    if (error) { orderSel.innerHTML = '<option value="">Could not load orders</option>'; return; }
+    _ciOrders = data || [];
+    if (!_ciOrders.length) {
+      orderSel.innerHTML = '<option value="">No orders for this customer yet</option>';
+      return;
+    }
+    orderSel.innerHTML = '<option value="">— Select order —</option>' +
+      _ciOrders.map(o => {
+        const d = o.delivery_window_start || o.pickup_window_start;
+        const dateStr = d ? fmtDate(d) : '';
+        return `<option value="${o.id}">#${o.order_number}${dateStr ? ' · ' + dateStr : ''} · ${esc(o.status || '')}</option>`;
+      }).join('');
+  }
+
+  function ciOnOrderChange() {
+    const orderId    = document.getElementById('ci-order').value || null;
+    const folderLine = document.getElementById('ci-folder-line');
+    if (!folderLine) return;
+    if (!orderId) { folderLine.style.display = 'none'; folderLine.innerHTML = ''; return; }
+    const o = _ciOrders.find(x => x.id === orderId);
+    const folder = o && o.folded_by && o.folded_by.name;
+    folderLine.style.display = '';
+    folderLine.innerHTML = folder
+      ? `Folded by <strong>${esc(folder)}</strong> — this issue will be attributed to them.`
+      : `<span style="color:var(--gray-400)">Not folded yet — no launderer attribution.</span>`;
+  }
+
   async function submitCreateIssue() {
     const title    = (document.getElementById('ci-title').value || '').trim();
     const custId   = document.getElementById('ci-customer').value || null;
@@ -15934,12 +16061,15 @@ ${oneCopy}
     const priority = document.getElementById('ci-priority').value;
     const assignee = (document.getElementById('ci-assignee').value || '').trim();
     const note     = (document.getElementById('ci-note').value || '').trim();
+    const orderId  = document.getElementById('ci-order').value || null;
     const author   = currentUserDisplayName || currentUserFirstName || 'Admin';
 
     if (!title) { showToast('Please add a title.', 'error'); return; }
+    if (!orderId) { showToast('Please select the order this issue relates to.', 'error'); return; }
 
     const { data, error } = await db.from('cs_issues').insert({
       customer_id: custId,
+      order_id: orderId,
       title,
       category,
       priority,
@@ -28773,6 +28903,7 @@ ${oneCopy}
           va = (a.hrs != null && a.hrs > 0) ? a.lbs / a.hrs : -1;
           vb = (b.hrs != null && b.hrs > 0) ? b.lbs / b.hrs : -1;
           break;
+        case 'issues': va = a.issues || 0; vb = b.issues || 0; break;
         default: va = 0; vb = 0;
       }
       if (va < vb) return _lndrSortAsc ? -1 : 1;
@@ -28781,7 +28912,7 @@ ${oneCopy}
     });
 
     // Update sort indicators
-    ['name','title','orders','bags','lbs','hrs','lbsPerHr'].forEach(c => {
+    ['name','title','orders','bags','lbs','hrs','lbsPerHr','issues'].forEach(c => {
       const el = document.getElementById('lndr-sort-' + c);
       if (el) el.textContent = c === _lndrSortCol ? (_lndrSortAsc ? '▲' : '▼') : '';
     });
@@ -28798,6 +28929,7 @@ ${oneCopy}
     const tbody = document.querySelector('#lndr-report-table tbody');
     if (!tbody) return;
 
+    const _issuesUnassigned = _laundererReportData.issuesUnassigned || 0;
     tbody.innerHTML = sorted.map(r => `<tr>
       <td>${r.name}</td>
       <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
@@ -28806,6 +28938,7 @@ ${oneCopy}
       <td>${fmtLbs(r.lbs)}</td>
       <td>${fmtHrs(r.hrs)}</td>
       <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
+      <td>${_fmtLaundererIssues(r)}</td>
     </tr>`).join('') + (unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
       <td>Unassigned</td>
       <td></td>
@@ -28814,6 +28947,7 @@ ${oneCopy}
       <td>${fmtLbs(unassigned.lbs)}</td>
       <td><span style="color:var(--gray-300)">—</span></td>
       <td><span style="color:var(--gray-300)">—</span></td>
+      <td>${_issuesUnassigned > 0 ? _issuesUnassigned.toLocaleString() : '<span style="color:var(--gray-300)">0</span>'}</td>
     </tr>` : '');
   }
 
@@ -31228,6 +31362,26 @@ ${oneCopy}
 
   let _laundererReportData = [];
 
+  // Issues cell for the Launderers report: raw count + trend arrow vs the prior
+  // period, with a hover breakdown by category. More issues = worse, so an
+  // increase is shown in red and a decrease in green.
+  function _fmtLaundererIssues(r) {
+    const n    = r.issues || 0;
+    const prev = r.issuesPrev || 0;
+    let arrow = '';
+    if (n > prev)               arrow = `<span title="Up from ${prev} in the prior period" style="color:var(--red);font-size:11px"> ▲</span>`;
+    else if (n < prev)          arrow = `<span title="Down from ${prev} in the prior period" style="color:var(--green);font-size:11px"> ▼</span>`;
+    else if (n > 0 || prev > 0) arrow = `<span title="Same as prior period (${prev})" style="color:var(--gray-300);font-size:11px"> —</span>`;
+    const breakdown = Object.entries(r.issuesByCat || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, ct]) => `${ct} ${c}`)
+      .join(', ');
+    const titleAttr = breakdown ? ` title="${esc(breakdown)}"` : '';
+    return (n > 0
+      ? `<span style="font-weight:600"${titleAttr}>${n}</span>`
+      : `<span style="color:var(--gray-300)">0</span>`) + arrow;
+  }
+
   async function loadLaundererReport() {
     const fromEl    = document.getElementById('rpt-from');
     const toEl      = document.getElementById('rpt-to');
@@ -31350,9 +31504,50 @@ ${oneCopy}
         const squareName = l?.square_employee_name || name;
         const hrs  = laborData.laundry_hours[squareName] ?? null;
         const title = laborData.laundry_titles?.[squareName] || '—';
-        return { name, title, hrs, ...s };
+        return { id, name, title, hrs, ...s };
       })
       .sort((a, b) => b.orders - a.orders);
+
+    // ── Issues per launderer ──────────────────────────────────────────────
+    // Attribute every order-linked issue to the folder of its order
+    // (cs_issues.order_id → orders.folded_by_id). Count ALL order-linked issues
+    // (all categories), with a per-category breakdown surfaced on hover, and a
+    // trend arrow vs the same-length window immediately before this one.
+    // Issues are counted by cs_issues.created_at — "issues raised this period".
+    const _spanDays  = Math.max(1, Math.round((pacificDayEnd(selTo) - pacificDayStart(selFrom)) / 86400000));
+    const _priorTo   = addDaysPacific(selFrom, -1);
+    const _priorFrom = addDaysPacific(selFrom, -_spanDays);
+    async function fetchIssueCounts(fromIso, toIso) {
+      const startISO = pacificDayStart(fromIso).toISOString();
+      const endISO   = pacificDayEnd(toIso).toISOString();
+      const { data, error: ie } = await db.from('cs_issues')
+        .select('category, orders!inner(folded_by_id)')
+        .not('order_id', 'is', null)
+        .gte('created_at', startISO)
+        .lte('created_at', endISO);
+      const byLaunderer = {}, byCat = {};
+      let unassigned = 0;
+      if (ie) { console.warn('issue counts failed', ie); return { byLaunderer, byCat, unassigned }; }
+      (data || []).forEach(r => {
+        const lid = r.orders && r.orders.folded_by_id;
+        if (!lid) { unassigned++; return; }
+        byLaunderer[lid] = (byLaunderer[lid] || 0) + 1;
+        byCat[lid] = byCat[lid] || {};
+        const c = r.category || 'other';
+        byCat[lid][c] = (byCat[lid][c] || 0) + 1;
+      });
+      return { byLaunderer, byCat, unassigned };
+    }
+    const [curIssues, prevIssues] = await Promise.all([
+      fetchIssueCounts(selFrom, selTo),
+      fetchIssueCounts(_priorFrom, _priorTo),
+    ]);
+    const _issuesUnassigned = curIssues.unassigned;
+    rows.forEach(r => {
+      r.issues      = curIssues.byLaunderer[r.id] || 0;
+      r.issuesPrev  = prevIssues.byLaunderer[r.id] || 0;
+      r.issuesByCat = curIssues.byCat[r.id] || {};
+    });
 
     if (!rows.length && !unassigned.orders) {
       body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>';
@@ -31363,7 +31558,7 @@ ${oneCopy}
       return;
     }
 
-    _laundererReportData = { rows, unassigned, from: fromEl.value, to: toEl.value };
+    _laundererReportData = { rows, unassigned, issuesUnassigned: _issuesUnassigned, from: fromEl.value, to: toEl.value };
 
     // Totals include unassigned
     const tot = rows.reduce((acc, r) => {
@@ -31417,6 +31612,7 @@ ${oneCopy}
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('lbs')">Pounds <span id="lndr-sort-lbs" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('hrs')">Hours Worked <span id="lndr-sort-hrs" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('lbsPerHr')">Lbs/Hr <span id="lndr-sort-lbsPerHr" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('issues')" title="Order-linked issues raised this period (hover a number for the breakdown by type). Arrow compares to the prior period.">Issues <span id="lndr-sort-issues" style="font-size:10px;color:var(--gray-400)"></span></th>
           </tr>
         </thead>
         <tbody>
@@ -31428,6 +31624,7 @@ ${oneCopy}
             <td>${fmtLbs(r.lbs)}</td>
             <td>${fmtHrs(r.hrs)}</td>
             <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
+            <td>${_fmtLaundererIssues(r)}</td>
           </tr>`).join('')}
           ${unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
             <td>Unassigned</td>
@@ -31437,6 +31634,7 @@ ${oneCopy}
             <td>${fmtLbs(unassigned.lbs)}</td>
             <td><span style="color:var(--gray-300)">—</span></td>
             <td><span style="color:var(--gray-300)">—</span></td>
+            <td>${_issuesUnassigned > 0 ? _issuesUnassigned.toLocaleString() : '<span style="color:var(--gray-300)">0</span>'}</td>
           </tr>` : ''}
         </tbody>
         <tfoot>
@@ -31448,6 +31646,7 @@ ${oneCopy}
             <td>${fmtLbs(tot.lbs)}</td>
             <td>${tot.hrs != null ? fmtHrs(tot.hrs) : '—'}</td>
             <td>${fmtLbsHr(tot.lbs, tot.hrs)}</td>
+            <td>${(rows.reduce((a, r) => a + (r.issues || 0), 0) + (_issuesUnassigned || 0)).toLocaleString()}</td>
           </tr>
         </tfoot>
       </table>`;
@@ -31456,18 +31655,18 @@ ${oneCopy}
   }
 
   function exportLaundererCSV() {
-    const { rows, unassigned, from, to } = _laundererReportData;
+    const { rows, unassigned, issuesUnassigned, from, to } = _laundererReportData;
     if (!rows?.length && !unassigned?.orders) return;
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const headers = ['Folder','Orders','Bags','Pounds','Hours Worked','Lbs/Hr'];
+    const headers = ['Folder','Orders','Bags','Pounds','Hours Worked','Lbs/Hr','Issues'];
     // Orders & bags can be fractional (when participating in a split fold).
     const fmtNum  = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
     const csvRows = (rows || []).map(r => {
       const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
-      return [r.name, fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr].map(esc).join(',');
+      return [r.name, fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr, r.issues || 0].map(esc).join(',');
     });
     if (unassigned?.orders > 0) {
-      csvRows.push(['Unassigned', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', ''].map(esc).join(','));
+      csvRows.push(['Unassigned', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', '', issuesUnassigned || 0].map(esc).join(','));
     }
     const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
