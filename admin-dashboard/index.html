@@ -23410,16 +23410,14 @@ ${oneCopy}
       }
 
       const _selModeOn = _rccSelMode.has(routeId);
+      // Drag-to-move disabled (session 185) — no drop-zone handlers or drop hint.
+      // Reassigning stops is done via select mode → "Move to route".
       const bodyHtml = isExpanded
-        ? `<div class="rcc-body" ondragover="rccDragOver(event)" ondrop="rccDrop(event,'${routeId}')">
-             <div class="rcc-drop-hint" style="margin:2px 8px">Drop here → ${templateName}</div>
+        ? `<div class="rcc-body">
              ${cardsHtml || `<div style="padding:14px;text-align:center;color:var(--gray-400);font-size:11.5px;">No ${_rccStopFilter==='all'?'active':_rccStopFilter} stops</div>`}
            </div>`
         : '';
-      html += `<div class="rcc-col${isExpanded ? ' rcc-expanded' : ''}${_selModeOn ? ' rcc-in-select' : ''}" data-route-id="${routeId}"
-        ondragover="rccDragOver(event)"
-        ondragleave="rccDragLeave(event)"
-        ondrop="rccDrop(event,'${routeId}')">
+      html += `<div class="rcc-col${isExpanded ? ' rcc-expanded' : ''}${_selModeOn ? ' rcc-in-select' : ''}" data-route-id="${routeId}">
         <div class="rcc-col-hdr" onclick="rccToggleExpand('${routeId}')" title="${isExpanded ? 'Collapse' : 'Expand'} route">
           <span class="rcc-col-chevron">▶</span>
           <span class="rcc-col-hdr-dot" style="background:${color};"></span>
@@ -23579,11 +23577,13 @@ ${oneCopy}
     const rowClasses = ['rcc-row'];
     if (inSel) rowClasses.push('rcc-selectable');
     if (isSel) rowClasses.push('rcc-selected');
-    const draggable = inSel ? 'false' : 'true';
+    // Drag-to-move disabled (session 185) — moving stops between routes is now
+    // done via select mode → "Move to route". Rows are never draggable.
+    const draggable = 'false';
     const cardOnclick = inSel
       ? `rccToggleStopSelection('${s.id}','${routeId}',event)`
       : (orderId ? `openOrderPanel('${orderId}')` : '');
-    const dragHandler = inSel ? '' : `ondragstart="rccDragStart(event,'${s.id}','${routeId}')"`;
+    const dragHandler = '';
     const numClass = inSel ? 'rcc-row-num rcc-checkbox' : 'rcc-row-num';
     const numStyle = inSel ? '' : `style="background:${color};"`;
     const numContent = inSel ? (isSel ? '✓' : '') : (s._displayNum||s.stop_number||'?');
