@@ -895,6 +895,10 @@
        vertically so adding routes never runs off the side of the screen. */
     .rcc-col { width:100%;display:flex;flex-direction:column;background:#fff;border-bottom:1px solid var(--gray-200);overflow:visible; }
     .rcc-col.rcc-drop-over > .rcc-col-hdr { box-shadow:inset 0 0 0 2px #86efac;background:#f0fdf4; }
+    /* Route drag-to-reorder (session 185) */
+    .rcc-col-hdr[draggable="true"] { cursor:grab; }
+    .rcc-col-hdr[draggable="true"]:active { cursor:grabbing; }
+    .rcc-col.rcc-route-drop-over { box-shadow:inset 0 3px 0 0 var(--accent); }
     .rcc-col-hdr { padding:9px 12px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;gap:9px;transition:background .1s; }
     .rcc-col-hdr:hover { background:var(--gray-50); }
     .rcc-col-chevron { color:var(--gray-400);font-size:9px;line-height:1;transition:transform .15s;flex-shrink:0;width:9px;text-align:center; }
@@ -23329,11 +23333,9 @@ ${oneCopy}
     // the order array (safety) is appended at the end.
     const _orderedIds = _rccRouteOrder.filter(id => _rccActiveRoutes.has(id));
     _rccActiveRoutes.forEach(id => { if (!_orderedIds.includes(id)) _orderedIds.push(id); });
-    _orderedIds.forEach((routeId, _rIdx) => {
+    _orderedIds.forEach((routeId) => {
       const rd = _rccRouteData[routeId];
       if (!rd) return;
-      const _isFirstRoute = _rIdx === 0;
-      const _isLastRoute  = _rIdx === _orderedIds.length - 1;
       const { color, driverName, driverInitials, stops, templateName } = rd;
       // Only show remaining (non-complete, non-skipped, non-failed) stops in cards + map
       const remaining = stops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed');
@@ -23434,8 +23436,9 @@ ${oneCopy}
              ${cardsHtml || `<div style="padding:14px;text-align:center;color:var(--gray-400);font-size:11.5px;">No ${_rccStopFilter==='all'?'active':_rccStopFilter} stops</div>`}
            </div>`
         : '';
-      html += `<div class="rcc-col${isExpanded ? ' rcc-expanded' : ''}${_selModeOn ? ' rcc-in-select' : ''}" data-route-id="${routeId}">
-        <div class="rcc-col-hdr" onclick="rccToggleExpand('${routeId}')" title="${isExpanded ? 'Collapse' : 'Expand'} route">
+      html += `<div class="rcc-col${isExpanded ? ' rcc-expanded' : ''}${_selModeOn ? ' rcc-in-select' : ''}" data-route-id="${routeId}"
+        ondragover="rccRouteDragOver(event)" ondragleave="rccRouteDragLeave(event)" ondrop="rccRouteDrop(event,'${routeId}')">
+        <div class="rcc-col-hdr" draggable="true" ondragstart="rccRouteDragStart(event,'${routeId}')" ondragend="rccRouteDragEnd()" onclick="rccToggleExpand('${routeId}')" title="Drag to reorder · click to ${isExpanded ? 'collapse' : 'expand'}">
           <span class="rcc-col-chevron">▶</span>
           <span class="rcc-col-hdr-dot" style="background:${color};"></span>
           <div style="flex:1;min-width:0;">
@@ -23448,10 +23451,6 @@ ${oneCopy}
             <span class="rcc-col-n">${pickups}</span><span class="rcc-col-lbl">P</span>
             <span class="rcc-card-dot" style="margin:0 3px;"></span>
             <span class="rcc-col-n">${deliveries}</span><span class="rcc-col-lbl">D</span>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:0;flex-shrink:0;margin-right:2px" onclick="event.stopPropagation()" title="Reorder route">
-            <button onclick="event.stopPropagation();rccMoveRoute('${routeId}',-1)" ${_isFirstRoute?'disabled':''} style="background:none;border:none;cursor:${_isFirstRoute?'default':'pointer'};color:${_isFirstRoute?'var(--gray-200)':'var(--gray-400)'};line-height:.7;padding:0 2px;display:flex" title="Move route up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="12" height="9"><polyline points="6 15 12 9 18 15"/></svg></button>
-            <button onclick="event.stopPropagation();rccMoveRoute('${routeId}',1)" ${_isLastRoute?'disabled':''} style="background:none;border:none;cursor:${_isLastRoute?'default':'pointer'};color:${_isLastRoute?'var(--gray-200)':'var(--gray-400)'};line-height:.7;padding:0 2px;display:flex" title="Move route down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="12" height="9"><polyline points="6 9 12 15 18 9"/></svg></button>
           </div>
           <button onclick="event.stopPropagation();rccToggleRoutePins('${routeId}')" style="background:none;border:none;cursor:pointer;color:${_rccHiddenPins.has(routeId)?'var(--gray-300)':'var(--gray-500)'};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${_rccHiddenPins.has(routeId)?'Show this route’s pins on the map':'Hide this route’s pins from the map'}">
             ${_rccHiddenPins.has(routeId)
@@ -23476,15 +23475,51 @@ ${oneCopy}
     rccRenderMap();
   }
 
-  // ── RCC: Reorder a route up/down in the list (session 185) ──
-  // Handy for putting two routes next to each other to compare. dir: -1 up, +1 down.
-  function rccMoveRoute(routeId, dir) {
+  // ── RCC: Drag a whole route up/down to reorder the list (session 185) ──
+  // Grab a route by its header and drop it above/below another to reposition —
+  // handy for putting two routes next to each other to compare. Purely visual
+  // (reorders _rccRouteOrder); no data changes.
+  let _rccRouteDragId = null;
+  function rccRouteDragStart(event, routeId) {
+    _rccRouteDragId = routeId;
+    try { event.dataTransfer.setData('text/plain', routeId); event.dataTransfer.effectAllowed = 'move'; } catch(_) {}
+  }
+  function rccRouteDragEnd() {
+    _rccRouteDragId = null;
+    document.querySelectorAll('.rcc-col.rcc-route-drop-over').forEach(el => el.classList.remove('rcc-route-drop-over'));
+  }
+  function rccRouteDragOver(event) {
+    if (!_rccRouteDragId) return;            // only react to a route drag (not other drags)
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const col = event.currentTarget;
+    if (col.dataset.routeId !== _rccRouteDragId) col.classList.add('rcc-route-drop-over');
+  }
+  function rccRouteDragLeave(event) {
+    const col = event.currentTarget;
+    if (!col.contains(event.relatedTarget)) col.classList.remove('rcc-route-drop-over');
+  }
+  function rccRouteDrop(event, targetRouteId) {
+    if (!_rccRouteDragId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const col = event.currentTarget;
+    col.classList.remove('rcc-route-drop-over');
+    const draggedId = _rccRouteDragId;
+    _rccRouteDragId = null;
+    if (!draggedId || draggedId === targetRouteId) return;
+    // Current visible order
     const ids = _rccRouteOrder.filter(id => _rccActiveRoutes.has(id));
     _rccActiveRoutes.forEach(id => { if (!ids.includes(id)) ids.push(id); });
-    const i = ids.indexOf(routeId);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= ids.length) return;
-    [ids[i], ids[j]] = [ids[j], ids[i]];
+    const from = ids.indexOf(draggedId);
+    if (from < 0) return;
+    // Drop above or below the target depending on which half of it we're over
+    const rect = col.getBoundingClientRect();
+    const after = (event.clientY - rect.top) > rect.height / 2;
+    ids.splice(from, 1);
+    let to = ids.indexOf(targetRouteId);
+    if (to < 0) return;
+    ids.splice(after ? to + 1 : to, 0, draggedId);
     _rccRouteOrder = ids;
     rccRenderColumns();
   }
