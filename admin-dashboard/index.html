@@ -23107,9 +23107,10 @@ ${oneCopy}
     });
     // Auto-open collapsed — headers appear (and pins on the map) but the panel
     // stays scannable; the user expands the routes they want to work.
-    for (const route of toOpen) {
-      await rccToggleRoute(route.id, false);
-    }
+    // Fetch all routes in PARALLEL (was a sequential await loop → routes loaded
+    // one-by-one with visible lag). The synchronous part of rccToggleRoute runs
+    // in toOpen order first, so _rccRouteOrder stays in order before any fetch resolves.
+    await Promise.all(toOpen.map(route => rccToggleRoute(route.id, false)));
   }
 
   // ── RCC: Render the AM/PM slot toggle (chip strip removed session 185) ──
@@ -23163,6 +23164,10 @@ ${oneCopy}
     rccRenderMap();
     rccUpdatePanelWidth();
     rccUpdateOptimizeBtn();
+    // Re-open the new slot's routes. Previously the chip strip re-opened routes
+    // on a slot switch; with chips removed (session 185) the panel stayed empty
+    // after AM↔PM toggles. Auto-open fills it (routes fetch in parallel).
+    rccAutoOpenSlotRoutes();
   }
 
   // ── RCC: Toggle a route section open/closed ──
