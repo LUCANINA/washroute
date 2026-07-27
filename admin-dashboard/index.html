@@ -6264,6 +6264,20 @@
             } else if (hashPage === 'team') {
               const tmBtn = document.getElementById('team-tab-' + hashSub);
               if (tmBtn) setTeamTab(hashSub, tmBtn);
+            } else if (hashPage === 'drivers' && hashSub === 'driverview') {
+              // Extended hash format for this one case: #drivers/driverview/<driverId>/<date>
+              // (session 189 — the Map page's "view this driver" button opens this in a new
+              // tab rather than navigating the current one away from the routes list).
+              const dvDriverId = hashParts[2] || '';
+              const dvDate     = hashParts[3] || '';
+              await loadDrivers(); // showPage's own loadDrivers() call isn't awaited — make sure
+                                    // the driver <select> has options before we try to set its value.
+              switchDriverTab('driverview');
+              const dvSel  = document.getElementById('dv-driver-select');
+              const dvDateEl = document.getElementById('dv-date');
+              if (dvDateEl && dvDate) dvDateEl.value = dvDate;
+              if (dvSel && dvDriverId) dvSel.value = dvDriverId;
+              if (dvDriverId) loadDriverViewData();
             }
           }
         } else {
@@ -23694,23 +23708,16 @@ ${oneCopy}
 
   // Jump from a route's header on the Map page straight into Driver View
   // (session 189) pre-loaded with that driver + the Map page's selected date.
-  // Uses _dsDateStr (this page's own date, independent of Driver View's own
-  // date field) so "today" on the map opens "today" in Driver View, and a
-  // past/future map date carries over the same way.
-  async function rccOpenDriverView(driverId) {
+  // Opens in a NEW TAB (session 189 follow-up: David wants the Map page to
+  // stay put, not get navigated away from) via the same #page/subtab hash
+  // format the app already uses to restore state on load/refresh, extended
+  // with two extra segments for driver + date. Since this is a synchronous
+  // window.open() from a real click (no await first), it fires as a direct
+  // result of the user gesture and won't get popup-blocked.
+  function rccOpenDriverView(driverId) {
     if (!driverId) { showToast('No driver assigned to this route yet', 'error'); return; }
-    showPage('drivers', document.querySelector('.nav-item[data-page="drivers"]'));
-    // showPage already kicks off loadDrivers() in the background; await our own
-    // call so the driver <select> is guaranteed populated even on a cold first
-    // visit to the Drivers page this session (initDriverViewTab only fills the
-    // dropdown once allDriversList has data).
-    await loadDrivers();
-    switchDriverTab('driverview');
-    const sel = document.getElementById('dv-driver-select');
-    const dateEl = document.getElementById('dv-date');
-    if (dateEl) dateEl.value = _dsDateStr || today();
-    if (sel) sel.value = driverId;
-    loadDriverViewData();
+    const dateStr = _dsDateStr || today();
+    window.open(`#drivers/driverview/${driverId}/${dateStr}`, '_blank');
   }
 
   // ── RCC: Drag a whole route up/down to reorder the list (session 185) ──
