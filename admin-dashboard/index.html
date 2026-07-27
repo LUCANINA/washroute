@@ -1609,6 +1609,20 @@
             <div id="reschedule-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
+          <!-- Bags Not On Rack (session 191) -->
+          <div class="card" style="margin-top:0">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('bagcheck-missing-body',this)">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="card-title">Bags Not On Rack</div>
+                  <span id="bagcheck-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                </div>
+              </div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+            </div>
+            <div id="bagcheck-missing-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          </div>
+
           <!-- Unpaid Orders -->
           <div class="card" style="margin-top:0">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('unpaid-orders-body',this)">
@@ -6934,6 +6948,10 @@
         if (stop.route_id && _rccActiveRoutes.has(stop.route_id)) {
           rccRefreshRoute(stop.route_id);
         }
+        // Bag Check status changed (session 191) — keep the Overview panel live
+        if (currentPage === 'overview' && payload.old && stop.bag_check_status !== payload.old.bag_check_status) {
+          loadBagCheckIssues();
+        }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'route_stops' }, payload => {
         const stop = payload.new;
@@ -7884,6 +7902,7 @@
   async function loadOverview() {
     loadOverviewIssues();
     loadRescheduleOrders();
+    loadBagCheckIssues();
     loadUnpaidOrders();
   }
 
@@ -8242,6 +8261,58 @@
           <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
             <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">Reschedule →</button>
             <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--gray-500);margin-left:4px" onclick="openArchiveModal('${o.id}','${o.order_number}','${esc(name).replace(/'/g,"\\'")}','${o.status}')" title="Archive — hide from Overview, keep history intact">Archive</button>
+          </td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+
+  // ── Bags Not On Rack (session 191) ──
+  // Surfaces delivery stops the driver flagged "Missing" during their pre-departure
+  // rack check (driver-app's Bag Check UI, session 31 — previously localStorage-only
+  // and invisible to admin). Clears itself once the driver un-flags the bag or the
+  // stop leaves pending/en_route (delivered, skipped, failed).
+  async function loadBagCheckIssues() {
+    const el = document.getElementById('bagcheck-missing-body');
+    if (!el) return;
+
+    const { data, error } = await db.from('route_stops')
+      .select(`id, order_id, bag_checked_at,
+               routes!route_stops_route_id_fkey(route_templates(name)),
+               orders(id, order_number, delivery_window_start, customer_id, customers(first_name_cache, last_name_cache, phone_cache))`)
+      .eq('bag_check_status', 'missing')
+      .in('status', ['pending', 'en_route'])
+      .order('bag_checked_at', { ascending: false });
+
+    if (error || !data) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load bag check status.</div>';
+      return;
+    }
+
+    const badge = document.getElementById('bagcheck-count-badge');
+    if (!data.length) {
+      if (badge) badge.style.display = 'none';
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No bags flagged missing</div>';
+      return;
+    }
+
+    if (badge) { badge.textContent = `${data.length} bag${data.length !== 1 ? 's' : ''}`; badge.style.display = ''; }
+
+    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Route</th><th>Delivery Window</th><th style="text-align:right">Action</th></tr></thead><tbody>
+      ${data.map(s => {
+        const o = s.orders;
+        const cust = o?.customers;
+        const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
+        const routeName = s.routes?.route_templates?.name || 'Route';
+        const windowStr = o?.delivery_window_start ? fmtDate(o.delivery_window_start) : '—';
+        const clickable = o?.id ? `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"` : '';
+        return `<tr ${clickable}>
+          <td class="td-mono">${o?.order_number ? '#' + o.order_number : '—'}</td>
+          <td class="td-name">${esc(name)}</td>
+          <td style="font-size:12px;color:var(--gray-600)">${esc(routeName)}</td>
+          <td style="font-size:12px">${windowStr}</td>
+          <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o?.id}'),150)">View →</button>
           </td>
         </tr>`;
       }).join('')}
@@ -23439,6 +23510,7 @@ ${oneCopy}
 
     const { data: stops } = await db.from('route_stops')
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival, photo_skipped_at,
+               bag_check_status, bag_checked_at,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, overcap_booking,
                  customers(first_name_cache, last_name_cache, phone_cache, sms_marketing_opt_out_at))`)
@@ -23870,6 +23942,16 @@ ${oneCopy}
       photoSkippedBadge = `<span style="font-size:9.5px;font-weight:600;color:#92400e;background:#fef3c7;padding:1px 5px;border-radius:4px;white-space:nowrap;" title="Driver completed this stop without a photo (no signal / camera issue)">📷✗</span>`;
     }
 
+    // Bag Check badge — reflects the driver's pre-departure rack check (session 191).
+    // Only meaningful for delivery stops; blank until the driver taps a checklist row
+    // in the app's planning view, so most rows show nothing here.
+    let bagCheckBadge = '';
+    if (isDelivery && s.bag_check_status === 'missing') {
+      bagCheckBadge = `<span style="font-size:9.5px;font-weight:700;color:#991b1b;background:#fee2e2;padding:1px 5px;border-radius:4px;border:1px solid #fecaca;white-space:nowrap;" title="Driver marked this bag missing during pre-departure rack check">✗ Bag missing</span>`;
+    } else if (isDelivery && s.bag_check_status === 'ok') {
+      bagCheckBadge = `<span style="font-size:9.5px;font-weight:700;color:#065f46;background:#d1fae5;padding:1px 5px;border-radius:4px;border:1px solid #a7f3d0;white-space:nowrap;" title="Driver confirmed this bag was on the rack">✓ On rack</span>`;
+    }
+
     // "Not ready" badge — delivery stop whose order hasn't finished processing yet.
     // Surfaces planned stops the driver shouldn't pick up bags for yet (bags are
     // still being washed/folded/racked). Replaces the prior hard-hide behavior so
@@ -23938,7 +24020,7 @@ ${oneCopy}
       <span class="rcc-row-meta">
         <span class="rcc-row-type" style="${typeBg}">${typeLabel}</span>
         <span class="rcc-row-bags">${bags} bag${bags!==1?'s':''}</span>
-        <span class="rcc-row-tags">${movedBadge}${enRouteBadge}${photoSkippedBadge}${notReadyBadge}</span>
+        <span class="rcc-row-tags">${movedBadge}${enRouteBadge}${photoSkippedBadge}${notReadyBadge}${bagCheckBadge}</span>
         <span class="rcc-row-time">${etaCell}</span>
       </span>
     </div>`;
@@ -24714,6 +24796,7 @@ ${oneCopy}
 
     const { data: stops } = await db.from('route_stops')
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival, photo_skipped_at,
+               bag_check_status, bag_checked_at,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, overcap_booking,
                  customers(first_name_cache, last_name_cache, phone_cache, sms_marketing_opt_out_at))`)

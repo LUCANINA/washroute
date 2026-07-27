@@ -16,7 +16,7 @@
        UPDATE BUILD_TS whenever deploying changes that should reach driver iPads. ── -->
   <script>
     (function() {
-      var BUILD_TS = '20260727_s103';
+      var BUILD_TS = '20260727_s104';
       try {
         if (localStorage.getItem('wr_driver_build') !== BUILD_TS) {
           localStorage.setItem('wr_driver_build', BUILD_TS);
@@ -1311,7 +1311,6 @@ async function _staffJwt() {
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [], upcomingRoutes = [];
 let activeRouteFilter = null;  // null = all | routeId = one route | 'extra' = reassigned stops
-let _rackCheckState = {};      // { [stopId]: 'ok' | 'missing' } — cleared per route/day
 let _dataLoading = false; // prevents realtime events from corrupting allStops mid-load
 let currentStopId = null;
 let currentStopPhase = 1;    // 1 = pre-arrival, 2 = at-stop
@@ -1887,30 +1886,35 @@ function greet() {
 }
 
 // ── Rack Check helpers ─────────────────────────────────────────────────────
-// Saves check state per route/day in localStorage so it survives a page reload.
-function _rackCheckKey(routeId) {
-  return `wr-rack-${routeId}-${today()}`;
-}
-function _rackCheckLoad(routeId) {
-  try { return JSON.parse(localStorage.getItem(_rackCheckKey(routeId)) || '{}'); }
-  catch { return {}; }
-}
-function _rackCheckSave(routeId) {
-  try { localStorage.setItem(_rackCheckKey(routeId), JSON.stringify(_rackCheckState)); }
-  catch {}
-}
+// bag_check_status / bag_checked_at persist directly on the route_stops row
+// (session 191 — previously localStorage-only, session 31), so admin can see
+// which bags are missing from the Overview page and the Orders → Map view.
 // Called when driver taps ✓ or "Missing" on a bag check row.
 // val = 'ok' | 'missing' — tapping the same value again clears it (toggle off).
-function rackCheckToggle(stopId, val) {
-  const routeId = activeRouteFilter;
-  if (!routeId) return;
-  if (_rackCheckState[stopId] === val) {
-    delete _rackCheckState[stopId];   // tap same button again → un-check
-  } else {
-    _rackCheckState[stopId] = val;
-  }
-  _rackCheckSave(routeId);
+async function rackCheckToggle(stopId, val) {
+  if (_previewBlock()) return;
+  const stop = allStops.find(s => s.id === stopId);
+  if (!stop) return;
+  const prevStatus = stop.bag_check_status || null;
+  const prevCheckedAt = stop.bag_checked_at || null;
+  const newStatus = prevStatus === val ? null : val;
+  const newCheckedAt = newStatus ? new Date().toISOString() : null;
+
+  // Optimistic update — snappy UI, matches the instant feel of the old localStorage version.
+  stop.bag_check_status = newStatus;
+  stop.bag_checked_at = newCheckedAt;
   renderRoute();   // re-render to update progress counter and banners
+
+  const { error } = await db.from('route_stops')
+    .update({ bag_check_status: newStatus, bag_checked_at: newCheckedAt })
+    .eq('id', stopId);
+  if (error) {
+    // Roll back so the UI never shows a check that didn't actually save.
+    stop.bag_check_status = prevStatus;
+    stop.bag_checked_at = prevCheckedAt;
+    renderRoute();
+    toast("Couldn't save — check your connection and try again", 3600);
+  }
 }
 
 // Toggle the "Later Today" collapsible section on the home screen
@@ -2764,10 +2768,9 @@ function renderRoute() {
         // Pickup stops are excluded (those bags don't exist yet).
         const delivStops = sorted.filter(s => s.stop_type === 'delivery');
         if (delivStops.length > 0) {
-          // Load saved state from localStorage for this route+day
-          _rackCheckState = _rackCheckLoad(activeRouteFilter);
-          const checkedCount = delivStops.filter(s => _rackCheckState[s.id] === 'ok').length;
-          const missingCount = delivStops.filter(s => _rackCheckState[s.id] === 'missing').length;
+          // bag_check_status comes straight off the stop row (persisted server-side, session 191)
+          const checkedCount = delivStops.filter(s => s.bag_check_status === 'ok').length;
+          const missingCount = delivStops.filter(s => s.bag_check_status === 'missing').length;
           const allChecked   = checkedCount + missingCount === delivStops.length;
 
           // Summary banner
@@ -2783,7 +2786,7 @@ function renderRoute() {
             const cust    = s.orders?.customers;
             const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
             const orderNum = s.orders?.order_number ? `#${s.orders.order_number}` : '';
-            const state    = _rackCheckState[s.id] || null;
+            const state    = s.bag_check_status || null;
             rackRows += `
               <div class="rack-check-row">
                 <div class="rack-check-info">
