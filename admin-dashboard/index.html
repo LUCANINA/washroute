@@ -3067,6 +3067,14 @@
               <input type="date" id="dv-date" class="form-input" style="width:160px" onchange="loadDriverViewData()">
               <span style="font-size:12px;color:var(--gray-400)">Read-only — shows exactly what this driver's app shows them right now. No actions can be taken from here.</span>
             </div>
+            <div id="dv-map" style="height:320px;border-radius:12px;overflow:hidden;margin-bottom:12px;border:1px solid var(--gray-200);"></div>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;font-size:11px;color:var(--gray-500);font-weight:600">
+              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#3b82f6;display:inline-block"></span>Pickup</span>
+              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#10b981;display:inline-block"></span>Delivery</span>
+              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#1d4ed8;display:inline-block"></span>En Route</span>
+              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#6b7280;display:inline-block"></span>Done</span>
+              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></span>Driver (live, today only)</span>
+            </div>
             <div id="dv-body">
               <div style="padding:32px;text-align:center;color:var(--gray-400)">Pick a driver to preview their app.</div>
             </div>
@@ -30214,6 +30222,7 @@ ${oneCopy}
     if (!body) return;
     if (!driverId) {
       body.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400)">Pick a driver to preview their app.</div>';
+      _dvClearMap();
       return;
     }
     body.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
@@ -30225,6 +30234,7 @@ ${oneCopy}
 
     if (error) {
       body.innerHTML = `<div style="padding:20px;color:var(--red)">Could not load: ${esc(error.message)}</div>`;
+      _dvClearMap();
       return;
     }
 
@@ -30235,6 +30245,7 @@ ${oneCopy}
 
     if (!mine.length) {
       body.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400)">No routes or stops for this driver on this date.</div>';
+      _dvClearMap();
       return;
     }
 
@@ -30254,8 +30265,8 @@ ${oneCopy}
     const custIds = [...new Set((orders || []).map(o => o.customer_id).filter(Boolean))];
     let addrById = {}, fallbackAddrByCust = {};
     const addrFetches = [];
-    if (addrIds.length) addrFetches.push(db.from('addresses').select('id, line1, city').in('id', addrIds));
-    if (custIds.length) addrFetches.push(db.from('addresses').select('id, customer_id, line1, city, is_default').in('customer_id', custIds).order('is_default', { ascending: false }));
+    if (addrIds.length) addrFetches.push(db.from('addresses').select('id, line1, city, lat, lng').in('id', addrIds));
+    if (custIds.length) addrFetches.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng, is_default').in('customer_id', custIds).order('is_default', { ascending: false }));
     const addrResults = await Promise.all(addrFetches);
     if (addrIds.length && addrResults[0]?.data) addrResults[0].data.forEach(a => { addrById[a.id] = a; });
     const defIdx = addrIds.length ? 1 : 0;
@@ -30303,6 +30314,8 @@ ${oneCopy}
       </div>`;
     };
 
+    renderDriverViewMap(driverId, dateStr, visible.map(s => ({ stop: s, addr: addrFor(s) })));
+
     let html = '';
     Object.values(byRoute).forEach(stops => {
       const routeName = stops[0]?.routes?.name || 'Route';
@@ -30328,6 +30341,90 @@ ${oneCopy}
     }
 
     body.innerHTML = html;
+  }
+
+  // Same pin-color convention as driver-app/index.html's _dmapPinColor — kept in
+  // sync intentionally so this admin preview looks like what the driver actually sees.
+  function _dvPinColor(stop) {
+    const isDone    = stop.status === 'complete';
+    const isSkip    = stop.status === 'skipped' || stop.status === 'failed';
+    const isEnRoute = stop.status === 'en_route';
+    if (isDone)    return '#6b7280'; // muted — already done
+    if (isSkip)    return '#92400e'; // matches the sn-skip badge
+    if (isEnRoute) return '#1d4ed8'; // info
+    return stop.stop_type === 'delivery' ? '#10b981' : '#3b82f6'; // deliver green / pickup blue
+  }
+
+  let _dvMap = null, _dvMapMarkers = null;
+
+  // Wipes any pins left over from a previous driver/date selection — called on
+  // every early-return path in loadDriverViewData() so the map never shows a
+  // stale route once the picker no longer matches what's on screen.
+  function _dvClearMap() {
+    if (_dvMapMarkers) _dvMapMarkers.clearLayers();
+  }
+
+  // Mirrors driver-app's new Map tab so David can verify it without a driver's
+  // device: same pins, same colors, plus the driver's live GPS dot (today only —
+  // a "current" position means nothing plotted against a past/future date's route).
+  async function renderDriverViewMap(driverId, dateStr, stopsWithAddr) {
+    const mapEl = document.getElementById('dv-map');
+    if (!mapEl || typeof L === 'undefined') return;
+
+    if (!_dvMap) {
+      _dvMap = L.map('dv-map', { zoomControl: true });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(_dvMap);
+      _dvMapMarkers = L.layerGroup().addTo(_dvMap);
+    }
+    _dvMap.invalidateSize();
+    _dvMapMarkers.clearLayers();
+
+    const bounds = [];
+    const withCoords = stopsWithAddr.filter(x => x.addr && x.addr.lat != null && x.addr.lng != null);
+
+    withCoords.forEach(({ stop, addr }, i) => {
+      const color = _dvPinColor(stop);
+      const num = stop.stop_number ?? (i + 1);
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);background:${color}"><span style="transform:rotate(45deg);color:white;font-size:12px;font-weight:800">${num}</span></div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 28]
+      });
+      L.marker([addr.lat, addr.lng], { icon }).addTo(_dvMapMarkers);
+      bounds.push([addr.lat, addr.lng]);
+    });
+
+    if (dateStr === today()) {
+      const { data: locs } = await db.from('driver_locations')
+        .select('lat, lng, updated_at')
+        .eq('driver_id', driverId)
+        .order('updated_at', { ascending: false })
+        .limit(1);
+      const loc = locs?.[0];
+      const isFresh = loc && (Date.now() - new Date(loc.updated_at).getTime()) < 30 * 60 * 1000;
+      if (isFresh) {
+        const meIcon = L.divIcon({
+          className: '',
+          html: `<div style="width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4);animation:ppulse 1.4s infinite"></div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7]
+        });
+        L.marker([loc.lat, loc.lng], { icon: meIcon, zIndexOffset: 1000 }).addTo(_dvMapMarkers);
+        bounds.push([loc.lat, loc.lng]);
+      }
+    }
+
+    if (bounds.length > 1) {
+      _dvMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    } else if (bounds.length === 1) {
+      _dvMap.setView(bounds[0], 15);
+    } else {
+      _dvMap.setView([37.835, -122.265], 12); // fallback — no stop/driver coordinates yet
+    }
   }
 
   /* ──────────────────────────────
