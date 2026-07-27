@@ -2973,9 +2973,9 @@
 
         <!-- ── DRIVERS ── -->
         <div class="page" id="page-drivers">
-          <!-- ── Tab bar — session 147: Messages hidden, team uses Slack instead ── -->
-          <!-- Whole bar hidden (only one visible tab left). Restore = remove display:none. -->
-          <div style="display:none;align-items:center;gap:0;margin-bottom:20px;border-bottom:1px solid var(--gray-100)">
+          <!-- ── Tab bar — session 147: Messages hidden, team uses Slack instead. ── -->
+          <!-- Session 189: bar restored to visible to add the Driver View tab (Messages stays hidden). -->
+          <div style="display:flex;align-items:center;gap:0;margin-bottom:20px;border-bottom:1px solid var(--gray-100)">
             <button class="filter-tab" id="drv-tab-messages" onclick="switchDriverTab('messages')"
               style="display:none;padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
               Messages
@@ -2984,11 +2984,17 @@
               style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--gray-900)">
               All Drivers
             </button>
+            <button class="filter-tab" id="drv-tab-driverview" onclick="switchDriverTab('driverview')"
+              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
+              Driver View
+            </button>
             <div style="flex:1"></div>
             <div id="drv-tab-actions"></div>
           </div>
-          <!-- Header row when tab bar is hidden — shows the + New Driver action -->
-          <div id="drv-page-actions" style="display:flex;justify-content:flex-end;margin-bottom:14px;"></div>
+          <!-- Session 189: retired now that the tab bar is visible again (actions render into
+               drv-tab-actions above instead). Left in the DOM, hidden, so switchDriverTab's
+               dual-write to both slots stays harmless if the tab bar is ever hidden again. -->
+          <div id="drv-page-actions" style="display:none;justify-content:flex-end;margin-bottom:14px;"></div>
 
           <!-- ═══ MESSAGES TAB (hidden session 147 — team uses Slack) ═══ -->
           <div id="drv-panel-messages" style="display:none">
@@ -3039,6 +3045,20 @@
             </div>
             <div id="drivers-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px">
               <div class="loading"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+
+          <!-- === DRIVER VIEW TAB (session 189) — read-only mirror of what a driver sees on their app === -->
+          <div id="drv-panel-driverview" style="display:none">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+              <select id="dv-driver-select" class="form-input" style="width:240px" onchange="loadDriverViewData()">
+                <option value="">Select a driver…</option>
+              </select>
+              <input type="date" id="dv-date" class="form-input" style="width:160px" onchange="loadDriverViewData()">
+              <span style="font-size:12px;color:var(--gray-400)">Read-only — shows exactly what this driver's app shows them right now. No actions can be taken from here.</span>
+            </div>
+            <div id="dv-body">
+              <div style="padding:32px;text-align:center;color:var(--gray-400)">Pick a driver to preview their app.</div>
             </div>
           </div>
         </div><!-- /page-drivers -->
@@ -6954,7 +6974,7 @@
       setTimeout(()=>initZonesMap(), 80);
       setTimeout(()=>initRoutesPage(), 80);
     }
-    if (id === 'drivers') { loadDrivers(); switchDriverTab('manage'); /* session 147: Messages hidden — team uses Slack. To restore: unhide tab bar markup in page-drivers, remove `if (tab === 'messages') tab = 'manage';` redirect in switchDriverTab, and add loadAdminDriverMessages() here. */ }
+    if (id === 'drivers') { loadDrivers(); switchDriverTab(_activeDriverTab || 'manage'); /* session 189: preserve last sub-tab (was hardcoded 'manage' back when Driver View didn't exist yet). session 147: Messages hidden — team uses Slack. To restore: unhide tab bar markup in page-drivers, remove `if (tab === 'messages') tab = 'manage';` redirect in switchDriverTab, and add loadAdminDriverMessages() here. */ }
     if (id === 'services') loadServices();
     // session 145: refresh the Overview when navigating BACK to it. Without
     // this, the "Requires Rescheduling" / "Unpaid" / "Issues" cards keep
@@ -30069,8 +30089,9 @@ ${oneCopy}
 
     _activeDriverTab = tab;
     const tabs = {
-      messages: { tab: document.getElementById('drv-tab-messages'), panel: document.getElementById('drv-panel-messages') },
-      manage:   { tab: document.getElementById('drv-tab-manage'),   panel: document.getElementById('drv-panel-manage') },
+      messages:   { tab: document.getElementById('drv-tab-messages'),   panel: document.getElementById('drv-panel-messages') },
+      manage:     { tab: document.getElementById('drv-tab-manage'),     panel: document.getElementById('drv-panel-manage') },
+      driverview: { tab: document.getElementById('drv-tab-driverview'), panel: document.getElementById('drv-panel-driverview') },
     };
     const tabActions  = document.getElementById('drv-tab-actions');
     const pageActions = document.getElementById('drv-page-actions');
@@ -30085,6 +30106,7 @@ ${oneCopy}
     const sel = tabs[tab];
     if (sel?.tab) { sel.tab.style.borderBottomColor = 'var(--accent)'; sel.tab.style.color = 'var(--gray-900)'; }
     if (sel?.panel) sel.panel.style.display = '';
+    if (tab === 'driverview') initDriverViewTab();
 
     // Tab-specific actions — render to whichever slot is visible (tab bar or
     // standalone page header). Both get the same HTML so a future restore of
@@ -30094,6 +30116,169 @@ ${oneCopy}
       : '';
     if (tabActions)  tabActions.innerHTML  = actionHtml;
     if (pageActions) pageActions.innerHTML = actionHtml;
+  }
+
+  /* ──────────────────────────────
+     DRIVER VIEW (session 189) — read-only admin mirror of the driver app
+  ────────────────────────────── */
+  // V1 scope: shows this driver's assigned routes for the chosen date, plus any
+  // individual stops reassigned to them from another driver's route that same day
+  // (mirrors get_driver_route_stops' ownership check: rs.driver_id override OR
+  // parent route's driver_id). NOT mirrored yet: multi-day carry-forward of missed
+  // stops, and the "upcoming later-today route" preview. Both are noted in the UI.
+  const DV_NOT_READY = ['picked_up', 'processing', 'folding'];
+
+  // Keep this in sync with driver-app/index.html's isGhostDelivery — this mirror
+  // exists specifically to diagnose "why doesn't this show up for the driver"
+  // questions, so it has to reproduce that logic exactly, not just approximate it.
+  function dvHiddenReason(stop, order) {
+    if (!order) return null;
+    if (stop.stop_type !== 'delivery') return null;
+    if (DV_NOT_READY.includes(order.status)) {
+      const label = order.status === 'picked_up' ? 'awaiting wash' : order.status === 'processing' ? 'in wash' : 'folding';
+      return `Bags not ready yet (${label})`;
+    }
+    if (order.billing_status === 'failed' && order.customers?.billing_type !== 'on_account') {
+      return 'Payment failed — held until customer pays';
+    }
+    return null;
+  }
+
+  function initDriverViewTab() {
+    const sel = document.getElementById('dv-driver-select');
+    if (sel && sel.options.length <= 1) {
+      const list = (allDriversList.length ? allDriversList : []).slice().sort((a, b) =>
+        (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0) || `${a.firstName}${a.lastName}`.localeCompare(`${b.firstName}${b.lastName}`));
+      sel.innerHTML = '<option value="">Select a driver…</option>' + list.map(d => {
+        const name = `${d.firstName} ${d.lastName}`.trim() || 'Driver';
+        return `<option value="${d.id}">${esc(name)}${d.isActive ? '' : ' (inactive)'}</option>`;
+      }).join('');
+    }
+    const dateEl = document.getElementById('dv-date');
+    if (dateEl && !dateEl.value) dateEl.value = today();
+  }
+
+  async function loadDriverViewData() {
+    const driverId = document.getElementById('dv-driver-select')?.value;
+    const dateStr  = document.getElementById('dv-date')?.value || today();
+    const body = document.getElementById('dv-body');
+    if (!body) return;
+    if (!driverId) {
+      body.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400)">Pick a driver to preview their app.</div>';
+      return;
+    }
+    body.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+    const { data: stopRows, error } = await db.from('route_stops')
+      .select('id, route_id, stop_type, status, stop_number, estimated_arrival, address_id, order_id, driver_id, routes!inner(id, name, driver_id, run_date, status)')
+      .eq('routes.run_date', dateStr)
+      .neq('routes.status', 'cancelled');
+
+    if (error) {
+      body.innerHTML = `<div style="padding:20px;color:var(--red)">Could not load: ${esc(error.message)}</div>`;
+      return;
+    }
+
+    // Ownership: either this exact stop was overridden to this driver, or it
+    // belongs to one of this driver's own routes and was never overridden away.
+    const mine = (stopRows || []).filter(s =>
+      s.driver_id === driverId || (!s.driver_id && s.routes?.driver_id === driverId));
+
+    if (!mine.length) {
+      body.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400)">No routes or stops for this driver on this date.</div>';
+      return;
+    }
+
+    const orderIds = [...new Set(mine.map(s => s.order_id).filter(Boolean))];
+    const { data: orders } = orderIds.length
+      ? await db.from('orders').select('id, status, billing_status, order_number, pickup_address_id, delivery_address_id, customer_id, customers(id, first_name_cache, last_name_cache, billing_type)').in('id', orderIds)
+      : { data: [] };
+    const orderById = {};
+    (orders || []).forEach(o => { orderById[o.id] = o; });
+
+    // Address resolution mirrors the Route Command Center pattern: exact stop
+    // address first, then the order leg's address, then the customer's default.
+    const addrIds = [...new Set(mine.map(s => {
+      const o = orderById[s.order_id];
+      return s.address_id || (s.stop_type === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id) || o?.pickup_address_id || o?.delivery_address_id;
+    }).filter(Boolean))];
+    const custIds = [...new Set((orders || []).map(o => o.customer_id).filter(Boolean))];
+    let addrById = {}, fallbackAddrByCust = {};
+    const addrFetches = [];
+    if (addrIds.length) addrFetches.push(db.from('addresses').select('id, line1, city').in('id', addrIds));
+    if (custIds.length) addrFetches.push(db.from('addresses').select('id, customer_id, line1, city, is_default').in('customer_id', custIds).order('is_default', { ascending: false }));
+    const addrResults = await Promise.all(addrFetches);
+    if (addrIds.length && addrResults[0]?.data) addrResults[0].data.forEach(a => { addrById[a.id] = a; });
+    const defIdx = addrIds.length ? 1 : 0;
+    if (custIds.length && addrResults[defIdx]?.data) addrResults[defIdx].data.forEach(a => { if (!fallbackAddrByCust[a.customer_id]) fallbackAddrByCust[a.customer_id] = a; });
+
+    // Drop what the driver app drops outright (delivered/cancelled orders,
+    // stops already skipped/failed) before splitting visible vs. hidden.
+    const relevant = mine.filter(s => {
+      const o = orderById[s.order_id];
+      return o && !['delivered', 'cancelled'].includes(o.status) && !['skipped', 'failed'].includes(s.status);
+    });
+
+    const visible = [], hidden = [];
+    relevant.forEach(s => {
+      const o = orderById[s.order_id];
+      const reason = dvHiddenReason(s, o);
+      const row = { ...s, _order: o };
+      if (reason) { row._hiddenReason = reason; hidden.push(row); } else { visible.push(row); }
+    });
+
+    const addrFor = (s) => {
+      const o = s._order;
+      const aid = s.address_id || (s.stop_type === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id) || o?.pickup_address_id || o?.delivery_address_id;
+      return (aid && addrById[aid]) || fallbackAddrByCust[o?.customer_id] || null;
+    };
+
+    const byRoute = {};
+    visible.forEach(s => { (byRoute[s.route_id] = byRoute[s.route_id] || []).push(s); });
+    Object.values(byRoute).forEach(list => list.sort((a, b) => (a.stop_number || 0) - (b.stop_number || 0)));
+
+    const stopCard = (s) => {
+      const o = s._order;
+      const c = o?.customers || {};
+      const name = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown';
+      const addr = addrFor(s);
+      const icon = s.stop_type === 'delivery' ? '🏠' : '📦';
+      const eta = s.estimated_arrival ? new Date(s.estimated_arrival).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ }) : '';
+      return `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--gray-200);border-radius:10px;margin-bottom:8px;background:white">
+        <div style="width:26px;height:26px;border-radius:50%;background:var(--gray-100);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">${s.stop_number ?? '–'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px">${icon} ${esc(name)} <span style="font-weight:400;color:var(--gray-400);font-size:12px">#${o?.order_number ?? ''}</span></div>
+          <div style="font-size:12.5px;color:var(--gray-500)">${esc(addr?.line1 || 'No address on file')}${addr?.city ? ', ' + esc(addr.city) : ''}</div>
+        </div>
+        ${eta ? `<div style="font-size:12px;color:var(--gray-500);white-space:nowrap">ETA ${eta}</div>` : ''}
+      </div>`;
+    };
+
+    let html = '';
+    Object.values(byRoute).forEach(stops => {
+      const routeName = stops[0]?.routes?.name || 'Route';
+      html += `<div style="font-size:13px;font-weight:700;color:var(--gray-500);letter-spacing:0.3px;margin:18px 0 8px">${esc(routeName)} — ${stops.length} stop${stops.length !== 1 ? 's' : ''}</div>`;
+      html += stops.map(stopCard).join('');
+    });
+    if (!visible.length) {
+      html += '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">Nothing currently showing on this driver\'s app for this date.</div>';
+    }
+
+    if (hidden.length) {
+      html += `<div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--gray-100)">
+        <div style="font-size:13px;font-weight:700;color:var(--gray-500);margin-bottom:8px">🙈 Hidden from driver (${hidden.length}) — visible to admin only, for diagnosis</div>
+        ${hidden.map(s => {
+          const o = s._order; const c = o?.customers || {};
+          const name = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown';
+          return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px dashed var(--gray-200);border-radius:10px;margin-bottom:8px;background:#f9fafb;opacity:.85">
+            <div style="flex:1;font-size:13px">${esc(name)} <span style="color:var(--gray-400)">#${o?.order_number ?? ''}</span></div>
+            <div style="font-size:11.5px;font-weight:600;color:#92400e;background:#fef3c7;padding:2px 8px;border-radius:6px;white-space:nowrap">${esc(s._hiddenReason)}</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    body.innerHTML = html;
   }
 
   /* ──────────────────────────────
