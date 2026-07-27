@@ -16,7 +16,7 @@
        UPDATE BUILD_TS whenever deploying changes that should reach driver iPads. ── -->
   <script>
     (function() {
-      var BUILD_TS = '20260727_s104';
+      var BUILD_TS = '20260727_s105';
       try {
         if (localStorage.getItem('wr_driver_build') !== BUILD_TS) {
           localStorage.setItem('wr_driver_build', BUILD_TS);
@@ -4452,6 +4452,23 @@ async function _handleDriverSession(event, session) {
       if (loadingEl) loadingEl.style.display = 'none';
       document.getElementById('bottom-nav').style.display = 'flex';
       goTo('home');
+      // Session 192: the very first read right after handing the admin's session
+      // into this iframe can come back emptyish — no profile name, no stops —
+      // even when the driver genuinely has routes today (David saw "Good
+      // afternoon, Driver." and "No Stops Today", fixed instantly by tapping
+      // the Route tab's own Refresh button, which just calls loadDriverData()
+      // again). A one-time settling race on the freshly-handed-off session, not
+      // a data problem. Auto-retry once, silently, in the background, so admin
+      // never has to know to tap Refresh themselves.
+      setTimeout(async () => {
+        try {
+          await loadDriverData();
+          renderHome();
+          renderRoute();
+        } catch (e) {
+          console.error('loadDriverData (preview retry):', e);
+        }
+      }, 900);
       return;
     }
 
