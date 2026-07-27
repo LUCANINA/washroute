@@ -1396,7 +1396,17 @@
 
 <!-- ─── LOGIN SCREEN ─── -->
 <div id="login-screen">
-  <div class="login-card">
+  <!-- Session 189: shown by default so a fresh page load (a refresh, or a new
+       tab opened by e.g. Driver View's "open in new tab" button) doesn't flash
+       the raw sign-in form while Supabase reads the persisted session from
+       localStorage. Swapped for the real card the instant onAuthStateChange
+       fires with an answer either way -- see the reveal at the top of that
+       callback below. If a session exists, login-screen gets hidden entirely
+       a moment later anyway; this only matters for that brief in-between beat. -->
+  <div id="login-boot-spinner" style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+    <div class="spinner" style="width:26px;height:26px;border-width:3px;border-color:rgba(255,255,255,.25);border-top-color:#fff;"></div>
+  </div>
+  <div class="login-card" style="display:none">
     <div style="margin:-40px -40px 24px;border-radius:12px 12px 0 0;overflow:hidden;background:#0f2744;display:flex;align-items:center;justify-content:center;padding:16px 24px;">
       <img src="../assets/logo.png" alt="Family Laundry" style="height:48px;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:20px;font-weight:700;color:white;letter-spacing:-.02em;\'>Family Laundry</div>'" />
     </div>
@@ -6323,6 +6333,14 @@
     // Everything async is deferred to _handleSessionChange via setTimeout(0).
     const myGen = ++_authGen;
     console.log('[WR Auth]', new Date().toISOString(), 'event:', event, 'session:', session ? 'YES (uid:' + session.user?.id?.slice(0,8) + ')' : 'NULL', 'gen:', myGen);
+
+    // We now know the auth state one way or the other — swap the boot spinner
+    // for the real login card. Runs on every event (idempotent) so it can't be
+    // skipped by an early return further down (e.g. PASSWORD_RECOVERY).
+    const _bootSpinner = document.getElementById('login-boot-spinner');
+    if (_bootSpinner) _bootSpinner.style.display = 'none';
+    const _loginCard = document.querySelector('.login-card');
+    if (_loginCard) _loginCard.style.display = '';
 
     // Intercept PASSWORD_RECOVERY — show the reset form instead of loading the app
     if (event === 'PASSWORD_RECOVERY') {
