@@ -2023,8 +2023,10 @@
         </div>
 
         <!-- Driver assignment popover (weekly schedule) -->
-        <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:250px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
+        <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:270px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
           <div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:0;margin-bottom:10px;" id="driver-popover-title">Assign Driver</div>
+          <!-- Scope toggle: "Just this day" (one-off) vs "Every <Day>, going forward" (recurring default) -->
+          <div id="driver-popover-scope" style="display:flex;gap:3px;margin-bottom:10px;background:var(--gray-50);border-radius:8px;padding:3px;"></div>
           <!-- Status banner: shows in-progress / complete warning for today's routes -->
           <div id="driver-popover-status" style="display:none;font-size:11px;border-radius:8px;padding:7px 9px;margin-bottom:10px;line-height:1.4;"></div>
           <div id="driver-popover-options" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;"></div>
@@ -9342,6 +9344,7 @@
   let _opRoutes        = [];   // upcoming route runs cache
   let _opTemplates     = [];   // route_templates cache
   let _opDriverSched   = {};   // route_driver_schedule: `${template_id}-${day_of_week}` → driver_id
+  let _opDriverOverrides = {}; // route_driver_overrides (session 186): `${template_id}-${override_date}` → driver_id
 
   async function openOrderPanel(orderId) {
     let o = allOrders.find(x => x.id === orderId);
@@ -10050,15 +10053,21 @@
 
   async function opPrefetchRoutes() {
     if (_opRoutes.length && _opTemplates.length) return;
-    const [rRes, tRes, dsRes] = await Promise.all([
+    const [rRes, tRes, dsRes, doRes] = await Promise.all([
       db.from('routes').select('id, name, run_date, status').neq('status','cancelled').gte('run_date', today()).order('run_date').limit(40),
       db.from('route_templates').select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, turnaround_hours, zone_id, service_zones(name, cities)').eq('is_active', true),
-      db.from('route_driver_schedule').select('template_id, day_of_week, driver_id')
+      db.from('route_driver_schedule').select('template_id, day_of_week, driver_id'),
+      db.from('route_driver_overrides').select('template_id, override_date, driver_id').eq('driver_type', 'pickup')
     ]);
     _opRoutes    = rRes.data  || [];
     _opTemplates = tRes.data  || [];
     _opDriverSched = {};
     (dsRes.data || []).forEach(r => { _opDriverSched[`${r.template_id}-${r.day_of_week}`] = r.driver_id; });
+    // Exact-date overrides (session 186) — take precedence over the weekly schedule when
+    // manually creating a route for an order (opCreateRouteAndSelect), same precedence order
+    // used everywhere else (resolve_route_driver, the weekly/driver schedule grids).
+    _opDriverOverrides = {};
+    (doRes.data || []).forEach(r => { _opDriverOverrides[`${r.template_id}-${r.override_date}`] = r.driver_id; });
   }
 
   function opSwitchTab(tab, btn) {
@@ -10675,7 +10684,10 @@
     const tmpl = _opTemplates.find(t => t.id === templateId) || {};
     const routeDate = new Date(dateStr + 'T12:00:00');
     const routeDow  = (routeDate.getDay() + 6) % 7; // 0=Mon..6=Sun
-    const schedDriverId = _opDriverSched[`${templateId}-${routeDow}`] || null;
+    // Exact-date override takes precedence over the weekly schedule (session 186) — matches
+    // resolve_route_driver()'s precedence so a "just this day" assignment set before the order
+    // was booked still applies when this manual create-route path materializes the route.
+    const schedDriverId = _opDriverOverrides[`${templateId}-${dateStr}`] || _opDriverSched[`${templateId}-${routeDow}`] || null;
 
     // Check if a route already exists for this template+date (avoids unique constraint violation)
     let route = null;
@@ -13683,6 +13695,7 @@ ${oneCopy}
   }
 
   const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const DAY_LABELS_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
   function renderTemplates() {
     const el = document.getElementById('templates-list-body');
@@ -22222,6 +22235,10 @@ ${oneCopy}
 
     const overMap = {};
     (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
+
+    // Exact-date overrides ("just this day" — session 186) for the visible week only.
+    // Fetched after weekDates below determines the range; see exactOverrideMap population.
+    let exactOverrideMap = {};
     const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
 
     // Compute week dates early so we can fetch actual route records for the whole week
@@ -22241,6 +22258,17 @@ ${oneCopy}
       .in('template_id', allTemplates.map(t => t.id));
     const routeRecordMap = {}; // `${template_id}-${run_date}` → driver_id
     (weekRouteRows || []).forEach(r => { routeRecordMap[`${r.template_id}-${r.run_date}`] = r.driver_id; });
+
+    // Exact-date overrides ("just this day") for the visible week — only matters for cells that
+    // don't have a route record yet (a route already reflects any override directly, since
+    // assignDriverForSingleDay syncs it immediately). Covers the case of a one-off assignment
+    // set more than ~14 days out, before the nightly generate-route-runs cron creates the route.
+    const { data: weekOverrideRows } = await db.from('route_driver_overrides')
+      .select('template_id, override_date, driver_type, driver_id')
+      .gte('override_date', weekStartStr)
+      .lte('override_date', weekEndStr)
+      .in('template_id', allTemplates.map(t => t.id));
+    (weekOverrideRows || []).forEach(o => { exactOverrideMap[`${o.template_id}-${o.override_date}-${o.driver_type}`] = o.driver_id; });
 
     const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
@@ -22315,9 +22343,15 @@ ${oneCopy}
       //   2. route_driver_schedule recurring default (overMap) — for future
       //      regularly-scheduled days that haven't materialised into a route yet.
       //   3. null — past days with no route record, or future days with no defaults.
+      // Driver source-of-truth precedence (session 186 adds tier 2, exact-date override):
+      //   1. Actual route record (hasRecord) — covers past/today and any one-off future runs.
+      //   2. Exact-date override (route_driver_overrides) — a "just this day" assignment made
+      //      before the route materialized (only reachable when no route record exists yet).
+      //   3. route_driver_schedule recurring default (overMap) — the weekly pattern.
+      //   4. null.
       const drvId = hasRecord
         ? routeRecordMap[recKey]
-        : (isPast ? null : (overMap[`${t.id}-${day}-pickup`] || null));
+        : (isPast ? null : (exactOverrideMap[`${t.id}-${dateStr}-pickup`] ?? overMap[`${t.id}-${day}-pickup`] ?? null));
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
@@ -22446,6 +22480,10 @@ ${oneCopy}
 
     const overMap = {};
     (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
+
+    // Exact-date overrides ("just this day" — session 186) for the visible week only.
+    // Fetched after weekDates below determines the range; see exactOverrideMap population.
+    let exactOverrideMap = {};
     const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
 
     // Compute week dates early so we can fetch actual route records for the whole week
@@ -22465,6 +22503,17 @@ ${oneCopy}
       .in('template_id', allTemplates.map(t => t.id));
     const routeRecordMap = {}; // `${template_id}-${run_date}` → driver_id
     (weekRouteRows || []).forEach(r => { routeRecordMap[`${r.template_id}-${r.run_date}`] = r.driver_id; });
+
+    // Exact-date overrides ("just this day") for the visible week — only matters for cells that
+    // don't have a route record yet (a route already reflects any override directly, since
+    // assignDriverForSingleDay syncs it immediately). Covers the case of a one-off assignment
+    // set more than ~14 days out, before the nightly generate-route-runs cron creates the route.
+    const { data: weekOverrideRows } = await db.from('route_driver_overrides')
+      .select('template_id, override_date, driver_type, driver_id')
+      .gte('override_date', weekStartStr)
+      .lte('override_date', weekEndStr)
+      .in('template_id', allTemplates.map(t => t.id));
+    (weekOverrideRows || []).forEach(o => { exactOverrideMap[`${o.template_id}-${o.override_date}-${o.driver_type}`] = o.driver_id; });
 
     // ── Pre-fetch today's stop counts so grid cells can show in-progress / complete badges ──
     // Only fetch when viewing the current week (schedWeekOffset === 0).
@@ -22537,9 +22586,15 @@ ${oneCopy}
       //   2. route_driver_schedule recurring default (overMap) — for future
       //      regularly-scheduled days that haven't materialised into a route yet.
       //   3. null — past days with no route record, or future days with no defaults.
+      // Driver source-of-truth precedence (session 186 adds tier 2, exact-date override):
+      //   1. Actual route record (hasRecord) — covers past/today and any one-off future runs.
+      //   2. Exact-date override (route_driver_overrides) — a "just this day" assignment made
+      //      before the route materialized (only reachable when no route record exists yet).
+      //   3. route_driver_schedule recurring default (overMap) — the weekly pattern.
+      //   4. null.
       const drvId = hasRecord
         ? routeRecordMap[recKey]
-        : (isPast ? null : (overMap[`${t.id}-${day}-pickup`] || null));
+        : (isPast ? null : (exactOverrideMap[`${t.id}-${dateStr}-pickup`] ?? overMap[`${t.id}-${day}-pickup`] ?? null));
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
@@ -22651,14 +22706,48 @@ ${oneCopy}
   // ── DRIVER POPOVER ──
   let popoverCtx = {};
 
+  // Renders the "Just this day" / "Every <Day>" segmented toggle at the top of the driver
+  // popover. "day" writes an exact-date override (route_driver_overrides); "forward" writes
+  // the recurring weekly default (route_driver_schedule) — the pre-existing behavior.
+  function renderDriverPopoverScope() {
+    const wrap = document.getElementById('driver-popover-scope');
+    if (!wrap) return;
+    const dayFull = DAY_LABELS_FULL[popoverCtx.day] || DAY_LABELS[popoverCtx.day] || '';
+    const opts = [
+      { key: 'day', label: 'Just this day' },
+      { key: 'forward', label: `Every ${dayFull}` }
+    ];
+    wrap.innerHTML = opts.map(o => {
+      const active = popoverCtx.scope === o.key;
+      return `<div onclick="setDriverPopoverScope('${o.key}')"
+        style="flex:1;text-align:center;padding:6px 4px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;
+          background:${active ? 'white' : 'transparent'};color:${active ? 'var(--accent)' : 'var(--gray-500)'};
+          box-shadow:${active ? '0 1px 3px rgba(0,0,0,.12)' : 'none'};transition:background .1s;">
+        ${o.label}
+      </div>`;
+    }).join('');
+  }
+
+  function setDriverPopoverScope(scope) {
+    popoverCtx.scope = scope;
+    renderDriverPopoverScope();
+  }
+
   async function openDriverPopover(templateId, day, driverType, currentDriverId, event) {
     event.stopPropagation();
-    popoverCtx = { templateId, day, driverType, currentDriverId };
+    // isoDateStr is the exact Pacific calendar date (YYYY-MM-DD) for this cell — used for the
+    // "just this day" one-off override, which is scoped to an exact date, not a day-of-week.
+    const dayDateForIso = schedWeekDates[day];
+    const isoDateStr = dayDateForIso ? dayDateForIso.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
+    // Default scope is "day" (just this occurrence) — the safer, less-surprising choice for a
+    // one-off swap. Picking "forward" is an explicit, deliberate action in the toggle.
+    popoverCtx = { templateId, day, driverType, currentDriverId, isoDateStr, scope: 'day' };
     const tmpl = allTemplates.find(t => t.id === templateId);
     const dayDate = schedWeekDates[day];
     const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const dateStr = dayDate ? ` ${MON_SHORT[dayDate.getMonth()]} ${dayDate.getDate()}` : '';
     document.getElementById('driver-popover-title').textContent = `${DAY_LABELS[day]}${dateStr} · ${tmpl?.name || ''}`;
+    renderDriverPopoverScope();
 
     // Hide status banner initially while we check
     const statusBanner = document.getElementById('driver-popover-status');
@@ -22760,19 +22849,78 @@ ${oneCopy}
     } catch (_) { /* non-critical */ }
   }
 
-  async function assignDriverOverride(newDriverId) {
-    const { templateId, day, driverType } = popoverCtx;
-    closeDriverPopover();
+  // Cascades a driver change onto whatever pending/en_route stops already exist on a set of
+  // route records — shared by both the "just this day" and "every X, going forward" scopes so
+  // completed/skipped/failed stops are never touched (matches existing behavior).
+  async function cascadeDriverToRoutes(routes, newDriverId) {
+    if (!routes || !routes.length) return;
+    const routeIds = routes.map(r => r.id);
+    await db.from('routes').update({ driver_id: newDriverId || null }).in('id', routeIds);
+    for (const route of routes) {
+      const oldDriverId = route.driver_id;
+      if (oldDriverId === (newDriverId || null)) continue; // no change for this route
+      let q = db.from('route_stops')
+        .update({ driver_id: newDriverId || null })
+        .eq('route_id', route.id)
+        .in('status', ['pending', 'en_route']);
+      if (oldDriverId) {
+        q = q.eq('driver_id', oldDriverId);
+      }
+      await q;
+    }
+  }
 
+  // "Just this day" scope — writes an exact-date override (route_driver_overrides) instead of
+  // the recurring weekly default. This is the table + resolve_route_driver() precedence chain
+  // already used by generate_route_runs (nightly route pre-generation) and auto_route_order /
+  // sync_pickup_stop_on_window_change / sync_delivery_stop_on_window_change (session 186) — so
+  // the override takes effect even for a route that doesn't exist yet. If a route already exists
+  // for this exact date, it's also updated directly (with its pending/en_route stops cascaded)
+  // so the change is visible immediately instead of waiting on the nightly cron.
+  //
+  // ⚠️ Known limitation: route_driver_overrides.driver_id is NOT NULL, so "Unassigned" can only
+  // clear a previously-set one-day override — it cannot record "explicitly no driver just for
+  // this day" when a weekly default (route_driver_schedule) exists AND no route has materialized
+  // for this date yet (i.e. more than ~14 days out, before the nightly generate-route-runs cron
+  // creates it). Once a route exists for the date — true for essentially every near-term day —
+  // "Unassigned" always works correctly because it updates that route's driver_id directly.
+  async function assignDriverForSingleDay(templateId, isoDateStr, driverType, newDriverId) {
+    if (!isoDateStr) { showToast('Could not determine the date for this cell.', 'error'); return false; }
+
+    let writeError;
+    if (!newDriverId) {
+      ({ error: writeError } = await db.from('route_driver_overrides').delete()
+        .eq('template_id', templateId).eq('override_date', isoDateStr).eq('driver_type', driverType));
+    } else {
+      ({ error: writeError } = await db.from('route_driver_overrides').upsert({
+        template_id: templateId, override_date: isoDateStr, driver_type: driverType, driver_id: newDriverId
+      }, { onConflict: 'template_id,override_date,driver_type' }));
+    }
+    if (writeError) { showToast('Failed to save: ' + writeError.message, 'error'); return false; }
+
+    // If a route already exists for this exact date, sync it immediately.
+    const { data: existingRoutes } = await db.from('routes')
+      .select('id, driver_id, status')
+      .eq('template_id', templateId).eq('run_date', isoDateStr);
+    await cascadeDriverToRoutes(existingRoutes, newDriverId);
+    return true;
+  }
+
+  // "Every <Day>, going forward" scope — the pre-existing recurring behavior, unchanged:
+  // writes the weekly default (route_driver_schedule) and propagates to every current +
+  // future route matching this template's day-of-week.
+  async function assignDriverGoingForward(templateId, day, driverType, newDriverId) {
+    let writeError;
     if (!newDriverId) {
       // Remove assignment — route will be unassigned for this day
-      await db.from('route_driver_schedule').delete()
-        .eq('template_id', templateId).eq('day_of_week', day).eq('driver_type', driverType);
+      ({ error: writeError } = await db.from('route_driver_schedule').delete()
+        .eq('template_id', templateId).eq('day_of_week', day).eq('driver_type', driverType));
     } else {
-      await db.from('route_driver_schedule').upsert({
+      ({ error: writeError } = await db.from('route_driver_schedule').upsert({
         template_id: templateId, day_of_week: day, driver_type: driverType, driver_id: newDriverId
-      }, { onConflict: 'template_id,day_of_week,driver_type' });
+      }, { onConflict: 'template_id,day_of_week,driver_type' }));
     }
+    if (writeError) { showToast('Failed to save: ' + writeError.message, 'error'); return false; }
 
     // ── Propagate to ALL existing route runs for this template + day-of-week ──
     // Covers today AND future dates so the Order Schedule always reflects the schedule grid.
@@ -22780,48 +22928,43 @@ ${oneCopy}
     //   - Today's route: reassign pending/en_route stops to new driver
     //   - Future routes: update driver_id on route record (stops will inherit on start)
     //   - Fully completed route: update route record driver but skip stop reassignment
-    {
-      const todayDate = today();
-      // Find all existing routes for this template from today onward
-      const { data: allMatching } = await db.from('routes')
-        .select('id, run_date, driver_id, status')
-        .eq('template_id', templateId)
-        .gte('run_date', todayDate);
+    const todayDate = today();
+    // Find all existing routes for this template from today onward
+    const { data: allMatching } = await db.from('routes')
+      .select('id, run_date, driver_id, status')
+      .eq('template_id', templateId)
+      .gte('run_date', todayDate);
 
-      // Filter to only routes whose day-of-week matches the schedule day
-      const matching = (allMatching || []).filter(r => {
-        const [y, m, d2] = r.run_date.split('-').map(Number);
-        const routeDow = (new Date(y, m - 1, d2).getDay() + 6) % 7; // 0=Mon..6=Sun
-        return routeDow === Number(day);
-      });
+    // Filter to only routes whose day-of-week matches the schedule day
+    const matching = (allMatching || []).filter(r => {
+      const [y, m, d2] = r.run_date.split('-').map(Number);
+      const routeDow = (new Date(y, m - 1, d2).getDay() + 6) % 7; // 0=Mon..6=Sun
+      return routeDow === Number(day);
+    });
 
-      if (matching.length) {
-        const routeIds = matching.map(r => r.id);
-        // Update driver_id on all matching route records
-        await db.from('routes').update({ driver_id: newDriverId || null })
-          .in('id', routeIds);
+    // Reassign pending/en_route stops on ALL matching routes (today + future).
+    // Previously only cascaded today's stops; future routes relied solely on the
+    // DB trigger trg_cascade_route_driver. But if the route record update is a
+    // no-op (driver_id unchanged), the trigger doesn't fire and stops get orphaned.
+    // Belt-and-suspenders: explicitly cascade stops on every affected route.
+    await cascadeDriverToRoutes(matching, newDriverId);
+    return true;
+  }
 
-        // Reassign pending/en_route stops on ALL matching routes (today + future).
-        // Previously only cascaded today's stops; future routes relied solely on the
-        // DB trigger trg_cascade_route_driver. But if the route record update is a
-        // no-op (driver_id unchanged), the trigger doesn't fire and stops get orphaned.
-        // Belt-and-suspenders: explicitly cascade stops on every affected route.
-        for (const route of matching) {
-          const oldDriverId = route.driver_id;
-          if (oldDriverId === (newDriverId || null)) continue; // no change for this route
-          let q = db.from('route_stops')
-            .update({ driver_id: newDriverId || null })
-            .eq('route_id', route.id)
-            .in('status', ['pending', 'en_route']);
-          if (oldDriverId) {
-            q = q.eq('driver_id', oldDriverId);
-          }
-          await q;
-        }
-      }
+  async function assignDriverOverride(newDriverId) {
+    const { templateId, day, driverType, isoDateStr, scope } = popoverCtx;
+    closeDriverPopover();
+
+    // Both helpers return false (and show their own error toast) if the write failed —
+    // don't show a false "success" toast on top of that.
+    if (scope === 'forward') {
+      const ok = await assignDriverGoingForward(templateId, day, driverType, newDriverId);
+      if (ok) showToast(`Driver updated for every ${DAY_LABELS_FULL[day] || DAY_LABELS[day]}, going forward.`, 'success');
+    } else {
+      const ok = await assignDriverForSingleDay(templateId, isoDateStr, driverType, newDriverId);
+      if (ok) showToast('Driver updated for this day only.', 'success');
     }
 
-    showToast('Driver updated!', 'success');
     // Refresh whichever schedule view is currently active
     // Session 147: driver schedule moved to Orders > Schedule sub-tab.
     const driverSchedView = document.getElementById('orders-driver-schedule-view');
@@ -22862,6 +23005,7 @@ ${oneCopy}
   let _dsTemplates = [], _dsRoutes = [], _dsCountMap = {}, _dsOvercapMap = {}, _dsDateStr = '';
   let _dsAllStops = []; // raw route_stops for the day's routes — feeds the window summary
   let _rccDriverSched = {};            // `${template_id}-${dow}` → driver_id (for RCC fallback)
+  let _rccDriverOverride = {};         // `${template_id}` → driver_id, exact-date override for _dsDateStr (session 186)
   let _dsActiveZone = null, _dsActiveSlot = null; // kept for backward-compat with autoOptimizeRoute refresh
   let _rccActiveRoutes = new Set();   // routeId → selected (pins on map + accordion section)
   let _rccRouteOrder   = [];          // routeId[] — display order of the accordion (session 185, reorderable ▲▼)
@@ -22924,17 +23068,22 @@ ${oneCopy}
     const legendEl = document.getElementById('rcc-legend');
     if (legendEl) legendEl.style.display = 'none';
 
-    // Load route templates + routes + driver schedule for this date
-    const [{ data: templates }, { data: routes }, { data: schedRows }] = await Promise.all([
+    // Load route templates + routes + driver schedule (+ exact-date overrides) for this date
+    const [{ data: templates }, { data: routes }, { data: schedRows }, { data: overrideRows }] = await Promise.all([
       db.from('route_templates').select('id, name, window_start, window_end, arrival_window_hours, color').order('name'),
       db.from('routes').select('id, name, status, template_id, driver_id').eq('run_date', _dsDateStr),
-      db.from('route_driver_schedule').select('template_id, day_of_week, driver_id')
+      db.from('route_driver_schedule').select('template_id, day_of_week, driver_id'),
+      db.from('route_driver_overrides').select('template_id, driver_id').eq('override_date', _dsDateStr).eq('driver_type', 'pickup')
     ]);
     _dsTemplates = templates || [];
     _dsRoutes = routes || [];
     // Build schedule lookup so RCC can resolve driver even when routes.driver_id is null
     _rccDriverSched = {};
     (schedRows || []).forEach(r => { _rccDriverSched[`${r.template_id}-${r.day_of_week}`] = r.driver_id; });
+    // Exact-date override (session 186) takes precedence over the weekly schedule — scoped to
+    // just this one visible date, so a flat template_id → driver_id map is enough.
+    _rccDriverOverride = {};
+    (overrideRows || []).forEach(r => { _rccDriverOverride[r.template_id] = r.driver_id; });
 
     // Get live stop counts per route (only remaining — exclude done/dead)
     // Also tally overcap_booking flag per route so RCC chips can show a soft badge
@@ -23254,12 +23403,12 @@ ${oneCopy}
       return { ...s, _addr: addr };
     });
 
-    // Resolve driver: route record first, then fall back to schedule grid
+    // Resolve driver: route record first, then exact-date override, then weekly schedule
     let effectiveDriverId = route.driver_id;
     if (!effectiveDriverId && route.template_id && _dsDateStr) {
       const [y, m, d2] = _dsDateStr.split('-').map(Number);
       const dow = (new Date(y, m - 1, d2).getDay() + 6) % 7; // 0=Mon..6=Sun
-      effectiveDriverId = _rccDriverSched[`${route.template_id}-${dow}`] || null;
+      effectiveDriverId = _rccDriverOverride[route.template_id] || _rccDriverSched[`${route.template_id}-${dow}`] || null;
       // Backfill the route record so it stays in sync going forward
       if (effectiveDriverId) {
         db.from('routes').update({ driver_id: effectiveDriverId }).eq('id', routeId).then(() => {
