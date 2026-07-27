@@ -22719,7 +22719,7 @@ ${oneCopy}
     ];
     wrap.innerHTML = opts.map(o => {
       const active = popoverCtx.scope === o.key;
-      return `<div onclick="setDriverPopoverScope('${o.key}')"
+      return `<div onclick="event.stopPropagation(); setDriverPopoverScope('${o.key}')"
         style="flex:1;text-align:center;padding:6px 4px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;
           background:${active ? 'white' : 'transparent'};color:${active ? 'var(--accent)' : 'var(--gray-500)'};
           box-shadow:${active ? '0 1px 3px rgba(0,0,0,.12)' : 'none'};transition:background .1s;">
