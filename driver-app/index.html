@@ -16,7 +16,7 @@
        UPDATE BUILD_TS whenever deploying changes that should reach driver iPads. ── -->
   <script>
     (function() {
-      var BUILD_TS = '20260727_s102';
+      var BUILD_TS = '20260727_s103';
       try {
         if (localStorage.getItem('wr_driver_build') !== BUILD_TS) {
           localStorage.setItem('wr_driver_build', BUILD_TS);
@@ -854,9 +854,30 @@
     .dmap-legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 14px 10px; font-size: 11px; color: var(--muted); font-weight: 600; }
     .dmap-legend-item { display: flex; align-items: center; gap: 4px; }
     .dmap-legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    /* ── Admin preview mode (session 190) ── */
+    .wr-preview-boot #screen-auth { display: none !important; }
+    .wr-preview-boot .screen { top: 26px; }
+    #wr-preview-banner {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
+      background: #f59e0b; color: #1a1a1a; font-size: 11px; font-weight: 800;
+      text-align: center; padding: 5px 8px; letter-spacing: .3px;
+    }
+    #wr-preview-loading {
+      position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center;
+      justify-content: center; background: var(--navy); color: #fff; font-size: 14px;
+      text-align: center; padding: 20px;
+    }
   </style>
 </head>
 <body>
+
+<!-- Admin preview mode banner + boot overlay (session 190) -->
+<div id="wr-preview-banner" style="display:none">🔒 ADMIN PREVIEW — READ ONLY, NO ACTIONS ARE SENT</div>
+<div id="wr-preview-loading" style="display:none">Loading preview…</div>
+<script>if (new URLSearchParams(location.search).get('preview') === '1') {
+  document.getElementById('wr-preview-banner').style.display = 'block';
+  document.getElementById('wr-preview-loading').style.display = 'flex';
+}</script>
 
 <!-- Loading -->
 <div id="loading"><div class="spinner"></div></div>
@@ -1126,8 +1147,102 @@ const BIZ_TZ = 'America/Los_Angeles';
 // table (driver_messages), the realtime subscription, and the load function
 // all stay intact for easy restore. Flip this flag to re-enable the UI.
 const DRIVER_INTERNAL_MSG_ENABLED = false;
-const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true } });
+/* ──────────────────────────────
+   ADMIN PREVIEW MODE (session 190)
+   ──────────────────────────────
+   admin-dashboard's Driver View can open this app with ?preview=1 to show a
+   specific driver's screens to an admin — NOT that driver. This block, plus
+   the matching guards further down (search PREVIEW_MODE), makes that
+   airtight read-only:
+     1. A guarded fetch — passed into createClient() below via the official
+        supabase-js `global: { fetch }` option, NOT a bare window.fetch
+        override (which supabase-js may or may not pick up depending on when
+        it captured its own fetch reference — too load-bearing to leave to
+        chance) — blocks every write (insert/update/upsert/delete, and any
+        RPC other than the 3 read-only ones below) and every auth action
+        except the one-time token exchange used to establish the ADMIN'S OWN
+        session (never the driver's — we never have or ask for a driver's
+        password). This is the hard guarantee: even a mutating call this
+        file forgets to explicitly guard can never reach the network.
+     2. loadDriverData() (search PREVIEW_MODE below) is redirected to load a
+        chosen driver_id + date instead of the signed-in user's own record,
+        via a new admin-only p_admin_preview_driver_id parameter on the 3
+        SECURITY DEFINER RPCs this app already calls — honored only when the
+        REAL caller is actual staff (checked server-side via is_admin()), so
+        it's a no-op for anyone else even if they tried to send it.
+     3. GPS tracking, realtime subscriptions, the local route cache, and the
+        photo-upload queue are all skipped — this is a one-shot read of
+        someone else's data, not a session admin should be leaving running.
+*/
+const _wrPreviewParams = new URLSearchParams(location.search);
+const PREVIEW_MODE = _wrPreviewParams.get('preview') === '1';
+let PREVIEW_DRIVER_ID = null, PREVIEW_DATE = null;
 
+// Friendly, explicit guard for the highest-traffic action buttons (Sign Out,
+// Complete/Skip/On My Way, Send Message, photo upload) — defense in depth on
+// top of the fetch guard below, which is the real backstop.
+function _previewBlock() {
+  if (!PREVIEW_MODE) return false;
+  toast('Preview mode is read-only — no actions can be taken here.');
+  return true;
+}
+
+// Captured before anything (including this file, below) has any chance to
+// touch window.fetch — this IS the real, native fetch, always.
+const _wrNativeFetch = window.fetch.bind(window);
+const _WR_READONLY_RPCS = ['get_driver_route_stops', 'get_driver_override_stops', 'get_driver_stop_addresses'];
+function _wrGuardedFetch(input, init) {
+  const url = typeof input === 'string' ? input : (input?.url || '');
+  const method = (init?.method || (typeof input !== 'string' && input?.method) || 'GET').toUpperCase();
+  if (url.includes('/rest/v1/') && method !== 'GET') {
+    const rpcMatch = url.match(/\/rest\/v1\/rpc\/([a-zA-Z_]+)/);
+    if (!(rpcMatch && _WR_READONLY_RPCS.includes(rpcMatch[1]))) {
+      console.warn('[preview] blocked write:', method, url);
+      return Promise.resolve(new Response(JSON.stringify({ message: 'Preview mode is read-only — no action was taken.' }), { status: 403 }));
+    }
+  }
+  if (url.includes('/auth/v1/') && !url.includes('/auth/v1/token') && method !== 'GET') {
+    console.warn('[preview] blocked auth action:', method, url);
+    return Promise.resolve(new Response(JSON.stringify({ error: 'preview_readonly' }), { status: 403 }));
+  }
+  return _wrNativeFetch(input, init);
+}
+// Belt-and-suspenders: also override the global in case anything outside
+// the supabase-js client ever calls fetch() directly (nothing does today).
+if (PREVIEW_MODE) window.fetch = _wrGuardedFetch;
+
+const db = supabase.createClient(SUPA_URL, SUPA_KEY, {
+  auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true },
+  // The officially-supported way to guarantee THIS client's own network calls
+  // go through the guard above, independent of window.fetch reassignment
+  // timing (supabase-js may capture its fetch reference at construction).
+  global: PREVIEW_MODE ? { fetch: _wrGuardedFetch } : undefined,
+});
+
+if (PREVIEW_MODE) {
+  document.documentElement.classList.add('wr-preview-boot');
+
+  // Wipe any stale local session for this origin before the admin's real
+  // session is handed in below — local-only, no network call, so it can't
+  // sign anyone out anywhere else.
+  db.auth.signOut({ scope: 'local' }).catch(() => {});
+
+  window.addEventListener('message', async (e) => {
+    if (e.origin !== 'https://admin.familylaundry.com') return; // only trust the real admin origin
+    const msg = e.data;
+    if (!msg || msg.type !== 'wr-admin-preview-init') return;
+    PREVIEW_DRIVER_ID = msg.driverId;
+    PREVIEW_DATE = msg.date;
+    const { error } = await db.auth.setSession({ access_token: msg.accessToken, refresh_token: msg.refreshToken });
+    if (error) {
+      console.error('[preview] setSession failed:', error.message);
+      const loadingEl = document.getElementById('wr-preview-loading');
+      if (loadingEl) loadingEl.textContent = 'Could not start preview — try reopening Driver View.';
+    }
+    // db.auth.onAuthStateChange (further down) fires from here and drives the
+    // normal boot flow, which now sees PREVIEW_MODE and branches accordingly.
+  });
+}
 /* Strip auth-flow URL params after Supabase init — see customer-app for
    full rationale (Emily Wong "thrown out" Apr 28, 2026). Drivers don't
    normally use email magic links, but PWA reload + a stale token in the
@@ -2010,6 +2125,7 @@ function resetDriverPhone() {
 }
 
 async function doSignOut() {
+  if (_previewBlock()) return;
   clearUndo();
   if (currentUser?.id) clearDriverCache(currentUser.id); // wipe cache on sign-out
   // Unsubscribe from realtime
@@ -2049,7 +2165,36 @@ async function _loadDriverDataInner() {
   // started triggering loadDriverData() on the hot completion path.
   const _isBackgroundRefresh = appReady && !!currentDriver;
   try {
-  // ── Group 1: profile + driver record in parallel ──
+  // Admin preview can target a past/future date; the app's own today() is
+  // meaningless then. _isPreviewNonToday turns off the real-time route
+  // window logic below (which only makes sense for "is it too early/late
+  // to show this route right now") so a non-today preview just shows
+  // everything for that date instead of hiding it all as "not visible yet".
+  const _effDate = PREVIEW_MODE ? PREVIEW_DATE : today();
+  const _isPreviewNonToday = PREVIEW_MODE && PREVIEW_DATE !== today();
+  // Spread into every get_driver_route_stops/get_driver_override_stops/
+  // get_driver_stop_addresses call below — harmless {} outside preview mode,
+  // and ignored server-side for anyone whose real session isn't staff (see
+  // the migration comment on these RPCs for the is_admin() check).
+  const _adminOverride = PREVIEW_MODE ? { p_admin_preview_driver_id: PREVIEW_DRIVER_ID } : {};
+  if (PREVIEW_MODE) {
+    // Admin preview: identity comes from the picker (postMessage payload),
+    // not from the signed-in Supabase user — that's really the admin's own
+    // account, riding along just to get through auth/RLS. Skip all the
+    // normal phone-linking/auto-provisioning below entirely; none of it
+    // applies when admin already picked a known, existing driver.
+    const { data: drv, error: drvErr } = await db.from('drivers')
+      .select('*, profiles(*)')
+      .eq('id', PREVIEW_DRIVER_ID)
+      .single();
+    if (drvErr || !drv) {
+      toast("Could not load this driver's account.");
+      return;
+    }
+    currentProfile = drv.profiles;
+    currentDriver  = { ...drv, profiles: undefined };
+  } else {
+// ── Group 1: profile + driver record in parallel ──
   const [{ data: prof }, { data: drv0 }] = await Promise.all([
     db.from('profiles').select('*').eq('id', currentUser.id).single(),
     db.from('drivers').select('*').eq('profile_id', currentUser.id).order('created_at').limit(1).maybeSingle()
@@ -2129,6 +2274,7 @@ async function _loadDriverDataInner() {
   if (!currentDriver) {
     throw new Error('Could not load or create driver record');
   }
+  }
 
   // Hide delivery stops that aren't actually ready to go out. Two cases:
   //   1. "Ghost deliveries" — the bag was picked up but never progressed through
@@ -2158,7 +2304,7 @@ async function _loadDriverDataInner() {
     db.from('routes')
       .select('id, name, status, run_date, template_id, route_templates(window_start, window_end)')
       .eq('driver_id', currentDriver.id)
-      .eq('run_date', today())
+      .eq('run_date', _effDate)
       .neq('status', 'cancelled'),
     loadDriverMessages()
   ]);
@@ -2186,7 +2332,7 @@ async function _loadDriverDataInner() {
   //   (c) it'll be revealed later (kept in allRoutesForToday for stop-carry-forward check below)
   const PRE_WINDOW_HOURS = 2;
   const _now = new Date();
-  const _todayStr = today(); // YYYY-MM-DD
+  const _todayStr = _effDate; // YYYY-MM-DD (admin preview: the picked date, not necessarily today)
 
   function isRouteVisible(r) {
     const tmpl = r.route_templates;
@@ -2211,8 +2357,8 @@ async function _loadDriverDataInner() {
   }
 
   // Split: upcoming routes (shown collapsed) vs current routes (shown as full cards)
-  upcomingRoutes = allRoutesForToday.filter(r => isUpcomingRoute(r));
-  todayRoutes = allRoutesForToday.filter(r => isRouteVisible(r) && !isUpcomingRoute(r));
+  upcomingRoutes = _isPreviewNonToday ? [] : allRoutesForToday.filter(r => isUpcomingRoute(r));
+  todayRoutes = _isPreviewNonToday ? allRoutesForToday : allRoutesForToday.filter(r => isRouteVisible(r) && !isUpcomingRoute(r));
 
   // ── Group 3: route stops (needs routeIds from group 2) ──
   let routeStops = [];
@@ -2229,7 +2375,7 @@ async function _loadDriverDataInner() {
     // embed — which the s.orders filter below then dropped, silently emptying the
     // route (Angel Rodriguez, recurring). Same driver-ownership authorization,
     // identical nested shape, ordered by stop_number server-side.
-    const { data: rs, error: rsErr } = await db.rpc('get_driver_route_stops', { p_route_ids: routeIds });
+    const { data: rs, error: rsErr } = await db.rpc('get_driver_route_stops', { p_route_ids: routeIds, ..._adminOverride });
     // Session 161: same guard as the routes fetch above, for the stops query. We
     // gate on an actual error (not a zero-row result) here — routes already came
     // back healthy, so an empty stop list is far more likely legitimate (all stops
@@ -2246,12 +2392,12 @@ async function _loadDriverDataInner() {
   // If a morning route has un-done stops, show those stops even if the window passed
   // Exclude upcoming routes — they haven't started yet and should NOT be treated
   // as overdue carry-forwards. Only past-window routes need the carry-forward check.
-  const hiddenRoutes = allRoutesForToday.filter(r => !isRouteVisible(r) && !isUpcomingRoute(r));
+  const hiddenRoutes = _isPreviewNonToday ? [] : allRoutesForToday.filter(r => !isRouteVisible(r) && !isUpcomingRoute(r));
   if (hiddenRoutes.length > 0) {
     const hiddenIds = hiddenRoutes.map(r => r.id);
     // Session 161: via the same stops RPC (see main fetch). The pending/en_route
     // status filter is applied client-side since the RPC returns the route's full set.
-    const { data: carryAll } = await db.rpc('get_driver_route_stops', { p_route_ids: hiddenIds });
+    const { data: carryAll } = await db.rpc('get_driver_route_stops', { p_route_ids: hiddenIds, ..._adminOverride });
     const carryStops = (carryAll || []).filter(s => ['pending', 'en_route'].includes(s.status));
     if (carryStops?.length) {
       // Add those routes back to todayRoutes so they render with a section header
@@ -2273,8 +2419,9 @@ async function _loadDriverDataInner() {
     // Session 161: via the override RPC — same server-side joins + driver-ownership
     // gate, returns the parent route {id,name,run_date} to match the prior embed shape.
     const { data: otherStops } = await db.rpc('get_driver_override_stops', {
-      p_run_date: today(),
-      p_exclude_route_ids: myRouteIds
+      p_run_date: _effDate,
+      p_exclude_route_ids: myRouteIds,
+      ..._adminOverride
     });
     overrideStops = (otherStops || []).filter(s =>
       s.orders && !['delivered','cancelled'].includes(s.orders.status)
@@ -2302,7 +2449,7 @@ async function _loadDriverDataInner() {
   if (upcomingRoutes.length > 0) {
     const upcomingIds = upcomingRoutes.map(r => r.id);
     // Session 161: via the same stops RPC (see main fetch).
-    const { data: uStops } = await db.rpc('get_driver_route_stops', { p_route_ids: upcomingIds });
+    const { data: uStops } = await db.rpc('get_driver_route_stops', { p_route_ids: upcomingIds, ..._adminOverride });
     const taggedUpcoming = (uStops || [])
       .filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status)
         && !['skipped','failed'].includes(s.status)
@@ -2322,7 +2469,7 @@ async function _loadDriverDataInner() {
   // reproduce in the SQL editor).
   if (allStops.length) {
     const stopIds = allStops.map(s => s.id);
-    const { data: addrRows, error: addrErr } = await db.rpc('get_driver_stop_addresses', { p_stop_ids: stopIds });
+    const { data: addrRows, error: addrErr } = await db.rpc('get_driver_stop_addresses', { p_stop_ids: stopIds, ..._adminOverride });
     if (addrErr) {
       console.warn('[driver] get_driver_stop_addresses RPC failed:', addrErr.message);
     }
@@ -2334,8 +2481,25 @@ async function _loadDriverDataInner() {
   // Sort stops by window time (earliest first) and assign clean display numbers
   sortStopsByWindow(allStops);
 
-  // Persist to localStorage so next app open is instant
-  saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
+  if (PREVIEW_MODE) {
+    // The Map tab's "you are here" dot: a one-shot read of the driver's last
+    // reported GPS position — never a live watchPosition (that would report
+    // ADMIN's own location mislabeled as the driver's). Only meaningful when
+    // previewing today; a past/future date has no "current" position.
+    if (_effDate === today()) {
+      const { data: locs } = await db.from('driver_locations')
+        .select('lat, lng, updated_at')
+        .eq('driver_id', PREVIEW_DRIVER_ID)
+        .order('updated_at', { ascending: false })
+        .limit(1);
+      const loc = locs?.[0];
+      const isFresh = loc && (Date.now() - new Date(loc.updated_at).getTime()) < 30 * 60 * 1000;
+      if (isFresh) { _driverLat = loc.lat; _driverLng = loc.lng; }
+    }
+  } else {
+    // Persist to localStorage so next app open is instant
+    saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
+  }
 
   // Load customer SMS now that we have stop/customer data
   loadCustomerSms().catch(console.error);
@@ -3025,6 +3189,7 @@ function renderPrefTags(prefs) {
 ────────────────────────────── */
 let _onMyWaySending = false;
 async function sendOnMyWay(stopId) {
+  if (_previewBlock()) return;
   if (_onMyWaySending) return; // debounce: prevent double-tap
   _onMyWaySending = true;
   const btn = document.getElementById('btn-notify-cust');
@@ -3093,6 +3258,7 @@ async function sendOnMyWay(stopId) {
    ARRIVED AT STOP (skip notification)
 ────────────────────────────── */
 async function arrivedAtStop(stopId) {
+  if (_previewBlock()) return;
   // Stale-stop guard (session 175): if the office skipped/cancelled this order
   // (or it's already delivered/failed) since the route loaded, don't revive the
   // stop — the DB now hard-blocks it anyway. Refresh so the dead stop drops.
@@ -3183,6 +3349,7 @@ function undoSkipPhoto(stopId) {
 }
 
 async function handlePhoto(input, stopId) {
+  if (_previewBlock()) return;
   const file = input.files[0];
   if (!file) return;
 
@@ -3325,6 +3492,7 @@ async function triggerUndo() {
    COMPLETE STOP
 ────────────────────────────── */
 async function completeStop(stopId, stopType) {
+  if (_previewBlock()) return;
   const btn = document.getElementById('btn-do-complete');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
@@ -3459,6 +3627,7 @@ const CANT_COMPLETE_LABELS = {
 };
 
 async function cantCompleteStop(stopId) {
+  if (_previewBlock()) return;
   const reason = await showCantComplete();
   if (!reason) return; // user cancelled
 
@@ -3837,6 +4006,7 @@ function renderThreadMessages() {
 
 // ── Send message (works for both admin and customer threads) ──
 async function sendMessageInThread() {
+  if (_previewBlock()) return;
   const input = document.getElementById('msg-input');
   const btn   = document.getElementById('btn-msg-send');
   const body  = input?.value.trim();
@@ -4260,6 +4430,27 @@ async function _handleDriverSession(event, session) {
     if (appReady || _sessionLoading) return;
     _sessionLoading = true;
     currentUser = session.user;
+
+    if (PREVIEW_MODE) {
+      // Admin preview: one-shot read-only snapshot. No cache (nothing to warm
+      // for a session that ends when the admin closes Driver View), no GPS
+      // tracking (that would report ADMIN's own location as the driver's), no
+      // realtime subscriptions or background refresh loop, no photo-queue
+      // resume — none of that applies to a snapshot of someone else's app.
+      const loadingEl = document.getElementById('wr-preview-loading');
+      try {
+        await loadDriverData();
+      } catch (e) {
+        console.error('loadDriverData (preview):', e);
+        toast("Could not load this driver's data — try again");
+      }
+      appReady = true;
+      _sessionLoading = false;
+      if (loadingEl) loadingEl.style.display = 'none';
+      document.getElementById('bottom-nav').style.display = 'flex';
+      goTo('home');
+      return;
+    }
 
     const cached = loadDriverCache(currentUser.id);
     let loadFailed = false;

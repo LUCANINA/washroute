@@ -3058,25 +3058,23 @@
             </div>
           </div>
 
-          <!-- === DRIVER VIEW TAB (session 189) — read-only mirror of what a driver sees on their app === -->
+          <!-- === DRIVER VIEW TAB (session 189, rebuilt session 190) — the REAL driver
+               app, embedded live, in a locked read-only preview mode. See
+               driver-app/index.html's "ADMIN PREVIEW MODE" comment block for how the
+               read-only guarantee works (network-level, not just hidden buttons). === -->
           <div id="drv-panel-driverview" style="display:none">
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
               <select id="dv-driver-select" class="form-input" style="width:240px" onchange="loadDriverViewData()">
                 <option value="">Select a driver…</option>
               </select>
               <input type="date" id="dv-date" class="form-input" style="width:160px" onchange="loadDriverViewData()">
-              <span style="font-size:12px;color:var(--gray-400)">Read-only — shows exactly what this driver's app shows them right now. No actions can be taken from here.</span>
+              <span style="font-size:12px;color:var(--gray-400)">The actual driver app, showing this driver's real screens — tap the tabs below just like they would. Every action is disabled; nothing here can ever change real data.</span>
             </div>
-            <div id="dv-map" style="height:320px;border-radius:12px;overflow:hidden;margin-bottom:12px;border:1px solid var(--gray-200);"></div>
-            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;font-size:11px;color:var(--gray-500);font-weight:600">
-              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#3b82f6;display:inline-block"></span>Pickup</span>
-              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#10b981;display:inline-block"></span>Delivery</span>
-              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#1d4ed8;display:inline-block"></span>En Route</span>
-              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#6b7280;display:inline-block"></span>Done</span>
-              <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></span>Driver (live, today only)</span>
-            </div>
-            <div id="dv-body">
-              <div style="padding:32px;text-align:center;color:var(--gray-400)">Pick a driver to preview their app.</div>
+            <div style="display:flex;justify-content:center">
+              <div style="width:390px;max-width:100%;height:800px;border-radius:36px;border:8px solid #1a1a1a;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.25);position:relative;background:#000">
+                <div id="dv-iframe-placeholder" style="height:100%;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:13px;text-align:center;padding:24px;background:#f3f4f6">Pick a driver to preview their app.</div>
+                <iframe id="dv-iframe" onload="_dvIframeLoaded()" title="Driver app preview" style="width:100%;height:100%;border:none;display:none;background:#fff"></iframe>
+              </div>
             </div>
           </div>
         </div><!-- /page-drivers -->
@@ -30176,31 +30174,14 @@ ${oneCopy}
   }
 
   /* ──────────────────────────────
-     DRIVER VIEW (session 189) — read-only admin mirror of the driver app
+     DRIVER VIEW (session 189, rebuilt session 190) — the real driver app,
+     embedded live in a locked read-only preview (see loadDriverViewData /
+     _dvIframeLoaded below). The V1 text-summary mirror this replaced had its
+     own dvHiddenReason()/DV_NOT_READY duplicating driver-app's isGhostDelivery
+     logic — now that the actual app runs in the iframe, that duplication (and
+     the risk of the two drifting apart) is gone entirely; removed rather than
+     left as dead code.
   ────────────────────────────── */
-  // V1 scope: shows this driver's assigned routes for the chosen date, plus any
-  // individual stops reassigned to them from another driver's route that same day
-  // (mirrors get_driver_route_stops' ownership check: rs.driver_id override OR
-  // parent route's driver_id). NOT mirrored yet: multi-day carry-forward of missed
-  // stops, and the "upcoming later-today route" preview. Both are noted in the UI.
-  const DV_NOT_READY = ['picked_up', 'processing', 'folding'];
-
-  // Keep this in sync with driver-app/index.html's isGhostDelivery — this mirror
-  // exists specifically to diagnose "why doesn't this show up for the driver"
-  // questions, so it has to reproduce that logic exactly, not just approximate it.
-  function dvHiddenReason(stop, order) {
-    if (!order) return null;
-    if (stop.stop_type !== 'delivery') return null;
-    if (DV_NOT_READY.includes(order.status)) {
-      const label = order.status === 'picked_up' ? 'awaiting wash' : order.status === 'processing' ? 'in wash' : 'folding';
-      return `Bags not ready yet (${label})`;
-    }
-    if (order.billing_status === 'failed' && order.customers?.billing_type !== 'on_account') {
-      return 'Payment failed — held until customer pays';
-    }
-    return null;
-  }
-
   function initDriverViewTab() {
     const sel = document.getElementById('dv-driver-select');
     if (sel && sel.options.length <= 1) {
@@ -30215,219 +30196,55 @@ ${oneCopy}
     if (dateEl && !dateEl.value) dateEl.value = today();
   }
 
-  async function loadDriverViewData() {
-    const driverId = document.getElementById('dv-driver-select')?.value;
-    const dateStr  = document.getElementById('dv-date')?.value || today();
-    const body = document.getElementById('dv-body');
-    if (!body) return;
-    if (!driverId) {
-      body.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400)">Pick a driver to preview their app.</div>';
-      _dvClearMap();
-      return;
-    }
-    body.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
-
-    const { data: stopRows, error } = await db.from('route_stops')
-      .select('id, route_id, stop_type, status, stop_number, estimated_arrival, address_id, order_id, driver_id, routes!route_stops_route_id_fkey!inner(id, name, driver_id, run_date, status)')
-      .eq('routes.run_date', dateStr)
-      .neq('routes.status', 'cancelled');
-
-    if (error) {
-      body.innerHTML = `<div style="padding:20px;color:var(--red)">Could not load: ${esc(error.message)}</div>`;
-      _dvClearMap();
-      return;
-    }
-
-    // Ownership: either this exact stop was overridden to this driver, or it
-    // belongs to one of this driver's own routes and was never overridden away.
-    const mine = (stopRows || []).filter(s =>
-      s.driver_id === driverId || (!s.driver_id && s.routes?.driver_id === driverId));
-
-    if (!mine.length) {
-      body.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400)">No routes or stops for this driver on this date.</div>';
-      _dvClearMap();
-      return;
-    }
-
-    const orderIds = [...new Set(mine.map(s => s.order_id).filter(Boolean))];
-    const { data: orders } = orderIds.length
-      ? await db.from('orders').select('id, status, billing_status, order_number, pickup_address_id, delivery_address_id, customer_id, customers(id, first_name_cache, last_name_cache, billing_type)').in('id', orderIds)
-      : { data: [] };
-    const orderById = {};
-    (orders || []).forEach(o => { orderById[o.id] = o; });
-
-    // Address resolution mirrors the Route Command Center pattern: exact stop
-    // address first, then the order leg's address, then the customer's default.
-    const addrIds = [...new Set(mine.map(s => {
-      const o = orderById[s.order_id];
-      return s.address_id || (s.stop_type === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id) || o?.pickup_address_id || o?.delivery_address_id;
-    }).filter(Boolean))];
-    const custIds = [...new Set((orders || []).map(o => o.customer_id).filter(Boolean))];
-    let addrById = {}, fallbackAddrByCust = {};
-    const addrFetches = [];
-    if (addrIds.length) addrFetches.push(db.from('addresses').select('id, line1, city, lat, lng').in('id', addrIds));
-    if (custIds.length) addrFetches.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng, is_default').in('customer_id', custIds).order('is_default', { ascending: false }));
-    const addrResults = await Promise.all(addrFetches);
-    if (addrIds.length && addrResults[0]?.data) addrResults[0].data.forEach(a => { addrById[a.id] = a; });
-    const defIdx = addrIds.length ? 1 : 0;
-    if (custIds.length && addrResults[defIdx]?.data) addrResults[defIdx].data.forEach(a => { if (!fallbackAddrByCust[a.customer_id]) fallbackAddrByCust[a.customer_id] = a; });
-
-    // Drop what the driver app drops outright (delivered/cancelled orders,
-    // stops already skipped/failed) before splitting visible vs. hidden.
-    const relevant = mine.filter(s => {
-      const o = orderById[s.order_id];
-      return o && !['delivered', 'cancelled'].includes(o.status) && !['skipped', 'failed'].includes(s.status);
-    });
-
-    const visible = [], hidden = [];
-    relevant.forEach(s => {
-      const o = orderById[s.order_id];
-      const reason = dvHiddenReason(s, o);
-      const row = { ...s, _order: o };
-      if (reason) { row._hiddenReason = reason; hidden.push(row); } else { visible.push(row); }
-    });
-
-    const addrFor = (s) => {
-      const o = s._order;
-      const aid = s.address_id || (s.stop_type === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id) || o?.pickup_address_id || o?.delivery_address_id;
-      return (aid && addrById[aid]) || fallbackAddrByCust[o?.customer_id] || null;
-    };
-
-    const byRoute = {};
-    visible.forEach(s => { (byRoute[s.route_id] = byRoute[s.route_id] || []).push(s); });
-    Object.values(byRoute).forEach(list => list.sort((a, b) => (a.stop_number || 0) - (b.stop_number || 0)));
-
-    const stopCard = (s) => {
-      const o = s._order;
-      const c = o?.customers || {};
-      const name = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown';
-      const addr = addrFor(s);
-      const icon = s.stop_type === 'delivery' ? '🏠' : '📦';
-      const eta = s.estimated_arrival ? new Date(s.estimated_arrival).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ }) : '';
-      return `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--gray-200);border-radius:10px;margin-bottom:8px;background:white">
-        <div style="width:26px;height:26px;border-radius:50%;background:var(--gray-100);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">${s.stop_number ?? '–'}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:14px">${icon} ${esc(name)} <span style="font-weight:400;color:var(--gray-400);font-size:12px">#${o?.order_number ?? ''}</span></div>
-          <div style="font-size:12.5px;color:var(--gray-500)">${esc(addr?.line1 || 'No address on file')}${addr?.city ? ', ' + esc(addr.city) : ''}</div>
-        </div>
-        ${eta ? `<div style="font-size:12px;color:var(--gray-500);white-space:nowrap">ETA ${eta}</div>` : ''}
-      </div>`;
-    };
-
-    renderDriverViewMap(driverId, dateStr, visible.map(s => ({ stop: s, addr: addrFor(s) })));
-
-    let html = '';
-    Object.values(byRoute).forEach(stops => {
-      const routeName = stops[0]?.routes?.name || 'Route';
-      html += `<div style="font-size:13px;font-weight:700;color:var(--gray-500);letter-spacing:0.3px;margin:18px 0 8px">${esc(routeName)} — ${stops.length} stop${stops.length !== 1 ? 's' : ''}</div>`;
-      html += stops.map(stopCard).join('');
-    });
-    if (!visible.length) {
-      html += '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">Nothing currently showing on this driver\'s app for this date.</div>';
-    }
-
-    if (hidden.length) {
-      html += `<div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--gray-100)">
-        <div style="font-size:13px;font-weight:700;color:var(--gray-500);margin-bottom:8px">🙈 Hidden from driver (${hidden.length}) — visible to admin only, for diagnosis</div>
-        ${hidden.map(s => {
-          const o = s._order; const c = o?.customers || {};
-          const name = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown';
-          return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px dashed var(--gray-200);border-radius:10px;margin-bottom:8px;background:#f9fafb;opacity:.85">
-            <div style="flex:1;font-size:13px">${esc(name)} <span style="color:var(--gray-400)">#${o?.order_number ?? ''}</span></div>
-            <div style="font-size:11.5px;font-weight:600;color:#92400e;background:#fef3c7;padding:2px 8px;border-radius:6px;white-space:nowrap">${esc(s._hiddenReason)}</div>
-          </div>`;
-        }).join('')}
-      </div>`;
-    }
-
-    body.innerHTML = html;
+  // Points the embedded iframe at the real driver app in preview mode. The
+// actual data hand-off (which driver, which date, and the admin's own
+// Supabase session so the iframe can read via is_admin()) happens in
+// _dvIframeLoaded() below, once the iframe has actually loaded and its
+// message listener is registered — see driver-app/index.html's "ADMIN
+// PREVIEW MODE" comment block for the full read-only design.
+function loadDriverViewData() {
+  const driverId = document.getElementById('dv-driver-select')?.value;
+  const dateStr  = document.getElementById('dv-date')?.value || today();
+  const frame = document.getElementById('dv-iframe');
+  const placeholder = document.getElementById('dv-iframe-placeholder');
+  if (!driverId) {
+    if (frame) { frame.style.display = 'none'; frame.removeAttribute('src'); frame.dataset.driverId = ''; }
+    if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'Pick a driver to preview their app.'; }
+    return;
   }
-
-  // Same pin-color convention as driver-app/index.html's _dmapPinColor — kept in
-  // sync intentionally so this admin preview looks like what the driver actually sees.
-  function _dvPinColor(stop) {
-    const isDone    = stop.status === 'complete';
-    const isSkip    = stop.status === 'skipped' || stop.status === 'failed';
-    const isEnRoute = stop.status === 'en_route';
-    if (isDone)    return '#6b7280'; // muted — already done
-    if (isSkip)    return '#92400e'; // matches the sn-skip badge
-    if (isEnRoute) return '#1d4ed8'; // info
-    return stop.stop_type === 'delivery' ? '#10b981' : '#3b82f6'; // deliver green / pickup blue
+  if (placeholder) placeholder.style.display = 'none';
+  if (frame) {
+    frame.dataset.driverId = driverId;
+    frame.dataset.date = dateStr;
+    frame.style.display = '';
+    // Cache-bust so switching drivers/dates always forces a full, clean reload
+    // of the real app (fresh boot, no leftover state from the previous driver).
+    frame.src = `https://driver.familylaundry.com/?preview=1&_=${encodeURIComponent(driverId)}-${encodeURIComponent(dateStr)}`;
   }
+}
 
-  let _dvMap = null, _dvMapMarkers = null;
+// Fires once the real driver app has finished its own initial (unauthenticated)
+// boot inside the iframe and is ready to receive the admin-preview handshake:
+// the admin's OWN Supabase session (never the driver's — we don't have or ask
+// for a driver's password) plus which driver/date to load. The iframe's own
+// guarded fetch (see driver-app) makes sure that session can only ever be used
+// to READ, regardless of what runs inside it.
+async function _dvIframeLoaded() {
+  const frame = document.getElementById('dv-iframe');
+  const driverId = frame?.dataset.driverId;
+  if (!driverId) return; // the initial blank load before a driver is picked
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) return;
+  frame.contentWindow.postMessage({
+    type: 'wr-admin-preview-init',
+    accessToken: session.access_token,
+    refreshToken: session.refresh_token,
+    driverId,
+    date: frame.dataset.date,
+  }, 'https://driver.familylaundry.com');
+}
 
-  // Wipes any pins left over from a previous driver/date selection — called on
-  // every early-return path in loadDriverViewData() so the map never shows a
-  // stale route once the picker no longer matches what's on screen.
-  function _dvClearMap() {
-    if (_dvMapMarkers) _dvMapMarkers.clearLayers();
-  }
-
-  // Mirrors driver-app's new Map tab so David can verify it without a driver's
-  // device: same pins, same colors, plus the driver's live GPS dot (today only —
-  // a "current" position means nothing plotted against a past/future date's route).
-  async function renderDriverViewMap(driverId, dateStr, stopsWithAddr) {
-    const mapEl = document.getElementById('dv-map');
-    if (!mapEl || typeof L === 'undefined') return;
-
-    if (!_dvMap) {
-      _dvMap = L.map('dv-map', { zoomControl: true });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(_dvMap);
-      _dvMapMarkers = L.layerGroup().addTo(_dvMap);
-    }
-    _dvMap.invalidateSize();
-    _dvMapMarkers.clearLayers();
-
-    const bounds = [];
-    const withCoords = stopsWithAddr.filter(x => x.addr && x.addr.lat != null && x.addr.lng != null);
-
-    withCoords.forEach(({ stop, addr }, i) => {
-      const color = _dvPinColor(stop);
-      const num = stop.stop_number ?? (i + 1);
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);background:${color}"><span style="transform:rotate(45deg);color:white;font-size:12px;font-weight:800">${num}</span></div>`,
-        iconSize: [28, 28],
-        iconAnchor: [14, 28]
-      });
-      L.marker([addr.lat, addr.lng], { icon }).addTo(_dvMapMarkers);
-      bounds.push([addr.lat, addr.lng]);
-    });
-
-    if (dateStr === today()) {
-      const { data: locs } = await db.from('driver_locations')
-        .select('lat, lng, updated_at')
-        .eq('driver_id', driverId)
-        .order('updated_at', { ascending: false })
-        .limit(1);
-      const loc = locs?.[0];
-      const isFresh = loc && (Date.now() - new Date(loc.updated_at).getTime()) < 30 * 60 * 1000;
-      if (isFresh) {
-        const meIcon = L.divIcon({
-          className: '',
-          html: `<div style="width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4);animation:ppulse 1.4s infinite"></div>`,
-          iconSize: [14, 14],
-          iconAnchor: [7, 7]
-        });
-        L.marker([loc.lat, loc.lng], { icon: meIcon, zIndexOffset: 1000 }).addTo(_dvMapMarkers);
-        bounds.push([loc.lat, loc.lng]);
-      }
-    }
-
-    if (bounds.length > 1) {
-      _dvMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
-    } else if (bounds.length === 1) {
-      _dvMap.setView(bounds[0], 15);
-    } else {
-      _dvMap.setView([37.835, -122.265], 12); // fallback — no stop/driver coordinates yet
-    }
-  }
-
-  /* ──────────────────────────────
+/* ──────────────────────────────
      DRIVER MESSAGES (Admin)
   ────────────────────────────── */
   let adminMsgDrivers = [], adminMsgAllMessages = [], adminMsgActiveDriver = null, adminMsgSub = null;
