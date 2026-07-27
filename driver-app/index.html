@@ -16,7 +16,7 @@
        UPDATE BUILD_TS whenever deploying changes that should reach driver iPads. ── -->
   <script>
     (function() {
-      var BUILD_TS = '20260727_s105';
+      var BUILD_TS = '20260727_s106';
       try {
         if (localStorage.getItem('wr_driver_build') !== BUILD_TS) {
           localStorage.setItem('wr_driver_build', BUILD_TS);
@@ -2428,23 +2428,29 @@ async function _loadDriverDataInner() {
       ..._adminOverride
     });
     overrideStops = (otherStops || []).filter(s =>
-      s.orders && !['delivered','cancelled'].includes(s.orders.status)
+      s.orders
+      && (s.status === 'complete' || (!['delivered','cancelled'].includes(s.orders.status) && !isGhostDelivery(s)))
       && !['skipped','failed'].includes(s.status)
-      && !isGhostDelivery(s)
     );
   }
 
   // Merge — mark override stops so they appear in the "Extra Stops" card
   const tagged = overrideStops.map(s => ({ ...s, _reassigned: true }));
 
-  // Filter out stops that aren't actionable for the driver:
-  // - Order delivered/cancelled = nothing to do
+  // Filter out stops that aren't actionable for the driver -- EXCEPT a stop the
+  // driver already completed, which always stays visible as "Done" regardless
+  // of what happened to the order afterward. Completing a delivery is usually
+  // exactly what flips the order to 'delivered' a moment later, so without this
+  // exemption a just-finished delivery stop would vanish from the list on the
+  // very next render/refresh while its sibling pickup stop (order still mid-
+  // processing, not yet 'delivered') stayed put -- the asymmetry David reported.
+  // - Order delivered/cancelled = nothing left to do (only for NOT-yet-complete stops)
   // - Stop skipped/failed = admin already handled it
   // - Delivery whose parent order isn't ready yet = ghost delivery (see top of fn)
   routeStops = routeStops.filter(s =>
-    s.orders && !['delivered','cancelled'].includes(s.orders.status)
+    s.orders
+    && (s.status === 'complete' || (!['delivered','cancelled'].includes(s.orders.status) && !isGhostDelivery(s)))
     && !['skipped','failed'].includes(s.status)
-    && !isGhostDelivery(s)
   );
   allStops = [...routeStops, ...tagged];
 
@@ -2455,9 +2461,9 @@ async function _loadDriverDataInner() {
     // Session 161: via the same stops RPC (see main fetch).
     const { data: uStops } = await db.rpc('get_driver_route_stops', { p_route_ids: upcomingIds, ..._adminOverride });
     const taggedUpcoming = (uStops || [])
-      .filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status)
-        && !['skipped','failed'].includes(s.status)
-        && !isGhostDelivery(s))
+      .filter(s => s.orders
+        && (s.status === 'complete' || (!['delivered','cancelled'].includes(s.orders.status) && !isGhostDelivery(s)))
+        && !['skipped','failed'].includes(s.status))
       .map(s => ({ ...s, _upcoming: true }));
     allStops = [...allStops, ...taggedUpcoming];
   }
