@@ -1599,12 +1599,12 @@
             <div id="reschedule-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
-          <!-- Unpaid Delivered Orders -->
+          <!-- Unpaid Orders -->
           <div class="card" style="margin-top:0">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('unpaid-orders-body',this)">
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
-                  <div class="card-title">Unpaid Delivered Orders</div>
+                  <div class="card-title">Unpaid Orders</div>
                   <span id="unpaid-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
                 <div class="card-sub" id="unpaid-count-sub" style="margin-top:2px">Loading…</div>
@@ -8038,7 +8038,7 @@
     }).join('');
   }
 
-  // ── Unpaid Delivered Orders ──
+  // ── Unpaid Orders (ready for delivery, out for delivery, or delivered — not yet paid) ──
   async function loadUnpaidOrders() {
     const el = document.getElementById('unpaid-orders-body');
     const subEl = document.getElementById('unpaid-count-sub');
@@ -8064,7 +8064,7 @@
     const data = rawData.filter(o => o.customers?.billing_type !== 'on_account');
     if (!data.length) {
       if (subEl) subEl.textContent = 'All clear';
-      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid delivered orders</div>';
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid orders</div>';
       return;
     }
 

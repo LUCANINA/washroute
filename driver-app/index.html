@@ -1967,16 +1967,28 @@ async function _loadDriverDataInner() {
     throw new Error('Could not load or create driver record');
   }
 
-  // Hide delivery stops whose parent order hasn't been marked ready yet.
-  // These are "ghost deliveries" — the bag was picked up but never progressed
-  // through processing in software (often because intake happened off-site).
-  // Showing them would send the driver to a location with nothing to deliver.
-  // (Admin Map view intentionally DOES show these — see admin-dashboard
-  // rccBuildCard's "not ready" badge — because admin is a planning surface
-  // and David needs to see the full picture. Driver app is action-only.)
+  // Hide delivery stops that aren't actually ready to go out. Two cases:
+  //   1. "Ghost deliveries" — the bag was picked up but never progressed through
+  //      processing in software (often because intake happened off-site). Showing
+  //      these would send the driver to a location with nothing to deliver.
+  //   2. Payment failed — the card was charged when the order reached Ready for
+  //      Delivery and was declined (chargeOnReady in admin-dashboard still lets the
+  //      order advance so it surfaces in Issues/Overview > Unpaid Orders, but it must
+  //      NOT go out to the customer unpaid). Once the card is updated and the order
+  //      is re-charged (billing_status flips back to 'paid'), the stop reappears here
+  //      automatically — no separate "release" step needed.
+  // (Admin Map view intentionally DOES show both cases — see admin-dashboard
+  // rccBuildCard's "not ready" badge — because admin is a planning surface and
+  // David needs to see the full picture. Driver app is action-only.)
   const NOT_READY_FOR_DELIVERY = ['picked_up', 'processing', 'folding'];
+  // on_account customers are invoiced, never card-charged (see chargeOnReady in
+  // admin-dashboard) -- a 'failed' billing_status on one of their orders would be
+  // stale/unrelated to card payment, so exempt them the same way the Overview >
+  // Unpaid Orders widget does.
   const isGhostDelivery = s =>
-    s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders?.status);
+    s.stop_type === 'delivery' &&
+    (NOT_READY_FOR_DELIVERY.includes(s.orders?.status) ||
+      (s.orders?.billing_status === 'failed' && s.orders?.customers?.billing_type !== 'on_account'));
 
   // ── Group 2: today's routes + messages in parallel ──
   const [{ data: routes, error: routesErr }] = await Promise.all([
