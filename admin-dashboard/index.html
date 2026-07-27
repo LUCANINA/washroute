@@ -7594,7 +7594,7 @@
           .not('routing_error', 'is', null),
 
         // 2. Wrong-date stops (P0) — use RPC or filter client-side
-        db.from('route_stops').select('id, stop_type, status, route_id, order_id, orders!inner(order_number, pickup_window_start, delivery_window_start, customers(first_name_cache, last_name_cache)), routes!inner(run_date)')
+        db.from('route_stops').select('id, stop_type, status, route_id, order_id, orders!inner(order_number, pickup_window_start, delivery_window_start, customers(first_name_cache, last_name_cache)), routes!route_stops_route_id_fkey!inner(run_date)')
           .in('status', ['pending', 'en_route']),
 
         // 3. Unpaid delivered orders (P0) — pull tip fields too so the
@@ -19552,7 +19552,7 @@ ${oneCopy}
     }
     // Batched: commercial accounts can have 50+ active orders.
     const stops = await pgInChunked(
-      () => db.from('route_stops').select('stop_type, status, routes(id, name, run_date, status)'),
+      () => db.from('route_stops').select('stop_type, status, routes!route_stops_route_id_fkey(id, name, run_date, status)'),
       'order_id', orders.map(o => o.id)
     );
     const upcoming = stops.filter(s => s.routes && s.routes.run_date >= todayLocal);
@@ -23470,7 +23470,7 @@ ${oneCopy}
     if (!_rccActiveRoutes.has(routeId)) return;
 
     _rccRouteData[routeId] = {
-      route, color, driverName, driverInitials,
+      route, color, driverName, driverInitials, driverId: effectiveDriverId || null,
       stops: enriched, templateName: tpl?.name || route.name
     };
     // Chip + panel width already rendered optimistically above; now fill in
@@ -23542,7 +23542,7 @@ ${oneCopy}
     _orderedIds.forEach((routeId) => {
       const rd = _rccRouteData[routeId];
       if (!rd) return;
-      const { color, driverName, driverInitials, stops, templateName } = rd;
+      const { color, driverName, driverInitials, driverId, stops, templateName } = rd;
       // Only show remaining (non-complete, non-skipped, non-failed) stops in cards + map
       const remaining = stops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed');
       const pickups = remaining.filter(s => s.stop_type !== 'delivery').length;
@@ -23666,6 +23666,9 @@ ${oneCopy}
             <span class="rcc-card-dot" style="margin:0 3px;"></span>
             <span class="rcc-col-n">${deliveries}</span><span class="rcc-col-lbl">D</span>
           </div>
+          <button onclick="event.stopPropagation();rccOpenDriverView('${driverId||''}')" style="background:none;border:none;cursor:pointer;color:var(--gray-500);line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${driverId ? 'View what this driver sees on their app' : 'No driver assigned yet'}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          </button>
           <button onclick="event.stopPropagation();rccToggleRoutePins('${routeId}')" style="background:none;border:none;cursor:pointer;color:${_rccHiddenPins.has(routeId)?'var(--gray-300)':'var(--gray-500)'};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${_rccHiddenPins.has(routeId)?'Show this route’s pins on the map':'Hide this route’s pins from the map'}">
             ${_rccHiddenPins.has(routeId)
               ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
@@ -23687,6 +23690,27 @@ ${oneCopy}
     else _rccHiddenPins.add(routeId);
     rccRenderColumns();
     rccRenderMap();
+  }
+
+  // Jump from a route's header on the Map page straight into Driver View
+  // (session 189) pre-loaded with that driver + the Map page's selected date.
+  // Uses _dsDateStr (this page's own date, independent of Driver View's own
+  // date field) so "today" on the map opens "today" in Driver View, and a
+  // past/future map date carries over the same way.
+  async function rccOpenDriverView(driverId) {
+    if (!driverId) { showToast('No driver assigned to this route yet', 'error'); return; }
+    showPage('drivers', document.querySelector('.nav-item[data-page="drivers"]'));
+    // showPage already kicks off loadDrivers() in the background; await our own
+    // call so the driver <select> is guaranteed populated even on a cold first
+    // visit to the Drivers page this session (initDriverViewTab only fills the
+    // dropdown once allDriversList has data).
+    await loadDrivers();
+    switchDriverTab('driverview');
+    const sel = document.getElementById('dv-driver-select');
+    const dateEl = document.getElementById('dv-date');
+    if (dateEl) dateEl.value = _dsDateStr || today();
+    if (sel) sel.value = driverId;
+    loadDriverViewData();
   }
 
   // ── RCC: Drag a whole route up/down to reorder the list (session 185) ──
@@ -30170,7 +30194,7 @@ ${oneCopy}
     body.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
 
     const { data: stopRows, error } = await db.from('route_stops')
-      .select('id, route_id, stop_type, status, stop_number, estimated_arrival, address_id, order_id, driver_id, routes!inner(id, name, driver_id, run_date, status)')
+      .select('id, route_id, stop_type, status, stop_number, estimated_arrival, address_id, order_id, driver_id, routes!route_stops_route_id_fkey!inner(id, name, driver_id, run_date, status)')
       .eq('routes.run_date', dateStr)
       .neq('routes.status', 'cancelled');
 
