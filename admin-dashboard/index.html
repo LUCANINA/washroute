@@ -23272,8 +23272,12 @@ ${oneCopy}
 
   // ── RCC: Planned pickups/deliveries summary for the SELECTED window ──
   // Scoped to the currently-toggled AM/PM slot (not the whole day), and counts
-  // ALL planned stops in that window including completed ones — only truly
-  // cancelled orders are excluded. Re-renders on date load and on AM/PM toggle.
+  // ALL ACTIVE planned stops in that window (completed ones still count — they
+  // were real work today) — excludes cancelled orders and any stop marked
+  // skipped/failed. David caught that skipped stops were silently inflating this
+  // total with no way to see them anywhere in the UI (not on the route cards,
+  // which already hide skipped stops, and not in the "View completed" panel,
+  // which only lists status='complete'). Re-renders on date load and on AM/PM toggle.
   function rccRenderDaySummary() {
     const el = document.getElementById('rcc-day-summary');
     if (!el) return;
@@ -23290,7 +23294,8 @@ ${oneCopy}
     let pickups = 0, deliveries = 0;
     (_dsAllStops || []).forEach(s => {
       if (!slotRouteIds.has(s.route_id)) return;
-      if (!s.orders || s.orders.status === 'cancelled') return; // exclude only truly cancelled
+      if (!s.orders || s.orders.status === 'cancelled') return; // exclude cancelled orders
+      if (s.status === 'skipped' || s.status === 'failed') return; // exclude skipped/failed stops -- only count active work
       if (s.stop_type === 'delivery') deliveries++; else pickups++;
     });
     el.innerHTML = `<div class="rcc-summary rcc-summary-clickable" onclick="rccOpenCompletedPanel()" title="View completed pickups & deliveries for the ${_rccSlot} window">
