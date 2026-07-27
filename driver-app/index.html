@@ -10,11 +10,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Family Laundry Driver" />
   <meta name="theme-color" content="#f5a623" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- ── AUTO-UPDATE: see admin-dashboard for full explanation.
        UPDATE BUILD_TS whenever deploying changes that should reach driver iPads. ── -->
   <script>
     (function() {
-      var BUILD_TS = '20260409_s101';
+      var BUILD_TS = '20260727_s102';
       try {
         if (localStorage.getItem('wr_driver_build') !== BUILD_TS) {
           localStorage.setItem('wr_driver_build', BUILD_TS);
@@ -828,6 +830,30 @@
     .btn-skip-confirm.reason-btn:active { background: var(--danger); }
     .btn-skip-confirm.danger { background: var(--danger); color: var(--white); }
     .btn-skip-confirm.cancel { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.75); }
+    /* ── Route Map ── */
+    .dmap-me-wrap { width: 22px; height: 22px; position: relative; }
+    .dmap-me-dot {
+      position: absolute; top: 5px; left: 5px; width: 12px; height: 12px;
+      border-radius: 50%; background: var(--accent); border: 2px solid var(--white);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4); z-index: 2;
+    }
+    .dmap-me-pulse {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: rgba(42,111,201,0.35); animation: dmapPulse 1.8s ease-out infinite;
+    }
+    @keyframes dmapPulse {
+      0%   { transform: scale(0.4); opacity: 0.8; }
+      100% { transform: scale(1.7); opacity: 0; }
+    }
+    .dmap-pin {
+      width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid var(--white); box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+    }
+    .dmap-pin-num { transform: rotate(45deg); color: var(--white); font-size: 12px; font-weight: 800; }
+    .dmap-legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 14px 10px; font-size: 11px; color: var(--muted); font-weight: 600; }
+    .dmap-legend-item { display: flex; align-items: center; gap: 4px; }
+    .dmap-legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -1007,6 +1033,25 @@
   </div>
 </div>
 
+<!-- ══════════════════════════
+     ROUTE MAP
+══════════════════════════ -->
+<div class="screen" id="screen-map">
+  <div class="route-hdr" id="map-hdr">
+    <div class="rh-row">
+      <div>
+        <div class="rh-title">Route Map</div>
+        <div class="rh-sub" id="map-hdr-sub">Loading…</div>
+      </div>
+      <button class="rh-refresh" onclick="renderRouteMap()" title="Refresh">↻</button>
+    </div>
+  </div>
+  <div class="dmap-legend" id="map-legend"></div>
+  <div style="flex:1;position:relative;">
+    <div id="driver-map" style="position:absolute;inset:0;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));"></div>
+  </div>
+</div>
+
 <!-- Bottom Nav -->
 <div id="bottom-nav">
   <div class="nav-inner">
@@ -1018,6 +1063,10 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></span>
       <span id="photo-queue-badge" style="display:none;position:absolute;top:4px;right:14px;background:#f59e0b;color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:8px;align-items:center;justify-content:center;padding:0 4px">0</span>
       Route
+    </button>
+    <button class="nav-btn" id="nav-map" onclick="goTo('map')">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg></span>
+      Map
     </button>
     <button class="nav-btn" id="nav-messages" onclick="goTo('messages')">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>
@@ -1550,6 +1599,7 @@ function goTo(id) {
   showScreen(id);
   if (id === 'home')     renderHome();
   if (id === 'route')    renderRoute();
+  if (id === 'map')      renderRouteMap();
   if (id === 'profile')  renderProfile();
   if (id === 'messages') { renderConversationList(); }
 }
@@ -1601,6 +1651,119 @@ function mapsLink(a) {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
   if (isIOS) return `maps://maps.apple.com/?daddr=${dest}`;
   return `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+}
+
+/* ── Route Map — lets a driver see their live position relative to their stops ── */
+let _routeMap = null, _routeMapMarkers = null, _routeMapMeMarker = null, _routeMapAutoStarted = false;
+
+function _dmapPinColor(stop) {
+  const isDone    = stop.status === 'complete';
+  const isSkip    = stop.status === 'skipped' || stop.status === 'failed';
+  const isEnRoute = stop.status === 'en_route';
+  if (isDone)    return '#6b7280'; // muted — already done
+  if (isSkip)    return '#92400e'; // matches the sn-skip badge
+  if (isEnRoute) return '#1d4ed8'; // info
+  return stop.stop_type === 'delivery' ? '#10b981' : '#3b82f6'; // deliver green / pickup blue
+}
+
+function _dmapMeIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div class="dmap-me-wrap"><div class="dmap-me-pulse"></div><div class="dmap-me-dot"></div></div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
+  });
+}
+
+function renderRouteMap() {
+  const sub    = document.getElementById('map-hdr-sub');
+  const legend = document.getElementById('map-legend');
+
+  // Mirror the default (unfiltered) Route tab view — today's active stops, with coordinates
+  const visibleStops = allStops.filter(s => !s._upcoming && s._addr && s._addr.lat != null && s._addr.lng != null);
+
+  if (sub) {
+    const remaining = visibleStops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed').length;
+    sub.textContent = allStops.length === 0
+      ? 'No stops assigned yet'
+      : `${remaining} of ${visibleStops.length} stop${visibleStops.length !== 1 ? 's' : ''} remaining`;
+  }
+  if (legend) {
+    legend.innerHTML = `
+      <span class="dmap-legend-item"><span class="dmap-legend-dot" style="background:#3b82f6"></span>Pickup</span>
+      <span class="dmap-legend-item"><span class="dmap-legend-dot" style="background:#10b981"></span>Delivery</span>
+      <span class="dmap-legend-item"><span class="dmap-legend-dot" style="background:#1d4ed8"></span>En Route</span>
+      <span class="dmap-legend-item"><span class="dmap-legend-dot" style="background:#92400e"></span>Skipped</span>
+      <span class="dmap-legend-item"><span class="dmap-legend-dot" style="background:#6b7280"></span>Done</span>
+      <span class="dmap-legend-item"><span class="dmap-legend-dot" style="background:#2a6fc9"></span>You</span>
+    `;
+  }
+
+  if (typeof L === 'undefined') return; // Leaflet failed to load (e.g. offline) — header text above still updates
+
+  if (!_routeMap) {
+    _routeMap = L.map('driver-map', { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(_routeMap);
+    _routeMapMarkers = L.layerGroup().addTo(_routeMap);
+  }
+  _routeMap.invalidateSize();
+  _routeMapMarkers.clearLayers();
+  _routeMapMeMarker = null; // cleared above — drop the stale reference so the auto-updater doesn't move a removed marker
+
+  const bounds = [];
+
+  visibleStops.forEach(stop => {
+    const lat = stop._addr.lat, lng = stop._addr.lng;
+    const color = _dmapPinColor(stop);
+    const num = stop._displayNum || stop.stop_number || '';
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="dmap-pin" style="background:${color}"><span class="dmap-pin-num">${num}</span></div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 28]
+    });
+    const marker = L.marker([lat, lng], { icon }).addTo(_routeMapMarkers);
+    const cust = stop.orders?.customers;
+    const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+    marker.bindPopup(`<strong>${custName}</strong><br>${stop.stop_type === 'delivery' ? '📦 Delivery' : '🧺 Pickup'} · Stop ${num}<br>${fmtAddr(stop._addr)}`);
+    marker.on('click', () => openStop(stop.id));
+    bounds.push([lat, lng]);
+  });
+
+  if (_driverLat != null && _driverLng != null) {
+    _routeMapMeMarker = L.marker([_driverLat, _driverLng], { icon: _dmapMeIcon(), zIndexOffset: 1000 }).addTo(_routeMapMarkers);
+    bounds.push([_driverLat, _driverLng]);
+  }
+
+  if (bounds.length > 1) {
+    _routeMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+  } else if (bounds.length === 1) {
+    _routeMap.setView(bounds[0], 15);
+  } else {
+    _routeMap.setView([37.835, -122.265], 12); // fallback — no stop or driver coordinates yet
+  }
+
+  _startRouteMapAutoUpdate();
+}
+
+// Keeps the "you are here" dot moving while the driver has the Map tab open,
+// without re-fetching stops or rebuilding every pin on each GPS tick.
+function _startRouteMapAutoUpdate() {
+  if (_routeMapAutoStarted) return;
+  _routeMapAutoStarted = true;
+  setInterval(() => {
+    const onMapScreen = document.getElementById('screen-map')?.classList.contains('active');
+    if (!onMapScreen || !_routeMap || !_routeMapMarkers) return;
+    if (_driverLat == null || _driverLng == null) return;
+    if (_routeMapMeMarker) {
+      _routeMapMeMarker.setLatLng([_driverLat, _driverLng]);
+    } else {
+      _routeMapMeMarker = L.marker([_driverLat, _driverLng], { icon: _dmapMeIcon(), zIndexOffset: 1000 }).addTo(_routeMapMarkers);
+    }
+  }, GPS_SEND_INTERVAL);
 }
 
 function greet() {
