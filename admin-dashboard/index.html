@@ -22352,6 +22352,12 @@ ${oneCopy}
       const drvId = hasRecord
         ? routeRecordMap[recKey]
         : (isPast ? null : (exactOverrideMap[`${t.id}-${dateStr}-pickup`] ?? overMap[`${t.id}-${day}-pickup`] ?? null));
+      // Session 186 pt 3: separate "weekly recurring default" value (tier 3 only, ignoring any
+      // exact-date override) so the driver popover can show the CORRECT current selection when
+      // the "Every <Day>" scope tab is active — previously it reused drvId (the day's resolved
+      // value) for both tabs, which could show an unrelated one-off override as if it were
+      // already the saved weekly default.
+      const weeklyDrvId = overMap[`${t.id}-${day}-pickup`] ?? null;
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
@@ -22392,7 +22398,7 @@ ${oneCopy}
 
       return `<div class="sched-cell"
         style="background:${bg};color:${fg};cursor:pointer;"
-        onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
+        onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}','${weeklyDrvId||''}',event)"
         title="${t.name} · ${drvName}">
         ${statusBadgeHtml}${drvFirst}
       </div>`;
@@ -22595,6 +22601,12 @@ ${oneCopy}
       const drvId = hasRecord
         ? routeRecordMap[recKey]
         : (isPast ? null : (exactOverrideMap[`${t.id}-${dateStr}-pickup`] ?? overMap[`${t.id}-${day}-pickup`] ?? null));
+      // Session 186 pt 3: separate "weekly recurring default" value (tier 3 only, ignoring any
+      // exact-date override) so the driver popover can show the CORRECT current selection when
+      // the "Every <Day>" scope tab is active — previously it reused drvId (the day's resolved
+      // value) for both tabs, which could show an unrelated one-off override as if it were
+      // already the saved weekly default.
+      const weeklyDrvId = overMap[`${t.id}-${day}-pickup`] ?? null;
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
@@ -22635,7 +22647,7 @@ ${oneCopy}
 
       return `<div class="sched-cell"
         style="background:${bg};color:${fg};cursor:pointer;"
-        onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
+        onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}','${weeklyDrvId||''}',event)"
         title="${t.name} · ${drvName}">
         ${statusBadgeHtml}${drvFirst}
       </div>`;
@@ -22728,12 +22740,40 @@ ${oneCopy}
     }).join('');
   }
 
+  // Renders the driver list. Reads popoverCtx.scope to pick which id counts as "selected":
+  // "day" shows the exact-date override (or whatever's on the actual route), "forward" shows
+  // the separately-resolved weekly recurring default — these can legitimately be different
+  // drivers. Session 186 pt 3: previously the list only ever showed the "day" value regardless
+  // of which tab was active, so switching to "Every <Day>" could show a driver as already
+  // checked when nothing had actually been saved for that scope yet.
+  function renderDriverPopoverOptions() {
+    const opts = document.getElementById('driver-popover-options');
+    if (!opts) return;
+    const selectedId = popoverCtx.scope === 'forward' ? popoverCtx.weeklyDriverId : popoverCtx.currentDriverId;
+    const disabled = !!popoverCtx.disabled;
+    opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...allDriversCache].map(d => {
+      const selected = d.id === selectedId || (!d.id && !selectedId);
+      const opacity  = disabled ? 'opacity:.4;pointer-events:none;' : '';
+      return `<div onclick="${disabled ? '' : `assignDriverOverride('${d.id}')`}"
+        style="padding:8px 12px;border-radius:8px;cursor:${disabled?'default':'pointer'};font-size:13px;font-weight:${selected?'700':'500'};
+          color:${selected?'var(--accent)':'var(--gray-900)'};background:${selected?'var(--accent-light)':'white'};
+          display:flex;align-items:center;gap:8px;transition:background .1s;${opacity}"
+        onmouseover="if(!${disabled})this.style.background='${selected?'var(--accent-light)':'var(--gray-50)'}'"
+        onmouseout="if(!${disabled})this.style.background='${selected?'var(--accent-light)':'white'}'">
+        <div style="width:26px;height:26px;border-radius:50%;background:${d.id?'var(--accent)':'var(--gray-200)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">${d.name.charAt(0).toUpperCase()}</div>
+        <span style="flex:1">${d.name}</span>
+        ${selected ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+      </div>`;
+    }).join('');
+  }
+
   function setDriverPopoverScope(scope) {
     popoverCtx.scope = scope;
     renderDriverPopoverScope();
+    renderDriverPopoverOptions();
   }
 
-  async function openDriverPopover(templateId, day, driverType, currentDriverId, event) {
+  async function openDriverPopover(templateId, day, driverType, currentDriverId, weeklyDriverId, event) {
     event.stopPropagation();
     // isoDateStr is the exact Pacific calendar date (YYYY-MM-DD) for this cell — used for the
     // "just this day" one-off override, which is scoped to an exact date, not a day-of-week.
@@ -22741,7 +22781,10 @@ ${oneCopy}
     const isoDateStr = dayDateForIso ? dayDateForIso.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
     // Default scope is "day" (just this occurrence) — the safer, less-surprising choice for a
     // one-off swap. Picking "forward" is an explicit, deliberate action in the toggle.
-    popoverCtx = { templateId, day, driverType, currentDriverId, isoDateStr, scope: 'day' };
+    // weeklyDriverId (session 186 pt 3) is the separately-resolved weekly-recurring default —
+    // used so the driver list shows the CORRECT selection when the "forward" tab is active,
+    // instead of reusing currentDriverId (the day's resolved value) for both tabs.
+    popoverCtx = { templateId, day, driverType, currentDriverId, weeklyDriverId, isoDateStr, scope: 'day', disabled: false };
     const tmpl = allTemplates.find(t => t.id === templateId);
     const dayDate = schedWeekDates[day];
     const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -22753,27 +22796,8 @@ ${oneCopy}
     const statusBanner = document.getElementById('driver-popover-status');
     if (statusBanner) statusBanner.style.display = 'none';
 
-    // Render driver options
-    const renderOptions = (disabled = false) => {
-      const opts = document.getElementById('driver-popover-options');
-      opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...allDriversCache].map(d => {
-        const selected = d.id === currentDriverId || (!d.id && !currentDriverId);
-        const opacity  = disabled ? 'opacity:.4;pointer-events:none;' : '';
-        return `<div onclick="${disabled ? '' : `assignDriverOverride('${d.id}')`}"
-          style="padding:8px 12px;border-radius:8px;cursor:${disabled?'default':'pointer'};font-size:13px;font-weight:${selected?'700':'500'};
-            color:${selected?'var(--accent)':'var(--gray-900)'};background:${selected?'var(--accent-light)':'white'};
-            display:flex;align-items:center;gap:8px;transition:background .1s;${opacity}"
-          onmouseover="if(!${disabled})this.style.background='${selected?'var(--accent-light)':'var(--gray-50)'}'"
-          onmouseout="if(!${disabled})this.style.background='${selected?'var(--accent-light)':'white'}'">
-          <div style="width:26px;height:26px;border-radius:50%;background:${d.id?'var(--accent)':'var(--gray-200)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">${d.name.charAt(0).toUpperCase()}</div>
-          <span style="flex:1">${d.name}</span>
-          ${selected ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
-        </div>`;
-      }).join('');
-    };
-
     // Position and show the popover immediately with options enabled
-    renderOptions(false);
+    renderDriverPopoverOptions();
     const pop = document.getElementById('driver-popover');
     pop.style.display = 'block';
     const cell = event.target.closest('.sched-cell');
@@ -22832,7 +22856,8 @@ ${oneCopy}
 
       if (windowClosed) {
         // Window + 2hr buffer has passed — disable reassignment
-        renderOptions(true);
+        popoverCtx.disabled = true;
+        renderDriverPopoverOptions();
         statusBanner.style.cssText = 'display:block;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
         statusBanner.innerHTML = done === total
           ? `🔒 <strong>Route complete</strong><br>All ${total} stops are done and the route window has passed.`
