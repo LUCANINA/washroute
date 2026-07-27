@@ -23095,7 +23095,7 @@ ${oneCopy}
 
     // Load route templates + routes + driver schedule (+ exact-date overrides) for this date
     const [{ data: templates }, { data: routes }, { data: schedRows }, { data: overrideRows }] = await Promise.all([
-      db.from('route_templates').select('id, name, window_start, window_end, arrival_window_hours, color').order('name'),
+      db.from('route_templates').select('id, name, window_start, window_end, arrival_window_hours, color, schedule_days').order('name'),
       db.from('routes').select('id, name, status, template_id, driver_id').eq('run_date', _dsDateStr),
       db.from('route_driver_schedule').select('template_id, day_of_week, driver_id'),
       db.from('route_driver_overrides').select('template_id, driver_id').eq('override_date', _dsDateStr).eq('driver_type', 'pickup')
@@ -24245,15 +24245,31 @@ ${oneCopy}
 
     // Render next 14 days as date pills (skip today since "reschedule to today"
     // is essentially a same-day change and almost always not what the operator wants).
+    // Gray out + disable any day that isn't in every selected stop's route template
+    // schedule_days (0=Mon..6=Sun) — same convention as renderNoDays/renderSpDays —
+    // so e.g. Sunday never shows as a pickable option when we're closed. If a
+    // template's schedule_days is missing, default to Mon–Fri like the rest of the
+    // app; if no template resolves at all, fall back to just excluding Sunday.
+    const selTemplateIds = [...new Set([..._rccSelStops.values()].map(s => s.templateId).filter(Boolean))];
+    const selSchedules = selTemplateIds.map(tid => {
+      const t = _dsTemplates.find(x => x.id === tid);
+      return new Set(t?.schedule_days || [0, 1, 2, 3, 4]);
+    });
+    const isDayAvailable = (dow) => selSchedules.length
+      ? selSchedules.every(set => set.has(dow))
+      : dow !== 6;
+
     const todayIso = today();
     const daysHtml = [];
     for (let i = 1; i <= 14; i++) {
       const iso = addDaysPacific(todayIso, i);
       const [y, m, d] = iso.split('-').map(Number);
       const dt = new Date(y, m - 1, d);
+      const dow = (dt.getDay() + 6) % 7; // JS Sun=0 → convert to Mon=0..Sun=6
+      const avail = isDayAvailable(dow);
       const wkLabel = dt.toLocaleDateString('en-US', { weekday: 'short' });
       const moLabel = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      daysHtml.push(`<button class="sp-slot-btn" data-iso="${iso}" onclick="rccPickRescheduleDate('${iso}')" style="min-width:84px;text-align:center;padding:8px 12px">
+      daysHtml.push(`<button class="sp-slot-btn${avail ? '' : ' sp-day-disabled'}" data-iso="${iso}" ${avail ? '' : 'disabled'} onclick="rccPickRescheduleDate('${iso}')" style="min-width:84px;text-align:center;padding:8px 12px">
         <div style="font-size:10px;font-weight:700;color:var(--gray-500);letter-spacing:0;">${wkLabel}</div>
         <div style="font-size:13px;margin-top:2px">${moLabel}</div>
       </button>`);
