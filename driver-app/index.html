@@ -353,6 +353,73 @@
     }
 
     /* ══════════════════════════════
+       BAG CHECK GATE (mandatory, shift start)
+    ══════════════════════════════ */
+    #screen-bag-gate { background: var(--bg); }
+    .gate-hdr {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%);
+      color: var(--white); padding: 20px 20px 22px; padding-top: calc(46px + env(safe-area-inset-top));
+      flex-shrink: 0;
+    }
+    .gate-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: rgba(255,255,255,0.45); margin-bottom: 6px; }
+    .gate-title { font-size: 21px; font-weight: 800; letter-spacing: -0.2px; }
+    .gate-sub { font-size: 13px; color: rgba(255,255,255,0.55); margin-top: 5px; line-height: 1.5; }
+    .gate-progress-wrap { margin-top: 16px; }
+    .gate-progress-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+    .gate-progress-label { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.55); }
+    .gate-progress-count { font-size: 13px; font-weight: 800; color: var(--white); }
+    .gate-progress-track { background: rgba(255,255,255,0.14); border-radius: 4px; height: 6px; overflow: hidden; }
+    .gate-progress-fill { background: var(--accent); height: 100%; border-radius: 4px; width: 0%; transition: width .3s ease; }
+    .gate-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px 16px 12px; }
+    .gate-route-section { margin-bottom: 18px; }
+    .gate-route-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; padding: 0 2px; }
+    .gate-route-name { font-size: 15px; font-weight: 800; color: var(--dark); }
+    .gate-route-count { font-size: 12px; font-weight: 700; color: var(--muted); }
+    .gate-no-bags-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; color: var(--muted); font-size: 13px; font-weight: 600; }
+    .gate-footer { padding: 12px 16px calc(18px + env(safe-area-inset-bottom)); background: var(--white); border-top: 1px solid var(--border); flex-shrink: 0; }
+    .gate-cta {
+      width: 100%; border: none; border-radius: 13px; padding: 15px;
+      font-size: 15.5px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: all .15s;
+    }
+    .gate-cta.locked { background: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
+    .gate-cta.unlocked { background: var(--accent); color: var(--white); }
+    .gate-cta.unlocked:active { transform: scale(0.98); }
+    .gate-footer-note { text-align: center; font-size: 11px; color: #9ca3af; margin-top: 8px; }
+
+    /* ══════════════════════════════
+       DRIVER ALERT BANNERS (global overlay — any screen, any tab)
+    ══════════════════════════════ */
+    #driver-alert-stack {
+      position: fixed; left: 12px; right: 12px;
+      top: calc(10px + env(safe-area-inset-top)); z-index: 9500;
+      display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none;
+    }
+    .driver-alert-card {
+      pointer-events: all; border-radius: 13px; padding: 13px 14px 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+      animation: alertSlideIn .25s ease;
+    }
+    @keyframes alertSlideIn { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: translateY(0); } }
+    .driver-alert-card.exception { background: var(--danger); }
+    .driver-alert-card.routine   { background: var(--navy-mid); border: 1px solid rgba(255,255,255,0.14); }
+    .driver-alert-card.notice    { background: #065f46; }
+    .driver-alert-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 11px; }
+    .driver-alert-text { flex: 1; min-width: 0; }
+    .driver-alert-icon { color: #fff; font-size: 9px; line-height: 1.9; }
+    .driver-alert-title { font-size: 13.5px; font-weight: 800; color: #fff; }
+    .driver-alert-body { font-size: 12px; color: rgba(255,255,255,0.85); margin-top: 3px; line-height: 1.45; }
+    .driver-alert-btn {
+      width: 100%; border: none; border-radius: 9px; font-size: 12.5px; font-weight: 700;
+      padding: 9px; cursor: pointer;
+    }
+    .driver-alert-card.exception .driver-alert-btn { background: #fff; color: #991b1b; }
+    .driver-alert-card.routine .driver-alert-btn   { background: rgba(255,255,255,0.14); color: #fff; }
+    .driver-alert-card.notice .driver-alert-btn    { background: rgba(255,255,255,0.16); color: #fff; }
+
+    /* ══════════════════════════════
        STOP DETAIL SCREEN
     ══════════════════════════════ */
     .detail-hdr {
@@ -894,6 +961,9 @@
   <button class="btn-undo" onclick="triggerUndo()">Undo</button>
 </div>
 
+<!-- Driver alert banners — global overlay, renders above whichever screen/tab is active -->
+<div id="driver-alert-stack"></div>
+
 <!-- Can't Complete sheet (replaces old skip + fail overlays) -->
 <div id="cant-complete-overlay" onclick="if(event.target===this)resolveCantComplete(null)">
   <div class="skip-confirm-sheet">
@@ -976,6 +1046,29 @@
 ════════════════════════════ -->
 <div class="screen" id="screen-home">
   <div class="scroll-body" id="home-body"></div>
+</div>
+
+<!-- ════════════════════════════
+     BAG CHECK GATE — mandatory, shown once per shift before Home is reachable
+════════════════════════════ -->
+<div class="screen" id="screen-bag-gate">
+  <div class="gate-hdr">
+    <div class="gate-eyebrow" id="gate-eyebrow">Before you start</div>
+    <div class="gate-title">Bag check</div>
+    <div class="gate-sub" id="gate-sub">Confirm every delivery bag is on the rack before you head out.</div>
+    <div class="gate-progress-wrap">
+      <div class="gate-progress-row">
+        <span class="gate-progress-label">Progress</span>
+        <span class="gate-progress-count" id="gate-progress-count">0 of 0 checked</span>
+      </div>
+      <div class="gate-progress-track"><div class="gate-progress-fill" id="gate-progress-fill"></div></div>
+    </div>
+  </div>
+  <div class="gate-body" id="gate-body"></div>
+  <div class="gate-footer">
+    <button class="gate-cta locked" id="gate-cta">🔒 Check every bag to continue</button>
+    <div class="gate-footer-note">Appears once per shift — won't ask again today after this</div>
+  </div>
 </div>
 
 <!-- ════════════════════════════
@@ -1311,6 +1404,11 @@ async function _staffJwt() {
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [], upcomingRoutes = [];
 let activeRouteFilter = null;  // null = all | routeId = one route | 'extra' = reassigned stops
+let _bagGatePeriod = null;      // 'am' | 'pm' — the shift period currently being gated
+let _bagGateRouteIds = [];      // route ids covered by the current gate
+let _bagGateStops = [];         // delivery stops the driver must tap through
+let _bagGateActive = false;     // true while the mandatory gate is blocking navigation (goTo guard)
+let _driverAlerts = [];         // unacknowledged driver_alerts rows, newest last
 let _dataLoading = false; // prevents realtime events from corrupting allStops mid-load
 let currentStopId = null;
 let currentStopPhase = 1;    // 1 = pre-arrival, 2 = at-stop
@@ -1710,6 +1808,11 @@ function showScreen(id) {
 }
 
 function goTo(id) {
+  // Session 193: the mandatory bag-check gate must not be bypassable — block
+  // navigation to any other screen (bottom nav taps included) while it's up.
+  // startMyShift() clears _bagGateActive before calling goTo('home') itself,
+  // so that one legitimate transition is not blocked by this guard.
+  if (id !== 'bag-gate' && _bagGateActive) return;
   showScreen(id);
   if (id === 'home')     renderHome();
   if (id === 'route')    renderRoute();
@@ -1891,30 +1994,247 @@ function greet() {
 // which bags are missing from the Overview page and the Orders → Map view.
 // Called when driver taps ✓ or "Missing" on a bag check row.
 // val = 'ok' | 'missing' — tapping the same value again clears it (toggle off).
+// When marking 'missing', also stamps bag_check_flagged_driver_id = me, so that
+// if dispatch later finds the bag with another driver and reassigns the stop,
+// resolve_missing_bag_and_reassign() knows who to notify that it's been found.
 async function rackCheckToggle(stopId, val) {
   if (_previewBlock()) return;
   const stop = allStops.find(s => s.id === stopId);
   if (!stop) return;
   const prevStatus = stop.bag_check_status || null;
   const prevCheckedAt = stop.bag_checked_at || null;
+  const prevFlaggedBy = stop.bag_check_flagged_driver_id || null;
   const newStatus = prevStatus === val ? null : val;
   const newCheckedAt = newStatus ? new Date().toISOString() : null;
+  const newFlaggedBy = newStatus === 'missing' ? currentDriver?.id || null : prevFlaggedBy;
 
   // Optimistic update — snappy UI, matches the instant feel of the old localStorage version.
   stop.bag_check_status = newStatus;
   stop.bag_checked_at = newCheckedAt;
+  stop.bag_check_flagged_driver_id = newFlaggedBy;
   renderRoute();   // re-render to update progress counter and banners
 
   const { error } = await db.from('route_stops')
-    .update({ bag_check_status: newStatus, bag_checked_at: newCheckedAt })
+    .update({ bag_check_status: newStatus, bag_checked_at: newCheckedAt, bag_check_flagged_driver_id: newFlaggedBy })
     .eq('id', stopId);
   if (error) {
     // Roll back so the UI never shows a check that didn't actually save.
     stop.bag_check_status = prevStatus;
     stop.bag_checked_at = prevCheckedAt;
+    stop.bag_check_flagged_driver_id = prevFlaggedBy;
     renderRoute();
     toast("Couldn't save — check your connection and try again", 3600);
   }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MANDATORY BAG CHECK GATE — shown once per shift before Home is
+   reachable. Split by route, driven by the same shift-window logic
+   already used to decide which routes are "current" vs "later today".
+════════════════════════════════════════════════════════════════ */
+
+// A route's shift bucket, derived from its template window (before noon = am).
+function _shiftPeriodForRoute(r) {
+  const ws = r.route_templates?.window_start;
+  if (!ws) return null;
+  const hh = parseInt(String(ws).split(':')[0], 10);
+  return hh < 12 ? 'am' : 'pm';
+}
+
+// Called once per login/data-load, right before goTo('home'). Returns true if
+// it took over the screen (caller should NOT also call goTo('home')).
+async function maybeShowBagGate() {
+  try {
+    if (!currentDriver?.id) return false;
+    const allToday = [...todayRoutes, ...upcomingRoutes].filter(r => r.route_templates?.window_start);
+    if (!allToday.length) return false;
+
+    const _now = new Date();
+    const _todayStr = today();
+    const PRE_WINDOW_HOURS = 2;
+
+    // Group into am/pm buckets, each carrying its earliest window start.
+    const groups = {};
+    allToday.forEach(r => {
+      const period = _shiftPeriodForRoute(r);
+      if (!period) return;
+      const winStart = new Date(`${_todayStr}T${r.route_templates.window_start}`);
+      (groups[period] = groups[period] || []).push({ route: r, winStart });
+    });
+
+    // Check earlier shift periods first (am before pm) so a driver working a
+    // split shift clears them in order.
+    for (const period of ['am', 'pm']) {
+      const routesInGroup = groups[period];
+      if (!routesInGroup || !routesInGroup.length) continue;
+
+      const earliestStart = new Date(Math.min(...routesInGroup.map(g => g.winStart.getTime())));
+      const showFrom = new Date(earliestStart.getTime() - PRE_WINDOW_HOURS * 60 * 60 * 1000);
+      if (_now < showFrom) continue; // this shift's check window hasn't opened yet
+
+      const { data: cleared } = await db.from('driver_shift_bag_checks')
+        .select('id').eq('driver_id', currentDriver.id).eq('run_date', _todayStr).eq('shift_period', period)
+        .maybeSingle();
+      if (cleared) continue; // already done for this shift today
+
+      const routeIds = routesInGroup.map(g => g.route.id);
+      const deliveryStops = allStops.filter(s => routeIds.includes(s.route_id) && s.stop_type === 'delivery');
+
+      if (!deliveryStops.length) {
+        // Nothing to check this shift (e.g. pure pickup routes) — auto-clear so we don't ask again.
+        await db.rpc('clear_shift_bag_check', { p_run_date: _todayStr, p_shift_period: period }).catch(() => {});
+        continue;
+      }
+
+      _bagGatePeriod = period;
+      _bagGateRouteIds = routeIds;
+      _bagGateStops = deliveryStops;
+      _bagGateActive = true;
+      renderBagGate(routesInGroup.map(g => g.route));
+      showScreen('bag-gate');
+      // Hide the nav bar too — it's already down at first login (default CSS
+      // is display:none until the login flow reveals it), but this also
+      // covers the mid-session re-check path below (refreshStopsQuietly),
+      // where a driver moving from a cleared AM shift into an un-cleared PM
+      // shift may already have the nav visible.
+      document.getElementById('bottom-nav').style.display = 'none';
+      return true;
+    }
+    return false;
+  } catch (e) {
+    // Fail OPEN — a bug here must never permanently lock a driver out of their route.
+    console.error('maybeShowBagGate:', e);
+    return false;
+  }
+}
+
+function renderBagGate(routes) {
+  document.getElementById('gate-eyebrow').textContent =
+    `Before you start · ${_bagGatePeriod === 'am' ? 'AM' : 'PM'} shift`;
+  document.getElementById('gate-sub').textContent = routes.length > 1
+    ? `Confirm every delivery bag is on the rack for all ${routes.length} of your routes today.`
+    : 'Confirm every delivery bag is on the rack before you head out.';
+
+  let h = '';
+  routes.forEach(route => {
+    const stops = _bagGateStops.filter(s => s.route_id === route.id);
+    if (!stops.length) return;
+    const doneCount = stops.filter(s => s.bag_check_status === 'ok' || s.bag_check_status === 'missing').length;
+    h += `<div class="gate-route-section">
+      <div class="gate-route-hdr">
+        <div class="gate-route-name">${route.name}</div>
+        <div class="gate-route-count" id="gate-route-count-${route.id}">${doneCount} of ${stops.length} checked</div>
+      </div>`;
+    stops.forEach(s => { h += _bagGateRow(s); });
+    h += `</div>`;
+  });
+
+  const noBagRoutes = routes.filter(route => !_bagGateStops.some(s => s.route_id === route.id));
+  if (noBagRoutes.length) {
+    h += `<div class="gate-route-section" style="margin-bottom:0">
+      <div class="gate-route-hdr"><div class="gate-route-name" style="color:#9ca3af">No bag check needed</div></div>
+      <div class="gate-no-bags-row">${noBagRoutes.map(r => r.name).join(', ')} — pickup stops don't have bags yet, nothing to confirm there.</div>
+    </div>`;
+  }
+
+  document.getElementById('gate-body').innerHTML = h;
+  updateBagGateProgress();
+}
+
+function _bagGateRow(s) {
+  const cust = s.orders?.customers;
+  const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+  const orderNum = s.orders?.order_number ? `#${s.orders.order_number}` : '';
+  const bags = s.orders?.total_bags || 1;
+  const state = s.bag_check_status;
+  return `<div class="rack-check-wrap" style="margin-bottom:8px" id="gate-row-${s.id}">
+    <div class="rack-check-row" style="padding:2px 0;border-bottom:none">
+      <div class="rack-check-info">
+        <div class="rack-check-name">${custName}</div>
+        <div class="rack-check-order">${orderNum ? orderNum + ' · ' : ''}${bags} bag${bags!==1?'s':''}</div>
+      </div>
+      <div class="rack-check-btns">
+        <button class="rack-btn rack-btn-ok${state==='ok'?' active':''}" onclick="bagGateToggle('${s.id}','ok')">✓ On Rack</button>
+        <button class="rack-btn rack-btn-miss${state==='missing'?' active':''}" onclick="bagGateToggle('${s.id}','missing')">Missing</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function bagGateToggle(stopId, val) {
+  const stop = _bagGateStops.find(s => s.id === stopId);
+  if (!stop) return;
+  const prevStatus = stop.bag_check_status || null;
+  const prevFlaggedBy = stop.bag_check_flagged_driver_id || null;
+  const newStatus = prevStatus === val ? null : val;
+  const newFlaggedBy = newStatus === 'missing' ? currentDriver?.id || null : prevFlaggedBy;
+
+  stop.bag_check_status = newStatus;
+  stop.bag_checked_at = newStatus ? new Date().toISOString() : null;
+  stop.bag_check_flagged_driver_id = newFlaggedBy;
+  // Keep the shared allStops copy in sync too, so the Route tab reflects it if visited later.
+  const sharedStop = allStops.find(s => s.id === stopId);
+  if (sharedStop) { sharedStop.bag_check_status = newStatus; sharedStop.bag_checked_at = stop.bag_checked_at; sharedStop.bag_check_flagged_driver_id = newFlaggedBy; }
+
+  document.getElementById(`gate-row-${stopId}`)?.outerHTML && (document.getElementById(`gate-row-${stopId}`).outerHTML = _bagGateRow(stop));
+  updateBagGateProgress();
+
+  const { error } = await db.from('route_stops')
+    .update({ bag_check_status: newStatus, bag_checked_at: stop.bag_checked_at, bag_check_flagged_driver_id: newFlaggedBy })
+    .eq('id', stopId);
+  if (error) {
+    stop.bag_check_status = prevStatus;
+    stop.bag_check_flagged_driver_id = prevFlaggedBy;
+    const row = document.getElementById(`gate-row-${stopId}`);
+    if (row) row.outerHTML = _bagGateRow(stop);
+    updateBagGateProgress();
+    toast("Couldn't save — check your connection and try again", 3600);
+  }
+}
+
+function updateBagGateProgress() {
+  const total = _bagGateStops.length;
+  const done = _bagGateStops.filter(s => s.bag_check_status === 'ok' || s.bag_check_status === 'missing').length;
+  document.getElementById('gate-progress-count').textContent = `${done} of ${total} checked`;
+  document.getElementById('gate-progress-fill').style.width = total ? Math.round((done/total)*100) + '%' : '0%';
+
+  // Per-route counters
+  const byRoute = {};
+  _bagGateStops.forEach(s => { (byRoute[s.route_id] = byRoute[s.route_id] || []).push(s); });
+  Object.keys(byRoute).forEach(routeId => {
+    const el = document.getElementById(`gate-route-count-${routeId}`);
+    if (!el) return;
+    const stops = byRoute[routeId];
+    const rDone = stops.filter(s => s.bag_check_status === 'ok' || s.bag_check_status === 'missing').length;
+    el.textContent = `${rDone} of ${stops.length} checked`;
+  });
+
+  const cta = document.getElementById('gate-cta');
+  if (done === total && total > 0) {
+    cta.classList.remove('locked'); cta.classList.add('unlocked');
+    cta.textContent = 'Start my shift →';
+    cta.onclick = startMyShift;
+  } else {
+    cta.classList.add('locked'); cta.classList.remove('unlocked');
+    cta.textContent = '🔒 Check every bag to continue';
+    cta.onclick = null;
+  }
+}
+
+async function startMyShift() {
+  const cta = document.getElementById('gate-cta');
+  cta.disabled = true; cta.textContent = 'Starting…';
+  try {
+    await db.rpc('clear_shift_bag_check', { p_run_date: today(), p_shift_period: _bagGatePeriod });
+  } catch (e) {
+    console.error('clear_shift_bag_check:', e);
+    // Don't trap the driver behind a network blip — let them through; the gate
+    // will simply re-check next time they open the app if the write never landed.
+  }
+  cta.disabled = false;
+  _bagGateActive = false; // lift the goTo() block — this is the one legitimate exit from the gate
+  document.getElementById('bottom-nav').style.display = 'flex';
+  goTo('home');
 }
 
 // Toggle the "Later Today" collapsible section on the home screen
@@ -2135,11 +2455,14 @@ async function doSignOut() {
   // Unsubscribe from realtime
   if (msgSubscription) { db.removeChannel(msgSubscription); msgSubscription = null; }
   if (_stopSub)        { db.removeChannel(_stopSub);        _stopSub = null; }
+  if (alertSubscription) { db.removeChannel(alertSubscription); alertSubscription = null; }
   await db.auth.signOut();
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
   todayRoutes = []; allStops = []; pendingOrders = []; upcomingRoutes = []; activeRouteFilter = null;
   allAdminMessages = []; allCustomerSms = []; unreadCount = 0; _msgActiveThread = null; _msgCustomerMap = {};
+  _driverAlerts = [];
+  renderDriverAlertStack();
   document.getElementById('bottom-nav').style.display = 'none';
   showScreen('auth');
   // Reset auth form
@@ -4167,6 +4490,106 @@ function subscribeToDriverMessages() {
 }
 
 /* ──────────────────────────────
+   DRIVER ALERTS (session 193) — reassignment / missing-bag-resolution banners.
+   Backed by the driver_alerts table (see resolve_missing_bag_and_reassign RPC).
+   Any unacknowledged row for this driver shows as a full-width banner stacked
+   under the status bar, on top of whatever screen the driver is on. Tapping
+   "Got it" acknowledges it (stamps acknowledged_at) and it disappears.
+   ────────────────────────────── */
+let alertSubscription = null;
+
+async function loadPendingDriverAlerts() {
+  if (!currentDriver) return;
+  try {
+    const { data, error } = await db.from('driver_alerts')
+      .select('id, route_stop_id, kind, title, body, created_at')
+      .eq('driver_id', currentDriver.id)
+      .is('acknowledged_at', null)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    _driverAlerts = data || [];
+    renderDriverAlertStack();
+  } catch (e) {
+    console.error('loadPendingDriverAlerts:', e);
+    // Fail quiet — a missed banner isn't worth blocking the app over, and the
+    // realtime subscription will still catch any NEW alert going forward.
+  }
+}
+
+function subscribeToDriverAlerts() {
+  if (alertSubscription || !currentDriver) return;
+  alertSubscription = db.channel('driver-alerts')
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'driver_alerts'
+    }, payload => {
+      if (payload.new.driver_id !== currentDriver.id) return;
+      if (payload.new.acknowledged_at) return;
+      if (_driverAlerts.find(a => a.id === payload.new.id)) return;
+      _driverAlerts.push(payload.new);
+      renderDriverAlertStack();
+    })
+    .subscribe(status => {
+      console.log('Driver alerts channel:', status);
+      // Mirrors the D-M5 recovery-reload pattern used for messages/stops —
+      // catch anything inserted in the gap before this subscription was live.
+      if (status === 'SUBSCRIBED') loadPendingDriverAlerts();
+    });
+}
+
+function _driverAlertCardClass(kind) {
+  if (kind === 'bag_exception') return 'exception';
+  if (kind === 'resolved_notice') return 'notice';
+  return 'routine'; // routine_reassignment + any future kind default to the calm variant
+}
+
+function _driverAlertBtnLabel(kind) {
+  if (kind === 'bag_exception') return 'Got it — add to my route';
+  return 'Got it';
+}
+
+function renderDriverAlertStack() {
+  const el = document.getElementById('driver-alert-stack');
+  if (!el) return;
+  el.innerHTML = _driverAlerts.map(a => `
+    <div class="driver-alert-card ${_driverAlertCardClass(a.kind)}">
+      <div class="driver-alert-top">
+        <span class="driver-alert-icon">●</span>
+        <div class="driver-alert-text">
+          <div class="driver-alert-title">${a.title}</div>
+          <div class="driver-alert-body">${a.body}</div>
+        </div>
+      </div>
+      <button class="driver-alert-btn" onclick="acknowledgeDriverAlert('${a.id}')">${_driverAlertBtnLabel(a.kind)}</button>
+    </div>
+  `).join('');
+}
+
+async function acknowledgeDriverAlert(id) {
+  const idx = _driverAlerts.findIndex(a => a.id === id);
+  if (idx < 0) return;
+  const [removed] = _driverAlerts.splice(idx, 1);
+  renderDriverAlertStack(); // optimistic — acknowledging should feel instant
+  try {
+    const { error } = await db.from('driver_alerts')
+      .update({ acknowledged_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+    // A bag-exception alert means a stop just landed on this driver's route —
+    // make sure Home/Route reflect it immediately rather than waiting on the
+    // separate route_stops realtime event.
+    if (removed.kind === 'bag_exception' || removed.kind === 'routine_reassignment') {
+      loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
+    }
+  } catch (e) {
+    console.error('acknowledgeDriverAlert:', e);
+    // Roll back so the driver doesn't lose the banner on a network hiccup
+    _driverAlerts.splice(idx, 0, removed);
+    renderDriverAlertStack();
+    toast("Couldn't dismiss — check your connection and try again");
+  }
+}
+
+/* ──────────────────────────────
    DEBOUNCED RESORT — when optimizer updates many stops at once,
    batch the re-sort + re-render into a single UI update.
    ────────────────────────────── */
@@ -4200,7 +4623,14 @@ function debouncedResort() {
 ────────────────────────────── */
 function refreshStopsQuietly() {
   if (!appReady || !currentDriver || _dataLoading || document.visibilityState !== 'visible') return;
-  loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(() => {});
+  loadDriverData().then(() => {
+    renderHome(); renderRoute();
+    // Session 193: catches a new shift period opening while the app stays open
+    // across a split AM/PM shift (no fresh login to hang the initial gate check
+    // on). No-op if the gate is already up, or every period today is already
+    // cleared / not yet in its pre-window.
+    if (!_bagGateActive) maybeShowBagGate();
+  }).catch(() => {});
 }
 let _refreshLoopWired = false;
 function startStopRefreshLoop() {
@@ -4516,12 +4946,24 @@ async function _handleDriverSession(event, session) {
     if (loadFailed && !cached) { appReady = false; _sessionLoading = false; return; }
     appReady = true;
     _sessionLoading = false;
-    document.getElementById('bottom-nav').style.display = 'flex';
     initPhotoQueue(); // Resume any pending photo uploads from previous session
     subscribeToDriverMessages();
     subscribeToRouteStopUpdates();
+    subscribeToDriverAlerts();
+    loadPendingDriverAlerts();
     startStopRefreshLoop(); // foreground + slow-interval fallback for missed realtime events
-    goTo('home');
+    // Mandatory bag-check gate (session 193): shows a full-screen checklist for
+    // the driver's current shift period before they can reach Home, unless
+    // they've already cleared it or there's nothing to check. Fails open — if
+    // anything goes wrong it resolves false and normal navigation proceeds.
+    // The bottom nav stays hidden until the gate is cleared (or was never
+    // needed) — showing it earlier would let a driver tap away and bypass the
+    // mandatory check entirely (goTo() also blocks this as a second layer).
+    const gateShown = await maybeShowBagGate();
+    if (!gateShown) {
+      document.getElementById('bottom-nav').style.display = 'flex';
+      goTo('home');
+    }
     // Start live GPS tracking if driver has any active routes today
     if (todayRoutes.length) startGpsTracking();
     if (cached) loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);

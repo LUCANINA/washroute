@@ -2030,6 +2030,13 @@
           <div style="background:white;border-radius:12px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
             <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Reassign Stop</div>
             <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="reassign-stop-desc">Assign this stop to a specific driver</div>
+            <!-- Session 193: shown only when the stop's bag is flagged missing. Reminds the
+                 admin that picking a driver here resolves the exception (clears the flag,
+                 alerts the picked driver with the red banner, and notifies the original
+                 driver it's found) rather than just an ordinary reassignment. -->
+            <div id="reassign-bag-callout" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12.5px;color:#991b1b;line-height:1.5">
+              <strong>Bag flagged missing.</strong> Picking a driver below marks this resolved and sends them an alert that they may already have this bag.
+            </div>
             <div class="form-group">
               <label class="form-label">Assign to Driver</label>
               <select class="form-input" id="reassign-driver-select">
@@ -8267,22 +8274,38 @@
     </tbody></table>`;
   }
 
-  // ── Bags Not On Rack (session 191) ──
+  // ── Bags Not On Rack (session 191, reassign-to-resolve added session 193) ──
   // Surfaces delivery stops the driver flagged "Missing" during their pre-departure
   // rack check (driver-app's Bag Check UI, session 31 — previously localStorage-only
   // and invisible to admin). Clears itself once the driver un-flags the bag or the
-  // stop leaves pending/en_route (delivered, skipped, failed).
+  // stop leaves pending/en_route (delivered, skipped, failed). "Reassign" resolves
+  // the exception via resolve_missing_bag_and_reassign (session 193) instead of a
+  // plain driver_id update, so the picked driver gets alerted and the original
+  // driver is told it's found. Also shows a short recently-resolved history below.
   async function loadBagCheckIssues() {
     const el = document.getElementById('bagcheck-missing-body');
     if (!el) return;
 
-    const { data, error } = await db.from('route_stops')
-      .select(`id, order_id, bag_checked_at,
-               routes!route_stops_route_id_fkey(route_templates(name)),
-               orders(id, order_number, delivery_window_start, customer_id, customers(first_name_cache, last_name_cache, phone_cache))`)
-      .eq('bag_check_status', 'missing')
-      .in('status', ['pending', 'en_route'])
-      .order('bag_checked_at', { ascending: false });
+    const [{ data, error }, resolvedRes] = await Promise.all([
+      db.from('route_stops')
+        .select(`id, order_id, driver_id, bag_checked_at,
+                 routes!route_stops_route_id_fkey(route_templates(name)),
+                 orders(id, order_number, delivery_window_start, customer_id, customers(first_name_cache, last_name_cache, phone_cache))`)
+        .eq('bag_check_status', 'missing')
+        .in('status', ['pending', 'en_route'])
+        .order('bag_checked_at', { ascending: false }),
+      db.from('route_stops')
+        .select(`id, order_id, bag_check_resolved_at, bag_check_resolved_by,
+                 orders(id, order_number, customer_id, customers(first_name_cache, last_name_cache)),
+                 drivers!route_stops_driver_id_fkey(profiles(first_name, last_name))`)
+        // Keyed off bag_check_resolved_at alone (not bag_check_status='found_elsewhere' too) —
+        // a later route move (reconcile_order_stops / reconcile_stop_route_on_run_change)
+        // resets bag_check_status to NULL but doesn't touch the resolved_at/resolved_by audit
+        // columns, and this history entry should survive that.
+        .not('bag_check_resolved_at', 'is', null)
+        .order('bag_check_resolved_at', { ascending: false })
+        .limit(10)
+    ]);
 
     if (error || !data) {
       el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load bag check status.</div>';
@@ -8290,15 +8313,14 @@
     }
 
     const badge = document.getElementById('bagcheck-count-badge');
-    if (!data.length) {
-      if (badge) badge.style.display = 'none';
-      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No bags flagged missing</div>';
-      return;
+    if (badge) {
+      if (data.length) { badge.textContent = `${data.length} bag${data.length !== 1 ? 's' : ''}`; badge.style.display = ''; }
+      else badge.style.display = 'none';
     }
 
-    if (badge) { badge.textContent = `${data.length} bag${data.length !== 1 ? 's' : ''}`; badge.style.display = ''; }
-
-    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Route</th><th>Delivery Window</th><th style="text-align:right">Action</th></tr></thead><tbody>
+    const missingHtml = !data.length
+      ? '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No bags flagged missing</div>'
+      : `<table><thead><tr><th>Order</th><th>Customer</th><th>Route</th><th>Delivery Window</th><th style="text-align:right">Action</th></tr></thead><tbody>
       ${data.map(s => {
         const o = s.orders;
         const cust = o?.customers;
@@ -8306,17 +8328,50 @@
         const routeName = s.routes?.route_templates?.name || 'Route';
         const windowStr = o?.delivery_window_start ? fmtDate(o.delivery_window_start) : '—';
         const clickable = o?.id ? `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"` : '';
+        const stopDescRaw = `${name} · ${o?.order_number ? '#' + o.order_number : ''} — bag flagged missing`;
         return `<tr ${clickable}>
           <td class="td-mono">${o?.order_number ? '#' + o.order_number : '—'}</td>
           <td class="td-name">${esc(name)}</td>
           <td style="font-size:12px;color:var(--gray-600)">${esc(routeName)}</td>
           <td style="font-size:12px">${windowStr}</td>
           <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px" onclick="reassignMissingBag('${s.id}',${escAttrJSArg(stopDescRaw)},${s.driver_id ? `'${s.driver_id}'` : 'null'})">Reassign</button>
             <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o?.id}'),150)">View →</button>
           </td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
+
+    const resolvedData = resolvedRes?.data || [];
+    const resolvedHtml = resolvedData.length ? `
+      <div style="padding:14px 20px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-400)">Recently resolved</div>
+      <table><thead><tr><th>Order</th><th>Customer</th><th>Resolved to</th><th>When</th></tr></thead><tbody>
+      ${resolvedData.map(s => {
+        const o = s.orders;
+        const cust = o?.customers;
+        const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
+        const drv = Array.isArray(s.drivers) ? s.drivers[0] : s.drivers;
+        const p = drv?.profiles ? (Array.isArray(drv.profiles) ? drv.profiles[0] : drv.profiles) : null;
+        const driverName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Driver';
+        const when = s.bag_check_resolved_at ? fmtDate(s.bag_check_resolved_at) : '—';
+        return `<tr>
+          <td class="td-mono">${o?.order_number ? '#' + o.order_number : '—'}</td>
+          <td class="td-name">${esc(name)}</td>
+          <td style="font-size:12px;color:var(--gray-600)">${esc(driverName)}</td>
+          <td style="font-size:12px;color:var(--gray-500)">${when}${s.bag_check_resolved_by ? ' · ' + esc(s.bag_check_resolved_by) : ''}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table>` : '';
+
+    el.innerHTML = missingHtml + resolvedHtml;
+  }
+
+  // Ensures the driver list is loaded before opening the reassign modal from this
+  // widget — unlike the RCC map view (where allDriversCache is warmed on page load),
+  // Overview may be the first page an admin visits this session.
+  async function reassignMissingBag(stopId, stopDesc, currentDriverId) {
+    if (!allDriversCache.length) { try { await loadAllDriversCache(); } catch (e) {} }
+    openReassignDriver(stopId, stopDesc, currentDriverId, true);
   }
 
   // ── CUSTOMERS ──
@@ -25014,9 +25069,10 @@ ${oneCopy}
   // ── REASSIGN STOP TO DRIVER ──
   let reassignStopId = null;
 
-  function openReassignDriver(stopId, stopDesc, currentDriverId) {
+  function openReassignDriver(stopId, stopDesc, currentDriverId, isBagMissing) {
     reassignStopId = stopId;
     document.getElementById('reassign-stop-desc').textContent = stopDesc;
+    document.getElementById('reassign-bag-callout').style.display = isBagMissing ? 'block' : 'none';
     const sel = document.getElementById('reassign-driver-select');
     sel.innerHTML = `<option value="">— Route's default driver —</option>` +
       allDriversCache.map(d => {
@@ -25035,11 +25091,31 @@ ${oneCopy}
     const driverId = (!selectedVal || selectedVal === routeLiveDefaultDriverId) ? null : selectedVal;
     document.getElementById('reassign-driver-modal').style.display = 'none';
     try {
-      await db.from('route_stops').update({ driver_id: driverId }).eq('id', reassignStopId);
-      const driverName = driverId ? (allDriversCache.find(d => d.id === driverId)?.name || 'Driver') : 'route default';
-      showToast(`✓ Stop reassigned to ${driverName}`);
-      // Refresh any open RCC columns that contain this stop
+      if (driverId) {
+        // Session 193: explicit reassignment to a named driver routes through
+        // resolve_missing_bag_and_reassign so the new driver gets an in-app
+        // alert (routine banner normally; the red bag-exception banner if this
+        // stop's bag was flagged missing — in which case the flag also clears
+        // and the original driver gets a "found" notice). Reverting to the
+        // route's default driver (below) has no one specific to notify, so it
+        // keeps using the plain update.
+        const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+        const { data: rpcRes, error } = await db.rpc('resolve_missing_bag_and_reassign', {
+          p_stop_id: reassignStopId, p_new_driver_id: driverId, p_actor_name: actorName
+        });
+        if (error) throw error;
+        const driverName = allDriversCache.find(d => d.id === driverId)?.name || 'Driver';
+        showToast(rpcRes?.was_bag_exception
+          ? `✓ Bag exception resolved — reassigned to ${driverName}`
+          : `✓ Stop reassigned to ${driverName}`);
+      } else {
+        await db.from('route_stops').update({ driver_id: null }).eq('id', reassignStopId);
+        showToast(`✓ Stop reassigned to route default`);
+      }
+      // Refresh any open RCC columns that contain this stop, plus the Overview
+      // widget in case this reassignment resolved a missing-bag exception
       _rccActiveRoutes.forEach(routeId => rccRefreshRoute(routeId));
+      if (document.getElementById('bagcheck-missing-body')) loadBagCheckIssues();
     } catch(e) {
       showToast('Reassign failed: ' + e.message, 'error');
     }
