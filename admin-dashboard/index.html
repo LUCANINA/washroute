@@ -8342,7 +8342,10 @@
       }).join('')}
     </tbody></table>`;
 
-    const resolvedData = resolvedRes?.data || [];
+    // Session 187 pt 2 QA fix: this query's error was previously never checked, so a
+    // failed fetch silently rendered as "nothing resolved yet" instead of surfacing.
+    if (resolvedRes?.error) console.error('loadBagCheckIssues (resolved history):', resolvedRes.error);
+    const resolvedData = (!resolvedRes?.error && resolvedRes?.data) || [];
     const resolvedHtml = resolvedData.length ? `
       <div style="padding:14px 20px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-400)">Recently resolved</div>
       <table><thead><tr><th>Order</th><th>Customer</th><th>Resolved to</th><th>When</th></tr></thead><tbody>
@@ -25077,7 +25080,9 @@ ${oneCopy}
     sel.innerHTML = `<option value="">— Route's default driver —</option>` +
       allDriversCache.map(d => {
         const isDefault = d.id === routeLiveDefaultDriverId;
-        const label = isDefault ? `${d.name} (route default)` : d.name;
+        // Session 187 pt 2 QA fix: was interpolated unescaped, inconsistent with esc()
+        // usage elsewhere in this file.
+        const label = isDefault ? `${esc(d.name)} (route default)` : esc(d.name);
         const selected = d.id === currentDriverId ? 'selected' : '';
         return `<option value="${d.id}" ${selected}>${label}</option>`;
       }).join('');

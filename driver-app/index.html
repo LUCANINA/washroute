@@ -1790,6 +1790,12 @@ function toast(msg, dur = 2600) {
 }
 
 function showScreen(id) {
+  // Session 187 pt 2 QA fix: enforce the mandatory bag-check gate here, not just in
+  // goTo(). Several call sites (realtime postgres_changes handlers, openStop, etc.)
+  // call showScreen() directly and previously bypassed goTo()'s guard entirely.
+  // 'bag-gate' is the gate itself; 'auth' is exempt so sign-out / session-loss can
+  // always reach the login screen even if the gate flag is (or was left) active.
+  if (_bagGateActive && id !== 'bag-gate' && id !== 'auth') return;
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   // Also hide the message thread overlay when navigating away
   const threadScreen = document.getElementById('screen-msg-thread');
@@ -2462,6 +2468,10 @@ async function doSignOut() {
   todayRoutes = []; allStops = []; pendingOrders = []; upcomingRoutes = []; activeRouteFilter = null;
   allAdminMessages = []; allCustomerSms = []; unreadCount = 0; _msgActiveThread = null; _msgCustomerMap = {};
   _driverAlerts = [];
+  // Session 187 pt 2 QA fix: these are module-level and previously survived sign-out
+  // (no page reload in this SPA), which could soft-lock navigation on the next login
+  // if the driver signed out while the gate was up.
+  _bagGateActive = false; _bagGatePeriod = null; _bagGateStops = [];
   renderDriverAlertStack();
   document.getElementById('bottom-nav').style.display = 'none';
   showScreen('auth');
@@ -4547,6 +4557,17 @@ function _driverAlertBtnLabel(kind) {
   return 'Got it';
 }
 
+// Session 187 pt 2 QA fix: driver-app had no HTML-escaping helper anywhere. This one
+// exists specifically to protect driver_alerts title/body, which is built server-side
+// from customer name fields (customers.first_name_cache/last_name_cache) that are not
+// sanitized on write — escaping here is the single choke point covering every current
+// and future writer of driver_alerts before it hits innerHTML.
+function _escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
 function renderDriverAlertStack() {
   const el = document.getElementById('driver-alert-stack');
   if (!el) return;
@@ -4555,8 +4576,8 @@ function renderDriverAlertStack() {
       <div class="driver-alert-top">
         <span class="driver-alert-icon">●</span>
         <div class="driver-alert-text">
-          <div class="driver-alert-title">${a.title}</div>
-          <div class="driver-alert-body">${a.body}</div>
+          <div class="driver-alert-title">${_escHtml(a.title)}</div>
+          <div class="driver-alert-body">${_escHtml(a.body)}</div>
         </div>
       </div>
       <button class="driver-alert-btn" onclick="acknowledgeDriverAlert('${a.id}')">${_driverAlertBtnLabel(a.kind)}</button>
@@ -4971,6 +4992,9 @@ async function _handleDriverSession(event, session) {
     stopGpsTracking(); // Stop sending location when signed out
     appReady = false;
     currentUser = currentProfile = currentDriver = null;
+    // Session 187 pt 2 QA fix: same stale-gate-flag reset as doSignOut(), for the
+    // "session disappeared out from under us" path (expired token, revoked session).
+    _bagGateActive = false; _bagGatePeriod = null; _bagGateStops = [];
     document.getElementById('bottom-nav').style.display = 'none';
     showScreen('auth');
   }
