@@ -6805,10 +6805,10 @@ async function saveEditOrder() {
   //      • repoints route_stops for any leg whose route_id changed
   //      • logs attributed `rescheduled` + `routed` events per leg that moved
   //
-  //    Response carries `pickup_changed` / `delivery_changed` so we still
-  //    fire the right per-leg SMS (session 136 Ja'Naie #3117 lesson).
-  let _pickupRescheduled   = false;
-  let _deliveryRescheduled = false;
+  //    Session 189: the reschedule SMS itself now fires from inside the RPC,
+  //    gated on the window actually moving (not just `pickup_changed` /
+  //    `delivery_changed`, which are also true for a route-only reassignment
+  //    where the time didn't move) — so no client-side firing needed here.
 
   // Build pickup args (only set them if pickup is actually changing).
   const _pickupArgs = _pickupRpcNeeded ? {
@@ -6853,8 +6853,8 @@ async function saveEditOrder() {
       toast('Schedule could not be saved: ' + rErr.message);
       return;
     }
-    _pickupRescheduled   = !!rescheduleResult?.pickup_changed;
-    _deliveryRescheduled = !!rescheduleResult?.delivery_changed;
+    // Session 189: reschedule_order fires schedule_changed/delivery_rescheduled
+    // itself when a leg's window actually moved — no client-side firing needed.
   }
 
   document.getElementById('edit-order-modal')?.remove();
@@ -6862,24 +6862,6 @@ async function saveEditOrder() {
   window._cachedOrders = (window._cachedOrders || []).map(ord =>
     ord.id === orderId ? { ...ord, total_bags: bags, special_instructions: instructions, total_amount: total } : ord
   );
-
-  // Notify customer per leg that actually moved. When BOTH change in one edit
-  // the customer gets BOTH messages so they see what's happening on each side.
-  // Each fire is best-effort; SMS errors don't block the UI.
-  if (_pickupRescheduled) {
-    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-      body: JSON.stringify({ orderId, event: 'schedule_changed' })
-    }).catch(() => {});
-  }
-  if (_deliveryRescheduled) {
-    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-      body: JSON.stringify({ orderId, event: 'delivery_rescheduled' })
-    }).catch(() => {});
-  }
 
   openDetail(orderId);
 }

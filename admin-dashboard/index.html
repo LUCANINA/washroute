@@ -10614,11 +10614,15 @@
     const statusLabel = _OP_STATUS_LABELS[newStatus] || newStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
     const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
     const cancelStatuses = new Set(['skipped','cancelled','pickup_failed','delivery_failed']);
+    // Session 189: p_notify_sms:false — this is a manual admin override, not a
+    // real driver action, so it must not text the customer (session 167 rule,
+    // now enforced inside the RPC instead of by convention per call site).
     const { error } = await db.rpc('advance_order_status', {
       p_order_id:     opCurrentOrderId,
       p_new_status:   newStatus,
       p_actor_name:   actorName,
       p_cancelled_by: cancelStatuses.has(newStatus) ? 'admin' : null,
+      p_notify_sms:   false,
     });
     if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
     // Mirror the RPC's effects into the local cache
@@ -10958,26 +10962,11 @@
     ).join('');
   }
 
-  // Helper: fire the customer-facing reschedule SMS for one leg, but only if the
-  // window actually moved. Used by every admin path that calls reschedule_order_leg
-  // (opSaveRouteAndSlot, selectSpSlot, confirmReassignRun, rccDrop, confirmMoveStop).
-  // Session 136 audit found 4 of 5 paths sent no SMS at all — admin reshuffles
-  // could silently move a customer's window with no notification. The "compare
-  // old vs new" gate avoids spam when the auto-snap landed on the same slot.
-  async function _maybeNotifyReschedule(orderId, leg, oldStartIso, newStartIso) {
-    if (!orderId || !leg || !newStartIso) return;
-    const oldMs = oldStartIso ? new Date(oldStartIso).getTime() : null;
-    const newMs = new Date(newStartIso).getTime();
-    if (oldMs === newMs) return; // window unchanged — no SMS
-    const event = leg === 'delivery' ? 'delivery_rescheduled' : 'schedule_changed';
-    try {
-      await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
-        body: JSON.stringify({ orderId, event })
-      });
-    } catch (_) { /* best-effort */ }
-  }
+  // Session 189: the reschedule-SMS gate that used to live here
+  // (_maybeNotifyReschedule — "only text if the window actually moved") now
+  // lives inside the reschedule_order RPC itself, using the before/after
+  // values it already has. Every caller of reschedule_order_leg (below) gets
+  // this for free — no client-side call needed.
 
   async function opSaveRouteAndSlot(leg, routeId, startIso, endIso, btn) {
     if (btn) {
@@ -11051,10 +11040,8 @@
     }
 
     // Notify customer of schedule change if the time window actually moved.
-    // This now also catches the auto-snap case (admin reassigned route only,
-    // RPC snapped window to new template's first sub-window) where the customer
-    // sees a different time even though admin didn't pick a slot explicitly.
-    _maybeNotifyReschedule(opCurrentOrderId, leg, _oldWindowStart, rpcRes?.window_start);
+    // Session 189: reschedule SMS now fires from inside the reschedule_order_leg
+    // RPC itself (gated on the window actually moving), so no client call needed here.
 
     // Silently re-optimize the route in the background now that a new stop was added
     autoOptimizeRoute(routeId);
@@ -12371,14 +12358,16 @@ ${oneCopy}
       // Session 135: advance_order_status RPC handles timestamps, cancelled_by (for skip/cancel/fail), and events atomically
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
       const _cancel = ['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus) ? 'admin' : null;
+      // Session 167: admin batch Set-Status is an override tool — no customer SMS
+      // (session 189: now enforced inside the RPC via p_notify_sms:false).
       const { error } = await db.rpc('advance_order_status', {
         p_order_id:     s.id,
         p_new_status:   newStatus,
         p_actor_name:   _actor,
         p_cancelled_by: _cancel,
+        p_notify_sms:   false,
       });
       if (!error) succeeded++;
-      // Session 167: admin batch Set-Status is an override tool — no customer SMS.
     }
     const extra = chargeCount > 0 ? ` · ${chargeCount} charged` : '';
     showToast(`✓ ${succeeded} order${succeeded>1?'s':''} → ${label}${extra}`);
@@ -12418,12 +12407,15 @@ ${oneCopy}
         if (_cor.outcome === 'charged')     chargeNeeded++;
         else if (_cor.outcome === 'failed') chargeFailedCount++;
       }
-      // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically
+      // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically.
+      // Session 189: p_notify_sms:false — admin batch-advance is a manual override tool, not a
+      // real driver action, so it must not text the customer (session 167 rule).
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
       const { error } = await db.rpc('advance_order_status', {
         p_order_id:   s.id,
         p_new_status: nextStatus,
         p_actor_name: _actor,
+        p_notify_sms: false,
       });
       if (!error) succeeded++;
     }
@@ -12595,17 +12587,19 @@ ${oneCopy}
       // Session 135: advance_order_status RPC handles timestamps + cancelled_by + events atomically
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
       const _cancel = ['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus) ? 'admin' : null;
+      // Session 167: admin Set-Status is an override tool — no customer SMS.
+      // SMS for picked_up/out_for_delivery/delivered fires from the driver-app
+      // when the actual driver action occurs (correct time, location, identity).
+      // Session 189: this is now enforced inside the RPC via p_notify_sms:false.
       const { error } = await db.rpc('advance_order_status', {
         p_order_id:     orderId,
         p_new_status:   newStatus,
         p_actor_name:   _actor,
         p_cancelled_by: _cancel,
+        p_notify_sms:   false,
       });
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} → ${label}`);
-      // Session 167: admin Set-Status is an override tool — no customer SMS.
-      // SMS for picked_up/out_for_delivery/delivered fires from the driver-app
-      // when the actual driver action occurs (correct time, location, identity).
     }
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
@@ -12656,7 +12650,7 @@ ${oneCopy}
       p_actor_name:   actorName,
     });
     if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
-    _maybeNotifyReschedule(_rescheduleOrderId, _rescheduleLeg, _oldStart, rpcRes?.window_start);
+    // Session 189: reschedule SMS now fires from inside the RPC itself.
     closeReassignModal();
     const snapNote = rpcRes?.auto_snapped ? ' (window auto-adjusted to new template)' : '';
     showToast(`✓ Order #${_rescheduleOrderNum} rescheduled${snapNote}`);
@@ -13808,23 +13802,21 @@ ${oneCopy}
         else if (_cor.outcome === 'on_account') showToast(`📋 Order #${orderNum} — On Account · ${fmtMoney(_cor.billTotal)} added to balance`, 'success');
         else if (_cor.outcome === 'charged')    showToast(`💳 Order #${orderNum} charged — ${_cor.card}`);
       }
-      // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically
+      // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically.
+      // Session 189: p_notify_sms:false — this is a manual admin override (the "Advance" button
+      // on the order card), not a real driver action, so per the session 167 rule it must not
+      // text the customer for picked_up/out_for_delivery/delivered. Previously this function
+      // fired that SMS itself, inconsistently with every other admin override path — fixed here
+      // by aligning with the rule instead of special-casing it.
       const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
       const { error } = await db.rpc('advance_order_status', {
         p_order_id:   orderId,
         p_new_status: newStatus,
         p_actor_name: _actor,
+        p_notify_sms: false,
       });
       if (error) throw new Error(error.message);
       showToast(`Order #${orderNum} → ${label}`);
-      // Fire SMS for customer-facing status milestones (best-effort)
-      if (['picked_up','out_for_delivery','delivered'].includes(newStatus)) {
-        fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
-          body: JSON.stringify({ orderId, event: newStatus })
-        }).catch(() => {});
-      }
       // Session 167: fire receipt when we hit ready_for_delivery (after the charge step).
       // The auto-receipt that fires from the racking flow doesn't run when admin advances
       // straight from processing to ready_for_delivery, so subscriber/$0 orders never got
@@ -21672,7 +21664,7 @@ ${oneCopy}
       showToast('Failed to save: ' + error.message, 'error');
       return;
     }
-    _maybeNotifyReschedule(_spOrderId, 'pickup', _oldStart, rpcRes?.window_start || startIso);
+    // Session 189: reschedule SMS now fires from inside the RPC itself.
     showToast(`✓ Order #${_spOrderNum} → ${fmtDate(startIso)} · ${fmtSlot(startIso, endIso)}`, 'success');
     closeSlotPicker();
     // Refresh open views
@@ -24183,7 +24175,7 @@ ${oneCopy}
           p_actor_name:   actorName,
         });
         if (rpcErr) throw rpcErr;
-        _maybeNotifyReschedule(orderId, stop.stop_type, _oldStart, rpcRes?.window_start);
+        // Session 189: reschedule SMS now fires from inside the RPC itself.
 
         // Local cache sync — RPC updated orders.run_id atomically
         const runField = stop.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
@@ -24378,12 +24370,15 @@ ${oneCopy}
           p_leg:          s.stopType,
           p_new_route_id: targetRouteId,
           p_actor_name:   actorName,
+          // Session 189b: this modal has its own explicit "Text customers" checkbox
+          // (default off — routing-only moves shouldn't spam by default). p_notify
+          // lets the RPC's own window-changed gate be overridden by that choice.
+          p_notify:       notify,
         });
         if (rpcErr) throw rpcErr;
         nextNum += 1;
         await db.from('route_stops').update({ stop_number: nextNum }).eq('id', s.stopId);
         affected.add(s.routeId);
-        if (notify) _maybeNotifyReschedule(s.orderId, s.stopType, s.currentWindowStart, rpcRes?.window_start);
         moved++;
       } catch (e) { failed++; }
     }
@@ -24628,12 +24623,8 @@ ${oneCopy}
         continue;
       }
       succeeded++;
-
-      // Reuse the same notify helper every other admin reschedule path uses —
-      // it picks the right event name per leg (`schedule_changed` for pickup,
-      // `delivery_rescheduled` for delivery) and gates on actual window change
-      // so the customer doesn't get a no-op SMS when nothing visible moved.
-      _maybeNotifyReschedule(s.orderId, _rccRsLeg, s.currentWindowStart, newStart);
+      // Session 189: reschedule SMS now fires from inside the RPC itself,
+      // gated on the window actually moving.
     }
 
     rccCloseRescheduleModal();
@@ -25040,7 +25031,7 @@ ${oneCopy}
           p_actor_name:   actorName,
         });
         if (rpcErr) throw rpcErr;
-        _maybeNotifyReschedule(stopData.order_id, stopData.stop_type, _oldStart, rpcRes?.window_start);
+        // Session 189: reschedule SMS now fires from inside the RPC itself.
       }
 
       // Layered: stop_number for ordering on the destination route (RPC doesn't manage)

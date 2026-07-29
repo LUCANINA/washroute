@@ -3922,15 +3922,10 @@ async function completeStop(stopId, stopType) {
     }
   }
 
-  // Fire SMS notification (best-effort, non-blocking).
-  if (stop?.orders?.id) {
-    const smsEvent = stopType === 'pickup' ? 'picked_up' : 'delivered';
-    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-      body: JSON.stringify({ orderId: stop.orders.id, event: smsEvent })
-    }).catch(() => {});
-  }
+  // Session 189: SMS now fires from inside the complete_route_stop RPC itself
+  // (via advance_order_status), not as a separate client-side call — a dropped
+  // network request here used to mean the DB said "delivered" but the customer
+  // never got a text, with nothing surfacing the failure.
 
   // Re-render with updated state
   const updated = allStops.find(s => s.id === stopId);
@@ -4005,15 +4000,8 @@ async function cantCompleteStop(stopId) {
     allStops[idx].driver_notes = (stop.driver_notes ? stop.driver_notes + ' | ' : '') + noteSuffix;
     if (stop?.orders?.id && rpcRes?.new_order_status) {
       allStops[idx].orders.status = rpcRes.new_order_status;
-      // Notify customer via SMS (matching template) — fire-and-forget.
-      const failedEvent = isPickup ? 'pickup_failed' : 'delivery_failed';
-      try {
-        await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-          body: JSON.stringify({ orderId: stop.orders.id, event: failedEvent })
-        });
-      } catch(e) { console.warn('Notification failed:', e); }
+      // Session 189: SMS now fires from inside skip_route_stop's internal
+      // advance_order_status call — no separate client-side fetch needed.
     }
   }
 
