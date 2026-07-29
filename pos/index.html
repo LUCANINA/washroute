@@ -5076,23 +5076,12 @@
       return;
     }
 
-    // session 114: When the attendant flips an order to ready_for_delivery,
-    // text the customer "your laundry is ready for pickup". Uses the hydrated
-    // cache built by loadWalkInQueue() for the phone guard, so we can skip
-    // the round-trip if we already know there's no phone on file.
-    // Fire-and-forget — a send failure must not block the status update.
-    //
-    // Session 149: gated on source='walk_in' so commercial delivery orders
-    // processed at Foothill don't get "ready for counter pickup" texts —
-    // those bags are headed onto a driver's truck, not the customer's car.
-    // Session 155: helper now takes orderId only — server handles template
-    // lookup, phone, interpolation, Twilio, logging.
-    if (newStatus === 'ready_for_delivery') {
-      const cachedOrder = (queueOrders || []).find(o => o.id === orderId);
-      if (cachedOrder && cachedOrder.source === 'walk_in' && cachedOrder._customerPhone) {
-        sendPosTemplateSms('walkin_order_ready', cachedOrder.id);
-      }
-    }
+    // session 114: originally fired the "your laundry is ready for pickup"
+    // text from here directly. Session 183: moved server-side into the
+    // advance_order_status RPC itself (fires for ANY caller that flips a
+    // source='walk_in' order to ready_for_delivery — POS, admin dashboard,
+    // batch actions — not just this button). Removed here to avoid a
+    // duplicate text. See PROJECT-NOTES session 183.
 
     // Refresh the queue
     await loadWalkInQueue();

@@ -27679,10 +27679,6 @@ ${oneCopy}
     const rackName   = _rackLabel;
     const movedId    = _orderId;
     const orderNum   = _orderNum;
-    const isWalkIn   = rackActiveOrder.source === 'walk_in';
-    const custPhone  = rackActiveOrder.customers?.phone_cache || null;
-    const custFirst  = rackActiveOrder.customers?.first_name_cache || 'there';
-    const custId     = rackActiveOrder.customers?.id || null;
     const chargeFailed = rackActiveOrder.billing_status === 'failed';
     closeRackPanel();
     // Instant removal from source column
@@ -27704,20 +27700,13 @@ ${oneCopy}
         body: JSON.stringify({ order_id: movedId }),
       }).catch(e => console.warn('Auto email receipt failed:', e));
     }
-    // Auto-SMS for walk-in orders: notify customer their laundry is ready for pickup
-    if (isWalkIn && custPhone) {
-      // Normalize to E.164 — DB stores plain digits (e.g. 4156085446), Twilio needs +14156085446
-      const toE164  = custPhone.startsWith('+') ? custPhone : `+1${custPhone.replace(/\D/g,'')}`;
-      const smsBody = `Hi ${custFirst}! Your laundry is ready for pickup. See you soon! — Family Laundry`;
-      fetch(`${SUPA_URL}/functions/v1/send-sms`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${await _staffJwt()}` },
-        body: JSON.stringify({ to: toE164, body: smsBody, customer_id: custId }),
-      }).then(r => r.json()).then(res => {
-        if (res.success) showToast(`📱 Pickup text sent to ${custFirst}`, 'success');
-        else console.warn('SMS failed:', res.error);
-      }).catch(err => console.warn('SMS error:', err));
-    }
+    // Session 183: the walk-in "ready for pickup" text used to fire from here
+    // directly (hardcoded message, and silently 403'd for laundry_tech-role
+    // staff since send-sms excludes that role). It's now handled server-side
+    // by the advance_order_status RPC for every caller uniformly — via the
+    // editable `walkin_order_ready` message_templates row, sent as
+    // service_role so no staff-role gap is possible. Removed here to avoid
+    // sending the customer a duplicate text. See PROJECT-NOTES session 183.
   }
 
   // ── PROCESSING ──
