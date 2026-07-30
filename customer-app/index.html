@@ -832,6 +832,7 @@
     .sub-home-status.active { background: rgba(16,185,129,.2); color: #34d399; }
     .sub-home-status.paused { background: rgba(251,191,36,.2); color: #fbbf24; }
     .sub-home-status.past_due { background: rgba(248,113,113,.2); color: #f87171; }
+    .sub-home-status.trialing { background: rgba(129,140,248,.2); color: #a5b4fc; } /* session 190 — scheduled future start */
     .sub-dunning-banner { display:none; margin-top:12px; background:rgba(248,113,113,.15); border:1px solid rgba(248,113,113,.3); border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.4; }
     .sub-dunning-banner .dunning-title { font-weight:600; color:#f87171; margin-bottom:4px; }
     .sub-dunning-banner .dunning-text { color:rgba(255,255,255,.85); }
@@ -3235,12 +3236,13 @@ async function renderHomeSubscriptionCard() {
   if (!SUBSCRIPTIONS_ENABLED()) { if (card) card.style.display = 'none'; return; }
   if (!card || !currentCustomer?.id) { if (card) card.style.display = 'none'; return; }
 
-  // Fetch the customer's active subscription (active, paused, or past_due — not cancelled)
+  // Fetch the customer's active subscription (active, paused, past_due, or a
+  // scheduled future-start subscription still in its trial — not cancelled).
   const { data: subs } = await db
     .from('subscriptions')
     .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb)')
     .eq('customer_id', currentCustomer.id)
-    .in('status', ['active', 'paused', 'past_due'])
+    .in('status', ['active', 'paused', 'past_due', 'trialing'])
     .order('created_at', { ascending: false })
     .limit(1);
 
@@ -3263,7 +3265,9 @@ async function renderHomeSubscriptionCard() {
 
   // Status badge
   const statusEl = document.getElementById('home-sub-status');
-  statusEl.textContent = sub.status === 'past_due' ? 'Past Due' : sub.status.charAt(0).toUpperCase() + sub.status.slice(1);
+  statusEl.textContent = sub.status === 'past_due' ? 'Past Due'
+    : sub.status === 'trialing' ? 'Scheduled'  // session 190 — not started yet
+    : sub.status.charAt(0).toUpperCase() + sub.status.slice(1);
   statusEl.className = 'sub-home-status ' + sub.status;
 
   // Usage numbers
@@ -3291,7 +3295,12 @@ async function renderHomeSubscriptionCard() {
   if (sub.current_period_end) {
     const d = new Date(sub.current_period_end);
     const dateLabel = d.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
-    if (sub.cancel_at_period_end) {
+    // Session 190 (Feature 2) — while trialing, current_period_end IS the customer's
+    // chosen start date (Stripe's trial_end), not a renewal date.
+    if (sub.status === 'trialing') {
+      renewEl.textContent = 'Starts on ' + dateLabel;
+      renewEl.style.color = '';
+    } else if (sub.cancel_at_period_end) {
       renewEl.textContent = 'Cancels on ' + dateLabel;
       renewEl.style.color = '#f87171';
     } else {
@@ -7205,6 +7214,11 @@ async function showSubscribeConfirm(planId) {
   const ovgRate = `$${Number(plan.overage_price_per_lb).toFixed(2)}/lb`;
   const pickups = plan.pickup_limit ? `${plan.pickup_limit} pickups/mo` : 'Unlimited pickups';
 
+  // Session 190 (Feature 2) — pick a start date up to 30 days out instead of always
+  // "charge now, start now". Pacific-anchored (BIZ_TZ), not the browser's local date.
+  const _subTodayIso = localIso();
+  const _subMaxIso = addDaysPacific(_subTodayIso, 30);
+
   // Build the overlay if it doesn't exist.
   let ov = document.getElementById('subconfirm-overlay');
   if (!ov) {
@@ -7234,10 +7248,15 @@ async function showSubscribeConfirm(planId) {
           <div style="font-size:14px;font-weight:600;color:var(--gray-900);margin-top:2px;">${escHtml(brandLabel)} •••• ${escHtml(last4)}</div>
         </div>
       </div>
+      <div style="margin-bottom:18px;">
+        <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px;">Start date</div>
+        <input type="date" id="subconfirm-startdate" value="${_subTodayIso}" min="${_subTodayIso}" max="${_subMaxIso}" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--gray-200);font-size:14px;box-sizing:border-box;">
+        <div style="font-size:11px;color:var(--gray-400);margin-top:6px;">Leave as today to start right away, or pick a date up to 30 days out — you won't be charged until then.</div>
+      </div>
       <div id="subconfirm-err" style="display:none;color:#dc2626;font-size:13px;margin-bottom:12px;padding:10px 12px;background:#fef2f2;border-radius:8px;"></div>
       <button id="subconfirm-go" onclick="confirmSubscribe('${planId}')" style="width:100%;background:var(--navy);color:#fff;border:none;padding:16px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">Subscribe — ${price}/mo</button>
       <button onclick="closeSubscribeConfirm()" style="width:100%;background:transparent;color:var(--gray-500);border:none;padding:12px;margin-top:6px;font-size:14px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;">Cancel</button>
-      <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:14px;line-height:1.5;">First month charged immediately. Renews monthly. Cancel anytime.</div>
+      <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:14px;line-height:1.5;">Charged on your chosen start date. Renews monthly. Cancel anytime.</div>
     </div>`;
   ov.style.display = 'flex';
 }
@@ -7257,13 +7276,16 @@ async function confirmSubscribe(planId) {
     const { data: { session } } = await db.auth.getSession();
     if (!session) throw new Error('Please sign in');
 
+    // Session 190 (Feature 2) — optional scheduled start date, blank/today = immediate.
+    const startDate = document.getElementById('subconfirm-startdate')?.value || null;
+
     const res = await fetch(`${SUPA_URL}/functions/v1/create-subscription`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ planId, customerId: currentCustomer.id }),
+      body: JSON.stringify({ planId, customerId: currentCustomer.id, startDate }),
     });
     const result = await res.json();
     if (!res.ok || result.error) {
@@ -7272,17 +7294,24 @@ async function confirmSubscribe(planId) {
       throw Object.assign(new Error(result.error || 'Subscribe failed'), { suggestUpdate });
     }
 
-    // Success. Webhook is racing to upsert the subscriptions row + flip pricelist.
-    // Close the modal, refresh user data, and run the pickup-day picker (post-Checkout flow).
+    // Success. Webhook is racing to upsert the subscriptions row + flip pricelist
+    // (the pricelist flip is skipped until the scheduled date if this is a
+    // future-dated subscription — see stripe-webhook session 190 notes).
     closeSubscribeConfirm();
-    toast('Subscription active 🎉', '');
+    if (result.scheduled_start_date) {
+      toast(`Subscription scheduled to start ${result.scheduled_start_date} 📅`, '');
+    } else {
+      toast('Subscription active 🎉', '');
+    }
 
     // Small delay so the webhook has time to insert the subscriptions row.
     await new Promise(r => setTimeout(r, 1500));
     await loadUserData();
-    // Refresh pricelist so getCustomerService picks up Subscription
-    if (currentCustomer) currentCustomer.pricelist = 'Subscription';
-    if (typeof showSubscriptionPickupPicker === 'function') {
+    // Refresh pricelist so getCustomerService picks up Subscription — only for an
+    // immediate start. A scheduled (trialing) subscription keeps normal pay-per-order
+    // pricing until the actual start date, so don't touch pricelist here.
+    if (currentCustomer && !result.scheduled_start_date) currentCustomer.pricelist = 'Subscription';
+    if (!result.scheduled_start_date && typeof showSubscriptionPickupPicker === 'function') {
       await showSubscriptionPickupPicker();
     } else {
       goTo('home');
@@ -7336,6 +7365,9 @@ async function showSubscribeNewCardModal(planId) {
   const lbs = plan.weight_limit_lbs;
   const ovgRate = `$${Number(plan.overage_price_per_lb).toFixed(2)}/lb`;
   const pickups = plan.pickup_limit ? `${plan.pickup_limit} pickups/mo` : 'Unlimited pickups';
+  // Session 190 (Feature 2) — same start-date picker as the saved-card modal.
+  const _subTodayIsoNC = localIso();
+  const _subMaxIsoNC = addDaysPacific(_subTodayIsoNC, 30);
 
   // Build or reset the overlay.
   let ov = document.getElementById('subnewcard-overlay');
@@ -7359,6 +7391,11 @@ async function showSubscribeNewCardModal(planId) {
         ✓ Free next-day delivery<br>
         ✓ Overage at ${ovgRate} above ${lbs} lbs
       </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px;">Start date</div>
+        <input type="date" id="subnewcard-startdate" value="${_subTodayIsoNC}" min="${_subTodayIsoNC}" max="${_subMaxIsoNC}" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--gray-200);font-size:14px;box-sizing:border-box;">
+        <div style="font-size:11px;color:var(--gray-400);margin-top:6px;">Leave as today to start right away, or pick a date up to 30 days out — you won't be charged until then.</div>
+      </div>
       <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:8px;">Payment</div>
       <div id="subnewcard-payment-element" style="border:1.5px solid var(--gray-200);border-radius:12px;padding:14px;margin-bottom:14px;min-height:60px;"></div>
       <div id="subnewcard-err" style="display:none;color:#dc2626;font-size:13px;margin-bottom:12px;padding:10px 12px;background:#fef2f2;border-radius:8px;"></div>
@@ -7366,7 +7403,7 @@ async function showSubscribeNewCardModal(planId) {
         <span class="sub-spinner"></span> Loading payment…
       </button>
       <button onclick="closeSubscribeNewCardModal()" style="width:100%;background:transparent;color:var(--gray-500);border:none;padding:12px;margin-top:6px;font-size:14px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;">Cancel</button>
-      <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:14px;line-height:1.5;">First month charged immediately on confirmation. Renews monthly. Cancel anytime.</div>
+      <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:14px;line-height:1.5;">Card is saved today; charged on your chosen start date. Renews monthly. Cancel anytime.</div>
     </div>`;
   ov.style.display = 'flex';
 
@@ -7451,10 +7488,12 @@ async function confirmSubscribeNewCard(planId) {
     currentCustomer.card_last4 = saveResult.card?.last4;
 
     // Step 4: Create the subscription (same endpoint the saved-card path uses).
+    // Session 190 (Feature 2) — optional scheduled start date, blank/today = immediate.
+    const startDate = document.getElementById('subnewcard-startdate')?.value || null;
     const subRes = await fetch(`${SUPA_URL}/functions/v1/create-subscription`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-      body: JSON.stringify({ planId, customerId: currentCustomer.id }),
+      body: JSON.stringify({ planId, customerId: currentCustomer.id, startDate }),
     });
     const subResult = await subRes.json();
     if (!subRes.ok || subResult.error) {
@@ -7463,12 +7502,18 @@ async function confirmSubscribeNewCard(planId) {
     }
 
     closeSubscribeNewCardModal();
-    toast('Subscription active 🎉', '');
+    if (subResult.scheduled_start_date) {
+      toast(`Card saved. Subscription scheduled to start ${subResult.scheduled_start_date} 📅`, '');
+    } else {
+      toast('Subscription active 🎉', '');
+    }
 
     await new Promise(r => setTimeout(r, 1500));
     await loadUserData();
-    if (currentCustomer) currentCustomer.pricelist = 'Subscription';
-    if (typeof showSubscriptionPickupPicker === 'function') {
+    // A scheduled (trialing) subscription keeps normal pay-per-order pricing until
+    // the actual start date — don't flip pricelist or launch the pickup-day picker yet.
+    if (currentCustomer && !subResult.scheduled_start_date) currentCustomer.pricelist = 'Subscription';
+    if (!subResult.scheduled_start_date && typeof showSubscriptionPickupPicker === 'function') {
       await showSubscriptionPickupPicker();
     } else {
       goTo('home');
@@ -8589,12 +8634,13 @@ async function loadAccount() {
   // Default to green — a Pay-As-You-Go customer is an active customer in
   // good standing. The dot conveys account health, not plan type.
   let dotColor = '#34d399';
-  if (_activeSub && ['active','paused','past_due'].includes(_activeSub.status)) {
+  if (_activeSub && ['active','paused','past_due','trialing'].includes(_activeSub.status)) {
     const subPlan = _activeSub.subscription_plans || activePlan;
     planBadgeText = (subPlan?.name || 'Subscriber');
     if (_activeSub.status === 'paused') planBadgeText += ' (Paused)';
     if (_activeSub.status === 'past_due') planBadgeText += ' (Past Due)';
-    dotColor = _activeSub.status === 'active' ? '#34d399' : _activeSub.status === 'paused' ? '#fbbf24' : '#f87171';
+    if (_activeSub.status === 'trialing') planBadgeText += ' (Scheduled)'; // session 190
+    dotColor = _activeSub.status === 'active' ? '#34d399' : _activeSub.status === 'paused' ? '#fbbf24' : _activeSub.status === 'trialing' ? '#818cf8' : '#f87171';
   }
   document.getElementById('acct-plan-badge').innerHTML = SUBSCRIPTIONS_ENABLED() ? `
     <div class="plan-badge" style="margin-top:12px">
@@ -8654,7 +8700,7 @@ async function loadAccount() {
       .from('subscriptions')
       .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb, features)')
       .eq('customer_id', currentCustomer.id)
-      .in('status', ['active', 'paused', 'past_due'])
+      .in('status', ['active', 'paused', 'past_due', 'trialing'])
       .order('created_at', { ascending: false })
       .limit(1);
     _activeSub = subs?.[0] || null;
@@ -8674,6 +8720,7 @@ async function loadAccount() {
                            _activeSub.status === 'active' ? '' :
                            _activeSub.status === 'paused' ? ' · paused' :
                            _activeSub.status === 'past_due' ? ' · past due' :
+                           _activeSub.status === 'trialing' ? ' · scheduled' :  // session 190
                            _activeSub.status === 'cancelled' ? ' · cancelled' : '';
       planMenuValue.textContent = pname + statusSuffix;
     } else {
@@ -8704,8 +8751,9 @@ function renderPlanCards(activePlanId) {
   const detailEl = document.getElementById('plan-sub-detail');
   const cardsWrap = document.getElementById('plan-cards-wrap');
 
-  // If customer has an active subscription, show the detail panel instead of plan cards
-  if (_activeSub && ['active','paused','past_due'].includes(_activeSub.status)) {
+  // If customer has an active subscription, show the detail panel instead of plan cards.
+  // 'trialing' included (session 190) — a scheduled future-start subscription.
+  if (_activeSub && ['active','paused','past_due','trialing'].includes(_activeSub.status)) {
     const plan = _activeSub.subscription_plans || {};
     const weightLimit = plan.weight_limit_lbs || 100;
     // pickup_limit = NULL on the plan means UNLIMITED (per the $275 plan announcement).
@@ -8789,6 +8837,19 @@ function renderPlanCards(activePlanId) {
         ${pickupBlock}
         <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Subscription</button>
         <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">You'll keep service through the end of this billing period, then your subscription will end.</div>`;
+    } else if (_activeSub.status === 'trialing') {
+      // Session 190 (Feature 2) — scheduled, not-yet-started subscription. Nothing has
+      // been charged; the customer keeps booking/paying normally until the start date.
+      const startLabel = _activeSub.current_period_end
+        ? new Date(_activeSub.current_period_end).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'long', day: 'numeric' })
+        : 'your chosen date';
+      actionsEl.innerHTML = `
+        <div style="background:#e0e7ff;color:#3730a3;padding:12px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;margin-bottom:10px;line-height:1.4">
+          📅 Scheduled to start ${startLabel}<br>
+          <span style="font-weight:500">Nothing charged yet. Keep booking pickups as usual until then.</span>
+        </div>
+        <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Scheduled Subscription</button>
+        <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Cancelling now means it never starts — you won't be charged.</div>`;
     } else if (_activeSub.status === 'past_due') {
       // Session 178 fix: the past_due branch used to show ONLY "Update Payment
       // Method" — the Cancel button vanished entirely, leaving a customer whose
@@ -8935,10 +8996,15 @@ async function cancelSubscription() {
   if (!_activeSub) return;
   // Session 178: past-due cancels are IMMEDIATE (failed renewal invoice is voided,
   // no more card retries) — the dialog copy must match what actually happens.
+  // Session 190: a 'trialing' (scheduled, not-yet-started) subscription is also
+  // always immediate — there's no "period" to keep access to yet.
   const isPastDue = _activeSub.status === 'past_due';
+  const isScheduled = _activeSub.status === 'trialing';
   const dialogMsg = isPastDue
     ? "Your subscription will end right away and we'll stop trying to charge your card for this period."
-    : "You'll still have access until the end of your current billing period.";
+    : isScheduled
+      ? "It hasn't started yet, so cancelling now means it never starts — nothing will be charged."
+      : "You'll still have access until the end of your current billing period.";
   if (!await confirmDialog({ title: 'Cancel your subscription?', message: dialogMsg, confirmLabel: 'Cancel subscription', cancelLabel: 'Keep subscription', danger: true })) return;
 
   // Session 178 QA fix: target the Cancel button specifically (.danger). The old

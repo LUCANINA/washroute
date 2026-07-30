@@ -12897,7 +12897,10 @@ ${oneCopy}
         db.from('subscriptions')
           .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb)')
           .eq('customer_id', customerId)
-          .in('status', ['active','paused','past_due'])
+          // 'trialing' included (session 190) — a scheduled-but-not-yet-started
+          // subscription (Feature 2) must still show here, not fall through to
+          // the "no subscription — assign a plan" picker below.
+          .in('status', ['active','paused','past_due','trialing'])
           .order('created_at', { ascending: false })
           .limit(1),
         db.from('subscription_plans')
@@ -12927,6 +12930,8 @@ ${oneCopy}
         const statusBadge = sub.status === 'active'   ? '<span style="background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">ACTIVE</span>'
                           : sub.status === 'paused'   ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">PAUSED</span>'
                           : sub.status === 'past_due' ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">PAST DUE</span>'
+                          // Session 190 (Feature 2) — scheduled future start, nothing charged yet.
+                          : sub.status === 'trialing' ? '<span style="background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">SCHEDULED</span>'
                           : '';
         // Session 178: surface a scheduled cancellation. Previously the panel ignored
         // cancel_at_period_end entirely — admin clicked Cancel, the call succeeded, and
@@ -12937,9 +12942,13 @@ ${oneCopy}
         const renewTxt = sub.current_period_end
           ? new Date(sub.current_period_end).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' })
           : '—';
-        const renewLabel = (sub.cancel_at_period_end && sub.status !== 'cancelled')
-          ? `Cancels on ${renewTxt}`
-          : `Renews on ${renewTxt}`;
+        // Session 190 (Feature 2) — while trialing, current_period_end IS the
+        // customer's chosen start date (Stripe's trial_end), not a renewal date.
+        const renewLabel = sub.status === 'trialing'
+          ? `Starts on ${renewTxt}`
+          : (sub.cancel_at_period_end && sub.status !== 'cancelled')
+            ? `Cancels on ${renewTxt}`
+            : `Renews on ${renewTxt}`;
         el.innerHTML = `
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
             <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${esc(plan.name || '—')}</div>
@@ -12982,6 +12991,12 @@ ${oneCopy}
       const cardLabel = hasSavedCard
         ? `${esc(cust.card_brand || 'Card')} •••• ${esc(cust.card_last4 || '????')}`
         : '';
+      // Session 190 (Feature 2) — Start date picker, min=today max=+30 days. Left on
+      // "Today" this behaves exactly as before (immediate charge + start). Picking a
+      // later date schedules the subscription via Stripe's trial mechanism — nothing
+      // is charged until then. Uses the Pacific "today" (BIZ_TZ), not the browser's.
+      const _todayIso = today();
+      const _maxStartIso = addDaysPacific(_todayIso, 30);
       el.innerHTML = `
         <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
           <div class="cp-field" style="flex:1;min-width:220px;margin:0">
@@ -12990,6 +13005,10 @@ ${oneCopy}
               ${plans.map(p => `<option value="${p.id}">${esc(p.name)} — $${Number(p.price_monthly).toFixed(0)}/mo${p.weight_limit_lbs ? ` · ${p.weight_limit_lbs} lbs` : ''}${p.pickup_limit ? ` · ${p.pickup_limit} pickups` : ''}</option>`).join('')}
             </select>
           </div>
+          <div class="cp-field" style="margin:0">
+            <div class="cp-field-label">Start Date</div>
+            <input type="date" class="cp-input" id="cpb-start-date" value="${_todayIso}" min="${_todayIso}" max="${_maxStartIso}">
+          </div>
           ${hasSavedCard
             ? `<button class="btn btn-primary" id="cpb-assign-sub-btn" onclick="adminOptInSubscription('${customerId}')" style="padding:8px 16px;font-size:13px">Opt in to subscription</button>`
             : `<button class="btn btn-primary" id="cpb-assign-sub-btn" onclick="adminAssignSubscription('${customerId}')" style="padding:8px 16px;font-size:13px">Start Checkout</button>`
@@ -12997,8 +13016,8 @@ ${oneCopy}
         </div>
         <div style="font-size:12px;color:var(--gray-500);margin-top:8px">
           ${hasSavedCard
-            ? `Charges the card on file (${cardLabel}) and starts the subscription immediately — you'll confirm the charge first. No re-entry needed.`
-            : `No card on file. Opens a Stripe-hosted checkout in a new tab so the customer can enter a card. The subscription activates when the checkout completes (via webhook).`
+            ? `Charges the card on file (${cardLabel}) and starts the subscription on the date above — you'll confirm the charge first. Leave it on today to start right away. No re-entry needed.`
+            : `No card on file. Opens a Stripe-hosted checkout in a new tab so the customer can enter a card. The subscription activates on the date above (via webhook) — leave it on today to start right away.`
           }
         </div>
       `;
@@ -13023,19 +13042,34 @@ ${oneCopy}
     // this only checked status==='cancelled', so a scheduled-to-cancel sub still
     // showed a Cancel button — clicking it "did nothing" visible.
     const scheduling = !cancelled && sub.cancel_at_period_end;
-    // Past-due + scheduled-to-cancel is a real state (a period-end cancel was placed
-    // BEFORE v10 shipped, or dunning started after the cancel was scheduled). The
-    // customer is still being dunned until period end, so offer "Cancel now" —
-    // cancel-subscription v10 takes the immediate path for past-due subs regardless
-    // of the existing schedule flag.
-    const primaryAction = cancelled
-      ? '<span style="font-size:12px;color:var(--gray-400);padding:6px 0">Subscription cancelled</span>'
-      : scheduling
-        ? `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--accent)" onclick="adminReactivateSubscription('${id}')">↺ Reactivate</button>` +
-          (sub.status === 'past_due'
-            ? `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="adminCancelSubscription('${id}', true)">✕ Cancel now</button>`
-            : '')
-        : `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="adminCancelSubscription('${id}', ${sub.status === 'past_due'})">✕ Cancel</button>`;
+    const btn = (label, color, onclick) => `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:${color}" onclick="${onclick}">${label}</button>`;
+
+    let primaryAction;
+    if (cancelled) {
+      primaryAction = '<span style="font-size:12px;color:var(--gray-400);padding:6px 0">Subscription cancelled</span>';
+    } else if (scheduling) {
+      // Past-due + scheduled-to-cancel is a real state (a period-end cancel was placed
+      // BEFORE v10 shipped, or dunning started after the cancel was scheduled). The
+      // customer is still being dunned until period end, so offer "Cancel now" too.
+      primaryAction = btn('↺ Reactivate', 'var(--accent)', `adminReactivateSubscription('${id}')`)
+        + (sub.status === 'past_due' ? btn('✕ Cancel now', 'var(--red)', `adminCancelSubscription('${id}', true)`) : '');
+    } else if (sub.status === 'past_due') {
+      // Unchanged: past-due always cancels immediately + voids the unpaid invoice.
+      primaryAction = btn('✕ Cancel now', 'var(--red)', `adminCancelSubscription('${id}', true)`);
+    } else if (sub.status === 'trialing') {
+      // Session 190 (Feature 2) — scheduled, not-yet-started subscription. There's no
+      // "term" to run out on something that hasn't been charged, so this is a single
+      // always-immediate action (cancel-subscription v11 forces immediate for trialing
+      // regardless of what's passed here).
+      primaryAction = btn('✕ Cancel', 'var(--red)', `adminCancelSubscription('${id}', true)`);
+    } else {
+      // Session 190 (Feature 1) — healthy (active/paused) subscription: give staff an
+      // explicit choice instead of always silently taking the period-end path. This is
+      // exactly the gap that caused Olivia Rosaldo-Pratt to stay "active" for 3+ weeks
+      // after being refunded and told her subscription was cancelled (Jul 2026).
+      primaryAction = btn('✕ Cancel immediately', 'var(--red)', `adminCancelSubscription('${id}', true)`)
+        + btn('Cancel at end of term', 'var(--gray-500)', `adminCancelSubscription('${id}', false)`);
+    }
     el.innerHTML = `
       ${primaryAction}
       <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;margin-left:auto" onclick="adminAdjustUsage('${id}')">✎ Adjust usage</button>
@@ -13100,7 +13134,7 @@ ${oneCopy}
     }
   }
 
-  async function _callSubscriptionFn(slug, subscriptionId, confirmMsg) {
+  async function _callSubscriptionFn(slug, subscriptionId, confirmMsg, extraBody) {
     if (confirmMsg && !confirm(confirmMsg)) return;
     try {
       // Session 165 launch prep: pass the ADMIN'S session access token, not the anon key.
@@ -13113,7 +13147,7 @@ ${oneCopy}
       const res = await fetch(`${SUPA_URL}/functions/v1/${slug}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ subscription_id: subscriptionId }),
+        body: JSON.stringify({ subscription_id: subscriptionId, ...(extraBody || {}) }),
       });
       const { error } = await res.json();
       if (error) throw new Error(error);
@@ -13134,14 +13168,16 @@ ${oneCopy}
   function adminResumeSubscription(id) {
     return _callSubscriptionFn('resume-subscription', id, 'Resume this subscription? The next charge will be on the renewal date.');
   }
-  function adminCancelSubscription(id, isPastDue) {
-    // Session 178: cancel-subscription v10 cancels past-due subs IMMEDIATELY and
-    // voids the unpaid renewal invoice (Stripe stops retrying the card). Paid-up
-    // subs still cancel gracefully at period end.
-    const msg = isPastDue
-      ? 'Cancel this subscription NOW? The failed renewal invoice will be voided — Stripe stops retrying the customer\'s card and the subscription ends immediately.'
+  function adminCancelSubscription(id, immediate) {
+    // Session 190 (Feature 1): `immediate` is now an explicit staff choice, not an
+    // auto-detected one. cancel-subscription v11 still forces immediate regardless
+    // of this flag for past-due (unpaid invoice voided) and trialing (nothing
+    // charged yet) subscriptions — the flag matters only for an otherwise-healthy
+    // active/paused subscription, where it's the admin's real choice.
+    const msg = immediate
+      ? 'Cancel this subscription NOW? It ends immediately — no more billing. Any refund for time already paid for is handled separately (Customer panel → Billing → Refund).'
       : 'Cancel this subscription? It stays active until the end of the current billing period, then stops. Usage from the current period stays on record.';
-    return _callSubscriptionFn('cancel-subscription', id, msg);
+    return _callSubscriptionFn('cancel-subscription', id, msg, { immediate: !!immediate });
   }
   function adminReactivateSubscription(id) {
     // Session 178: clears a scheduled cancellation (cancel_at_period_end) via the
@@ -13213,6 +13249,9 @@ ${oneCopy}
     const sel = document.getElementById('cpb-plan-select');
     const btn = document.getElementById('cpb-assign-sub-btn');
     const planId = sel?.value;
+    // Session 190 (Feature 2) — optional scheduled start date (blank/today = immediate,
+    // unchanged from before). create-checkout validates this server-side too.
+    const startDate = document.getElementById('cpb-start-date')?.value || null;
     if (!planId) { showToast('Pick a plan first', ''); return; }
     if (btn) { btn.disabled = true; btn.textContent = 'Opening checkout…'; }
     try {
@@ -13223,6 +13262,7 @@ ${oneCopy}
           type: 'subscription',
           planId,
           customerId,
+          startDate,
           successUrl: window.location.origin + window.location.pathname + '?subscription_started=true',
           cancelUrl:  window.location.origin + window.location.pathname,
         }),
@@ -13230,7 +13270,9 @@ ${oneCopy}
       const { url, error } = await res.json();
       if (error) throw new Error(error);
       window.open(url, '_blank');
-      showToast('Checkout opened in a new tab. The subscription will activate when the customer pays.', 'success');
+      showToast(startDate && startDate !== today()
+        ? `Checkout opened in a new tab. The subscription starts ${startDate} once the customer enters a card.`
+        : 'Checkout opened in a new tab. The subscription will activate when the customer pays.', 'success');
     } catch (e) {
       console.error('[adminAssignSubscription]', e);
       showToast('Error: ' + e.message, 'error');
@@ -13254,6 +13296,8 @@ ${oneCopy}
     const sel    = document.getElementById('cpb-plan-select');
     const planId = sel?.value;
     const planLabel = sel?.options[sel.selectedIndex]?.text || 'this plan';
+    // Session 190 (Feature 2) — optional scheduled start date (blank/today = immediate).
+    const startDate = document.getElementById('cpb-start-date')?.value || null;
     if (!planId) { showToast('Pick a plan first', ''); return; }
 
     // Pull the saved-card + price for the confirm modal.
@@ -13267,25 +13311,32 @@ ${oneCopy}
       if (plan?.price_monthly != null) priceText = `$${Number(plan.price_monthly).toFixed(2)}`;
     } catch (_) { /* non-fatal — modal still works with fallbacks */ }
 
-    _openOptInConfirmModal({ customerId, planId, planLabel, cardText, priceText });
+    _openOptInConfirmModal({ customerId, planId, planLabel, cardText, priceText, startDate });
   }
 
-  function _openOptInConfirmModal({ customerId, planId, planLabel, cardText, priceText }) {
+  function _openOptInConfirmModal({ customerId, planId, planLabel, cardText, priceText, startDate }) {
     document.getElementById('optin-confirm-overlay')?.remove();
-    const chargeLine = priceText
-      ? `<strong>${esc(priceText)}</strong> will be charged to ${esc(cardText)} right now to start the subscription, then on the same date every month.`
-      : `The first month will be charged to ${esc(cardText)} right now, then monthly.`;
+    // Session 190 (Feature 2) — a future startDate means nothing is charged today;
+    // Stripe holds the subscription in trial until that date, then charges automatically.
+    const isScheduled = startDate && startDate !== today();
+    const chargeLine = isScheduled
+      ? (priceText
+          ? `<strong>${esc(priceText)}</strong> will be charged to ${esc(cardText)} on <strong>${esc(startDate)}</strong>, then on the same date every month. Nothing is charged today.`
+          : `The first month will be charged to ${esc(cardText)} on <strong>${esc(startDate)}</strong>, then monthly. Nothing is charged today.`)
+      : (priceText
+          ? `<strong>${esc(priceText)}</strong> will be charged to ${esc(cardText)} right now to start the subscription, then on the same date every month.`
+          : `The first month will be charged to ${esc(cardText)} right now, then monthly.`);
     const overlay = document.createElement('div');
     overlay.id = 'optin-confirm-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px';
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:12px;max-width:420px;width:100%;padding:22px;box-shadow:0 20px 50px rgba(0,0,0,.25)">
-        <div style="font-size:17px;font-weight:700;color:var(--gray-900);margin-bottom:6px">Confirm subscription charge</div>
+        <div style="font-size:17px;font-weight:700;color:var(--gray-900);margin-bottom:6px">${isScheduled ? 'Confirm scheduled subscription' : 'Confirm subscription charge'}</div>
         <div style="font-size:13.5px;color:var(--gray-600);line-height:1.5;margin-bottom:4px">Plan: <strong style="color:var(--gray-900)">${esc(planLabel)}</strong></div>
         <div style="font-size:13.5px;color:var(--gray-600);line-height:1.5;margin-bottom:18px">${chargeLine}</div>
         <div style="display:flex;gap:10px;justify-content:flex-end">
           <button class="btn" id="optin-cancel-btn" style="padding:8px 16px;font-size:13px">Cancel</button>
-          <button class="btn btn-primary" id="optin-confirm-btn" style="padding:8px 16px;font-size:13px">Confirm charge</button>
+          <button class="btn btn-primary" id="optin-confirm-btn" style="padding:8px 16px;font-size:13px">${isScheduled ? 'Confirm' : 'Confirm charge'}</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -13294,19 +13345,20 @@ ${oneCopy}
     document.addEventListener('keydown', onKey);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.querySelector('#optin-cancel-btn').onclick = close;
-    overlay.querySelector('#optin-confirm-btn').onclick = () => _confirmOptInCharge(customerId, planId, overlay);
+    overlay.querySelector('#optin-confirm-btn').onclick = () => _confirmOptInCharge(customerId, planId, overlay, startDate);
   }
 
-  async function _confirmOptInCharge(customerId, planId, overlay) {
+  async function _confirmOptInCharge(customerId, planId, overlay, startDate) {
     const btn = overlay.querySelector('#optin-confirm-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Charging…'; }
+    const isScheduled = startDate && startDate !== today();
+    if (btn) { btn.disabled = true; btn.textContent = isScheduled ? 'Scheduling…' : 'Charging…'; }
     try {
       const { data: { session } } = await db.auth.getSession();
       if (!session?.access_token) throw new Error('Not signed in — refresh the page');
       const res = await fetch(`${SUPA_URL}/functions/v1/create-subscription`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ planId, customerId }),
+        body: JSON.stringify({ planId, customerId, startDate }),
       });
       const out = await res.json();
       if (!res.ok || out.error) {
@@ -13315,13 +13367,17 @@ ${oneCopy}
       }
       overlay.remove();
       const card = out.card_last4 ? ` on ${out.card_brand || 'card'} •••• ${out.card_last4}` : '';
-      showToast(`Subscription started — ${out.price_monthly ? '$' + Number(out.price_monthly).toFixed(2) : 'first charge'} charged${card}.`, 'success');
+      if (out.scheduled_start_date) {
+        showToast(`Subscription scheduled to start ${out.scheduled_start_date}${card}. Nothing charged today.`, 'success');
+      } else {
+        showToast(`Subscription started — ${out.price_monthly ? '$' + Number(out.price_monthly).toFixed(2) : 'first charge'} charged${card}.`, 'success');
+      }
       if (panelCustomerId) renderCpSubscription(panelCustomerId);
       if (typeof renderSubscriptionsTab === 'function' && currentPage === 'reports') renderSubscriptionsTab();
     } catch (e) {
       console.error('[adminOptInSubscription:charge]', e);
       showToast('Could not start subscription: ' + e.message, 'error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm charge'; }
+      if (btn) { btn.disabled = false; btn.textContent = isScheduled ? 'Confirm' : 'Confirm charge'; }
     }
   }
 
@@ -13348,9 +13404,10 @@ ${oneCopy}
         .order('price_monthly', { ascending: true });
       if (error) throw error;
       // Live subscriber counts per plan (so the admin can see what's at stake before deactivating).
+      // 'trialing' included (session 190) — scheduled-but-not-started subscribers still count.
       const { data: counts } = await db.from('subscriptions')
         .select('plan_id, status')
-        .in('status', ['active','paused','past_due']);
+        .in('status', ['active','paused','past_due','trialing']);
       const subsByPlan = {};
       (counts || []).forEach(r => { subsByPlan[r.plan_id] = (subsByPlan[r.plan_id] || 0) + 1; });
       if (!plans?.length) {
@@ -29843,7 +29900,9 @@ ${oneCopy}
         active: 'background:#d1fae5;color:#065f46',
         paused: 'background:#fef3c7;color:#92400e',
         cancelled: 'background:var(--gray-100);color:var(--gray-500)',
-        past_due: 'background:#fee2e2;color:#991b1b'
+        past_due: 'background:#fee2e2;color:#991b1b',
+        // Session 190 (Feature 2) — scheduled, not-yet-started subscription (Stripe trial).
+        trialing: 'background:#e0e7ff;color:#3730a3',
       };
       const statusStyle = statusColors[s.status] || '';
       const renewDate = s.current_period_end
