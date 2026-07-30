@@ -13376,6 +13376,13 @@ ${oneCopy}
       } else {
         showToast(`Subscription started — ${out.price_monthly ? '$' + Number(out.price_monthly).toFixed(2) : 'first charge'} charged${card}.`, 'success');
       }
+      // Session 190 pt 3: create-subscription returns as soon as Stripe accepts the
+      // subscription, but the subscriptions row itself is written asynchronously by
+      // stripe-webhook (customer.subscription.created). Re-rendering immediately can
+      // catch the panel between those two — it briefly shows "no subscription" and
+      // falls back to the empty Assign Plan form even though the subscription really
+      // was created. Same short wait the customer-app already uses for this exact race.
+      await new Promise(r => setTimeout(r, 1500));
       if (panelCustomerId) renderCpSubscription(panelCustomerId);
       if (typeof renderSubscriptionsTab === 'function' && currentPage === 'reports') renderSubscriptionsTab();
     } catch (e) {
