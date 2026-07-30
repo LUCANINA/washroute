@@ -13048,11 +13048,15 @@ ${oneCopy}
     if (cancelled) {
       primaryAction = '<span style="font-size:12px;color:var(--gray-400);padding:6px 0">Subscription cancelled</span>';
     } else if (scheduling) {
-      // Past-due + scheduled-to-cancel is a real state (a period-end cancel was placed
-      // BEFORE v10 shipped, or dunning started after the cancel was scheduled). The
-      // customer is still being dunned until period end, so offer "Cancel now" too.
+      // A subscription already scheduled to cancel at period end (staff placed a
+      // graceful cancel earlier, or dunning started after the cancel was scheduled).
+      // Session 190 fix: "Cancel now" must be offered here regardless of past_due —
+      // this IS the Olivia Rosaldo-Pratt scenario (an already-scheduled cancel that
+      // staff needs to force to end immediately). Previously this only appeared for
+      // past_due, so the one case Feature 1 was built to fix had no immediate-cancel
+      // button at all — the only way to force it was Reactivate then re-cancel.
       primaryAction = btn('↺ Reactivate', 'var(--accent)', `adminReactivateSubscription('${id}')`)
-        + (sub.status === 'past_due' ? btn('✕ Cancel now', 'var(--red)', `adminCancelSubscription('${id}', true)`) : '');
+        + btn('✕ Cancel now', 'var(--red)', `adminCancelSubscription('${id}', true)`);
     } else if (sub.status === 'past_due') {
       // Unchanged: past-due always cancels immediately + voids the unpaid invoice.
       primaryAction = btn('✕ Cancel now', 'var(--red)', `adminCancelSubscription('${id}', true)`);
