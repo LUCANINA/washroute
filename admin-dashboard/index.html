@@ -23902,13 +23902,18 @@ ${oneCopy}
           <button onclick="event.stopPropagation();rccOpenDriverView('${driverId||''}')" style="background:none;border:none;cursor:pointer;color:var(--gray-500);line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${driverId ? 'View what this driver sees on their app' : 'No driver assigned yet'}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
           </button>
-          <button onclick="event.stopPropagation();rccToggleRoutePins('${routeId}')" style="background:none;border:none;cursor:pointer;color:${_rccHiddenPins.has(routeId)?'var(--gray-300)':'var(--gray-500)'};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${_rccHiddenPins.has(routeId)?'Show this route’s pins on the map':'Hide this route’s pins from the map'}">
+          <button
+            onmousedown="event.stopPropagation();rccEyeDown('${routeId}')"
+            onmouseup="event.stopPropagation();rccEyeUp('${routeId}')"
+            onmouseleave="event.stopPropagation();rccEyeCancel()"
+            ontouchstart="event.stopPropagation();event.preventDefault();rccEyeDown('${routeId}')"
+            ontouchend="event.stopPropagation();event.preventDefault();rccEyeUp('${routeId}')"
+            ontouchcancel="event.stopPropagation();rccEyeCancel()"
+            style="background:none;border:none;cursor:pointer;color:${_rccIsRouteSolo(routeId)?'var(--accent)':(_rccHiddenPins.has(routeId)?'var(--gray-300)':'var(--gray-500)')};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;"
+            title="${_rccIsRouteSolo(routeId)?'Showing only this route — click to show all routes again':(_rccHiddenPins.has(routeId)?'Show this route’s pins on the map':'Click to hide this route · press and hold to show only this route')}">
             ${_rccHiddenPins.has(routeId)
               ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
               : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'}
-          </button>
-          <button onclick="event.stopPropagation();rccSoloRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:${_rccIsRouteSolo(routeId)?'var(--accent)':'var(--gray-500)'};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${_rccIsRouteSolo(routeId)?'Showing only this route — click to show all routes again':'Show only this route on the map (hide the rest with one tap)'}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M9 3H5a2 2 0 00-2 2v4M15 3h4a2 2 0 012 2v4M9 21H5a2 2 0 01-2-2v-4M15 21h4a2 2 0 002-2v-4"/></svg>
           </button>
         </div>
         ${bodyHtml}
@@ -23928,12 +23933,42 @@ ${oneCopy}
     rccRenderMap();
   }
 
-  // ── RCC: "Solo" a route — show only this one on the map, one tap ──
+  // ── RCC: click vs press-and-hold on the eye icon (session 191) ──
+  // David's ask: a quick click should keep doing exactly what it always did
+  // (hide/show just this one route's pins). Press-and-hold on the SAME icon
+  // should instead solo this route — hide every other route with one
+  // continuous press, no second button to learn. A timer distinguishes the
+  // two: if mouseup/touchend lands before RCC_EYE_HOLD_MS, it's a click; if
+  // the timer fires first, it's a hold, and the pending click is suppressed.
+  let _rccEyeHoldTimer = null;
+  let _rccEyeHoldFired = false;
+  const RCC_EYE_HOLD_MS = 450;
+  function rccEyeDown(routeId) {
+    _rccEyeHoldFired = false;
+    clearTimeout(_rccEyeHoldTimer);
+    _rccEyeHoldTimer = setTimeout(() => {
+      _rccEyeHoldFired = true;
+      rccSoloRoute(routeId);
+    }, RCC_EYE_HOLD_MS);
+  }
+  function rccEyeUp(routeId) {
+    clearTimeout(_rccEyeHoldTimer);
+    if (!_rccEyeHoldFired) rccToggleRoutePins(routeId);
+    _rccEyeHoldFired = false;
+  }
+  function rccEyeCancel() {
+    // Pointer left the button (or touch was interrupted) before release —
+    // abandon the press without toggling or soloing anything.
+    clearTimeout(_rccEyeHoldTimer);
+    _rccEyeHoldFired = false;
+  }
+
+  // ── RCC: "Solo" a route — show only this one on the map, via press-and-hold ──
   // David's workflow was: hide every other route by hand to inspect one route
   // in isolation, then undo all of that by hand afterward. This does both
-  // directions in a single click. Clicking the same route's solo button again
-  // (or any state where this route is already the only one visible) restores
-  // every route instead of re-hiding everything — so the button is a toggle,
+  // directions in one continuous press. Holding the same route's eye icon
+  // again (or any state where this route is already the only one visible)
+  // restores every route instead of re-hiding everything — so it's a toggle,
   // not a one-way action.
   function _rccIsRouteSolo(routeId) {
     if (_rccHiddenPins.has(routeId)) return false;
