@@ -23907,6 +23907,9 @@ ${oneCopy}
               ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
               : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'}
           </button>
+          <button onclick="event.stopPropagation();rccSoloRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:${_rccIsRouteSolo(routeId)?'var(--accent)':'var(--gray-500)'};line-height:1;padding:0 2px;flex-shrink:0;display:flex;align-items:center;" title="${_rccIsRouteSolo(routeId)?'Showing only this route — click to show all routes again':'Show only this route on the map (hide the rest with one tap)'}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M9 3H5a2 2 0 00-2 2v4M15 3h4a2 2 0 012 2v4M9 21H5a2 2 0 01-2-2v-4M15 21h4a2 2 0 002-2v-4"/></svg>
+          </button>
         </div>
         ${bodyHtml}
       </div>`;
@@ -23921,6 +23924,30 @@ ${oneCopy}
   function rccToggleRoutePins(routeId) {
     if (_rccHiddenPins.has(routeId)) _rccHiddenPins.delete(routeId);
     else _rccHiddenPins.add(routeId);
+    rccRenderColumns();
+    rccRenderMap();
+  }
+
+  // ── RCC: "Solo" a route — show only this one on the map, one tap ──
+  // David's workflow was: hide every other route by hand to inspect one route
+  // in isolation, then undo all of that by hand afterward. This does both
+  // directions in a single click. Clicking the same route's solo button again
+  // (or any state where this route is already the only one visible) restores
+  // every route instead of re-hiding everything — so the button is a toggle,
+  // not a one-way action.
+  function _rccIsRouteSolo(routeId) {
+    if (_rccHiddenPins.has(routeId)) return false;
+    const others = [..._rccActiveRoutes].filter(id => id !== routeId);
+    // On a day with only one active route, it's vacuously "solo" already —
+    // treat it as such so the button reads correctly instead of looking stuck.
+    return others.every(id => _rccHiddenPins.has(id));
+  }
+  function rccSoloRoute(routeId) {
+    if (_rccIsRouteSolo(routeId)) {
+      _rccHiddenPins.clear(); // already solo'd — restore every route
+    } else {
+      _rccHiddenPins = new Set([..._rccActiveRoutes].filter(id => id !== routeId));
+    }
     rccRenderColumns();
     rccRenderMap();
   }
