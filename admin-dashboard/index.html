@@ -32722,19 +32722,32 @@ async function _dvIframeLoaded() {
     const { data: groups } = await db.from('billing_groups').select('*').order('name');
     _oaBillingGroups = groups || [];
 
-    // Build query — fetch all delivered/ready orders for on_account customers
-    // Filter by pickup_window_start (actual service date) not created_at (import date)
+    // Build query — fetch all delivered/ready orders for on_account customers.
+    // Filter by pickup_window_start (actual service date) not created_at (import
+    // date) — EXCEPT for counter drop-offs (source='walk_in'), which never get a
+    // pickup_window_start (there's no scheduled pickup — the bag was handed over
+    // the counter). Those orders fall back to created_at for date-range purposes.
+    // Without this OR, any on-account customer who drops off at the counter
+    // instead of a scheduled driver pickup silently vanishes from every dated
+    // view of this report (root-caused 2026-07-31 — City of Oakland #11365,
+    // reported by David: order existed and was correctly on-account, but never
+    // showed up here because pickup_window_start was NULL).
     let query = db.from('orders')
-      .select('id, order_number, total_amount, tip_amount, tip_type, status, billing_status, billed_at, actual_delivery_at, created_at, pickup_window_start, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
+      .select('id, order_number, total_amount, tip_amount, tip_type, status, billing_status, billed_at, actual_delivery_at, created_at, pickup_window_start, source, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
       .eq('customers.billing_type', 'on_account')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
-      .order('pickup_window_start', { ascending: false });
+      .order('pickup_window_start', { ascending: false, nullsFirst: false });
 
-    if (startVal) {
-      query = query.gte('pickup_window_start', pacificDayStart(startVal).toISOString());
-    }
-    if (endVal) {
-      query = query.lte('pickup_window_start', pacificDayEnd(endVal).toISOString());
+    if (startVal || endVal) {
+      const fromIso = startVal ? pacificDayStart(startVal).toISOString() : null;
+      const toIso   = endVal   ? pacificDayEnd(endVal).toISOString()   : null;
+      const pickupConds = [];
+      if (fromIso) pickupConds.push(`pickup_window_start.gte.${fromIso}`);
+      if (toIso)   pickupConds.push(`pickup_window_start.lte.${toIso}`);
+      const walkinConds = ['source.eq.walk_in'];
+      if (fromIso) walkinConds.push(`created_at.gte.${fromIso}`);
+      if (toIso)   walkinConds.push(`created_at.lte.${toIso}`);
+      query = query.or(`and(${pickupConds.join(',')}),and(${walkinConds.join(',')})`);
     }
 
     const { data, error } = await query;
@@ -32742,7 +32755,12 @@ async function _dvIframeLoaded() {
 
     oaData = (data || []).map(o => {
       const now = new Date();
-      const deliveredDate = o.actual_delivery_at ? new Date(o.actual_delivery_at) : (o.pickup_window_start ? new Date(o.pickup_window_start) : now);
+      // Fall back to created_at (not "now") for counter drop-offs with no
+      // pickup_window_start, so unpaid counter orders age into the 30/60/90-day
+      // buckets correctly instead of always reading as "current."
+      const deliveredDate = o.actual_delivery_at ? new Date(o.actual_delivery_at)
+        : (o.pickup_window_start ? new Date(o.pickup_window_start)
+        : (o.created_at ? new Date(o.created_at) : now));
       const ageDays = Math.floor((now - deliveredDate) / 86400000);
       const isPaid = o.billing_status === 'paid';
       const isRefunded = o.billing_status === 'refunded';
@@ -33226,8 +33244,10 @@ async function _dvIframeLoaded() {
     const c = custOrders[0].customers;
     const name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
     const period = document.getElementById('oa-period-label').textContent || '';
+    // Fall back to created_at so counter drop-offs (no pickup_window_start)
+    // sort by when they actually happened instead of all landing at epoch 0.
     const sorted = [...custOrders].sort((a, b) =>
-      new Date(a.pickup_window_start || 0) - new Date(b.pickup_window_start || 0));
+      new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
     const html = generateInvoiceHTML(name, sorted, period, null);
     return { filename: name + ' — Invoice', html };
   }
@@ -33319,8 +33339,11 @@ async function _dvIframeLoaded() {
 
     const orderSections = orders.map((o, idx) => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
-      const orderDate = o.pickup_window_start
-        ? new Date(o.pickup_window_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })
+      // Falls back to created_at for counter drop-offs, which have no
+      // pickup_window_start (no scheduled pickup — the bag was handed over
+      // the counter). Otherwise these invoice lines print with a blank date.
+      const orderDate = (o.pickup_window_start || o.created_at)
+        ? new Date(o.pickup_window_start || o.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })
         : '';
       const custName = o.customers
         ? ((o.customers.first_name_cache || '') + ' ' + (o.customers.last_name_cache || '')).trim()
@@ -33472,7 +33495,7 @@ ${orderSections}
     if (g.invoice_style === 'consolidated') {
       // One invoice with all orders, sorted by date
       const sorted = [...groupOrders].sort((a, b) =>
-        new Date(a.pickup_window_start || 0) - new Date(b.pickup_window_start || 0));
+        new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
       const html = generateInvoiceHTML(g.name, sorted, period, g.name);
       return [{ filename: g.name + ' — Consolidated Invoice', html }];
     } else {
@@ -33489,7 +33512,7 @@ ${orderSections}
         .filter(c => c.orders.some(o => Number(o.total_amount || 0) > 0))
         .map(c => {
           const sorted = c.orders.sort((a, b) =>
-            new Date(a.pickup_window_start || 0) - new Date(b.pickup_window_start || 0));
+            new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
           const html = generateInvoiceHTML(c.name, sorted, period, g.name);
           return { filename: c.name + ' — Invoice', html };
         });
@@ -33619,8 +33642,9 @@ ${orderSections}
       needPage(30);
       if (idx > 0) { hLine(y, [229,231,235]); y += 5; }
       const items = Array.isArray(o.line_items) ? o.line_items : [];
-      const orderDate = o.pickup_window_start
-        ? new Date(o.pickup_window_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' }) : '';
+      // Falls back to created_at for counter drop-offs (no pickup_window_start).
+      const orderDate = (o.pickup_window_start || o.created_at)
+        ? new Date(o.pickup_window_start || o.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' }) : '';
       const custName = o.customers ? ((o.customers.first_name_cache||'') + ' ' + (o.customers.last_name_cache||'')).trim() : title;
       const serviceItems = items.filter(li => li.type !== 'delivery_fee');
       const delFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
@@ -33728,7 +33752,7 @@ ${orderSections}
       if (!g) return [];
       const groupOrders = oaData.filter(o => o.customers?.billing_group_id === _invoiceGroupId);
       if (g.invoice_style === 'consolidated') {
-        const sorted = [...groupOrders].sort((a, b) => new Date(a.pickup_window_start||0) - new Date(b.pickup_window_start||0));
+        const sorted = [...groupOrders].sort((a, b) => new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
         return [{ title: g.name, orders: sorted, period, groupName: g.name, filename: g.name + ' — Consolidated Invoice' }];
       } else {
         const byCustomer = {};
@@ -33742,7 +33766,7 @@ ${orderSections}
         return Object.values(byCustomer)
           .filter(c => c.orders.some(o => Number(o.total_amount||0) > 0))
           .map(c => {
-            const sorted = c.orders.sort((a, b) => new Date(a.pickup_window_start||0) - new Date(b.pickup_window_start||0));
+            const sorted = c.orders.sort((a, b) => new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
             return { title: c.name, orders: sorted, period, groupName: g.name, filename: c.name + ' — Invoice' };
           });
       }
@@ -33752,7 +33776,7 @@ ${orderSections}
       if (!custOrders.length) return [];
       const c = custOrders[0].customers;
       const name = c ? ((c.first_name_cache||'') + ' ' + (c.last_name_cache||'')).trim() : 'Unknown';
-      const sorted = [...custOrders].sort((a, b) => new Date(a.pickup_window_start||0) - new Date(b.pickup_window_start||0));
+      const sorted = [...custOrders].sort((a, b) => new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
       return [{ title: name, orders: sorted, period, groupName: null, filename: name + ' — Invoice' }];
     }
     return [];

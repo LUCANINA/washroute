@@ -3707,10 +3707,18 @@
   }
 
   /* ─── Weight modal ─────────────────────────────────────────── */
+  // Double-tap guard (mirrors _chargeInFlight on the checkout button): a fast
+  // double-tap on the weight modal's Add button used to push the same weighed
+  // bag into the cart twice — two identical line items, weight and total
+  // silently doubled (City of Oakland #11365 — reported by David, corrected
+  // 2026-07-31). openWeightModal() resets the lock so every fresh weigh-in
+  // starts unlocked.
+  let _addWeightInFlight = false;
   function openWeightModal(service) {
     activeWeightService = service;
     weightStr = '';
     activeAddonIds = new Set();
+    _addWeightInFlight = false;
     document.getElementById('weightTitle').textContent = `${service.name} — ${t('Enter weight')}`;
     renderWeightAddons();
     renderWeightDisplay();
@@ -3776,11 +3784,14 @@
   }
 
   function addWeightToCart() {
+    if (_addWeightInFlight) return;
     const val = parseFloat(weightStr) || 0;
     if (val <= 0) return;
+    _addWeightInFlight = true;
     const addons = WEIGHT_ADDONS.filter(a => activeAddonIds.has(a.id));
     addToCart(activeWeightService, 1, val, addons);
     closeAll();
+    setTimeout(() => { _addWeightInFlight = false; }, 400);
   }
 
   // Session 155: showSiteSelectorModal / selectSite / updateSiteBadge /
