@@ -33077,15 +33077,28 @@ async function _dvIframeLoaded() {
     listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">Loading…</div>';
 
     let q = db.from('orders')
-      .select('id, order_number, total_amount, tip_amount, tip_type, billing_status, pickup_window_start, customer_id, customers!inner(first_name_cache, last_name_cache, billing_group_id, billing_type)')
+      .select('id, order_number, total_amount, tip_amount, tip_type, billing_status, pickup_window_start, created_at, source, customer_id, customers!inner(first_name_cache, last_name_cache, billing_group_id, billing_type)')
       .eq('customers.billing_type', 'on_account')
       .in('status', OAP_STATUSES)
       .or('billing_status.is.null,billing_status.not.in.(paid,refunded,written_off)')
-      .order('pickup_window_start', { ascending: true });
+      .order('pickup_window_start', { ascending: true, nullsFirst: false });
     if (st.type === 'group') q = q.eq('customers.billing_group_id', st.id);
     else q = q.eq('customer_id', st.id);
-    if (fromVal) q = q.gte('pickup_window_start', pacificDayStart(fromVal).toISOString());
-    if (toVal)   q = q.lte('pickup_window_start', pacificDayEnd(toVal).toISOString());
+    // Same fix as loadOnAccountReport (see that function for the full writeup):
+    // counter drop-offs (source='walk_in') never get a pickup_window_start, so
+    // they need a created_at fallback or they silently can't be selected for
+    // payment here either, even though they're genuinely outstanding.
+    if (fromVal || toVal) {
+      const fromIso = fromVal ? pacificDayStart(fromVal).toISOString() : null;
+      const toIso   = toVal   ? pacificDayEnd(toVal).toISOString()   : null;
+      const pickupConds = [];
+      if (fromIso) pickupConds.push(`pickup_window_start.gte.${fromIso}`);
+      if (toIso)   pickupConds.push(`pickup_window_start.lte.${toIso}`);
+      const walkinConds = ['source.eq.walk_in'];
+      if (fromIso) walkinConds.push(`created_at.gte.${fromIso}`);
+      if (toIso)   walkinConds.push(`created_at.lte.${toIso}`);
+      q = q.or(`and(${pickupConds.join(',')}),and(${walkinConds.join(',')})`);
+    }
 
     const { data, error } = await q;
     if (error) { listEl.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Error loading orders: ' + esc(error.message) + '</div>'; return; }
@@ -33108,7 +33121,7 @@ async function _dvIframeLoaded() {
           <span style="flex:1;min-width:0">
             <span style="font-weight:600">#${esc(String(o.order_number || '—'))}</span>
             ${isGroup ? `<span style="color:var(--gray-500)"> · ${esc(nm)}</span>` : ''}
-            <span style="color:var(--gray-400)"> · ${fmtDate(o.pickup_window_start)}</span>
+            <span style="color:var(--gray-400)"> · ${fmtDate(o.pickup_window_start || o.created_at)}</span>
           </span>
           <span style="font-weight:600">${fmtMoney(o._amt)}</span>
         </label>`;
