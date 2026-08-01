@@ -2094,11 +2094,20 @@
             <div id="payAccountBanner" style="display:none; margin-bottom:12px; padding:10px 12px; background:var(--accent-light, #dbeafe); color:var(--accent-dark, #1d4ed8); border-radius:8px; font-size:13px; font-weight:600; text-align:center;">
               🏢 <span id="payAccountName">This customer</span> is billed on account
             </div>
-            <!-- Session 168: charge-to-account is the primary action for on_account customers -->
+            <!-- Session 168: charge-to-account is the primary action for on_account customers.
+                 Session 197 (David: "the system should tell attendants not to charge, not the
+                 other way around"): for on_account customers, Card/Cash are no longer sitting
+                 right next to Account as equal-weight options a cashier could mis-tap — the
+                 system already knows from the customer's profile that this account is billed
+                 monthly, so it hides Card/Cash behind a deliberate override step instead of
+                 relying on staff to remember not to charge. See openPay(). -->
             <button id="payAccountBtn" onclick="payOnAccount()" style="display:none; width:100%; margin-bottom:12px; padding:18px; background:var(--brand-navy, #0f2744); color:white; border:none; border-radius:12px; font-size:16px; font-weight:800; cursor:pointer;">
               🏢 <span data-i18n>Charge to Account</span>
             </button>
-            <div class="pay-methods">
+            <div id="payAccountOverrideRow" style="display:none; text-align:center; margin:-4px 0 14px;">
+              <a href="#" onclick="event.preventDefault();revealCardCashOverride()" style="font-size:12px;color:var(--gray-400);text-decoration:underline;" data-i18n>Needs to pay by card or cash instead?</a>
+            </div>
+            <div class="pay-methods" id="payCardCashMethods">
               <button class="pay-method" onclick="payWithCard()">
                 <div class="pay-method-icon">💳</div>
                 <div class="pay-method-name" data-i18n>Card</div>
@@ -5169,10 +5178,17 @@
       tipRow.style.display = 'none';
     }
     // Session 168: on-account customers get a "Charge to Account" button (primary)
-    // and the on-account banner; Card/Cash remain available as an override.
+    // and the on-account banner.
+    // Session 197 (David: the system already knows this account is on_account from
+    // the customer's profile — it shouldn't rely on staff to remember not to charge
+    // a card. Card/Cash are hidden by default for on_account customers and only
+    // appear after a deliberate tap on the override link below, reset closed every
+    // time this modal opens so it can never carry over "open" from a prior sale.
     const isOnAccount = currentCustomer && currentCustomer.billing_type === 'on_account';
     const acctBtn = document.getElementById('payAccountBtn');
     const acctBanner = document.getElementById('payAccountBanner');
+    const cardCashRow = document.getElementById('payCardCashMethods');
+    const overrideRow = document.getElementById('payAccountOverrideRow');
     if (acctBtn) acctBtn.style.display = isOnAccount ? '' : 'none';
     if (acctBanner) {
       acctBanner.style.display = isOnAccount ? '' : 'none';
@@ -5181,7 +5197,21 @@
         if (nm) nm.textContent = currentCustomer.name || 'This customer';
       }
     }
+    if (cardCashRow) cardCashRow.style.display = isOnAccount ? 'none' : '';
+    if (overrideRow) overrideRow.style.display = isOnAccount ? '' : 'none';
     showModal('payModal');
+  }
+
+  // Session 197: deliberate escape hatch for the rare case where an on_account
+  // customer genuinely wants to pay this one order by card or cash instead of
+  // being invoiced (e.g. a one-off personal purchase unrelated to their business
+  // account). Requires an explicit tap — Card/Cash are never just sitting there
+  // as an equal-weight option a cashier could reach for out of habit.
+  function revealCardCashOverride() {
+    const cardCashRow = document.getElementById('payCardCashMethods');
+    const overrideRow = document.getElementById('payAccountOverrideRow');
+    if (cardCashRow) cardCashRow.style.display = '';
+    if (overrideRow) overrideRow.style.display = 'none';
   }
 
   // Session 168: create an unpaid order billed to the customer's account
