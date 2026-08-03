@@ -7677,7 +7677,7 @@
           .order('created_at', { ascending: true }),
 
         // 6. Duplicate orders (P1)
-        db.from('orders').select('id, order_number, status, customer_id, pickup_window_start, source, customers(first_name_cache, last_name_cache)')
+        db.from('orders').select('id, order_number, status, customer_id, pickup_window_start, pickup_address_id, source, customers(first_name_cache, last_name_cache)')
           .in('status', ['scheduled','picked_up','processing','folding','ready_for_delivery','out_for_delivery']),
 
         // 7. Over-capacity routes — routes + templates
@@ -7776,11 +7776,16 @@
       }
 
       // ── Process Check 6: Duplicate Orders ──
+      // Session 200: key includes pickup_address_id, not just customer_id + date.
+      // Multi-location commercial customers (e.g. Nit Pixies Clinic — 2 real
+      // locations, both recurring weekly on the same day) were false-flagged
+      // here as "duplicates" every week purely because two legitimate orders
+      // for two different addresses shared a customer_id and pickup date.
       const ordersByKey = {};
       (c6.data || []).forEach(o => {
         if (!o.pickup_window_start) return;
         const pDate = new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-        const key = `${o.customer_id}_${pDate}`;
+        const key = `${o.customer_id}_${pDate}_${o.pickup_address_id || 'no-address'}`;
         if (!ordersByKey[key]) ordersByKey[key] = [];
         ordersByKey[key].push(o);
       });
@@ -22651,8 +22656,12 @@ ${oneCopy}
       </div>`;
     };
 
-    // Sort templates by window_start (morning → evening), ungrouped last
-    const sorted = [...allTemplates].sort((a, b) =>
+    // Sort templates by window_start (morning → evening), ungrouped last.
+    // Retired templates (is_active=false) never get new routes generated for them
+    // going forward, so they shouldn't occupy a row on the live operating schedule —
+    // allTemplates itself stays unfiltered for other consumers (e.g. the Templates
+    // management list) that legitimately need to show retired templates too.
+    const sorted = allTemplates.filter(t => t.is_active).sort((a, b) =>
       (a.window_start || '99:99').localeCompare(b.window_start || '99:99')
     );
 
@@ -22900,7 +22909,9 @@ ${oneCopy}
       </div>`;
     };
 
-    const sorted = [...allTemplates].sort((a, b) =>
+    // Same is_active filter as renderWeeklySchedule — retired templates shouldn't
+    // occupy a row on the live driver schedule either.
+    const sorted = allTemplates.filter(t => t.is_active).sort((a, b) =>
       (a.window_start || '99:99').localeCompare(b.window_start || '99:99')
     );
 
