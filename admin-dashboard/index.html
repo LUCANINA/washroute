@@ -22651,8 +22651,12 @@ ${oneCopy}
       </div>`;
     };
 
-    // Sort templates by window_start (morning → evening), ungrouped last
-    const sorted = [...allTemplates].sort((a, b) =>
+    // Sort templates by window_start (morning → evening), ungrouped last.
+    // Retired templates (is_active=false) never get new routes generated for them
+    // going forward, so they shouldn't occupy a row on the live operating schedule —
+    // allTemplates itself stays unfiltered for other consumers (e.g. the Templates
+    // management list) that legitimately need to show retired templates too.
+    const sorted = allTemplates.filter(t => t.is_active).sort((a, b) =>
       (a.window_start || '99:99').localeCompare(b.window_start || '99:99')
     );
 
@@ -22900,7 +22904,9 @@ ${oneCopy}
       </div>`;
     };
 
-    const sorted = [...allTemplates].sort((a, b) =>
+    // Same is_active filter as renderWeeklySchedule — retired templates shouldn't
+    // occupy a row on the live driver schedule either.
+    const sorted = allTemplates.filter(t => t.is_active).sort((a, b) =>
       (a.window_start || '99:99').localeCompare(b.window_start || '99:99')
     );
 
