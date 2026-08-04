@@ -7305,6 +7305,7 @@
   let _allLoanAccounts = [];
   let _allLoanStatements = [];
   let _allLoanSplits = [];
+  let _allLoanAmortRows = [];       // amortization rows, each carrying its parent schedule's storage_path
   let _loanUploadFile = null;       // { base64, filename }
   let _loanUploadParsedAcctNum = null;
 
@@ -7321,14 +7322,18 @@
   }
 
   async function loadLoans() {
-    const [{ data: accounts }, { data: statements }, { data: splits }] = await Promise.all([
+    const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }] = await Promise.all([
       db.from('loan_accounts').select('*').order('lender_account_number'),
       db.from('loan_statements').select('*').order('statement_date', { ascending: false }),
       db.from('loan_splits').select('*, loan_accounts(lender_account_number,xero_account_name,lender)').order('period_label', { ascending: false }),
+      // Schedule-sourced splits (e.g. Dexter) have no loan_statements row -- the proof
+      // document lives one level up, on the parent loan_amortization_schedules row.
+      db.from('loan_amortization_rows').select('id, schedule_id, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date)'),
     ]);
     _allLoanAccounts   = accounts || [];
     _allLoanStatements = statements || [];
     _allLoanSplits     = splits || [];
+    _allLoanAmortRows  = amortRows || [];
 
     renderLoansSummary();
     renderLoansAttention();
@@ -7453,6 +7458,27 @@
   // not just the latest status badge. Pulls from _allLoanSplits (already loaded
   // by loadLoans(), same RLS-read access the CPA role already has on this page),
   // no extra round-trip needed.
+  // Resolves the actual source file backing a split -- a pulled statement for
+  // statement_delta splits, or the parent amortization schedule (the loan's
+  // full-life-of-loan document, not a per-period file) for schedule-sourced ones.
+  function _loanFileForSplit(s) {
+    if (s.current_statement_id) {
+      const stmt = _allLoanStatements.find(x => x.id === s.current_statement_id);
+      return stmt?.storage_path ? { path: stmt.storage_path, label: 'View statement' } : null;
+    }
+    if (s.amortization_row_id) {
+      const row = _allLoanAmortRows.find(x => x.id === s.amortization_row_id);
+      const schedPath = row?.loan_amortization_schedules?.storage_path;
+      return schedPath ? { path: schedPath, label: 'View schedule' } : null;
+    }
+    return null;
+  }
+
+  // splitId -> storage_path, (re)populated every time the history modal renders.
+  // Keeping the actual path out of the onclick attribute avoids any quoting issues
+  // with filenames/paths containing special characters.
+  let _historyFilePaths = {};
+
   function openLoanHistoryModal(loanAccountId) {
     const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
     const splits = _allLoanSplits
@@ -7472,7 +7498,13 @@
         if (s.status === 'needs_attention') return `<span class="badge badge-red">needs attention</span>`;
         return `<span class="badge badge-amber">${esc(s.status)}</span>`;
       };
-      const rows = splits.map(s => `
+      const rows = splits.map(s => {
+        const file = _loanFileForSplit(s);
+        if (file) _historyFilePaths[s.id] = file.path;
+        const fileCell = file
+          ? `<span onclick="viewLoanFile('${s.id}')" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">${esc(file.label)}</span>`
+          : `<span style="font-size:12px;color:var(--gray-300)">—</span>`;
+        return `
         <tr>
           <td class="td-mono">${esc(s.period_label)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${s.source === 'amortization_schedule' ? 'schedule' : 'statement'}</td>
@@ -7482,17 +7514,38 @@
           <td>${statusBadge(s)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${s.xero_posted_at ? esc(s.xero_posted_at.slice(0, 10)) : '—'}</td>
           <td class="td-mono" style="font-size:11px;color:var(--gray-400)" title="${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id) : ''}">${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id.slice(0, 8)) + '…' : '—'}</td>
+          <td>${fileCell}</td>
         </tr>
-        ${s.review_notes ? `<tr><td colspan="8" style="padding:2px 8px 12px;font-size:12px;color:var(--gray-600);background:var(--gray-50)">⚠ ${esc(s.review_notes)}</td></tr>` : ''}
-      `).join('');
+        ${s.review_notes ? `<tr><td colspan="9" style="padding:2px 8px 12px;font-size:12px;color:var(--gray-600);background:var(--gray-50)">⚠ ${esc(s.review_notes)}</td></tr>` : ''}
+      `;
+      }).join('');
       body.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-        <thead><tr><th>Period</th><th>Source</th><th>Principal</th><th>Interest</th><th>Total</th><th>Status</th><th>Posted</th><th>Journal</th></tr></thead>
+        <thead><tr><th>Period</th><th>Source</th><th>Principal</th><th>Interest</th><th>Total</th><th>Status</th><th>Posted</th><th>Journal</th><th>File</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`;
     }
     document.getElementById('modal-loan-history').classList.add('open');
   }
   function closeLoanHistoryModal() {
     document.getElementById('modal-loan-history').classList.remove('open');
+  }
+
+  // Opens the source statement/schedule for a split in a new tab via a short-lived
+  // signed URL (the loan-statements bucket is private -- RLS on storage.objects
+  // already grants read to admin/manager/cpa, same as the loan_* tables). Opens a
+  // blank tab synchronously first, then redirects it once the signed URL comes back,
+  // so the popup isn't blocked by the async gap.
+  async function viewLoanFile(splitId) {
+    const path = _historyFilePaths[splitId];
+    if (!path) { showToast('No file on record for this entry.', 'error'); return; }
+    const win = window.open('', '_blank');
+    const { data, error } = await db.storage.from('loan-statements').createSignedUrl(path, 300);
+    if (error || !data?.signedUrl) {
+      if (win && !win.closed) win.close();
+      showToast('Could not load file: ' + (error?.message || 'unknown error'), 'error');
+      return;
+    }
+    if (win && !win.closed) win.location.href = data.signedUrl;
+    else window.open(data.signedUrl, '_blank');
   }
 
   function _populateLoanSelect() {
