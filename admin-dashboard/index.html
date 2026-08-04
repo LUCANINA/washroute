@@ -3320,6 +3320,33 @@
           </div>
         </div>
 
+        <!-- Schedule-loan "Generate next split" modal (session 205) -- no manual number
+             entry, unlike the statement-upload modal: everything comes from the
+             amortization schedule already on file, the user only confirms the period. -->
+        <div class="modal-overlay" id="modal-loan-schedule-generate">
+          <div class="modal" style="width:460px">
+            <div class="modal-header">
+              <div class="modal-title" id="lsg-title">Generate Split from Schedule</div>
+              <button class="modal-close" onclick="closeLoanScheduleGenerateModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px" id="lsg-explainer"></div>
+              <div class="form-group">
+                <label class="form-label">Period</label>
+                <input type="month" class="form-input" id="lsg-period">
+                <div style="font-size:12px;color:var(--gray-500);margin-top:6px">Principal, interest, and total are computed directly from the schedule on file for this month — nothing to type in.</div>
+              </div>
+              <div id="lsg-error" style="color:var(--red);font-size:13px;display:none;margin-top:4px"></div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closeLoanScheduleGenerateModal()">Cancel</button>
+              <button class="btn btn-primary" id="lsg-submit-btn" onclick="submitLoanScheduleGenerate()">Generate &amp; Review</button>
+            </div>
+          </div>
+        </div>
+
         <!-- page-driver-messages removed — merged into page-drivers -->
 
         <!-- ── SETTINGS ── -->
@@ -7328,7 +7355,9 @@
       db.from('loan_splits').select('*, loan_accounts(lender_account_number,xero_account_name,lender)').order('period_label', { ascending: false }),
       // Schedule-sourced splits (e.g. Dexter) have no loan_statements row -- the proof
       // document lives one level up, on the parent loan_amortization_schedules row.
-      db.from('loan_amortization_rows').select('id, schedule_id, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date)'),
+      // row_date/row_type/payment are pulled too so the dashboard can compute which
+      // period to generate next without a second round-trip.
+      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, principal, interest, payment, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id)'),
     ]);
     _allLoanAccounts   = accounts || [];
     _allLoanStatements = statements || [];
@@ -7439,18 +7468,26 @@
       const historyLink = splitsForLoan.length
         ? `<span onclick="event.stopPropagation();openLoanHistoryModal('${a.id}')" style="margin-left:8px;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">History</span>`
         : '';
-      return `<tr onclick="openLoanUploadModal('${a.id}')">
+      // Schedule-sourced loans (Dexter, etc.) have no monthly statement to pull --
+      // clicking one of these used to open the generic statement-upload form and ask
+      // for hand-typed numbers David would otherwise have to copy off the schedule
+      // himself (real risk of a typo). There's nothing to upload for these: the whole
+      // loan's numbers are already on file, so the row instead opens a much smaller
+      // "confirm the period, we compute the rest" flow with zero manual entry.
+      const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
+      const rowClick = isScheduleLoan ? `openLoanScheduleGenerateModal('${a.id}')` : `openLoanUploadModal('${a.id}')`;
+      return `<tr onclick="${rowClick}">
         <td class="td-name">${esc(a.xero_account_name || '—')}</td>
         <td style="color:var(--gray-500)">${esc(a.lender)} #${esc(a.lender_account_number)}</td>
         <td>${statusBadge}</td>
-        <td class="td-mono">${lastStmt ? esc(lastStmt.statement_date) : '—'}</td>
+        <td class="td-mono">${isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—')}</td>
         <td>${splitBadge}${historyLink}</td>
       </tr>`;
     }).join('');
     el.innerHTML = `<div style="overflow-x:auto"><table>
       <thead><tr><th>Xero account</th><th>Lender</th><th>Status</th><th>Last statement</th><th>Last split</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-      <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Click a row to upload its next statement, or "History" to see every split posted for that loan.</div>`;
+      <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Click a row to add its next period (statement upload, or a one-click generate for schedule-only loans) — or "History" to see every split posted for that loan.</div>`;
   }
 
   // Full posted (and pending/flagged) split history for one loan — lets the CPA
@@ -7546,6 +7583,71 @@
     }
     if (win && !win.closed) win.location.href = data.signedUrl;
     else window.open(data.signedUrl, '_blank');
+  }
+
+  // Default period for a schedule-sourced loan's "generate next split" modal: one
+  // month after its most recently computed split, or (first time for this loan) the
+  // earliest 'payment' row on its schedule. Either way the user only ever confirms a
+  // month -- never types a dollar amount.
+  function _nextSchedulePeriod(loanAccountId) {
+    const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === loanAccountId);
+    if (splitsForLoan.length) {
+      const latest = splitsForLoan.map(s => s.period_label).sort().pop();
+      const [y, m] = latest.split('-').map(Number);
+      const ny = m === 12 ? y + 1 : y;
+      const nm = m === 12 ? 1 : m + 1;
+      return `${ny}-${String(nm).padStart(2, '0')}`;
+    }
+    const rows = _allLoanAmortRows.filter(r => r.loan_amortization_schedules?.loan_account_id === loanAccountId && r.row_type === 'payment' && r.row_date);
+    if (rows.length) return rows.map(r => r.row_date).sort()[0].slice(0, 7);
+    return new Date().toISOString().slice(0, 7);
+  }
+
+  function openLoanScheduleGenerateModal(loanAccountId) {
+    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Loans.', 'error'); return; }
+    const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
+    if (!acct) return;
+    document.getElementById('lsg-title').textContent = `Generate Split — ${acct.xero_account_name || acct.lender_account_number}`;
+    document.getElementById('lsg-explainer').textContent =
+      `${acct.lender} has no monthly statement to pull — the full amortization schedule is already on file. Pick the period below and the principal/interest split is read straight off that schedule.`;
+    document.getElementById('lsg-period').value = _nextSchedulePeriod(loanAccountId);
+    document.getElementById('lsg-error').style.display = 'none';
+    document.getElementById('modal-loan-schedule-generate').dataset.loanId = loanAccountId;
+    document.getElementById('modal-loan-schedule-generate').classList.add('open');
+  }
+  function closeLoanScheduleGenerateModal() {
+    document.getElementById('modal-loan-schedule-generate').classList.remove('open');
+  }
+  async function submitLoanScheduleGenerate() {
+    const modal = document.getElementById('modal-loan-schedule-generate');
+    const loanId = modal.dataset.loanId;
+    const acct = _allLoanAccounts.find(a => a.id === loanId);
+    const errEl = document.getElementById('lsg-error');
+    errEl.style.display = 'none';
+    const periodVal = document.getElementById('lsg-period').value; // 'YYYY-MM'
+    if (!acct || !periodVal) {
+      errEl.textContent = 'Pick a period first.';
+      errEl.style.display = '';
+      return;
+    }
+    const btn = document.getElementById('lsg-submit-btn');
+    btn.disabled = true; const origLabel = btn.textContent; btn.textContent = 'Generating…';
+    try {
+      const { ok, data } = await _loanFn('loan-generate-schedule-split', {
+        lender_account_number: acct.lender_account_number,
+        period_label: periodVal,
+      });
+      if (!ok || data.error) throw new Error(data.error || 'Could not generate a split for that period.');
+      closeLoanScheduleGenerateModal();
+      showToast('Split generated from the schedule — review before posting.', 'success');
+      await loadLoans();
+      openLoanReviewModal(data.split.id);
+    } catch (e) {
+      errEl.textContent = e.message || 'Something went wrong.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false; btn.textContent = origLabel;
+    }
   }
 
   function _populateLoanSelect() {
