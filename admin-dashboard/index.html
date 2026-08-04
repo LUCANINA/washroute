@@ -7552,15 +7552,15 @@
       return;
     }
 
-    const plan = data.proposed_plan;
+    const journal = data.proposed_journal;
     const mbt = data.matched_bank_transaction;
     body.innerHTML = `
-      <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Matched Xero bank transaction <span class="td-mono">${esc(mbt.id.slice(0,8))}…</span> on ${esc(mbt.date?.slice(0,10))} for $${mbt.total}.</div>
+      <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Matched Xero bank transaction <span class="td-mono">${esc(mbt.id.slice(0,8))}…</span> on ${esc(mbt.date?.slice(0,10))} for $${mbt.total}${mbt.reconciled ? ' (already reconciled — left untouched)' : ''}.</div>
       <div class="form-section-head">Currently posted as</div>
       <div style="margin-bottom:14px">${(mbt.current_lines||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description||'(no description)')} — $${l.LineAmount} → ${esc(l.AccountCode)}</div>`).join('') || '<div style="font-size:13px;color:var(--gray-400)">—</div>'}</div>
-      <div class="form-section-head">Will be split into</div>
-      <div style="margin-bottom:14px">${plan.LineItems.map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.UnitAmount}</b> → ${esc(l.AccountCode)}</div>`).join('')}</div>
-      ${data.caution ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.caution)}</div>` : ''}
+      <div class="form-section-head">Journal entry to post (reallocates interest out of the loan account, doesn't touch the transaction above)</div>
+      <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.LineAmount}</b> → ${esc(l.AccountCode)}</div>`).join('')}</div>
+      ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
     `;
     footer.innerHTML = `
       <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
