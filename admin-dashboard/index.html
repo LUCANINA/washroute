@@ -3304,6 +3304,22 @@
           </div>
         </div>
 
+        <!-- Loan Split History modal (session 205) -->
+        <div class="modal-overlay" id="modal-loan-history">
+          <div class="modal" style="width:760px">
+            <div class="modal-header">
+              <div class="modal-title" id="loan-history-title">Split History</div>
+              <button class="modal-close" onclick="closeLoanHistoryModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="loan-history-body">Loading…</div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closeLoanHistoryModal()">Close</button>
+            </div>
+          </div>
+        </div>
+
         <!-- page-driver-messages removed — merged into page-drivers -->
 
         <!-- ── SETTINGS ── -->
@@ -7404,25 +7420,79 @@
     }
     const rows = _allLoanAccounts.map(a => {
       const lastStmt = _allLoanStatements.filter(s => s.loan_account_id === a.id)[0];
-      const lastSplit = _allLoanSplits.filter(s => s.loan_account_id === a.id)[0];
+      const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === a.id);
+      const lastSplit = splitsForLoan[0];
       const statusBadge = a.status === 'paid_off'
         ? `<span class="badge badge-gray">paid off</span>`
         : `<span class="badge badge-green">active</span>`;
       const splitBadge = lastSplit
         ? (lastSplit.status === 'posted' ? `<span class="badge badge-green">posted ${esc(lastSplit.period_label)}</span>` : `<span class="badge badge-amber">${esc(lastSplit.status)} ${esc(lastSplit.period_label)}</span>`)
         : `<span class="badge badge-gray">no split yet</span>`;
+      // History link is separate from the row's own click (which opens the upload
+      // modal) so a CPA — or anyone — can pull up every posted split's actual
+      // numbers without triggering (or being blocked by) the upload flow.
+      const historyLink = splitsForLoan.length
+        ? `<span onclick="event.stopPropagation();openLoanHistoryModal('${a.id}')" style="margin-left:8px;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">History</span>`
+        : '';
       return `<tr onclick="openLoanUploadModal('${a.id}')">
         <td class="td-name">${esc(a.xero_account_name || '—')}</td>
         <td style="color:var(--gray-500)">${esc(a.lender)} #${esc(a.lender_account_number)}</td>
         <td>${statusBadge}</td>
         <td class="td-mono">${lastStmt ? esc(lastStmt.statement_date) : '—'}</td>
-        <td>${splitBadge}</td>
+        <td>${splitBadge}${historyLink}</td>
       </tr>`;
     }).join('');
     el.innerHTML = `<div style="overflow-x:auto"><table>
       <thead><tr><th>Xero account</th><th>Lender</th><th>Status</th><th>Last statement</th><th>Last split</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-      <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Click a row to upload its next statement.</div>`;
+      <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Click a row to upload its next statement, or "History" to see every split posted for that loan.</div>`;
+  }
+
+  // Full posted (and pending/flagged) split history for one loan — lets the CPA
+  // eyeball the actual principal/interest numbers that were computed and posted,
+  // not just the latest status badge. Pulls from _allLoanSplits (already loaded
+  // by loadLoans(), same RLS-read access the CPA role already has on this page),
+  // no extra round-trip needed.
+  function openLoanHistoryModal(loanAccountId) {
+    const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
+    const splits = _allLoanSplits
+      .filter(s => s.loan_account_id === loanAccountId)
+      .slice()
+      .sort((a, b) => (b.period_label || '').localeCompare(a.period_label || ''));
+
+    document.getElementById('loan-history-title').textContent =
+      acct ? `Split History — ${acct.xero_account_name || acct.lender_account_number}` : 'Split History';
+
+    const body = document.getElementById('loan-history-body');
+    if (!splits.length) {
+      body.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No splits recorded for this loan yet.</div>`;
+    } else {
+      const statusBadge = (s) => {
+        if (s.status === 'posted') return `<span class="badge badge-green">posted</span>`;
+        if (s.status === 'needs_attention') return `<span class="badge badge-red">needs attention</span>`;
+        return `<span class="badge badge-amber">${esc(s.status)}</span>`;
+      };
+      const rows = splits.map(s => `
+        <tr>
+          <td class="td-mono">${esc(s.period_label)}</td>
+          <td style="font-size:12px;color:var(--gray-500)">${s.source === 'amortization_schedule' ? 'schedule' : 'statement'}</td>
+          <td>$${Number(s.principal_amount).toFixed(2)}</td>
+          <td>$${Number(s.interest_amount).toFixed(2)}</td>
+          <td>$${Number(s.total_amount).toFixed(2)}</td>
+          <td>${statusBadge(s)}</td>
+          <td style="font-size:12px;color:var(--gray-500)">${s.xero_posted_at ? esc(s.xero_posted_at.slice(0, 10)) : '—'}</td>
+          <td class="td-mono" style="font-size:11px;color:var(--gray-400)" title="${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id) : ''}">${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id.slice(0, 8)) + '…' : '—'}</td>
+        </tr>
+        ${s.review_notes ? `<tr><td colspan="8" style="padding:2px 8px 12px;font-size:12px;color:var(--gray-600);background:var(--gray-50)">⚠ ${esc(s.review_notes)}</td></tr>` : ''}
+      `).join('');
+      body.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr><th>Period</th><th>Source</th><th>Principal</th><th>Interest</th><th>Total</th><th>Status</th><th>Posted</th><th>Journal</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+    }
+    document.getElementById('modal-loan-history').classList.add('open');
+  }
+  function closeLoanHistoryModal() {
+    document.getElementById('modal-loan-history').classList.remove('open');
   }
 
   function _populateLoanSelect() {
