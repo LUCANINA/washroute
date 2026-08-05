@@ -3235,30 +3235,55 @@
             <div id="loans-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
           </div>
 
+          <!-- Needs Attention / Pending Review / All Loans — collapsed by default
+               (same convention as the Overview panels via toggleOverviewPanel) so
+               the page opens quiet and the CPA opens exactly one section at a time
+               instead of scrolling past three open tables. Each header carries its
+               own count so the choice of what to open is informed without opening it. -->
           <div class="card" style="margin-bottom:20px" id="loans-attention-card">
-            <div class="card-header">
-              <div class="card-title">Needs Attention</div>
-              <div class="card-sub">Discrepancies the system caught on its own — worth a look before month-end close.</div>
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('loans-attention-list',this)">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="card-title">Needs Attention</div>
+                  <span id="loans-attention-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                </div>
+                <div class="card-sub">Discrepancies the system caught on its own — worth a look before month-end close.</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
-            <div id="loans-attention-list" style="padding:4px 0 16px"></div>
+            <div id="loans-attention-list" style="display:none;padding:4px 0 16px"></div>
           </div>
 
-          <div class="card" style="margin-bottom:20px">
-            <div class="card-header">
-              <div class="card-title">Pending Review</div>
-              <div class="card-sub">Computed splits waiting for approval before posting to Xero.</div>
+          <div class="card" style="margin-bottom:20px" id="loans-pending-card">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('loans-pending-list',this)">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="card-title">Pending Review</div>
+                  <span id="loans-pending-badge" style="font-size:13px;font-weight:700;color:#92400e;background:#fef3c7;border-radius:8px;padding:3px 10px;display:none"></span>
+                </div>
+                <div class="card-sub">Computed splits waiting for approval before posting to Xero.</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
-            <div id="loans-pending-list" style="padding:4px 0 16px">
+            <div id="loans-pending-list" style="display:none;padding:4px 0 16px">
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
 
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">All Loans</div>
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
+          <div class="card" id="loans-all-card">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('loans-table-wrap',this)">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="card-title">All Loans</div>
+                  <span id="loans-all-badge" style="font-size:13px;font-weight:700;color:var(--gray-500);background:var(--gray-100);border-radius:8px;padding:3px 10px;display:none"></span>
+                </div>
+              </div>
+              <span style="display:flex;align-items:center;gap:14px">
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();loadLoans()">↻ Refresh</button>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+              </span>
             </div>
-            <div id="loans-table-wrap">
+            <div id="loans-table-wrap" style="display:none">
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
@@ -7428,6 +7453,7 @@
   function renderLoansAttention() {
     const card = document.getElementById('loans-attention-card');
     const el = document.getElementById('loans-attention-list');
+    const badge = document.getElementById('loans-attention-badge');
     if (!el || !card) return;
     const flaggedAccounts = _allLoanAccounts.filter(a => a.flagged_note);
     const flaggedSplits = _allLoanSplits.filter(s => s.status === 'needs_attention');
@@ -7445,6 +7471,13 @@
     const actionCount = actionAccounts.length + flaggedSplits.length;
     const resolvedCount = resolvedAccounts.length;
 
+    // Header badge only counts what actually needs a look — a fully-resolved
+    // history sitting behind the section header shouldn't read as urgent.
+    if (badge) {
+      if (actionCount) { badge.textContent = `${actionCount} flagged`; badge.style.display = ''; }
+      else { badge.style.display = 'none'; }
+    }
+
     if (_loanAttnTab === 'resolved' && !resolvedCount) _loanAttnTab = 'action_needed';
     if (_loanAttnTab === 'action_needed' && !actionCount && resolvedCount) _loanAttnTab = 'resolved';
 
@@ -7456,7 +7489,7 @@
             <div class="td-name" style="margin-bottom:2px">${esc(a.xero_account_name || a.lender_account_number)}</div>
             <div style="font-size:12.5px;color:var(--gray-600)">${esc(a.flag_summary || a.flagged_note)}</div>
             ${a.flag_fixable ? `<button class="btn btn-primary" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : ''}
-            ${a.flagged_note ? `<details style="margin-top:6px"><summary></summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(a.flagged_note)}</div></details>` : ''}
+            ${a.flagged_note ? `<details style="margin-top:6px"><summary style="font-size:11.5px;color:var(--gray-400);cursor:pointer">Full detail</summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(a.flagged_note)}</div></details>` : ''}
           </div>
         </div>
       </div>`;
@@ -7491,8 +7524,13 @@
 
   function renderLoansPending() {
     const el = document.getElementById('loans-pending-list');
+    const badge = document.getElementById('loans-pending-badge');
     if (!el) return;
     const pending = _allLoanSplits.filter(s => s.status === 'pending_review');
+    if (badge) {
+      if (pending.length) { badge.textContent = `${pending.length} pending`; badge.style.display = ''; }
+      else { badge.style.display = 'none'; }
+    }
     if (!pending.length) {
       el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing waiting on review right now.</div>`;
       return;
@@ -7515,7 +7553,12 @@
 
   function renderLoansTable() {
     const el = document.getElementById('loans-table-wrap');
+    const badge = document.getElementById('loans-all-badge');
     if (!el) return;
+    if (badge) {
+      if (_allLoanAccounts.length) { badge.textContent = `${_allLoanAccounts.length} loan${_allLoanAccounts.length !== 1 ? 's' : ''}`; badge.style.display = ''; }
+      else { badge.style.display = 'none'; }
+    }
     if (!_allLoanAccounts.length) {
       el.innerHTML = `<div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">No loans set up yet</div><div class="empty-sub">Loan accounts are added directly in Supabase for now.</div></div>`;
       return;
