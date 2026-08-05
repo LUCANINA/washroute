@@ -7372,15 +7372,32 @@
   let _loanUploadParsedAcctNum = null;
 
   async function _loanFn(name, bodyObj) {
-    const { data: { session } = {} } = await db.auth.getSession();
-    const jwt = session?.access_token || SUPA_ANON_KEY;
-    const res = await fetch(`${SUPA_URL}/functions/v1/${name}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${jwt}` },
-      body: JSON.stringify(bodyObj || {}),
-    });
-    const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    return { ok: res.ok, status: res.status, data: result };
+    // Bug fix (session 205 cont.): this used to let a network failure/timeout/CORS
+    // error propagate as an uncaught exception straight out of the fetch call --
+    // any caller that awaited it without its own try/catch (e.g. openLoanReviewModal)
+    // would then be stuck forever on its "loading…" state with no visible error.
+    // Now every failure mode -- thrown fetch error, hung request past 25s, or a
+    // non-JSON response -- resolves to a normal {ok:false, data:{error}} result
+    // instead, so callers can always just check `ok`/`data.error` like normal.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    try {
+      const { data: { session } = {} } = await db.auth.getSession();
+      const jwt = session?.access_token || SUPA_ANON_KEY;
+      const res = await fetch(`${SUPA_URL}/functions/v1/${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify(bodyObj || {}),
+        signal: controller.signal,
+      });
+      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      return { ok: res.ok, status: res.status, data: result };
+    } catch (e) {
+      const timedOut = e && e.name === 'AbortError';
+      return { ok: false, status: 0, data: { error: timedOut ? 'Timed out waiting for a response — Xero may be slow to respond right now. Try again in a moment.' : (e?.message || 'Network error — could not reach the server.') } };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async function loadLoans() {
@@ -7952,32 +7969,42 @@
     body.innerHTML = '<div class="loading"><div class="spinner"></div>Checking Xero for the matching transaction…</div>';
     footer.innerHTML = '';
 
-    const { ok, data } = await _loanFn('loan-xero-post', { loan_split_id: splitId, confirm: false });
-    if (!ok || data.error) {
-      const canPost = currentUserRole !== 'cpa';
-      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not find a matching Xero transaction.')}</div>
-        ${data.candidates && data.candidates.length ? `<div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">Candidates found${canPost ? '' : ' (read-only — ask an admin or manager to post)'}:</div>
-        <div style="margin-top:6px">${data.candidates.map(c => `<div style="padding:8px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
-          ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${canPost ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
-        </div>`).join('')}</div>` : ''}`;
-      footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
-      return;
-    }
+    // Bug fix (session 205 cont.): everything below used to run un-guarded, so any
+    // exception -- a malformed response, a template referencing a missing field --
+    // left the modal stuck on the spinner forever with no way out but closing the
+    // tab. _loanFn itself now also never throws (see its own fix note), but this
+    // try/catch is the belt-and-suspenders backstop for the rendering code too.
+    try {
+      const { ok, data } = await _loanFn('loan-xero-post', { loan_split_id: splitId, confirm: false });
+      if (!ok || data.error) {
+        const canPost = currentUserRole !== 'cpa';
+        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not find a matching Xero transaction.')}</div>
+          ${data.candidates && data.candidates.length ? `<div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">Candidates found${canPost ? '' : ' (read-only — ask an admin or manager to post)'}:</div>
+          <div style="margin-top:6px">${data.candidates.map(c => `<div style="padding:8px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
+            ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${canPost ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
+          </div>`).join('')}</div>` : ''}`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+        return;
+      }
 
-    const journal = data.proposed_journal;
-    const mbt = data.matched_bank_transaction;
-    body.innerHTML = `
-      <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Matched Xero bank transaction <span class="td-mono">${esc(mbt.id.slice(0,8))}…</span> on ${esc(mbt.date?.slice(0,10))} for $${mbt.total}${mbt.reconciled ? ' (already reconciled — left untouched)' : ''}.</div>
-      <div class="form-section-head">Currently posted as</div>
-      <div style="margin-bottom:14px">${(mbt.current_lines||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description||'(no description)')} — $${l.LineAmount} → ${esc(l.AccountCode)}</div>`).join('') || '<div style="font-size:13px;color:var(--gray-400)">—</div>'}</div>
-      <div class="form-section-head">Journal entry to post (reallocates interest out of the loan account, doesn't touch the transaction above)</div>
-      <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.LineAmount}</b> → ${esc(l.AccountCode)}</div>`).join('')}</div>
-      ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
-    `;
-    footer.innerHTML = `
-      <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
-      ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Post to Xero</button>`}
-    `;
+      const journal = data.proposed_journal;
+      const mbt = data.matched_bank_transaction;
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Matched Xero bank transaction <span class="td-mono">${esc(mbt.id.slice(0,8))}…</span> on ${esc(mbt.date?.slice(0,10))} for $${mbt.total}${mbt.reconciled ? ' (already reconciled — left untouched)' : ''}.</div>
+        <div class="form-section-head">Currently posted as</div>
+        <div style="margin-bottom:14px">${(mbt.current_lines||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description||'(no description)')} — $${l.LineAmount} → ${esc(l.AccountCode)}</div>`).join('') || '<div style="font-size:13px;color:var(--gray-400)">—</div>'}</div>
+        <div class="form-section-head">Journal entry to post (reallocates interest out of the loan account, doesn't touch the transaction above)</div>
+        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.LineAmount}</b> → ${esc(l.AccountCode)}</div>`).join('')}</div>
+        ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Post to Xero</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong loading this review: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+    }
   }
   function closeLoanReviewModal() {
     document.getElementById('modal-loan-review').classList.remove('open');
