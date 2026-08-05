@@ -1159,6 +1159,16 @@
     .ps-subtabs { display:flex; gap:2px; background:var(--gray-100); border-radius:var(--radius); padding:3px; }
     .ps-subtab { padding:6px 14px; border-radius:8px; font-size:12.5px; font-weight:500; color:var(--gray-600); cursor:pointer; border:none; background:transparent; transition:all .12s; font-family:inherit; }
     .ps-subtab.active { background:#fff; color:var(--gray-900); font-weight:600; box-shadow:var(--shadow-sm); }
+    /* Loans → Needs Attention sub-tabs (session 205). Same pill pattern as
+       .ps-subtab, kept as its own class per this file's per-section naming
+       convention (see reg-subtab, svc-page-tab, op-tab, etc.). */
+    .loan-attn-subtabs { display:flex; gap:2px; background:var(--gray-100); border-radius:var(--radius); padding:3px; }
+    .loan-attn-subtab { padding:6px 14px; border-radius:8px; font-size:12.5px; font-weight:500; color:var(--gray-600); cursor:pointer; border:none; background:transparent; transition:all .12s; font-family:inherit; }
+    .loan-attn-subtab.active { background:#fff; color:var(--gray-900); font-weight:600; box-shadow:var(--shadow-sm); }
+    .loan-attn-item summary { cursor:pointer; font-size:11.5px; color:var(--gray-400); font-weight:600; list-style:none; }
+    .loan-attn-item summary::-webkit-details-marker { display:none; }
+    .loan-attn-item summary:before { content:"Full detail  ▸"; }
+    .loan-attn-item details[open] summary:before { content:"Full detail  ▾"; }
     /* By Order table — wide; needs horizontal scroll on narrow screens */
     .ps-by-order-wrap { overflow-x:auto; }
     .ps-by-order-tbl { width:100%; min-width:1200px; border-collapse:collapse; font-size:13px; }
@@ -7395,6 +7405,26 @@
   // loan_splits row whose status was set to 'needs_attention' — reserved for
   // when a statement and an amortization schedule disagree on the split for
   // the same period, once schedule ingestion exists.
+  // session 205: sub-tabbed redesign. Action-needed items (still-open issues,
+  // and unresolved statement/schedule mismatches) show up front; resolved
+  // items are tucked behind a second tab so the card doesn't turn into a wall
+  // of text. Each account shows a short flag_summary by default, with the
+  // full flagged_note diagnostic available behind a "Full detail" toggle.
+  // flag_fixable / flag_fix_payload are reserved for a future reusable
+  // edge function -- as of session 205 no flagged issue is safe to
+  // one-click-resolve (each open case needs a human judgment call about
+  // where misdirected money belongs), so pushLoanFix() below is a stub.
+  let _loanAttnTab = 'action_needed';
+
+  function setLoanAttnTab(tab) {
+    _loanAttnTab = tab;
+    renderLoansAttention();
+  }
+
+  function pushLoanFix(accountId) {
+    alert('One-click fixes aren\'t wired up yet -- no currently flagged issue is safe to auto-resolve. This button is reserved for the next issue that turns out to be mechanically fixable, like the PayPal/Verdant lumped-payment fixes were.');
+  }
+
   function renderLoansAttention() {
     const card = document.getElementById('loans-attention-card');
     const el = document.getElementById('loans-attention-list');
@@ -7406,19 +7436,57 @@
       return;
     }
     card.style.display = '';
-    const items = [
-      ...flaggedAccounts.map(a => `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
-        <span class="badge badge-red" style="margin-top:2px">flagged</span>
-        <div><div class="td-name" style="margin-bottom:2px">${esc(a.xero_account_name || a.lender_account_number)}</div>
-        <div style="font-size:12.5px;color:var(--gray-600)">${esc(a.flagged_note)}</div></div>
-      </div>`),
-      ...flaggedSplits.map(s => `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;cursor:pointer" onclick="openLoanReviewModal('${s.id}')">
+
+    // Anything without a flag_status yet (e.g. a brand-new flag written
+    // before this classification existed) defaults to action_needed so it
+    // never silently disappears into the resolved tab.
+    const actionAccounts = flaggedAccounts.filter(a => a.flag_status !== 'resolved');
+    const resolvedAccounts = flaggedAccounts.filter(a => a.flag_status === 'resolved');
+    const actionCount = actionAccounts.length + flaggedSplits.length;
+    const resolvedCount = resolvedAccounts.length;
+
+    if (_loanAttnTab === 'resolved' && !resolvedCount) _loanAttnTab = 'action_needed';
+    if (_loanAttnTab === 'action_needed' && !actionCount && resolvedCount) _loanAttnTab = 'resolved';
+
+    const accountItem = (a, resolved) => `
+      <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span class="badge ${resolved ? 'badge-green' : 'badge-red'}" style="margin-top:2px">${resolved ? 'resolved' : 'flagged'}</span>
+          <div style="flex:1;min-width:0">
+            <div class="td-name" style="margin-bottom:2px">${esc(a.xero_account_name || a.lender_account_number)}</div>
+            <div style="font-size:12.5px;color:var(--gray-600)">${esc(a.flag_summary || a.flagged_note)}</div>
+            ${a.flag_fixable ? `<button class="btn btn-primary" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : ''}
+            ${a.flagged_note ? `<details style="margin-top:6px"><summary></summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(a.flagged_note)}</div></details>` : ''}
+          </div>
+        </div>
+      </div>`;
+
+    const splitItem = (s) => `
+      <div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;cursor:pointer" onclick="openLoanReviewModal('${s.id}')">
         <span class="badge badge-red" style="margin-top:2px">mismatch</span>
         <div><div class="td-name" style="margin-bottom:2px">${esc(s.loan_accounts?.xero_account_name || '')} — ${esc(s.period_label)}</div>
         <div style="font-size:12.5px;color:var(--gray-600)">${esc(s.review_notes || 'Statement and amortization schedule disagree on this period\'s split.')}</div></div>
-      </div>`),
-    ];
-    el.innerHTML = items.join('');
+      </div>`;
+
+    const subtabs = `<div style="display:flex;padding:0 16px 12px">
+      <div class="loan-attn-subtabs">
+        <button class="loan-attn-subtab ${_loanAttnTab === 'action_needed' ? 'active' : ''}" onclick="setLoanAttnTab('action_needed')">Action Needed (${actionCount})</button>
+        <button class="loan-attn-subtab ${_loanAttnTab === 'resolved' ? 'active' : ''}" onclick="setLoanAttnTab('resolved')">Resolved (${resolvedCount})</button>
+      </div>
+    </div>`;
+
+    let body;
+    if (_loanAttnTab === 'action_needed') {
+      body = actionCount
+        ? [...flaggedSplits.map(splitItem), ...actionAccounts.map(a => accountItem(a, false))].join('')
+        : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing needs action right now.</div>`;
+    } else {
+      body = resolvedCount
+        ? resolvedAccounts.map(a => accountItem(a, true)).join('')
+        : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing resolved yet.</div>`;
+    }
+
+    el.innerHTML = subtabs + body;
   }
 
   function renderLoansPending() {
