@@ -7836,10 +7836,11 @@
 
     const { ok, data } = await _loanFn('loan-xero-post', { loan_split_id: splitId, confirm: false });
     if (!ok || data.error) {
+      const canPost = currentUserRole !== 'cpa';
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not find a matching Xero transaction.')}</div>
-        ${data.candidates && data.candidates.length ? `<div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">Candidates found:</div>
-        <div style="margin-top:6px">${data.candidates.map(c => `<div style="padding:8px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;cursor:pointer" onclick="approveAndPostSplit('${splitId}','${c.id}')">
-          ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} <span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>
+        ${data.candidates && data.candidates.length ? `<div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">Candidates found${canPost ? '' : ' (read-only — ask an admin or manager to post)'}:</div>
+        <div style="margin-top:6px">${data.candidates.map(c => `<div style="padding:8px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
+          ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${canPost ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
         </div>`).join('')}</div>` : ''}`;
       footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
       return;
