@@ -7451,14 +7451,16 @@
   }
 
   function renderLoansSummary() {
+    // Redesigned (session 205 cont., 2026-08-05) at David's request: Active Loans,
+    // Total Outstanding, Paid Last Month, Paid YTD (the latter two broken out into
+    // principal/interest). Replaces the old Pending Review / Posted This Month tiles,
+    // which tracked our internal Xero-reallocation workflow rather than what actually
+    // went out the door to lenders -- that workflow status is still fully visible in
+    // the Pending Review section and the per-loan Status badges below, just not as a
+    // top-line stat anymore.
     const el = document.getElementById('loans-summary');
     if (!el) return;
     const active = _allLoanAccounts.filter(a => a.status === 'active').length;
-    const pending = _allLoanSplits.filter(s => s.status === 'pending_review').length;
-    const postedThisMonth = _allLoanSplits.filter(s => s.status === 'posted' && s.period_label === new Date().toISOString().slice(0,7)).length;
-    const card = (label, n, color, title) => `<div style="flex:1;min-width:130px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
-      <div style="font-size:22px;font-weight:700;color:${color}">${n}</div>
-      <div style="font-size:11px;color:var(--gray-500);font-weight:600;letter-spacing:0">${label}</div></div>`;
 
     const balances = _allLoanAccounts.map(a => _loanOutstandingBalance(a));
     const known = balances.filter(Boolean);
@@ -7470,11 +7472,53 @@
       ? ''
       : 'No current balance on file yet for ' + (_allLoanAccounts.length - known.length) + ' loan(s) -- see All Loans below.';
 
+    // "Paid" reflects real-world lender payments a statement or amortization schedule
+    // already shows as having happened -- it does NOT filter by loan_splits.status.
+    // Status only tracks our internal progress reallocating the interest portion in
+    // Xero (pending_review / needs_attention / posted); a pending_review split still
+    // represents money that already left the bank account, so it counts as "paid."
+    //
+    // period_label is NOT consistently 'YYYY-MM' across every loan -- monthly-statement
+    // lenders (Ford Pro, the 3 new ones) use plain 'YYYY-MM', but some weekly-cadence
+    // backfills (PayPal, Verdant) use the exact payment date 'YYYY-MM-DD' instead
+    // (verified against real data before shipping this, not assumed -- an exact-match
+    // filter here would have silently missed every PayPal/Verdant payment when
+    // computing "last month"). periodMonth() normalizes either shape down to its
+    // first 7 characters so both group and compare consistently.
+    const periodMonth = (label) => (label || '').slice(0, 7);
+    const now = new Date();
+    const thisMonthLabel = now.toISOString().slice(0, 7);
+    const [ty, tm] = thisMonthLabel.split('-').map(Number);
+    const lastMonthDate = new Date(ty, tm - 2, 1); // JS months are 0-based; tm-2 lands on last month
+    const lastMonthLabel = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+    const yearPrefix = `${ty}-`;
+
+    const sumSplits = (splits) => splits.reduce((acc, s) => {
+      acc.principal += Number(s.principal_amount || 0);
+      acc.interest += Number(s.interest_amount || 0);
+      return acc;
+    }, { principal: 0, interest: 0 });
+
+    const lastMonth = sumSplits(_allLoanSplits.filter(s => periodMonth(s.period_label) === lastMonthLabel));
+    const ytd = sumSplits(_allLoanSplits.filter(s => periodMonth(s.period_label).startsWith(yearPrefix) && periodMonth(s.period_label) <= thisMonthLabel));
+
+    const money = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const card = (label, n, color, title) => `<div style="flex:1;min-width:130px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
+      <div style="font-size:22px;font-weight:700;color:${color}">${n}</div>
+      <div style="font-size:11px;color:var(--gray-500);font-weight:600;letter-spacing:0">${label}</div></div>`;
+
+    const breakdownCard = (label, totals, title) => `<div style="flex:1;min-width:170px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
+      <div style="font-size:22px;font-weight:700;color:var(--gray-800)">${money(totals.principal + totals.interest)}</div>
+      <div style="font-size:11px;color:var(--gray-500);font-weight:600;letter-spacing:0;margin-bottom:4px">${label}</div>
+      <div style="font-size:11px;color:var(--gray-400)">${money(totals.principal)} principal · ${money(totals.interest)} interest</div>
+    </div>`;
+
     el.innerHTML =
       card('Active loans', active, 'var(--gray-800)') +
-      card('Pending review', pending, pending ? 'var(--amber)' : 'var(--gray-800)') +
-      card('Posted this month', postedThisMonth, 'var(--green)') +
-      card(outstandingLabel, '$' + totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 'var(--gray-800)', outstandingTitle);
+      card(outstandingLabel, money(totalOutstanding), 'var(--gray-800)', outstandingTitle) +
+      breakdownCard(`Paid last month (${lastMonthLabel})`, lastMonth, 'Sum of every loan_splits row for this period, regardless of Xero-posting status -- reflects real payments already shown on a statement or schedule.') +
+      breakdownCard(`Paid YTD (${ty})`, ytd, 'Sum of every loan_splits row from Jan through this month, regardless of Xero-posting status.');
   }
 
   // A "needs attention" item is either a static flag set on the loan account
