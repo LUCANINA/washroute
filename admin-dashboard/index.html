@@ -7546,6 +7546,48 @@
     alert('One-click fixes aren\'t wired up yet -- no currently flagged issue is safe to auto-resolve. This button is reserved for the next issue that turns out to be mechanically fixable, like the PayPal/Verdant lumped-payment fixes were.');
   }
 
+  function toggleLoanResolveForm(accountId) {
+    const form = document.getElementById(`loan-resolve-form-${accountId}`);
+    if (form) form.style.display = form.style.display === 'none' ? '' : 'none';
+  }
+
+  async function confirmResolveLoanFlag(accountId) {
+    const noteEl = document.getElementById(`loan-resolve-note-${accountId}`);
+    const note = (noteEl?.value || '').trim();
+    if (!note) { showToast('Add a short note on what was fixed before marking this resolved.', 'error'); return; }
+    const btn = document.querySelector(`#loan-resolve-form-${accountId} .btn-primary`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+      const { error } = await db.rpc('mark_loan_flag_resolved', {
+        p_loan_account_id: accountId,
+        p_resolved: true,
+        p_resolution_note: note,
+        p_resolved_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (error) throw error;
+      showToast('Marked resolved.', 'success');
+      loadLoans();
+    } catch (e) {
+      showToast(e.message || 'Could not mark resolved', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Resolved'; }
+    }
+  }
+
+  async function reopenLoanFlag(accountId) {
+    if (!confirm('Reopen this flag? It will move back to Action Needed.')) return;
+    try {
+      const { error } = await db.rpc('mark_loan_flag_resolved', {
+        p_loan_account_id: accountId,
+        p_resolved: false,
+      });
+      if (error) throw error;
+      showToast('Reopened.', 'success');
+      loadLoans();
+    } catch (e) {
+      showToast(e.message || 'Could not reopen', 'error');
+    }
+  }
+
   function renderLoansAttention() {
     const card = document.getElementById('loans-attention-card');
     const el = document.getElementById('loans-attention-list');
@@ -7577,6 +7619,13 @@
     if (_loanAttnTab === 'resolved' && !resolvedCount) _loanAttnTab = 'action_needed';
     if (_loanAttnTab === 'action_needed' && !actionCount && resolvedCount) _loanAttnTab = 'resolved';
 
+    // Mark Resolved (session 205 cont., 2026-08-05): lets admin/manager/cpa self-serve
+    // closing out a flag once they've handled it in Xero, instead of every resolution
+    // requiring Claude to run SQL by hand. Deliberately open to 'cpa' -- David asked
+    // to give the CPA as much power here as possible -- but scoped tightly server-side:
+    // the mark_loan_flag_resolved RPC only ever touches flag_status/flag_resolved_*,
+    // never the loan's Xero account mapping or anything financial, and requires a
+    // non-empty note explaining what was actually fixed (no blank-click resolves).
     const accountItem = (a, resolved) => `
       <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
         <div style="display:flex;gap:10px;align-items:flex-start">
@@ -7586,6 +7635,21 @@
             <div style="font-size:12.5px;color:var(--gray-600)">${esc(a.flag_summary || a.flagged_note)}</div>
             ${a.flag_fixable ? `<button class="btn btn-primary" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : ''}
             ${a.flagged_note ? `<details style="margin-top:6px"><summary style="font-size:11.5px;color:var(--gray-400);cursor:pointer">Full detail</summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(a.flagged_note)}</div></details>` : ''}
+            ${resolved ? `
+              <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Resolved by ${esc(a.flag_resolved_by || 'unknown')}${a.flag_resolved_at ? ' on ' + esc(a.flag_resolved_at.slice(0, 10)) : ''}</div>
+              ${a.flag_resolution_note ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;white-space:pre-wrap">${esc(a.flag_resolution_note)}</div>` : ''}
+              <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="reopenLoanFlag('${a.id}')">Reopen</button>
+            ` : `
+              <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button>
+              <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px">
+                <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
+                <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
+                <div style="display:flex;gap:8px;margin-top:8px">
+                  <button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="confirmResolveLoanFlag('${a.id}')">Confirm Resolved</button>
+                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
+                </div>
+              </div>
+            `}
           </div>
         </div>
       </div>`;
