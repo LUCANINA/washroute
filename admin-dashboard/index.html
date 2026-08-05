@@ -7735,9 +7735,18 @@
       const statusBadge = a.status === 'paid_off'
         ? `<span class="badge badge-gray">paid off</span>`
         : `<span class="badge badge-green">active</span>`;
-      const splitBadge = lastSplit
-        ? (lastSplit.status === 'posted' ? `<span class="badge badge-green">posted ${esc(lastSplit.period_label)}</span>` : `<span class="badge badge-amber">${esc(lastSplit.status)} ${esc(lastSplit.period_label)}</span>`)
-        : `<span class="badge badge-gray">no split yet</span>`;
+      // Automatic loans (Stripe Capital, session 205 cont.) never get a manually
+      // computed loan_splits row -- the repayment is a straight principal paydown
+      // Stripe deducts from each payout before it lands in the bank, already coded
+      // directly to the loan's Xero account by xero-payout-sync with no interest
+      // portion to reallocate. "no split yet" would misleadingly suggest something
+      // is overdue/pending here, so this gets its own badge instead.
+      const isAutomaticLoan = a.ingestion_method === 'automatic';
+      const splitBadge = isAutomaticLoan
+        ? `<span class="badge badge-gray">auto via Stripe payouts</span>`
+        : (lastSplit
+          ? (lastSplit.status === 'posted' ? `<span class="badge badge-green">posted ${esc(lastSplit.period_label)}</span>` : `<span class="badge badge-amber">${esc(lastSplit.status)} ${esc(lastSplit.period_label)}</span>`)
+          : `<span class="badge badge-gray">no split yet</span>`);
       // History link is separate from the row's own click (which opens the upload
       // modal) so a CPA — or anyone — can pull up every posted split's actual
       // numbers without triggering (or being blocked by) the upload flow.
@@ -7750,17 +7759,20 @@
       // himself (real risk of a typo). There's nothing to upload for these: the whole
       // loan's numbers are already on file, so the row instead opens a much smaller
       // "confirm the period, we compute the rest" flow with zero manual entry.
+      // Automatic loans have neither a statement to upload nor a schedule to
+      // generate from -- clicking the row does nothing (no-op) rather than opening
+      // either modal, since there's genuinely no manual input this loan ever needs.
       const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
-      const rowClick = isScheduleLoan ? `openLoanScheduleGenerateModal('${a.id}')` : `openLoanUploadModal('${a.id}')`;
+      const rowClick = isAutomaticLoan ? '' : (isScheduleLoan ? `openLoanScheduleGenerateModal('${a.id}')` : `openLoanUploadModal('${a.id}')`);
       const bal = _loanOutstandingBalance(a);
       const balCell = bal
         ? `<span title="as of ${esc(bal.asOf)}">$${bal.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
-      return `<tr onclick="${rowClick}">
+      return `<tr onclick="${rowClick}" ${isAutomaticLoan ? 'style="cursor:default"' : ''}>
         <td class="td-name">${esc(a.xero_account_name || '—')}</td>
         <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
         <td>${statusBadge}</td>
-        <td class="td-mono">${isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—')}</td>
+        <td class="td-mono">${isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic${lastStmt ? ' (as of ' + esc(lastStmt.statement_date) + ')' : ''}</span>` : (isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—'))}</td>
         <td>${splitBadge}${historyLink}</td>
         <td style="text-align:right">${balCell}</td>
       </tr>`;
