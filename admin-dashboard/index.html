@@ -7391,8 +7391,10 @@
       // Schedule-sourced splits (e.g. Dexter) have no loan_statements row -- the proof
       // document lives one level up, on the parent loan_amortization_schedules row.
       // row_date/row_type/payment are pulled too so the dashboard can compute which
-      // period to generate next without a second round-trip.
-      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, principal, interest, payment, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id)'),
+      // period to generate next without a second round-trip. balance is pulled so
+      // the All Loans outstanding-tally (session 205 cont.) can read a schedule-sourced
+      // loan's current balance the same way it reads a statement-sourced loan's.
+      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, balance, principal, interest, payment, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id)'),
     ]);
     _allLoanAccounts   = accounts || [];
     _allLoanStatements = statements || [];
@@ -7410,19 +7412,52 @@
     if (badge) { badge.textContent = pendingCount; badge.style.display = pendingCount ? '' : 'none'; }
   }
 
+  // Outstanding balance per loan, sourced from data loadLoans() already pulled --
+  // no extra query. Statement-sourced loans (Ford Pro): most recent
+  // loan_statements.principal_balance. Schedule-sourced loans (Dexter/PCV/Verdant/
+  // PayPal): the most recent loan_amortization_rows.balance whose row_date has
+  // actually happened -- schedules project future rows too, and a future row's
+  // balance isn't "outstanding" yet, it's projected. Returns null (never $0) when
+  // no statement or schedule has ever been pulled for a loan -- e.g. the paid-off
+  // flag-only rows (Aquarecycle, Dexter Loan 3, Ford Pro 8562) or PCV, whose
+  // schedule doesn't start until 9/1/2026 -- a real data gap, not a zero balance.
+  function _loanOutstandingBalance(a) {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const lastStmt = _allLoanStatements // pre-sorted desc by statement_date
+      .find(s => s.loan_account_id === a.id && s.principal_balance != null);
+    if (lastStmt) return { amount: Number(lastStmt.principal_balance), asOf: lastStmt.statement_date };
+    const rows = _allLoanAmortRows
+      .filter(r => r.loan_amortization_schedules?.loan_account_id === a.id && r.balance != null && r.row_date <= todayIso)
+      .sort((x, y) => (x.row_date < y.row_date ? 1 : -1));
+    if (rows.length) return { amount: Number(rows[0].balance), asOf: rows[0].row_date };
+    return null;
+  }
+
   function renderLoansSummary() {
     const el = document.getElementById('loans-summary');
     if (!el) return;
     const active = _allLoanAccounts.filter(a => a.status === 'active').length;
     const pending = _allLoanSplits.filter(s => s.status === 'pending_review').length;
     const postedThisMonth = _allLoanSplits.filter(s => s.status === 'posted' && s.period_label === new Date().toISOString().slice(0,7)).length;
-    const card = (label, n, color) => `<div style="flex:1;min-width:130px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px">
+    const card = (label, n, color, title) => `<div style="flex:1;min-width:130px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
       <div style="font-size:22px;font-weight:700;color:${color}">${n}</div>
       <div style="font-size:11px;color:var(--gray-500);font-weight:600;letter-spacing:0">${label}</div></div>`;
+
+    const balances = _allLoanAccounts.map(a => _loanOutstandingBalance(a));
+    const known = balances.filter(Boolean);
+    const totalOutstanding = known.reduce((sum, b) => sum + b.amount, 0);
+    const outstandingLabel = known.length === _allLoanAccounts.length
+      ? 'Total outstanding'
+      : `Total outstanding (${known.length}/${_allLoanAccounts.length} loans)`;
+    const outstandingTitle = known.length === _allLoanAccounts.length
+      ? ''
+      : 'No current balance on file yet for ' + (_allLoanAccounts.length - known.length) + ' loan(s) -- see All Loans below.';
+
     el.innerHTML =
       card('Active loans', active, 'var(--gray-800)') +
       card('Pending review', pending, pending ? 'var(--amber)' : 'var(--gray-800)') +
-      card('Posted this month', postedThisMonth, 'var(--green)');
+      card('Posted this month', postedThisMonth, 'var(--green)') +
+      card(outstandingLabel, '$' + totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 'var(--gray-800)', outstandingTitle);
   }
 
   // A "needs attention" item is either a static flag set on the loan account
@@ -7563,7 +7598,12 @@
       el.innerHTML = `<div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">No loans set up yet</div><div class="empty-sub">Loan accounts are added directly in Supabase for now.</div></div>`;
       return;
     }
-    const rows = _allLoanAccounts.map(a => {
+    // A single row for one loan. Lender is deliberately not repeated here (session
+    // 205 cont.) -- it's now the group header above, which is a more prominent,
+    // less-redundant way of putting "Lender" ahead of the Xero account than a
+    // repeated text column would be. Account # stays per-row since two loans from
+    // the same lender still need to be told apart at a glance.
+    const loanRow = (a) => {
       const lastStmt = _allLoanStatements.filter(s => s.loan_account_id === a.id)[0];
       const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === a.id);
       const lastSplit = splitsForLoan[0];
@@ -7587,18 +7627,53 @@
       // "confirm the period, we compute the rest" flow with zero manual entry.
       const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
       const rowClick = isScheduleLoan ? `openLoanScheduleGenerateModal('${a.id}')` : `openLoanUploadModal('${a.id}')`;
+      const bal = _loanOutstandingBalance(a);
+      const balCell = bal
+        ? `<span title="as of ${esc(bal.asOf)}">$${bal.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
+        : `<span style="color:var(--gray-300)">—</span>`;
       return `<tr onclick="${rowClick}">
         <td class="td-name">${esc(a.xero_account_name || '—')}</td>
-        <td style="color:var(--gray-500)">${esc(a.lender)} #${esc(a.lender_account_number)}</td>
+        <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
         <td>${statusBadge}</td>
         <td class="td-mono">${isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—')}</td>
         <td>${splitBadge}${historyLink}</td>
+        <td style="text-align:right">${balCell}</td>
       </tr>`;
+    };
+
+    // Grouped by lender (session 205 cont., David's request), collapsed by
+    // default -- same toggleOverviewPanel convention as the rest of this page, so
+    // a CPA scanning ~10 loans across 6 lenders opens one lender at a time instead
+    // of reading a single flat table. Alphabetical for predictability.
+    const lenders = [...new Set(_allLoanAccounts.map(a => a.lender))].sort((x, y) => x.localeCompare(y));
+    const groups = lenders.map((lender, i) => {
+      const loans = _allLoanAccounts.filter(a => a.lender === lender);
+      const known = loans.map(a => _loanOutstandingBalance(a)).filter(Boolean);
+      const subtotal = known.reduce((sum, b) => sum + b.amount, 0);
+      const subtotalText = known.length
+        ? '$' + subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (known.length < loans.length ? ` (${known.length}/${loans.length})` : '')
+        : '—';
+      const bodyId = `loans-lender-${i}`;
+      return `<div style="border-bottom:1px solid var(--gray-100)">
+        <div style="cursor:pointer;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;background:var(--gray-50)" onclick="toggleOverviewPanel('${bodyId}',this)">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-weight:600;font-size:13px;color:var(--gray-900)">${esc(lender)}</span>
+            <span style="font-size:11.5px;color:var(--gray-500)">${loans.length} loan${loans.length !== 1 ? 's' : ''}</span>
+          </div>
+          <span style="display:flex;align-items:center;gap:14px">
+            <span style="font-size:13px;font-weight:600;color:var(--gray-700)">${esc(subtotalText)}</span>
+            <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:18px;transition:transform .2s">▸</span></span>
+          </span>
+        </div>
+        <div id="${bodyId}" style="display:none;overflow-x:auto"><table>
+          <thead><tr><th>Xero account</th><th>Account #</th><th>Status</th><th>Last statement</th><th>Last split</th><th style="text-align:right">Outstanding</th></tr></thead>
+          <tbody>${loans.map(loanRow).join('')}</tbody></table>
+        </div>
+      </div>`;
     }).join('');
-    el.innerHTML = `<div style="overflow-x:auto"><table>
-      <thead><tr><th>Xero account</th><th>Lender</th><th>Status</th><th>Last statement</th><th>Last split</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
-      <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Click a row to add its next period (statement upload, or a one-click generate for schedule-only loans) — or "History" to see every split posted for that loan.</div>`;
+
+    el.innerHTML = groups +
+      `<div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Click a lender to see its loans, click a loan row to add its next period (statement upload, or a one-click generate for schedule-only loans) — or "History" to see every split posted for that loan. Outstanding balances reflect the last pulled statement or schedule row, not a live Xero pull.</div>`;
   }
 
   // Full posted (and pending/flagged) split history for one loan — lets the CPA
