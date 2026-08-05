@@ -3279,6 +3279,7 @@
                 </div>
               </div>
               <span style="display:flex;align-items:center;gap:14px">
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanPaymentReportModal()">📄 Payment Report</button>
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();loadLoans()">↻ Refresh</button>
                 <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
               </span>
@@ -3378,6 +3379,40 @@
             <div class="modal-footer">
               <button class="btn btn-ghost" onclick="closeLoanScheduleGenerateModal()">Cancel</button>
               <button class="btn btn-primary" id="lsg-submit-btn" onclick="submitLoanScheduleGenerate()">Generate &amp; Review</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loan Payment Report modal (session 205 cont.) -- a per-loan principal/interest
+             breakdown for a chosen month or year, all loans in one printable document.
+             Reuses the invoice pattern elsewhere in this file: build a full HTML string
+             client-side from data already loaded, open it in a new tab, let the browser's
+             own Print > Save as PDF do the "download PDF" step -- no PDF-layout library
+             code needed for this one. -->
+        <div class="modal-overlay" id="modal-loan-payment-report">
+          <div class="modal" style="width:420px">
+            <div class="modal-header">
+              <div class="modal-title">Payment Report</div>
+              <button class="modal-close" onclick="closeLoanPaymentReportModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Full principal + interest breakdown for every loan with activity in the period you pick — opens in a new tab, ready to view or print/save as a PDF.</div>
+              <div class="form-group">
+                <label class="form-label">Period</label>
+                <div style="display:flex;gap:8px;margin-bottom:8px">
+                  <button type="button" class="btn btn-ghost" id="lpr-mode-month" style="flex:1;font-size:12.5px;padding:6px 10px" onclick="_lprSetMode('month')">Month</button>
+                  <button type="button" class="btn btn-ghost" id="lpr-mode-year" style="flex:1;font-size:12.5px;padding:6px 10px" onclick="_lprSetMode('year')">Year</button>
+                </div>
+                <input type="month" class="form-input" id="lpr-month-input">
+                <input type="number" class="form-input" id="lpr-year-input" style="display:none" min="2000" max="2100" step="1">
+              </div>
+              <div id="lpr-error" style="color:var(--red);font-size:13px;display:none;margin-top:4px"></div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closeLoanPaymentReportModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="generateLoanPaymentReport()">Generate Report</button>
             </div>
           </div>
         </div>
@@ -7887,6 +7922,186 @@
   }
   function closeLoanHistoryModal() {
     document.getElementById('modal-loan-history').classList.remove('open');
+  }
+
+  // Payment Report modal (session 205 cont.) -- lets David see/download a
+  // per-loan principal+interest breakdown for a specific month or year, across
+  // every loan at once. Pulls from the same client-side _allLoanSplits/_allLoanAccounts
+  // already loaded by loadLoans() -- no extra query needed.
+  function openLoanPaymentReportModal() {
+    document.getElementById('lpr-error').style.display = 'none';
+    const monthInput = document.getElementById('lpr-month-input');
+    if (!monthInput.value) monthInput.value = new Date().toISOString().slice(0, 7);
+    const yearInput = document.getElementById('lpr-year-input');
+    if (!yearInput.value) yearInput.value = String(new Date().getFullYear());
+    _lprSetMode('month');
+    document.getElementById('modal-loan-payment-report').classList.add('open');
+  }
+  function closeLoanPaymentReportModal() {
+    document.getElementById('modal-loan-payment-report').classList.remove('open');
+  }
+  function _lprSetMode(mode) {
+    document.getElementById('modal-loan-payment-report').dataset.mode = mode;
+    document.getElementById('lpr-month-input').style.display = mode === 'month' ? '' : 'none';
+    document.getElementById('lpr-year-input').style.display = mode === 'year' ? '' : 'none';
+    const monthBtn = document.getElementById('lpr-mode-month');
+    const yearBtn = document.getElementById('lpr-mode-year');
+    const on = { background: 'var(--accent-light)', color: 'var(--accent)', borderColor: 'var(--accent)' };
+    const off = { background: '', color: '', borderColor: '' };
+    Object.assign(monthBtn.style, mode === 'month' ? on : off);
+    Object.assign(yearBtn.style, mode === 'year' ? on : off);
+  }
+
+  const _LPR_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  // Builds the printable "Loan Payment Report" HTML for a chosen period (a specific
+  // month, 'YYYY-MM', or a specific calendar year, 'YYYY') and opens it in a new tab
+  // via the same window.open()+document.write() pattern used for invoices elsewhere
+  // in this file (see previewInvoicePDF) -- "download as PDF" is just the browser's
+  // own Print > Save as PDF on that tab, no PDF-library layout code needed.
+  //
+  // period_label is NOT consistently 'YYYY-MM' across every loan -- monthly-statement
+  // lenders use plain 'YYYY-MM', but weekly-cadence / per-payment lenders (PayPal,
+  // Verdant, Stripe Capital, the BayFirst SBA loans) use the exact payment date
+  // 'YYYY-MM-DD' instead (same shape documented at periodMonth() in
+  // renderLoansSummary). Filtering by prefix -- first 7 chars for month mode, first
+  // 4 for year mode -- handles both shapes correctly; an exact-string match would
+  // silently miss every per-payment-date lender.
+  function generateLoanPaymentReport() {
+    const mode = document.getElementById('modal-loan-payment-report').dataset.mode || 'month';
+    const errEl = document.getElementById('lpr-error');
+    errEl.style.display = 'none';
+
+    let prefix, periodTitle;
+    if (mode === 'month') {
+      const val = document.getElementById('lpr-month-input').value; // 'YYYY-MM'
+      if (!val) { errEl.textContent = 'Pick a month.'; errEl.style.display = ''; return; }
+      prefix = val;
+      const [y, m] = val.split('-').map(Number);
+      periodTitle = `${_LPR_MONTH_NAMES[m - 1]} ${y}`;
+    } else {
+      const val = document.getElementById('lpr-year-input').value; // 'YYYY'
+      if (!val || String(val).length !== 4) { errEl.textContent = 'Pick a year.'; errEl.style.display = ''; return; }
+      prefix = String(val);
+      periodTitle = prefix;
+    }
+
+    const periodMonth = (label) => (label || '').slice(0, 7);
+    const matches = (s) => mode === 'month'
+      ? periodMonth(s.period_label) === prefix
+      : (s.period_label || '').startsWith(prefix + '-');
+
+    const byLoan = {};
+    _allLoanSplits.filter(matches).forEach(s => {
+      (byLoan[s.loan_account_id] = byLoan[s.loan_account_id] || []).push(s);
+    });
+
+    const loanIdsWithActivity = Object.keys(byLoan);
+    const sortByName = (a, b) => (a.lender + (a.xero_account_name || '')).localeCompare(b.lender + (b.xero_account_name || ''));
+    const loansWithActivity = _allLoanAccounts.filter(a => loanIdsWithActivity.includes(a.id)).sort(sortByName);
+    const loansNoActivity = _allLoanAccounts.filter(a => !loanIdsWithActivity.includes(a.id)).sort(sortByName);
+
+    const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const statusBadge = (s) => {
+      if (s.status === 'posted') return `<span style="display:inline-block;padding:2px 7px;border-radius:20px;font-size:10.5px;font-weight:600;background:#d1fae5;color:#059669">posted</span>`;
+      if (s.status === 'needs_attention') return `<span style="display:inline-block;padding:2px 7px;border-radius:20px;font-size:10.5px;font-weight:600;background:#fee2e2;color:#dc2626">needs attention</span>`;
+      return `<span style="display:inline-block;padding:2px 7px;border-radius:20px;font-size:10.5px;font-weight:600;background:#fef3c7;color:#d97706">${esc(s.status)}</span>`;
+    };
+
+    let grandPrincipal = 0, grandInterest = 0, grandTotal = 0;
+
+    const loanSections = loansWithActivity.map(a => {
+      const splits = byLoan[a.id].slice().sort((x, y) => (x.period_label || '').localeCompare(y.period_label || ''));
+      const sub = splits.reduce((acc, s) => {
+        acc.principal += Number(s.principal_amount || 0);
+        acc.interest += Number(s.interest_amount || 0);
+        acc.total += Number(s.total_amount || 0);
+        return acc;
+      }, { principal: 0, interest: 0, total: 0 });
+      grandPrincipal += sub.principal; grandInterest += sub.interest; grandTotal += sub.total;
+
+      const rows = splits.map(s => `
+        <tr>
+          <td style="padding:5px 10px;font-size:12.5px;font-family:ui-monospace,monospace;color:#4b5563">${esc(s.period_label)}</td>
+          <td style="padding:5px 10px;font-size:11.5px;color:#6b7280">${s.source === 'amortization_schedule' ? 'schedule' : 'statement'}</td>
+          <td style="padding:5px 10px;font-size:12.5px;text-align:right">${money(s.principal_amount)}</td>
+          <td style="padding:5px 10px;font-size:12.5px;text-align:right">${money(s.interest_amount)}</td>
+          <td style="padding:5px 10px;font-size:12.5px;text-align:right;font-weight:600">${money(s.total_amount)}</td>
+          <td style="padding:5px 10px;text-align:right">${statusBadge(s)}</td>
+        </tr>`).join('');
+
+      return `
+      <div style="margin-bottom:22px;break-inside:avoid">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding-bottom:5px;margin-bottom:2px">
+          <div style="font-size:14px;font-weight:700">${esc(a.xero_account_name || a.lender_account_number)}</div>
+          <div style="font-size:12px;color:#6b7280">${esc(a.lender)} &bull; #${esc(a.lender_account_number)}</div>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:left;padding:5px 10px;font-size:10.5px;color:#9ca3af;font-weight:600">PERIOD</th>
+            <th style="text-align:left;padding:5px 10px;font-size:10.5px;color:#9ca3af;font-weight:600">SOURCE</th>
+            <th style="text-align:right;padding:5px 10px;font-size:10.5px;color:#9ca3af;font-weight:600">PRINCIPAL</th>
+            <th style="text-align:right;padding:5px 10px;font-size:10.5px;color:#9ca3af;font-weight:600">INTEREST</th>
+            <th style="text-align:right;padding:5px 10px;font-size:10.5px;color:#9ca3af;font-weight:600">TOTAL</th>
+            <th style="text-align:right;padding:5px 10px;font-size:10.5px;color:#9ca3af;font-weight:600">STATUS</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr style="border-top:1px solid #d1d5db;background:#f9fafb">
+            <td style="padding:6px 10px;font-size:12.5px;font-weight:700" colspan="2">Subtotal (${splits.length} payment${splits.length !== 1 ? 's' : ''})</td>
+            <td style="padding:6px 10px;font-size:12.5px;font-weight:700;text-align:right">${money(sub.principal)}</td>
+            <td style="padding:6px 10px;font-size:12.5px;font-weight:700;text-align:right">${money(sub.interest)}</td>
+            <td style="padding:6px 10px;font-size:12.5px;font-weight:700;text-align:right">${money(sub.total)}</td>
+            <td></td>
+          </tr></tfoot>
+        </table>
+      </div>`;
+    }).join('');
+
+    const noActivityNote = loansNoActivity.length
+      ? `<div style="margin-top:20px;font-size:11.5px;color:#9ca3af">No activity in this period for: ${loansNoActivity.map(a => esc(a.xero_account_name || a.lender_account_number)).join(', ')}.</div>`
+      : '';
+
+    const html = `<!DOCTYPE html>
+<html><head><title>Loan Payment Report — ${esc(periodTitle)}</title>
+<style>
+  @media print { body { margin: 0; } .no-print { display: none !important; } @page { margin: 0.4in; } }
+  html, body { background: #ffffff; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; max-width: 760px; margin: 0 auto; padding: 0 40px 32px; }
+  table { width: 100%; border-collapse: collapse; }
+</style>
+</head><body>
+<div class="no-print" style="text-align:center;padding:10px;background:#f0f9ff;border-radius:8px;margin:12px 0;font-size:13px;color:#1e40af">
+  Press <strong>Ctrl+P</strong> (or ⌘P) to save as PDF &nbsp;|&nbsp; <button onclick="window.print()" style="padding:5px 14px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;border-radius:8px;cursor:pointer;font-size:12px">Print / Save PDF</button>
+</div>
+
+<div style="background:#1f2937;color:#fff;padding:20px 40px;margin:0 -40px 20px;display:flex;justify-content:space-between;align-items:center">
+  <div>
+    <div style="font-size:18px;font-weight:700;letter-spacing:-0.02em">Loan Payment Report</div>
+    <div style="font-size:11px;color:#d1d5db;margin-top:2px">Family Laundry / WashRoute</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:16px;font-weight:700">${esc(periodTitle)}</div>
+    <div style="font-size:11px;color:#d1d5db;margin-top:3px">Generated ${new Date().toISOString().slice(0, 10)}</div>
+  </div>
+</div>
+
+${loanSections || `<div style="color:#9ca3af;font-size:13px;padding:24px 0;text-align:center">No loan payments recorded for this period.</div>`}
+
+<table style="margin-top:8px;border-top:2px solid #111">
+  <tr>
+    <td style="padding:7px 10px;font-size:13.5px;font-weight:700">Grand Total (${loansWithActivity.length} loan${loansWithActivity.length !== 1 ? 's' : ''})</td>
+    <td style="padding:7px 10px;text-align:right;font-size:12.5px">Principal ${money(grandPrincipal)}</td>
+    <td style="padding:7px 10px;text-align:right;font-size:12.5px">Interest ${money(grandInterest)}</td>
+    <td style="padding:7px 10px;text-align:right;font-size:14px;font-weight:700">${money(grandTotal)}</td>
+  </tr>
+</table>
+${noActivityNote}
+</body></html>`;
+
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+    else { showToast('Pop-up blocked — allow pop-ups for this site to view the report.', 'error'); return; }
+    closeLoanPaymentReportModal();
   }
 
   // Opens the source statement/schedule for a split in a new tab via a short-lived
