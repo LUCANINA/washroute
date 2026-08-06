@@ -8085,7 +8085,7 @@
         <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} — it doesn't touch or search for any bank transaction, it just reclasses ${fmtMoney(total)} from Direct Wages into the accounts below.</div>
         <div class="form-section-head">Journal entry to post</div>
         <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
-        ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
+        ${data.note && (data.balance_check?.would_overdraw_direct_wages || data.balance_check?.error) ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
       `;
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Cancel</button>
