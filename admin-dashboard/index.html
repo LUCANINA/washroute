@@ -1528,15 +1528,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
         SMS Delivery
       </div>
-      <div id="nav-loans" class="nav-item" data-page="loans" data-section="analytics" onclick="showPage('loans',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3v4M8 3v4M2 11h20"/></svg>
-        Loans
-        <span class="nav-badge" id="badge-loans" style="background:var(--amber);display:none">0</span>
-      </div>
-      <div id="nav-payroll" class="nav-item" data-page="payroll" data-section="analytics" onclick="showPage('payroll',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-        Payroll
-        <span class="nav-badge" id="badge-payroll" style="background:var(--amber);display:none">0</span>
+      <div id="nav-bookkeeping" class="nav-item" data-page="bookkeeping" data-section="analytics" onclick="showPage('bookkeeping',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M8 8h8M8 12h8M8 16h5"/></svg>
+        Bookkeeping
+        <span class="nav-badge" id="badge-bookkeeping" style="background:var(--amber);display:none">0</span>
       </div>
       <div class="sidebar-section-label" data-section="settings" id="settings-nav-toggle" onclick="toggleSettingsNav()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding-right:20px;user-select:none;">
         <span>Settings</span>
@@ -3230,8 +3225,39 @@
           </div>
         </div><!-- /page-smsdelivery -->
 
-        <!-- ── LOANS (session 205) ── -->
-        <div class="page" id="page-loans">
+        <!-- ── BOOKKEEPING (session 206) — Loans + Payroll under one CPA-centric section ── -->
+        <div class="page" id="page-bookkeeping">
+          <div id="bookkeeping-view-toggle" style="display:flex;gap:4px;margin-bottom:16px;">
+            <button class="section-tab active" id="bkvt-overview" onclick="switchBookkeepingView('overview')">Overview</button>
+            <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
+            <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
+          </div>
+
+          <!-- Overview — the CPA-centric landing view: everything needing a look,
+               across both Loans and Payroll, in one glance, plus a jump-off point
+               into whichever tab has the work. Reads from the same _allLoan*/
+               _allPayroll* globals that loadLoans()/loadPayroll() already populate —
+               no separate queries, so this can never drift out of sync with the
+               numbers shown on the Loans/Payroll tabs themselves. -->
+          <div id="bk-view-overview">
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-header">
+                <div class="card-title">Needs Your Attention</div>
+                <div class="card-sub">Combined across Loans and Payroll — click a card to jump straight to it.</div>
+              </div>
+              <div id="bk-overview-attention" style="padding:16px;display:flex;gap:12px;flex-wrap:wrap"></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Recent Activity</div>
+                <div class="card-sub">The latest statement and payroll period on file.</div>
+              </div>
+              <div id="bk-overview-recent"></div>
+            </div>
+          </div>
+
+          <!-- Loans (session 205) -->
+          <div id="bk-view-loans" style="display:none">
           <div class="card" style="margin-bottom:20px">
             <div class="card-header">
               <div class="card-title">Loan Reconciliation</div>
@@ -3293,10 +3319,10 @@
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
-        </div><!-- /page-loans -->
+          </div><!-- /bk-view-loans -->
 
-        <!-- ── PAYROLL (session 206) ── -->
-        <div class="page" id="page-payroll">
+          <!-- Payroll (session 206) -->
+          <div id="bk-view-payroll" style="display:none">
           <div class="card" style="margin-bottom:20px">
             <div class="card-header">
               <div class="card-title">Payroll Allocation</div>
@@ -3333,7 +3359,8 @@
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
-        </div><!-- /page-payroll -->
+          </div><!-- /bk-view-payroll -->
+        </div><!-- /page-bookkeeping -->
 
         <!-- Payroll Upload modal -->
         <div class="modal-overlay" id="modal-payroll-upload">
@@ -6590,6 +6617,8 @@
             } else if (hashPage === 'team') {
               const tmBtn = document.getElementById('team-tab-' + hashSub);
               if (tmBtn) setTeamTab(hashSub, tmBtn);
+            } else if (hashPage === 'bookkeeping') {
+              switchBookkeepingView(hashSub);
             } else if (hashPage === 'drivers' && hashSub === 'driverview') {
               // Extended hash format for this one case: #drivers/driverview/<driverId>/<date>
               // (session 189 — the Map page's "view this driver" button opens this in a new
@@ -6679,7 +6708,7 @@
   // intent across roles.
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Kanban', attendant: 'Attendant', pos_device: 'POS Terminal' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
-                        'reports','smsdelivery','loans','payroll','services','notifications','maps','launderers','racks',
+                        'reports','smsdelivery','bookkeeping','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
 
   function canAccessPage(pageId) {
@@ -6720,7 +6749,7 @@
 
   const PAGE_LABELS = {
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
-    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', smsdelivery:'SMS Delivery', loans:'Loans', payroll:'Payroll', services:'Services',
+    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
     racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
@@ -7270,8 +7299,10 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', loans:'Loans', payroll:'Payroll', discounts:'Discounts', settings:'General', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', loans:'Upload Statement', payroll:'Upload Payroll Report', discounts:'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', discounts:'Discounts', settings:'General', team:'Team' };
+  // Bookkeeping's CTA depends on which sub-tab (Overview/Loans/Payroll) is active —
+  // set dynamically by switchBookkeepingView()/updateBookkeepingTopbar(), not here.
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', bookkeeping:'', discounts:'', settings:'', team:'' };
 
   // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
   function openPosLauncher() {
@@ -7337,8 +7368,7 @@
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
     if (id === 'smsdelivery') loadSmsDelivery();
-    if (id === 'loans') loadLoans();
-    if (id === 'payroll') loadPayroll();
+    if (id === 'bookkeeping') { loadLoans(); loadPayroll(); switchBookkeepingView(_bookkeepingActiveTab || 'overview'); }
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -7478,6 +7508,91 @@
       <tbody>${rows}</tbody></table></div>`;
   }
 
+  // ── BOOKKEEPING (session 206) ──
+  // "Bookkeeping" is a single nav item / permission (canAccessPage('bookkeeping'))
+  // covering three segmented sub-tabs: Overview, Loans, Payroll. All three read
+  // from the same _allLoan*/_allPayroll* globals that loadLoans()/loadPayroll()
+  // populate, so Overview can never show a different number than the tab it
+  // links to — there's exactly one load path per data source, not a separate
+  // one for the summary view.
+  let _bookkeepingActiveTab = 'overview';
+
+  function switchBookkeepingView(view) {
+    if (!['overview', 'loans', 'payroll'].includes(view)) view = 'overview';
+    _bookkeepingActiveTab = view;
+    document.getElementById('bk-view-overview').style.display = view === 'overview' ? '' : 'none';
+    document.getElementById('bk-view-loans').style.display    = view === 'loans'    ? '' : 'none';
+    document.getElementById('bk-view-payroll').style.display  = view === 'payroll'  ? '' : 'none';
+    document.getElementById('bkvt-overview').classList.toggle('active', view === 'overview');
+    document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
+    document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
+
+    const ctaLabel = document.getElementById('topbar-cta-label');
+    const ctaBtn   = document.getElementById('topbar-cta');
+    if (view === 'loans')   { ctaLabel.textContent = 'Upload Statement';      ctaBtn.style.display = ''; }
+    else if (view === 'payroll') { ctaLabel.textContent = 'Upload Payroll Report'; ctaBtn.style.display = ''; }
+    else { ctaBtn.style.display = 'none'; }
+
+    if (view === 'overview') renderBookkeepingOverview();
+    try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
+  }
+
+  // Sums whatever's already loaded into _allLoanSplits/_allPayrollImports —
+  // called from the tail of both loadLoans() and loadPayroll() so the combined
+  // nav badge is correct regardless of which of the two finishes loading last.
+  function _bkUpdateNavBadge() {
+    const badge = document.getElementById('badge-bookkeeping');
+    if (!badge) return;
+    const n = (_allLoanSplits || []).filter(s => s.status === 'pending_review').length +
+              (_allPayrollImports || []).filter(i => i.status === 'parsed').length;
+    badge.textContent = n;
+    badge.style.display = n ? '' : 'none';
+  }
+
+  function renderBookkeepingOverview() {
+    const attnEl = document.getElementById('bk-overview-attention');
+    const recentEl = document.getElementById('bk-overview-recent');
+    if (!attnEl || !recentEl) return;
+
+    const flaggedAccounts = (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status !== 'resolved');
+    const flaggedSplits = (_allLoanSplits || []).filter(s => s.status === 'needs_attention');
+    const loanActionCount = flaggedAccounts.length + flaggedSplits.length;
+    const loanPendingCount = (_allLoanSplits || []).filter(s => s.status === 'pending_review').length;
+    const payrollNeedsReview = (_allPayrollImports || []).filter(i => i.status === 'parsed').length;
+    const payrollUnmatched = new Set((_allPayrollLines || []).filter(l => !l.department_key).map(l => l.raw_full_name)).size;
+
+    const tile = (label, n, color, sub, view) => `<div style="flex:1;min-width:180px;background:${color}0d;border:1px solid ${color}33;border-radius:10px;padding:14px 16px;cursor:pointer" onclick="switchBookkeepingView('${view}')">
+      <div style="font-size:12px;color:var(--gray-500);font-weight:600;margin-bottom:4px">${esc(label)}</div>
+      <div style="font-size:26px;font-weight:700;color:${color}">${n}</div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">${esc(sub)}</div>
+    </div>`;
+
+    const tiles = [
+      tile('Loan flags needing action', loanActionCount, loanActionCount ? '#dc2626' : '#16a34a', 'Discrepancies caught automatically', 'loans'),
+      tile('Loan splits pending review', loanPendingCount, loanPendingCount ? '#d97706' : '#16a34a', 'Computed, waiting for approval', 'loans'),
+      tile('Payroll periods needing review', payrollNeedsReview, payrollNeedsReview ? '#d97706' : '#16a34a', 'Uploaded and parsed, not yet confirmed', 'payroll'),
+    ];
+    if (payrollUnmatched) tiles.push(tile('Unmatched payroll employees', payrollUnmatched, '#dc2626', "Names that don't match the department mapping", 'payroll'));
+    attnEl.innerHTML = tiles.join('');
+
+    const row = (label, text, linkLabel, view) => `<div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="switchBookkeepingView('${view}')">
+      <div><div style="font-size:13px;font-weight:600;color:var(--gray-800)">${esc(label)}</div><div style="font-size:12px;color:var(--gray-500)">${esc(text)}</div></div>
+      <div style="font-size:12px;color:var(--gray-400);white-space:nowrap">${esc(linkLabel)}</div>
+    </div>`;
+
+    const lastStatement = [...(_allLoanStatements || [])].sort((a, b) => (a.statement_date < b.statement_date ? 1 : -1))[0];
+    const lastStatementAcct = lastStatement ? (_allLoanAccounts || []).find(a => a.id === lastStatement.loan_account_id) : null;
+    const lastPayroll = [...(_allPayrollImports || [])].sort((a, b) => (a.pay_period_end < b.pay_period_end ? 1 : -1))[0];
+
+    recentEl.innerHTML =
+      (lastStatement
+        ? row('Most recent loan statement', `${lastStatementAcct?.xero_account_name || lastStatementAcct?.lender_account_number || 'Unknown loan'} — ${fmtDate(lastStatement.statement_date)}`, 'View Loans →', 'loans')
+        : row('Most recent loan statement', 'No statements on file yet', 'View Loans →', 'loans')) +
+      (lastPayroll
+        ? row('Most recent payroll period', `${fmtDate(lastPayroll.pay_period_start)} – ${fmtDate(lastPayroll.pay_period_end)}`, 'View Payroll →', 'payroll')
+        : row('Most recent payroll period', 'No payroll reports uploaded yet', 'View Payroll →', 'payroll'));
+  }
+
   // ── LOANS (session 205) ──
   // Loan statement reconciliation: ingest a pulled lender statement, review the
   // computed principal/interest split, and post it to Xero (splitting the bank
@@ -7574,9 +7689,8 @@
     renderPayrollSummary();
     renderPayrollTable();
     renderPayrollEmployeesTable();
-    const needsReview = _allPayrollImports.filter(i => i.status === 'parsed').length;
-    const badge = document.getElementById('badge-payroll');
-    if (badge) { badge.textContent = needsReview; badge.style.display = needsReview ? '' : 'none'; }
+    _bkUpdateNavBadge();
+    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
   }
 
   function renderPayrollSummary() {
@@ -7853,9 +7967,8 @@
     renderLoansTable();
     _populateLoanSelect();
 
-    const pendingCount = _allLoanSplits.filter(s => s.status === 'pending_review').length;
-    const badge = document.getElementById('badge-loans');
-    if (badge) { badge.textContent = pendingCount; badge.style.display = pendingCount ? '' : 'none'; }
+    _bkUpdateNavBadge();
+    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
   }
 
   // Outstanding balance per loan, sourced from data loadLoans() already pulled --
@@ -8791,8 +8904,11 @@ ${noActivityNote}
     }
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
     if (currentPage === 'inbox')     { openComposeSMS(); return; }
-    if (currentPage === 'loans')     { openLoanUploadModal(); return; }
-    if (currentPage === 'payroll')   { openPayrollUploadModal(); return; }
+    if (currentPage === 'bookkeeping') {
+      if (_bookkeepingActiveTab === 'loans')   openLoanUploadModal();
+      else if (_bookkeepingActiveTab === 'payroll') openPayrollUploadModal();
+      return;
+    }
     // Lost & Found has its own "+ Lost" / "+ Found" pair on the page —
     // no topbar CTA needed (an "Add Item" default would force admins to
     // remember which side it points to).
