@@ -1533,6 +1533,11 @@
         Loans
         <span class="nav-badge" id="badge-loans" style="background:var(--amber);display:none">0</span>
       </div>
+      <div id="nav-payroll" class="nav-item" data-page="payroll" data-section="analytics" onclick="showPage('payroll',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+        Payroll
+        <span class="nav-badge" id="badge-payroll" style="background:var(--amber);display:none">0</span>
+      </div>
       <div class="sidebar-section-label" data-section="settings" id="settings-nav-toggle" onclick="toggleSettingsNav()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding-right:20px;user-select:none;">
         <span>Settings</span>
         <span id="settings-nav-chevron" style="font-size:10px;opacity:.6;transition:transform .2s;">▸</span>
@@ -3289,6 +3294,83 @@
             </div>
           </div>
         </div><!-- /page-loans -->
+
+        <!-- ── PAYROLL (session 206) ── -->
+        <div class="page" id="page-payroll">
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title">Payroll Allocation</div>
+              <div class="card-sub">Upload a Square payroll report → wages and employer payroll tax are split by department (Delivery / Laundry / Customer Service / Operation / Owner) using the mapping below, ready to review before posting to Xero.</div>
+            </div>
+            <div id="payroll-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
+          </div>
+
+          <div class="card" id="payroll-all-card">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-table-wrap',this)">
+              <div style="flex:1">
+                <div class="card-title">Payroll Reports</div>
+                <div class="card-sub">One row per uploaded pay period.</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:14px">
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();loadPayroll()">↻ Refresh</button>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+              </span>
+            </div>
+            <div id="payroll-table-wrap" style="display:none">
+              <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
+            </div>
+          </div>
+
+          <div class="card" id="payroll-employees-card" style="margin-top:20px">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-employees-wrap',this)">
+              <div style="flex:1">
+                <div class="card-title">Employee → Department Mapping</div>
+                <div class="card-sub">Who counts toward which department. Edit here if someone's role changes or a new hire needs adding.</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+            </div>
+            <div id="payroll-employees-wrap" style="display:none">
+              <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
+            </div>
+          </div>
+        </div><!-- /page-payroll -->
+
+        <!-- Payroll Upload modal -->
+        <div class="modal-overlay" id="modal-payroll-upload">
+          <div class="modal" style="width:480px">
+            <div class="modal-header">
+              <div class="modal-title">Upload Payroll Report</div>
+              <button class="modal-close" onclick="closePayrollUploadModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Upload the Square Payroll Summary CSV for one pay period. Wages, employer payroll tax, and employer 401k/health contributions are computed automatically and matched against the department mapping — nothing is posted to Xero until you review and approve it.</div>
+              <input type="file" id="payroll-upload-input" accept=".csv" onchange="onPayrollFileSelected(event)" style="width:100%">
+              <div id="payroll-upload-status" style="margin-top:12px;font-size:13px"></div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closePayrollUploadModal()">Cancel</button>
+              <button class="btn btn-primary" id="payroll-upload-submit" onclick="submitPayrollUpload()" disabled>Upload &amp; Parse</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Payroll Review modal -->
+        <div class="modal-overlay" id="modal-payroll-review">
+          <div class="modal" style="width:720px;max-height:85vh;overflow-y:auto">
+            <div class="modal-header">
+              <div class="modal-title" id="payroll-review-title">Payroll Review</div>
+              <button class="modal-close" onclick="closePayrollReviewModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="payroll-review-body">
+              <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
+            </div>
+            <div class="modal-footer" id="payroll-review-footer"></div>
+          </div>
+        </div>
 
         <!-- Loan Upload modal -->
         <div class="modal-overlay" id="modal-loan-upload">
@@ -6597,7 +6679,7 @@
   // intent across roles.
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Kanban', attendant: 'Attendant', pos_device: 'POS Terminal' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
-                        'reports','smsdelivery','loans','services','notifications','maps','launderers','racks',
+                        'reports','smsdelivery','loans','payroll','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
 
   function canAccessPage(pageId) {
@@ -6638,7 +6720,7 @@
 
   const PAGE_LABELS = {
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
-    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', smsdelivery:'SMS Delivery', loans:'Loans', services:'Services',
+    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', smsdelivery:'SMS Delivery', loans:'Loans', payroll:'Payroll', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
     racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
@@ -7188,8 +7270,8 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', loans:'Loans', discounts:'Discounts', settings:'General', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', loans:'Upload Statement', discounts:'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', loans:'Loans', payroll:'Payroll', discounts:'Discounts', settings:'General', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', loans:'Upload Statement', payroll:'Upload Payroll Report', discounts:'', settings:'', team:'' };
 
   // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
   function openPosLauncher() {
@@ -7256,6 +7338,7 @@
     if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
     if (id === 'smsdelivery') loadSmsDelivery();
     if (id === 'loans') loadLoans();
+    if (id === 'payroll') loadPayroll();
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -7433,6 +7516,317 @@
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  // ── PAYROLL (session 206) ──
+  // Square doesn't expose processed payroll (gross wages/taxes/deductions) via
+  // any public API -- confirmed session 206 via Square's own developer forum
+  // plus Merge.dev's Square Payroll integration still being Beta-only with no
+  // earnings/tax fields. So the pipeline starts with a manual CSV export from
+  // Square each pay period, same shape as Loans' statement-upload pattern:
+  // upload -> parsed automatically -> reviewed by a human -> posted to Xero.
+  //
+  // Posting to Xero (payroll-xero-post) is intentionally NOT wired up yet as of
+  // session 206 -- Xero's API was rate-limited all session, so the reallocation-
+  // matching logic that function needs could not be tested against live data.
+  // The review screen (this code) is fully live: upload, parse, department
+  // breakdown, and resolving unmatched employees all work end-to-end today.
+  let _allPayrollImports = [];
+  let _allPayrollLines = [];
+  let _allPayrollDepartments = [];
+  let _allPayrollEmployees = [];
+  let _payrollUploadFile = null; // { base64, filename }
+  let _payrollReviewImportId = null;
+
+  async function _payrollFn(name, bodyObj) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    try {
+      const { data: { session } = {} } = await db.auth.getSession();
+      const jwt = session?.access_token || SUPA_ANON_KEY;
+      const res = await fetch(`${SUPA_URL}/functions/v1/${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify(bodyObj || {}),
+        signal: controller.signal,
+      });
+      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      return { ok: res.ok, status: res.status, data: result };
+    } catch (e) {
+      const timedOut = e && e.name === 'AbortError';
+      return { ok: false, status: 0, data: { error: timedOut ? 'Timed out waiting for a response. Try again in a moment.' : (e?.message || 'Network error — could not reach the server.') } };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async function loadPayroll() {
+    const [{ data: imports }, { data: lines }, { data: departments }, { data: employees }] = await Promise.all([
+      db.from('payroll_imports').select('*').order('pay_period_end', { ascending: false }),
+      db.from('payroll_import_employee_lines').select('id,import_id,raw_full_name,department_key,matched_employee_id,wage_amount,er_tax_amount,er_health_amount,er_401k_amount,paycheck_tips_amount'),
+      db.from('payroll_departments').select('*').order('sort_order'),
+      db.from('payroll_employees').select('*').order('full_name'),
+    ]);
+    _allPayrollImports = imports || [];
+    _allPayrollLines = lines || [];
+    _allPayrollDepartments = departments || [];
+    _allPayrollEmployees = employees || [];
+    renderPayrollSummary();
+    renderPayrollTable();
+    renderPayrollEmployeesTable();
+    const needsReview = _allPayrollImports.filter(i => i.status === 'parsed').length;
+    const badge = document.getElementById('badge-payroll');
+    if (badge) { badge.textContent = needsReview; badge.style.display = needsReview ? '' : 'none'; }
+  }
+
+  function renderPayrollSummary() {
+    const el = document.getElementById('payroll-summary');
+    if (!el) return;
+    const card = (label, n, color, title) => `<div style="flex:1;min-width:150px;background:${color}0d;border:1px solid ${color}33;border-radius:10px;padding:14px 16px" title="${esc(title||'')}">
+      <div style="font-size:12px;color:var(--gray-500);font-weight:600;margin-bottom:4px">${esc(label)}</div>
+      <div style="font-size:22px;font-weight:700;color:${color}">${n}</div>
+    </div>`;
+    const needsReview = _allPayrollImports.filter(i => i.status === 'parsed').length;
+    const reviewed = _allPayrollImports.filter(i => i.status === 'reviewed').length;
+    const posted = _allPayrollImports.filter(i => i.status === 'posted').length;
+    const unmatchedNames = new Set(_allPayrollLines.filter(l => !l.department_key).map(l => l.raw_full_name));
+    el.innerHTML = card('Needs Review', needsReview, '#d97706', 'Uploaded and parsed — waiting for you to confirm the breakdown') +
+      card('Reviewed', reviewed, '#2563eb', 'Confirmed, ready to post to Xero (posting is not wired up yet — see the review screen note)') +
+      card('Posted to Xero', posted, '#16a34a', 'Journal posted') +
+      (unmatchedNames.size ? card('Unmatched Employees', unmatchedNames.size, '#dc2626', "Names on a payroll report that don't match anyone in the department mapping below") : '');
+  }
+
+  function renderPayrollTable() {
+    const el = document.getElementById('payroll-table-wrap');
+    if (!el) return;
+    if (!_allPayrollImports.length) {
+      el.innerHTML = `<div class="empty"><div class="empty-icon">🧾</div><div class="empty-title">No payroll reports uploaded yet</div><div class="empty-sub">Use the "Upload Payroll Report" button above to add the first one.</div></div>`;
+      return;
+    }
+    const statusBadgeMap = { parsed: ['badge-amber','Needs Review'], reviewed: ['badge-blue','Reviewed'], posted: ['badge-green','Posted'], void: ['badge-gray','Void'] };
+    const rows = _allPayrollImports.map(imp => {
+      const lines = _allPayrollLines.filter(l => l.import_id === imp.id);
+      const wage = lines.reduce((s,l) => s + Number(l.wage_amount||0), 0);
+      const tax = lines.reduce((s,l) => s + Number(l.er_tax_amount||0), 0);
+      const unmatched = lines.filter(l => !l.department_key).length;
+      const [cls,label] = statusBadgeMap[imp.status] || statusBadgeMap.parsed;
+      return `<tr style="cursor:pointer" onclick="openPayrollReviewModal('${imp.id}')">
+        <td>${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}</td>
+        <td>${esc(fmtDate(imp.pay_date))}</td>
+        <td>${lines.length}${unmatched ? ` <span style="color:var(--red);font-weight:700">(${unmatched} unmatched)</span>` : ''}</td>
+        <td>${fmtMoney(wage)}</td>
+        <td>${fmtMoney(tax)}</td>
+        <td><span class="badge ${cls}">${label}</span></td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `<table style="width:100%">
+      <thead><tr><th>Pay Period</th><th>Pay Date</th><th>Employees</th><th>Wages</th><th>Employer Tax</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  function renderPayrollEmployeesTable() {
+    const el = document.getElementById('payroll-employees-wrap');
+    if (!el) return;
+    const deptName = (k) => (_allPayrollDepartments.find(d => d.key === k) || {}).display_name || '—';
+    const rows = _allPayrollEmployees.map(e => `<tr>
+      <td>${esc(e.full_name)}</td>
+      <td>${esc(deptName(e.department_key))}</td>
+      <td>${e.active ? '<span class="badge badge-green">active</span>' : '<span class="badge badge-gray">inactive</span>'}</td>
+    </tr>`).join('');
+    el.innerHTML = `<table style="width:100%">
+      <thead><tr><th>Employee</th><th>Department</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">To add or change a mapping, resolve it inline the next time that name shows up as "unmatched" when reviewing a payroll report — that's the same place a brand-new hire gets added.</div>`;
+  }
+
+  function openPayrollUploadModal() {
+    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Payroll.', 'error'); return; }
+    _payrollUploadFile = null;
+    document.getElementById('payroll-upload-input').value = '';
+    document.getElementById('payroll-upload-status').textContent = '';
+    document.getElementById('payroll-upload-submit').disabled = true;
+    document.getElementById('modal-payroll-upload').classList.add('open');
+  }
+  function closePayrollUploadModal() {
+    document.getElementById('modal-payroll-upload').classList.remove('open');
+  }
+
+  function onPayrollFileSelected(event) {
+    const file = event.target.files?.[0];
+    const statusEl = document.getElementById('payroll-upload-status');
+    const submitBtn = document.getElementById('payroll-upload-submit');
+    if (!file) { _payrollUploadFile = null; submitBtn.disabled = true; return; }
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      statusEl.innerHTML = '<span style="color:var(--red)">Please upload the .csv export, not a PDF or other format.</span>';
+      submitBtn.disabled = true;
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const base64 = dataUrl.split(',')[1];
+      _payrollUploadFile = { base64, filename: file.name };
+      statusEl.innerHTML = `Ready to upload: <strong>${esc(file.name)}</strong>`;
+      submitBtn.disabled = false;
+    };
+    reader.onerror = () => {
+      statusEl.innerHTML = '<span style="color:var(--red)">Could not read that file — try again.</span>';
+      submitBtn.disabled = true;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function submitPayrollUpload(replace) {
+    if (!_payrollUploadFile) return;
+    const submitBtn = document.getElementById('payroll-upload-submit');
+    const statusEl = document.getElementById('payroll-upload-status');
+    submitBtn.disabled = true;
+    statusEl.innerHTML = 'Uploading and parsing…';
+    const { ok, data } = await _payrollFn('payroll-ingest', {
+      csv_base64: _payrollUploadFile.base64,
+      csv_filename: _payrollUploadFile.filename,
+      uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      replace: !!replace,
+    });
+    if (!ok && data.existing_import && !replace) {
+      statusEl.innerHTML = `<span style="color:var(--amber-dark, #92400e)">${esc(data.error)}</span><br><button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="submitPayrollUpload(true)">Re-parse and overwrite it</button>`;
+      submitBtn.disabled = false;
+      return;
+    }
+    if (!ok || data.error) {
+      statusEl.innerHTML = `<span style="color:var(--red)">${esc(data.error || 'Upload failed')}</span>`;
+      submitBtn.disabled = false;
+      return;
+    }
+    showToast(`Parsed ${data.employee_count} employees for ${data.pay_period_start} – ${data.pay_period_end}.`, 'success');
+    closePayrollUploadModal();
+    await loadPayroll();
+    openPayrollReviewModal(data.import_id);
+  }
+
+  async function openPayrollReviewModal(importId) {
+    _payrollReviewImportId = importId;
+    document.getElementById('modal-payroll-review').classList.add('open');
+    const body = document.getElementById('payroll-review-body');
+    const footer = document.getElementById('payroll-review-footer');
+    body.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>';
+    footer.innerHTML = '';
+    await loadPayroll(); // refresh in case another tab/session changed something
+    renderPayrollReviewModal();
+  }
+  function closePayrollReviewModal() {
+    document.getElementById('modal-payroll-review').classList.remove('open');
+    _payrollReviewImportId = null;
+  }
+
+  function renderPayrollReviewModal() {
+    const imp = _allPayrollImports.find(i => i.id === _payrollReviewImportId);
+    const body = document.getElementById('payroll-review-body');
+    const footer = document.getElementById('payroll-review-footer');
+    if (!imp) { body.innerHTML = '<div style="color:var(--red);font-size:13px;padding:16px">This payroll report could not be found — it may have been deleted.</div>'; return; }
+    document.getElementById('payroll-review-title').textContent = `Payroll: ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}`;
+
+    const lines = _allPayrollLines.filter(l => l.import_id === imp.id);
+    const unmatched = lines.filter(l => !l.department_key);
+    const totalsByDept = {};
+    for (const d of _allPayrollDepartments) totalsByDept[d.key] = { ...d, wage: 0, tax: 0, health: 0, k401: 0, count: 0 };
+    for (const l of lines) {
+      if (!l.department_key || !totalsByDept[l.department_key]) continue;
+      const t = totalsByDept[l.department_key];
+      t.wage += Number(l.wage_amount||0); t.tax += Number(l.er_tax_amount||0);
+      t.health += Number(l.er_health_amount||0); t.k401 += Number(l.er_401k_amount||0);
+      t.count += 1;
+    }
+    const grandWage = lines.reduce((s,l)=>s+Number(l.wage_amount||0),0);
+    const grandTax = lines.reduce((s,l)=>s+Number(l.er_tax_amount||0),0);
+    const grandTips = lines.reduce((s,l)=>s+Number(l.paycheck_tips_amount||0),0);
+
+    const deptRows = Object.values(totalsByDept).map(t => `<tr>
+      <td>${esc(t.display_name)} <span style="color:var(--gray-400);font-size:11.5px">(${t.count})</span></td>
+      <td>${fmtMoney(t.wage)}</td>
+      <td>${fmtMoney(t.tax)}</td>
+      <td>${fmtMoney(t.health)}</td>
+      <td>${fmtMoney(t.k401)}</td>
+      <td style="font-size:11px;color:var(--gray-400)">${esc(t.wage_account_code)} / ${esc(t.tax_account_code)}</td>
+    </tr>`).join('');
+
+    const deptOptions = _allPayrollDepartments.map(d => `<option value="${esc(d.key)}">${esc(d.display_name)}</option>`).join('');
+    const unmatchedRows = unmatched.map(l => `<tr>
+      <td>${esc(l.raw_full_name)}</td>
+      <td>${fmtMoney(l.wage_amount)}</td>
+      <td>${fmtMoney(l.er_tax_amount)}</td>
+      <td>
+        <select id="payroll-unmatched-dept-${esc(l.id)}" style="font-size:12px;padding:3px 6px">
+          <option value="">Assign department…</option>
+          ${deptOptions}
+        </select>
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px" onclick="resolvePayrollUnmatchedLine('${l.id}')">Save</button>
+      </td>
+    </tr>`).join('');
+
+    body.innerHTML = `
+      <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:14px">Pay date ${esc(fmtDate(imp.pay_date))} · ${lines.length} employees · <span style="color:var(--gray-400)">Tips (${fmtMoney(grandTips)}) are excluded — passed through to employees, not a company expense.</span></div>
+      <table style="width:100%;margin-bottom:16px">
+        <thead><tr><th>Department</th><th>Wages</th><th>Employer Tax</th><th>Employer Health</th><th>Employer 401k</th><th>Xero accts</th></tr></thead>
+        <tbody>${deptRows}</tbody>
+        <tfoot><tr style="font-weight:700"><td>Total</td><td>${fmtMoney(grandWage)}</td><td>${fmtMoney(grandTax)}</td><td colspan="3"></td></tr></tfoot>
+      </table>
+      ${unmatched.length ? `
+        <div style="background:var(--red-light,#fef2f2);border:1px solid #fecaca;border-radius:10px;padding:12px 14px;margin-bottom:10px">
+          <div style="font-weight:700;color:var(--red);font-size:13px;margin-bottom:8px">⚠️ ${unmatched.length} employee${unmatched.length!==1?'s':''} not in the department mapping — resolve before marking this reviewed</div>
+          <table style="width:100%"><thead><tr><th>Name</th><th>Wages</th><th>Tax</th><th></th></tr></thead><tbody>${unmatchedRows}</tbody></table>
+        </div>` : ''}
+      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting this to Xero isn't wired up yet — Square's payroll data has to be uploaded manually each period (there's no live API for it), and the final Xero posting step is still pending a working connection to verify against. This screen is fully usable today for computing and reviewing the breakdown.</div>
+    `;
+
+    const canWrite = currentUserRole !== 'cpa';
+    const canMarkReviewed = canWrite && unmatched.length === 0 && imp.status === 'parsed';
+    footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollReviewModal()">Close</button>
+      ${imp.status === 'parsed' ? `<button class="btn btn-primary" ${canMarkReviewed ? '' : 'disabled'} onclick="markPayrollReviewed('${imp.id}')">Mark Reviewed</button>` : ''}`;
+  }
+
+  async function resolvePayrollUnmatchedLine(lineId) {
+    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Payroll.', 'error'); return; }
+    const select = document.getElementById(`payroll-unmatched-dept-${lineId}`);
+    const deptKey = select?.value;
+    if (!deptKey) { showToast('Pick a department first.', 'error'); return; }
+    const line = _allPayrollLines.find(l => l.id === lineId);
+    if (!line) return;
+    const normalized = line.raw_full_name.trim().replace(/\s+/g, ' ').toLowerCase();
+
+    // Add (or reuse) a permanent mapping so this employee auto-matches on every
+    // future upload — David confirmed (session 206) the roster is a fixed list
+    // that rarely changes, so this is a one-time fix per new hire.
+    let employeeId = null;
+    const { data: existingEmp } = await db.from('payroll_employees').select('id').eq('full_name_normalized', normalized).maybeSingle();
+    if (existingEmp) {
+      employeeId = existingEmp.id;
+      await db.from('payroll_employees').update({ department_key: deptKey, active: true }).eq('id', existingEmp.id);
+    } else {
+      const { data: inserted, error: insErr } = await db.from('payroll_employees').insert({ full_name: line.raw_full_name.trim(), full_name_normalized: normalized, department_key: deptKey }).select('id').single();
+      if (insErr) { showToast('Could not save: ' + insErr.message, 'error'); return; }
+      employeeId = inserted.id;
+    }
+    const { error: updErr } = await db.from('payroll_import_employee_lines').update({ department_key: deptKey, matched_employee_id: employeeId }).eq('id', lineId);
+    if (updErr) { showToast('Could not update this line: ' + updErr.message, 'error'); return; }
+    showToast(`${line.raw_full_name} assigned — added to the mapping for future uploads too.`, 'success');
+    await loadPayroll();
+    renderPayrollReviewModal();
+  }
+
+  async function markPayrollReviewed(importId) {
+    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Payroll.', 'error'); return; }
+    const { error } = await db.from('payroll_imports').update({
+      status: 'reviewed',
+      reviewed_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      reviewed_at: new Date().toISOString(),
+    }).eq('id', importId);
+    if (error) { showToast('Could not mark reviewed: ' + error.message, 'error'); return; }
+    showToast('Marked reviewed.', 'success');
+    await loadPayroll();
+    closePayrollReviewModal();
   }
 
   async function loadLoans() {
@@ -8398,6 +8792,7 @@ ${noActivityNote}
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
     if (currentPage === 'inbox')     { openComposeSMS(); return; }
     if (currentPage === 'loans')     { openLoanUploadModal(); return; }
+    if (currentPage === 'payroll')   { openPayrollUploadModal(); return; }
     // Lost & Found has its own "+ Lost" / "+ Found" pair on the page —
     // no topbar CTA needed (an "Add Item" default would force admins to
     // remember which side it points to).
