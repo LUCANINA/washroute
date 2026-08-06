@@ -3331,6 +3331,35 @@
             <div id="payroll-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
           </div>
 
+          <!-- Needs Attention (session 206 cont., built same day as the posting-
+               balance incident): David asked to be taken out of the loop as much
+               as possible, so this reads attention_flag/summary/detail columns
+               that payroll-check-attention writes on a schedule (every 2 hours,
+               pg_cron job wr-payroll-attention-check) -- no live Xero calls when
+               this tab loads, just a fast read of columns already computed in the
+               background. "Refresh Now" re-runs the check on demand instead of
+               waiting for the next scheduled pass. Same collapsible-card
+               convention as loans-attention-card. -->
+          <div class="card" style="margin-bottom:20px" id="payroll-attention-card">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-attention-list',this)">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="card-title">Needs Attention</div>
+                  <span id="payroll-attention-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                  <span id="payroll-attention-stale" style="font-size:11.5px;color:var(--gray-400);display:none">last checked a while ago</span>
+                </div>
+                <div class="card-sub">Checked automatically every 2 hours — unmatched employees and periods that can't post yet because the cash hasn't landed in Xero.</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:14px">
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();refreshPayrollAttention()" id="payroll-attention-refresh-btn">↻ Refresh Now</button>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Hide</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▾</span></span>
+              </span>
+            </div>
+            <!-- Starts open (unlike the other collapsible cards on this page) --
+                 the whole point is David sees this without an extra click. -->
+            <div id="payroll-attention-list" style="padding:4px 0 16px"></div>
+          </div>
+
           <div class="card" id="payroll-all-card">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-table-wrap',this)">
               <div style="flex:1">
@@ -3396,20 +3425,6 @@
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
             <div class="modal-footer" id="payroll-review-footer"></div>
-          </div>
-        </div>
-
-        <!-- Payroll → Xero posting preview modal (session 206 cont.) -->
-        <div class="modal-overlay" id="modal-payroll-xero-review">
-          <div class="modal" style="width:560px">
-            <div class="modal-header">
-              <div class="modal-title">Post to Xero</div>
-              <button class="modal-close" onclick="closePayrollXeroReviewModal()">
-                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-              </button>
-            </div>
-            <div class="modal-body" id="payroll-xero-review-body">Loading…</div>
-            <div class="modal-footer" id="payroll-xero-review-footer"></div>
           </div>
         </div>
 
@@ -7573,7 +7588,12 @@
     const loanActionCount = flaggedAccounts.length + flaggedSplits.length;
     const loanPendingCount = (_allLoanSplits || []).filter(s => s.status === 'pending_review').length;
     const payrollNeedsReview = (_allPayrollImports || []).filter(i => i.status === 'parsed').length;
-    const payrollUnmatched = new Set((_allPayrollLines || []).filter(l => !l.department_key).map(l => l.raw_full_name)).size;
+    // payrollFlagged (session 206 cont.) mirrors loanActionCount -- both now read
+    // a machine-computed flag column instead of David having to notice a problem
+    // himself. Kept separate from payrollNeedsReview (routine "hasn't looked at
+    // it yet" workflow state) since a flag means something actually needs a
+    // decision, not just a first look.
+    const payrollFlagged = (_allPayrollImports || []).filter(i => i.attention_flag).length;
 
     const tile = (label, n, color, sub, view) => `<div style="flex:1;min-width:180px;background:${color}0d;border:1px solid ${color}33;border-radius:10px;padding:14px 16px;cursor:pointer" onclick="switchBookkeepingView('${view}')">
       <div style="font-size:12px;color:var(--gray-500);font-weight:600;margin-bottom:4px">${esc(label)}</div>
@@ -7585,8 +7605,8 @@
       tile('Loan flags needing action', loanActionCount, loanActionCount ? '#dc2626' : '#16a34a', 'Discrepancies caught automatically', 'loans'),
       tile('Loan splits pending review', loanPendingCount, loanPendingCount ? '#d97706' : '#16a34a', 'Computed, waiting for approval', 'loans'),
       tile('Payroll periods needing review', payrollNeedsReview, payrollNeedsReview ? '#d97706' : '#16a34a', 'Uploaded and parsed, not yet confirmed', 'payroll'),
+      tile('Payroll flags needing action', payrollFlagged, payrollFlagged ? '#dc2626' : '#16a34a', 'Unmatched employees or periods waiting on cash', 'payroll'),
     ];
-    if (payrollUnmatched) tiles.push(tile('Unmatched payroll employees', payrollUnmatched, '#dc2626', "Names that don't match the department mapping", 'payroll'));
     attnEl.innerHTML = tiles.join('');
 
     const row = (label, text, linkLabel, view) => `<div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="switchBookkeepingView('${view}')">
@@ -7655,16 +7675,11 @@
   // Square each pay period, same shape as Loans' statement-upload pattern:
   // upload -> parsed automatically -> reviewed by a human -> posted to Xero.
   //
-  // Posting to Xero: payroll-xero-post (session 206 cont.) is live but deliberately
-  // NARROW -- it only reallocates wages + employer payroll tax into the department
-  // accounts via a Manual Journal (no bank-transaction matching needed, unlike
-  // loans -- see that function's own comment header for why). Employer 401k,
-  // employer health insurance, and net pay/employee withholding are NOT posted --
-  // payroll-ingest doesn't parse those fields from the CSV yet, so the CPA still
-  // handles them by hand. Do not silently expand scope without a fresh decision
-  // from David. The review screen (this code) is fully live end-to-end: upload,
-  // parse, department breakdown, resolving unmatched employees, and now
-  // Preview & Post to Xero from the review modal.
+  // Posting to Xero (payroll-xero-post) is intentionally NOT wired up yet as of
+  // session 206 -- Xero's API was rate-limited all session, so the reallocation-
+  // matching logic that function needs could not be tested against live data.
+  // The review screen (this code) is fully live: upload, parse, department
+  // breakdown, and resolving unmatched employees all work end-to-end today.
   let _allPayrollImports = [];
   let _allPayrollLines = [];
   let _allPayrollDepartments = [];
@@ -7706,10 +7721,86 @@
     _allPayrollDepartments = departments || [];
     _allPayrollEmployees = employees || [];
     renderPayrollSummary();
+    renderPayrollAttention();
     renderPayrollTable();
     renderPayrollEmployeesTable();
     _bkUpdateNavBadge();
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+  }
+
+  // Needs Attention (session 206 cont.) -- purely reads attention_flag/
+  // attention_summary/attention_detail off _allPayrollImports, which
+  // payroll-check-attention keeps fresh in the background (pg_cron, every 2
+  // hours) plus an on-demand "Refresh Now" button. No Xero calls happen here
+  // -- this is just rendering columns that are already sitting in the DB, so
+  // opening the tab is always fast regardless of Xero's response time.
+  const PAYROLL_FLAG_LABELS = {
+    unmapped_employees: { badge: 'unmapped', color: 'red' },
+    insufficient_balance: { badge: 'waiting on cash', color: 'amber' },
+    xero_check_failed: { badge: 'check failed', color: 'gray' },
+  };
+
+  function _payrollRelativeTime(ms) {
+    const mins = Math.round((Date.now() - ms) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+    const days = Math.round(hrs / 24);
+    return `${days} day${days === 1 ? '' : 's'} ago`;
+  }
+
+  function renderPayrollAttention() {
+    const card = document.getElementById('payroll-attention-card');
+    const el = document.getElementById('payroll-attention-list');
+    const badge = document.getElementById('payroll-attention-badge');
+    const staleEl = document.getElementById('payroll-attention-stale');
+    if (!el || !card) return;
+
+    const flagged = _allPayrollImports.filter(i => i.attention_flag);
+
+    if (badge) {
+      if (flagged.length) { badge.textContent = `${flagged.length} flagged`; badge.style.display = ''; }
+      else { badge.style.display = 'none'; }
+    }
+
+    // If the most recent check is more than ~4 hours old (2x the scheduled
+    // cadence), say so -- a silently-stale check would defeat the point of
+    // "take me out of this": stale-and-quiet looks identical to all-clear.
+    const mostRecentCheck = _allPayrollImports.filter(i => i.attention_checked_at).map(i => new Date(i.attention_checked_at).getTime()).sort((a,b) => b-a)[0];
+    if (staleEl) {
+      const isStale = mostRecentCheck && (Date.now() - mostRecentCheck) > 4 * 60 * 60 * 1000;
+      staleEl.style.display = isStale ? '' : 'none';
+    }
+
+    if (!flagged.length) {
+      const checkedText = mostRecentCheck ? _payrollRelativeTime(mostRecentCheck) : 'automatically every 2 hours';
+      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing needs attention right now — checked ${checkedText}.</div>`;
+      return;
+    }
+
+    const item = (imp) => {
+      const meta = PAYROLL_FLAG_LABELS[imp.attention_flag] || { badge: imp.attention_flag, color: 'gray' };
+      return `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;cursor:pointer" onclick="openPayrollReviewModal('${imp.id}')">
+        <span class="badge badge-${meta.color}" style="margin-top:2px">${esc(meta.badge)}</span>
+        <div style="flex:1;min-width:0">
+          <div class="td-name" style="margin-bottom:2px">${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}</div>
+          <div style="font-size:12.5px;color:var(--gray-600)">${esc(imp.attention_summary || '')}</div>
+          ${imp.attention_detail ? `<details style="margin-top:6px" onclick="event.stopPropagation()"><summary style="font-size:11.5px;color:var(--gray-400);cursor:pointer">Full detail</summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(imp.attention_detail)}</div></details>` : ''}
+        </div>
+      </div>`;
+    };
+
+    el.innerHTML = flagged.map(item).join('');
+  }
+
+  async function refreshPayrollAttention() {
+    const btn = document.getElementById('payroll-attention-refresh-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    const res = await _payrollFn('payroll-check-attention', {});
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh Now'; }
+    if (!res.ok) { alert(res.data?.error || 'Could not run the check -- try again in a moment.'); return; }
+    await loadPayroll();
   }
 
   function renderPayrollSummary() {
@@ -7724,7 +7815,7 @@
     const posted = _allPayrollImports.filter(i => i.status === 'posted').length;
     const unmatchedNames = new Set(_allPayrollLines.filter(l => !l.department_key).map(l => l.raw_full_name));
     el.innerHTML = card('Needs Review', needsReview, '#d97706', 'Uploaded and parsed — waiting for you to confirm the breakdown') +
-      card('Reviewed', reviewed, '#2563eb', 'Confirmed, ready to post to Xero — open it and use Preview & Post to Xero') +
+      card('Reviewed', reviewed, '#2563eb', 'Confirmed, ready to post to Xero (posting is not wired up yet — see the review screen note)') +
       card('Posted to Xero', posted, '#16a34a', 'Journal posted') +
       (unmatchedNames.size ? card('Unmatched Employees', unmatchedNames.size, '#dc2626', "Names on a payroll report that don't match anyone in the department mapping below") : '');
   }
@@ -7911,69 +8002,13 @@
           <div style="font-weight:700;color:var(--red);font-size:13px;margin-bottom:8px">⚠️ ${unmatched.length} employee${unmatched.length!==1?'s':''} not in the department mapping — resolve before marking this reviewed</div>
           <table style="width:100%"><thead><tr><th>Name</th><th>Wages</th><th>Tax</th><th></th></tr></thead><tbody>${unmatchedRows}</tbody></table>
         </div>` : ''}
-      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting to Xero only moves <b>wages + employer payroll tax</b> into the department accounts above. Employer 401k, employer health insurance, and net pay/employee withholding aren't included yet — your CPA still handles those the same way as before.</div>
+      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting this to Xero isn't wired up yet — Square's payroll data has to be uploaded manually each period (there's no live API for it), and the final Xero posting step is still pending a working connection to verify against. This screen is fully usable today for computing and reviewing the breakdown.</div>
     `;
 
     const canWrite = currentUserRole !== 'cpa';
     const canMarkReviewed = canWrite && unmatched.length === 0 && imp.status === 'parsed';
-    const canPostToXero = canWrite && imp.status === 'reviewed';
     footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollReviewModal()">Close</button>
-      ${imp.status === 'parsed' ? `<button class="btn btn-primary" ${canMarkReviewed ? '' : 'disabled'} onclick="markPayrollReviewed('${imp.id}')">Mark Reviewed</button>` : ''}
-      ${imp.status === 'reviewed' ? `<button class="btn btn-primary" ${canPostToXero ? '' : 'disabled'} onclick="openPayrollXeroReviewModal('${imp.id}')">Preview &amp; Post to Xero</button>` : ''}
-      ${imp.status === 'posted' ? `<span style="font-size:12px;color:var(--green);font-weight:600;align-self:center">✓ Posted to Xero</span>` : ''}`;
-  }
-
-  async function openPayrollXeroReviewModal(importId) {
-    document.getElementById('modal-payroll-xero-review').classList.add('open');
-    const body = document.getElementById('payroll-xero-review-body');
-    const footer = document.getElementById('payroll-xero-review-footer');
-    body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
-    footer.innerHTML = '';
-    try {
-      const { ok, data } = await _payrollFn('payroll-xero-post', { import_id: importId, confirm: false });
-      if (!ok || data.error) {
-        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not build the proposed journal.')}</div>`;
-        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Close</button>`;
-        return;
-      }
-      const journal = data.proposed_journal;
-      const total = journal.JournalLines.filter(l => l.LineAmount > 0).reduce((s, l) => s + l.LineAmount, 0);
-      body.innerHTML = `
-        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} — it doesn't touch or search for any bank transaction, it just reclasses ${fmtMoney(total)} from Direct Wages into the accounts below.</div>
-        <div class="form-section-head">Journal entry to post</div>
-        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
-        ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
-      `;
-      footer.innerHTML = `
-        <button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-xero-approve-btn" onclick="approveAndPostPayroll('${importId}')">Approve &amp; Post to Xero</button>`}
-      `;
-    } catch (e) {
-      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
-      footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Close</button>`;
-    }
-  }
-  function closePayrollXeroReviewModal() {
-    document.getElementById('modal-payroll-xero-review').classList.remove('open');
-  }
-  async function approveAndPostPayroll(importId) {
-    const btn = document.getElementById('payroll-xero-approve-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
-    try {
-      const { ok, data } = await _payrollFn('payroll-xero-post', {
-        import_id: importId,
-        confirm: true,
-        posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
-      });
-      if (!ok || data.error) throw new Error(data.error || 'Posting failed');
-      closePayrollXeroReviewModal();
-      closePayrollReviewModal();
-      showToast('Posted to Xero.', 'success');
-      loadPayroll();
-    } catch (e) {
-      showToast(e.message || 'Posting failed', 'error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
-    }
+      ${imp.status === 'parsed' ? `<button class="btn btn-primary" ${canMarkReviewed ? '' : 'disabled'} onclick="markPayrollReviewed('${imp.id}')">Mark Reviewed</button>` : ''}`;
   }
 
   async function resolvePayrollUnmatchedLine(lineId) {
