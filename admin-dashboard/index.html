@@ -3399,6 +3399,20 @@
           </div>
         </div>
 
+        <!-- Payroll → Xero posting preview modal (session 206 cont.) -->
+        <div class="modal-overlay" id="modal-payroll-xero-review">
+          <div class="modal" style="width:560px">
+            <div class="modal-header">
+              <div class="modal-title">Post to Xero</div>
+              <button class="modal-close" onclick="closePayrollXeroReviewModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="payroll-xero-review-body">Loading…</div>
+            <div class="modal-footer" id="payroll-xero-review-footer"></div>
+          </div>
+        </div>
+
         <!-- Loan Upload modal -->
         <div class="modal-overlay" id="modal-loan-upload">
           <div class="modal" style="width:520px">
@@ -7641,11 +7655,16 @@
   // Square each pay period, same shape as Loans' statement-upload pattern:
   // upload -> parsed automatically -> reviewed by a human -> posted to Xero.
   //
-  // Posting to Xero (payroll-xero-post) is intentionally NOT wired up yet as of
-  // session 206 -- Xero's API was rate-limited all session, so the reallocation-
-  // matching logic that function needs could not be tested against live data.
-  // The review screen (this code) is fully live: upload, parse, department
-  // breakdown, and resolving unmatched employees all work end-to-end today.
+  // Posting to Xero: payroll-xero-post (session 206 cont.) is live but deliberately
+  // NARROW -- it only reallocates wages + employer payroll tax into the department
+  // accounts via a Manual Journal (no bank-transaction matching needed, unlike
+  // loans -- see that function's own comment header for why). Employer 401k,
+  // employer health insurance, and net pay/employee withholding are NOT posted --
+  // payroll-ingest doesn't parse those fields from the CSV yet, so the CPA still
+  // handles them by hand. Do not silently expand scope without a fresh decision
+  // from David. The review screen (this code) is fully live end-to-end: upload,
+  // parse, department breakdown, resolving unmatched employees, and now
+  // Preview & Post to Xero from the review modal.
   let _allPayrollImports = [];
   let _allPayrollLines = [];
   let _allPayrollDepartments = [];
@@ -7705,7 +7724,7 @@
     const posted = _allPayrollImports.filter(i => i.status === 'posted').length;
     const unmatchedNames = new Set(_allPayrollLines.filter(l => !l.department_key).map(l => l.raw_full_name));
     el.innerHTML = card('Needs Review', needsReview, '#d97706', 'Uploaded and parsed — waiting for you to confirm the breakdown') +
-      card('Reviewed', reviewed, '#2563eb', 'Confirmed, ready to post to Xero (posting is not wired up yet — see the review screen note)') +
+      card('Reviewed', reviewed, '#2563eb', 'Confirmed, ready to post to Xero — open it and use Preview & Post to Xero') +
       card('Posted to Xero', posted, '#16a34a', 'Journal posted') +
       (unmatchedNames.size ? card('Unmatched Employees', unmatchedNames.size, '#dc2626', "Names on a payroll report that don't match anyone in the department mapping below") : '');
   }
@@ -7892,13 +7911,69 @@
           <div style="font-weight:700;color:var(--red);font-size:13px;margin-bottom:8px">⚠️ ${unmatched.length} employee${unmatched.length!==1?'s':''} not in the department mapping — resolve before marking this reviewed</div>
           <table style="width:100%"><thead><tr><th>Name</th><th>Wages</th><th>Tax</th><th></th></tr></thead><tbody>${unmatchedRows}</tbody></table>
         </div>` : ''}
-      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting this to Xero isn't wired up yet — Square's payroll data has to be uploaded manually each period (there's no live API for it), and the final Xero posting step is still pending a working connection to verify against. This screen is fully usable today for computing and reviewing the breakdown.</div>
+      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting to Xero only moves <b>wages + employer payroll tax</b> into the department accounts above. Employer 401k, employer health insurance, and net pay/employee withholding aren't included yet — your CPA still handles those the same way as before.</div>
     `;
 
     const canWrite = currentUserRole !== 'cpa';
     const canMarkReviewed = canWrite && unmatched.length === 0 && imp.status === 'parsed';
+    const canPostToXero = canWrite && imp.status === 'reviewed';
     footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollReviewModal()">Close</button>
-      ${imp.status === 'parsed' ? `<button class="btn btn-primary" ${canMarkReviewed ? '' : 'disabled'} onclick="markPayrollReviewed('${imp.id}')">Mark Reviewed</button>` : ''}`;
+      ${imp.status === 'parsed' ? `<button class="btn btn-primary" ${canMarkReviewed ? '' : 'disabled'} onclick="markPayrollReviewed('${imp.id}')">Mark Reviewed</button>` : ''}
+      ${imp.status === 'reviewed' ? `<button class="btn btn-primary" ${canPostToXero ? '' : 'disabled'} onclick="openPayrollXeroReviewModal('${imp.id}')">Preview &amp; Post to Xero</button>` : ''}
+      ${imp.status === 'posted' ? `<span style="font-size:12px;color:var(--green);font-weight:600;align-self:center">✓ Posted to Xero</span>` : ''}`;
+  }
+
+  async function openPayrollXeroReviewModal(importId) {
+    document.getElementById('modal-payroll-xero-review').classList.add('open');
+    const body = document.getElementById('payroll-xero-review-body');
+    const footer = document.getElementById('payroll-xero-review-footer');
+    body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
+    footer.innerHTML = '';
+    try {
+      const { ok, data } = await _payrollFn('payroll-xero-post', { import_id: importId, confirm: false });
+      if (!ok || data.error) {
+        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not build the proposed journal.')}</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Close</button>`;
+        return;
+      }
+      const journal = data.proposed_journal;
+      const total = journal.JournalLines.filter(l => l.LineAmount > 0).reduce((s, l) => s + l.LineAmount, 0);
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} — it doesn't touch or search for any bank transaction, it just reclasses ${fmtMoney(total)} from Direct Wages into the accounts below.</div>
+        <div class="form-section-head">Journal entry to post</div>
+        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
+        ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-xero-approve-btn" onclick="approveAndPostPayroll('${importId}')">Approve &amp; Post to Xero</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Close</button>`;
+    }
+  }
+  function closePayrollXeroReviewModal() {
+    document.getElementById('modal-payroll-xero-review').classList.remove('open');
+  }
+  async function approveAndPostPayroll(importId) {
+    const btn = document.getElementById('payroll-xero-approve-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
+    try {
+      const { ok, data } = await _payrollFn('payroll-xero-post', {
+        import_id: importId,
+        confirm: true,
+        posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (!ok || data.error) throw new Error(data.error || 'Posting failed');
+      closePayrollXeroReviewModal();
+      closePayrollReviewModal();
+      showToast('Posted to Xero.', 'success');
+      loadPayroll();
+    } catch (e) {
+      showToast(e.message || 'Posting failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
+    }
   }
 
   async function resolvePayrollUnmatchedLine(lineId) {
