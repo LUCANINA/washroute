@@ -3331,6 +3331,24 @@
             <div id="payroll-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
           </div>
 
+          <!-- One-time correction (Aug 6, 2026): a since-deleted Xero bank rule
+               was auto-coding 8 raw Square payroll bank drafts (all July 2026)
+               straight into "668 Wages & Salaries - Operation" instead of "170
+               Direct Wages". This card only ever appears once, and disappears
+               permanently once the correction journal is posted (checked via
+               payroll-fix-668-misroute, which itself checks Xero for the tagged
+               journal so it can never double-post). Hidden by default; shown
+               only if check668FixStatus() confirms it's still outstanding. -->
+          <div class="card" style="margin-bottom:20px;display:none;border:1px solid #fca5a5" id="payroll-668fix-card">
+            <div class="card-header" style="padding:20px 24px">
+              <div style="flex:1">
+                <div class="card-title" style="color:#991b1b">One-Time Correction Needed</div>
+                <div class="card-sub">A deleted Xero bank rule misrouted $81,295.86 of July payroll (8 Square drafts) straight into 668 Wages &amp; Salaries – Operation instead of 170 Direct Wages. Nothing needs to be unreconciled — this posts a single reclassification journal.</div>
+              </div>
+              <button class="btn btn-primary" style="align-self:center" onclick="openPayroll668CorrectionModal()">Review &amp; Post Correction</button>
+            </div>
+          </div>
+
           <!-- Needs Attention (session 206 cont., built same day as the posting-
                balance incident): David asked to be taken out of the loop as much
                as possible, so this reads attention_flag/summary/detail columns
@@ -3439,6 +3457,20 @@
             </div>
             <div class="modal-body" id="payroll-xero-review-body">Loading…</div>
             <div class="modal-footer" id="payroll-xero-review-footer"></div>
+          </div>
+        </div>
+
+        <!-- 668 misroute one-time correction modal (Aug 6, 2026) -->
+        <div class="modal-overlay" id="modal-668-correction">
+          <div class="modal" style="width:600px">
+            <div class="modal-header">
+              <div class="modal-title">Post Correction to Xero</div>
+              <button class="modal-close" onclick="closePayroll668CorrectionModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="payroll-668fix-body">Loading…</div>
+            <div class="modal-footer" id="payroll-668fix-footer"></div>
           </div>
         </div>
 
@@ -7741,6 +7773,7 @@
     _allPayrollEmployees = employees || [];
     renderPayrollSummary();
     renderPayrollAttention();
+    check668FixStatus();
     renderPayrollTable();
     renderPayrollEmployeesTable();
     _bkUpdateNavBadge();
@@ -8079,6 +8112,85 @@
       closePayrollXeroReviewModal();
       closePayrollReviewModal();
       showToast('Posted to Xero.', 'success');
+      loadPayroll();
+    } catch (e) {
+      showToast(e.message || 'Posting failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
+    }
+  }
+
+  // 668 misroute one-time correction (Aug 6, 2026) -- see
+  // payroll-fix-668-misroute for the full background. Idempotency lives in
+  // that function (it checks Xero itself for the tagged journal before
+  // allowing a post), so this UI just needs to check + hide the banner once
+  // it's done; there's no local "posted" flag to keep in sync.
+  let _payroll668FixChecked = false;
+
+  async function check668FixStatus() {
+    if (_payroll668FixChecked) return;
+    _payroll668FixChecked = true;
+    const card = document.getElementById('payroll-668fix-card');
+    if (!card) return;
+    const { ok, data } = await _payrollFn('payroll-fix-668-misroute', {});
+    if (ok && data && !data.error) {
+      card.style.display = data.already_posted ? 'none' : '';
+    }
+    // If the check itself failed (network/auth/Xero hiccup), leave the card
+    // hidden rather than show a broken banner -- re-checked next time the
+    // Payroll tab is opened fresh (page reload resets _payroll668FixChecked).
+  }
+
+  async function openPayroll668CorrectionModal() {
+    document.getElementById('modal-668-correction').classList.add('open');
+    const body = document.getElementById('payroll-668fix-body');
+    const footer = document.getElementById('payroll-668fix-footer');
+    body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
+    footer.innerHTML = '';
+    try {
+      const { ok, data } = await _payrollFn('payroll-fix-668-misroute', {});
+      if (!ok || data.error) {
+        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not build the proposed correction.')}</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayroll668CorrectionModal()">Close</button>`;
+        return;
+      }
+      if (data.already_posted) {
+        body.innerHTML = `<div style="color:var(--green);font-size:13.5px">✓ This correction has already been posted to Xero (Manual Journal ${esc(data.manual_journal_id || '')}).</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayroll668CorrectionModal()">Close</button>`;
+        const card = document.getElementById('payroll-668fix-card');
+        if (card) card.style.display = 'none';
+        return;
+      }
+      const journal = data.proposed_journal;
+      const total = data.total_amount;
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} — it doesn't touch or unreconcile any of the 8 original bank transactions below, it just reclasses ${fmtMoney(total)} back from 668 into 170 Direct Wages.</div>
+        <div class="form-section-head">Journal entry to post</div>
+        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
+        <div class="form-section-head">Original misrouted transactions (untouched — not reconciled or edited)</div>
+        <div style="margin-bottom:4px">${(data.original_transactions || []).map(t => `<div style="font-size:12.5px;padding:3px 0;display:flex;justify-content:space-between;color:var(--gray-600)"><span>${esc(t.date)}</span><b>${fmtMoney(t.amount)}</b></div>`).join('')}</div>
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closePayroll668CorrectionModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-668fix-approve-btn" onclick="approvePayroll668Correction()">Approve &amp; Post to Xero</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayroll668CorrectionModal()">Close</button>`;
+    }
+  }
+  function closePayroll668CorrectionModal() {
+    document.getElementById('modal-668-correction').classList.remove('open');
+  }
+  async function approvePayroll668Correction() {
+    const btn = document.getElementById('payroll-668fix-approve-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
+    try {
+      const { ok, data } = await _payrollFn('payroll-fix-668-misroute', { confirm: true });
+      if (!ok || data.error) throw new Error(data.error || 'Posting failed');
+      closePayroll668CorrectionModal();
+      const card = document.getElementById('payroll-668fix-card');
+      if (card) card.style.display = 'none';
+      showToast('Correction posted to Xero.', 'success');
       loadPayroll();
     } catch (e) {
       showToast(e.message || 'Posting failed', 'error');
