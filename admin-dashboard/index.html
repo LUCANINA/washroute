@@ -7829,6 +7829,7 @@
   // parse, department breakdown, resolving unmatched employees, and now
   // Preview & Post to Xero from the review modal.
   let _allPayrollImports = [];
+  let _allPayrollNotices = [];
   let _allPayrollLines = [];
   let _allPayrollDepartments = [];
   let _allPayrollEmployees = [];
@@ -7858,13 +7859,16 @@
   }
 
   async function loadPayroll() {
-    const [{ data: imports }, { data: lines }, { data: departments }, { data: employees }] = await Promise.all([
+    const [{ data: imports }, { data: lines }, { data: departments }, { data: employees }, { data: notices }] = await Promise.all([
       db.from('payroll_imports').select('*').order('pay_period_end', { ascending: false }),
       db.from('payroll_import_employee_lines').select('id,import_id,raw_full_name,department_key,matched_employee_id,wage_amount,er_tax_amount,er_health_amount,er_401k_amount,paycheck_tips_amount'),
       db.from('payroll_departments').select('*').order('sort_order'),
       db.from('payroll_employees').select('*').order('full_name'),
+      // Standing payroll issues that aren't tied to one pay period (session 207).
+      db.from('payroll_notices').select('*').eq('active', true),
     ]);
     _allPayrollImports = imports || [];
+    _allPayrollNotices = notices || [];
     _allPayrollLines = lines || [];
     _allPayrollDepartments = departments || [];
     _allPayrollEmployees = employees || [];
@@ -7910,9 +7914,11 @@
     if (!el || !card) return;
 
     const flagged = _allPayrollImports.filter(i => i.attention_flag);
+    const notices = _allPayrollNotices || [];
+    const totalCount = flagged.length + notices.length;
 
     if (badge) {
-      if (flagged.length) { badge.textContent = `${flagged.length} flagged`; badge.style.display = ''; }
+      if (totalCount) { badge.textContent = `${totalCount} flagged`; badge.style.display = ''; }
       else { badge.style.display = 'none'; }
     }
 
@@ -7925,7 +7931,7 @@
       staleEl.style.display = isStale ? '' : 'none';
     }
 
-    if (!flagged.length) {
+    if (!totalCount) {
       const checkedText = mostRecentCheck ? _payrollRelativeTime(mostRecentCheck) : 'automatically every 2 hours';
       el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing needs attention right now — checked ${checkedText}.</div>`;
       return;
@@ -7943,7 +7949,17 @@
       </div>`;
     };
 
-    el.innerHTML = flagged.map(item).join('');
+    // Standing notices (not tied to a pay period, so not clickable through to
+    // a review modal) render above the per-period items.
+    const noticeItem = (nt) => `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
+        <span class="badge badge-${nt.severity === 'error' ? 'red' : 'amber'}" style="margin-top:2px">ask your CPA</span>
+        <div style="flex:1;min-width:0">
+          <div class="td-name" style="margin-bottom:2px">${esc(nt.title || '')}</div>
+          ${nt.detail ? `<details style="margin-top:6px"><summary style="font-size:11.5px;color:var(--gray-400);cursor:pointer">Full detail</summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(nt.detail)}</div></details>` : ''}
+        </div>
+      </div>`;
+
+    el.innerHTML = notices.map(noticeItem).join('') + flagged.map(item).join('');
   }
 
   async function refreshPayrollAttention() {
