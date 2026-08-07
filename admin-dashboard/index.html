@@ -3349,6 +3349,24 @@
             </div>
           </div>
 
+          <!-- One-time catch-up (Aug 6, 2026): payroll-xero-post was extended
+               same day to also reallocate account 171 "Direct Payroll Taxes"
+               (employee CA state tax withholding, split by department, same
+               as employer tax already is) -- but the 4 July periods posted
+               just before that change only reallocated 170, not 171. This
+               card posts the one missing piece for those 4 periods. Same
+               disappears-once-posted pattern as the 668 card, checked via
+               payroll-fix-171-catchup. -->
+          <div class="card" style="margin-bottom:20px;display:none;border:1px solid #fca5a5" id="payroll-171catchup-card">
+            <div class="card-header" style="padding:20px 24px">
+              <div style="flex:1">
+                <div class="card-title" style="color:#991b1b">One-Time Catch-up Needed</div>
+                <div class="card-sub">The 4 July payroll periods were posted before account 171 (Direct Payroll Taxes — employee CA withholding) was wired into automatic department splitting. This posts the $3,661.72 catch-up, split by department, for those 4 periods only.</div>
+              </div>
+              <button class="btn btn-primary" style="align-self:center" onclick="openPayroll171CatchupModal()">Review &amp; Post Catch-up</button>
+            </div>
+          </div>
+
           <!-- Needs Attention (session 206 cont., built same day as the posting-
                balance incident): David asked to be taken out of the loop as much
                as possible, so this reads attention_flag/summary/detail columns
@@ -3471,6 +3489,20 @@
             </div>
             <div class="modal-body" id="payroll-668fix-body">Loading…</div>
             <div class="modal-footer" id="payroll-668fix-footer"></div>
+          </div>
+        </div>
+
+        <!-- 171 catch-up one-time correction modal (Aug 6, 2026) -->
+        <div class="modal-overlay" id="modal-171-catchup">
+          <div class="modal" style="width:600px">
+            <div class="modal-header">
+              <div class="modal-title">Post Catch-up to Xero</div>
+              <button class="modal-close" onclick="closePayroll171CatchupModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="payroll-171catchup-body">Loading…</div>
+            <div class="modal-footer" id="payroll-171catchup-footer"></div>
           </div>
         </div>
 
@@ -7774,6 +7806,7 @@
     renderPayrollSummary();
     renderPayrollAttention();
     check668FixStatus();
+    check171CatchupStatus();
     renderPayrollTable();
     renderPayrollEmployeesTable();
     _bkUpdateNavBadge();
@@ -8191,6 +8224,77 @@
       const card = document.getElementById('payroll-668fix-card');
       if (card) card.style.display = 'none';
       showToast('Correction posted to Xero.', 'success');
+      loadPayroll();
+    } catch (e) {
+      showToast(e.message || 'Posting failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
+    }
+  }
+
+  // 171 catch-up one-time correction (Aug 6, 2026) -- same pattern as the 668
+  // correction above. See payroll-fix-171-catchup for the full background.
+  let _payroll171CatchupChecked = false;
+
+  async function check171CatchupStatus() {
+    if (_payroll171CatchupChecked) return;
+    _payroll171CatchupChecked = true;
+    const card = document.getElementById('payroll-171catchup-card');
+    if (!card) return;
+    const { ok, data } = await _payrollFn('payroll-fix-171-catchup', {});
+    if (ok && data && !data.error) {
+      card.style.display = data.already_posted ? 'none' : '';
+    }
+  }
+
+  async function openPayroll171CatchupModal() {
+    document.getElementById('modal-171-catchup').classList.add('open');
+    const body = document.getElementById('payroll-171catchup-body');
+    const footer = document.getElementById('payroll-171catchup-footer');
+    body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
+    footer.innerHTML = '';
+    try {
+      const { ok, data } = await _payrollFn('payroll-fix-171-catchup', {});
+      if (!ok || data.error) {
+        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not build the proposed catch-up.')}</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayroll171CatchupModal()">Close</button>`;
+        return;
+      }
+      if (data.already_posted) {
+        body.innerHTML = `<div style="color:var(--green);font-size:13.5px">✓ This catch-up has already been posted to Xero (Manual Journal ${esc(data.manual_journal_id || '')}).</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayroll171CatchupModal()">Close</button>`;
+        const card = document.getElementById('payroll-171catchup-card');
+        if (card) card.style.display = 'none';
+        return;
+      }
+      const journal = data.proposed_journal;
+      const total = data.total_amount;
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} — it reclasses ${fmtMoney(total)} of employee CA tax withholding out of 171 Direct Payroll Taxes into the department Payroll Tax accounts below, for the 4 July periods posted before this was automated.</div>
+        <div class="form-section-head">Journal entry to post</div>
+        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closePayroll171CatchupModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-171catchup-approve-btn" onclick="approvePayroll171Catchup()">Approve &amp; Post to Xero</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayroll171CatchupModal()">Close</button>`;
+    }
+  }
+  function closePayroll171CatchupModal() {
+    document.getElementById('modal-171-catchup').classList.remove('open');
+  }
+  async function approvePayroll171Catchup() {
+    const btn = document.getElementById('payroll-171catchup-approve-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
+    try {
+      const { ok, data } = await _payrollFn('payroll-fix-171-catchup', { confirm: true });
+      if (!ok || data.error) throw new Error(data.error || 'Posting failed');
+      closePayroll171CatchupModal();
+      const card = document.getElementById('payroll-171catchup-card');
+      if (card) card.style.display = 'none';
+      showToast('Catch-up posted to Xero.', 'success');
       loadPayroll();
     } catch (e) {
       showToast(e.message || 'Posting failed', 'error');
