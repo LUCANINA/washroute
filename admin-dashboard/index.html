@@ -3367,27 +3367,22 @@
             </div>
           </div>
 
-          <!-- One-time catch-up (Aug 7, 2026): payroll-xero-post was extended
-               same day to also reallocate employee federal tax withholding
-               (EE Fed. Income + EE Soc. Security + EE Medicare) out of 170
-               Direct Wages -- this is what was behind the "orphaned Direct
-               Wages" balance David spotted on the July P&L. The 5 periods
-               posted just before that change (now including the 6/22-6/28
-               period) only reallocated wages + employer tax + CA tax, not
-               federal tax. This card posts the missing $16,293.07 piece,
-               split by department -- but unlike the 171 catch-up, federal
-               tax shares account 170 with wages/employer tax that have
-               ALREADY been reallocated, so the real-cash safety check may
-               block a full post until enough cash has landed in 170. Same
+          <!-- One-time reversal (Aug 7, 2026). Earlier the same day, payroll-xero-post
+               v14 began debiting employee CA tax withholding to the department
+               Payroll Tax accounts on top of the gross wages that already
+               contain it -- double-counting $4,465.21 across the 5 posted July
+               periods. (The equivalent federal-tax version, v15, was caught by
+               the real-cash check before it ever posted and has been retired.)
+               This card posts the mirror-image correction. Same
                disappears-once-posted pattern, checked via
-               payroll-fix-federal-catchup. -->
-          <div class="card" style="margin-bottom:20px;display:none;border:1px solid #fca5a5" id="payroll-federalcatchup-card">
+               payroll-fix-ca-doublecount. -->
+          <div class="card" style="margin-bottom:20px;display:none;border:1px solid #fca5a5" id="payroll-cadupe-card">
             <div class="card-header" style="padding:20px 24px">
               <div style="flex:1">
-                <div class="card-title" style="color:#991b1b">One-Time Catch-up Needed</div>
-                <div class="card-sub">The 5 posted July payroll periods were posted before employee federal tax withholding (income tax + Social Security + Medicare) was wired into automatic department splitting. This posts the $16,293.07 catch-up, split by department, for those 5 periods only. May be blocked until enough real cash has landed in 170 — that's expected, not an error.</div>
+                <div class="card-title" style="color:#991b1b">Correction Needed</div>
+                <div class="card-sub">Employee CA tax withholding was charged to the department Payroll Tax accounts on top of the gross wages that already include it — overstating July payroll tax by $4,465.21. This reverses it and returns the same amount to 170 Direct Wages. It only reduces expense, so it can't overdraw anything.</div>
               </div>
-              <button class="btn btn-primary" style="align-self:center" onclick="openPayrollFederalCatchupModal()">Review &amp; Post Catch-up</button>
+              <button class="btn btn-primary" style="align-self:center" onclick="openPayrollCaDupeModal()">Review &amp; Post Correction</button>
             </div>
           </div>
 
@@ -3530,17 +3525,17 @@
           </div>
         </div>
 
-        <!-- Federal tax catch-up one-time correction modal (Aug 7, 2026) -->
-        <div class="modal-overlay" id="modal-federal-catchup">
+        <!-- Employee-CA-tax double-count reversal modal (Aug 7, 2026) -->
+        <div class="modal-overlay" id="modal-ca-dupe">
           <div class="modal" style="width:600px">
             <div class="modal-header">
-              <div class="modal-title">Post Catch-up to Xero</div>
-              <button class="modal-close" onclick="closePayrollFederalCatchupModal()">
+              <div class="modal-title">Post Correction to Xero</div>
+              <button class="modal-close" onclick="closePayrollCaDupeModal()">
                 <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
             </div>
-            <div class="modal-body" id="payroll-federalcatchup-body">Loading…</div>
-            <div class="modal-footer" id="payroll-federalcatchup-footer"></div>
+            <div class="modal-body" id="payroll-cadupe-body">Loading…</div>
+            <div class="modal-footer" id="payroll-cadupe-footer"></div>
           </div>
         </div>
 
@@ -7845,7 +7840,7 @@
     renderPayrollAttention();
     check668FixStatus();
     check171CatchupStatus();
-    checkFederalCatchupStatus();
+    checkCaDupeStatus();
     renderPayrollTable();
     renderPayrollEmployeesTable();
     _bkUpdateNavBadge();
@@ -8341,73 +8336,69 @@
     }
   }
 
-  let _payrollFederalCatchupChecked = false;
+  let _payrollCaDupeChecked = false;
 
-  async function checkFederalCatchupStatus() {
-    if (_payrollFederalCatchupChecked) return;
-    _payrollFederalCatchupChecked = true;
-    const card = document.getElementById('payroll-federalcatchup-card');
+  async function checkCaDupeStatus() {
+    if (_payrollCaDupeChecked) return;
+    _payrollCaDupeChecked = true;
+    const card = document.getElementById('payroll-cadupe-card');
     if (!card) return;
-    const { ok, data } = await _payrollFn('payroll-fix-federal-catchup', {});
+    const { ok, data } = await _payrollFn('payroll-fix-ca-doublecount', {});
     if (ok && data && !data.error) {
       card.style.display = data.already_posted ? 'none' : '';
     }
   }
 
-  async function openPayrollFederalCatchupModal() {
-    document.getElementById('modal-federal-catchup').classList.add('open');
-    const body = document.getElementById('payroll-federalcatchup-body');
-    const footer = document.getElementById('payroll-federalcatchup-footer');
+  async function openPayrollCaDupeModal() {
+    document.getElementById('modal-ca-dupe').classList.add('open');
+    const body = document.getElementById('payroll-cadupe-body');
+    const footer = document.getElementById('payroll-cadupe-footer');
     body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
     footer.innerHTML = '';
     try {
-      const { ok, data } = await _payrollFn('payroll-fix-federal-catchup', {});
+      const { ok, data } = await _payrollFn('payroll-fix-ca-doublecount', {});
       if (!ok || data.error) {
-        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not build the proposed catch-up.')}</div>`;
-        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollFederalCatchupModal()">Close</button>`;
+        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not build the proposed correction.')}</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollCaDupeModal()">Close</button>`;
         return;
       }
       if (data.already_posted) {
-        body.innerHTML = `<div style="color:var(--green);font-size:13.5px">✓ This catch-up has already been posted to Xero (Manual Journal ${esc(data.manual_journal_id || '')}).</div>`;
-        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollFederalCatchupModal()">Close</button>`;
-        const card = document.getElementById('payroll-federalcatchup-card');
+        body.innerHTML = `<div style="color:var(--green);font-size:13.5px">✓ This correction has already been posted to Xero (Manual Journal ${esc(data.manual_journal_id || '')}).</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollCaDupeModal()">Close</button>`;
+        const card = document.getElementById('payroll-cadupe-card');
         if (card) card.style.display = 'none';
         return;
       }
       const journal = data.proposed_journal;
       const total = data.total_amount;
-      const bc = data.balance_check || {};
-      const blockedNote = bc.would_overdraw
-        ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:14px">⚠ Currently blocked: only ${fmtMoney(bc.direct_wages_currently_available || 0)} of real cash is sitting in 170 right now, short ${fmtMoney(bc.shortfall || 0)}. This is expected — not all of this catch-up's cash has cleared relative to what later periods already drew out. Check back once more periods have posted, or ask David.</div>`
-        : '';
       body.innerHTML = `
-        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} — it reclasses ${fmtMoney(total)} of employee federal tax withholding (income tax + Social Security + Medicare) out of 170 Direct Wages into the department Payroll Tax accounts below, for the 5 periods posted before this was automated.</div>
-        ${blockedNote}
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} — it takes ${fmtMoney(total)} of employee CA tax withholding back out of the department Payroll Tax accounts (where it was double-counted, since gross wages already include it) and returns the same amount to 170 Direct Wages.</div>
+        <div style="background:#ecfdf5;color:#065f46;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:14px">This only reduces expense and returns money to 170, so it can't take any account negative — no balance check needed.</div>
         <div class="form-section-head">Journal entry to post</div>
         <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
       `;
       footer.innerHTML = `
-        <button class="btn btn-ghost" onclick="closePayrollFederalCatchupModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-federalcatchup-approve-btn" onclick="approvePayrollFederalCatchup()">Approve &amp; Post to Xero</button>`}
+        <button class="btn btn-ghost" onclick="closePayrollCaDupeModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-cadupe-approve-btn" onclick="approvePayrollCaDupe()">Approve &amp; Post to Xero</button>`}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
-      footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollFederalCatchupModal()">Close</button>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollCaDupeModal()">Close</button>`;
     }
   }
-  function closePayrollFederalCatchupModal() {
-    document.getElementById('modal-federal-catchup').classList.remove('open');
+  function closePayrollCaDupeModal() {
+    document.getElementById('modal-ca-dupe').classList.remove('open');
   }
-  async function approvePayrollFederalCatchup() {
-    const btn = document.getElementById('payroll-federalcatchup-approve-btn');
+  async function approvePayrollCaDupe() {
+    const btn = document.getElementById('payroll-cadupe-approve-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
     try {
-      const { ok, data } = await _payrollFn('payroll-fix-federal-catchup', { confirm: true });
+      const { ok, data } = await _payrollFn('payroll-fix-ca-doublecount', { confirm: true });
       if (!ok || data.error) throw new Error(data.error || 'Posting failed');
-      closePayrollFederalCatchupModal();
-      const card = document.getElementById('payroll-federalcatchup-card');
+      closePayrollCaDupeModal();
+      const card = document.getElementById('payroll-cadupe-card');
       if (card) card.style.display = 'none';
-      showToast('Catch-up posted to Xero.', 'success');
+      showToast('Correction posted to Xero.', 'success');
       loadPayroll();
     } catch (e) {
       showToast(e.message || 'Posting failed', 'error');
