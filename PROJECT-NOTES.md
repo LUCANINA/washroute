@@ -2743,22 +2743,21 @@ Balances by construction, clears the real EDD cash out of 171, and leaves in 170
 - Dashboard (`926a4db`): federal catch-up card/modal/JS removed entirely; reversal card added in its place.
 - Superseded commit `dd57a96` (the v15 UI) — kept in history, but its feature is dead.
 
-**Verified end state.** David posted the reversal and separately reclassified the $2,975 off-cycle draw to Repairs & Maintenance. Live Xero now: 170 = $5,059.33 YTD, all five department tax accounts down by exactly their EE-CA share, 171/358/675 unchanged. July's 170 component is $4,630.33 and reconciles **exactly**:
+**Verified end state.** David posted the reversal and separately reclassified the $2,975 off-cycle draw to Repairs & Maintenance. He then also reclassified the $20.00 sibling draw. Live Xero final: **170 = $5,039.33 YTD**, all five department tax accounts down by exactly their EE-CA share, 171/358/675 unchanged. July's 170 component is **$4,610.33** and reconciles **exactly** — with no unexplained bank activity remaining, only structural items:
 
 ```
 + 7,038.00  paycheck tips paid out (customer money, not a wage expense)
 +   600.00  insurance reimbursement stipend (2 periods × $300)
 −   491.32  employee health withheld   (belongs against 675)
 − 2,536.35  employee 401k withheld     (belongs against 358)
-+    20.00  remaining off-cycle payroll draw
-= 4,630.33
+= 4,610.33
 ```
 
 **Lesson banked — a safety net firing is a signal to re-derive, not a number to explain away.** The real-cash check did its job and stopped $16,293.07 of bad data, but I treated the block as a cash-timing inconvenience and told David to "check back in a few days." Had he accepted that, the error would have posted the moment enough cash landed. **When a guard blocks something you believe should pass, the first move is to re-derive the quantity from source data — not to rationalise the gap.** Corollary, now permanent: **never add a payroll component to an allocation without first checking whether it's already inside another component you're posting.** Gross pay contains all employee withholding; net pay + withholding is not additional cost.
 
 **Open items for David / the CPA:**
-- The remaining **$20.00** off-cycle payroll draw is unidentified (the $2,975 sibling is now correctly in Repairs & Maintenance).
-- Tips ($7,038.00) still sit in 170 with no tips-clearing account; the 401k/health pieces belong against 358/675, which is where the CPA has always put them. Neither is wired up.
+- Both off-cycle draws ($2,975.00 and $20.00) turned out to be miscodes and were reclassified by David — **not** payroll. 170 now contains only structural items.
+- Tips ($7,038.00) still sit in 170 with no tips-clearing account; the 401k/health pieces belong against 358/675, which is where the CPA has always put them. Neither is wired up — these are the obvious next automation, and unlike the tax components they are *not* already inside gross wages, so they can be added safely.
 - **Account 171 carries $5,389.23 from May that has never been reallocated by anyone.** If gross wages already contain that money, it may be double-counted in the CPA's own books too — worth asking them rather than assuming.
 
 ### May 28, 2026 (session 163) — Angel routes blank, recurrence #3 — merge regression of the May 27 fix
