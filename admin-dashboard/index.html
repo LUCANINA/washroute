@@ -3231,6 +3231,7 @@
             <button class="section-tab active" id="bkvt-overview" onclick="switchBookkeepingView('overview')">Overview</button>
             <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
+            <button class="section-tab" id="bkvt-debtsched" onclick="switchBookkeepingView('debtsched')">Debt Schedule</button>
           </div>
 
           <!-- Overview — the CPA-centric landing view: everything needing a look,
@@ -3462,6 +3463,39 @@
             </div>
           </div>
           </div><!-- /bk-view-payroll -->
+
+          <!-- Debt Schedule (added at David's request — a live, always-current version
+               of the manual spreadsheet he was maintaining by hand and re-checking
+               against the balance sheet every month. Reads the same _allLoanAccounts/
+               _allLoanStatements/_allLoanAmortRows globals loadLoans() already
+               populates — no separate query, so it can never drift from the Loans tab.
+               Present Balance uses the same _loanOutstandingBalance() helper the Loans
+               summary card uses. The "static" columns (original amount/date, rate,
+               maturity, security, category) live on loan_accounts and are edited via
+               the pencil icon — they rarely change, unlike balance/payment which
+               update automatically every time a statement is ingested. -->
+          <div id="bk-view-debtsched" style="display:none">
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title">Debt Schedule</div>
+              <div class="card-sub">Present Balance updates automatically from the latest statement or amortization schedule on file. Original Amount, Rate, Maturity, and Security are set once per loan — click the pencil to edit or correct one.</div>
+            </div>
+            <div id="debtsched-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
+          </div>
+          <div class="card">
+            <div class="card-header" style="padding:20px 24px">
+              <div style="flex:1">
+                <div class="card-title">All Debt</div>
+                <div class="card-sub" id="debtsched-asof"></div>
+              </div>
+              <span style="display:flex;align-items:center;gap:10px">
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()">📄 Export PDF</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
+              </span>
+            </div>
+            <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
+          </div>
+          </div><!-- /bk-view-debtsched -->
         </div><!-- /page-bookkeeping -->
 
         <!-- Payroll Upload modal -->
@@ -3694,6 +3728,55 @@
             <div class="modal-footer">
               <button class="btn btn-ghost" onclick="closeLoanPaymentReportModal()">Cancel</button>
               <button class="btn btn-primary" onclick="generateLoanPaymentReport()">Generate Report</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Debt Schedule — edit static loan facts modal. These 7 fields
+             (original amount/date, rate, maturity, security, category, scheduled
+             payment) live on loan_accounts but are NOT touched by statement
+             ingestion — they're set once per loan and only change on the rare
+             occasion terms actually change (a rate reset, a refinance). -->
+        <div class="modal-overlay" id="modal-debtsched-edit">
+          <div class="modal" style="width:480px">
+            <div class="modal-header">
+              <div class="modal-title" id="dse-title">Edit Loan</div>
+              <button class="modal-close" onclick="closeDebtSchedEditModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="form-row">
+                <div class="form-group"><label class="form-label">Original amount</label><input type="number" step="0.01" class="form-input" id="dse-original-amount" placeholder="0.00"></div>
+                <div class="form-group"><label class="form-label">Original date</label><input type="date" class="form-input" id="dse-original-date"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label class="form-label">Interest rate (%)</label><input type="number" step="0.001" class="form-input" id="dse-interest-rate" placeholder="e.g. 3.75"></div>
+                <div class="form-group"><label class="form-label">Maturity date</label><input type="date" class="form-input" id="dse-maturity-date"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label class="form-label">Monthly payment</label><input type="number" step="0.01" class="form-input" id="dse-monthly-payment" placeholder="0.00"></div>
+                <div class="form-group"><label class="form-label">Security</label><input type="text" class="form-input" id="dse-security-type" placeholder="e.g. UCC, vehicle, unsecured"></div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Category</label>
+                <select class="form-select" id="dse-debt-category">
+                  <option value="">— Uncategorized (needs review) —</option>
+                  <option value="long_term">Long-term loan</option>
+                  <option value="vehicle">Vehicle loan</option>
+                  <option value="other">Other loan / credit line</option>
+                </select>
+              </div>
+              <div class="form-group" style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="dse-include" style="width:auto">
+                <label class="form-label" style="margin:0" for="dse-include">Include on Debt Schedule</label>
+              </div>
+              <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">Monthly payment here is the contractual recurring payment used to calculate months remaining — it's separate from any single statement's amount due. Present Balance itself isn't editable here; it always comes from the latest statement or amortization schedule on file.</div>
+              <div id="dse-error" style="color:var(--red);font-size:13px;display:none;margin-top:8px"></div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closeDebtSchedEditModal()">Cancel</button>
+              <button class="btn btn-primary" id="dse-submit-btn" onclick="submitDebtSchedEdit()">Save</button>
             </div>
           </div>
         </div>
@@ -7690,14 +7773,16 @@
   let _bookkeepingActiveTab = 'overview';
 
   function switchBookkeepingView(view) {
-    if (!['overview', 'loans', 'payroll'].includes(view)) view = 'overview';
+    if (!['overview', 'loans', 'payroll', 'debtsched'].includes(view)) view = 'overview';
     _bookkeepingActiveTab = view;
-    document.getElementById('bk-view-overview').style.display = view === 'overview' ? '' : 'none';
-    document.getElementById('bk-view-loans').style.display    = view === 'loans'    ? '' : 'none';
-    document.getElementById('bk-view-payroll').style.display  = view === 'payroll'  ? '' : 'none';
+    document.getElementById('bk-view-overview').style.display  = view === 'overview'  ? '' : 'none';
+    document.getElementById('bk-view-loans').style.display     = view === 'loans'     ? '' : 'none';
+    document.getElementById('bk-view-payroll').style.display   = view === 'payroll'   ? '' : 'none';
+    document.getElementById('bk-view-debtsched').style.display = view === 'debtsched' ? '' : 'none';
     document.getElementById('bkvt-overview').classList.toggle('active', view === 'overview');
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
+    document.getElementById('bkvt-debtsched').classList.toggle('active', view === 'debtsched');
 
     const ctaLabel = document.getElementById('topbar-cta-label');
     const ctaBtn   = document.getElementById('topbar-cta');
@@ -7706,6 +7791,7 @@
     else { ctaBtn.style.display = 'none'; }
 
     if (view === 'overview') renderBookkeepingOverview();
+    if (view === 'debtsched') renderDebtSchedule();
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
   }
 
@@ -8240,20 +8326,31 @@
   // that function (it checks Xero itself for the tagged journal before
   // allowing a post), so this UI just needs to check + hide the banner once
   // it's done; there's no local "posted" flag to keep in sync.
-  let _payroll668FixChecked = false;
+  //
+  // FIX (Aug 7, 2026): this used to be a permanent once-per-page-load latch
+  // (_payroll668FixChecked stayed true forever after the first check), so if
+  // the correction was posted from another tab/session -- or even from this
+  // same tab's modal after the initial check already ran -- a long-lived tab
+  // would show a stale card until a full browser reload. Re-verifying with
+  // Xero on every Payroll-tab visit is cheap (one read), so this now only
+  // guards against overlapping concurrent calls, not repeat calls over time.
+  let _payroll668FixInFlight = false;
 
   async function check668FixStatus() {
-    if (_payroll668FixChecked) return;
-    _payroll668FixChecked = true;
-    const card = document.getElementById('payroll-668fix-card');
-    if (!card) return;
-    const { ok, data } = await _payrollFn('payroll-fix-668-misroute', {});
-    if (ok && data && !data.error) {
-      card.style.display = data.already_posted ? 'none' : '';
+    if (_payroll668FixInFlight) return;
+    _payroll668FixInFlight = true;
+    try {
+      const card = document.getElementById('payroll-668fix-card');
+      if (!card) return;
+      const { ok, data } = await _payrollFn('payroll-fix-668-misroute', {});
+      if (ok && data && !data.error) {
+        card.style.display = data.already_posted ? 'none' : '';
+      }
+      // If the check itself failed (network/auth/Xero hiccup), leave the card
+      // as-is -- re-checked the next time the Payroll tab loads or refreshes.
+    } finally {
+      _payroll668FixInFlight = false;
     }
-    // If the check itself failed (network/auth/Xero hiccup), leave the card
-    // hidden rather than show a broken banner -- re-checked next time the
-    // Payroll tab is opened fresh (page reload resets _payroll668FixChecked).
   }
 
   async function openPayroll668CorrectionModal() {
@@ -8316,16 +8413,22 @@
 
   // 171 catch-up one-time correction (Aug 6, 2026) -- same pattern as the 668
   // correction above. See payroll-fix-171-catchup for the full background.
-  let _payroll171CatchupChecked = false;
+  // FIX (Aug 7, 2026): see the matching note on check668FixStatus -- guard is
+  // now in-flight-only, not a permanent per-page-load latch.
+  let _payroll171CatchupInFlight = false;
 
   async function check171CatchupStatus() {
-    if (_payroll171CatchupChecked) return;
-    _payroll171CatchupChecked = true;
-    const card = document.getElementById('payroll-171catchup-card');
-    if (!card) return;
-    const { ok, data } = await _payrollFn('payroll-fix-171-catchup', {});
-    if (ok && data && !data.error) {
-      card.style.display = data.already_posted ? 'none' : '';
+    if (_payroll171CatchupInFlight) return;
+    _payroll171CatchupInFlight = true;
+    try {
+      const card = document.getElementById('payroll-171catchup-card');
+      if (!card) return;
+      const { ok, data } = await _payrollFn('payroll-fix-171-catchup', {});
+      if (ok && data && !data.error) {
+        card.style.display = data.already_posted ? 'none' : '';
+      }
+    } finally {
+      _payroll171CatchupInFlight = false;
     }
   }
 
@@ -8385,16 +8488,22 @@
     }
   }
 
-  let _payrollCaDupeChecked = false;
+  // FIX (Aug 7, 2026): see the matching note on check668FixStatus -- guard is
+  // now in-flight-only, not a permanent per-page-load latch.
+  let _payrollCaDupeInFlight = false;
 
   async function checkCaDupeStatus() {
-    if (_payrollCaDupeChecked) return;
-    _payrollCaDupeChecked = true;
-    const card = document.getElementById('payroll-cadupe-card');
-    if (!card) return;
-    const { ok, data } = await _payrollFn('payroll-fix-ca-doublecount', {});
-    if (ok && data && !data.error) {
-      card.style.display = data.already_posted ? 'none' : '';
+    if (_payrollCaDupeInFlight) return;
+    _payrollCaDupeInFlight = true;
+    try {
+      const card = document.getElementById('payroll-cadupe-card');
+      if (!card) return;
+      const { ok, data } = await _payrollFn('payroll-fix-ca-doublecount', {});
+      if (ok && data && !data.error) {
+        card.style.display = data.already_posted ? 'none' : '';
+      }
+    } finally {
+      _payrollCaDupeInFlight = false;
     }
   }
 
@@ -8455,15 +8564,21 @@
     }
   }
 
-  let _payrollTipsBenChecked = false;
+  // FIX (Aug 7, 2026): see the matching note on check668FixStatus -- guard is
+  // now in-flight-only, not a permanent per-page-load latch.
+  let _payrollTipsBenInFlight = false;
 
   async function checkTipsBenStatus() {
-    if (_payrollTipsBenChecked) return;
-    _payrollTipsBenChecked = true;
-    const card = document.getElementById('payroll-tipsben-card');
-    if (!card) return;
-    const { ok, data } = await _payrollFn('payroll-fix-tips-benefits-catchup', {});
-    if (ok && data && !data.error) card.style.display = data.already_posted ? 'none' : '';
+    if (_payrollTipsBenInFlight) return;
+    _payrollTipsBenInFlight = true;
+    try {
+      const card = document.getElementById('payroll-tipsben-card');
+      if (!card) return;
+      const { ok, data } = await _payrollFn('payroll-fix-tips-benefits-catchup', {});
+      if (ok && data && !data.error) card.style.display = data.already_posted ? 'none' : '';
+    } finally {
+      _payrollTipsBenInFlight = false;
+    }
   }
 
   async function openPayrollTipsBenModal() {
@@ -8591,6 +8706,7 @@
     renderLoansPending();
     renderLoansTable();
     _populateLoanSelect();
+    renderDebtSchedule();
 
     _bkUpdateNavBadge();
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
@@ -8615,6 +8731,336 @@
       .sort((x, y) => (x.row_date < y.row_date ? 1 : -1));
     if (rows.length) return { amount: Number(rows[0].balance), asOf: rows[0].row_date };
     return null;
+  }
+
+  // ── Debt Schedule ─────────────────────────────────────────────────────────
+  // A live replacement for the manual spreadsheet David re-checked against the
+  // balance sheet every month. Present Balance is never stored here — it's
+  // always read fresh from _loanOutstandingBalance() (the same helper the
+  // Loans summary card uses), so it can't go stale the way a hand-maintained
+  // sheet does. Months Remaining is computed client-side from balance + rate +
+  // scheduled_monthly_payment using the standard amortization formula — never
+  // stored, since it changes every time the balance updates.
+
+  const DEBT_SCHED_STALE_DAYS = 45;
+
+  // Standard amortization payoff-months formula. Returns:
+  //   a finite number  → months remaining at the current payment
+  //   0                → already paid off (balance <= 0)
+  //   Infinity         → payment doesn't cover the interest accruing (never pays off)
+  //   null             → not enough data to compute (missing balance/payment)
+  function _monthsToPayoff(balance, annualRatePct, payment) {
+    if (balance == null || payment == null || !(payment > 0)) return null;
+    if (balance <= 0) return 0;
+    const rate = annualRatePct == null ? 0 : Number(annualRatePct);
+    const r = rate / 100 / 12;
+    if (r <= 0) return Math.ceil(balance / payment);
+    if (payment <= balance * r) return Infinity;
+    const n = -Math.log(1 - (balance * r) / payment) / Math.log(1 + r);
+    return Math.ceil(n);
+  }
+
+  function _addMonthsIso(monthsFromNow) {
+    const d = new Date();
+    d.setMonth(d.getMonth() + monthsFromNow);
+    return `${d.toLocaleString('en-US', { month: 'short', timeZone: 'America/Los_Angeles' })} ${d.getFullYear()}`;
+  }
+
+  // 'YYYY-MM-DD' -> 'M/YYYY' without going through a Date object (these are
+  // plain business-fact dates, not calendar timestamps — no timezone to get
+  // wrong, but also no reason to round-trip through Date parsing).
+  function _fmtYM(dateStr) {
+    if (!dateStr) return '—';
+    const [y, m] = dateStr.split('-');
+    return `${Number(m)}/${y}`;
+  }
+
+  const DEBT_SCHED_GROUPS = [
+    { key: 'long_term', label: 'Long-term loans' },
+    { key: 'vehicle',   label: 'Vehicle loans' },
+    { key: 'other',     label: 'Other loans / credit lines' },
+    { key: null,        label: 'Uncategorized — needs review' },
+  ];
+
+  function _debtScheduleRows() {
+    return _allLoanAccounts.filter(a => a.status === 'active' && a.include_in_debt_schedule !== false);
+  }
+
+  function renderDebtSchedule() {
+    const summaryEl = document.getElementById('debtsched-summary');
+    const wrapEl = document.getElementById('debtsched-table-wrap');
+    const asOfEl = document.getElementById('debtsched-asof');
+    if (!summaryEl || !wrapEl) return;
+
+    const money = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const rows = _debtScheduleRows();
+
+    const enriched = rows.map(a => {
+      const bal = _loanOutstandingBalance(a);
+      const staleness = (() => {
+        if (!bal) return 'missing';
+        const days = (Date.now() - new Date(bal.asOf + 'T00:00:00').getTime()) / 86400000;
+        return days > DEBT_SCHED_STALE_DAYS ? 'stale' : 'fresh';
+      })();
+      const months = _monthsToPayoff(bal?.amount ?? null, a.interest_rate, a.scheduled_monthly_payment);
+      return { a, bal, staleness, months };
+    });
+
+    // Summary tiles
+    const known = enriched.filter(e => e.bal);
+    const totalOutstanding = known.reduce((s, e) => s + e.bal.amount, 0);
+    const totalMonthlyPayment = enriched.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
+    const flaggedCount = enriched.filter(e => e.staleness !== 'fresh').length;
+    const uncatCount = enriched.filter(e => !e.a.debt_category).length;
+
+    const tile = (label, val, color, title) => `<div style="flex:1;min-width:150px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
+      <div style="font-size:22px;font-weight:700;color:${color}">${val}</div>
+      <div style="font-size:11px;color:var(--gray-500);font-weight:600">${label}</div></div>`;
+
+    summaryEl.innerHTML =
+      tile('Active loans on schedule', rows.length, 'var(--gray-800)') +
+      tile('Total present balance', money(totalOutstanding), 'var(--gray-800)', known.length === rows.length ? '' : `${rows.length - known.length} loan(s) missing a balance — see flags below`) +
+      tile('Total monthly payment', money(totalMonthlyPayment), 'var(--gray-800)') +
+      (flaggedCount ? tile('Needs attention', flaggedCount, '#dc2626', 'Stale or missing balance / uncategorized') : '') +
+      (uncatCount ? tile('Uncategorized', uncatCount, '#d97706') : '');
+
+    asOfEl.textContent = `As of ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })} — present balance reflects the latest statement or amortization schedule on file for each loan.`;
+
+    const balCell = (e) => {
+      if (!e.bal) return `<span style="color:#dc2626;font-size:11.5px;font-weight:600" title="No statement or amortization schedule on file for this loan yet">⚠ no data</span>`;
+      const flag = e.staleness === 'stale' ? `<div style="font-size:10.5px;color:#d97706;font-weight:600" title="Last updated ${esc(e.bal.asOf)} — upload a newer statement to refresh">⚠ as of ${esc(e.bal.asOf)}</div>` : '';
+      return `${money(e.bal.amount)}${flag}`;
+    };
+
+    const monthsCell = (e) => {
+      if (e.months == null) return `<span style="color:var(--gray-400);font-size:11.5px" title="Add an interest rate and monthly payment to calculate">— add rate/payment</span>`;
+      if (e.months === Infinity) return `<span style="color:#dc2626;font-weight:600;font-size:12px" title="The scheduled payment doesn't cover the interest accruing at the current rate — the balance will never go down at this payment.">⚠ payment ≤ interest</span>`;
+      if (e.months === 0) return `<span style="color:var(--green)">paid off</span>`;
+      const years = Math.floor(e.months / 12), rem = e.months % 12;
+      const readable = years ? `${years}y ${rem}mo` : `${e.months}mo`;
+      return `${e.months} mo <div style="font-size:10.5px;color:var(--gray-400)">(${readable} — ~${_addMonthsIso(e.months)})</div>`;
+    };
+
+    const rowHtml = (e) => {
+      const a = e.a;
+      return `<tr>
+        <td class="td-name" style="white-space:nowrap">${esc(a.xero_account_name || a.lender_account_number)}<div style="font-size:11px;color:var(--gray-400);font-weight:400">${esc(a.lender)}</div></td>
+        <td style="text-align:right">${money(a.original_amount)}</td>
+        <td style="text-align:right;white-space:nowrap">${_fmtYM(a.original_date)}</td>
+        <td style="text-align:right;white-space:nowrap">${balCell(e)}</td>
+        <td style="text-align:right;white-space:nowrap">${a.interest_rate != null ? Number(a.interest_rate) + '%' : '—'}</td>
+        <td style="text-align:right;white-space:nowrap">${_fmtYM(a.maturity_date)}</td>
+        <td style="text-align:right;white-space:nowrap">${money(a.scheduled_monthly_payment)}</td>
+        <td style="text-align:right;white-space:nowrap">${monthsCell(e)}</td>
+        <td style="white-space:nowrap">${esc(a.security_type || '—')}</td>
+        <td style="white-space:nowrap"><span class="badge badge-green">${esc(a.status)}</span></td>
+        <td style="text-align:center"><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openDebtSchedEditModal('${a.id}')">✎ Edit</button></td>
+      </tr>`;
+    };
+
+    const groupBlock = (group) => {
+      const items = enriched.filter(e => (e.a.debt_category || null) === group.key);
+      if (!items.length) return '';
+      const subOrig = items.reduce((s, e) => s + Number(e.a.original_amount || 0), 0);
+      const subBal = items.reduce((s, e) => s + (e.bal?.amount || 0), 0);
+      const subPmt = items.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
+      return `
+        <tr><td colspan="11" style="padding:14px 12px 4px;font-weight:700;font-size:12.5px;color:var(--gray-700);border-top:2px solid var(--gray-200)">${esc(group.label)}</td></tr>
+        ${items.map(rowHtml).join('')}
+        <tr style="background:var(--gray-50);font-weight:700">
+          <td style="padding:6px 12px">Subtotal (${items.length})</td>
+          <td style="text-align:right">${money(subOrig)}</td>
+          <td></td>
+          <td style="text-align:right">${money(subBal)}</td>
+          <td></td><td></td>
+          <td style="text-align:right">${money(subPmt)}</td>
+          <td></td><td></td><td></td><td></td>
+        </tr>`;
+    };
+
+    const grandOrig = enriched.reduce((s, e) => s + Number(e.a.original_amount || 0), 0);
+    const grandBal = enriched.reduce((s, e) => s + (e.bal?.amount || 0), 0);
+    const grandPmt = enriched.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
+
+    wrapEl.innerHTML = rows.length ? `
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="border-bottom:1px solid var(--gray-200)">
+          <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">CREDITOR</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">ORIGINAL AMT</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">ORIG DATE</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">PRESENT BALANCE</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">RATE</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MATURITY</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MONTHLY PMT</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MONTHS LEFT</th>
+          <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">SECURITY</th>
+          <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">STATUS</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${DEBT_SCHED_GROUPS.map(groupBlock).join('')}</tbody>
+        <tfoot><tr style="border-top:2px solid #111;font-weight:700;font-size:13.5px">
+          <td style="padding:10px 12px">Grand Total (${enriched.length})</td>
+          <td style="text-align:right">${money(grandOrig)}</td>
+          <td></td>
+          <td style="text-align:right">${money(grandBal)}</td>
+          <td></td><td></td>
+          <td style="text-align:right">${money(grandPmt)}</td>
+          <td></td><td></td><td></td><td></td>
+        </tr></tfoot>
+      </table>` : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No active loans on the schedule.</div>`;
+  }
+
+  function openDebtSchedEditModal(loanAccountId) {
+    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Loans.', 'error'); return; }
+    const a = _allLoanAccounts.find(x => x.id === loanAccountId);
+    if (!a) return;
+    document.getElementById('dse-title').textContent = `Edit — ${a.xero_account_name || a.lender_account_number}`;
+    document.getElementById('dse-original-amount').value = a.original_amount ?? '';
+    document.getElementById('dse-original-date').value = a.original_date || '';
+    document.getElementById('dse-interest-rate').value = a.interest_rate ?? '';
+    document.getElementById('dse-maturity-date').value = a.maturity_date || '';
+    document.getElementById('dse-monthly-payment').value = a.scheduled_monthly_payment ?? '';
+    document.getElementById('dse-security-type').value = a.security_type || '';
+    document.getElementById('dse-debt-category').value = a.debt_category || '';
+    document.getElementById('dse-include').checked = a.include_in_debt_schedule !== false;
+    document.getElementById('dse-error').style.display = 'none';
+    document.getElementById('modal-debtsched-edit').dataset.loanId = loanAccountId;
+    document.getElementById('modal-debtsched-edit').classList.add('open');
+  }
+  function closeDebtSchedEditModal() {
+    document.getElementById('modal-debtsched-edit').classList.remove('open');
+  }
+  async function submitDebtSchedEdit() {
+    const loanId = document.getElementById('modal-debtsched-edit').dataset.loanId;
+    const errEl = document.getElementById('dse-error');
+    errEl.style.display = 'none';
+    const numOrNull = (v) => (v === '' || v == null) ? null : Number(v);
+    const strOrNull = (v) => (v || '').trim() || null;
+    const payload = {
+      original_amount: numOrNull(document.getElementById('dse-original-amount').value),
+      original_date: strOrNull(document.getElementById('dse-original-date').value),
+      interest_rate: numOrNull(document.getElementById('dse-interest-rate').value),
+      maturity_date: strOrNull(document.getElementById('dse-maturity-date').value),
+      scheduled_monthly_payment: numOrNull(document.getElementById('dse-monthly-payment').value),
+      security_type: strOrNull(document.getElementById('dse-security-type').value),
+      debt_category: strOrNull(document.getElementById('dse-debt-category').value),
+      include_in_debt_schedule: document.getElementById('dse-include').checked,
+    };
+    const btn = document.getElementById('dse-submit-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const { error } = await db.from('loan_accounts').update(payload).eq('id', loanId);
+      if (error) throw error;
+      showToast('Loan updated.', 'success');
+      closeDebtSchedEditModal();
+      loadLoans();
+    } catch (e) {
+      errEl.textContent = e.message || 'Could not save.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+  }
+
+  // Print-ready PDF export — same window.open()+document.write() pattern as
+  // generateLoanPaymentReport(), formatted to mirror the layout of the manual
+  // spreadsheet this replaces so it drops straight into an email to a lender.
+  function exportDebtSchedulePDF() {
+    const money = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const rows = _debtScheduleRows().map(a => {
+      const bal = _loanOutstandingBalance(a);
+      const months = _monthsToPayoff(bal?.amount ?? null, a.interest_rate, a.scheduled_monthly_payment);
+      return { a, bal, months };
+    });
+
+    const monthsText = (e) => {
+      if (e.months == null) return '—';
+      if (e.months === Infinity) return 'payment ≤ interest';
+      if (e.months === 0) return 'paid off';
+      return `${e.months} mo`;
+    };
+
+    const groupTable = (group) => {
+      const items = rows.filter(e => (e.a.debt_category || null) === group.key);
+      if (!items.length) return '';
+      const sub = (f) => items.reduce((s, e) => s + f(e), 0);
+      const rowsHtml = items.map(e => `<tr>
+        <td style="padding:5px 8px;font-size:11.5px">${esc(e.a.xero_account_name || e.a.lender_account_number)}</td>
+        <td style="padding:5px 8px;font-size:11.5px;text-align:right">${money(e.a.original_amount)}</td>
+        <td style="padding:5px 8px;font-size:11.5px;text-align:right">${_fmtYM(e.a.original_date)}</td>
+        <td style="padding:5px 8px;font-size:11.5px;text-align:right;font-weight:600">${e.bal ? money(e.bal.amount) : '⚠ no data'}</td>
+        <td style="padding:5px 8px;font-size:11.5px;text-align:right">${e.a.interest_rate != null ? e.a.interest_rate + '%' : '—'}</td>
+        <td style="padding:5px 8px;font-size:11.5px;text-align:right">${_fmtYM(e.a.maturity_date)}</td>
+        <td style="padding:5px 8px;font-size:11.5px;text-align:right">${money(e.a.scheduled_monthly_payment)}</td>
+        <td style="padding:5px 8px;font-size:11.5px;text-align:right">${monthsText(e)}</td>
+        <td style="padding:5px 8px;font-size:11.5px">${esc(e.a.security_type || '—')}</td>
+        <td style="padding:5px 8px;font-size:11.5px">${esc(e.a.status)}</td>
+      </tr>`).join('');
+      return `
+        <tr><td colspan="10" style="padding:12px 8px 3px;font-weight:700;font-size:12px;border-top:1.5px solid #111">${esc(group.label)}</td></tr>
+        ${rowsHtml}
+        <tr style="background:#f9fafb;font-weight:700">
+          <td style="padding:5px 8px;font-size:11.5px">Subtotal</td>
+          <td style="padding:5px 8px;font-size:11.5px;text-align:right">${money(sub(e => Number(e.a.original_amount || 0)))}</td>
+          <td></td>
+          <td style="padding:5px 8px;font-size:11.5px;text-align:right">${money(sub(e => e.bal?.amount || 0))}</td>
+          <td></td><td></td>
+          <td style="padding:5px 8px;font-size:11.5px;text-align:right">${money(sub(e => Number(e.a.scheduled_monthly_payment || 0)))}</td>
+          <td></td><td></td><td></td>
+        </tr>`;
+    };
+
+    const grandOrig = rows.reduce((s, e) => s + Number(e.a.original_amount || 0), 0);
+    const grandBal = rows.reduce((s, e) => s + (e.bal?.amount || 0), 0);
+    const grandPmt = rows.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
+
+    const html = `<!DOCTYPE html>
+<html><head><title>Debt Schedule — ${esc(new Date().toISOString().slice(0, 10))}</title>
+<style>
+  @media print { body { margin: 0; } .no-print { display: none !important; } @page { margin: 0.4in; size: landscape; } }
+  html, body { background: #ffffff; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; max-width: 1000px; margin: 0 auto; padding: 0 30px 32px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 6px 8px; font-size: 10px; color: #9ca3af; font-weight: 600; border-bottom: 1px solid #d1d5db; }
+</style>
+</head><body>
+<div class="no-print" style="text-align:center;padding:10px;background:#f0f9ff;border-radius:8px;margin:12px 0;font-size:13px;color:#1e40af">
+  Press <strong>Ctrl+P</strong> (or ⌘P) to save as PDF &nbsp;|&nbsp; <button onclick="window.print()" style="padding:5px 14px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;border-radius:8px;cursor:pointer;font-size:12px">Print / Save PDF</button>
+</div>
+
+<div style="background:#1f2937;color:#fff;padding:20px 30px;margin:0 -30px 16px;display:flex;justify-content:space-between;align-items:center">
+  <div>
+    <div style="font-size:18px;font-weight:700;letter-spacing:-0.02em">Debt Schedule</div>
+    <div style="font-size:11px;color:#d1d5db;margin-top:2px">Family Laundry / WashRoute</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:11px;color:#d1d5db">As of ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })}</div>
+  </div>
+</div>
+
+<table>
+  <thead><tr>
+    <th>CREDITOR</th><th style="text-align:right">ORIGINAL AMT</th><th style="text-align:right">ORIG DATE</th>
+    <th style="text-align:right">PRESENT BALANCE</th><th style="text-align:right">RATE</th><th style="text-align:right">MATURITY</th>
+    <th style="text-align:right">MONTHLY PMT</th><th style="text-align:right">MONTHS LEFT</th><th>SECURITY</th><th>STATUS</th>
+  </tr></thead>
+  <tbody>${DEBT_SCHED_GROUPS.map(groupTable).join('')}</tbody>
+  <tfoot><tr style="border-top:2px solid #111;font-weight:700">
+    <td style="padding:8px">GRAND TOTAL</td>
+    <td style="padding:8px;text-align:right">${money(grandOrig)}</td>
+    <td></td>
+    <td style="padding:8px;text-align:right">${money(grandBal)}</td>
+    <td></td><td></td>
+    <td style="padding:8px;text-align:right">${money(grandPmt)}</td>
+    <td></td><td></td><td></td>
+  </tr></tfoot>
+</table>
+<div style="margin-top:16px;font-size:10.5px;color:#9ca3af">Present balance reflects the latest lender statement or amortization schedule on file for each loan as of the date above. Months remaining is calculated from present balance, interest rate, and monthly payment and will shift as the balance updates.</div>
+</body></html>`;
+
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+    else { showToast('Pop-up blocked — allow pop-ups for this site to view the report.', 'error'); return; }
   }
 
   function renderLoansSummary() {
