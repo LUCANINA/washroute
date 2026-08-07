@@ -2700,6 +2700,67 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Aug 7, 2026 (session 207) — Payroll: employee tax withholding was being double-counted (found by auditing the previous day's own work)
+
+**Trigger:** David looked at the "Post Catch-up to Xero" modal for a $16,293.07 employee-federal-tax catch-up I'd built hours earlier, saw it blocked with a $12,723.95 shortfall, and said: *"There shouldn't be a gap. This tells me we're not allocating things correctly at the source."* He was right, and my earlier explanation of the leftover Direct Wages balance was wrong.
+
+**The bug (mine, shipped the same day).** Employee tax withholding is by definition already inside GROSS pay, and gross pay is exactly what `payroll-xero-post` debits to the department **wage** accounts. Verified to the penny across all 5 July periods from the raw Square CSVs:
+
+```
+gross − EE federal − EE CA − EE health − EE 401k + insurance reimbursement = net pay
+```
+
+So `payroll-xero-post` **v14** (added employee CA tax as an extra department **tax** debit) and **v15** (same for employee federal tax) were expensing the same dollars twice.
+
+- **v14 reached the ledger**: $4,465.21 of duplicate department payroll-tax expense across the 5 posted July periods — $803.49 inside the 6/22–6/28 period journal plus $3,661.72 in the `[171-CATCHUP-JUL2026]` journal. Both credited 171 for the *correct* amount; the error was purely that the offsetting **debit** went to the department tax accounts instead of simply reducing the credit taken from 170.
+- **v15 never posted** — the real-cash safety check blocked it. **The block was the symptom, not the cause, and I initially misread it as a bank-feed timing lag.** That misreading is the actual lesson of this session.
+
+**How the money really moves per pay period** (established from the CSVs and confirmed against every Xero bank transaction):
+
+| Draw | Lands in |
+|---|---|
+| Square draws NET PAY | 170 |
+| IRS draws EE federal tax + ER federal tax | 170 |
+| EDD draws ER California tax | 170 |
+| EDD draws EE California tax | **171** |
+
+So `170 cash = net pay + EE federal + ALL employer taxes`, `171 cash = EE California`, and the correct expense is simply **gross wages + employer taxes**.
+
+**Full July reconciliation (every dollar, no residue):** actual cash into 170 was $129,219.75 (incl. the $81,295.86 668-misroute add-back) vs. $126,224.75 the five periods should draw. The $2,995.00 difference was two off-cycle "payroll" bank draws with no Square CSV behind them ($2,975.00 + $20.00). The remaining $145.12 was the net distortion of the wrong formula. $2,995.00 + $145.12 = **$3,140.12**, the exact "orphaned Direct Wages" figure David spotted on the P&L.
+
+**`payroll-xero-post` v16 — the corrected journal:**
+```
+DEBIT  department wage account  = wage (gross ex-tips)
+DEBIT  department tax account   = employer tax ONLY
+CREDIT 171 Direct Payroll Taxes = employee CA tax   (the real EDD cash there)
+CREDIT 170 Direct Wages         = (wage + employer tax) − employee CA tax
+```
+Balances by construction, clears the real EDD cash out of 171, and leaves in 170 **only** items that genuinely aren't department wage/tax costs.
+
+**Remediation shipped:**
+- `payroll-fix-federal-catchup` → **v2, permanently-disabled stub** returning `already_posted:true`, so a stale browser tab can never fire it. Do not revive.
+- `payroll-fix-ca-doublecount` → new one-time reversal (credits each department tax account its EE-CA share, debits $4,465.21 back to 170; 171 deliberately untouched since it cleared correctly). No balance check needed — it only reduces expense and returns money.
+- Dashboard (`926a4db`): federal catch-up card/modal/JS removed entirely; reversal card added in its place.
+- Superseded commit `dd57a96` (the v15 UI) — kept in history, but its feature is dead.
+
+**Verified end state.** David posted the reversal and separately reclassified the $2,975 off-cycle draw to Repairs & Maintenance. Live Xero now: 170 = $5,059.33 YTD, all five department tax accounts down by exactly their EE-CA share, 171/358/675 unchanged. July's 170 component is $4,630.33 and reconciles **exactly**:
+
+```
++ 7,038.00  paycheck tips paid out (customer money, not a wage expense)
++   600.00  insurance reimbursement stipend (2 periods × $300)
+−   491.32  employee health withheld   (belongs against 675)
+− 2,536.35  employee 401k withheld     (belongs against 358)
++    20.00  remaining off-cycle payroll draw
+= 4,630.33
+```
+
+**Lesson banked — a safety net firing is a signal to re-derive, not a number to explain away.** The real-cash check did its job and stopped $16,293.07 of bad data, but I treated the block as a cash-timing inconvenience and told David to "check back in a few days." Had he accepted that, the error would have posted the moment enough cash landed. **When a guard blocks something you believe should pass, the first move is to re-derive the quantity from source data — not to rationalise the gap.** Corollary, now permanent: **never add a payroll component to an allocation without first checking whether it's already inside another component you're posting.** Gross pay contains all employee withholding; net pay + withholding is not additional cost.
+
+**Open items for David / the CPA:**
+- The remaining **$20.00** off-cycle payroll draw is unidentified (the $2,975 sibling is now correctly in Repairs & Maintenance).
+- Tips ($7,038.00) still sit in 170 with no tips-clearing account; the 401k/health pieces belong against 358/675, which is where the CPA has always put them. Neither is wired up.
+- **Account 171 carries $5,389.23 from May that has never been reallocated by anyone.** If gross wages already contain that money, it may be double-counted in the CPA's own books too — worth asking them rather than assuming.
+
 ### May 28, 2026 (session 163) — Angel routes blank, recurrence #3 — merge regression of the May 27 fix
 
 **Trigger:** Angel Rodriguez reported he couldn't see his routes this morning. Same symptom as sessions 151 and 161 — disappearing/empty route — even though the May 27 fix (sessions 161 commits `ebeb31a` + `43666cd`) had supposedly resolved it.
