@@ -2755,10 +2755,26 @@ Balances by construction, clears the real EDD cash out of 171, and leaves in 170
 
 **Lesson banked — a safety net firing is a signal to re-derive, not a number to explain away.** The real-cash check did its job and stopped $16,293.07 of bad data, but I treated the block as a cash-timing inconvenience and told David to "check back in a few days." Had he accepted that, the error would have posted the moment enough cash landed. **When a guard blocks something you believe should pass, the first move is to re-derive the quantity from source data — not to rationalise the gap.** Corollary, now permanent: **never add a payroll component to an allocation without first checking whether it's already inside another component you're posting.** Gross pay contains all employee withholding; net pay + withholding is not additional cost.
 
+**Part 2 (same session) — two follow-on bugs found while wiring up the flags.**
+
+**A. Stale "Needs Attention" flags.** Three posted July periods kept showing "waiting on cash" hours after they had posted. `payroll-check-attention` selects only `status in ('parsed','reviewed')`, so once a period posts it is never revisited and the flag written while it was still `reviewed` is orphaned permanently. Flags were written 22:49; the periods posted 23:28–23:29.
+
+Fixing only the edge function would leave the same trap for every other write path, so the invariant went into the database: trigger `trg_clear_payroll_attention` (BEFORE INSERT OR UPDATE on `payroll_imports`) nulls `attention_*` whenever `status` leaves the actionable set. The function additionally sweeps orphans as defense in depth. Same principle as sessions 134/143/148: when a fix has a code half and a data half, push the guarantee down a layer.
+
+Also corrected that function's shortfall math, which still used the v14-era `wage + employer tax` estimate and therefore reported figures that did not match what posting would really do. It now mirrors `payroll-xero-post` v17 (170 needs net pay + EE federal + employer tax; 171 needs EE CA tax). **These two must be kept in sync — if one changes, change the other.**
+
+**B. The "Refresh Now" button had never worked.** It failed with a bare `Failed to fetch`. `payroll-check-attention` v1/v2 shipped with **no CORS block and no OPTIONS handler**, but the dashboard's `_payrollFn()` calls edge functions with a raw cross-origin `fetch()` carrying `apikey` + `Authorization` + `Content-Type`, which always triggers a preflight. The preflight returned 200 with no `Access-Control-*` headers, so the browser blocked the real request.
+
+It went unnoticed for a day because **the pg_cron job invokes this server-side, where CORS does not apply** — so the panel's data always looked fresh even though the button was dead. Every other payroll and loan function already had the wrapper; this one was the outlier. Verified after the fix that the preflight returns `access-control-allow-origin` and swept all 10 browser-callable payroll/loan functions — the rest were already fine.
+
+**Lesson banked — a background job can mask a dead UI control.** If a feature has both a scheduled path and a manual path, the scheduled one succeeding proves nothing about the manual one. Any new browser-callable edge function needs the `cors` block AND the `OPTIONS` short-circuit, and should be exercised from the browser (or with an `Origin:` header) at least once before being called done.
+
+**C. `payroll_notices` (new table).** Standing payroll problems that are not tied to one pay period had nowhere to live on `payroll_imports`. First entry is the legacy 171 balance below. Computed live by `payroll-check-attention` so it clears itself when resolved, rather than a hardcoded banner someone must remember to remove. RLS: read for admin/manager/cpa; writes are service_role only (no INSERT/UPDATE/DELETE policy granted to authenticated users on purpose). Employee CA tax belonging to not-yet-posted periods is excluded from the figure so a normal mid-week EDD payment never false-positives.
+
 **Open items for David / the CPA:**
 - Both off-cycle draws ($2,975.00 and $20.00) turned out to be miscodes and were reclassified by David — **not** payroll. 170 now contains only structural items.
 - Tips ($7,038.00) still sit in 170 with no tips-clearing account; the 401k/health pieces belong against 358/675, which is where the CPA has always put them. Neither is wired up — these are the obvious next automation, and unlike the tax components they are *not* already inside gross wages, so they can be added safely.
-- **Account 171 carries $5,389.23 from May that has never been reallocated by anyone.** If gross wages already contain that money, it may be double-counted in the CPA's own books too — worth asking them rather than assuming.
+- **Account 171 carries $5,389.23 from May that has never been reallocated by anyone.** If gross wages already contain that money, it may be double-counted in the CPA's own books too. Now surfaced in-app as a `payroll_notices` entry with an explicit "don't clear it here without their answer" — needs a real conversation with the CPA.
 
 ### May 28, 2026 (session 163) — Angel routes blank, recurrence #3 — merge regression of the May 27 fix
 
