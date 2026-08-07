@@ -3386,6 +3386,24 @@
             </div>
           </div>
 
+          <!-- One-time catch-up (Aug 7, 2026). The 5 posted July periods covered
+               wages + employer tax but left four real items unallocated, which
+               together ARE July's whole remaining Direct Wages balance: tips
+               paid out, the insurance stipend, and the employee health/401k
+               withholding that belongs against 675/358. payroll-xero-post v17
+               handles all of this automatically going forward; this card is
+               only for the 5 periods posted before that. Checked via
+               payroll-fix-tips-benefits-catchup. -->
+          <div class="card" style="margin-bottom:20px;display:none;border:1px solid #fca5a5" id="payroll-tipsben-card">
+            <div class="card-header" style="padding:20px 24px">
+              <div style="flex:1">
+                <div class="card-title" style="color:#991b1b">One-Time Catch-up Needed</div>
+                <div class="card-sub">The 5 posted July periods never booked the monthly tip payout ($7,038 — Delivery and Laundry), the $600 insurance stipend, or the employee health/401k withholding that belongs against 675 and 358. This books all of it and takes July's Direct Wages to exactly $0.00.</div>
+              </div>
+              <button class="btn btn-primary" style="align-self:center" onclick="openPayrollTipsBenModal()">Review &amp; Post Catch-up</button>
+            </div>
+          </div>
+
           <!-- Needs Attention (session 206 cont., built same day as the posting-
                balance incident): David asked to be taken out of the loop as much
                as possible, so this reads attention_flag/summary/detail columns
@@ -3536,6 +3554,20 @@
             </div>
             <div class="modal-body" id="payroll-cadupe-body">Loading…</div>
             <div class="modal-footer" id="payroll-cadupe-footer"></div>
+          </div>
+        </div>
+
+        <!-- Tips + benefits catch-up modal (Aug 7, 2026) -->
+        <div class="modal-overlay" id="modal-tips-benefits">
+          <div class="modal" style="width:640px">
+            <div class="modal-header">
+              <div class="modal-title">Post Catch-up to Xero</div>
+              <button class="modal-close" onclick="closePayrollTipsBenModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="payroll-tipsben-body">Loading…</div>
+            <div class="modal-footer" id="payroll-tipsben-footer"></div>
           </div>
         </div>
 
@@ -7841,6 +7873,7 @@
     check668FixStatus();
     check171CatchupStatus();
     checkCaDupeStatus();
+    checkTipsBenStatus();
     renderPayrollTable();
     renderPayrollEmployeesTable();
     _bkUpdateNavBadge();
@@ -8399,6 +8432,77 @@
       const card = document.getElementById('payroll-cadupe-card');
       if (card) card.style.display = 'none';
       showToast('Correction posted to Xero.', 'success');
+      loadPayroll();
+    } catch (e) {
+      showToast(e.message || 'Posting failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
+    }
+  }
+
+  let _payrollTipsBenChecked = false;
+
+  async function checkTipsBenStatus() {
+    if (_payrollTipsBenChecked) return;
+    _payrollTipsBenChecked = true;
+    const card = document.getElementById('payroll-tipsben-card');
+    if (!card) return;
+    const { ok, data } = await _payrollFn('payroll-fix-tips-benefits-catchup', {});
+    if (ok && data && !data.error) card.style.display = data.already_posted ? 'none' : '';
+  }
+
+  async function openPayrollTipsBenModal() {
+    document.getElementById('modal-tips-benefits').classList.add('open');
+    const body = document.getElementById('payroll-tipsben-body');
+    const footer = document.getElementById('payroll-tipsben-footer');
+    body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
+    footer.innerHTML = '';
+    try {
+      const { ok, data } = await _payrollFn('payroll-fix-tips-benefits-catchup', {});
+      if (!ok || data.error) {
+        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not build the proposed catch-up.')}</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollTipsBenModal()">Close</button>`;
+        return;
+      }
+      if (data.already_posted) {
+        body.innerHTML = `<div style="color:var(--green);font-size:13.5px">✓ This catch-up has already been posted to Xero (Manual Journal ${esc(data.manual_journal_id || '')}).</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollTipsBenModal()">Close</button>`;
+        const card = document.getElementById('payroll-tipsben-card');
+        if (card) card.style.display = 'none';
+        return;
+      }
+      const journal = data.proposed_journal;
+      const bc = data.balance_check || {};
+      const blocked = bc.would_overdraw
+        ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:14px">⚠ Currently blocked: only ${fmtMoney(bc.direct_wages_currently_available || 0)} is in 170 right now, short ${fmtMoney(bc.shortfall || 0)}.</div>`
+        : `<div style="background:#ecfdf5;color:#065f46;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:14px">The journal balances to zero and fits within the real cash in 170. After posting, July's Direct Wages will be exactly $0.00.</div>`;
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This posts a Manual Journal to Xero dated ${esc(journal.Date)} for the 5 July periods that were posted before the allocation was completed. Tips go to the department Wages &amp; Labor accounts; employee health and 401k withholding move to 675 and 358 where your CPA books them.</div>
+        ${blocked}
+        <div class="form-section-head">Journal entry to post</div>
+        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between;gap:16px"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b style="white-space:nowrap">${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closePayrollTipsBenModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-tipsben-approve-btn" onclick="approvePayrollTipsBen()">Approve &amp; Post to Xero</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollTipsBenModal()">Close</button>`;
+    }
+  }
+  function closePayrollTipsBenModal() {
+    document.getElementById('modal-tips-benefits').classList.remove('open');
+  }
+  async function approvePayrollTipsBen() {
+    const btn = document.getElementById('payroll-tipsben-approve-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
+    try {
+      const { ok, data } = await _payrollFn('payroll-fix-tips-benefits-catchup', { confirm: true });
+      if (!ok || data.error) throw new Error(data.error || 'Posting failed');
+      closePayrollTipsBenModal();
+      const card = document.getElementById('payroll-tipsben-card');
+      if (card) card.style.display = 'none';
+      showToast('Catch-up posted to Xero.', 'success');
       loadPayroll();
     } catch (e) {
       showToast(e.message || 'Posting failed', 'error');
