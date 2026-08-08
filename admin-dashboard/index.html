@@ -8146,9 +8146,12 @@
   function renderPayrollEmployeesTable() {
     const el = document.getElementById('payroll-employees-wrap');
     if (!el) return;
-    const deptOptionsFor = (currentKey) => {
-      let opts = '<option value="">— unassigned —</option>';
-      opts += _allPayrollDepartments.filter(d => d.active).map(d =>
+    const deptOptionsFor = (currentKey, employeeId) => {
+      // No blank/"unassigned" option here on purpose: an active employee should
+      // always have a real department (that's what payroll-xero-post requires
+      // before it'll post a period), and the only other valid end-state is
+      // inactive — handled by the status toggle, not by blanking the dropdown.
+      let opts = _allPayrollDepartments.filter(d => d.active).map(d =>
         `<option value="${esc(d.key)}" ${d.key === currentKey ? 'selected' : ''}>${esc(d.display_name)}</option>`
       ).join('');
       // Keep a stale/inactive department key selectable so the dropdown doesn't
@@ -8157,17 +8160,20 @@
       if (currentKey && !_allPayrollDepartments.some(d => d.key === currentKey)) {
         opts += `<option value="${esc(currentKey)}" selected>${esc(currentKey)} (unknown department)</option>`;
       }
+      if (!currentKey) {
+        opts = `<option value="" selected>— unassigned —</option>` + opts;
+      }
       return opts;
     };
     const rows = _allPayrollEmployees.map(e => `<tr>
       <td>${esc(e.full_name)}</td>
       <td>
-        <select class="form-select" style="font-size:12.5px;padding:4px 8px;width:auto" onchange="updatePayrollEmployeeDepartment('${e.id}', this.value)">
-          ${deptOptionsFor(e.department_key)}
+        <select class="form-select" id="pe-dept-${esc(e.id)}" style="font-size:12.5px;padding:4px 8px;width:auto" onchange="updatePayrollEmployeeDepartment('${e.id}', this.value)">
+          ${deptOptionsFor(e.department_key, e.id)}
         </select>
       </td>
       <td>
-        <span style="cursor:pointer" onclick="togglePayrollEmployeeActive('${e.id}', ${e.active ? 'true' : 'false'})" title="Click to mark ${e.active ? 'inactive' : 'active'}">
+        <span style="cursor:pointer" id="pe-status-${esc(e.id)}" onclick="togglePayrollEmployeeActive('${e.id}', ${e.active ? 'true' : 'false'})" title="Click to mark ${e.active ? 'inactive' : 'active'}">
           ${e.active ? '<span class="badge badge-green">active</span>' : '<span class="badge badge-gray">inactive</span>'}
         </span>
       </td>
@@ -8183,26 +8189,44 @@
       <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Changes here apply to future payroll uploads only — pay periods already imported (posted or not) keep the department each employee was mapped to at import time.</div>`;
   }
 
+  // In-flight guards so a fast double-change (or a save still landing when
+  // loadPayroll() re-renders) can't race — the busy row is disabled instead
+  // of silently accepting a second click.
+  const _payrollEmployeeRowsSaving = new Set();
+
   async function updatePayrollEmployeeDepartment(employeeId, deptKey) {
     const emp = _allPayrollEmployees.find(x => x.id === employeeId);
-    if (!emp) return;
+    if (!emp || _payrollEmployeeRowsSaving.has(employeeId)) return;
+    _payrollEmployeeRowsSaving.add(employeeId);
+    const select = document.getElementById(`pe-dept-${employeeId}`);
+    if (select) select.disabled = true;
     const { error } = await db.from('payroll_employees').update({ department_key: deptKey || null }).eq('id', employeeId);
+    _payrollEmployeeRowsSaving.delete(employeeId);
     if (error) {
       showToast('Could not save: ' + error.message, 'error');
       renderPayrollEmployeesTable(); // reset the dropdown to the last known-good value
       return;
     }
     emp.department_key = deptKey || null;
+    if (select) select.disabled = false;
     const deptLabel = deptKey ? ((_allPayrollDepartments.find(d => d.key === deptKey) || {}).display_name || deptKey) : 'unassigned';
     showToast(`${emp.full_name} → ${deptLabel}. Applies starting with the next payroll upload.`, 'success');
   }
 
   async function togglePayrollEmployeeActive(employeeId, currentlyActive) {
     const emp = _allPayrollEmployees.find(x => x.id === employeeId);
-    if (!emp) return;
+    if (!emp || _payrollEmployeeRowsSaving.has(employeeId)) return;
+    _payrollEmployeeRowsSaving.add(employeeId);
+    const statusEl = document.getElementById(`pe-status-${employeeId}`);
+    if (statusEl) statusEl.style.opacity = '0.5';
     const next = !currentlyActive;
     const { error } = await db.from('payroll_employees').update({ active: next }).eq('id', employeeId);
-    if (error) { showToast('Could not update: ' + error.message, 'error'); return; }
+    _payrollEmployeeRowsSaving.delete(employeeId);
+    if (error) {
+      showToast('Could not update: ' + error.message, 'error');
+      if (statusEl) statusEl.style.opacity = '';
+      return;
+    }
     emp.active = next;
     renderPayrollEmployeesTable();
     showToast(`${emp.full_name} marked ${next ? 'active' : 'inactive'}.`, 'success');
@@ -8233,9 +8257,13 @@
     const btn = document.getElementById('ape-submit-btn');
     btn.disabled = true; btn.textContent = 'Adding…';
     try {
+      // On a normalized-name match, only touch department_key/active — never
+      // overwrite full_name from what was just typed. Matches
+      // resolvePayrollUnmatchedLine()'s convention; a stray capitalization or
+      // spacing difference here shouldn't silently retitle someone's record.
       const { data: existingEmp } = await db.from('payroll_employees').select('id').eq('full_name_normalized', normalized).maybeSingle();
       if (existingEmp) {
-        const { error } = await db.from('payroll_employees').update({ department_key: deptKey, active: true, full_name: name }).eq('id', existingEmp.id);
+        const { error } = await db.from('payroll_employees').update({ department_key: deptKey, active: true }).eq('id', existingEmp.id);
         if (error) throw error;
       } else {
         const { error } = await db.from('payroll_employees').insert({ full_name: name, full_name_normalized: normalized, department_key: deptKey });
