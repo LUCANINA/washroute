@@ -8042,7 +8042,7 @@
   async function loadPayroll() {
     const [{ data: imports }, { data: lines }, { data: departments }, { data: employees }, { data: notices }] = await Promise.all([
       db.from('payroll_imports').select('*').order('pay_period_end', { ascending: false }),
-      db.from('payroll_import_employee_lines').select('id,import_id,raw_full_name,department_key,matched_employee_id,wage_amount,er_tax_amount,er_health_amount,er_401k_amount,paycheck_tips_amount'),
+      db.from('payroll_import_employee_lines').select('id,import_id,raw_full_name,department_key,matched_employee_id,wage_amount,er_tax_amount,er_health_amount,er_401k_amount,paycheck_tips_amount,line_type'),
       db.from('payroll_departments').select('*').order('sort_order'),
       db.from('payroll_employees').select('*').order('full_name'),
       // Standing payroll issues that aren't tied to one pay period (session 207).
@@ -8163,7 +8163,7 @@
     const needsReview = _allPayrollImports.filter(i => i.status === 'parsed').length;
     const reviewed = _allPayrollImports.filter(i => i.status === 'reviewed').length;
     const posted = _allPayrollImports.filter(i => i.status === 'posted').length;
-    const unmatchedNames = new Set(_allPayrollLines.filter(l => !l.department_key).map(l => l.raw_full_name));
+    const unmatchedNames = new Set(_allPayrollLines.filter(l => !l.department_key && l.line_type !== 'reimbursement_only').map(l => l.raw_full_name));
     el.innerHTML = card('Needs Review', needsReview, '#d97706', 'Uploaded and parsed — waiting for you to confirm the breakdown') +
       card('Reviewed', reviewed, '#2563eb', 'Confirmed, ready to post to Xero — open it and use Preview & Post to Xero') +
       card('Posted to Xero', posted, '#16a34a', 'Journal posted') +
@@ -8182,12 +8182,14 @@
       const lines = _allPayrollLines.filter(l => l.import_id === imp.id);
       const wage = lines.reduce((s,l) => s + Number(l.wage_amount||0), 0);
       const tax = lines.reduce((s,l) => s + Number(l.er_tax_amount||0), 0);
-      const unmatched = lines.filter(l => !l.department_key).length;
+      const isReimbOnly = lines.length === 1 && lines[0].line_type === 'reimbursement_only';
+      const employeeLines = lines.filter(l => l.line_type !== 'reimbursement_only');
+      const unmatched = employeeLines.filter(l => !l.department_key).length;
       const [cls,label] = statusBadgeMap[imp.status] || statusBadgeMap.parsed;
       return `<tr style="cursor:pointer" onclick="openPayrollReviewModal('${imp.id}')">
         <td>${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}</td>
         <td>${esc(fmtDate(imp.pay_date))}</td>
-        <td>${lines.length}${unmatched ? ` <span style="color:var(--red);font-weight:700">(${unmatched} unmatched)</span>` : ''}</td>
+        <td>${isReimbOnly ? '<span style="color:var(--gray-500)">Insurance reimbursement only</span>' : `${employeeLines.length}${unmatched ? ` <span style="color:var(--red);font-weight:700">(${unmatched} unmatched)</span>` : ''}`}</td>
         <td>${fmtMoney(wage)}</td>
         <td>${fmtMoney(tax)}</td>
         <td><span class="badge ${cls}">${label}</span></td>
@@ -8538,7 +8540,12 @@
     document.getElementById('payroll-review-title').textContent = `Payroll: ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}`;
 
     const lines = _allPayrollLines.filter(l => l.import_id === imp.id);
-    const unmatched = lines.filter(l => !l.department_key);
+    // A reimbursement_only line (Square's separate monthly insurance-
+    // reimbursement payroll run, no per-employee detail) has no department
+    // by design -- it's not an employee waiting to be resolved.
+    const employeeLines = lines.filter(l => l.line_type !== 'reimbursement_only');
+    const reimbOnlyLine = lines.find(l => l.line_type === 'reimbursement_only');
+    const unmatched = employeeLines.filter(l => !l.department_key);
     const totalsByDept = {};
     for (const d of _allPayrollDepartments) totalsByDept[d.key] = { ...d, wage: 0, tax: 0, health: 0, k401: 0, count: 0 };
     for (const l of lines) {
@@ -8576,12 +8583,18 @@
     </tr>`).join('');
 
     body.innerHTML = `
-      <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:14px">Pay date ${esc(fmtDate(imp.pay_date))} · ${lines.length} employees · <span style="color:var(--gray-400)">Tips (${fmtMoney(grandTips)}) are excluded — passed through to employees, not a company expense.</span></div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:14px">Pay date ${esc(fmtDate(imp.pay_date))} · ${employeeLines.length} employee${employeeLines.length!==1?'s':''} · <span style="color:var(--gray-400)">Tips (${fmtMoney(grandTips)}) are excluded — passed through to employees, not a company expense.</span></div>
+      ${reimbOnlyLine ? `
+        <div style="background:var(--blue-light,#eff6ff);border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+          <div style="font-weight:700;color:#1d4ed8;font-size:13px;margin-bottom:4px">💳 This is a standalone insurance reimbursement run</div>
+          <div style="font-size:12.5px;color:var(--gray-600)">Square's export for this period had no per-employee breakdown — just one aggregate reimbursement total of ${fmtMoney(reimbOnlyLine.insurance_reimbursement_amount)}. There's no department to assign; it posts as its own separate Xero journal, debited entirely to Insurance (675).</div>
+        </div>` : ''}
+      ${employeeLines.length ? `
       <table style="width:100%;margin-bottom:16px">
         <thead><tr><th>Department</th><th>Wages</th><th>Employer Tax</th><th>Employer Health</th><th>Employer 401k</th><th>Xero accts</th></tr></thead>
         <tbody>${deptRows}</tbody>
         <tfoot><tr style="font-weight:700"><td>Total</td><td>${fmtMoney(grandWage)}</td><td>${fmtMoney(grandTax)}</td><td colspan="3"></td></tr></tfoot>
-      </table>
+      </table>` : ''}
       ${unmatched.length ? `
         <div style="background:var(--red-light,#fef2f2);border:1px solid #fecaca;border-radius:10px;padding:12px 14px;margin-bottom:10px">
           <div style="font-weight:700;color:var(--red);font-size:13px;margin-bottom:8px">⚠️ ${unmatched.length} employee${unmatched.length!==1?'s':''} not in the department mapping — resolve before marking this reviewed</div>
