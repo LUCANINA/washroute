@@ -3462,6 +3462,32 @@
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
+
+          <!-- Department Bucket Rules (payroll_departments) — the layer below
+               Employee → Department Mapping. Each department maps to a real
+               Xero wage account + tax account; payroll-xero-post debits these
+               per period. Higher blast radius than the employee mapping above
+               (a wrong account code misroutes real money in Xero), so this
+               stays admin/manager-only — unlike employee mapping, cpa does not
+               get write access here. Deactivating a department is blocked in
+               the UI (see togglePayrollDeptActive) while any active employee
+               is still mapped to it, so the state "wages owed to a department
+               nobody's posting to" can't happen from here. Note this is a
+               UX guardrail, not a hard DB constraint — payroll-xero-post's own
+               journal-balance check is still the real backstop if this is
+               ever bypassed some other way. -->
+          <div class="card" id="payroll-dept-rules-card" style="margin-top:20px">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-dept-rules-wrap',this)">
+              <div style="flex:1">
+                <div class="card-title">Department Bucket Rules</div>
+                <div class="card-sub">Which Xero account each department's wages and employer payroll tax post to. Rarely changes — verify any new account code exists in Xero before saving, a typo here misroutes real money.</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+            </div>
+            <div id="payroll-dept-rules-wrap" style="display:none">
+              <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
+            </div>
+          </div>
           </div><!-- /bk-view-payroll -->
 
           <!-- Debt Schedule (added at David's request — a live, always-current version
@@ -3809,6 +3835,43 @@
             <div class="modal-footer">
               <button class="btn btn-ghost" onclick="closeAddPayrollEmployeeModal()">Cancel</button>
               <button class="btn btn-primary" id="ape-submit-btn" onclick="submitAddPayrollEmployee()">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Department Bucket Rules — edit modal. admin/manager only (see
+             renderPayrollDeptRulesTable comment). Account NAME fields are
+             free text stored on payroll_departments, not fetched live from
+             Xero -- they only affect what shows on journal-line descriptions.
+             If you change a code, update its matching name too or the
+             Xero journal narration will describe the wrong account. -->
+        <div class="modal-overlay" id="modal-payroll-dept-edit">
+          <div class="modal" style="width:460px">
+            <div class="modal-header">
+              <div class="modal-title" id="pde-title">Edit Department</div>
+              <button class="modal-close" onclick="closePayrollDeptEditModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label">Display name</label>
+                <input type="text" class="form-input" id="pde-display-name" placeholder="e.g. Delivery">
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label class="form-label">Wage account code</label><input type="text" class="form-input" id="pde-wage-code" placeholder="e.g. 173"></div>
+                <div class="form-group"><label class="form-label">Wage account name</label><input type="text" class="form-input" id="pde-wage-name" placeholder="e.g. Wages &amp; Labor - Delivery"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label class="form-label">Tax account code</label><input type="text" class="form-input" id="pde-tax-code" placeholder="e.g. 0012"></div>
+                <div class="form-group"><label class="form-label">Tax account name</label><input type="text" class="form-input" id="pde-tax-name" placeholder="e.g. Payroll Tax - Delivery"></div>
+              </div>
+              <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">These codes must match real accounts in your Xero chart of accounts — this form doesn't verify against Xero, it just changes where WashRoute tells Xero to post. Double-check the code in Xero first.</div>
+              <div id="pde-error" style="color:var(--red);font-size:13px;display:none;margin-top:8px"></div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closePayrollDeptEditModal()">Cancel</button>
+              <button class="btn btn-primary" id="pde-submit-btn" onclick="submitPayrollDeptEdit()">Save</button>
             </div>
           </div>
         </div>
@@ -7998,6 +8061,7 @@
     checkTipsBenStatus();
     renderPayrollTable();
     renderPayrollEmployeesTable();
+    renderPayrollDeptRulesTable();
     _bkUpdateNavBadge();
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
   }
@@ -8277,6 +8341,112 @@
       errEl.style.display = '';
     } finally {
       btn.disabled = false; btn.textContent = 'Add';
+    }
+  }
+
+  // Department Bucket Rules (payroll_departments). admin/manager only — the
+  // payroll_departments_update RLS policy was NOT widened to cpa the way
+  // payroll_employees was (David confirmed: this table is the higher-risk
+  // one, a wrong account code misroutes real Xero postings, so it stays
+  // narrower than the employee mapping above).
+  function renderPayrollDeptRulesTable() {
+    const el = document.getElementById('payroll-dept-rules-wrap');
+    if (!el) return;
+    const canEdit = ['admin', 'manager'].includes(currentUserRole);
+    const rows = [..._allPayrollDepartments].sort((a, b) => a.sort_order - b.sort_order).map(d => `<tr>
+      <td>${esc(d.display_name)}</td>
+      <td>${esc(d.wage_account_code)} <span style="color:var(--gray-400)">— ${esc(d.wage_account_name)}</span></td>
+      <td>${esc(d.tax_account_code)} <span style="color:var(--gray-400)">— ${esc(d.tax_account_name)}</span></td>
+      <td>
+        <span style="${canEdit ? 'cursor:pointer' : ''}" ${canEdit ? `onclick="togglePayrollDeptActive('${esc(d.key)}', ${d.active ? 'true' : 'false'})" title="Click to mark ${d.active ? 'inactive' : 'active'}"` : ''}>
+          ${d.active ? '<span class="badge badge-green">active</span>' : '<span class="badge badge-gray">inactive</span>'}
+        </span>
+      </td>
+      <td style="text-align:center">${canEdit ? `<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openPayrollDeptEditModal('${esc(d.key)}')">✎ Edit</button>` : ''}</td>
+    </tr>`).join('');
+    el.innerHTML = `
+      <table style="width:100%">
+        <thead><tr><th>Department</th><th>Wage Account</th><th>Tax Account</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${canEdit ? '' : '<div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Your account has read-only access to bucket rules.</div>'}`;
+  }
+
+  async function togglePayrollDeptActive(deptKey, currentlyActive) {
+    if (!['admin', 'manager'].includes(currentUserRole)) { showToast('Your account has read-only access to bucket rules.', 'error'); return; }
+    const dept = _allPayrollDepartments.find(d => d.key === deptKey);
+    if (!dept) return;
+    const next = !currentlyActive;
+    if (!next) {
+      // Deactivating: block while any active employee is still mapped here,
+      // so "wages owed to a department nobody's posting to" can't happen from
+      // this UI. (payroll-xero-post's own journal-balance check is the real
+      // backstop if this is ever bypassed some other way — see the card's
+      // HTML comment.)
+      const stillMapped = _allPayrollEmployees.filter(e => e.active && e.department_key === deptKey);
+      if (stillMapped.length) {
+        showToast(`Can't deactivate ${dept.display_name} — ${stillMapped.length} active employee${stillMapped.length !== 1 ? 's are' : ' is'} still mapped to it. Move them to another department first.`, 'error');
+        return;
+      }
+    }
+    const { error } = await db.from('payroll_departments').update({ active: next }).eq('key', deptKey);
+    if (error) { showToast('Could not update: ' + error.message, 'error'); return; }
+    dept.active = next;
+    renderPayrollDeptRulesTable();
+    showToast(`${dept.display_name} marked ${next ? 'active' : 'inactive'}.`, 'success');
+  }
+
+  function openPayrollDeptEditModal(deptKey) {
+    if (!['admin', 'manager'].includes(currentUserRole)) { showToast('Your account has read-only access to bucket rules.', 'error'); return; }
+    const d = _allPayrollDepartments.find(x => x.key === deptKey);
+    if (!d) return;
+    document.getElementById('pde-title').textContent = `Edit — ${d.display_name}`;
+    document.getElementById('pde-display-name').value = d.display_name || '';
+    document.getElementById('pde-wage-code').value = d.wage_account_code || '';
+    document.getElementById('pde-wage-name').value = d.wage_account_name || '';
+    document.getElementById('pde-tax-code').value = d.tax_account_code || '';
+    document.getElementById('pde-tax-name').value = d.tax_account_name || '';
+    document.getElementById('pde-error').style.display = 'none';
+    document.getElementById('modal-payroll-dept-edit').dataset.deptKey = deptKey;
+    document.getElementById('modal-payroll-dept-edit').classList.add('open');
+  }
+  function closePayrollDeptEditModal() {
+    document.getElementById('modal-payroll-dept-edit').classList.remove('open');
+  }
+  async function submitPayrollDeptEdit() {
+    const deptKey = document.getElementById('modal-payroll-dept-edit').dataset.deptKey;
+    const errEl = document.getElementById('pde-error');
+    errEl.style.display = 'none';
+    const strOrEmpty = (v) => (v || '').trim();
+    const displayName = strOrEmpty(document.getElementById('pde-display-name').value);
+    const wageCode = strOrEmpty(document.getElementById('pde-wage-code').value);
+    const wageName = strOrEmpty(document.getElementById('pde-wage-name').value);
+    const taxCode = strOrEmpty(document.getElementById('pde-tax-code').value);
+    const taxName = strOrEmpty(document.getElementById('pde-tax-name').value);
+    if (!displayName || !wageCode || !wageName || !taxCode || !taxName) {
+      errEl.textContent = 'All fields are required — a blank account code or name here would break the next Xero posting for this department.';
+      errEl.style.display = '';
+      return;
+    }
+    const btn = document.getElementById('pde-submit-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const { error } = await db.from('payroll_departments').update({
+        display_name: displayName,
+        wage_account_code: wageCode,
+        wage_account_name: wageName,
+        tax_account_code: taxCode,
+        tax_account_name: taxName,
+      }).eq('key', deptKey);
+      if (error) throw error;
+      showToast('Department updated. Applies starting with the next payroll upload posted to Xero.', 'success');
+      closePayrollDeptEditModal();
+      await loadPayroll();
+    } catch (e) {
+      errEl.textContent = e.message || 'Could not save.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save';
     }
   }
 
