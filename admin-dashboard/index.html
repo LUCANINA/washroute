@@ -3781,6 +3781,38 @@
           </div>
         </div>
 
+        <!-- Add Employee — payroll_employees. Unlike the rest of Bookkeeping,
+             the cpa role IS allowed to write to this table (payroll_employees_write/
+             _update RLS policies were widened to include cpa) — David wants CPAs to
+             be able to maintain the Employee → Department mapping themselves without
+             going through him. Every other Bookkeeping write action stays admin/
+             manager only. -->
+        <div class="modal-overlay" id="modal-add-payroll-employee">
+          <div class="modal" style="width:420px">
+            <div class="modal-header">
+              <div class="modal-title">Add Employee</div>
+              <button class="modal-close" onclick="closeAddPayrollEmployeeModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label">Full name (as it appears on the Square payroll export)</label>
+                <input type="text" class="form-input" id="ape-name" placeholder="e.g. Amalia Torres">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Department</label>
+                <select class="form-select" id="ape-department"><option value="">— select —</option></select>
+              </div>
+              <div id="ape-error" style="color:var(--red);font-size:13px;display:none;margin-top:8px"></div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closeAddPayrollEmployeeModal()">Cancel</button>
+              <button class="btn btn-primary" id="ape-submit-btn" onclick="submitAddPayrollEmployee()">Add</button>
+            </div>
+          </div>
+        </div>
+
         <!-- page-driver-messages removed — merged into page-drivers -->
 
         <!-- ── SETTINGS ── -->
@@ -8103,20 +8135,121 @@
     </table>`;
   }
 
+  // Employee → Department Mapping (session — made editable). Previously
+  // read-only, pointing David at the "resolve inline when unmatched" flow.
+  // Now every row's department is a live <select> (onchange saves
+  // immediately, no separate Save button — matches the "moving Amalia should
+  // be a simple UI action" ask) and the status badge toggles active/inactive
+  // on click. The cpa role is allowed to write here (unlike the rest of
+  // Bookkeeping, which is admin/manager-only) — see payroll_employees_write/
+  // _update RLS policies and the "Add Employee" modal comment above.
   function renderPayrollEmployeesTable() {
     const el = document.getElementById('payroll-employees-wrap');
     if (!el) return;
-    const deptName = (k) => (_allPayrollDepartments.find(d => d.key === k) || {}).display_name || '—';
+    const deptOptionsFor = (currentKey) => {
+      let opts = '<option value="">— unassigned —</option>';
+      opts += _allPayrollDepartments.filter(d => d.active).map(d =>
+        `<option value="${esc(d.key)}" ${d.key === currentKey ? 'selected' : ''}>${esc(d.display_name)}</option>`
+      ).join('');
+      // Keep a stale/inactive department key selectable so the dropdown doesn't
+      // silently show the wrong thing for an employee mapped to a bucket that
+      // was since deactivated.
+      if (currentKey && !_allPayrollDepartments.some(d => d.key === currentKey)) {
+        opts += `<option value="${esc(currentKey)}" selected>${esc(currentKey)} (unknown department)</option>`;
+      }
+      return opts;
+    };
     const rows = _allPayrollEmployees.map(e => `<tr>
       <td>${esc(e.full_name)}</td>
-      <td>${esc(deptName(e.department_key))}</td>
-      <td>${e.active ? '<span class="badge badge-green">active</span>' : '<span class="badge badge-gray">inactive</span>'}</td>
+      <td>
+        <select class="form-select" style="font-size:12.5px;padding:4px 8px;width:auto" onchange="updatePayrollEmployeeDepartment('${e.id}', this.value)">
+          ${deptOptionsFor(e.department_key)}
+        </select>
+      </td>
+      <td>
+        <span style="cursor:pointer" onclick="togglePayrollEmployeeActive('${e.id}', ${e.active ? 'true' : 'false'})" title="Click to mark ${e.active ? 'inactive' : 'active'}">
+          ${e.active ? '<span class="badge badge-green">active</span>' : '<span class="badge badge-gray">inactive</span>'}
+        </span>
+      </td>
     </tr>`).join('');
-    el.innerHTML = `<table style="width:100%">
-      <thead><tr><th>Employee</th><th>Department</th><th>Status</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">To add or change a mapping, resolve it inline the next time that name shows up as "unmatched" when reviewing a payroll report — that's the same place a brand-new hire gets added.</div>`;
+    el.innerHTML = `
+      <div style="display:flex;justify-content:flex-end;padding:12px 16px 0">
+        <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="openAddPayrollEmployeeModal()">+ Add Employee</button>
+      </div>
+      <table style="width:100%">
+        <thead><tr><th>Employee</th><th>Department</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Changes here apply to future payroll uploads only — pay periods already imported (posted or not) keep the department each employee was mapped to at import time.</div>`;
+  }
+
+  async function updatePayrollEmployeeDepartment(employeeId, deptKey) {
+    const emp = _allPayrollEmployees.find(x => x.id === employeeId);
+    if (!emp) return;
+    const { error } = await db.from('payroll_employees').update({ department_key: deptKey || null }).eq('id', employeeId);
+    if (error) {
+      showToast('Could not save: ' + error.message, 'error');
+      renderPayrollEmployeesTable(); // reset the dropdown to the last known-good value
+      return;
+    }
+    emp.department_key = deptKey || null;
+    const deptLabel = deptKey ? ((_allPayrollDepartments.find(d => d.key === deptKey) || {}).display_name || deptKey) : 'unassigned';
+    showToast(`${emp.full_name} → ${deptLabel}. Applies starting with the next payroll upload.`, 'success');
+  }
+
+  async function togglePayrollEmployeeActive(employeeId, currentlyActive) {
+    const emp = _allPayrollEmployees.find(x => x.id === employeeId);
+    if (!emp) return;
+    const next = !currentlyActive;
+    const { error } = await db.from('payroll_employees').update({ active: next }).eq('id', employeeId);
+    if (error) { showToast('Could not update: ' + error.message, 'error'); return; }
+    emp.active = next;
+    renderPayrollEmployeesTable();
+    showToast(`${emp.full_name} marked ${next ? 'active' : 'inactive'}.`, 'success');
+  }
+
+  function openAddPayrollEmployeeModal() {
+    document.getElementById('ape-name').value = '';
+    document.getElementById('ape-department').innerHTML = '<option value="">— select —</option>' +
+      _allPayrollDepartments.filter(d => d.active).map(d => `<option value="${esc(d.key)}">${esc(d.display_name)}</option>`).join('');
+    document.getElementById('ape-error').style.display = 'none';
+    document.getElementById('modal-add-payroll-employee').classList.add('open');
+  }
+  function closeAddPayrollEmployeeModal() {
+    document.getElementById('modal-add-payroll-employee').classList.remove('open');
+  }
+  async function submitAddPayrollEmployee() {
+    const nameInput = document.getElementById('ape-name');
+    const deptSelect = document.getElementById('ape-department');
+    const errEl = document.getElementById('ape-error');
+    errEl.style.display = 'none';
+    const name = nameInput.value.trim();
+    const deptKey = deptSelect.value;
+    if (!name) { errEl.textContent = 'Enter a name.'; errEl.style.display = ''; return; }
+    if (!deptKey) { errEl.textContent = 'Pick a department.'; errEl.style.display = ''; return; }
+    // Same normalization as resolvePayrollUnmatchedLine() so a name typed here
+    // matches the same way an upload's raw_full_name would.
+    const normalized = name.replace(/\s+/g, ' ').toLowerCase();
+    const btn = document.getElementById('ape-submit-btn');
+    btn.disabled = true; btn.textContent = 'Adding…';
+    try {
+      const { data: existingEmp } = await db.from('payroll_employees').select('id').eq('full_name_normalized', normalized).maybeSingle();
+      if (existingEmp) {
+        const { error } = await db.from('payroll_employees').update({ department_key: deptKey, active: true, full_name: name }).eq('id', existingEmp.id);
+        if (error) throw error;
+      } else {
+        const { error } = await db.from('payroll_employees').insert({ full_name: name, full_name_normalized: normalized, department_key: deptKey });
+        if (error) throw error;
+      }
+      showToast(`${name} added to the mapping.`, 'success');
+      closeAddPayrollEmployeeModal();
+      await loadPayroll();
+    } catch (e) {
+      errEl.textContent = e.message || 'Could not save.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Add';
+    }
   }
 
   function openPayrollUploadModal() {
