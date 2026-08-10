@@ -4100,6 +4100,21 @@ function pickDefaultDeliveryWindow(validWins, allWins, pickupWindow, minMins) {
       || null;
 }
 
+// Pick the sub-window on a newly-selected pickup date that starts at the same
+// time-of-day as the previously selected window, so moving the pickup date
+// (booking calendar or the edit/reschedule modal) keeps "9-11am" as "9-11am"
+// instead of silently reverting to the day's earliest slot. Falls back to the
+// earliest available window when no exact time-of-day match exists on the new
+// date (first-time selection, or a day whose template structure differs).
+function pickWindowMatchingTimeOfDay(windows, refWindow) {
+  if (!windows?.length) return null;
+  if (refWindow?.startMins != null) {
+    const match = windows.find(w => w.startMins === refWindow.startMins);
+    if (match) return match;
+  }
+  return windows[0];
+}
+
 // Entry point: called by renderStep(1)
 async function renderSchedCard() {
   const todayIso = localIso();
@@ -4276,6 +4291,10 @@ async function selectSchedPickupDate(iso) {
   if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
   if (chevEl)   chevEl.classList.remove('open');
 
+  // Remember the previously selected window's time-of-day BEFORE it's reset below,
+  // so the new date's auto-selected window can match it (see pickWindowMatchingTimeOfDay).
+  const _prevPickupWindow = draft.pickupWindow;
+
   // New date resets window, delivery, and same-day state
   draft.pickupDate      = iso;
   draft.pickupWindow    = null;
@@ -4296,10 +4315,11 @@ async function selectSchedPickupDate(iso) {
   const delSec = document.getElementById('sched-delivery-section');
   if (delSec) delSec.style.display = 'none';
 
-  // Fetch windows for the new date, then auto-select earliest
+  // Fetch windows for the new date, then auto-select the window matching the
+  // previously chosen time-of-day (falls back to earliest if no match).
   await fetchWindowsForDate(iso);
   if (draft.availableWindows.length) {
-    draft.pickupWindow = draft.availableWindows[0];
+    draft.pickupWindow = pickWindowMatchingTimeOfDay(draft.availableWindows, _prevPickupWindow);
     await _updateSchedDelivery();
     // Check same-day availability and show/hide the upsell toggle
     try {
@@ -7099,6 +7119,9 @@ async function editSelectPickupDate(iso) {
   if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
   if (chevEl)   chevEl.classList.remove('open');
   const es = window._editSchedule;
+  // Remember the previously selected window's time-of-day BEFORE it's reset below,
+  // so the new date's auto-selected window can match it (see pickWindowMatchingTimeOfDay).
+  const _prevPickupWindow = es.pickupWindow;
   es.pickupDate = iso; es.pickupWindow = null; es.deliveryDate = null; es.deliveryWindow = null;
   // User actively moved pickup; delivery follows automatically (cross-leg invariant)
   // so we mark both legs as user-touched.
@@ -7108,7 +7131,7 @@ async function editSelectPickupDate(iso) {
   if (valDate) valDate.textContent = _schedDateLabel(iso);
   await fetchEditWindows(iso);
   if (es.availableWindows.length) {
-    es.pickupWindow = es.availableWindows[0];
+    es.pickupWindow = pickWindowMatchingTimeOfDay(es.availableWindows, _prevPickupWindow);
     _editUpdateWindowDisplay('pickup');
     await _computeEditDeliveryOptions();
   } else {
