@@ -24922,7 +24922,7 @@ ${oneCopy}
     } else {
       el.innerHTML = `
         <div class="cp-card" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px">
-          <div style="font-size:12.5px;color:var(--gray-500)">Cancelling stops future orders and billing but keeps every past order, transaction, and this customer's lifetime value exactly as-is.</div>
+          <div style="font-size:12.5px;color:var(--gray-500)">Cancelling stops future orders and billing but keeps every past order, transaction, and this customer's lifetime value exactly as-is.${Number(c.credits||0) > 0 ? ` Any unused credit ($${Number(c.credits).toFixed(2)}) is forfeited, not refunded.` : ''}</div>
           <button class="btn" style="flex-shrink:0;padding:6px 14px;font-size:12.5px;color:#ef4444;border-color:#fca5a5" onclick="cancelAccountClick()">Cancel Account</button>
         </div>`;
     }
@@ -24934,7 +24934,11 @@ ${oneCopy}
     if (reason === null) return; // user dismissed the prompt
     if (!reason.trim()) { showToast('A reason is required to cancel an account', 'error'); return; }
     const name = document.getElementById('cp-name')?.textContent || 'this customer';
-    if (!confirm(`Cancel ${name}'s account?\n\nThis stops future orders and billing, cancels any active subscription, and removes their card on file. Past orders and lifetime value are kept. This can be undone later via Reactivate.`)) return;
+    const liveCredits = Number(_panelCustomerData?.credits || 0);
+    const creditLine = liveCredits > 0
+      ? ` Their current $${liveCredits.toFixed(2)} account credit will be FORFEITED, not refunded.`
+      : '';
+    if (!confirm(`Cancel ${name}'s account?\n\nThis stops future orders and billing, cancels any active subscription, and removes their card on file.${creditLine} Past orders and lifetime value are kept. This can be undone later via Reactivate.`)) return;
     try {
       const { data: { session } } = await db.auth.getSession();
       if (!session?.access_token) throw new Error('Not signed in — refresh the page');
@@ -24946,6 +24950,7 @@ ${oneCopy}
       const result = await res.json();
       if (!res.ok || result.error) throw new Error(result.error || 'Cancellation failed');
       let msg = `Account cancelled — ${result.cancelled_orders} future order${result.cancelled_orders === 1 ? '' : 's'} cancelled`;
+      if (result.forfeited_credits > 0) msg += `, $${Number(result.forfeited_credits).toFixed(2)} credit forfeited`;
       if (result.subscription_cancel_error) msg += '. ⚠️ Stripe subscription cancel failed — follow up manually';
       if (result.payment_method_detach_error) msg += '. ⚠️ Card detach failed — follow up manually';
       showToast(msg, result.subscription_cancel_error || result.payment_method_detach_error ? 'error' : 'success');
