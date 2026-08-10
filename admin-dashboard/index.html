@@ -5479,8 +5479,12 @@
       <button class="filter-tab"        data-subtab="history" onclick="cpBillingSubtab('history',this)">History</button>
     </div>
 
-    <!-- 1. PLAN — what this customer is on (price list + subscription) -->
+    <!-- Account Status — cancellation is a customer-lifecycle action, kept separate from
+         Plan/Payment since it affects both. Session 207: cancel_customer_account RPC +
+         cancel-customer-account edge function (Stripe subscription cancel + card detach). -->
     <div class="cpb-pane" id="cpb-pane-plan">
+    <div id="cp-account-status-card" style="display:none"></div>
+
     <div class="cp-section-head"><span>Plan</span></div>
     <div class="cp-card">
       <div class="cp-field">
@@ -11504,7 +11508,7 @@ ${noActivityNote}
     let keepGoing = true;
     while (keepGoing) {
       const { data, error } = await db.from('customers')
-          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, last_delivered_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, last_delivered_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, frozen_at, cancelled_at, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
       if (error) {
@@ -22584,7 +22588,7 @@ ${oneCopy}
     try { cpBillingSubtab(localStorage.getItem('wr-cpb-subtab') || 'plan'); } catch (e) { cpBillingSubtab('plan'); }
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, last_delivered_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, last_delivered_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id, frozen_at, frozen_reason, cancelled_at, cancelled_reason, cancelled_by')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -22600,6 +22604,11 @@ ${oneCopy}
     document.getElementById('cp-meta').innerHTML =
       `${phone ? `<a href="tel:${phone}">${phone}</a>` : ''}${phone&&email?' · ':''}${email ? `<a href="mailto:${email}">${email}</a>` : ''}` || '<span style="color:var(--gray-300)">No contact info</span>';
     document.getElementById('cp-status-badge').innerHTML = custActivityBadge(c);
+    renderCpAccountStatus(c);
+    // Cancelled accounts are hard-blocked from new orders at the DB level (trg_enforce_not_frozen);
+    // hiding the button here just avoids inviting a click that's guaranteed to fail.
+    const newOrderBtn = document.getElementById('cp-new-order-btn');
+    if (newOrderBtn) newOrderBtn.style.display = c.cancelled_at ? 'none' : '';
 
     // Stats
     const ltv = Number(c.lifetime_value || 0);
@@ -24875,12 +24884,96 @@ ${oneCopy}
     return '#9ca3af';
   }
   function custActivityBadge(c) {
+    // Session 207: cancelled/frozen outrank activity recency — a cancelled
+    // customer's "7 days" badge would read as still-active, which is exactly
+    // the confusion this exists to prevent.
+    if (c.cancelled_at) return '<span class="badge" style="background:#fee2e2;color:#991b1b">Cancelled</span>';
+    if (c.frozen_at)    return '<span class="badge badge-amber">Frozen</span>';
     if (!c.last_delivered_order_at) return '<span class="badge badge-gray">No orders</span>';
     const days = Math.floor((Date.now() - new Date(c.last_delivered_order_at).getTime()) / 86_400_000);
     if (days <= 7)  return '<span class="badge badge-green">7 days</span>';
     if (days <= 30) return '<span class="badge badge-green">30 days</span>';
     if (days <= 90) return '<span class="badge badge-amber">90 days</span>';
     return '<span class="badge badge-gray">90+ days</span>';
+  }
+
+  // ── ACCOUNT CANCELLATION (session 207) ──
+  // Renders the Account Status card at the top of Billing → Plan: either a
+  // "Cancel Account" action (healthy account) or a cancellation summary +
+  // Reactivate action (already cancelled). Cancellation never touches order
+  // history, LTV, or total_orders — see cancel_customer_account() in the DB.
+  function renderCpAccountStatus(c) {
+    const el = document.getElementById('cp-account-status-card');
+    if (!el) return;
+    el.style.display = '';
+    if (c.cancelled_at) {
+      const who = c.cancelled_by === 'admin' ? 'an admin decision' : 'customer request';
+      el.innerHTML = `
+        <div class="cp-card" style="background:#fef2f2;border:1px solid #fecaca;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div>
+              <div style="font-weight:700;color:#991b1b;font-size:13px">Account cancelled — ${fmtDate(c.cancelled_at)}</div>
+              <div style="font-size:12.5px;color:#7f1d1d;margin-top:4px">${esc(c.cancelled_reason || '(no reason given)')}</div>
+              <div style="font-size:11.5px;color:#b91c1c;margin-top:4px">Recorded as ${who}. Order history, lifetime value, and past transactions are untouched.</div>
+            </div>
+            <button class="btn" style="flex-shrink:0;padding:6px 14px;font-size:12.5px" onclick="reactivateAccountClick()">↩ Reactivate</button>
+          </div>
+        </div>`;
+    } else {
+      el.innerHTML = `
+        <div class="cp-card" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div style="font-size:12.5px;color:var(--gray-500)">Cancelling stops future orders and billing but keeps every past order, transaction, and this customer's lifetime value exactly as-is.</div>
+          <button class="btn" style="flex-shrink:0;padding:6px 14px;font-size:12.5px;color:#ef4444;border-color:#fca5a5" onclick="cancelAccountClick()">Cancel Account</button>
+        </div>`;
+    }
+  }
+
+  async function cancelAccountClick() {
+    if (!panelCustomerId) return;
+    const reason = prompt('Reason for cancelling this account? (visible on the customer\'s Issues tab)');
+    if (reason === null) return; // user dismissed the prompt
+    if (!reason.trim()) { showToast('A reason is required to cancel an account', 'error'); return; }
+    const name = document.getElementById('cp-name')?.textContent || 'this customer';
+    if (!confirm(`Cancel ${name}'s account?\n\nThis stops future orders and billing, cancels any active subscription, and removes their card on file. Past orders and lifetime value are kept. This can be undone later via Reactivate.`)) return;
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      if (!session?.access_token) throw new Error('Not signed in — refresh the page');
+      const res = await fetch(`${SUPA_URL}/functions/v1/cancel-customer-account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ customer_id: panelCustomerId, reason: reason.trim(), cancelled_by: 'customer' }),
+      });
+      const result = await res.json();
+      if (!res.ok || result.error) throw new Error(result.error || 'Cancellation failed');
+      let msg = `Account cancelled — ${result.cancelled_orders} future order${result.cancelled_orders === 1 ? '' : 's'} cancelled`;
+      if (result.subscription_cancel_error) msg += '. ⚠️ Stripe subscription cancel failed — follow up manually';
+      if (result.payment_method_detach_error) msg += '. ⚠️ Card detach failed — follow up manually';
+      showToast(msg, result.subscription_cancel_error || result.payment_method_detach_error ? 'error' : 'success');
+      openCustomerPanel(panelCustomerId, 'billing');
+      if (typeof loadCustomers === 'function') loadCustomers();
+    } catch (e) {
+      console.error('[cancelAccountClick]', e);
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  async function reactivateAccountClick() {
+    if (!panelCustomerId) return;
+    const name = document.getElementById('cp-name')?.textContent || 'this customer';
+    if (!confirm(`Reactivate ${name}'s account?\n\nThey'll be able to place orders again. Their card on file was removed at cancellation and won't come back automatically — they'll need to add a new one.`)) return;
+    try {
+      const { data, error } = await db.rpc('reactivate_customer_account', {
+        p_customer_id: panelCustomerId,
+        p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+      });
+      if (error) throw new Error(error.message);
+      showToast('Account reactivated', 'success');
+      openCustomerPanel(panelCustomerId, 'billing');
+      if (typeof loadCustomers === 'function') loadCustomers();
+    } catch (e) {
+      console.error('[reactivateAccountClick]', e);
+      showToast('Error: ' + e.message, 'error');
+    }
   }
 
   function makePin(color,label,size=28){
