@@ -3241,21 +3241,24 @@
                no separate queries, so this can never drift out of sync with the
                numbers shown on the Loans/Payroll tabs themselves. -->
           <div id="bk-view-overview">
-            <!-- One-time correction (Aug 11, 2026): POS cash retail sales are
-                 all booked to "Retail - Self service" by default (that's where
-                 most cash is used), but some cash also pays for Retail Wash &
-                 Fold and Retail Vending. This reclasses July 2026's actual
+            <!-- Recurring monthly correction (generalized Aug 11, 2026, from a
+                 one-time July 2026 fix): POS cash retail sales are all booked
+                 to "Retail - Self service" by default (that's where most cash
+                 is used), but some cash also pays for Retail Wash & Fold and
+                 Retail Vending. Each month, this reclasses that month's actual
                  cash-paid Wash & Fold + Vending sales (per orders.line_items)
-                 out of Self-service into the correct accounts. Same
-                 disappears-once-posted pattern as the payroll one-time cards,
-                 checked via temp-retail-cash-reclass-july2026 itself (dry run
-                 returns no_adjustment_needed once posted, since the "already
-                 booked" baseline moves). -->
+                 out of Self-service into the correct accounts. Backed by the
+                 permanent retail-cash-reclass-monthly edge function, which
+                 defaults to "the most recently completed calendar month" and
+                 checks Xero's own ManualJournals for that month's tag before
+                 allowing a repost -- so this card simply reappears each month
+                 once there's a new, not-yet-posted month to review, and stays
+                 hidden otherwise. -->
             <div class="card" style="margin-bottom:20px;border:1px solid #fca5a5;display:none" id="retail-cashreclass-card">
               <div class="card-header" style="padding:20px 24px">
                 <div style="flex:1">
-                  <div class="card-title" style="color:#991b1b">One-Time Correction Needed</div>
-                  <div class="card-sub">July 2026 cash retail sales were booked entirely to Retail - Self service. This moves the actual cash-paid Wash &amp; Fold and Vending sales into the correct accounts.</div>
+                  <div class="card-title" style="color:#991b1b" id="retail-cashreclass-title">Monthly Correction Needed</div>
+                  <div class="card-sub" id="retail-cashreclass-sub">Cash retail sales were booked entirely to Retail - Self service. This moves the actual cash-paid Wash &amp; Fold and Vending sales into the correct accounts.</div>
                 </div>
                 <button class="btn btn-primary" style="align-self:center" onclick="openRetailCashReclassModal()">Review &amp; Post Correction</button>
               </div>
@@ -8703,11 +8706,16 @@
     }
   }
 
-  // Retail cash sales reclass one-time correction (Aug 11, 2026) -- see
-  // temp-retail-cash-reclass-july2026 for the full background. Idempotency
-  // lives in that function: once posted, the "already booked" baseline it
-  // compares against no longer needs the adjustment, so a re-check on a fresh
-  // load naturally returns no_adjustment_needed instead of double-posting.
+  // Retail cash sales reclass — recurring monthly correction (generalized
+  // Aug 11, 2026 from a one-time July 2026 fix). Backed by the permanent
+  // retail-cash-reclass-monthly edge function, which defaults to "the most
+  // recently completed calendar month" and computes that month's cash-only
+  // Wash & Fold / Vending sales directly (card sales are already split
+  // correctly via the live payout pipeline, so cash-only IS the exact
+  // amount to move). Idempotency is real: the function checks Xero's own
+  // ManualJournals for that month's tag before allowing a (re)post, so this
+  // card naturally reappears each month once there's a new month to review,
+  // and returns no_adjustment_needed once that month is posted.
   let _retailCashReclassInFlight = false;
 
   async function checkRetailCashReclassStatus() {
@@ -8716,8 +8724,12 @@
     try {
       const card = document.getElementById('retail-cashreclass-card');
       if (!card) return;
-      const { ok, data } = await _payrollFn('temp-retail-cash-reclass-july2026', {});
+      const { ok, data } = await _payrollFn('retail-cash-reclass-monthly', {});
       if (ok && data && !data.error) {
+        const titleEl = document.getElementById('retail-cashreclass-title');
+        const subEl = document.getElementById('retail-cashreclass-sub');
+        if (titleEl) titleEl.textContent = `Correction Needed — ${data.period}`;
+        if (subEl) subEl.textContent = `Cash retail sales for ${data.period} were booked entirely to Retail - Self service. This moves the actual cash-paid Wash & Fold and Vending sales into the correct accounts.`;
         card.style.display = '';
       } else if (data && data.error === 'no_adjustment_needed') {
         card.style.display = 'none';
@@ -8736,10 +8748,10 @@
     body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
     footer.innerHTML = '';
     try {
-      const { ok, data } = await _payrollFn('temp-retail-cash-reclass-july2026', {});
+      const { ok, data } = await _payrollFn('retail-cash-reclass-monthly', {});
       if (!ok || data.error) {
         const msg = data.error === 'no_adjustment_needed'
-          ? 'This has already been posted — no adjustment is currently outstanding.'
+          ? (data.detail || 'This has already been posted — no adjustment is currently outstanding.')
           : (data.error || 'Could not build the proposed correction.');
         body.innerHTML = `<div style="color:${data.error === 'no_adjustment_needed' ? 'var(--green)' : 'var(--red)'};font-size:13.5px">${esc(msg)}</div>`;
         footer.innerHTML = `<button class="btn btn-ghost" onclick="closeRetailCashReclassModal()">Close</button>`;
@@ -8750,13 +8762,11 @@
         return;
       }
       const journal = data.proposed_journal;
-      const t = data.computed_total_sales_all_tender;
-      const booked = data.already_booked_card_only;
+      const cash = data.cash_sales;
       body.innerHTML = `
         <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">
-          July total retail sales (all tender types): Wash &amp; Fold ${fmtMoney(t.washFold)}, Vending ${fmtMoney(t.vending)}.
-          Already booked from card payments: Wash &amp; Fold ${fmtMoney(booked.retail_wf)}, Vending ${fmtMoney(booked.retail_vend)}.
-          This posts a Manual Journal to Xero dated ${esc(journal.Date)} moving the cash-paid difference out of Retail - Self service.
+          ${esc(data.period)} cash-paid retail sales: Wash &amp; Fold ${fmtMoney(cash.washFold)}, Vending ${fmtMoney(cash.vending)}.
+          This posts a Manual Journal to Xero dated ${esc(journal.Date)} moving these amounts out of Retail - Self service into the correct accounts.
         </div>
         <div class="form-section-head">Journal entry to post</div>
         <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
@@ -8777,7 +8787,7 @@
     const btn = document.getElementById('retail-cashreclass-approve-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
     try {
-      const { ok, data } = await _payrollFn('temp-retail-cash-reclass-july2026', { confirm: true });
+      const { ok, data } = await _payrollFn('retail-cash-reclass-monthly', { confirm: true });
       if (!ok || data.error) throw new Error(data.error || 'Posting failed');
       closeRetailCashReclassModal();
       const card = document.getElementById('retail-cashreclass-card');
