@@ -3241,6 +3241,25 @@
                no separate queries, so this can never drift out of sync with the
                numbers shown on the Loans/Payroll tabs themselves. -->
           <div id="bk-view-overview">
+            <!-- One-time correction (Aug 11, 2026): POS cash retail sales are
+                 all booked to "Retail - Self service" by default (that's where
+                 most cash is used), but some cash also pays for Retail Wash &
+                 Fold and Retail Vending. This reclasses July 2026's actual
+                 cash-paid Wash & Fold + Vending sales (per orders.line_items)
+                 out of Self-service into the correct accounts. Same
+                 disappears-once-posted pattern as the payroll one-time cards,
+                 checked via temp-retail-cash-reclass-july2026 itself (dry run
+                 returns no_adjustment_needed once posted, since the "already
+                 booked" baseline moves). -->
+            <div class="card" style="margin-bottom:20px;border:1px solid #fca5a5;display:none" id="retail-cashreclass-card">
+              <div class="card-header" style="padding:20px 24px">
+                <div style="flex:1">
+                  <div class="card-title" style="color:#991b1b">One-Time Correction Needed</div>
+                  <div class="card-sub">July 2026 cash retail sales were booked entirely to Retail - Self service. This moves the actual cash-paid Wash &amp; Fold and Vending sales into the correct accounts.</div>
+                </div>
+                <button class="btn btn-primary" style="align-self:center" onclick="openRetailCashReclassModal()">Review &amp; Post Correction</button>
+              </div>
+            </div>
             <div class="card" style="margin-bottom:20px">
               <div class="card-header">
                 <div class="card-title">Needs Your Attention</div>
@@ -3572,6 +3591,20 @@
             </div>
             <div class="modal-body" id="payroll-xero-review-body">Loading…</div>
             <div class="modal-footer" id="payroll-xero-review-footer"></div>
+          </div>
+        </div>
+
+        <!-- Retail cash sales reclass one-time correction modal (Aug 11, 2026) -->
+        <div class="modal-overlay" id="modal-retail-cashreclass">
+          <div class="modal" style="width:600px">
+            <div class="modal-header">
+              <div class="modal-title">Post Correction to Xero</div>
+              <button class="modal-close" onclick="closeRetailCashReclassModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="retail-cashreclass-body">Loading…</div>
+            <div class="modal-footer" id="retail-cashreclass-footer"></div>
           </div>
         </div>
 
@@ -8063,6 +8096,7 @@
     check171CatchupStatus();
     checkCaDupeStatus();
     checkTipsBenStatus();
+    checkRetailCashReclassStatus();
     renderPayrollTable();
     renderPayrollEmployeesTable();
     renderPayrollDeptRulesTable();
@@ -8663,6 +8697,92 @@
       closePayrollReviewModal();
       showToast('Posted to Xero.', 'success');
       loadPayroll();
+    } catch (e) {
+      showToast(e.message || 'Posting failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
+    }
+  }
+
+  // Retail cash sales reclass one-time correction (Aug 11, 2026) -- see
+  // temp-retail-cash-reclass-july2026 for the full background. Idempotency
+  // lives in that function: once posted, the "already booked" baseline it
+  // compares against no longer needs the adjustment, so a re-check on a fresh
+  // load naturally returns no_adjustment_needed instead of double-posting.
+  let _retailCashReclassInFlight = false;
+
+  async function checkRetailCashReclassStatus() {
+    if (_retailCashReclassInFlight) return;
+    _retailCashReclassInFlight = true;
+    try {
+      const card = document.getElementById('retail-cashreclass-card');
+      if (!card) return;
+      const { ok, data } = await _payrollFn('temp-retail-cash-reclass-july2026', {});
+      if (ok && data && !data.error) {
+        card.style.display = '';
+      } else if (data && data.error === 'no_adjustment_needed') {
+        card.style.display = 'none';
+      }
+      // Any other failure (network/auth/Xero hiccup) leaves the card as-is --
+      // re-checked next time the Bookkeeping Overview tab loads.
+    } finally {
+      _retailCashReclassInFlight = false;
+    }
+  }
+
+  async function openRetailCashReclassModal() {
+    document.getElementById('modal-retail-cashreclass').classList.add('open');
+    const body = document.getElementById('retail-cashreclass-body');
+    const footer = document.getElementById('retail-cashreclass-footer');
+    body.innerHTML = '<div class="loading"><div class="spinner"></div>Building the proposed journal…</div>';
+    footer.innerHTML = '';
+    try {
+      const { ok, data } = await _payrollFn('temp-retail-cash-reclass-july2026', {});
+      if (!ok || data.error) {
+        const msg = data.error === 'no_adjustment_needed'
+          ? 'This has already been posted — no adjustment is currently outstanding.'
+          : (data.error || 'Could not build the proposed correction.');
+        body.innerHTML = `<div style="color:${data.error === 'no_adjustment_needed' ? 'var(--green)' : 'var(--red)'};font-size:13.5px">${esc(msg)}</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeRetailCashReclassModal()">Close</button>`;
+        if (data.error === 'no_adjustment_needed') {
+          const card = document.getElementById('retail-cashreclass-card');
+          if (card) card.style.display = 'none';
+        }
+        return;
+      }
+      const journal = data.proposed_journal;
+      const t = data.computed_total_sales_all_tender;
+      const booked = data.already_booked_card_only;
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">
+          July total retail sales (all tender types): Wash &amp; Fold ${fmtMoney(t.washFold)}, Vending ${fmtMoney(t.vending)}.
+          Already booked from card payments: Wash &amp; Fold ${fmtMoney(booked.retail_wf)}, Vending ${fmtMoney(booked.retail_vend)}.
+          This posts a Manual Journal to Xero dated ${esc(journal.Date)} moving the cash-paid difference out of Retail - Self service.
+        </div>
+        <div class="form-section-head">Journal entry to post</div>
+        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0;display:flex;justify-content:space-between"><span>${esc(l.Description)} <span style="color:var(--gray-400)">(${esc(l.AccountCode)})</span></span><b>${l.LineAmount < 0 ? '−' : ''}${fmtMoney(Math.abs(l.LineAmount))}</b></div>`).join('')}</div>
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closeRetailCashReclassModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="retail-cashreclass-approve-btn" onclick="approveRetailCashReclass()">Approve &amp; Post to Xero</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closeRetailCashReclassModal()">Close</button>`;
+    }
+  }
+  function closeRetailCashReclassModal() {
+    document.getElementById('modal-retail-cashreclass').classList.remove('open');
+  }
+  async function approveRetailCashReclass() {
+    const btn = document.getElementById('retail-cashreclass-approve-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
+    try {
+      const { ok, data } = await _payrollFn('temp-retail-cash-reclass-july2026', { confirm: true });
+      if (!ok || data.error) throw new Error(data.error || 'Posting failed');
+      closeRetailCashReclassModal();
+      const card = document.getElementById('retail-cashreclass-card');
+      if (card) card.style.display = 'none';
+      showToast('Correction posted to Xero.', 'success');
     } catch (e) {
       showToast(e.message || 'Posting failed', 'error');
       if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
