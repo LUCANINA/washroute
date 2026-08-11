@@ -14784,15 +14784,21 @@ ${noActivityNote}
     document.getElementById('op-bill-total').textContent = fmtMoney(billTotal);
     document.getElementById('op-bill-charged').textContent = o.stripe_payment_intent_id ? 'Yes' : 'Not yet charged';
     // Card: order-level card_last4 is never populated — the actual card lives on the
-    // order's charge transaction (session 184e). Optimistically show the customer's
-    // card on file, then refine from the charge txn. Async; guard against stale panel.
+    // order's charge transaction (session 184e), or on customer_payment_methods for
+    // an unbilled order. Session 195 fix: allCustomers (loadCustomers()) never selects
+    // card_last4/card_brand, so the old `cust?.card_last4` fallback here was ALWAYS
+    // undefined — this tab showed "No card on file" for every unbilled order regardless
+    // of whether the customer actually had a card on file (caught via Sarah Evans #11697,
+    // who has 2 saved cards but the panel showed "No card on file"). Use `_custWithCard`
+    // (the same cache that already correctly powers the orders-list payment icon, sourced
+    // from the real `customer_payment_methods` table) for the immediate has-a-card check,
+    // then resolve the actual brand/last4 async from the charge txn or, failing that, the
+    // customer's default saved card. Guard against stale panel throughout.
     const cardEl = document.getElementById('op-bill-card');
-    const cust = allCustomers.find(c => c.id === opCurrentCustId);
+    const custId = opCurrentCustId;
     const _capBrand = b => b ? b.charAt(0).toUpperCase() + b.slice(1) : 'Card';
-    const _fbLast4 = cust?.card_last4, _fbBrand = cust?.card_brand;
-    cardEl.textContent = _fbLast4
-      ? `${_capBrand(_fbBrand)} •••• ${_fbLast4}`
-      : (o.stripe_payment_intent_id ? 'Loading…' : 'No card on file');
+    const hasCardOnFile = !!(custId && _custWithCard.has(custId));
+    cardEl.textContent = (hasCardOnFile || o.stripe_payment_intent_id) ? 'Loading…' : 'No card on file';
     db.from('customer_transactions')
       .select('card_brand, card_last4')
       .eq('order_id', o.id)
@@ -14801,10 +14807,21 @@ ${noActivityNote}
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (opCurrentOrderId !== o.id) return; // panel moved to another order
-        if (data && data.card_last4) cardEl.textContent = `${_capBrand(data.card_brand)} •••• ${data.card_last4}`;
-        else if (!_fbLast4) cardEl.textContent = o.stripe_payment_intent_id ? 'Card not recorded' : 'No card on file';
+        if (data && data.card_last4) { cardEl.textContent = `${_capBrand(data.card_brand)} •••• ${data.card_last4}`; return; }
+        if (custId) {
+          const { data: pm } = await db.from('customer_payment_methods')
+            .select('card_brand, card_last4')
+            .eq('customer_id', custId)
+            .order('is_default', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (opCurrentOrderId !== o.id) return; // panel moved to another order
+          if (pm && pm.card_last4) { cardEl.textContent = `${_capBrand(pm.card_brand)} •••• ${pm.card_last4}`; return; }
+        }
+        cardEl.textContent = o.stripe_payment_intent_id ? 'Card not recorded' : 'No card on file';
       })
       .catch(() => {});
     const actEl = document.getElementById('op-bill-actions');
