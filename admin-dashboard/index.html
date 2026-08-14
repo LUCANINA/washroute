@@ -3703,6 +3703,32 @@
           </div>
         </div>
 
+        <!-- Loan Documents modal (Aug 14, 2026) -- a generic file attachment spot per
+             loan, separate from the statement/schedule ingestion pipelines above. Those
+             two exist to compute a principal/interest split and post it to Xero, so they
+             require structured numbers. This modal has no such requirement: it's just
+             "here's a file, keep it on record" for things like payoff letters, a lender's
+             raw transaction history, loan agreements, or correspondence -- reuses the
+             same private loan-statements bucket (already RLS-scoped to admin/manager/cpa)
+             under a per-loan documents/ subfolder, and a new loan_documents table for the
+             metadata. Upload goes straight from the browser via the authenticated Supabase
+             client -- no edge function needed, this is pure file storage with no business
+             logic to run. -->
+        <div class="modal-overlay" id="modal-loan-documents">
+          <div class="modal" style="width:560px">
+            <div class="modal-header">
+              <div class="modal-title" id="loan-documents-title">Documents</div>
+              <button class="modal-close" onclick="closeLoanDocumentsModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="loan-documents-body">Loading…</div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost" onclick="closeLoanDocumentsModal()">Close</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Loan Split Review modal -->
         <div class="modal-overlay" id="modal-loan-review">
           <div class="modal" style="width:560px">
@@ -8001,6 +8027,10 @@
   let _allLoanAmortRows = [];       // amortization rows, each carrying its parent schedule's storage_path
   let _loanUploadFile = null;       // { base64, filename }
   let _loanUploadParsedAcctNum = null;
+  let _allLoanDocuments = [];       // generic per-loan file attachments (Aug 2026) -- payoff letters,
+                                     // transaction histories, amortization schedules, correspondence, etc.
+  let _loanDocFile = null;          // pending File object selected in the Documents modal, awaiting upload
+  let _loanDocsCurrentLoanId = null;
 
   async function _loanFn(name, bodyObj) {
     // Bug fix (session 205 cont.): this used to let a network failure/timeout/CORS
@@ -9162,7 +9192,7 @@
   }
 
   async function loadLoans() {
-    const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }] = await Promise.all([
+    const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }] = await Promise.all([
       db.from('loan_accounts').select('*').order('lender_account_number'),
       db.from('loan_statements').select('*').order('statement_date', { ascending: false }),
       db.from('loan_splits').select('*, loan_accounts(lender_account_number,xero_account_name,lender)').order('period_label', { ascending: false }),
@@ -9173,11 +9203,16 @@
       // the All Loans outstanding-tally (session 205 cont.) can read a schedule-sourced
       // loan's current balance the same way it reads a statement-sourced loan's.
       db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, balance, principal, interest, payment, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id)'),
+      // Generic per-loan document attachments (Aug 2026) -- payoff letters, transaction
+      // histories, amortization schedules, correspondence, anything worth keeping on file
+      // that isn't part of the structured statement/schedule ingestion pipelines above.
+      db.from('loan_documents').select('*').order('created_at', { ascending: false }),
     ]);
     _allLoanAccounts   = accounts || [];
     _allLoanStatements = statements || [];
     _allLoanSplits     = splits || [];
     _allLoanAmortRows  = amortRows || [];
+    _allLoanDocuments  = documents || [];
 
     renderLoansSummary();
     renderLoansAttention();
@@ -9844,6 +9879,12 @@
       const historyLink = splitsForLoan.length
         ? `<span onclick="event.stopPropagation();openLoanHistoryModal('${a.id}')" style="margin-left:8px;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">History</span>`
         : '';
+      // Generic document attachment link (Aug 2026) -- always shown (not gated on
+      // having docs yet, unlike History) since it doubles as the entry point for
+      // uploading the first one. Count shown when non-zero so it's obvious at a
+      // glance which loans already have something on file.
+      const docsForLoan = _allLoanDocuments.filter(d => d.loan_account_id === a.id);
+      const docsLink = `<span onclick="event.stopPropagation();openLoanDocumentsModal('${a.id}')" style="margin-left:8px;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">📎 Docs${docsForLoan.length ? ` (${docsForLoan.length})` : ''}</span>`;
       // Schedule-sourced loans (Dexter, etc.) have no monthly statement to pull --
       // clicking one of these used to open the generic statement-upload form and ask
       // for hand-typed numbers David would otherwise have to copy off the schedule
@@ -9864,7 +9905,7 @@
         <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
         <td>${statusBadge}</td>
         <td class="td-mono">${isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic${lastStmt ? ' (as of ' + esc(lastStmt.statement_date) + ')' : ''}</span>` : (isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—'))}</td>
-        <td>${splitBadge}${historyLink}</td>
+        <td>${splitBadge}${historyLink}${docsLink}</td>
         <td style="text-align:right">${balCell}</td>
       </tr>`;
     };
@@ -10177,6 +10218,152 @@ ${noActivityNote}
     }
     if (win && !win.closed) win.location.href = data.signedUrl;
     else window.open(data.signedUrl, '_blank');
+  }
+
+  // Generic per-loan document attachments (Aug 2026). Unlike the statement/schedule
+  // ingestion above, there's no structured data to compute here -- this is a straight
+  // "attach a file, remember what it is" record, so upload goes directly from the
+  // browser via the caller's own authenticated Supabase session (same bucket as
+  // statements, RLS-scoped to admin/manager/cpa read, admin/manager write) rather
+  // than through an edge function.
+  const LOAN_DOC_TYPE_LABELS = {
+    payoff_letter: 'Payoff letter',
+    transaction_history: 'Transaction history',
+    amortization_schedule: 'Amortization schedule',
+    agreement: 'Loan agreement',
+    correspondence: 'Correspondence',
+    other: 'Other',
+  };
+
+  function openLoanDocumentsModal(loanAccountId) {
+    const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
+    _loanDocsCurrentLoanId = loanAccountId;
+    _loanDocFile = null;
+    document.getElementById('loan-documents-title').textContent =
+      acct ? `Documents — ${acct.xero_account_name || acct.lender_account_number}` : 'Documents';
+    renderLoanDocumentsModalBody();
+    document.getElementById('modal-loan-documents').classList.add('open');
+  }
+  function closeLoanDocumentsModal() {
+    document.getElementById('modal-loan-documents').classList.remove('open');
+    _loanDocsCurrentLoanId = null;
+    _loanDocFile = null;
+  }
+
+  function renderLoanDocumentsModalBody() {
+    const body = document.getElementById('loan-documents-body');
+    if (!body || !_loanDocsCurrentLoanId) return;
+    const docs = _allLoanDocuments
+      .filter(d => d.loan_account_id === _loanDocsCurrentLoanId)
+      .slice()
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    const canWrite = currentUserRole === 'admin' || currentUserRole === 'manager';
+
+    const docRows = docs.length
+      ? docs.map(d => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--gray-100)">
+          <div style="min-width:0">
+            <span onclick="viewLoanDocument('${d.storage_path.replace(/'/g, "\\'")}')" style="font-size:13px;color:var(--accent);cursor:pointer;text-decoration:underline">${esc(d.title || LOAN_DOC_TYPE_LABELS[d.doc_type] || 'Document')}</span>
+            <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">${esc(LOAN_DOC_TYPE_LABELS[d.doc_type] || d.doc_type)} · ${d.created_at ? esc(d.created_at.slice(0, 10)) : ''}${d.notes ? ' · ' + esc(d.notes) : ''}</div>
+          </div>
+          ${canWrite ? `<span onclick="deleteLoanDocument('${d.id}')" style="font-size:12px;color:var(--red);cursor:pointer;white-space:nowrap;margin-left:12px">Remove</span>` : ''}
+        </div>`).join('')
+      : `<div style="color:var(--gray-400);font-size:13px;padding:16px 0;text-align:center">No documents on file for this loan yet.</div>`;
+
+    const uploadForm = canWrite ? `
+      <div class="form-section-head" style="margin-top:16px">Attach a document</div>
+      <div class="form-group">
+        <label class="form-label">File</label>
+        <input type="file" id="ld-file-input" class="form-input" onchange="onLoanDocFileSelected(event)">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <select class="form-select" id="ld-doc-type">
+            ${Object.entries(LOAN_DOC_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Title (optional)</label>
+          <input type="text" class="form-input" id="ld-title" placeholder="e.g. Payoff letter 5/20/2026">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes (optional)</label>
+        <input type="text" class="form-input" id="ld-notes" placeholder="Any context worth remembering">
+      </div>
+      <div id="ld-error" style="display:none;color:var(--red);font-size:12.5px;margin-top:4px"></div>
+      <button class="btn btn-primary" id="ld-submit-btn" style="margin-top:10px" onclick="submitLoanDocument()">Attach Document</button>
+    ` : '';
+
+    body.innerHTML = `<div>${docRows}</div>${uploadForm}`;
+  }
+
+  function onLoanDocFileSelected(event) {
+    _loanDocFile = event.target.files?.[0] || null;
+  }
+
+  async function submitLoanDocument() {
+    const errEl = document.getElementById('ld-error');
+    errEl.style.display = 'none';
+    const loanAccountId = _loanDocsCurrentLoanId;
+    const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
+    if (!acct || !_loanDocFile) {
+      errEl.textContent = 'Pick a file first.';
+      errEl.style.display = '';
+      return;
+    }
+    const docType = document.getElementById('ld-doc-type').value;
+    const title = document.getElementById('ld-title').value.trim();
+    const notes = document.getElementById('ld-notes').value.trim();
+
+    const btn = document.getElementById('ld-submit-btn');
+    btn.disabled = true; const origLabel = btn.textContent; btn.textContent = 'Uploading…';
+    try {
+      const safeName = _loanDocFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `documents/${acct.lender_account_number}/${Date.now()}_${safeName}`;
+      const { error: upErr } = await db.storage.from('loan-statements').upload(path, _loanDocFile, { contentType: _loanDocFile.type || 'application/octet-stream' });
+      if (upErr) throw new Error(upErr.message || 'Upload failed');
+      const { error: insErr } = await db.from('loan_documents').insert({
+        loan_account_id: loanAccountId,
+        doc_type: docType,
+        title: title || null,
+        storage_path: path,
+        notes: notes || null,
+        uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (insErr) throw new Error(insErr.message || 'Could not save the document record');
+      showToast('Document attached.', 'success');
+      await loadLoans();
+      openLoanDocumentsModal(loanAccountId);
+    } catch (e) {
+      errEl.textContent = e.message || 'Something went wrong.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false; btn.textContent = origLabel;
+    }
+  }
+
+  async function viewLoanDocument(path) {
+    const win = window.open('', '_blank');
+    const { data, error } = await db.storage.from('loan-statements').createSignedUrl(path, 300);
+    if (error || !data?.signedUrl) {
+      if (win && !win.closed) win.close();
+      showToast('Could not load file: ' + (error?.message || 'unknown error'), 'error');
+      return;
+    }
+    if (win && !win.closed) win.location.href = data.signedUrl;
+    else window.open(data.signedUrl, '_blank');
+  }
+
+  async function deleteLoanDocument(docId) {
+    if (currentUserRole !== 'admin' && currentUserRole !== 'manager') { showToast('Your account cannot remove documents.', 'error'); return; }
+    if (!confirm('Remove this document from the record? The file stays in storage but will no longer be listed here.')) return;
+    const { error } = await db.from('loan_documents').delete().eq('id', docId);
+    if (error) { showToast('Could not remove: ' + error.message, 'error'); return; }
+    showToast('Document removed.', 'success');
+    await loadLoans();
+    if (_loanDocsCurrentLoanId) renderLoanDocumentsModalBody();
   }
 
   // Default period for a schedule-sourced loan's "generate next split" modal: one
