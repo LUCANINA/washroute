@@ -8004,7 +8004,7 @@
       <div style="font-size:12px;color:var(--gray-400);white-space:nowrap">${esc(linkLabel)}</div>
     </div>`;
 
-    const lastStatement = [...(_allLoanStatements || [])].sort((a, b) => (a.statement_date < b.statement_date ? 1 : -1))[0];
+    const lastStatement = _loanStatementsToDate()[0];   // already-happened only -- see _loanStatementsToDate
     const lastStatementAcct = lastStatement ? (_allLoanAccounts || []).find(a => a.id === lastStatement.loan_account_id) : null;
     const lastPayroll = [...(_allPayrollImports || [])].sort((a, b) => (a.pay_period_end < b.pay_period_end ? 1 : -1))[0];
 
@@ -9225,19 +9225,46 @@
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
   }
 
+  // Every "most recent statement" read MUST go through this helper.
+  // loan_statements is not guaranteed to contain only things that have happened:
+  // Verdant Capital's entire 7-year amortization schedule was ingested as
+  // statement rows (70 of its 85 rows are dated after today), and EIDL SBA has a
+  // future-dated row too. A future row is a PROJECTION -- it must never win a
+  // "latest" pick, or a live loan reads as paid off. Returns newest-first
+  // (the source array is already sorted desc by statement_date), today-or-earlier
+  // only, optionally narrowed to one loan account.
+  function _loanStatementsToDate(accountId) {
+    const todayIso = today();   // Pacific YYYY-MM-DD via BIZ_TZ -- never
+                                // toISOString(), which rolls over after 5pm PT.
+    return (_allLoanStatements || []).filter(s =>
+      (accountId == null || s.loan_account_id === accountId) && s.statement_date <= todayIso);
+  }
+
   // Outstanding balance per loan, sourced from data loadLoans() already pulled --
   // no extra query. Statement-sourced loans (Ford Pro): most recent
   // loan_statements.principal_balance. Schedule-sourced loans (Dexter/PCV/Verdant/
-  // PayPal): the most recent loan_amortization_rows.balance whose row_date has
-  // actually happened -- schedules project future rows too, and a future row's
-  // balance isn't "outstanding" yet, it's projected. Returns null (never $0) when
-  // no statement or schedule has ever been pulled for a loan -- e.g. the paid-off
-  // flag-only rows (Aquarecycle, Dexter Loan 3, Ford Pro 8562) or PCV, whose
-  // schedule doesn't start until 9/1/2026 -- a real data gap, not a zero balance.
+  // PayPal): the most recent loan_amortization_rows.balance. Returns null (never
+  // $0) when no statement or schedule has ever been pulled for a loan -- e.g. the
+  // paid-off flag-only rows (Aquarecycle, Dexter Loan 3, Ford Pro 8562) or PCV,
+  // whose schedule doesn't start until 9/1/2026 -- a real data gap, not a zero
+  // balance.
+  //
+  // BOTH sources are filtered to rows that have actually happened (date <= today,
+  // Pacific). A future-dated row is a PROJECTION, not an outstanding balance.
+  // Session 196 bug: this guard was applied to loan_amortization_rows only, on the
+  // assumption that projected rows only ever land there. Verdant Capital's entire
+  // 7-year schedule had also been ingested into loan_statements (70 of its 85 rows
+  // are in the future), so the statement branch won and picked the 2032-06-10 row
+  // -- balance $0.00 -- making a live $248k loan read as paid off on the Loans
+  // summary, the All Loans tally and the Debt Schedule. Never assume a projected
+  // row can only exist in one table; filter by date wherever a "latest" row is
+  // chosen. (EIDL SBA had the same bug at $5 scale via a future-dated statement.)
   function _loanOutstandingBalance(a) {
-    const todayIso = new Date().toISOString().slice(0, 10);
-    const lastStmt = _allLoanStatements // pre-sorted desc by statement_date
-      .find(s => s.loan_account_id === a.id && s.principal_balance != null);
+    const todayIso = today();   // Pacific YYYY-MM-DD -- NOT toISOString(), which
+                                // rolls to tomorrow after 5pm PT and would let a
+                                // next-day projected row count as outstanding.
+    const lastStmt = _loanStatementsToDate(a.id)   // newest-first, already-happened only
+      .find(s => s.principal_balance != null);
     if (lastStmt) return { amount: Number(lastStmt.principal_balance), asOf: lastStmt.statement_date };
     const rows = _allLoanAmortRows
       .filter(r => r.loan_amortization_schedules?.loan_account_id === a.id && r.balance != null && r.row_date <= todayIso)
@@ -9855,7 +9882,7 @@
     // repeated text column would be. Account # stays per-row since two loans from
     // the same lender still need to be told apart at a glance.
     const loanRow = (a) => {
-      const lastStmt = _allLoanStatements.filter(s => s.loan_account_id === a.id)[0];
+      const lastStmt = _loanStatementsToDate(a.id)[0];   // already-happened only -- see _loanStatementsToDate
       const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === a.id);
       const lastSplit = splitsForLoan[0];
       const statusBadge = a.status === 'paid_off'
