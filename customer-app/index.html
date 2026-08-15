@@ -1779,11 +1779,36 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 /* ── SUPABASE ── */
-const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
-// Session 167 phase 8: Stripe publishable key for in-app Payment Element subscribe flow.
-// Same live key used by admin-dashboard. Publishable keys are SAFE to embed client-side.
-const STRIPE_PK = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
+/* ── ENV RESOLVER (staging vs prod) — WashRoute staging slice, Aug 2026 ──
+   Picks the backend by hostname. Every existing SUPA_URL / SUPA_KEY / STRIPE_PK
+   reference below is untouched — this only changes WHERE those consts point.
+   Anything that isn't an explicit staging host resolves to prod exactly as
+   before this change. */
+const _WR_ENV = (() => {
+  const h = location.hostname;
+  return (h === 'localhost' || h === '127.0.0.1' || h.startsWith('staging.')) ? 'staging' : 'production';
+})();
+const _WR_BACKENDS = {
+  production: {
+    url: 'https://umjpbuxrdydwejqtensq.supabase.co',
+    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY',
+    // Session 167 phase 8: Stripe publishable key for in-app Payment Element subscribe flow.
+    // Publishable keys are SAFE to embed client-side.
+    stripePk: 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B'
+  },
+  // TODO(staging Track A2/A3): fill in once the dedicated staging Supabase
+  // project + Stripe TEST-mode publishable key exist. Left obviously invalid
+  // on purpose — a staging host hit before A2 lands should fail loudly, never
+  // silently fall through to prod or use a live Stripe key.
+  staging: {
+    url: 'https://STAGING-NOT-YET-CONFIGURED.supabase.co',
+    key: 'STAGING-NOT-YET-CONFIGURED',
+    stripePk: 'STAGING-NOT-YET-CONFIGURED'
+  }
+};
+const SUPA_URL = _WR_BACKENDS[_WR_ENV].url;
+const SUPA_KEY = _WR_BACKENDS[_WR_ENV].key;
+const STRIPE_PK = _WR_BACKENDS[_WR_ENV].stripePk;
 const BIZ_TZ = 'America/Los_Angeles';
 // session 140 pt 3: cached sales tax rate (decimal). Loaded from
 // settings.sales_tax_rate inside loadServices(); defaults to Oakland CA

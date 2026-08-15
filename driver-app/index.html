@@ -1233,8 +1233,30 @@
 })();
 // ─────────────────────────────────────────────────────────────────────────
 
-const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+/* ── ENV RESOLVER (staging vs prod) — WashRoute staging slice, Aug 2026 ──
+   Picks the Supabase backend by hostname. Every existing SUPA_URL / SUPA_KEY
+   reference below is untouched — this only changes WHERE those two consts
+   point. Anything that isn't an explicit staging host resolves to prod
+   exactly as before this change. */
+const _WR_ENV = (() => {
+  const h = location.hostname;
+  return (h === 'localhost' || h === '127.0.0.1' || h.startsWith('staging.')) ? 'staging' : 'production';
+})();
+const _WR_BACKENDS = {
+  production: {
+    url: 'https://umjpbuxrdydwejqtensq.supabase.co',
+    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY'
+  },
+  // TODO(staging Track A2): fill in once the dedicated staging Supabase
+  // project exists. Left obviously invalid on purpose — a staging host hit
+  // before A2 lands should fail loudly, never silently fall through to prod.
+  staging: {
+    url: 'https://STAGING-NOT-YET-CONFIGURED.supabase.co',
+    key: 'STAGING-NOT-YET-CONFIGURED'
+  }
+};
+const SUPA_URL = _WR_BACKENDS[_WR_ENV].url;
+const SUPA_KEY = _WR_BACKENDS[_WR_ENV].key;
 const BIZ_TZ = 'America/Los_Angeles';
 // Session 147: internal admin↔driver chat hidden — team uses Slack. The DB
 // table (driver_messages), the realtime subscription, and the load function
