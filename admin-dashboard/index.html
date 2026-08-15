@@ -6211,13 +6211,15 @@
       url: 'https://umjpbuxrdydwejqtensq.supabase.co',
       key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY'
     },
-    // TODO(staging Track A2): fill in once the dedicated staging Supabase
-    // project exists. Left obviously invalid on purpose — if a staging host
-    // is ever hit before A2 lands, it should fail loudly (network/401
-    // error), never silently fall through to prod or vice versa.
+    // Staging Track A2/A5 (Aug 2026): points at the dedicated staging
+    // Supabase project (tnbngwnzsmonmkntjaon). Its schema mirrors
+    // production, all WashRoute edge functions are deployed, and every
+    // SMS/charge-sending function fail-closes via the wr_environment
+    // kill-switch (Track A3) since staging's settings.wr_environment is
+    // deliberately left unset. No real Stripe/Twilio secrets exist there.
     staging: {
-      url: 'https://STAGING-NOT-YET-CONFIGURED.supabase.co',
-      key: 'STAGING-NOT-YET-CONFIGURED'
+      url: 'https://tnbngwnzsmonmkntjaon.supabase.co',
+      key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuYm5nd256c21vbm1rbnRqYW9uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4MTE1NDYsImV4cCI6MjEwMjM4NzU0Nn0.fuP_JyE9PIzV3RWKlB-WsF2Py1pn917DbgSv2NZ-xF8'
     }
   };
   const SUPA_URL      = _WR_BACKENDS[_WR_ENV].url;

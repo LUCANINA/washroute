@@ -1796,14 +1796,21 @@ const _WR_BACKENDS = {
     // Publishable keys are SAFE to embed client-side.
     stripePk: 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B'
   },
-  // TODO(staging Track A2/A3): fill in once the dedicated staging Supabase
-  // project + Stripe TEST-mode publishable key exist. Left obviously invalid
-  // on purpose — a staging host hit before A2 lands should fail loudly, never
-  // silently fall through to prod or use a live Stripe key.
+  // Staging Track A2/A5 (Aug 2026): Supabase project filled in — schema
+  // mirrors production, edge functions deployed, wr_environment kill-switch
+  // (Track A3) fail-closes any real SMS/charge. stripePk is DELIBERATELY
+  // still left as an invalid placeholder: reusing the live Stripe
+  // publishable key here would violate the original intent of this
+  // resolver (never let staging use a live Stripe key, even though the
+  // kill-switch + missing secret key on staging's backend already block any
+  // real charge from completing). Get a Stripe TEST-mode publishable key
+  // from David before wiring up staging's subscribe/checkout flow — until
+  // then, the Payment Element on staging will fail loudly instead of
+  // silently working against a live key.
   staging: {
-    url: 'https://STAGING-NOT-YET-CONFIGURED.supabase.co',
-    key: 'STAGING-NOT-YET-CONFIGURED',
-    stripePk: 'STAGING-NOT-YET-CONFIGURED'
+    url: 'https://tnbngwnzsmonmkntjaon.supabase.co',
+    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuYm5nd256c21vbm1rbnRqYW9uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4MTE1NDYsImV4cCI6MjEwMjM4NzU0Nn0.fuP_JyE9PIzV3RWKlB-WsF2Py1pn917DbgSv2NZ-xF8',
+    stripePk: 'STAGING-STRIPE-TEST-KEY-NOT-YET-CONFIGURED'
   }
 };
 const SUPA_URL = _WR_BACKENDS[_WR_ENV].url;
