@@ -3231,9 +3231,17 @@
             <button class="section-tab active" id="bkvt-overview" onclick="switchBookkeepingView('overview')">Overview</button>
             <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
-            <button class="section-tab" id="bkvt-debtsched" onclick="switchBookkeepingView('debtsched')">Debt Schedule</button>
-            <button class="section-tab" id="bkvt-reconciliation" onclick="switchBookkeepingView('reconciliation')">Reconciliation</button>
           </div>
+          <!-- Session 213: Debt Schedule and Reconciliation folded into Loans (below) as a
+               toggle + section rather than separate top-level tabs -- David's tab-consolidation
+               request. Their render functions (renderDebtSchedule/loadReconciliation) are
+               unchanged and still fire on every bookkeeping page load, so this is a pure
+               relocation, not a data/logic change. -->
+          <style>
+            .loans-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 16px; }
+            .loans-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
+            .loans-subtoggle button.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+          </style>
 
           <!-- Overview — the CPA-centric landing view: everything needing a look,
                across both Loans and Payroll, in one glance, plus a jump-off point
@@ -3280,8 +3288,13 @@
             </div>
           </div>
 
-          <!-- Loans (session 205) -->
+          <!-- Loans (session 205; toggle + Reconciliation section added session 213) -->
           <div id="bk-view-loans" style="display:none">
+          <div class="loans-subtoggle">
+            <button id="loans-subtoggle-manage" class="active" onclick="switchLoansSubView('manage')">Manage</button>
+            <button id="loans-subtoggle-debtsched" onclick="switchLoansSubView('debtsched')">Debt Schedule</button>
+          </div>
+          <div id="loans-subview-manage">
           <div class="card" style="margin-bottom:20px">
             <div class="card-header">
               <div class="card-title">Loan Reconciliation</div>
@@ -3343,6 +3356,68 @@
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
+
+          <!-- Reconciliation (Aug 2026, moved under Loans session 213) — the month-end
+               tie-out that used to mean reading the balance sheet line by line. All the
+               checking happens server-side in the reconciliation-run edge function, which
+               writes reconciliation_runs + reconciliation_findings; this section only ever
+               displays those two tables, so what's shown here can never disagree with the
+               stored report it links to. -->
+          <div class="card" style="margin-top:20px">
+            <div class="card-header" style="padding:20px 24px">
+              <div style="flex:1">
+                <div class="card-title">Reconciliation</div>
+                <div class="card-sub" id="recon-lastrun">Loading…</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:10px">
+                <button class="btn btn-primary" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
+              </span>
+            </div>
+            <div id="recon-summary" style="padding:0 24px 20px"></div>
+          </div>
+          <div id="recon-findings"></div>
+          <div class="card" style="margin-top:20px">
+            <div class="card-header">
+              <div class="card-title">Past reports</div>
+              <div class="card-sub">Every completed check writes a full report. Click one to open it.</div>
+            </div>
+            <div id="recon-reports"></div>
+          </div>
+          </div><!-- /loans-subview-manage -->
+
+          <!-- Debt Schedule (added at David's request — a live, always-current version
+               of the manual spreadsheet he was maintaining by hand and re-checking
+               against the balance sheet every month. Reads the same _allLoanAccounts/
+               _allLoanStatements/_allLoanAmortRows globals loadLoans() already
+               populates — no separate query, so it can never drift from the Loans tab.
+               Present Balance uses the same _loanOutstandingBalance() helper the Loans
+               summary card uses. The "static" columns (original amount/date, rate,
+               maturity, security, category) live on loan_accounts and are edited via
+               the pencil icon — they rarely change, unlike balance/payment which
+               update automatically every time a statement is ingested. Folded under the
+               Loans Manage/Debt Schedule toggle session 213 -- was its own top-level tab. -->
+          <div id="loans-subview-debtsched" style="display:none">
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title">Debt Schedule</div>
+              <div class="card-sub">Present Balance updates automatically from the latest statement or amortization schedule on file. Original Amount, Rate, Maturity, and Security are set once per loan — click the pencil to edit or correct one.</div>
+            </div>
+            <div id="debtsched-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
+          </div>
+          <div class="card">
+            <div class="card-header" style="padding:20px 24px">
+              <div style="flex:1">
+                <div class="card-title">All Debt</div>
+                <div class="card-sub" id="debtsched-asof"></div>
+              </div>
+              <span style="display:flex;align-items:center;gap:10px">
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()">📄 Export PDF</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
+              </span>
+            </div>
+            <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
+          </div>
+          </div><!-- /loans-subview-debtsched -->
           </div><!-- /bk-view-loans -->
 
           <!-- Payroll (session 206) -->
@@ -3512,67 +3587,6 @@
             </div>
           </div>
           </div><!-- /bk-view-payroll -->
-
-          <!-- Debt Schedule (added at David's request — a live, always-current version
-               of the manual spreadsheet he was maintaining by hand and re-checking
-               against the balance sheet every month. Reads the same _allLoanAccounts/
-               _allLoanStatements/_allLoanAmortRows globals loadLoans() already
-               populates — no separate query, so it can never drift from the Loans tab.
-               Present Balance uses the same _loanOutstandingBalance() helper the Loans
-               summary card uses. The "static" columns (original amount/date, rate,
-               maturity, security, category) live on loan_accounts and are edited via
-               the pencil icon — they rarely change, unlike balance/payment which
-               update automatically every time a statement is ingested. -->
-          <div id="bk-view-debtsched" style="display:none">
-          <div class="card" style="margin-bottom:20px">
-            <div class="card-header">
-              <div class="card-title">Debt Schedule</div>
-              <div class="card-sub">Present Balance updates automatically from the latest statement or amortization schedule on file. Original Amount, Rate, Maturity, and Security are set once per loan — click the pencil to edit or correct one.</div>
-            </div>
-            <div id="debtsched-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
-          </div>
-          <div class="card">
-            <div class="card-header" style="padding:20px 24px">
-              <div style="flex:1">
-                <div class="card-title">All Debt</div>
-                <div class="card-sub" id="debtsched-asof"></div>
-              </div>
-              <span style="display:flex;align-items:center;gap:10px">
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()">📄 Export PDF</button>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
-              </span>
-            </div>
-            <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
-          </div>
-          </div><!-- /bk-view-debtsched -->
-
-          <!-- Reconciliation (Aug 2026) — the month-end tie-out that used to mean reading
-               the balance sheet line by line. All the checking happens server-side in the
-               reconciliation-run edge function, which writes reconciliation_runs +
-               reconciliation_findings; this tab only ever displays those two tables, so
-               what's shown here can never disagree with the stored report it links to. -->
-          <div id="bk-view-reconciliation" style="display:none">
-          <div class="card" style="margin-bottom:20px">
-            <div class="card-header" style="padding:20px 24px">
-              <div style="flex:1">
-                <div class="card-title">Reconciliation</div>
-                <div class="card-sub" id="recon-lastrun">Loading…</div>
-              </div>
-              <span style="display:flex;align-items:center;gap:10px">
-                <button class="btn btn-primary" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
-              </span>
-            </div>
-            <div id="recon-summary" style="padding:0 24px 20px"></div>
-          </div>
-          <div id="recon-findings"></div>
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">Past reports</div>
-              <div class="card-sub">Every completed check writes a full report. Click one to open it.</div>
-            </div>
-            <div id="recon-reports"></div>
-          </div>
-          </div><!-- /bk-view-reconciliation -->
         </div><!-- /page-bookkeeping -->
 
         <!-- Payroll Upload modal -->
@@ -7989,20 +8003,29 @@
   // Populated by loadReconciliation() — see the Reconciliation section below.
   let _reconRuns = [];
   let _reconFindings = [];
+  // Session 213: Debt Schedule and Reconciliation are no longer their own top-level
+  // bookkeeping tabs -- Debt Schedule is a toggle inside Loans (switchLoansSubView
+  // below), Reconciliation is a section within Loans' Manage view. Both still load
+  // their data eagerly whenever the bookkeeping page opens (loadLoans()/loadReconciliation()
+  // in the id==='bookkeeping' branch of showPage), so nothing here needed to change
+  // about when the data itself refreshes -- only where it's displayed.
+  let _loansActiveSubView = 'manage';
 
   function switchBookkeepingView(view) {
-    if (!['overview', 'loans', 'payroll', 'debtsched', 'reconciliation'].includes(view)) view = 'overview';
+    // Legacy redirect (session 213): 'debtsched' and 'reconciliation' used to be
+    // their own top-level tabs -- an old bookmark/link to #bookkeeping/debtsched
+    // or #bookkeeping/reconciliation should still land somewhere sensible instead
+    // of silently falling back to Overview.
+    if (view === 'debtsched') { _loansActiveSubView = 'debtsched'; view = 'loans'; }
+    if (view === 'reconciliation') view = 'loans';
+    if (!['overview', 'loans', 'payroll'].includes(view)) view = 'overview';
     _bookkeepingActiveTab = view;
     document.getElementById('bk-view-overview').style.display  = view === 'overview'  ? '' : 'none';
     document.getElementById('bk-view-loans').style.display     = view === 'loans'     ? '' : 'none';
     document.getElementById('bk-view-payroll').style.display   = view === 'payroll'   ? '' : 'none';
-    document.getElementById('bk-view-debtsched').style.display = view === 'debtsched' ? '' : 'none';
-    document.getElementById('bk-view-reconciliation').style.display = view === 'reconciliation' ? '' : 'none';
     document.getElementById('bkvt-overview').classList.toggle('active', view === 'overview');
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
-    document.getElementById('bkvt-debtsched').classList.toggle('active', view === 'debtsched');
-    document.getElementById('bkvt-reconciliation').classList.toggle('active', view === 'reconciliation');
 
     const ctaLabel = document.getElementById('topbar-cta-label');
     const ctaBtn   = document.getElementById('topbar-cta');
@@ -8011,9 +8034,22 @@
     else { ctaBtn.style.display = 'none'; }
 
     if (view === 'overview') renderBookkeepingOverview();
-    if (view === 'debtsched') renderDebtSchedule();
-    if (view === 'reconciliation') loadReconciliation();
+    if (view === 'loans') switchLoansSubView(_loansActiveSubView);
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
+  }
+
+  // Toggle between Loans' two sub-views: Manage (the day-to-day flag/review/post
+  // workflow, plus Reconciliation) and Debt Schedule (the read-only rollup report).
+  // Both subviews' underlying data is already loaded by loadLoans()/loadReconciliation()
+  // regardless of which is showing -- this only ever flips display:none, it never
+  // triggers a fetch, so switching back and forth is instant and can't show stale data.
+  function switchLoansSubView(sub) {
+    if (!['manage', 'debtsched'].includes(sub)) sub = 'manage';
+    _loansActiveSubView = sub;
+    document.getElementById('loans-subview-manage').style.display    = sub === 'manage'    ? '' : 'none';
+    document.getElementById('loans-subview-debtsched').style.display = sub === 'debtsched' ? '' : 'none';
+    document.getElementById('loans-subtoggle-manage').classList.toggle('active', sub === 'manage');
+    document.getElementById('loans-subtoggle-debtsched').classList.toggle('active', sub === 'debtsched');
   }
 
   // Sums whatever's already loaded into _allLoanSplits/_allPayrollImports —
@@ -8060,7 +8096,9 @@
       tile('Loan splits pending review', loanPendingCount, loanPendingCount ? '#d97706' : '#16a34a', 'Computed, waiting for approval', 'loans'),
       tile('Payroll periods needing review', payrollNeedsReview, payrollNeedsReview ? '#d97706' : '#16a34a', 'Uploaded and parsed, not yet confirmed', 'payroll'),
       tile('Payroll flags needing action', payrollFlagged, payrollFlagged ? '#dc2626' : '#16a34a', 'Unmatched employees or periods waiting on cash', 'payroll'),
-      tile('Reconciliation findings open', reconOpenCount, reconOpenCount ? '#dc2626' : '#16a34a', 'Caught by the last reconciliation check', 'reconciliation'),
+      // Session 213: Reconciliation is now a section inside Loans (not its own tab) --
+      // this tile still routes to 'loans' like the other loan-related tiles.
+      tile('Reconciliation findings open', reconOpenCount, reconOpenCount ? '#dc2626' : '#16a34a', 'Caught by the last reconciliation check', 'loans'),
     ];
     attnEl.innerHTML = tiles.join('');
 
