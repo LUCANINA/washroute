@@ -10065,24 +10065,68 @@
   // action makes sense for that item's kind -- reuses the existing Mark Resolved /
   // review-modal / push-fix flows unchanged, this only changed how items are gathered
   // and laid out, not what clicking them does.
+  // Toggles a card's hidden detail panel and flips its trigger button's label --
+  // one generic function shared by every attention-card kind so "Full detail" behaves
+  // identically everywhere on the page.
+  function _bkToggleAttnDetail(panelId, btnEl) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const isHidden = panel.style.display === 'none';
+    panel.style.display = isHidden ? '' : 'none';
+    if (btnEl) btnEl.textContent = isHidden ? 'Hide detail' : 'Full detail';
+  }
+
+  // What "Full detail" reveals, per item kind -- whatever's beyond the one-line
+  // summary that's always visible. Loan flags: the raw flagged_note (flag_summary is
+  // sometimes a shortened version). Split mismatches: the period/principal/interest
+  // breakdown. Reconciliation findings: the check_key tag, moved here (session 216)
+  // out of the always-visible card body -- it's implementation detail, not summary.
+  function _bkAttnDetailHtml(item) {
+    if (item.kind === 'loan_flag') {
+      const a = item.account;
+      return a.flagged_note ? `<div style="white-space:pre-wrap">${esc(a.flagged_note)}</div>` : '<div style="color:var(--gray-400)">No further detail on file.</div>';
+    }
+    if (item.kind === 'split_mismatch') {
+      const s = item.split;
+      const row = (label, val) => val != null ? `<div><span style="color:var(--gray-500)">${esc(label)}:</span> $${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>` : '';
+      return `<div style="display:flex;flex-direction:column;gap:2px">
+        <div><span style="color:var(--gray-500)">Period:</span> ${esc(s.period_label || '—')}</div>
+        ${row('Principal', s.principal_amount)}${row('Interest', s.interest_amount)}${row('Total', s.total_amount)}
+        ${s.review_notes ? `<div style="margin-top:4px;white-space:pre-wrap">${esc(s.review_notes)}</div>` : ''}
+      </div>`;
+    }
+    // recon_finding
+    const f = item.finding;
+    return `${item.tag ? `<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400)">${esc(item.tag)}</div>` : ''}
+      ${f?.proposed_action && f.proposed_action !== f.plain_english ? `<div style="margin-top:4px;white-space:pre-wrap">${esc(f.proposed_action)}</div>` : ''}`;
+  }
+
   function _bkLoanAttentionCard(item) {
     const dotColor = item.severityRank === 0 ? 'var(--red)' : 'var(--amber)';
     const amountColor = item.severityRank === 0 ? 'var(--red)' : 'var(--amber)';
     const amountHtml = item.amount != null
       ? `<div style="font-size:14.5px;font-weight:700;color:${amountColor};white-space:nowrap">$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`
       : '';
-    const tagHtml = item.tag ? `<div style="font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400);margin-top:6px">${esc(item.tag)}</div>` : '';
 
-    let actionsHtml = '';
+    const detailPanelId = 'attn-detail-' + item.key;
+    const detailToggleHtml = `<button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();_bkToggleAttnDetail('${detailPanelId}', this)">Full detail</button>`;
+    const detailPanelHtml = `<div id="${detailPanelId}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12.5px;color:var(--gray-600);width:100%">${_bkAttnDetailHtml(item)}</div>`;
+
+    // Session 216, per David's review of the mockup: the trigger action on every card
+    // -- Mark Resolved, Review split -- is now the same solid blue button style as the
+    // mockup showed, matching Full detail's ghost style next to it. Previously "Mark
+    // Resolved" (the trigger, not "Confirm Resolved" inside the form) was a ghost
+    // button -- easy to overlook next to the resolved-history text below it.
+    let primaryActionHtml = '';
     let cardClickAttr = '';
     if (item.kind === 'split_mismatch') {
       cardClickAttr = ` onclick="openLoanReviewModal('${item.split.id}')" style="cursor:pointer"`;
-      actionsHtml = `<button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanReviewModal('${item.split.id}')">Review split</button>`;
+      primaryActionHtml = `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanReviewModal('${item.split.id}')">Review split</button>`;
     } else if (item.kind === 'loan_flag') {
       const a = item.account;
-      actionsHtml =
+      primaryActionHtml =
         (a.flag_fixable ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : '') +
-        `<button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button>
+        `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button>
          <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;width:100%">
            <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
            <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
@@ -10095,7 +10139,7 @@
       // recon_finding -- no manual resolve exists for these (they clear on the next
       // check confirming the issue is gone, or stay pinned if a human wrote them up --
       // see reconciliation-run's pinned_note mechanism). Nothing to invent here.
-      actionsHtml = `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
+      primaryActionHtml = `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
     }
 
     return `<div class="loan-attn-card"${cardClickAttr} style="padding:14px 16px;border:1px solid var(--gray-100);border-radius:10px;margin:0 16px 10px">
@@ -10107,8 +10151,8 @@
             ${amountHtml}
           </div>
           <div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;line-height:1.5">${esc(item.explain)}</div>
-          ${tagHtml}
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${actionsHtml}</div>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${detailToggleHtml}${primaryActionHtml}</div>
+          ${detailPanelHtml}
         </div>
       </div>
     </div>`;
