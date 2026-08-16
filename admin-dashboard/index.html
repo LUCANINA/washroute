@@ -3232,6 +3232,7 @@
             <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
             <button class="section-tab" id="bkvt-debtsched" onclick="switchBookkeepingView('debtsched')">Debt Schedule</button>
+            <button class="section-tab" id="bkvt-reconciliation" onclick="switchBookkeepingView('reconciliation')">Reconciliation</button>
           </div>
 
           <!-- Overview — the CPA-centric landing view: everything needing a look,
@@ -3544,6 +3545,34 @@
             <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
           </div>
           </div><!-- /bk-view-debtsched -->
+
+          <!-- Reconciliation (Aug 2026) — the month-end tie-out that used to mean reading
+               the balance sheet line by line. All the checking happens server-side in the
+               reconciliation-run edge function, which writes reconciliation_runs +
+               reconciliation_findings; this tab only ever displays those two tables, so
+               what's shown here can never disagree with the stored report it links to. -->
+          <div id="bk-view-reconciliation" style="display:none">
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header" style="padding:20px 24px">
+              <div style="flex:1">
+                <div class="card-title">Reconciliation</div>
+                <div class="card-sub" id="recon-lastrun">Loading…</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:10px">
+                <button class="btn btn-primary" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
+              </span>
+            </div>
+            <div id="recon-summary" style="padding:0 24px 20px"></div>
+          </div>
+          <div id="recon-findings"></div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Past reports</div>
+              <div class="card-sub">Every completed check writes a full report. Click one to open it.</div>
+            </div>
+            <div id="recon-reports"></div>
+          </div>
+          </div><!-- /bk-view-reconciliation -->
         </div><!-- /page-bookkeeping -->
 
         <!-- Payroll Upload modal -->
@@ -7784,7 +7813,7 @@
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
     if (id === 'smsdelivery') loadSmsDelivery();
-    if (id === 'bookkeeping') { loadLoans(); loadPayroll(); switchBookkeepingView(_bookkeepingActiveTab || 'overview'); }
+    if (id === 'bookkeeping') { loadLoans(); loadPayroll(); loadReconciliation(); switchBookkeepingView(_bookkeepingActiveTab || 'overview'); }
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -7932,18 +7961,23 @@
   // links to — there's exactly one load path per data source, not a separate
   // one for the summary view.
   let _bookkeepingActiveTab = 'overview';
+  // Populated by loadReconciliation() — see the Reconciliation section below.
+  let _reconRuns = [];
+  let _reconFindings = [];
 
   function switchBookkeepingView(view) {
-    if (!['overview', 'loans', 'payroll', 'debtsched'].includes(view)) view = 'overview';
+    if (!['overview', 'loans', 'payroll', 'debtsched', 'reconciliation'].includes(view)) view = 'overview';
     _bookkeepingActiveTab = view;
     document.getElementById('bk-view-overview').style.display  = view === 'overview'  ? '' : 'none';
     document.getElementById('bk-view-loans').style.display     = view === 'loans'     ? '' : 'none';
     document.getElementById('bk-view-payroll').style.display   = view === 'payroll'   ? '' : 'none';
     document.getElementById('bk-view-debtsched').style.display = view === 'debtsched' ? '' : 'none';
+    document.getElementById('bk-view-reconciliation').style.display = view === 'reconciliation' ? '' : 'none';
     document.getElementById('bkvt-overview').classList.toggle('active', view === 'overview');
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
     document.getElementById('bkvt-debtsched').classList.toggle('active', view === 'debtsched');
+    document.getElementById('bkvt-reconciliation').classList.toggle('active', view === 'reconciliation');
 
     const ctaLabel = document.getElementById('topbar-cta-label');
     const ctaBtn   = document.getElementById('topbar-cta');
@@ -7953,6 +7987,7 @@
 
     if (view === 'overview') renderBookkeepingOverview();
     if (view === 'debtsched') renderDebtSchedule();
+    if (view === 'reconciliation') loadReconciliation();
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
   }
 
@@ -7984,6 +8019,10 @@
     // it yet" workflow state) since a flag means something actually needs a
     // decision, not just a first look.
     const payrollFlagged = (_allPayrollImports || []).filter(i => i.attention_flag).length;
+    // Open error/warn findings from the last reconciliation check. Reads the same
+    // _reconFindings array the Reconciliation tab renders from — loadReconciliation()
+    // re-renders this view when it finishes, so the tile fills in on arrival.
+    const reconOpenCount = (_reconFindings || []).filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).length;
 
     const tile = (label, n, color, sub, view) => `<div style="flex:1;min-width:180px;background:${color}0d;border:1px solid ${color}33;border-radius:10px;padding:14px 16px;cursor:pointer" onclick="switchBookkeepingView('${view}')">
       <div style="font-size:12px;color:var(--gray-500);font-weight:600;margin-bottom:4px">${esc(label)}</div>
@@ -7996,6 +8035,7 @@
       tile('Loan splits pending review', loanPendingCount, loanPendingCount ? '#d97706' : '#16a34a', 'Computed, waiting for approval', 'loans'),
       tile('Payroll periods needing review', payrollNeedsReview, payrollNeedsReview ? '#d97706' : '#16a34a', 'Uploaded and parsed, not yet confirmed', 'payroll'),
       tile('Payroll flags needing action', payrollFlagged, payrollFlagged ? '#dc2626' : '#16a34a', 'Unmatched employees or periods waiting on cash', 'payroll'),
+      tile('Reconciliation findings open', reconOpenCount, reconOpenCount ? '#dc2626' : '#16a34a', 'Caught by the last reconciliation check', 'reconciliation'),
     ];
     attnEl.innerHTML = tiles.join('');
 
@@ -9271,6 +9311,175 @@
       .sort((x, y) => (x.row_date < y.row_date ? 1 : -1));
     if (rows.length) return { amount: Number(rows[0].balance), asOf: rows[0].row_date };
     return null;
+  }
+
+  // ── Reconciliation ────────────────────────────────────────────────────────
+  // A read-only view over the reconciliation-run edge function's output. The
+  // function performs every check server-side (it's the only thing allowed to
+  // write reconciliation_runs / reconciliation_findings); nothing here re-derives
+  // a number, so the tab can't drift from the report it links to. Rate-limited to
+  // one run per 10 minutes server-side — a 429 comes back as a plain message.
+
+  const RECON_SEVERITY_ORDER = { error: 0, warn: 1, info: 2 };
+  const RECON_SEVERITY_COLOR = { error: 'var(--red)', warn: 'var(--amber)', info: 'var(--accent)' };
+  const RECON_RESOLVED_WINDOW_DAYS = 30;
+
+  async function loadReconciliation() {
+    try {
+      const [runsRes, findingsRes] = await Promise.all([
+        db.from('reconciliation_runs').select('*').order('started_at', { ascending: false }).limit(10),
+        db.from('reconciliation_findings').select('*').in('status', ['open', 'resolved']).order('last_seen_at', { ascending: false }),
+      ]);
+      if (runsRes.error) throw runsRes.error;
+      if (findingsRes.error) throw findingsRes.error;
+      _reconRuns = runsRes.data || [];
+      // Severity first, then most-recently-seen -- PostgREST can't order by the
+      // severity enum in the order we want ('error' before 'warn' before 'info'),
+      // so the secondary sort comes from the query and the primary one from here.
+      _reconFindings = (findingsRes.data || []).slice().sort((a, b) => {
+        const sa = RECON_SEVERITY_ORDER[a.severity] ?? 9;
+        const sb = RECON_SEVERITY_ORDER[b.severity] ?? 9;
+        if (sa !== sb) return sa - sb;
+        return (a.last_seen_at || '') < (b.last_seen_at || '') ? 1 : -1;
+      });
+    } catch (e) {
+      _reconRuns = [];
+      _reconFindings = [];
+      showToast('Could not load reconciliation data: ' + (e.message || 'unknown error'), 'error');
+    }
+    renderReconciliation();
+    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+  }
+
+  function renderReconciliation() {
+    const lastEl = document.getElementById('recon-lastrun');
+    const sumEl  = document.getElementById('recon-summary');
+    const findEl = document.getElementById('recon-findings');
+    const repEl  = document.getElementById('recon-reports');
+    if (!lastEl || !sumEl || !findEl || !repEl) return;
+
+    const newest = _reconRuns[0] || null;
+    // "Complete" = finished and didn't error out. The counts strip comes from the
+    // newest complete run, not simply the newest, so a failed attempt doesn't blank
+    // out the last good numbers.
+    const lastComplete = _reconRuns.find(r => r.finished_at && r.status !== 'failed') || null;
+
+    // ── Last run line ──
+    if (!newest) {
+      lastEl.textContent = 'No check has been run yet.';
+    } else {
+      const at = fmtTime(newest.started_at);
+      lastEl.textContent = 'Last run ' + fmtDate(newest.started_at) + (at ? ' at ' + at : '') +
+        ', covering ' + fmtDate(newest.period_from) + ' → ' + fmtDate(newest.period_to) +
+        ' · ' + (newest.loans_checked ?? 0) + ' loans';
+    }
+
+    // ── Summary strip ──
+    if (!newest) {
+      sumEl.innerHTML = `<div style="font-size:13px;color:var(--gray-500)">Run a check to see whether the books tie out.</div>`;
+    } else if (newest.status === 'failed') {
+      sumEl.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--red)">Last check failed: ${esc(newest.error_message || 'unknown error')}</div>`;
+    } else if (!lastComplete) {
+      sumEl.innerHTML = `<div style="font-size:13px;color:var(--gray-500)">Check in progress…</div>`;
+    } else {
+      const openCount = _reconFindings.filter(f => f.status === 'open').length;
+      sumEl.innerHTML =
+        `<div style="font-size:14px;color:var(--gray-800)"><b>${lastComplete.findings_new ?? 0} new · ${lastComplete.findings_open ?? 0} still open · ${lastComplete.findings_resolved ?? 0} resolved</b></div>` +
+        (openCount === 0
+          ? `<div style="font-size:13px;font-weight:600;color:var(--green);margin-top:6px">Everything reconciles. No open findings.</div>`
+          : '');
+    }
+
+    // ── Findings ──
+    const findingCard = (f, resolved) => `<div style="border-left:3px solid ${resolved ? 'var(--green)' : (RECON_SEVERITY_COLOR[f.severity] || 'var(--accent)')};background:var(--gray-50);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px">
+      <div style="font-size:13.5px;font-weight:600;color:var(--gray-800)">${esc(f.title || 'Untitled finding')}</div>
+      ${f.plain_english ? `<div style="font-size:12.5px;color:var(--gray-500);margin-top:4px">${esc(f.plain_english)}</div>` : ''}
+      <div style="font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400);margin-top:6px">${esc(f.check_key || '')}</div>
+    </div>`;
+
+    const section = (title, sub, items, resolved) => items.length ? `<div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div class="card-title">${esc(title)}</div>
+        <div class="card-sub">${esc(sub)}</div>
+      </div>
+      <div style="padding:16px 20px">${items.map(f => findingCard(f, resolved)).join('')}</div>
+    </div>` : '';
+
+    const needsAttention = _reconFindings.filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn'));
+    const forInformation = _reconFindings.filter(f => f.status === 'open' && f.severity === 'info');
+    const resolvedCutoff = Date.now() - RECON_RESOLVED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const resolvedRecent = _reconFindings.filter(f => f.status === 'resolved' && f.resolved_at && new Date(f.resolved_at).getTime() >= resolvedCutoff);
+
+    findEl.innerHTML =
+      section('Needs attention', 'Something is off and needs a decision', needsAttention, false) +
+      section('For information', 'Worth knowing about, nothing to do', forInformation, false) +
+      section('Resolved recently', 'Cleared in the last ' + RECON_RESOLVED_WINDOW_DAYS + ' days', resolvedRecent, true);
+
+    // ── Past reports ── (runs that never wrote a report have nothing to open)
+    const reported = _reconRuns.filter(r => r.report_path);
+    repEl.innerHTML = reported.length
+      ? reported.map(r => {
+          const n = r.findings_new ?? 0;
+          const detail = (n ? `${n} new finding${n === 1 ? '' : 's'}` : 'no new findings') + (r.run_by ? ' · ' + esc(r.run_by) : '');
+          return `<div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openReconReport(${escAttrJSArg(r.report_path)})">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${esc(fmtDate(r.started_at))} · ${esc(r.mode || '')}</div>
+              <div style="font-size:12px;color:var(--gray-500)">${detail}</div>
+            </div>
+            <div style="font-size:12px;color:var(--gray-400);white-space:nowrap">Open report →</div>
+          </div>`;
+        }).join('')
+      : `<div style="padding:16px 20px;font-size:13px;color:var(--gray-500)">No reports yet.</div>`;
+  }
+
+  // Kicks off a new incremental check. The edge function does its own role check
+  // (admin/manager/cpa) off the caller's JWT, so this must send the real session
+  // token -- the anon key alone would come back unauthorized.
+  async function runReconciliationCheck() {
+    const btn = document.getElementById('recon-run-btn');
+    const origLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      if (!session?.access_token) { showToast('Your session has expired — please sign in again.', 'error'); return; }
+      const res = await fetch(`${SUPA_URL}/functions/v1/reconciliation-run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ mode: 'incremental', run_by: currentUserDisplayName || currentUserFirstName || 'Admin' }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        showToast(json.error || 'A check was run in the last 10 minutes — try again shortly.', 'error');
+        return;
+      }
+      if (!res.ok || json.ok === false) {
+        showToast('Check failed: ' + (json.error || `HTTP ${res.status}`), 'error');
+        return;
+      }
+      const n = json.findings_new ?? 0;
+      showToast(`Check complete — ${n} new finding${n === 1 ? '' : 's'}`, 'success');
+      await loadReconciliation();
+    } catch (e) {
+      showToast('Check failed: ' + (e.message || 'unknown error'), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origLabel || 'Run Reconciliation Check'; }
+    }
+  }
+
+  // Reports live in the private loan-statements bucket. Same pattern as
+  // viewLoanDocument(): open a blank tab synchronously, then point it at the
+  // signed URL, so the popup blocker doesn't eat it across the async gap.
+  async function openReconReport(path) {
+    if (!path) { showToast('No report on record for this run.', 'error'); return; }
+    const win = window.open('', '_blank');
+    const { data, error } = await db.storage.from('loan-statements').createSignedUrl(path, 300);
+    if (error || !data?.signedUrl) {
+      if (win && !win.closed) win.close();
+      showToast('Could not open report: ' + (error?.message || 'unknown error'), 'error');
+      return;
+    }
+    if (win && !win.closed) win.location.href = data.signedUrl;
+    else window.open(data.signedUrl, '_blank');
   }
 
   // ── Debt Schedule ─────────────────────────────────────────────────────────
