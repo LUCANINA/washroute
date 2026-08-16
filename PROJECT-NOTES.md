@@ -1,5 +1,15 @@
 # WashRoute — Project Notes
-*Last updated: August 16, 2026 — Session 217 — **Made the Needs Attention summary a true one line (not a paragraph) and cut Full Detail panel text by 80%+, using plain natural language — David caught both problems from a live screenshot of the "Rapid Credit Line" card.**
+*Last updated: August 16, 2026 — Session 217 — **Added a "Hide closed loans" checkbox to Loans' "All Loans" table.**
+
+**What David asked for.** Off a screenshot of the reconciliation summary line, he flagged a separate, unrelated thing while he was there: *"ALL LOANS: I'm on the fence about displaying closed loans. Add 'hide closed loans' check box or something similar."*
+
+**What changed.** A checkbox next to "Payment Report" / "Refresh" in the All Loans card header, wired to a new `_bkToggleHideClosedLoans(checked)` / `_bkHideClosedLoans()` pair. Checking it filters `renderLoansTable()`'s lender groups and row list down to loans where `status !== 'paid_off'`; the badge switches from "N loans" to "N of M loans" and the footer note adds "K closed loans hidden" so it's clear something's filtered, not that loans went missing. Unchecking restores everything. If every loan for every visible lender happens to be closed, the table shows a dedicated empty state ("All N loans are closed — uncheck to see them") instead of going blank with no explanation. State persists via `sessionStorage` (`wr-loans-hide-closed`) the same way the settings-nav collapse state already does — survives switching tabs within a session, resets on next login. **Defaults to unchecked** (nothing hidden) so today's view doesn't silently change for anyone who hasn't touched the box — this was framed as "on the fence," not a request to hide them by default, so I left the current behavior as the default and made hiding opt-in.
+
+**QA'd offline**: 4 mock loans across 3 lenders (2 active, 2 paid off) — confirmed unchecked shows all 4 with badge "4 loans", checking shows 2 with badge "2 of 4 loans" and the "2 closed loans hidden" footer note, unchecking restores all 4, and a mock all-closed scenario shows the dedicated empty state rather than an empty table.
+
+⚠️ **Not yet live** — committed locally, needs `git push` from David's terminal. Six sessions (213–217, this one being the 6th commit) of Bookkeeping work stacked up locally, unpushed.
+
+*Previously: August 16, 2026 — Session 217 — **Made the Needs Attention summary a true one line (not a paragraph) and cut Full Detail panel text by 80%+, using plain natural language — David caught both problems from a live screenshot of the "Rapid Credit Line" card.**
 
 **What David asked for.** *"by summary, I mean 1 line. As for the DETAIL view there's still way too much unecessary text. Reduce by at least 80%, using natural language whenever possible."* His screenshots showed the Rapid Credit Line card's "summary" running to several sentences, and its Full Detail panel dumping three verbatim historical investigation write-ups — "STRUCTURAL MISMATCH + GAP EXPLAINED (session 205 cont....)" plus two "ADDENDUM" sections, each stamped with old session numbers and dates. Real, accurate record of the investigation — but not something a CPA-facing summary card should show.
 
