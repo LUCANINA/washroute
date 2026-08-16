@@ -598,8 +598,20 @@ async function handle(req: Request): Promise<Response> {
       }, { onConflict: 'fingerprint' })
     }
 
-    // Anything previously open that this run did NOT re-find is resolved.
-    const resolvedNow = (existing || []).filter(f => f.status === 'open' && !seenFps.has(f.fingerprint))
+    // Anything previously open that this run did NOT re-find is resolved —
+    // UNLESS the finding's own date falls before this run's pulled window, in
+    // which case it wasn't re-examined at all and "not re-found" just means
+    // "out of range", not "fixed". v5 marked E-Transit 4140's 2026-04-17 lumped
+    // payment "resolved" on 2026-08-16 for exactly this reason: the 120-day
+    // floor put windowFrom at 2026-04-18, one day after the payment, so the
+    // check never even looked at it. A finding that falls off the edge of the
+    // window must stay open, not get swept into "resolved" by default.
+    const resolvedNow = (existing || []).filter(f => {
+      if (f.status !== 'open' || seenFps.has(f.fingerprint)) return false
+      const d = f.detail?.date ?? f.detail?.anchor_date
+      if (d && d < windowFrom) return false
+      return true
+    })
     for (const f of resolvedNow) {
       await supa.from('reconciliation_findings').update({
         status: 'resolved', resolved_at: new Date().toISOString(), resolved_run_id: run.id,
