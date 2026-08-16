@@ -1,5 +1,19 @@
 # WashRoute — Project Notes
-*Last updated: August 16, 2026 — Session 217 — **No code change: diagnosed the Debt Schedule's "1 Needs attention" flag on EIDL SBA Loan — confirmed expected behavior, not a bug.**
+*Last updated: August 16, 2026 — Session 217 — **Fixed misleading copy under Payroll's "Needs Attention" — it described only two of the three things it actually shows, which made "1 flagged" next to "0 Needs Review" read like the same "which number is real" contradiction the Loans page had.**
+
+**What David asked.** *"Payroll shows 1 item flagged but 0 Needs Review."*
+
+**These two numbers were never supposed to match — but nothing on screen said so.** "Needs Review" (the top tile) only counts payroll imports with `status === 'parsed'` — pay periods you've uploaded but haven't confirmed yet. "Needs Attention" / "N flagged" (`renderPayrollAttention()`) is `_allPayrollImports.filter(i => i.attention_flag).length + _allPayrollNotices.length` — period-level flags (unmapped employees, insufficient cash, a failed Xero check) PLUS **standing notices that aren't tied to any pay period at all**. The one flagged item David saw ("$4,268.72 sitting in '171 Direct Payroll Taxes' that nobody has ever reallocated") is one of those standing notices — a leftover GL balance from before this system existed, with an "ask your CPA" badge, not a `parsed` import waiting on him. It was never going to show up in "Needs Review" because it isn't a pay period.
+
+**The actual bug: the subtitle under "Needs Attention" only described two of the three categories it renders** ("unmatched employees and periods that can't post yet because the cash hasn't landed in Xero") — it never mentioned standing notices exist as a category, so a flagged item that's neither of the two things the copy promised looked unexplained, and the "1 flagged / 0 Needs Review" pairing read as a contradiction instead of two different, correctly-computed numbers. This is the same failure shape as the Loans "7 open / 11 still open" bug from session 215, just in copy instead of in a stored count — nothing to reconcile numerically, just missing framing.
+
+**Fix.** Updated the subtitle to name all three categories and explicitly note the relationship to "Needs Review": *"Checked automatically every 2 hours — unmatched employees, periods waiting on cash to land in Xero, and standing bookkeeping notices that aren't tied to any pay period. Separate from 'Needs Review' above, which only counts periods you haven't confirmed yet."* No logic changed — `renderPayrollAttention()` and `renderPayrollSummary()` were already computing the right numbers; the fix is purely making the copy match what's actually shown.
+
+**QA'd offline**: confirmed the new subtitle text renders correctly on `#payroll-attention-card`.
+
+⚠️ **Not yet live** — committed locally, needs `git push` from David's terminal.
+
+*Previously: August 16, 2026 — Session 217 — **No code change: diagnosed the Debt Schedule's "1 Needs attention" flag on EIDL SBA Loan — confirmed expected behavior, not a bug.**
 
 **What David saw.** A red "1 Needs attention" tile and an amber "⚠ as of 2024-03-31" flag on the EIDL SBA Loan row in Debt Schedule.
 
