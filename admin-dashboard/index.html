@@ -10020,27 +10020,48 @@
   // two systems to safely collapse them into one card, and silently hiding one felt like
   // a worse failure mode than an occasional loan showing two related cards. Revisit if
   // that turns out to be noisy in practice -- see PROJECT-NOTES session 214.
+  // Clamps arbitrary card text down to one real line (~100 chars), preferring a
+  // clean sentence break over a mid-word cut. Session 217: David pointed out that
+  // "summary" meant a literal single line, and the underlying flag_summary/
+  // flagged_note/plain_english text isn't guaranteed to stay short forever (it's
+  // written by hand, in the moment, by whoever investigated the issue) -- so the
+  // card itself enforces the length instead of trusting the data to behave. Full,
+  // untruncated text always lives in item.rawExplain and shows via the title
+  // tooltip and/or the Full detail panel, so nothing is ever silently lost.
+  function _bkOneLine(text, maxLen) {
+    maxLen = maxLen || 130;
+    if (!text) return '';
+    const t = String(text).trim();
+    const firstSentence = t.match(/^[^.!?]*[.!?]/);
+    if (firstSentence && firstSentence[0].trim().length <= maxLen) return firstSentence[0].trim();
+    if (t.length <= maxLen) return t;
+    return t.slice(0, maxLen - 1).replace(/\s+\S*$/, '') + '…';
+  }
+
   function _bkLoanAttentionItems() {
     const items = [];
     (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status !== 'resolved').forEach(a => {
+      const raw = a.flag_summary || a.flagged_note;
       items.push({
         key: 'flag-' + a.id, kind: 'loan_flag', severityRank: 0, account: a,
         title: a.xero_account_name || a.lender_account_number || 'Unknown loan',
-        explain: a.flag_summary || a.flagged_note, amount: null, tag: null,
+        explain: _bkOneLine(raw), rawExplain: raw, amount: null, tag: null,
       });
     });
     (_allLoanSplits || []).filter(s => s.status === 'needs_attention').forEach(s => {
+      const raw = s.review_notes || 'Statement and amortization schedule disagree on this period\'s split.';
       items.push({
         key: 'split-' + s.id, kind: 'split_mismatch', severityRank: 0, split: s,
         title: (s.loan_accounts?.xero_account_name || 'Unknown loan') + ' — ' + s.period_label,
-        explain: s.review_notes || 'Statement and amortization schedule disagree on this period\'s split.',
+        explain: _bkOneLine(raw), rawExplain: raw,
         amount: s.total_amount != null ? Number(s.total_amount) : null, tag: 'mismatch',
       });
     });
     (_reconFindings || []).filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).forEach(f => {
+      const raw = f.plain_english || '';
       items.push({
         key: 'recon-' + f.id, kind: 'recon_finding', severityRank: f.severity === 'error' ? 0 : 1, finding: f,
-        title: f.title || 'Untitled finding', explain: f.plain_english || '', amount: null, tag: f.check_key || null,
+        title: f.title || 'Untitled finding', explain: _bkOneLine(raw), rawExplain: raw, amount: null, tag: f.check_key || null,
       });
     });
     items.sort((a, b) => a.severityRank - b.severityRank);
@@ -10084,7 +10105,15 @@
   function _bkAttnDetailHtml(item) {
     if (item.kind === 'loan_flag') {
       const a = item.account;
-      return a.flagged_note ? `<div style="white-space:pre-wrap">${esc(a.flagged_note)}</div>` : '<div style="color:var(--gray-400)">No further detail on file.</div>';
+      // Session 217: show the full flag_summary only if the one-line card clipped
+      // it, then the note -- both are meant to already be short, natural-language
+      // text (David's "reduce by 80%, natural language" request applied to the
+      // underlying data, not just the display), so this is a small safety net for
+      // whenever a future note runs long, not the primary way detail gets shortened.
+      const parts = [];
+      if (a.flag_summary && a.flag_summary !== item.explain) parts.push(`<div style="white-space:pre-wrap">${esc(a.flag_summary)}</div>`);
+      if (a.flagged_note) parts.push(`<div style="white-space:pre-wrap${parts.length ? ';margin-top:8px' : ''}">${esc(a.flagged_note)}</div>`);
+      return parts.length ? parts.join('') : '<div style="color:var(--gray-400)">No further detail on file.</div>';
     }
     if (item.kind === 'split_mismatch') {
       const s = item.split;
@@ -10095,9 +10124,12 @@
         ${s.review_notes ? `<div style="margin-top:4px;white-space:pre-wrap">${esc(s.review_notes)}</div>` : ''}
       </div>`;
     }
-    // recon_finding
+    // recon_finding — plain_english is usually already short, but if the one-line
+    // card clipped it, show the full version here so nothing's lost.
     const f = item.finding;
-    return `${item.tag ? `<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400)">${esc(item.tag)}</div>` : ''}
+    const fullExplain = f?.plain_english || '';
+    return `${fullExplain && fullExplain !== item.explain ? `<div style="white-space:pre-wrap">${esc(fullExplain)}</div>` : ''}
+      ${item.tag ? `<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400);margin-top:${fullExplain && fullExplain !== item.explain ? '6px' : '0'}">${esc(item.tag)}</div>` : ''}
       ${f?.proposed_action && f.proposed_action !== f.plain_english ? `<div style="margin-top:4px;white-space:pre-wrap">${esc(f.proposed_action)}</div>` : ''}`;
   }
 
@@ -10150,7 +10182,7 @@
             <div class="td-name">${esc(item.title)}</div>
             ${amountHtml}
           </div>
-          <div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;line-height:1.5">${esc(item.explain)}</div>
+          <div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(item.rawExplain || item.explain)}">${esc(item.explain)}</div>
           <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${detailToggleHtml}${primaryActionHtml}</div>
           ${detailPanelHtml}
         </div>
