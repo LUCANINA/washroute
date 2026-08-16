@@ -1,4 +1,18 @@
 # WashRoute — Project Notes
+
+> **⚠️ Bookkeeping module split out (session 217).** Loans, Payroll, and
+> Reconciliation (the "Bookkeeping" tabs in admin-dashboard) now have their
+> own notes file, **`PROJECT-NOTES-BOOKKEEPING.md`**, and their own skill,
+> **`washroute-bookkeeping`** — different risk profile (double-entry
+> correctness, Xero sync idempotency) needs different guardrails, and
+> mixing it into this file bloated the context loaded for ordinary laundry
+> work. Sessions 212 (cont. 2) through 217 below were **copied, not
+> moved**, into the new file — nothing here was deleted, so this file
+> remains the complete historical record. **Starting session 218, new
+> Bookkeeping-module work is logged ONLY in PROJECT-NOTES-BOOKKEEPING.md,
+> not here.** If you're working on Loans/Payroll/Reconciliation, load
+> `washroute-bookkeeping` instead of (or in addition to) this file.
+
 *Last updated: August 16, 2026 — Session 217 — **Added a "Flagged" tile to Payroll's own summary strip so the same number reads the same way on Overview and on Payroll itself.**
 
 **What David asked.** After the copy fix and the Overview undercount fix, he pointed out the deeper problem: *"That's confusing because we're using tiles differently from overview page to Payroll page. Suggest a better way."* Fair — Overview presents every number the same way (4 flat, same-size, same-style tiles), but Payroll's own page split the identical information into two different components: a 3-tile workflow strip (Needs Review / Reviewed / Posted to Xero — mutually exclusive stages) sitting above a completely separately-styled Needs Attention card with a small red badge chip. The flagged count Overview shows as a tile wasn't a tile anywhere on Payroll's own page at all.
