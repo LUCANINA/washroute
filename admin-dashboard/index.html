@@ -9449,11 +9449,22 @@
     } else if (!lastComplete) {
       sumEl.innerHTML = `<div style="font-size:13px;color:var(--gray-500)">Check in progress…</div>`;
     } else {
-      const openCount = _reconFindings.filter(f => f.status === 'open').length;
+      // Session 215: dropped "N still open" from this line -- it came straight from
+      // reconciliation_runs.findings_open, a count the edge function stores at ALL
+      // severities (error + warn + info). The Needs Attention badge right above this
+      // only counts error/warn (plus loan flags and split mismatches it knows nothing
+      // about), so the two numbers were computed by different rules and could -- and
+      // did -- disagree (David saw "7 open" next to "11 still open" and had no way to
+      // know why). "New" and "resolved" are legitimately different information (what
+      // changed on the last check, not a second "how many need attention" total), so
+      // those stay. If the open count matters, the badge above is the one number that
+      // means "needs attention right now" -- this line is now purely about the last
+      // check's own delta.
+      const reconOpenNeedsAttention = _reconFindings.filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).length;
       sumEl.innerHTML =
-        `<div style="font-size:14px;color:var(--gray-800)"><b>${lastComplete.findings_new ?? 0} new · ${lastComplete.findings_open ?? 0} still open · ${lastComplete.findings_resolved ?? 0} resolved</b></div>` +
-        (openCount === 0
-          ? `<div style="font-size:13px;font-weight:600;color:var(--green);margin-top:6px">Everything reconciles. No open findings.</div>`
+        `<div style="font-size:14px;color:var(--gray-800)"><b>${lastComplete.findings_new ?? 0} new · ${lastComplete.findings_resolved ?? 0} resolved</b> since the last check</div>` +
+        (reconOpenNeedsAttention === 0
+          ? `<div style="font-size:13px;font-weight:600;color:var(--green);margin-top:6px">No open reconciliation findings.</div>`
           : '');
     }
 
