@@ -5,3 +5,8 @@
 --   3. session_196_staff_read_subscriptions
 -- See PROJECT-NOTES.md session 196 for the full writeup. Full function bodies live
 -- in the Supabase migration history; this file is the index/pointer.
+
+-- Session 213 (part 2) — Known Issue #35, admin refund path.
+-- Applied via Supabase MCP: session_213_record_order_refund_rpc
+-- Plus a one-time backfill of 87 orders, snapshot in
+-- _archive._refund_state_backfill_20260816. Edge function: refund-charge v39.
