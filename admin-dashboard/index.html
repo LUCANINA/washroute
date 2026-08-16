@@ -8092,9 +8092,11 @@
     // own "Needs Attention" badge (which sums both), but this Overview tile said
     // "0" -- so a real finding was invisible from the screen David is most likely
     // to check first. Same bug class as the pre-214 Loans/Reconciliation split:
-    // one source counted a superset the other silently dropped. Now both read the
-    // same total.
-    const payrollFlagged = (_allPayrollImports || []).filter(i => i.attention_flag).length + (_allPayrollNotices || []).length;
+    // one source counted a superset the other silently dropped. Now reads the
+    // same shared helper (_pkFlaggedCount, defined near renderPayrollAttention)
+    // that Payroll's own summary strip and Needs Attention badge both use --
+    // one number, one place it's computed, three places it's displayed.
+    const payrollFlagged = _pkFlaggedCount();
 
     const tile = (label, n, color, sub, view) => `<div style="flex:1;min-width:180px;background:${color}0d;border:1px solid ${color}33;border-radius:10px;padding:14px 16px;cursor:pointer" onclick="switchBookkeepingView('${view}')">
       <div style="font-size:12px;color:var(--gray-500);font-weight:600;margin-bottom:4px">${esc(label)}</div>
@@ -8270,6 +8272,18 @@
     return `${days} day${days === 1 ? '' : 's'} ago`;
   }
 
+  // Session 217: the ONE place "how many payroll things are flagged" is computed
+  // -- per-import attention_flag rows (unmapped employees, waiting on cash, a
+  // failed Xero check) plus standing, not-tied-to-any-pay-period notices (like
+  // the $4,268.72 account-171 finding). Overview's tile, this page's own summary
+  // strip, and the Needs Attention badge all call this instead of each keeping
+  // their own copy of the math -- same fix shape as _bkLoanAttentionItems() for
+  // Loans in session 214, applied here after David pointed out Payroll's tiles
+  // told a different visual story than Overview's for the exact same number.
+  function _pkFlaggedCount() {
+    return (_allPayrollImports || []).filter(i => i.attention_flag).length + (_allPayrollNotices || []).length;
+  }
+
   function renderPayrollAttention() {
     const card = document.getElementById('payroll-attention-card');
     const el = document.getElementById('payroll-attention-list');
@@ -8279,7 +8293,7 @@
 
     const flagged = _allPayrollImports.filter(i => i.attention_flag);
     const notices = _allPayrollNotices || [];
-    const totalCount = flagged.length + notices.length;
+    const totalCount = _pkFlaggedCount();
 
     if (badge) {
       if (totalCount) { badge.textContent = `${totalCount} flagged`; badge.style.display = ''; }
@@ -8345,10 +8359,21 @@
     const needsReview = _allPayrollImports.filter(i => i.status === 'parsed').length;
     const reviewed = _allPayrollImports.filter(i => i.status === 'reviewed').length;
     const posted = _allPayrollImports.filter(i => i.status === 'posted').length;
+    // Session 217: David pointed out that this page presented the exact same
+    // "how many payroll things are flagged" number Overview shows as a same-style
+    // tile completely differently -- only as a small red badge on the Needs
+    // Attention card lower down, with nothing in this top strip to match against.
+    // Adding it here, same visual language as the other three (and same red/
+    // green-when-clear coloring Overview's tile uses), so the number reads the
+    // same way no matter which screen you're looking at. The Needs Attention
+    // card below is unchanged -- it's still where you go to see WHAT the flags
+    // are, this tile just states the total up top like its siblings do.
+    const flaggedCount = _pkFlaggedCount();
     const unmatchedNames = new Set(_allPayrollLines.filter(l => !l.department_key && l.line_type !== 'reimbursement_only').map(l => l.raw_full_name));
     el.innerHTML = card('Needs Review', needsReview, '#d97706', 'Uploaded and parsed — waiting for you to confirm the breakdown') +
       card('Reviewed', reviewed, '#2563eb', 'Confirmed, ready to post to Xero — open it and use Preview & Post to Xero') +
       card('Posted to Xero', posted, '#16a34a', 'Journal posted') +
+      card('Flagged', flaggedCount, flaggedCount ? '#dc2626' : '#16a34a', 'Unmatched employees, periods waiting on cash, or standing bookkeeping notices — see Needs Attention below') +
       (unmatchedNames.size ? card('Unmatched Employees', unmatchedNames.size, '#dc2626', "Names on a payroll report that don't match anyone in the department mapping below") : '');
   }
 

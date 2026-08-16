@@ -1,5 +1,17 @@
 # WashRoute — Project Notes
-*Last updated: August 16, 2026 — Session 217 — **Fixed a real gap, not just copy: Bookkeeping Overview's "Payroll flags needing action" tile was silently undercounting standing notices, including the $4,268.72 account-171 finding — invisible from the one screen David is most likely to check first.**
+*Last updated: August 16, 2026 — Session 217 — **Added a "Flagged" tile to Payroll's own summary strip so the same number reads the same way on Overview and on Payroll itself.**
+
+**What David asked.** After the copy fix and the Overview undercount fix, he pointed out the deeper problem: *"That's confusing because we're using tiles differently from overview page to Payroll page. Suggest a better way."* Fair — Overview presents every number the same way (4 flat, same-size, same-style tiles), but Payroll's own page split the identical information into two different components: a 3-tile workflow strip (Needs Review / Reviewed / Posted to Xero — mutually exclusive stages) sitting above a completely separately-styled Needs Attention card with a small red badge chip. The flagged count Overview shows as a tile wasn't a tile anywhere on Payroll's own page at all.
+
+**Options presented, David chose:** add a 4th "Flagged" tile to Payroll's top strip, same visual language (colored number, red-when-nonzero/green-when-clear) as the other three and as Overview's own tile — over combining Loans+Payroll into fewer Overview cards, or a label-only rename with no layout change.
+
+**What changed.** New shared helper `_pkFlaggedCount()` — the ONE place "how many payroll things are flagged" gets computed (per-import `attention_flag` rows + standing `_allPayrollNotices`), same fix shape as `_bkLoanAttentionItems()` for Loans in session 214. `renderPayrollSummary()`'s top strip now shows **Needs Review / Reviewed / Posted to Xero / Flagged**, using the same helper the Needs Attention badge and Overview's tile already call. The Needs Attention card underneath is unchanged — it's still where you go to see *what* the flags are; the new tile just states the same total up top, matching its siblings, instead of only appearing as a badge on a different card lower down. The pre-existing "Unmatched Employees" tile (a finer-grained diagnostic — which specific names aren't mapped, not the same thing as the flagged total) is untouched and still only shows when non-zero.
+
+**QA'd offline**: 2 posted periods (no per-import flags) + 1 standing notice — confirmed Payroll's summary strip, its Needs Attention badge, and Overview's tile all now read "1," where before this change only two of those three did.
+
+⚠️ **Not yet live** — committed locally, needs `git push` from David's terminal. This is now nine sessions/commits (213–217) of Bookkeeping work stacked up locally.
+
+*Previously: August 16, 2026 — Session 217 — **Fixed a real gap, not just copy: Bookkeeping Overview's "Payroll flags needing action" tile was silently undercounting standing notices, including the $4,268.72 account-171 finding — invisible from the one screen David is most likely to check first.**
 
 **What David asked.** After the previous fix (clarifying the Payroll subtitle), he pushed further: *"the missallocated $4,268.72 is still an important find. Where could we place that?"* — right question, because the honest answer was that it was under-surfaced, not just under-explained.
 
