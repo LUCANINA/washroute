@@ -31706,7 +31706,7 @@ ${oneCopy}
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
       _procSiteApply(db.from('orders')
-        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id, customer_id,
+        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id, site_id, customer_id,
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
                  pickup_address_id, delivery_address_id,
                  customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, address_cache, addresses(id, line1, city)),
@@ -31749,7 +31749,7 @@ ${oneCopy}
 
   async function loadIntakeCol() {
     const { data } = await _procSiteApply(db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id,
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id, site_id,
                stripe_payment_intent_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                actual_pickup_at, pickup_address_id, delivery_address_id,
@@ -31885,7 +31885,7 @@ ${oneCopy}
     // Fresh-fetch the order so bags/notes/dates are always current
     // (admin may have changed them in the order panel since the proc queue last loaded)
     const { data: freshOrder } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
@@ -31913,15 +31913,42 @@ ${oneCopy}
     // Session 167: load subscription + plan for subscriber orders so the
     // intake UI computes overage from the plan (100 lbs cap, $2.75/lb) rather
     // than the service defaults (25 lbs/bag, $3/lb). Mirrors the DB trigger.
+    // Session 196: resolve the subscription from the ORDER, not from the customer's
+    // CURRENT pricelist + an active-only status filter. orders.subscription_id is set
+    // by trg_aa_link_subscription_on_order at booking time and is what
+    // apply_subscription_usage_fn actually bills against - it is the authority on
+    // whether this order is priced against a plan. The old customer-based lookup was
+    // wrong two ways:
+    //   * A subscription that cancels at period end flips the customer's pricelist
+    //     back to 'Delivery' AND its own status to 'cancelled'. An order booked while
+    //     the plan was live but weighed after it lapsed then found no subscription,
+    //     so the panel priced it PAY-AS-YOU-GO ($3/lb above 25 lbs PER BAG) on top of
+    //     the $0/bag subscription base - worst of both models. Sani Bee #12465 was
+    //     charged $21 for an order that sat entirely inside her paid 100 lb allowance.
+    //   * .eq('status','active') excluded 'past_due' and 'paused' subscriptions that
+    //     link_subscription_on_order_fn explicitly ACCEPTS, so the app and the DB
+    //     disagreed about who counts as a subscriber.
+    // link_subscription_on_order_fn now strips any pay-as-you-go 'overage' line from a
+    // subscription order as a DB-level backstop, but the panel must still show the
+    // launderer the correct number before they save.
     procSubscription = null;
-    if (order.customers?.pricelist === 'Subscription') {
-      const { data: subRow } = await db.from('subscriptions')
-        .select('id, usage_lbs_this_period, status, current_period_end, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)')
-        .eq('customer_id', order.customers.id)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    {
+      const _subSel = 'id, usage_lbs_this_period, status, current_period_end, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)';
+      let subRow = null;
+      if (order.subscription_id) {
+        ({ data: subRow } = await db.from('subscriptions')
+          .select(_subSel)
+          .eq('id', order.subscription_id)
+          .maybeSingle());
+      } else if (order.customers?.pricelist === 'Subscription') {
+        ({ data: subRow } = await db.from('subscriptions')
+          .select(_subSel)
+          .eq('customer_id', order.customers.id)
+          .in('status', ['active', 'past_due', 'paused'])   // must match link_subscription_on_order_fn
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle());
+      }
       if (subRow?.subscription_plans) procSubscription = subRow;
     }
     // Prefill weight if the order already has one (e.g. moved back from Cleaning);

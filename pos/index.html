@@ -2551,6 +2551,10 @@
     'Charge': 'Cobrar',
     'Charge $': 'Cobrar $',
     'Weight': 'Peso',
+    // Session 196 - subscription intake pricing
+    'Plan allowance left': 'Saldo del plan',
+    'Subscription overage': 'Excedente de suscripcion',
+    'Billed automatically when the order is marked ready': 'Se cobra automaticamente cuando el pedido se marca listo',
     'Enter weight': 'Ingresar peso',
     'Quantity': 'Cantidad',
     'lb': 'lb',
@@ -4253,7 +4257,7 @@
       // The badge in the card render distinguishes walk-in counter-pickups
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id, pickup_window_start, delivery_window_start, pickup_run_id, delivery_run_id')
+        .select('id, order_number, status, source, site_id, customer_id, service_id, subscription_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id, pickup_window_start, delivery_window_start, pickup_run_id, delivery_run_id')
         // Session 156: include 'folding' so bags stay visible through the
         // folding stage. Earlier filter missed it — when an admin assigned
         // a launderer, the bag advanced processing→folding and silently
@@ -4683,6 +4687,9 @@
   // ───────────────────────────────────────────────────────────────
   let _posIntakeOrder = null;
   let _posIntakeSvc   = null;
+  // Session 196: the subscription (+ plan) this order is billed against, or null.
+  // Subscription orders are priced from a POOLED monthly allowance, never per bag.
+  let _posIntakeSub   = null;
 
   async function openPosIntake(orderId) {
     const order = (queueOrders || []).find(o => o.id === orderId);
@@ -4698,9 +4705,29 @@
     if (svcErr || !svc) {
       showToast(t('Service config missing — use admin to intake this order'), 'error');
       _posIntakeOrder = null;
+      _posIntakeSub = null;
       return;
     }
     _posIntakeSvc = svc;
+
+    // Session 196: subscription customers are NOT priced per bag. Their plan includes a
+    // pooled monthly weight allowance (100 lbs) and charges overage at the PLAN's rate
+    // ($2.75/lb) on weight above what is left in that pool - not the per-bag pay-as-you-go
+    // rule (25 lbs per bag, then $3.00/lb). This panel had no idea subscriptions existed,
+    // so it billed the per-bag rule on top of the $0/bag subscription base: Amy Cummings
+    // #10580 was charged a $90 pay-as-you-go overage on top of the correct $495 plan
+    // overage the DB trigger added, and paid $585 instead of $495.
+    // The order's own subscription_id is the authority (set by
+    // trg_aa_link_subscription_on_order), so a plan that lapses between booking and
+    // intake still prices correctly.
+    _posIntakeSub = null;
+    if (order.subscription_id) {
+      const { data: subRow } = await db.from('subscriptions')
+        .select('id, usage_lbs_this_period, status, subscription_plans(name, weight_limit_lbs, overage_price_per_lb)')
+        .eq('id', order.subscription_id)
+        .maybeSingle();
+      if (subRow?.subscription_plans) _posIntakeSub = subRow;
+    }
 
     // Populate the panel
     document.getElementById('posIntakeTitle').textContent = `${t('Intake order')} #${order.order_number}`;
@@ -4729,7 +4756,7 @@
   // plus an overage band when weight exceeds bags × lbs_per_bag.
   //
   // Returns { base, baseLabel, overage, overageLbs, overageRate, overageLabel? }.
-  function _computeIntakePrice(svc, weight, bags) {
+  function _computeIntakePrice(svc, weight, bags, sub) {
     const pricingType = svc?.pricing_type || 'per_bag';
     const basePrice   = parseFloat(svc?.base_price || 0);
     const ovgRate     = parseFloat(svc?.overage_rate_per_lb || 3);
@@ -4750,13 +4777,46 @@
     }
 
     // per_bag (default + legacy)
-    const base       = Math.round(bags * basePrice * 100) / 100;
+    const base = Math.round(bags * basePrice * 100) / 100;
+    const baseLabel = `${name} · ${bags} bag${bags === 1 ? '' : 's'} × $${basePrice.toFixed(2)}`;
+
+    // Session 196: SUBSCRIPTION branch. Weight above the plan's REMAINING pooled
+    // allowance is billed by the DB trigger apply_subscription_usage_fn as a
+    // `lb_overage` line at the plan's rate when the order goes ready_for_delivery -
+    // exactly as the admin intake panel has done since session 168. So we return
+    // overage: 0 here (nothing pay-as-you-go is ever persisted for a subscriber) and
+    // expose the plan figures separately so the attendant still SEES what is coming.
+    // link_subscription_on_order_fn strips any stray 'overage' line as a DB backstop.
+    const plan = sub && sub.subscription_plans;
+    if (plan) {
+      const cap       = parseFloat(plan.weight_limit_lbs || 0);
+      const usagePre  = parseFloat(sub.usage_lbs_this_period || 0);
+      const planRate  = parseFloat(plan.overage_price_per_lb || 0);
+      const remaining = Math.max(0, cap - usagePre);
+      const planOverageLbs = Math.max(0, (weight || 0) - remaining);
+      return {
+        pricingType: 'per_bag',
+        isSubscription: true,
+        base,
+        baseLabel,
+        overage: 0,
+        overageLbs: 0,
+        overageRate: ovgRate,
+        planName: plan.name || 'Subscription',
+        planRemainingLbs: remaining,
+        planOverageLbs,
+        planOverageRate: planRate,
+        planOverage: Math.round(planOverageLbs * planRate * 100) / 100,
+      };
+    }
+
     const overageLbs = Math.max(0, (weight || 0) - bags * lbsPerBag);
     const overage    = Math.round(overageLbs * ovgRate * 100) / 100;
     return {
       pricingType: 'per_bag',
+      isSubscription: false,
       base,
-      baseLabel: `${name} · ${bags} bag${bags === 1 ? '' : 's'} × $${basePrice.toFixed(2)}`,
+      baseLabel,
       overage,
       overageLbs,
       overageRate: ovgRate,
@@ -4770,7 +4830,7 @@
     const weight = parseFloat(document.getElementById('posIntakeWeight').value) || 0;
     const bags   = parseInt(document.getElementById('posIntakeBags').value, 10) || 0;
 
-    const p = _computeIntakePrice(_posIntakeSvc, weight, bags);
+    const p = _computeIntakePrice(_posIntakeSvc, weight, bags, _posIntakeSub);
 
     // Preserve any non-intake line items already on the order (delivery_fee,
     // same_day_surcharge, prior addons). The intake replaces base + overage
@@ -4794,6 +4854,15 @@
       ${p.overage > 0 ? `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--amber-700,#b45309)">
         <span>${esc(p.overageLabel)}</span>
         <span>${fmt(p.overage)}</span>
+      </div>` : ''}
+      ${p.isSubscription ? `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--gray-600)">
+        <span>${esc(t('Plan allowance left'))}</span>
+        <span>${p.planRemainingLbs.toFixed(1)} ${esc(t('lbs'))}</span>
+      </div>` : ''}
+      ${p.isSubscription && p.planOverage > 0 ? `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--amber-700,#b45309)">
+        <span>${esc(t('Subscription overage'))} · ${p.planOverageLbs.toFixed(1)} ${esc(t('lbs'))} × $${p.planOverageRate.toFixed(2)}/lb<br>
+          <span style="font-size:11px;opacity:.75">${esc(t('Billed automatically when the order is marked ready'))}</span></span>
+        <span>${fmt(p.planOverage)}</span>
       </div>` : ''}
       ${preserved.map(li => `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--gray-600)">
         <span>${esc(li.label || li.type)}</span>
@@ -4832,7 +4901,7 @@
     // Session 156: pricing-type aware computation. Per-lb services
     // (Commercial, HCEB, Retail) charge weight × base_price; per-bag
     // services (Delivery $59/bag) charge bags × base_price + overage.
-    const p = _computeIntakePrice(_posIntakeSvc, weight, bags);
+    const p = _computeIntakePrice(_posIntakeSvc, weight, bags, _posIntakeSub);
 
     const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
     const preserved = existing.filter(li => li.type !== 'base' && li.type !== 'overage');
@@ -4905,6 +4974,7 @@
     closeAll();
     _posIntakeOrder = null;
     _posIntakeSvc = null;
+    _posIntakeSub = null;
     const btn = document.getElementById('posIntakeConfirmBtn');
     if (btn) { btn.disabled = false; btn.textContent = t('⚖️ Save & Start Processing'); }
   }

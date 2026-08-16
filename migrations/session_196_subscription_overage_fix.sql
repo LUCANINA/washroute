@@ -1,0 +1,7 @@
+-- Session 196 — Subscription customers charged pay-as-you-go weight overage.
+-- Applied via Supabase MCP as three migrations, recorded here for the repo:
+--   1. session_196_strip_paygo_overage_on_subscription_orders
+--   2. session_196_fix_null_billing_status_skips_subscription_normalization
+--   3. session_196_staff_read_subscriptions
+-- See PROJECT-NOTES.md session 196 for the full writeup. Full function bodies live
+-- in the Supabase migration history; this file is the index/pointer.
