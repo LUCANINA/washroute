@@ -1,5 +1,13 @@
 # WashRoute — Project Notes
-*Last updated: August 16, 2026 — Session 217 — **Added a "Hide closed loans" checkbox to Loans' "All Loans" table.**
+*Last updated: August 16, 2026 — Session 217 — **No code change: diagnosed the Debt Schedule's "1 Needs attention" flag on EIDL SBA Loan — confirmed expected behavior, not a bug.**
+
+**What David saw.** A red "1 Needs attention" tile and an amber "⚠ as of 2024-03-31" flag on the EIDL SBA Loan row in Debt Schedule.
+
+**Diagnosis.** `_loanOutstandingBalance()` only ever uses a statement dated today-or-earlier (deliberately — see the `_loanStatementsToDate` comment referencing a session 196 bug where a future-dated row displayed as a live balance). EIDL SBA's most recent *past*-dated statement is from 2024-03-31, past the 45-day staleness window (`DEBT_SCHED_STALE_DAYS`), so it's flagged. There IS a newer statement on file — `SBA_EIDL_Statement_2026_Aug_1083169107.pdf`, uploaded 2026-08-05, balance $960,005 — but it's dated **2026-08-25**, 9 days in the future relative to today, so the guard correctly declines to use it yet.
+
+**Resolution — confirmed with David: option 1.** The 2026-08-25 date is genuinely what's on the SBA statement (their billing-cycle-end convention), not a data-entry typo. No fix needed — the flag clears itself automatically once that date passes (in ~9 days, first render on/after 2026-08-25). Logging this so a future session doesn't re-diagnose the same non-issue: **a loan can show "stale" for a few days right after a fresh statement is uploaded, if the lender dates statements at the end of the period they cover rather than the day they're issued.** That's the freshness guard working as intended, not new data going missing.
+
+*Previously: August 16, 2026 — Session 217 — **Added a "Hide closed loans" checkbox to Loans' "All Loans" table.**
 
 **What David asked for.** Off a screenshot of the reconciliation summary line, he flagged a separate, unrelated thing while he was there: *"ALL LOANS: I'm on the fence about displaying closed loans. Add 'hide closed loans' check box or something similar."*
 
