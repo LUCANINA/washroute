@@ -1,5 +1,17 @@
 # WashRoute — Project Notes
-*Last updated: August 16, 2026 — Session 217 — **Fixed misleading copy under Payroll's "Needs Attention" — it described only two of the three things it actually shows, which made "1 flagged" next to "0 Needs Review" read like the same "which number is real" contradiction the Loans page had.**
+*Last updated: August 16, 2026 — Session 217 — **Fixed a real gap, not just copy: Bookkeeping Overview's "Payroll flags needing action" tile was silently undercounting standing notices, including the $4,268.72 account-171 finding — invisible from the one screen David is most likely to check first.**
+
+**What David asked.** After the previous fix (clarifying the Payroll subtitle), he pushed further: *"the missallocated $4,268.72 is still an important find. Where could we place that?"* — right question, because the honest answer was that it was under-surfaced, not just under-explained.
+
+**What was actually wrong.** Overview's `payrollFlagged` count (`renderBookkeepingOverview()`) only read `_allPayrollImports.filter(i => i.attention_flag).length` — the per-period flags (unmapped employees, waiting-on-cash, failed Xero checks). It never included `_allPayrollNotices`, the standing, not-tied-to-any-pay-period items — which is exactly where the account-171 finding lives. The Payroll tab's own badge (`renderPayrollAttention()`) already summed both (`flagged.length + notices.length`), so it correctly showed "1 flagged" — but Overview's tile said "0", using a narrower definition of the same thing with no indication anything was excluded. Same failure shape as the pre-session-214 Loans/Reconciliation split: one place counts a superset, another silently counts a subset, and whichever screen you happen to look at first tells you a different story. David only caught it because he happened to be on the Payroll tab already.
+
+**Fix.** `payrollFlagged` now adds `(_allPayrollNotices || []).length`, same total the Payroll page badge already used. Also updated the tile's sub-label from "Unmatched employees or periods waiting on cash" to "...or standing bookkeeping notices" so the description matches what's actually counted (same fix shape as the Payroll subtitle earlier this session). No new UI, no new placement needed — the notice was always meant to be part of this number; it just wasn't getting there.
+
+**QA'd offline**: one mock posted-and-clean payroll import + one standing notice — confirmed both the Payroll tab's badge and Overview's tile now read "1" (previously Overview would have read "0").
+
+⚠️ **Not yet live** — committed locally, needs `git push` from David's terminal.
+
+*Previously: August 16, 2026 — Session 217 — **Fixed misleading copy under Payroll's "Needs Attention" — it described only two of the three things it actually shows, which made "1 flagged" next to "0 Needs Review" read like the same "which number is real" contradiction the Loans page had.**
 
 **What David asked.** *"Payroll shows 1 item flagged but 0 Needs Review."*
 

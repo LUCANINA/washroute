@@ -8084,7 +8084,17 @@
     // himself. Kept separate from payrollNeedsReview (routine "hasn't looked at
     // it yet" workflow state) since a flag means something actually needs a
     // decision, not just a first look.
-    const payrollFlagged = (_allPayrollImports || []).filter(i => i.attention_flag).length;
+    //
+    // Session 217 fix: this used to count only per-import attention_flag rows,
+    // missing _allPayrollNotices entirely -- standing, not-tied-to-any-pay-period
+    // items like "$4,268.72 sitting in 171 Direct Payroll Taxes, never
+    // reallocated." That notice was real and already showing on the Payroll tab's
+    // own "Needs Attention" badge (which sums both), but this Overview tile said
+    // "0" -- so a real finding was invisible from the screen David is most likely
+    // to check first. Same bug class as the pre-214 Loans/Reconciliation split:
+    // one source counted a superset the other silently dropped. Now both read the
+    // same total.
+    const payrollFlagged = (_allPayrollImports || []).filter(i => i.attention_flag).length + (_allPayrollNotices || []).length;
 
     const tile = (label, n, color, sub, view) => `<div style="flex:1;min-width:180px;background:${color}0d;border:1px solid ${color}33;border-radius:10px;padding:14px 16px;cursor:pointer" onclick="switchBookkeepingView('${view}')">
       <div style="font-size:12px;color:var(--gray-500);font-weight:600;margin-bottom:4px">${esc(label)}</div>
@@ -8096,7 +8106,7 @@
       tile('Loan flags needing action', loanActionCount, loanActionCount ? '#dc2626' : '#16a34a', 'Flagged loans, split mismatches, and reconciliation findings', 'loans'),
       tile('Loan splits ready to post', loanPendingCount, loanPendingCount ? '#d97706' : '#16a34a', 'Computed, waiting for approval', 'loans'),
       tile('Payroll periods needing review', payrollNeedsReview, payrollNeedsReview ? '#d97706' : '#16a34a', 'Uploaded and parsed, not yet confirmed', 'payroll'),
-      tile('Payroll flags needing action', payrollFlagged, payrollFlagged ? '#dc2626' : '#16a34a', 'Unmatched employees or periods waiting on cash', 'payroll'),
+      tile('Payroll flags needing action', payrollFlagged, payrollFlagged ? '#dc2626' : '#16a34a', 'Unmatched employees, periods waiting on cash, or standing bookkeeping notices', 'payroll'),
     ];
     attnEl.innerHTML = tiles.join('');
 
