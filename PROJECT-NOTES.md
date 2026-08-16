@@ -1,5 +1,26 @@
 # WashRoute — Project Notes
-*Last updated: August 16, 2026 — Session 213 — **Subscription customers were being charged pay-as-you-go weight overage. Two customers hit it; root cause fixed in the DB plus both intake apps.***
+*Last updated: August 16, 2026 — Session 212 (cont. 2) — **Reconciliation Check went live and needed four rounds of tuning against real data. Engine is now v5, and its source is FINALLY IN THE REPO at `supabase/functions/reconciliation-run/index.ts` (commit `b88514a`) — it was deploy-only until now. Re-deploy from that file; do not rewrite it.**
+
+The first real click produced **251 findings, every one of them wrong.** Each round taught something worth keeping:
+
+⚠️ **v2 — a truncated Xero pull is worse than no pull at all.** The window resolved to 19 months because the earliest lender anchor across ALL loans set the start date (EIDL holds a 2024 statement). `fetchPaged` caps at 25 pages / 2,500 records and pulls oldest-first, so everything after mid-2025 was silently never fetched. The engine then walked every balance back through transactions that weren't there and reported all 22 loans as disagreeing with their lender — by exactly the payments it hadn't pulled. Fixes: **throws** on hitting the page cap instead of returning partial data; pulls **one month at a time** (~400 txns, cap unreachable); window **floored at 120 days**; `balance_vs_lender` **skips anchors older than the pulled window**. The design doc already said "never report a reconciliation from partial data" and the code didn't enforce it — **put invariants in code, not prose.**
+
+⚠️ **v3 — "a dead entry exists" is not evidence of anything.** Stripe Capital had **16 VOIDED bank transactions on 2026-08-04** alone (payout-sync retries) plus one live one, and `non_live_counted` fired once per dead entry. Rewritten to test the thing that actually matters: **do we record MORE payments for a date than Xero has live entries?** One finding per date. Also skipped `ingestion_method='automatic'` in `lumped_payment` — Stripe Capital repays by straight principal deduction from each payout with no interest to split, so ~30 daily payouts were flagged as "unsplit".
+
+⚠️ **v4 — an amortization schedule IS a lender document.** `REAL_ANCHOR_SOURCES` only listed statement-table sources, so Dexter 2, PCV, Verdant and PayPal 2 were told they had "no lender statement on file at all" and had "never been checked against anything outside Xero" — flatly untrue; Dexter 2 had been reconciled against its own schedule the day before, to the penny. Anchors now merge `loan_statements` **and** `loan_amortization_rows`, newest-first. Added an honest message for the future-dated-only case (EIDL).
+
+⚠️ **v5 — severity calibration + two copy bugs.** A paid-off loan's closing payment is legitimately all principal (Aquarecycle's $7,984.52 payoff was flagged as "missed"); automatic loans have no statement to chase; `future_dated_rows` read `future[future.length-1]` on a **newest-first** array and so called the NEAREST future date "the furthest" (Verdant runs to 2032, it said 2026-09-10) and pasted Verdant's explanation onto every loan. `future_dated_rows` → `info`, `stale_anchor` → `info` under a year. **"Needs attention" must mean a decision is needed, not merely that something is imperfect.**
+
+Findings + runs were wiped between rounds; the baseline run `cb9430ff-c54e-44cd-adff-cabeef0682d0` is preserved — **do not delete it**, incremental runs walk forward from its verified checkpoint.
+
+**START HERE NEXT SESSION: David has not yet re-run on v5** (14 findings on v4, expect ~8). Three look GENUINELY REAL:
+1. **PayPal 2 — Xero $65,024.08 vs the lender's $64,879.69 at 2026-07-29, $144.39 above.** New, uninvestigated. This loan's flag records 12 correcting journals for a $4,759.69 over-reduction; a residual appears to remain.
+2. **E-Transit 4140 — 2026-04-17 payment of $1,180.32 never split.** Balance still ties to the Ford portal (a missing split moves interest expense, not the balance), so April interest is understated. Outside the window examined on 2026-08-15.
+3. **Funding Circle — 2026-04-20, $2,033.77 never split.** Known, already compensated by a July journal — a CPA disclosure item, not a fix.
+
+**Also open:** the two August journals are dated 2026-08-31 rather than at their payment dates (see the 2026-08-16 entry below); the 16 voided Stripe payout-sync entries on 2026-08-04 deserve a look as a sync-health question; phase 3 (Claude interpreting findings) needs `ANTHROPIC_API_KEY` in Supabase → Edge Functions → Secrets.*
+
+*Previously: August 16, 2026 — Session 213 — **Subscription customers were being charged pay-as-you-go weight overage. Two customers hit it; root cause fixed in the DB plus both intake apps.***
 
 **The report.** John relayed from Sani Bee: her order was picked up Friday night, she has a $275/mo plan that renews on the 15th, she used 65 lbs in the July cycle — and she was being charged an overage anyway. Her own text was exactly right: *"I'm being charged 30.95 when I had 35lbs left and the clothes are saying it was 32lbs."* Her profile also showed "unsubscribed", which John flagged as suspicious. Both observations were correct and they are the same bug.
 
