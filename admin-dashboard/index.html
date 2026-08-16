@@ -3303,11 +3303,23 @@
             <div id="loans-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
           </div>
 
-          <!-- Needs Attention / Pending Review / All Loans — collapsed by default
-               (same convention as the Overview panels via toggleOverviewPanel) so
-               the page opens quiet and the CPA opens exactly one section at a time
-               instead of scrolling past three open tables. Each header carries its
-               own count so the choice of what to open is informed without opening it. -->
+          <!-- Session 214 redesign — David's feedback on session 213's first pass: two
+               different "Needs Attention" counts on one page (3 loan flags vs. 11
+               reconciliation findings) with no way to tell which one mattered, and 8
+               headings total. Down to 4 sections now: Loan Summary (above), Needs
+               Attention (below — ONE unified list/count, merging loan-level flags,
+               split mismatches, AND reconciliation findings; also where Reconciliation's
+               run button + last-run recap + past reports now live, since they're the
+               mechanism that feeds this list), Ready to Post (routine queue, kept
+               separate on purpose — see renderLoansAttention()'s comment for why), and
+               All Loans. The single source of truth for the count is
+               _bkLoanAttentionItems() — Overview's tile reads the same function, so the
+               two screens can't disagree again. Deliberately NOT deduping a loan that
+               has both a manual flag AND a matching reconciliation finding (e.g. Funding
+               Circle) into one card — no reliable way to know they're the same fact
+               without a shared fingerprint, and silently hiding one felt riskier than a
+               loan occasionally showing two related cards. Revisit if that turns out to
+               be noisy in practice. -->
           <div class="card" style="margin-bottom:20px" id="loans-attention-card">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('loans-attention-list',this)">
               <div style="flex:1">
@@ -3315,21 +3327,32 @@
                   <div class="card-title">Needs Attention</div>
                   <span id="loans-attention-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
-                <div class="card-sub">Discrepancies the system caught on its own — worth a look before month-end close.</div>
+                <div class="card-sub">Everything worth a look — flagged loans, split mismatches, and reconciliation findings, in one list.</div>
+                <div class="card-sub" id="recon-lastrun" style="margin-top:2px">Loading…</div>
+                <div id="recon-summary" style="margin-top:2px"></div>
               </div>
-              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+              <span style="display:flex;align-items:center;gap:14px">
+                <button class="btn btn-primary" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="event.stopPropagation();runReconciliationCheck()">Run Reconciliation Check</button>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+              </span>
             </div>
             <div id="loans-attention-list" style="display:none;padding:4px 0 16px"></div>
+            <div style="padding:0 16px 16px">
+              <span onclick="toggleOverviewPanel('recon-reports-wrap',this)" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline">Past reconciliation reports</span>
+              <div id="recon-reports-wrap" style="display:none;margin-top:10px">
+                <div id="recon-reports"></div>
+              </div>
+            </div>
           </div>
 
           <div class="card" style="margin-bottom:20px" id="loans-pending-card">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('loans-pending-list',this)">
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
-                  <div class="card-title">Pending Review</div>
+                  <div class="card-title">Ready to Post</div>
                   <span id="loans-pending-badge" style="font-size:13px;font-weight:700;color:#92400e;background:#fef3c7;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
-                <div class="card-sub">Computed splits waiting for approval before posting to Xero.</div>
+                <div class="card-sub">Computed splits waiting for your approval before posting to Xero — nothing's wrong here, just needs a look.</div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
@@ -3355,33 +3378,6 @@
             <div id="loans-table-wrap" style="display:none">
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
-          </div>
-
-          <!-- Reconciliation (Aug 2026, moved under Loans session 213) — the month-end
-               tie-out that used to mean reading the balance sheet line by line. All the
-               checking happens server-side in the reconciliation-run edge function, which
-               writes reconciliation_runs + reconciliation_findings; this section only ever
-               displays those two tables, so what's shown here can never disagree with the
-               stored report it links to. -->
-          <div class="card" style="margin-top:20px">
-            <div class="card-header" style="padding:20px 24px">
-              <div style="flex:1">
-                <div class="card-title">Reconciliation</div>
-                <div class="card-sub" id="recon-lastrun">Loading…</div>
-              </div>
-              <span style="display:flex;align-items:center;gap:10px">
-                <button class="btn btn-primary" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
-              </span>
-            </div>
-            <div id="recon-summary" style="padding:0 24px 20px"></div>
-          </div>
-          <div id="recon-findings"></div>
-          <div class="card" style="margin-top:20px">
-            <div class="card-header">
-              <div class="card-title">Past reports</div>
-              <div class="card-sub">Every completed check writes a full report. Click one to open it.</div>
-            </div>
-            <div id="recon-reports"></div>
           </div>
           </div><!-- /loans-subview-manage -->
 
@@ -8069,9 +8065,14 @@
     const recentEl = document.getElementById('bk-overview-recent');
     if (!attnEl || !recentEl) return;
 
-    const flaggedAccounts = (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status !== 'resolved');
-    const flaggedSplits = (_allLoanSplits || []).filter(s => s.status === 'needs_attention');
-    const loanActionCount = flaggedAccounts.length + flaggedSplits.length;
+    // Session 214: loanActionCount now reads the SAME unified function the Loans tab's
+    // "Needs Attention" badge reads (_bkLoanAttentionItems, defined near renderLoansAttention)
+    // -- loan-level flags, split mismatches, and open reconciliation findings all counted
+    // once, in one place. Before this, Overview showed "3" here and a separate
+    // "Reconciliation findings open" tile showing "11" -- two numbers for "how many loan
+    // issues are there," which is the exact confusion David flagged on the Loans page
+    // itself. One tile, one number, now impossible to disagree with the Loans badge.
+    const loanActionCount = _bkLoanAttentionItems().length;
     const loanPendingCount = (_allLoanSplits || []).filter(s => s.status === 'pending_review').length;
     const payrollNeedsReview = (_allPayrollImports || []).filter(i => i.status === 'parsed').length;
     // payrollFlagged (session 206 cont.) mirrors loanActionCount -- both now read
@@ -8080,10 +8081,6 @@
     // it yet" workflow state) since a flag means something actually needs a
     // decision, not just a first look.
     const payrollFlagged = (_allPayrollImports || []).filter(i => i.attention_flag).length;
-    // Open error/warn findings from the last reconciliation check. Reads the same
-    // _reconFindings array the Reconciliation tab renders from — loadReconciliation()
-    // re-renders this view when it finishes, so the tile fills in on arrival.
-    const reconOpenCount = (_reconFindings || []).filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).length;
 
     const tile = (label, n, color, sub, view) => `<div style="flex:1;min-width:180px;background:${color}0d;border:1px solid ${color}33;border-radius:10px;padding:14px 16px;cursor:pointer" onclick="switchBookkeepingView('${view}')">
       <div style="font-size:12px;color:var(--gray-500);font-weight:600;margin-bottom:4px">${esc(label)}</div>
@@ -8092,13 +8089,10 @@
     </div>`;
 
     const tiles = [
-      tile('Loan flags needing action', loanActionCount, loanActionCount ? '#dc2626' : '#16a34a', 'Discrepancies caught automatically', 'loans'),
-      tile('Loan splits pending review', loanPendingCount, loanPendingCount ? '#d97706' : '#16a34a', 'Computed, waiting for approval', 'loans'),
+      tile('Loan flags needing action', loanActionCount, loanActionCount ? '#dc2626' : '#16a34a', 'Flagged loans, split mismatches, and reconciliation findings', 'loans'),
+      tile('Loan splits ready to post', loanPendingCount, loanPendingCount ? '#d97706' : '#16a34a', 'Computed, waiting for approval', 'loans'),
       tile('Payroll periods needing review', payrollNeedsReview, payrollNeedsReview ? '#d97706' : '#16a34a', 'Uploaded and parsed, not yet confirmed', 'payroll'),
       tile('Payroll flags needing action', payrollFlagged, payrollFlagged ? '#dc2626' : '#16a34a', 'Unmatched employees or periods waiting on cash', 'payroll'),
-      // Session 213: Reconciliation is now a section inside Loans (not its own tab) --
-      // this tile still routes to 'loans' like the other loan-related tiles.
-      tile('Reconciliation findings open', reconOpenCount, reconOpenCount ? '#dc2626' : '#16a34a', 'Caught by the last reconciliation check', 'loans'),
     ];
     attnEl.innerHTML = tiles.join('');
 
@@ -9384,7 +9378,6 @@
   // one run per 10 minutes server-side — a 429 comes back as a plain message.
 
   const RECON_SEVERITY_ORDER = { error: 0, warn: 1, info: 2 };
-  const RECON_SEVERITY_COLOR = { error: 'var(--red)', warn: 'var(--amber)', info: 'var(--accent)' };
   const RECON_RESOLVED_WINDOW_DAYS = 30;
 
   async function loadReconciliation() {
@@ -9411,15 +9404,26 @@
       showToast('Could not load reconciliation data: ' + (e.message || 'unknown error'), 'error');
     }
     renderReconciliation();
+    // Session 214: reconciliation findings now render as part of Loans' unified
+    // "Needs Attention" list (renderLoansAttention, via _bkLoanAttentionItems) instead
+    // of their own section -- so a fresh _reconFindings needs that list re-rendered too,
+    // not just the run-status strip renderReconciliation() itself still owns.
+    renderLoansAttention();
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
   }
 
+  // Session 214: this used to also render the finding cards themselves (a "Needs
+  // attention" / "For information" / "Resolved recently" set of sections). Those moved
+  // into Loans' unified "Needs Attention" list (see renderLoansAttention /
+  // _bkLoanAttentionItems) so there's exactly one place findings display and exactly
+  // one count for them. This function is left owning only the run-status strip (last
+  // run recap, new/open/resolved counts) and the past-reports list -- both now live
+  // inside the Needs Attention card's header/footer in the HTML, not a separate card.
   function renderReconciliation() {
     const lastEl = document.getElementById('recon-lastrun');
     const sumEl  = document.getElementById('recon-summary');
-    const findEl = document.getElementById('recon-findings');
     const repEl  = document.getElementById('recon-reports');
-    if (!lastEl || !sumEl || !findEl || !repEl) return;
+    if (!lastEl || !sumEl || !repEl) return;
 
     const newest = _reconRuns[0] || null;
     // "Complete" = finished and didn't error out. The counts strip comes from the
@@ -9452,31 +9456,6 @@
           ? `<div style="font-size:13px;font-weight:600;color:var(--green);margin-top:6px">Everything reconciles. No open findings.</div>`
           : '');
     }
-
-    // ── Findings ──
-    const findingCard = (f, resolved) => `<div style="border-left:3px solid ${resolved ? 'var(--green)' : (RECON_SEVERITY_COLOR[f.severity] || 'var(--accent)')};background:var(--gray-50);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px">
-      <div style="font-size:13.5px;font-weight:600;color:var(--gray-800)">${esc(f.title || 'Untitled finding')}</div>
-      ${f.plain_english ? `<div style="font-size:12.5px;color:var(--gray-500);margin-top:4px">${esc(f.plain_english)}</div>` : ''}
-      <div style="font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400);margin-top:6px">${esc(f.check_key || '')}</div>
-    </div>`;
-
-    const section = (title, sub, items, resolved) => items.length ? `<div class="card" style="margin-bottom:20px">
-      <div class="card-header">
-        <div class="card-title">${esc(title)}</div>
-        <div class="card-sub">${esc(sub)}</div>
-      </div>
-      <div style="padding:16px 20px">${items.map(f => findingCard(f, resolved)).join('')}</div>
-    </div>` : '';
-
-    const needsAttention = _reconFindings.filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn'));
-    const forInformation = _reconFindings.filter(f => f.status === 'open' && f.severity === 'info');
-    const resolvedCutoff = Date.now() - RECON_RESOLVED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    const resolvedRecent = _reconFindings.filter(f => f.status === 'resolved' && f.resolved_at && new Date(f.resolved_at).getTime() >= resolvedCutoff);
-
-    findEl.innerHTML =
-      section('Needs attention', 'Something is off and needs a decision', needsAttention, false) +
-      section('For information', 'Worth knowing about, nothing to do', forInformation, false) +
-      section('Resolved recently', 'Cleared in the last ' + RECON_RESOLVED_WINDOW_DAYS + ' days', resolvedRecent, true);
 
     // ── Past reports ── (runs that never wrote a report have nothing to open)
     const reported = _reconRuns.filter(r => r.report_path);
@@ -10013,78 +9992,184 @@
     }
   }
 
+  // ── Unified Needs Attention (session 214) ──────────────────────────────────
+  // Before this, "needs attention" meant three different things in three different
+  // places: loan_accounts.flagged_note (a human note), loan_splits.status='needs_attention'
+  // (a computed mismatch), and reconciliation_findings (the automated check). Each had
+  // its own count, its own section, and its own visual style -- which is how David ended
+  // up looking at a page that said "3 flagged" in one card and "11 still open" in
+  // another with no way to tell which was the real number. _bkLoanAttentionItems() is
+  // now the ONE place that gathers all three into one list; both the Loans "Needs
+  // Attention" badge and Overview's "Loan flags needing action" tile read it, so they
+  // can't disagree again.
+  //
+  // Deliberately not deduped by loan: a loan can have both a manual flag AND a matching
+  // reconciliation finding (Funding Circle and E-Transit both do, as of session 213/214)
+  // that describe the same real-world issue. There's no shared fingerprint between the
+  // two systems to safely collapse them into one card, and silently hiding one felt like
+  // a worse failure mode than an occasional loan showing two related cards. Revisit if
+  // that turns out to be noisy in practice -- see PROJECT-NOTES session 214.
+  function _bkLoanAttentionItems() {
+    const items = [];
+    (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status !== 'resolved').forEach(a => {
+      items.push({
+        key: 'flag-' + a.id, kind: 'loan_flag', severityRank: 0, account: a,
+        title: a.xero_account_name || a.lender_account_number || 'Unknown loan',
+        explain: a.flag_summary || a.flagged_note, amount: null, tag: null,
+      });
+    });
+    (_allLoanSplits || []).filter(s => s.status === 'needs_attention').forEach(s => {
+      items.push({
+        key: 'split-' + s.id, kind: 'split_mismatch', severityRank: 0, split: s,
+        title: (s.loan_accounts?.xero_account_name || 'Unknown loan') + ' — ' + s.period_label,
+        explain: s.review_notes || 'Statement and amortization schedule disagree on this period\'s split.',
+        amount: s.total_amount != null ? Number(s.total_amount) : null, tag: 'mismatch',
+      });
+    });
+    (_reconFindings || []).filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).forEach(f => {
+      items.push({
+        key: 'recon-' + f.id, kind: 'recon_finding', severityRank: f.severity === 'error' ? 0 : 1, finding: f,
+        title: f.title || 'Untitled finding', explain: f.plain_english || '', amount: null, tag: f.check_key || null,
+      });
+    });
+    items.sort((a, b) => a.severityRank - b.severityRank);
+    return items;
+  }
+
+  // Reconciliation's "info" severity findings (e.g. a future-dated schedule row) --
+  // real, but explicitly "nothing to do" per the engine's own classification. These
+  // don't count toward the Needs Attention badge and don't get their own section
+  // (that's exactly the section-sprawl David asked to cut) -- they render as a small,
+  // muted, low-priority list at the bottom of the same card instead of disappearing.
+  function _bkReconInfoFindings() {
+    return (_reconFindings || []).filter(f => f.status === 'open' && f.severity === 'info');
+  }
+
+  // One shared card renderer, styled after the mockup David liked: a severity dot,
+  // title + one-line explanation (already written issue → cause → suggested-action
+  // style for reconciliation findings, per the finding-format standard), a right-aligned
+  // dollar amount only when there's a real structured number to show (loan flags and
+  // reconciliation findings usually already state the amount in their title/explanation
+  // text, so repeating it as a second number would just be visual noise), and whatever
+  // action makes sense for that item's kind -- reuses the existing Mark Resolved /
+  // review-modal / push-fix flows unchanged, this only changed how items are gathered
+  // and laid out, not what clicking them does.
+  function _bkLoanAttentionCard(item) {
+    const dotColor = item.severityRank === 0 ? 'var(--red)' : 'var(--amber)';
+    const amountColor = item.severityRank === 0 ? 'var(--red)' : 'var(--amber)';
+    const amountHtml = item.amount != null
+      ? `<div style="font-size:14.5px;font-weight:700;color:${amountColor};white-space:nowrap">$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`
+      : '';
+    const tagHtml = item.tag ? `<div style="font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400);margin-top:6px">${esc(item.tag)}</div>` : '';
+
+    let actionsHtml = '';
+    let cardClickAttr = '';
+    if (item.kind === 'split_mismatch') {
+      cardClickAttr = ` onclick="openLoanReviewModal('${item.split.id}')" style="cursor:pointer"`;
+      actionsHtml = `<button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanReviewModal('${item.split.id}')">Review split</button>`;
+    } else if (item.kind === 'loan_flag') {
+      const a = item.account;
+      actionsHtml =
+        (a.flag_fixable ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : '') +
+        `<button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button>
+         <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;width:100%">
+           <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
+           <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
+           <div style="display:flex;gap:8px;margin-top:8px">
+             <button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="confirmResolveLoanFlag('${a.id}')">Confirm Resolved</button>
+             <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
+           </div>
+         </div>`;
+    } else {
+      // recon_finding -- no manual resolve exists for these (they clear on the next
+      // check confirming the issue is gone, or stay pinned if a human wrote them up --
+      // see reconciliation-run's pinned_note mechanism). Nothing to invent here.
+      actionsHtml = `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
+    }
+
+    return `<div class="loan-attn-card"${cardClickAttr} style="padding:14px 16px;border:1px solid var(--gray-100);border-radius:10px;margin:0 16px 10px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};margin-top:7px;flex-shrink:0"></span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline">
+            <div class="td-name">${esc(item.title)}</div>
+            ${amountHtml}
+          </div>
+          <div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;line-height:1.5">${esc(item.explain)}</div>
+          ${tagHtml}
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${actionsHtml}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
   function renderLoansAttention() {
     const card = document.getElementById('loans-attention-card');
     const el = document.getElementById('loans-attention-list');
     const badge = document.getElementById('loans-attention-badge');
     if (!el || !card) return;
-    const flaggedAccounts = _allLoanAccounts.filter(a => a.flagged_note);
-    const flaggedSplits = _allLoanSplits.filter(s => s.status === 'needs_attention');
-    if (!flaggedAccounts.length && !flaggedSplits.length) {
+
+    const actionItems = _bkLoanAttentionItems();
+    const actionCount = actionItems.length;
+
+    // Resolved tab: closed loan flags + recon findings the last check confirmed fixed
+    // (within the same window the old standalone Reconciliation section used) -- kept
+    // together for the same "one list, one place" reason as the open items above.
+    const resolvedAccounts = (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status === 'resolved');
+    const resolvedCutoff = Date.now() - RECON_RESOLVED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const resolvedFindings = (_reconFindings || []).filter(f => f.status === 'resolved' && f.resolved_at && new Date(f.resolved_at).getTime() >= resolvedCutoff);
+    const resolvedCount = resolvedAccounts.length + resolvedFindings.length;
+
+    const infoFindings = _bkReconInfoFindings();
+
+    if (!actionCount && !resolvedCount && !infoFindings.length) {
       card.style.display = 'none';
       return;
     }
     card.style.display = '';
 
-    // Anything without a flag_status yet (e.g. a brand-new flag written
-    // before this classification existed) defaults to action_needed so it
-    // never silently disappears into the resolved tab.
-    const actionAccounts = flaggedAccounts.filter(a => a.flag_status !== 'resolved');
-    const resolvedAccounts = flaggedAccounts.filter(a => a.flag_status === 'resolved');
-    const actionCount = actionAccounts.length + flaggedSplits.length;
-    const resolvedCount = resolvedAccounts.length;
-
-    // Header badge only counts what actually needs a look — a fully-resolved
-    // history sitting behind the section header shouldn't read as urgent.
     if (badge) {
-      if (actionCount) { badge.textContent = `${actionCount} flagged`; badge.style.display = ''; }
+      if (actionCount) { badge.textContent = `${actionCount} open`; badge.style.display = ''; }
       else { badge.style.display = 'none'; }
     }
 
     if (_loanAttnTab === 'resolved' && !resolvedCount) _loanAttnTab = 'action_needed';
     if (_loanAttnTab === 'action_needed' && !actionCount && resolvedCount) _loanAttnTab = 'resolved';
 
-    // Mark Resolved (session 205 cont., 2026-08-05): lets admin/manager/cpa self-serve
-    // closing out a flag once they've handled it in Xero, instead of every resolution
-    // requiring Claude to run SQL by hand. Deliberately open to 'cpa' -- David asked
-    // to give the CPA as much power here as possible -- but scoped tightly server-side:
-    // the mark_loan_flag_resolved RPC only ever touches flag_status/flag_resolved_*,
-    // never the loan's Xero account mapping or anything financial, and requires a
-    // non-empty note explaining what was actually fixed (no blank-click resolves).
-    const accountItem = (a, resolved) => `
+    // Resolved-tab cards keep their original, more detailed treatment (who resolved it,
+    // when, the resolution note, Reopen) for loan flags -- that flow is unchanged.
+    // Recently-resolved reconciliation findings get a simpler read-only card; there's no
+    // "who/when/reopen" for those, the engine just stopped finding the issue.
+    const resolvedAccountCard = (a) => `
       <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
         <div style="display:flex;gap:10px;align-items:flex-start">
-          <span class="badge ${resolved ? 'badge-green' : 'badge-red'}" style="margin-top:2px">${resolved ? 'resolved' : 'flagged'}</span>
+          <span class="badge badge-green" style="margin-top:2px">resolved</span>
           <div style="flex:1;min-width:0">
             <div class="td-name" style="margin-bottom:2px">${esc(a.xero_account_name || a.lender_account_number)}</div>
             <div style="font-size:12.5px;color:var(--gray-600)">${esc(a.flag_summary || a.flagged_note)}</div>
-            ${a.flag_fixable ? `<button class="btn btn-primary" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : ''}
-            ${a.flagged_note ? `<details style="margin-top:6px"><summary style="font-size:11.5px;color:var(--gray-400);cursor:pointer">Full detail</summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(a.flagged_note)}</div></details>` : ''}
-            ${resolved ? `
-              <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Resolved by ${esc(a.flag_resolved_by || 'unknown')}${a.flag_resolved_at ? ' on ' + esc(a.flag_resolved_at.slice(0, 10)) : ''}</div>
-              ${a.flag_resolution_note ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;white-space:pre-wrap">${esc(a.flag_resolution_note)}</div>` : ''}
-              <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="reopenLoanFlag('${a.id}')">Reopen</button>
-            ` : `
-              <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button>
-              <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px">
-                <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
-                <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
-                <div style="display:flex;gap:8px;margin-top:8px">
-                  <button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="confirmResolveLoanFlag('${a.id}')">Confirm Resolved</button>
-                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
-                </div>
-              </div>
-            `}
+            <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Resolved by ${esc(a.flag_resolved_by || 'unknown')}${a.flag_resolved_at ? ' on ' + esc(a.flag_resolved_at.slice(0, 10)) : ''}</div>
+            ${a.flag_resolution_note ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;white-space:pre-wrap">${esc(a.flag_resolution_note)}</div>` : ''}
+            <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="reopenLoanFlag('${a.id}')">Reopen</button>
+          </div>
+        </div>
+      </div>`;
+    const resolvedFindingCard = (f) => `
+      <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span class="badge badge-green" style="margin-top:2px">resolved</span>
+          <div style="flex:1;min-width:0">
+            <div class="td-name" style="margin-bottom:2px">${esc(f.title || 'Untitled finding')}</div>
+            ${f.plain_english ? `<div style="font-size:12.5px;color:var(--gray-600)">${esc(f.plain_english)}</div>` : ''}
+            <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Cleared ${f.resolved_at ? esc(f.resolved_at.slice(0, 10)) : ''}</div>
           </div>
         </div>
       </div>`;
 
-    const splitItem = (s) => `
-      <div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;cursor:pointer" onclick="openLoanReviewModal('${s.id}')">
-        <span class="badge badge-red" style="margin-top:2px">mismatch</span>
-        <div><div class="td-name" style="margin-bottom:2px">${esc(s.loan_accounts?.xero_account_name || '')} — ${esc(s.period_label)}</div>
-        <div style="font-size:12.5px;color:var(--gray-600)">${esc(s.review_notes || 'Statement and amortization schedule disagree on this period\'s split.')}</div></div>
-      </div>`;
+    const infoCard = (f) => `<div style="padding:10px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--gray-300);margin-top:6px;flex-shrink:0"></span>
+      <div><div style="font-size:12.5px;font-weight:600;color:var(--gray-600)">${esc(f.title || 'Untitled finding')}</div>
+      ${f.plain_english ? `<div style="font-size:12px;color:var(--gray-400);margin-top:2px">${esc(f.plain_english)}</div>` : ''}</div>
+    </div>`;
 
     const subtabs = `<div style="display:flex;padding:0 16px 12px">
       <div class="loan-attn-subtabs">
@@ -10096,15 +10181,22 @@
     let body;
     if (_loanAttnTab === 'action_needed') {
       body = actionCount
-        ? [...flaggedSplits.map(splitItem), ...actionAccounts.map(a => accountItem(a, false))].join('')
+        ? actionItems.map(_bkLoanAttentionCard).join('')
         : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing needs action right now.</div>`;
     } else {
       body = resolvedCount
-        ? resolvedAccounts.map(a => accountItem(a, true)).join('')
+        ? resolvedAccounts.map(resolvedAccountCard).join('') + resolvedFindings.map(resolvedFindingCard).join('')
         : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing resolved yet.</div>`;
     }
 
-    el.innerHTML = subtabs + body;
+    const infoBlock = infoFindings.length
+      ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-100)">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.03em;padding:0 16px 6px">For information — nothing to do</div>
+          ${infoFindings.map(infoCard).join('')}
+        </div>`
+      : '';
+
+    el.innerHTML = subtabs + body + infoBlock;
   }
 
   function renderLoansPending() {
@@ -10113,7 +10205,7 @@
     if (!el) return;
     const pending = _allLoanSplits.filter(s => s.status === 'pending_review');
     if (badge) {
-      if (pending.length) { badge.textContent = `${pending.length} pending`; badge.style.display = ''; }
+      if (pending.length) { badge.textContent = `${pending.length} ready`; badge.style.display = ''; }
       else { badge.style.display = 'none'; }
     }
     if (!pending.length) {
