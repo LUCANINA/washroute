@@ -586,11 +586,18 @@ async function handle(req: Request): Promise<Response> {
       const prevF = byFp[f.fingerprint]
       if (prevF?.status === 'suppressed') continue   // deliberately dismissed; stays dismissed
       const state = prevF && prevF.status === 'open' ? 'open' : 'new'
-      enriched.push({ ...f, _state: state })
+      enriched.push({ ...f, _state: state, ...(prevF?.pinned_note ? { title: prevF.title, plain_english: prevF.plain_english, proposed_action: prevF.proposed_action } : {}) })
+      // A pinned finding (David or a CPA hand-wrote a diagnosis on it, e.g. via the
+      // dashboard) keeps its own title/plain_english/proposed_action forever — the
+      // engine still tracks new/open/resolved state and last_seen for it, but stops
+      // overwriting the human explanation with its generic template. Otherwise every
+      // hand-written "here's what explains it, here's what to do" note gets silently
+      // clobbered on the next run, same failure shape as the v5 window-resolve bug.
       await supa.from('reconciliation_findings').upsert({
         fingerprint: f.fingerprint, loan_account_id: f.loan_account_id, check_key: f.check_key,
-        severity: f.severity, title: f.title, plain_english: f.plain_english,
-        detail: f.detail, proposed_action: f.proposed_action ?? null, status: 'open',
+        severity: f.severity,
+        ...(prevF?.pinned_note ? {} : { title: f.title, plain_english: f.plain_english, proposed_action: f.proposed_action ?? null }),
+        detail: f.detail, status: 'open',
         first_seen_run_id: prevF?.first_seen_run_id ?? run.id,
         first_seen_at: prevF?.first_seen_at ?? new Date().toISOString(),
         last_seen_run_id: run.id, last_seen_at: new Date().toISOString(),
