@@ -11196,12 +11196,26 @@ ${noActivityNote}
 
       const journal = data.proposed_journal;
       const mbt = data.matched_bank_transaction;
-      body.innerHTML = `
-        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Matched Xero bank transaction <span class="td-mono">${esc(mbt.id.slice(0,8))}…</span> on ${esc(mbt.date?.slice(0,10))} for $${mbt.total}${mbt.reconciled ? ' (already reconciled — left untouched)' : ''}.</div>
+      // Bug fix (session 218): loan-xero-post v19 added two "no bank transaction
+      // involved" split shapes (a $0-interest payment with nothing to reallocate --
+      // journal is also null there -- and a pure fee/adjustment reclass that never
+      // touches the bank feed). Both send matched_bank_transaction: null, which this
+      // code used to dereference unconditionally (`mbt.id.slice(...)`), crashing with
+      // "Cannot read properties of null" the first time a real split hit either case.
+      // Below now branches three ways instead of assuming mbt (and journal) exist.
+      const mbtSectionHtml = mbt
+        ? `<div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Matched Xero bank transaction <span class="td-mono">${esc(mbt.id.slice(0,8))}…</span> on ${esc(mbt.date?.slice(0,10))} for $${mbt.total}${mbt.reconciled ? ' (already reconciled — left untouched)' : ''}.</div>
         <div class="form-section-head">Currently posted as</div>
-        <div style="margin-bottom:14px">${(mbt.current_lines||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description||'(no description)')} — $${l.LineAmount} → ${esc(l.AccountCode)}</div>`).join('') || '<div style="font-size:13px;color:var(--gray-400)">—</div>'}</div>
-        <div class="form-section-head">Journal entry to post (reallocates interest out of the loan account, doesn't touch the transaction above)</div>
-        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.LineAmount}</b> → ${esc(l.AccountCode)}</div>`).join('')}</div>
+        <div style="margin-bottom:14px">${(mbt.current_lines||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description||'(no description)')} — $${l.LineAmount} → ${esc(l.AccountCode)}</div>`).join('') || '<div style="font-size:13px;color:var(--gray-400)">—</div>'}</div>`
+        : `<div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">No bank transaction involved — ${journal ? 'this reclassifies dollars between two accounts directly, with no cash movement.' : 'nothing to reallocate for this split.'}</div>`;
+      const journalSectionHtml = journal
+        ? `<div class="form-section-head">Journal entry to post${mbt ? " (reallocates interest out of the loan account, doesn't touch the transaction above)" : ''}</div>
+        <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.LineAmount}</b> → ${esc(l.AccountCode)}</div>`).join('')}</div>`
+        : `<div class="form-section-head">No journal needed</div>
+        <div style="margin-bottom:14px;font-size:13px;color:var(--gray-500)">Approving will mark this split posted with no Xero write.</div>`;
+      body.innerHTML = `
+        ${mbtSectionHtml}
+        ${journalSectionHtml}
         ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
       `;
       footer.innerHTML = `
