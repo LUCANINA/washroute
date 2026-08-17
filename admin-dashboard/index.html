@@ -3433,8 +3433,11 @@
           <div id="bk-view-payroll" style="display:none">
           <div class="card" style="margin-bottom:20px">
             <div class="card-header">
-              <div class="card-title">Payroll Allocation</div>
-              <div class="card-sub">Upload a Square payroll report → wages and employer payroll tax are split by department (Delivery / Laundry / Customer Service / Operation / Owner) using the mapping below, ready to review before posting to Xero.</div>
+              <div style="flex:1">
+                <div class="card-title">Payroll Allocation</div>
+                <div class="card-sub">Upload a Square payroll report → wages and employer payroll tax are split by department (Delivery / Laundry / Customer Service / Operation / Owner) using the mapping below, ready to review before posting to Xero.</div>
+              </div>
+              <button class="btn btn-ghost" style="align-self:center;white-space:nowrap" onclick="openPayrollUploadModal(true)" title="For a late correction CSV covering the same calendar pay period as a regular run already uploaded (e.g. a forgotten employee or a sick-leave add), paid on a different date">Off-cycle adjustment</button>
             </div>
             <div id="payroll-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
           </div>
@@ -8404,7 +8407,7 @@
       const unmatched = employeeLines.filter(l => !l.department_key).length;
       const [cls,label] = statusBadgeMap[imp.status] || statusBadgeMap.parsed;
       return `<tr style="cursor:pointer" onclick="openPayrollReviewModal('${imp.id}')">
-        <td>${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}</td>
+        <td>${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}${imp.import_type === 'adjustment' ? ' <span class="badge badge-amber" title="Off-cycle adjustment -- a separate correction run for this same pay period">Adjustment</span>' : ''}</td>
         <td>${esc(fmtDate(imp.pay_date))}</td>
         <td>${isReimbOnly ? '<span style="color:var(--gray-500)">Insurance reimbursement only</span>' : `${employeeLines.length}${unmatched ? ` <span style="color:var(--red);font-weight:700">(${unmatched} unmatched)</span>` : ''}`}</td>
         <td>${fmtMoney(wage)}</td>
@@ -8669,12 +8672,23 @@
     }
   }
 
-  function openPayrollUploadModal() {
+  let _payrollUploadIsAdjustment = false;
+  function openPayrollUploadModal(isAdjustment) {
     if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Payroll.', 'error'); return; }
+    _payrollUploadIsAdjustment = !!isAdjustment;
     _payrollUploadFile = null;
     document.getElementById('payroll-upload-input').value = '';
     document.getElementById('payroll-upload-status').textContent = '';
     document.getElementById('payroll-upload-submit').disabled = true;
+    const titleEl = document.querySelector('#modal-payroll-upload .modal-title');
+    const descEl = document.querySelector('#modal-payroll-upload .modal-body > div:first-child');
+    if (_payrollUploadIsAdjustment) {
+      titleEl.textContent = 'Upload Off-Cycle Adjustment';
+      descEl.textContent = 'Upload a late/correction Square Payroll Summary CSV for a period that already has a regular payroll run posted (e.g. a forgotten employee, or hours added after the fact). This posts as its own small journal, dated by this CSV\'s own Pay Date, so it stays distinguishable from the regular run in Xero — it does not touch or replace the existing period.';
+    } else {
+      titleEl.textContent = 'Upload Payroll Report';
+      descEl.textContent = 'Upload the Square Payroll Summary CSV for one pay period. Wages, employer payroll tax, and employer 401k/health contributions are computed automatically and matched against the department mapping — nothing is posted to Xero until you review and approve it.';
+    }
     document.getElementById('modal-payroll-upload').classList.add('open');
   }
   function closePayrollUploadModal() {
@@ -8717,6 +8731,7 @@
       csv_filename: _payrollUploadFile.filename,
       uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
       replace: !!replace,
+      ...( _payrollUploadIsAdjustment ? { import_type: 'adjustment' } : {} ),
     });
     if (!ok && data.existing_import && !replace) {
       statusEl.innerHTML = `<span style="color:var(--amber-dark, #92400e)">${esc(data.error)}</span><br><button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="submitPayrollUpload(true)">Re-parse and overwrite it</button>`;
@@ -8754,7 +8769,7 @@
     const body = document.getElementById('payroll-review-body');
     const footer = document.getElementById('payroll-review-footer');
     if (!imp) { body.innerHTML = '<div style="color:var(--red);font-size:13px;padding:16px">This payroll report could not be found — it may have been deleted.</div>'; return; }
-    document.getElementById('payroll-review-title').textContent = `Payroll: ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}`;
+    document.getElementById('payroll-review-title').textContent = `${imp.import_type === 'adjustment' ? 'Payroll Adjustment' : 'Payroll'}: ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)} (paid ${fmtDate(imp.pay_date)})`;
 
     const lines = _allPayrollLines.filter(l => l.import_id === imp.id);
     // A reimbursement_only line (Square's separate monthly insurance-
