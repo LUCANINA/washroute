@@ -11048,7 +11048,7 @@ ${noActivityNote}
         const acct = text.match(/Account ID\s*(\d+)/i);
         if (!bal || !dateRange) return null;
 
-        // session 218 (cont.): also pull every individual Payment and Balance Fee
+        // session 218 (cont.): also pull every individual Payment and fee
         // line item, not just the statement summary. Rapid's Line of Credit
         // Summary has no single "amount due" figure -- instead every payment and
         // every periodic fee is its own row, e.g.:
@@ -11057,10 +11057,18 @@ ${noActivityNote}
         // The statement spans multiple PDF pages and Rapid repeats the tail of
         // page N's table at the head of page N+1 -- text extraction concatenates
         // all pages, so the same row can appear twice. Dedup by (date, amount,
-        // type) before returning. Draws/Draw Fees are captured by the same regex
-        // (so they don't get misread as an unmatched fragment) but excluded from
-        // the returned list -- those are line-of-credit draws, a different
-        // transaction shape the payment/fee reclass logic below doesn't apply to.
+        // type) before returning. "Draws" (the txnRe Draw type) are excluded from
+        // `payments` -- those are line-of-credit draws, a different transaction
+        // shape than a Payment. BUT "Draw Fee" rows in the fee table ARE kept as
+        // fee candidates alongside "Balance Fee" rows: session 218's live
+        // verification against Xero showed Rapid's Nov 2025 $4,000 Draw Fee is
+        // part of the same lump-sum interest/principal reclass journal
+        // ($11,029.84, covering the Draw Fee + 8 following weekly Balance Fees)
+        // as every other periodic fee. Excluding Draw Fee rows here previously
+        // meant the backend's lump-sum matcher could never reach that journal's
+        // exact total, so all 8 fees in the group wrongly showed up as pending
+        // duplicates on every re-upload -- fixed by treating both fee types the
+        // same way.
         const txnRe = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+\(?\$?([\d,]+\.\d{2})\)?\s+\$?[\d,]+\.\d{2}\s+(Payment|Draw)\b/g;
         const feeRe = /(\d{2}\/\d{2}\/\d{4})\s+\$?([\d,]+\.\d{2})\s+(Balance Fee|Draw Fee)\b/g;
         const seenTxn = new Set();
@@ -11077,8 +11085,7 @@ ${noActivityNote}
         const seenFee = new Set();
         const fees = [];
         while ((m = feeRe.exec(text))) {
-          const [, date, amtStr, type] = m;
-          if (type !== 'Balance Fee') continue;
+          const [, date, amtStr] = m;
           const key = `${date}|${amtStr}`;
           if (seenFee.has(key)) continue;
           seenFee.add(key);
