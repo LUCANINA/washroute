@@ -9571,17 +9571,33 @@
   // Reports live in the private loan-statements bucket. Same pattern as
   // viewLoanDocument(): open a blank tab synchronously, then point it at the
   // signed URL, so the popup blocker doesn't eat it across the async gap.
+  // Session 219 fix: this used to hand the browser a signed storage URL directly.
+  // Supabase's storage `sign` endpoint force-serves ALL objects as
+  // `Content-Type: text/plain` with a locked-down CSP (`default-src 'none'; sandbox`)
+  // regardless of the file's own stored mimetype (`text/html` here) -- a deliberate
+  // anti-stored-XSS protection, not a bug on our end, but it meant every "Open report"
+  // click showed raw HTML source as plain text instead of the rendered report. Fixed
+  // by downloading the bytes through the authenticated client instead (same storage
+  // RLS policies as the signed-URL path -- admin/manager/cpa read access, unchanged)
+  // and wrapping them in our own client-side Blob with an explicit `text/html` type,
+  // which the browser renders normally via a `blob:` URL -- Supabase's server-side
+  // header override never enters into it since the Blob's type is set locally.
   async function openReconReport(path) {
     if (!path) { showToast('No report on record for this run.', 'error'); return; }
     const win = window.open('', '_blank');
-    const { data, error } = await db.storage.from('loan-statements').createSignedUrl(path, 300);
-    if (error || !data?.signedUrl) {
+    try {
+      const { data, error } = await db.storage.from('loan-statements').download(path);
+      if (error || !data) throw error || new Error('No report data returned');
+      const blobUrl = URL.createObjectURL(new Blob([data], { type: 'text/html' }));
+      if (win && !win.closed) win.location.href = blobUrl;
+      else window.open(blobUrl, '_blank');
+      // Give the new tab time to actually load the blob before revoking it -- revoking
+      // too early can blank out a slow-loading tab.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (e) {
       if (win && !win.closed) win.close();
-      showToast('Could not open report: ' + (error?.message || 'unknown error'), 'error');
-      return;
+      showToast('Could not open report: ' + (e?.message || 'unknown error'), 'error');
     }
-    if (win && !win.closed) win.location.href = data.signedUrl;
-    else window.open(data.signedUrl, '_blank');
   }
 
   // ── Debt Schedule ─────────────────────────────────────────────────────────
