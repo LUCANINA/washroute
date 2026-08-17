@@ -10219,8 +10219,18 @@
     } else {
       // recon_finding -- no manual resolve exists for these (they clear on the next
       // check confirming the issue is gone, or stay pinned if a human wrote them up --
-      // see reconciliation-run's pinned_note mechanism). Nothing to invent here.
-      primaryActionHtml = `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
+      // see reconciliation-run's pinned_note mechanism). Nothing to invent here --
+      // EXCEPT session 218 cont.'s missing-prior-statement case: reconciliation-run
+      // v8+ now tells us exactly what's missing (proposed_action.kind ===
+      // 'upload_earlier_statement') and which loan it's for (finding.loan_account_id),
+      // so this one case gets a real one-click action instead of "wait for the
+      // engine" -- deep-links straight into the same upload modal Loans already uses,
+      // prefilled to the right loan.
+      const f = item.finding;
+      const uploadCta = (f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
+        ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanUploadModal('${f.loan_account_id}')">Upload statement</button>`
+        : '';
+      primaryActionHtml = uploadCta || `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
     }
 
     return `<div class="loan-attn-card"${cardClickAttr} style="padding:14px 16px;border:1px solid var(--gray-100);border-radius:10px;margin:0 16px 10px">
