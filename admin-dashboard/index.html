@@ -8149,6 +8149,7 @@
   let _allLoanAmortRows = [];       // amortization rows, each carrying its parent schedule's storage_path
   let _loanUploadFile = null;       // { base64, filename }
   let _loanUploadParsedAcctNum = null;
+  let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
   let _allLoanDocuments = [];       // generic per-loan file attachments (Aug 2026) -- payoff letters,
                                      // transaction histories, amortization schedules, correspondence, etc.
   let _loanDocFile = null;          // pending File object selected in the Documents modal, awaiting upload
@@ -11002,6 +11003,8 @@ ${noActivityNote}
     document.getElementById('lu-total-due').value = '';
     document.getElementById('lu-due-date').value = '';
     _loanUploadFile = null;
+    _loanUploadParsedAcctNum = null;
+    _loanUploadParsedTransactions = null;
     _populateLoanSelect();
     if (prefillLoanId) document.getElementById('lu-loan-select').value = prefillLoanId;
     document.getElementById('modal-loan-upload').classList.add('open');
@@ -11019,6 +11022,12 @@ ${noActivityNote}
   // Add a new entry here the next time a different lender's PDF needs
   // auto-reading — don't grow this into one giant regex, keep each lender's
   // shape isolated.
+  // Converts a lender PDF's MM/DD/YYYY to the YYYY-MM-DD this app uses everywhere else.
+  function _mdyToIso(mdy) {
+    const [mm, dd, yyyy] = mdy.split('/');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
   const LOAN_PDF_PARSERS = [
     {
       lenderLabel: 'Rapid Finance statement',
@@ -11028,11 +11037,50 @@ ${noActivityNote}
         const dateRange = text.match(/For Dates:?\s*(\d{2}\/\d{2}\/\d{4})[\s\S]{0,6}?(\d{2}\/\d{2}\/\d{4})/i);
         const acct = text.match(/Account ID\s*(\d+)/i);
         if (!bal || !dateRange) return null;
+
+        // session 218 (cont.): also pull every individual Payment and Balance Fee
+        // line item, not just the statement summary. Rapid's Line of Credit
+        // Summary has no single "amount due" figure -- instead every payment and
+        // every periodic fee is its own row, e.g.:
+        //   "08/11/2026   08/11/2026   $2,068.89   $54,252.75   Payment"
+        //   "08/10/2026   $499.42   Balance Fee"
+        // The statement spans multiple PDF pages and Rapid repeats the tail of
+        // page N's table at the head of page N+1 -- text extraction concatenates
+        // all pages, so the same row can appear twice. Dedup by (date, amount,
+        // type) before returning. Draws/Draw Fees are captured by the same regex
+        // (so they don't get misread as an unmatched fragment) but excluded from
+        // the returned list -- those are line-of-credit draws, a different
+        // transaction shape the payment/fee reclass logic below doesn't apply to.
+        const txnRe = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+\(?\$?([\d,]+\.\d{2})\)?\s+\$?[\d,]+\.\d{2}\s+(Payment|Draw)\b/g;
+        const feeRe = /(\d{2}\/\d{2}\/\d{4})\s+\$?([\d,]+\.\d{2})\s+(Balance Fee|Draw Fee)\b/g;
+        const seenTxn = new Set();
+        const payments = [];
+        let m;
+        while ((m = txnRe.exec(text))) {
+          const [, date, , amtStr, type] = m;
+          if (type !== 'Payment') continue;
+          const key = `${date}|${amtStr}`;
+          if (seenTxn.has(key)) continue;
+          seenTxn.add(key);
+          payments.push({ date: _mdyToIso(date), amount: parseFloat(amtStr.replace(/,/g, '')) });
+        }
+        const seenFee = new Set();
+        const fees = [];
+        while ((m = feeRe.exec(text))) {
+          const [, date, amtStr, type] = m;
+          if (type !== 'Balance Fee') continue;
+          const key = `${date}|${amtStr}`;
+          if (seenFee.has(key)) continue;
+          seenFee.add(key);
+          fees.push({ date: _mdyToIso(date), amount: parseFloat(amtStr.replace(/,/g, '')) });
+        }
+
         const [mm, dd, yyyy] = dateRange[2].split('/'); // second date = statement "as of" date
         return {
           statementDate: `${yyyy}-${mm}-${dd}`,
           principalBalance: bal[1].replace(/,/g, ''),
           accountNumber: acct ? acct[1] : null,
+          transactions: (payments.length || fees.length) ? { payments, fees } : null,
         };
       },
     },
@@ -11080,6 +11128,12 @@ ${noActivityNote}
       const dataUrl = reader.result;
       const base64 = dataUrl.split(',')[1];
       _loanUploadFile = { base64, filename: file.name };
+      // Bug fix (session 218 cont.): these used to persist across file picks within
+      // the same modal session -- pick a Rapid PDF, then swap to a Ford Pro CSV
+      // without closing the modal, and the CSV upload would still carry the PDF's
+      // stale account number / transaction list. Reset per-file, before branching.
+      _loanUploadParsedAcctNum = null;
+      _loanUploadParsedTransactions = null;
 
       if (file.name.toLowerCase().endsWith('.csv')) {
         try {
@@ -11116,8 +11170,16 @@ ${noActivityNote}
               const opt = Array.from(sel.options).find(o => o.dataset.acctnum === parsed.accountNumber);
               if (opt) sel.value = opt.value;
             }
+            // session 218 (cont.): some lender PDFs (Rapid's Line of Credit Summary)
+            // list individual payment/fee transactions instead of a single "amount
+            // due" figure -- when the parser found those, carry them through to
+            // submitLoanUpload() so the backend can generate the matching splits
+            // itself. Without this, ingestion would silently produce no split at
+            // all for these loans (see loan-ingest-statement's `transactions` param).
+            _loanUploadParsedTransactions = parsed.transactions || null;
             noteEl.style.color = 'var(--green)';
-            noteEl.textContent = `Auto-read (${parsed.lenderLabel}): balance $${parsed.principalBalance} as of ${parsed.statementDate}.`;
+            noteEl.textContent = `Auto-read (${parsed.lenderLabel}): balance $${parsed.principalBalance} as of ${parsed.statementDate}`
+              + (parsed.transactions ? `, ${parsed.transactions.payments.length} payment(s) and ${parsed.transactions.fees.length} fee(s) found.` : '.');
             return;
           }
         } catch (_) { /* fall through to manual entry */ }
@@ -11156,10 +11218,17 @@ ${noActivityNote}
         csv_filename: _loanUploadFile.filename,
         csv_base64: _loanUploadFile.base64,
         pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+        // session 218 (cont.): per-transaction detail from a PDF parser (see
+        // LOAN_PDF_PARSERS) for lenders like Rapid Finance whose statements have
+        // no single "amount due" figure to diff against a prior statement --
+        // loan-ingest-statement uses this to generate the matching splits itself
+        // instead of the upload silently producing nothing to review.
+        transactions: _loanUploadParsedTransactions || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       closeLoanUploadModal();
-      showToast(data.split ? 'Statement ingested — split ready for review.' : 'Statement ingested.', 'success');
+      const splitCount = (data.splits_created?.length ?? (data.split ? 1 : 0));
+      showToast(splitCount ? `Statement ingested — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review.` : 'Statement ingested.', 'success');
       loadLoans();
     } catch (e) {
       errEl.textContent = e.message || 'Something went wrong.';
