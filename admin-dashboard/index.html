@@ -184,6 +184,18 @@
     .delta-up { color: var(--green); }
     .card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 20px; transition: background .12s; }
     .card-clickable:hover { background: var(--gray-50); cursor: pointer; }
+    /* Session 219 -- David asked for a darker page background behind white cards
+       (Xero's own UI as the reference: a mid-gray page floor makes each white
+       card visibly float, vs. our default var(--gray-50) which is so close to
+       white the card boundary barely reads). Scoped to Bookkeeping for now
+       rather than changed globally in body{} -- that was the explicit ask, not
+       an app-wide redesign. If this reads well, consider promoting it to the
+       shell (body background) so every page gets the same contrast instead of
+       just this one. The negative margin/matching padding just bleeds this
+       page's background out to the .content edges it would otherwise be
+       inset from. */
+    #page-bookkeeping { background: var(--gray-200); margin: -20px; padding: 20px; }
+    #page-bookkeeping .card { box-shadow: var(--shadow); }
     .card-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--gray-100); }
     .card-title { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
     .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 2px; }

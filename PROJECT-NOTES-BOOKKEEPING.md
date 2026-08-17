@@ -82,6 +82,14 @@ session — see the session log below for why).
 
 ---
 
+## Design conventions
+
+**Page background contrast (session 219, Xero-inspired).** `#page-bookkeeping` gets its own darker background (`var(--gray-200)`, via a negative-margin bleed to the `.content` edges) instead of inheriting the shell's near-white `body { background: var(--gray-50) }`. White cards on a near-white page barely read as distinct surfaces; a visibly darker gray floor makes every card actually float, the way Xero's own dashboard does (a mid-gray page with white cards and real shadow separation was the explicit reference). Cards inside Bookkeeping also get the stronger `var(--shadow)` instead of `--shadow-sm` for the same reason. **Scoped to Bookkeeping only, on purpose** — this was a request about this module, not a redesign of the whole app. If it reads well in daily use, it's a reasonable candidate to promote to `body{}` globally so every page gets the same contrast, but don't do that without it being asked for — a global visual change affects screens nobody's reviewed against this yet.
+
+**Card subtitle copy (session 219).** Card-sub text under a title should guide an action or flag a real consequence, not restate what the title/structure already say or narrate read-only mechanics ("One row per uploaded pay period.", "The latest statement and payroll period on file."). Cut those. Keep subtitle text that: disambiguates between two similarly-named sections so nobody wonders which one they're in (e.g. "Ready to Post" vs "Needs Attention"), explains a non-obvious interaction affordance (e.g. "click the pencil to edit"), or carries a real number/warning someone needs before an irreversible action (the one-time correction cards' dollar figures, the Department Bucket Rules typo warning). When in doubt: would removing this sentence change what the user does next? If no, remove it.
+
+---
+
 ## Invariants — the actual reason this module has its own skill
 
 **Double-entry correctness (`loan_splits`, `payroll_import_employee_lines` → Xero journals):**
