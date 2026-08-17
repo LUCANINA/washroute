@@ -3284,14 +3284,13 @@
             <div class="card" style="margin-bottom:20px">
               <div class="card-header">
                 <div class="card-title">Needs Your Attention</div>
-                <div class="card-sub">Combined across Loans and Payroll — click a card to jump straight to it.</div>
+                <div class="card-sub">Click a card to jump straight to it.</div>
               </div>
               <div id="bk-overview-attention" style="padding:16px;display:flex;gap:12px;flex-wrap:wrap"></div>
             </div>
             <div class="card">
               <div class="card-header">
                 <div class="card-title">Recent Activity</div>
-                <div class="card-sub">The latest statement and payroll period on file.</div>
               </div>
               <div id="bk-overview-recent"></div>
             </div>
@@ -3307,7 +3306,6 @@
           <div class="card" style="margin-bottom:20px">
             <div class="card-header">
               <div class="card-title">Loan Reconciliation</div>
-              <div class="card-sub">Pulled lender statements → computed principal/interest split → posted to Xero, with the source statement attached as a permanent record.</div>
             </div>
             <div id="loans-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
           </div>
@@ -3360,7 +3358,7 @@
                   <div class="card-title">Ready to Post</div>
                   <span id="loans-pending-badge" style="font-size:13px;font-weight:700;color:#92400e;background:#fef3c7;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
-                <div class="card-sub">Computed splits waiting for your approval before posting to Xero — nothing's wrong here, just needs a look.</div>
+                <div class="card-sub">Nothing's wrong here — just waiting on your approval to post.</div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
@@ -3408,7 +3406,7 @@
           <div class="card" style="margin-bottom:20px">
             <div class="card-header">
               <div class="card-title">Debt Schedule</div>
-              <div class="card-sub">Present Balance updates automatically from the latest statement or amortization schedule on file. Original Amount, Rate, Maturity, and Security are set once per loan — click the pencil to edit or correct one.</div>
+              <div class="card-sub">Click the pencil to edit a loan's original amount, rate, maturity, or security.</div>
             </div>
             <div id="debtsched-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
           </div>
@@ -3434,7 +3432,6 @@
             <div class="card-header">
               <div style="flex:1">
                 <div class="card-title">Payroll Allocation</div>
-                <div class="card-sub">Upload a Square payroll report → wages and employer payroll tax are split by department (Delivery / Laundry / Customer Service / Operation / Owner) using the mapping below, ready to review before posting to Xero.</div>
               </div>
               <button class="btn btn-ghost" style="align-self:center;white-space:nowrap" onclick="openPayrollUploadModal(true)" title="For a late correction CSV covering the same calendar pay period as a regular run already uploaded (e.g. a forgotten employee or a sick-leave add), paid on a different date">Off-cycle adjustment</button>
             </div>
@@ -3531,7 +3528,6 @@
                   <span id="payroll-attention-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                   <span id="payroll-attention-stale" style="font-size:11.5px;color:var(--gray-400);display:none">last checked a while ago</span>
                 </div>
-                <div class="card-sub">Checked automatically every 2 hours — unmatched employees, periods waiting on cash to land in Xero, and standing bookkeeping notices that aren't tied to any pay period. Separate from "Needs Review" above, which only counts periods you haven't confirmed yet.</div>
               </div>
               <span style="display:flex;align-items:center;gap:14px">
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();refreshPayrollAttention()" id="payroll-attention-refresh-btn">↻ Refresh Now</button>
@@ -3547,7 +3543,6 @@
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-table-wrap',this)">
               <div style="flex:1">
                 <div class="card-title">Payroll Reports</div>
-                <div class="card-sub">One row per uploaded pay period.</div>
               </div>
               <span style="display:flex;align-items:center;gap:14px">
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();loadPayroll()">↻ Refresh</button>
@@ -3563,7 +3558,7 @@
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-employees-wrap',this)">
               <div style="flex:1">
                 <div class="card-title">Employee → Department Mapping</div>
-                <div class="card-sub">Who counts toward which department. Edit here if someone's role changes or a new hire needs adding.</div>
+                <div class="card-sub">Edit here if someone's role changes or a new hire needs adding.</div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
@@ -3589,7 +3584,7 @@
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-dept-rules-wrap',this)">
               <div style="flex:1">
                 <div class="card-title">Department Bucket Rules</div>
-                <div class="card-sub">Which Xero account each department's wages and employer payroll tax post to. Rarely changes — verify any new account code exists in Xero before saving, a typo here misroutes real money.</div>
+                <div class="card-sub">Verify any new account code exists in Xero before saving — a typo here misroutes real money.</div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
