@@ -20,6 +20,15 @@
   <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <!-- session 218: reads uploaded lender-statement PDFs client-side so known formats
+       can auto-fill the loan upload form, same as the existing CSV parser does --
+       see LOAN_PDF_PARSERS / onLoanFileSelected. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -8807,7 +8816,7 @@
           <div style="font-weight:700;color:var(--red);font-size:13px;margin-bottom:8px">⚠️ ${unmatched.length} employee${unmatched.length!==1?'s':''} not in the department mapping — resolve before marking this reviewed</div>
           <table style="width:100%"><thead><tr><th>Name</th><th>Wages</th><th>Tax</th><th></th></tr></thead><tbody>${unmatchedRows}</tbody></table>
         </div>` : ''}
-      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting to Xero only moves <b>wages + employer payroll tax</b> into the department accounts above. Employer 401k, employer health insurance, and net pay/employee withholding aren't included yet — your CPA still handles those the same way as before.</div>
+      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting to Xero debits <b>wages + employer payroll tax</b> to the department accounts above, and clears net pay, employee tax withholding, employee health, and employee 401k out of the cash/clearing accounts (170, 171, 675, 358) so each period nets to zero. The <b>employer's own</b> 401k match and health contribution shown per department here are not part of this posting — your CPA still handles those the same way as before.</div>
     `;
 
     const canWrite = currentUserRole !== 'cpa';
@@ -11001,15 +11010,73 @@ ${noActivityNote}
     document.getElementById('modal-loan-upload').classList.remove('open');
   }
 
-  // Parses Ford Pro's known statement CSV format and auto-fills the form.
-  // Any other file (PDF, or an unrecognized CSV) just gets attached as-is —
-  // the numbers below are then filled in by hand.
-  function onLoanFileSelected(event) {
+  // Known lender PDF statement layouts (session 218). Each entry: `detect` —
+  // a cheap check the extracted text is this lender's format at all — and
+  // `extract` — pulls statementDate/principalBalance/accountNumber or
+  // returns null if the fields it needs aren't actually there. Same
+  // philosophy as the Ford Pro CSV parser below: auto-fill a KNOWN format,
+  // fall back to manual entry for anything unrecognized rather than guess.
+  // Add a new entry here the next time a different lender's PDF needs
+  // auto-reading — don't grow this into one giant regex, keep each lender's
+  // shape isolated.
+  const LOAN_PDF_PARSERS = [
+    {
+      lenderLabel: 'Rapid Finance statement',
+      detect: (text) => /rapidfinance\.com/i.test(text) && /Account ID\s*\d+/i.test(text),
+      extract: (text) => {
+        const bal = text.match(/Remaining Balance:?\s*\$?([\d,]+\.\d{2})/i);
+        const dateRange = text.match(/For Dates:?\s*(\d{2}\/\d{2}\/\d{4})[\s\S]{0,6}?(\d{2}\/\d{2}\/\d{4})/i);
+        const acct = text.match(/Account ID\s*(\d+)/i);
+        if (!bal || !dateRange) return null;
+        const [mm, dd, yyyy] = dateRange[2].split('/'); // second date = statement "as of" date
+        return {
+          statementDate: `${yyyy}-${mm}-${dd}`,
+          principalBalance: bal[1].replace(/,/g, ''),
+          accountNumber: acct ? acct[1] : null,
+        };
+      },
+    },
+  ];
+
+  function _parseKnownLenderPdf(text) {
+    for (const parser of LOAN_PDF_PARSERS) {
+      if (!parser.detect(text)) continue;
+      const result = parser.extract(text);
+      if (result) return { ...result, lenderLabel: parser.lenderLabel };
+    }
+    return null;
+  }
+
+  // Extracts all text from a base64 PDF via pdf.js, page by page. Returns ''
+  // (not throws) if pdf.js failed to load (e.g. CDN blocked) — callers treat
+  // that the same as "couldn't auto-read", which is the existing, safe
+  // fallback behavior.
+  async function _extractPdfText(base64) {
+    if (!window.pdfjsLib) return '';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(' ') + '\n';
+    }
+    return text;
+  }
+
+  // Parses Ford Pro's known statement CSV format, or a known lender PDF
+  // layout (see LOAN_PDF_PARSERS), and auto-fills the form either way. Any
+  // unrecognized CSV or PDF just gets attached as-is — the numbers below are
+  // then filled in by hand, same safety net as always: auto-fill only ever
+  // populates the visible, editable fields, it never skips the review step.
+  async function onLoanFileSelected(event) {
     const file = event.target.files?.[0];
     const noteEl = document.getElementById('lu-parse-note');
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = reader.result;
       const base64 = dataUrl.split(',')[1];
       _loanUploadFile = { base64, filename: file.name };
@@ -11033,6 +11100,24 @@ ${noActivityNote}
             if (opt) sel.value = opt.value;
             noteEl.style.color = 'var(--green)';
             noteEl.textContent = `Auto-read: account #${row.Account_Number}, balance $${row.Principal_Balance}${row.Total_Amount_Due ? `, $${row.Total_Amount_Due} due` : ''}.`;
+            return;
+          }
+        } catch (_) { /* fall through to manual entry */ }
+      } else if (file.name.toLowerCase().endsWith('.pdf')) {
+        try {
+          const text = await _extractPdfText(base64);
+          const parsed = text ? _parseKnownLenderPdf(text) : null;
+          if (parsed) {
+            document.getElementById('lu-statement-date').value = parsed.statementDate;
+            document.getElementById('lu-principal-balance').value = parsed.principalBalance;
+            if (parsed.accountNumber) {
+              _loanUploadParsedAcctNum = parsed.accountNumber;
+              const sel = document.getElementById('lu-loan-select');
+              const opt = Array.from(sel.options).find(o => o.dataset.acctnum === parsed.accountNumber);
+              if (opt) sel.value = opt.value;
+            }
+            noteEl.style.color = 'var(--green)';
+            noteEl.textContent = `Auto-read (${parsed.lenderLabel}): balance $${parsed.principalBalance} as of ${parsed.statementDate}.`;
             return;
           }
         } catch (_) { /* fall through to manual entry */ }
