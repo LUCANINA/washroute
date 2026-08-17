@@ -98,6 +98,24 @@ session — see the session log below for why).
 
 ---
 
+## Next Up — Direct Transaction Split (scoped Aug 17, session 218+; build starts Aug 18)
+
+**The idea, David's framing:** instead of posting a payment 100% to the loan account and then adding a separate reclass journal to move the interest portion over (today's pattern — 2 Xero objects per real payment: 1 payment + 1 journal, so 4 line items for 2 weeks), directly edit the payment's own bank transaction so principal and interest are split on that ONE transaction. Half as many Xero objects, no separate "adjustment," matches how some of Rapid's own historical transactions already look in Xero (e.g. the Jun 16, 2026 transaction, which has both a 247 line and an 800 line on the same Spend Money entry — someone did this by hand at some point).
+
+**Why today's system doesn't do this: it's a capability gap, not a rule.** `loan-xero-post` was only ever built to CREATE a new Manual Journal. It has no code path that edits an existing bank transaction's line items. The earlier worry that editing an already-*reconciled* transaction might be unsafe or require an "unreconcile" step turned out to be a non-issue — **David confirmed directly: "I can edit, change the splits, and save. I do it all the time."** Xero allows re-coding/splitting a reconciled transaction's lines without unreconciling it first. (An attempted live API test to double-confirm this via a temp diagnostic was blocked twice by this environment's own safety classifier, even after David's explicit go-ahead — editing a real reconciled transaction as an experiment sits outside what the classifier will allow automated. David's own direct answer from the Xero UI is the confirmation instead.)
+
+**The actual scope, four pieces:**
+1. **Matching — which transaction does a fee belong to?** Rapid's fee dates and payment dates don't coincide (e.g. the 2026-08-03 $513.28 fee vs. the 2026-08-04 $2,068.89 payment — different calendar dates). The historical hand-split pattern embeds interest into the *nearest* payment transaction, not a same-day one. New logic needed: for each fee candidate, find the closest not-yet-split payment transaction within a small window (a few days) on the loan's own bank account — shape-wise similar to `findLumpSumMatches`'s window logic, but matching to a single transaction instead of summing a lump sum.
+2. **Propose the edit, not a journal.** `loan-xero-post`'s preview step needs a new proposal shape: instead of "create a $X journal," it shows "split transaction on Wells Fargo Checking (4384), dated 2026-08-04, $2,068.89 → $1,569.61 principal / $499.42 interest." The CPA needs to see and approve the actual real transaction being changed, not an abstraction.
+3. **On approval, call Update BankTransaction (not Create ManualJournal).** Store which transaction was edited (`loan_splits` needs a real column for this — `matched_xero_bank_transaction_id` already exists but has been unused/null for statement-based loans so far; this is what it's for) so the system always knows which live Xero object a given split touched.
+4. **Undo has to change symmetrically.** Tonight's "revert" meant voiding a Manual Journal. Under this model, reverting means restoring the transaction's original single line item — same reversibility discipline (see the Xero-sync-idempotency invariant above), different mechanism. Needs its own tested revert path before this ships, not just the create path.
+
+**Fallback, non-negotiable:** if a matching payment transaction can't be found, is already split, or the update call fails for any reason, fall back to today's separate-journal behavior rather than fail silently or block the post — same principle as the existing `xero_check_error` fallback in v19's duplicate detection.
+
+**Scope note:** this touches the core posting flow for every statement-based loan (`ingestion_method='portal_manual'`), not just Rapid — needs the same live-verification discipline as tonight's v17→v19 saga (diagnostic against real data, confirm deployed source matches intended source byte-for-byte, etc.) before it's trusted in production. **David: "We begin building this new version tomorrow."**
+
+---
+
 ## Session Log
 
 *Last updated: August 17, 2026 — Session 218 (cont. even further, x2) — **v17's duplicate-detection was wrong twice more before it was actually right: v18 added lump-sum matching, then a live Xero API pagination truncation was found and fixed in v19, then a frontend PDF-parser bug (dropping "Draw Fee" rows) was found and fixed — Rapid's re-upload finally matches David's own Xero screenshots.**
