@@ -3319,7 +3319,7 @@
             <div class="card-header">
               <div class="card-title">Loan Reconciliation</div>
             </div>
-            <div id="loans-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
+            <div id="loans-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px;background:var(--gray-100)"></div>
           </div>
 
           <!-- Session 214 redesign — David's feedback on session 213's first pass: two
@@ -3420,7 +3420,7 @@
               <div class="card-title">Debt Schedule</div>
               <div class="card-sub">Click the pencil to edit a loan's original amount, rate, maturity, or security.</div>
             </div>
-            <div id="debtsched-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px"></div>
+            <div id="debtsched-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:16px;background:var(--gray-100)"></div>
           </div>
           <div class="card">
             <div class="card-header" style="padding:20px 24px">
@@ -8336,7 +8336,7 @@
 
     const item = (imp) => {
       const meta = PAYROLL_FLAG_LABELS[imp.attention_flag] || { badge: imp.attention_flag, color: 'gray' };
-      return `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;cursor:pointer" onclick="openPayrollReviewModal('${imp.id}')">
+      return `<div style="padding:12px 16px;background:#fff;border:1px solid var(--gray-200);border-radius:10px;box-shadow:var(--shadow-sm);margin:0 16px 10px;display:flex;gap:10px;align-items:flex-start;cursor:pointer" onclick="openPayrollReviewModal('${imp.id}')">
         <span class="badge badge-${meta.color}" style="margin-top:2px">${esc(meta.badge)}</span>
         <div style="flex:1;min-width:0">
           <div class="td-name" style="margin-bottom:2px">${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}</div>
@@ -8348,7 +8348,7 @@
 
     // Standing notices (not tied to a pay period, so not clickable through to
     // a review modal) render above the per-period items.
-    const noticeItem = (nt) => `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
+    const noticeItem = (nt) => `<div style="padding:12px 16px;background:#fff;border:1px solid var(--gray-200);border-radius:10px;box-shadow:var(--shadow-sm);margin:0 16px 10px;display:flex;gap:10px;align-items:flex-start">
         <span class="badge badge-${nt.severity === 'error' ? 'red' : 'amber'}" style="margin-top:2px">ask your CPA</span>
         <div style="flex:1;min-width:0">
           <div class="td-name" style="margin-bottom:2px">${esc(nt.title || '')}</div>
@@ -8356,7 +8356,10 @@
         </div>
       </div>`;
 
-    el.innerHTML = notices.map(noticeItem).join('') + flagged.map(item).join('');
+    // Session 219: same "grey floor behind white cards" treatment as Loans'
+    // Needs Attention list -- see that render function's comment for why the
+    // background has to live on this wrapper, not the individual items.
+    el.innerHTML = `<div style="background:var(--gray-100);padding-top:10px">${notices.map(noticeItem).join('') + flagged.map(item).join('')}</div>`;
   }
 
   async function refreshPayrollAttention() {
@@ -9701,7 +9704,7 @@
     const flaggedCount = enriched.filter(e => e.staleness !== 'fresh').length;
     const uncatCount = enriched.filter(e => !e.a.debt_category).length;
 
-    const tile = (label, val, color, title) => `<div style="flex:1;min-width:150px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
+    const tile = (label, val, color, title) => `<div style="flex:1;min-width:150px;background:#fff;border:1px solid var(--gray-200);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow-sm)"${title ? ` title="${esc(title)}"` : ''}>
       <div style="font-size:22px;font-weight:700;color:${color}">${val}</div>
       <div style="font-size:11px;color:var(--gray-500);font-weight:600">${label}</div></div>`;
 
@@ -10005,11 +10008,11 @@
 
     const money = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    const card = (label, n, color, title) => `<div style="flex:1;min-width:130px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
+    const card = (label, n, color, title) => `<div style="flex:1;min-width:130px;background:#fff;border:1px solid var(--gray-200);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow-sm)"${title ? ` title="${esc(title)}"` : ''}>
       <div style="font-size:22px;font-weight:700;color:${color}">${n}</div>
       <div style="font-size:11px;color:var(--gray-500);font-weight:600;letter-spacing:0">${label}</div></div>`;
 
-    const breakdownCard = (label, totals, title) => `<div style="flex:1;min-width:170px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:12px 14px"${title ? ` title="${esc(title)}"` : ''}>
+    const breakdownCard = (label, totals, title) => `<div style="flex:1;min-width:170px;background:#fff;border:1px solid var(--gray-200);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow-sm)"${title ? ` title="${esc(title)}"` : ''}>
       <div style="font-size:22px;font-weight:700;color:var(--gray-800)">${money(totals.principal + totals.interest)}</div>
       <div style="font-size:11px;color:var(--gray-500);font-weight:600;letter-spacing:0;margin-bottom:4px">${label}</div>
       <div style="font-size:11px;color:var(--gray-400)">${money(totals.principal)} principal · ${money(totals.interest)} interest</div>
@@ -10270,7 +10273,7 @@
       primaryActionHtml = uploadCta || `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
     }
 
-    return `<div class="loan-attn-card"${cardClickAttr} style="padding:14px 16px;border:1px solid var(--gray-100);border-radius:10px;margin:0 16px 10px">
+    return `<div class="loan-attn-card"${cardClickAttr} style="padding:14px 16px;background:#fff;border:1px solid var(--gray-200);border-radius:10px;box-shadow:var(--shadow-sm);margin:0 16px 10px">
       <div style="display:flex;gap:10px;align-items:flex-start">
         <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};margin-top:7px;flex-shrink:0"></span>
         <div style="flex:1;min-width:0">
@@ -10324,7 +10327,7 @@
     // Recently-resolved reconciliation findings get a simpler read-only card; there's no
     // "who/when/reopen" for those, the engine just stopped finding the issue.
     const resolvedAccountCard = (a) => `
-      <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
+      <div class="loan-attn-item" style="padding:12px 16px;background:#fff;border:1px solid var(--gray-200);border-radius:10px;box-shadow:var(--shadow-sm);margin:0 16px 10px">
         <div style="display:flex;gap:10px;align-items:flex-start">
           <span class="badge badge-green" style="margin-top:2px">resolved</span>
           <div style="flex:1;min-width:0">
@@ -10337,7 +10340,7 @@
         </div>
       </div>`;
     const resolvedFindingCard = (f) => `
-      <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
+      <div class="loan-attn-item" style="padding:12px 16px;background:#fff;border:1px solid var(--gray-200);border-radius:10px;box-shadow:var(--shadow-sm);margin:0 16px 10px">
         <div style="display:flex;gap:10px;align-items:flex-start">
           <span class="badge badge-green" style="margin-top:2px">resolved</span>
           <div style="flex:1;min-width:0">
@@ -10348,7 +10351,7 @@
         </div>
       </div>`;
 
-    const infoCard = (f) => `<div style="padding:10px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
+    const infoCard = (f) => `<div style="padding:10px 16px;background:#fff;border:1px solid var(--gray-200);border-radius:10px;margin:0 16px 10px;display:flex;gap:10px;align-items:flex-start">
       <span style="width:6px;height:6px;border-radius:50%;background:var(--gray-300);margin-top:6px;flex-shrink:0"></span>
       <div><div style="font-size:12.5px;font-weight:600;color:var(--gray-600)">${esc(f.title || 'Untitled finding')}</div>
       ${f.plain_english ? `<div style="font-size:12px;color:var(--gray-400);margin-top:2px">${esc(f.plain_english)}</div>` : ''}</div>
@@ -10372,14 +10375,30 @@
         : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing resolved yet.</div>`;
     }
 
+    // Session 219: this used to always render open, which meant N repeated,
+    // near-identical "nothing to do" explanations (the same "ties once a
+    // later-dated correction takes effect" boilerplate for 3 different loans,
+    // etc.) permanently occupied real vertical space below the things that
+    // actually need a decision. Collapsed by default now, same
+    // toggleOverviewPanel pattern as "Past reconciliation reports" just below
+    // this card -- the content's still one click away if there's ever a
+    // reason to double-check why something that looks off isn't.
     const infoBlock = infoFindings.length
-      ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-100)">
-          <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.03em;padding:0 16px 6px">For information — nothing to do</div>
-          ${infoFindings.map(infoCard).join('')}
+      ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-200)">
+          <span onclick="toggleOverviewPanel('recon-info-findings',this)" style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.03em;padding:0 16px;cursor:pointer;text-decoration:underline;display:inline-block;margin-bottom:6px">For information (${infoFindings.length}) — nothing to do</span>
+          <div id="recon-info-findings" style="display:none">${infoFindings.map(infoCard).join('')}</div>
         </div>`
       : '';
 
-    el.innerHTML = subtabs + body + infoBlock;
+    // Session 219: the gap between each card needs to actually BE grey for
+    // the "white card floats on a grey floor" look to read -- a transparent
+    // gap over the white card's own background (unchanged since this list
+    // sits inside a plain white .card) just showed as a couple of thin hairline
+    // borders butted up against each other. Grey lives on this wrapper (body +
+    // info, not the subtabs above it -- the subtabs pill already IS grey with
+    // a white active tab, so wrapping it too would erase that contrast instead
+    // of adding to it).
+    el.innerHTML = subtabs + `<div style="background:var(--gray-100);padding-top:10px">${body}${infoBlock}</div>`;
   }
 
   function renderLoansPending() {
