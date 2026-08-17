@@ -11227,8 +11227,16 @@ ${noActivityNote}
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       closeLoanUploadModal();
-      const splitCount = (data.splits_created?.length ?? (data.split ? 1 : 0));
-      showToast(splitCount ? `Statement ingested — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review.` : 'Statement ingested.', 'success');
+      // session 218 (cont.): loan-ingest-statement v16 can also backfill a split for
+      // a LATER statement that was already on file but never got one (because at the
+      // time it was ingested, this earlier statement didn't exist yet to diff
+      // against) -- surface that distinctly so it's clear something older just got
+      // resolved, not just this upload's own period.
+      const splitCount = (data.splits_created?.length ?? (data.split ? 1 : 0)) + (data.backfilled_split && !data.backfilled_split.error ? 1 : 0);
+      const backfillNote = data.backfilled_split && !data.backfilled_split.error
+        ? ` (including a backfilled split for ${data.backfilled_split.period_label}, which was missing this statement to diff against)`
+        : '';
+      showToast(splitCount ? `Statement ingested — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review${backfillNote}.` : 'Statement ingested.', 'success');
       loadLoans();
     } catch (e) {
       errEl.textContent = e.message || 'Something went wrong.';
