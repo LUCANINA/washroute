@@ -3336,8 +3336,7 @@
                   <div class="card-title">Needs Attention</div>
                   <span id="loans-attention-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
-                <div class="card-sub">Everything worth a look — flagged loans, split mismatches, and reconciliation findings, in one list.</div>
-                <div class="card-sub" id="recon-lastrun" style="margin-top:2px">Loading…</div>
+                <div class="card-sub" id="recon-lastrun" style="margin-top:2px"></div>
                 <div id="recon-summary" style="margin-top:2px"></div>
               </div>
               <span style="display:flex;align-items:center;gap:14px">
@@ -9495,15 +9494,11 @@
     // out the last good numbers.
     const lastComplete = _reconRuns.find(r => r.finished_at && r.status !== 'failed') || null;
 
-    // ── Last run line ──
-    if (!newest) {
-      lastEl.textContent = 'No check has been run yet.';
-    } else {
-      const at = fmtTime(newest.started_at);
-      lastEl.textContent = 'Last run ' + fmtDate(newest.started_at) + (at ? ' at ' + at : '') +
-        ', covering ' + fmtDate(newest.period_from) + ' → ' + fmtDate(newest.period_to) +
-        ' · ' + (newest.loans_checked ?? 0) + ' loans';
-    }
+    // ── Last run line ── (session 219: dropped the "Last run <date>, covering
+    // <range> · N loans" recap -- it was pure metadata nobody acted on. Kept
+    // the "no check yet" case, since that one guides the user toward the Run
+    // Reconciliation Check button rather than just describing state.)
+    lastEl.textContent = newest ? '' : 'No check has been run yet.';
 
     // ── Summary strip ──
     if (!newest) {
@@ -9524,12 +9519,16 @@
       // those stay. If the open count matters, the badge above is the one number that
       // means "needs attention right now" -- this line is now purely about the last
       // check's own delta.
+      // Session 219: dropped the "N new · M resolved since the last check" line
+      // too -- the badge above already IS "how many need attention right now,"
+      // and this was a second, differently-scoped number sitting right next to
+      // it. Only render something here when it's actionable: a clean bill of
+      // health. Otherwise the badge (or the attention list itself, once
+      // expanded) already says everything this strip used to restate in words.
       const reconOpenNeedsAttention = _reconFindings.filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).length;
-      sumEl.innerHTML =
-        `<div style="font-size:14px;color:var(--gray-800)"><b>${lastComplete.findings_new ?? 0} new · ${lastComplete.findings_resolved ?? 0} resolved</b> since the last check</div>` +
-        (reconOpenNeedsAttention === 0
-          ? `<div style="font-size:13px;font-weight:600;color:var(--green);margin-top:6px">No open reconciliation findings.</div>`
-          : '');
+      sumEl.innerHTML = reconOpenNeedsAttention === 0
+        ? `<div style="font-size:13px;font-weight:600;color:var(--green)">No open reconciliation findings.</div>`
+        : '';
     }
 
     // ── Past reports ── (runs that never wrote a report have nothing to open)
