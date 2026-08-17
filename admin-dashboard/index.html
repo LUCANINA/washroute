@@ -10169,7 +10169,7 @@
     const fullExplain = f?.plain_english || '';
     return `${fullExplain && fullExplain !== item.explain ? `<div style="white-space:pre-wrap">${esc(fullExplain)}</div>` : ''}
       ${item.tag ? `<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-400);margin-top:${fullExplain && fullExplain !== item.explain ? '6px' : '0'}">${esc(item.tag)}</div>` : ''}
-      ${f?.proposed_action && f.proposed_action !== f.plain_english ? `<div style="margin-top:4px;white-space:pre-wrap">${esc(f.proposed_action)}</div>` : ''}`;
+      ${f?.proposed_action?.note ? `<div style="margin-top:4px;white-space:pre-wrap">${esc(f.proposed_action.note)}</div>` : ''}`;
   }
 
   function _bkLoanAttentionCard(item) {
