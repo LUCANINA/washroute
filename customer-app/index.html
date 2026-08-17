@@ -2140,7 +2140,7 @@ async function getNextDeliveryDay(afterDateOrStr, zoneId) {
   let validDays = null;
   try {
     let q = db.from('route_templates').select('schedule_days').eq('is_active', true);
-    if (zoneId) q = q.eq('zone_id', zoneId);
+    if (zoneId) q = _scopeRouteTemplateQuery(q, zoneId);
     const { data: templates } = await q;
     if (templates?.length) {
       validDays = new Set(templates.flatMap(t => t.schedule_days || []));
@@ -4019,6 +4019,22 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
   return windows;
 }
 
+// Route-template scoping helper (session 196): when a customer has a
+// route_template_override_id set, auto_route_order gives that override total
+// precedence over zone_id when actually routing an order — so every slot
+// picker in this app must mirror that precedence, or a customer can pick a
+// window their account can never be routed to (order #12729 / Kelly Gonzalez —
+// she had a stale AM-only override but the booking UI still offered PM slots
+// for her zone, and the order failed to route the moment it was created).
+// Apply this to any `.from('route_templates')` query used to build a
+// customer-facing slot list; pass p_customer_id through to
+// get_slot_availability / get_nearest_available_slots so the DB applies the
+// same precedence server-side.
+function _scopeRouteTemplateQuery(query, zoneId) {
+  const overrideId = currentCustomer?.route_template_override_id;
+  return overrideId ? query.eq('id', overrideId) : query.eq('zone_id', zoneId);
+}
+
 async function fetchWindowsForDate(iso) {
   // Reset so stale selection can't pass step validation during the fetch
   draft.pickupWindow     = null;
@@ -4036,12 +4052,14 @@ async function fetchWindowsForDate(iso) {
 
   // Fetch templates and capacity in parallel
   const [tmplRes, capRes] = await Promise.all([
-    db.from('route_templates')
-      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
-      .eq('zone_id', draft.zoneId)
-      .eq('is_active', true)
-      .contains('schedule_days', [isoDay]),
-    db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: iso })
+    _scopeRouteTemplateQuery(
+      db.from('route_templates')
+        .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
+        .eq('is_active', true)
+        .contains('schedule_days', [isoDay]),
+      draft.zoneId
+    ),
+    db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: iso, p_customer_id: currentCustomer?.id || null })
   ]);
 
   const templates = tmplRes.data;
@@ -4500,6 +4518,7 @@ async function _renderAltSlotsInto(which, hostEl) {
       p_stop_type: which,
       p_limit: 3,
       p_day_radius: 3,
+      p_customer_id: currentCustomer?.id || null,
     });
     const row = document.getElementById(rowId);
     // Bail if the row was removed or replaced since we kicked off the request.
@@ -4658,7 +4677,7 @@ async function _updateSchedDelivery() {
   let deliveryDays = null;
   try {
     let q = db.from('route_templates').select('turnaround_days, schedule_days').eq('is_active', true);
-    if (draft.zoneId) q = q.eq('zone_id', draft.zoneId);
+    if (draft.zoneId) q = _scopeRouteTemplateQuery(q, draft.zoneId);
     const { data: templates } = await q;
     if (templates?.length) {
       const t = templates.find(r => r.turnaround_days > 0);
@@ -4729,7 +4748,7 @@ async function _fetchDeliveryCapacity() {
     return;
   }
   try {
-    const { data } = await db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: draft.deliveryDate });
+    const { data } = await db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: draft.deliveryDate, p_customer_id: currentCustomer?.id || null });
     const capMap = {};
     (data || []).forEach(row => { capMap[`${row.template_id}|${row.sub_window_start}`] = { activeStops: Number(row.active_stops), subWindowLimit: row.sub_window_limit }; });
     // Clone availableWindows with delivery-date per-sub-window capacity
@@ -4766,12 +4785,13 @@ async function _checkSameDayAvailable() {
 
   // Fetch ALL templates for same zone + same day — we'll filter by window time below
   const isoDay = (new Date(draft.pickupDate + 'T12:00:00').getDay() + 6) % 7;
-  const { data: templates } = await db
-    .from('route_templates')
-    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
-    .eq('zone_id', draft.zoneId)
-    .eq('is_active', true)
-    .contains('schedule_days', [isoDay]);
+  const { data: templates } = await _scopeRouteTemplateQuery(
+    db.from('route_templates')
+      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
+      .eq('is_active', true)
+      .contains('schedule_days', [isoDay]),
+    draft.zoneId
+  );
 
   if (!templates?.length) return [];
 
@@ -6975,9 +6995,12 @@ async function fetchEditWindows(iso) {
   if (!es || !es.zoneId) return;
   es.availableWindows = [];
   const isoDay = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
-  const { data: templates } = await db.from('route_templates')
-    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes')
-    .eq('zone_id', es.zoneId).eq('is_active', true).contains('schedule_days', [isoDay]);
+  const { data: templates } = await _scopeRouteTemplateQuery(
+    db.from('route_templates')
+      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes')
+      .eq('is_active', true).contains('schedule_days', [isoDay]),
+    es.zoneId
+  );
   if (!templates?.length) return;
   const windows = [];
   templates.forEach(tmpl => {
@@ -7005,7 +7028,7 @@ async function _computeEditDeliveryOptions() {
   let turnaround = 2, deliveryDays = null;
   try {
     let q = db.from('route_templates').select('turnaround_days, schedule_days').eq('is_active', true);
-    if (es.zoneId) q = q.eq('zone_id', es.zoneId);
+    if (es.zoneId) q = _scopeRouteTemplateQuery(q, es.zoneId);
     const { data: templates } = await q;
     if (templates?.length) {
       const t = templates.find(r => r.turnaround_days > 0);
@@ -7715,11 +7738,14 @@ async function showSubscriptionPickupPicker() {
     return;
   }
 
-  // Fetch active pickup templates for THIS zone only.
-  const { data: templates } = await db.from('route_templates')
-    .select('id, name, schedule_days, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
-    .eq('is_active', true)
-    .eq('zone_id', zoneId);
+  // Fetch active pickup templates for THIS zone only (or the customer's route
+  // override, if one is set — see _scopeRouteTemplateQuery).
+  const { data: templates } = await _scopeRouteTemplateQuery(
+    db.from('route_templates')
+      .select('id, name, schedule_days, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
+      .eq('is_active', true),
+    zoneId
+  );
 
   // Build set of available ISO weekdays (0=Mon..6=Sun) and their windows.
   // Session 168: split each template's full window into arrival_window_hours
@@ -7843,9 +7869,12 @@ async function showSubscriptionPickupPicker() {
     const pwEndMs    = new Date(`${pickupIso}T${selWin.windowEnd}${offsetStr}`).getTime();
     const earliestMs = pwEndMs + selWin.turnaroundHours * 3600000;
     const dow = (new Date(pickupIso + 'T12:00:00').getDay() + 6) % 7;
-    const { data: tmpls } = await db.from('route_templates')
-      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
-      .eq('zone_id', zoneId).eq('is_active', true).contains('schedule_days', [dow]);
+    const { data: tmpls } = await _scopeRouteTemplateQuery(
+      db.from('route_templates')
+        .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
+        .eq('is_active', true).contains('schedule_days', [dow]),
+      zoneId
+    );
     if (!tmpls?.length) return [];
     const out = [];
     tmpls.forEach(t => computeSubWindows(pickupIso, t, t.id, t.name).forEach(w => {
