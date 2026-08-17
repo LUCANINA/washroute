@@ -123,7 +123,16 @@ session — see the session log below for why).
 
 ## Session Log
 
-*Last updated: August 17, 2026 — Session 219 (cont.) — **Payroll Xero journal Narration/Description text shortened -- was rendering as an unreadable wall of text in Xero's account reports; a general succinctness convention is now codified above (Invariants) for every future Xero-posting function.**
+*Last updated: August 17, 2026 — Session 219 (cont. further) — **`loan-xero-post` given the same Narration/Description succinctness treatment as `payroll-xero-post` -- David asked for the payroll fix's rule to be applied here too.**
+
+David: "apply rule to loan-xero-post as well." `loan-xero-post` v22 → v23, purely cosmetic (no change to account codes, amounts, dates, or posting/matching logic):
+
+- **Pure-reclass journal** (Case 2, $0 total / no bank match): Narration `${account} — reclassify ${period}: $X moves from ${code} to Interest Expense (no bank transaction -- this is a lender-ledger reclass, not a cash movement)` → `${account} reclass — ${period}`. Both line Descriptions (`${account} - reclass (${period})` repeated on both lines) → `Interest reclass` / `${account} reclass`.
+- **Normal bank-matched reallocation journal** (the common case): Narration `${account} — reallocate ${period} payment: principal $X stays on the loan, interest $Y moves to Interest Expense (original payment on <date> was posted in full to the loan account -- see attached lender statement / see amortization schedule on file)` → `${account} — interest reallocation, ${period}`. Line Descriptions `${account} - interest (${period})` / `${account} - reverse over-reduction from lumped payment (${period})` → `Interest` / `${account} principal correction`. The now-unused `sourceNote` variable (statement-vs-schedule wording) was removed entirely rather than left dead.
+- The long "why this exists" reasoning in each case was untouched -- it's already documented in this file's header version-history comments (v19's no-bank-match note, etc.), which is where that kind of explanation belongs per the succinctness invariant added earlier this session, not in a string posted to Xero.
+- Verified via re-fetch-and-diff after deploy, same discipline as every other deploy this session.
+
+*Previously: August 17, 2026 — Session 219 (cont.) — **Payroll Xero journal Narration/Description text shortened -- was rendering as an unreadable wall of text in Xero's account reports; a general succinctness convention is now codified above (Invariants) for every future Xero-posting function.**
 
 David flagged this from two Xero screenshots of the "171 - Direct Payroll Taxes" account: each Manual Journal's `Narration` was a ~300-character sentence describing the entire payroll allocation model, and because Xero's Account Transactions report concatenates the Narration with every JournalLine's own Description when rendering, that sentence effectively repeated once per line and again every pay period -- already unreadable after just two periods, and it would only get worse as postings accumulate. His ask: "Fix them and update notes and/or skill so ensure future notes are succinct."
 
