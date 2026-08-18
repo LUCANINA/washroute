@@ -22,7 +22,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <!-- session 218: reads uploaded lender-statement PDFs client-side so known formats
        can auto-fill the loan upload form, same as the existing CSV parser does --
-       see LOAN_PDF_PARSERS / onLoanFileSelected. -->
+       see LOAN_PDF_PARSERS / onLoanIntakeFileSelected. -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
     if (window.pdfjsLib) {
@@ -3728,38 +3728,91 @@
           </div>
         </div>
 
-        <!-- Loan Upload modal -->
-        <div class="modal-overlay" id="modal-loan-upload">
-          <div class="modal" style="width:520px">
+        <!-- Unified Loan Intake modal (session 221, build step 4) -- REPLACES the old
+             separate "Upload a Statement" and "Attach a document" forms. Previously the
+             user had to choose which of two upload paths to use BEFORE the system had
+             looked at the file, and the document path never read the file at all -- so a
+             lender statement dropped into it was stored and silently ignored, with no
+             split computed and no error shown. One entry point now: pick a file, the
+             system says what it thinks it is, you confirm or override, and it routes to
+             the right pipeline.
+
+             DELIBERATE SPLIT OF RESPONSIBILITY (do not "simplify" this into one source):
+               * The BROWSER parsers (LOAN_PDF_PARSERS / _parsePayPalHistoryCsv) still
+                 build the ingest payload, byte-for-byte as before. They are the six
+                 live-verified-in-a-real-browser parsers and the write path through
+                 loan-ingest-statement is completely unchanged by this refactor.
+               * The loan-document-intake EDGE FUNCTION runs in parallel as a SECOND
+                 OPINION: it classifies non-statement documents (which the browser cannot
+                 do at all), supplies per-figure provenance (e.g. Ford Pro's payoff quote
+                 vs its principal balance), matches the loan by account number, and
+                 cross-checks the browser's own numbers. Disagreement is surfaced, never
+                 silently resolved.
+             This keeps the thing that touches the books unchanged while adding the thing
+             that was missing. -->
+        <div class="modal-overlay" id="modal-loan-intake">
+          <div class="modal" style="width:560px">
             <div class="modal-header">
-              <div class="modal-title">Upload a Statement</div>
-              <button class="modal-close" onclick="closeLoanUploadModal()">
+              <div class="modal-title">Upload a Document</div>
+              <button class="modal-close" onclick="closeLoanIntakeModal()">
                 <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
             </div>
             <div class="modal-body">
               <div class="form-group">
                 <label class="form-label">Loan</label>
-                <select class="form-select" id="lu-loan-select"></select>
+                <select class="form-select" id="li-loan-select"></select>
+                <div id="li-loan-note" style="font-size:12px;margin-top:6px;display:none"></div>
               </div>
               <div class="form-group">
-                <label class="form-label">Statement file (CSV or PDF)</label>
-                <input type="file" id="lu-file-input" accept=".csv,.pdf" class="form-input" onchange="onLoanFileSelected(event)">
-                <div id="lu-parse-note" style="font-size:12px;color:var(--gray-500);margin-top:6px"></div>
+                <label class="form-label">File</label>
+                <input type="file" id="li-file-input" class="form-input" onchange="onLoanIntakeFileSelected(event)">
+                <div id="li-parse-note" style="font-size:12px;color:var(--gray-500);margin-top:6px"></div>
               </div>
-              <div class="form-row">
-                <div class="form-group"><label class="form-label">Statement date</label><input type="date" class="form-input" id="lu-statement-date"></div>
-                <div class="form-group"><label class="form-label">Principal balance</label><input type="number" step="0.01" class="form-input" id="lu-principal-balance" placeholder="0.00"></div>
+              <div class="form-group">
+                <label class="form-label">What is this?</label>
+                <select class="form-select" id="li-kind-select" onchange="onLoanIntakeKindChanged(true)">
+                  <option value="lender_statement">Lender statement — read the balance and compute the split</option>
+                  <option value="transaction_history_bulk">Full transaction history — import every period</option>
+                  <option value="payoff_letter">Payoff letter — keep on file</option>
+                  <option value="amortization_schedule">Amortization schedule — keep on file</option>
+                  <option value="transaction_history">Transaction history — just keep the file</option>
+                  <option value="agreement">Loan agreement — keep on file</option>
+                  <option value="correspondence">Correspondence — keep on file</option>
+                  <option value="other">Something else — keep on file</option>
+                </select>
+                <div id="li-kind-note" style="font-size:12px;color:var(--gray-500);margin-top:6px"></div>
               </div>
-              <div class="form-row">
-                <div class="form-group"><label class="form-label">Total amount due</label><input type="number" step="0.01" class="form-input" id="lu-total-due" placeholder="0.00"></div>
-                <div class="form-group"><label class="form-label">Payment due date</label><input type="date" class="form-input" id="lu-due-date"></div>
+
+              <div id="li-statement-fields">
+                <div class="form-row">
+                  <div class="form-group"><label class="form-label">Statement date</label><input type="date" class="form-input" id="li-statement-date"></div>
+                  <div class="form-group"><label class="form-label">Principal balance</label><input type="number" step="0.01" class="form-input" id="li-principal-balance" placeholder="0.00"></div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group"><label class="form-label">Total amount due</label><input type="number" step="0.01" class="form-input" id="li-total-due" placeholder="0.00"></div>
+                  <div class="form-group"><label class="form-label">Payment due date</label><input type="date" class="form-input" id="li-due-date"></div>
+                </div>
               </div>
-              <div id="lu-error" style="color:var(--red);font-size:13px;display:none;margin-top:4px"></div>
+
+              <div id="li-bulk-fields" style="display:none"></div>
+
+              <div id="li-doc-fields" style="display:none">
+                <div class="form-group">
+                  <label class="form-label">Title (optional)</label>
+                  <input type="text" class="form-input" id="li-title" placeholder="e.g. Payoff letter 5/20/2026">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Notes (optional)</label>
+                  <input type="text" class="form-input" id="li-notes" placeholder="Any context worth remembering">
+                </div>
+              </div>
+
+              <div id="li-error" style="color:var(--red);font-size:13px;display:none;margin-top:4px"></div>
             </div>
             <div class="modal-footer">
-              <button class="btn btn-ghost" onclick="closeLoanUploadModal()">Cancel</button>
-              <button class="btn btn-primary" id="lu-submit-btn" onclick="submitLoanUpload()">Ingest Statement</button>
+              <button class="btn btn-ghost" onclick="closeLoanIntakeModal()">Cancel</button>
+              <button class="btn btn-primary" id="li-submit-btn" onclick="submitLoanIntake()">Upload</button>
             </div>
           </div>
         </div>
@@ -8161,9 +8214,11 @@
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
   let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
   let _loanUploadParsedBulkPeriods = null; // array of {statementDate, principalBalance, explicitSplit, totalAmountDue} from a multi-period CSV (e.g. PayPal), if any
+  let _liRawFile = null;           // the raw File object -- the document path uploads it directly to storage
+  let _liFileGeneration = 0;       // bumped per file pick; a slower earlier read must not repaint a newer one
+  let _liKindTouchedByUser = false;// once the human sets 'What is this?', no auto-detection overwrites it
   let _allLoanDocuments = [];       // generic per-loan file attachments (Aug 2026) -- payoff letters,
                                      // transaction histories, amortization schedules, correspondence, etc.
-  let _loanDocFile = null;          // pending File object selected in the Documents modal, awaiting upload
   let _loanDocsCurrentLoanId = null;
 
   async function _loanFn(name, bodyObj) {
@@ -10270,7 +10325,7 @@
       // prefilled to the right loan.
       const f = item.finding;
       const uploadCta = (f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
-        ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanUploadModal('${f.loan_account_id}')">Upload statement</button>`
+        ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button>`
         : '';
       primaryActionHtml = uploadCta || `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
     }
@@ -10516,7 +10571,7 @@
       // generate from -- clicking the row does nothing (no-op) rather than opening
       // either modal, since there's genuinely no manual input this loan ever needs.
       const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
-      const rowClick = isAutomaticLoan ? '' : (isScheduleLoan ? `openLoanScheduleGenerateModal('${a.id}')` : `openLoanUploadModal('${a.id}')`);
+      const rowClick = isAutomaticLoan ? '' : (isScheduleLoan ? `openLoanScheduleGenerateModal('${a.id}')` : `openLoanIntakeModal('${a.id}')`);
       const bal = _loanOutstandingBalance(a);
       const balCell = bal
         ? `<span title="as of ${esc(bal.asOf)}">$${bal.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
@@ -10859,7 +10914,6 @@ ${noActivityNote}
   function openLoanDocumentsModal(loanAccountId) {
     const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
     _loanDocsCurrentLoanId = loanAccountId;
-    _loanDocFile = null;
     document.getElementById('loan-documents-title').textContent =
       acct ? `Documents — ${acct.xero_account_name || acct.lender_account_number}` : 'Documents';
     renderLoanDocumentsModalBody();
@@ -10868,7 +10922,6 @@ ${noActivityNote}
   function closeLoanDocumentsModal() {
     document.getElementById('modal-loan-documents').classList.remove('open');
     _loanDocsCurrentLoanId = null;
-    _loanDocFile = null;
   }
 
   function renderLoanDocumentsModalBody() {
@@ -10891,79 +10944,28 @@ ${noActivityNote}
         </div>`).join('')
       : `<div style="color:var(--gray-400);font-size:13px;padding:16px 0;text-align:center">No documents on file for this loan yet.</div>`;
 
+    // Session 221 step 4: the inline attach form moved into the unified intake modal,
+    // which reads the file before filing it. This modal is now a viewer plus an entry
+    // point -- there is exactly ONE upload surface in the app, so a statement can no
+    // longer be silently swallowed as a dead attachment by picking the wrong door.
     const uploadForm = canWrite ? `
-      <div class="form-section-head" style="margin-top:16px">Attach a document</div>
-      <div class="form-group">
-        <label class="form-label">File</label>
-        <input type="file" id="ld-file-input" class="form-input" onchange="onLoanDocFileSelected(event)">
+      <button class="btn btn-secondary" style="margin-top:14px;width:100%"
+        onclick="closeLoanDocumentsModal();openLoanIntakeModal('${_loanDocsCurrentLoanId}')">
+        Upload a document for this loan
+      </button>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px;text-align:center">
+        Reads the file first and tells you what it thinks it is.
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Type</label>
-          <select class="form-select" id="ld-doc-type">
-            ${Object.entries(LOAN_DOC_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Title (optional)</label>
-          <input type="text" class="form-input" id="ld-title" placeholder="e.g. Payoff letter 5/20/2026">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Notes (optional)</label>
-        <input type="text" class="form-input" id="ld-notes" placeholder="Any context worth remembering">
-      </div>
-      <div id="ld-error" style="display:none;color:var(--red);font-size:12.5px;margin-top:4px"></div>
-      <button class="btn btn-primary" id="ld-submit-btn" style="margin-top:10px" onclick="submitLoanDocument()">Attach Document</button>
     ` : '';
 
     body.innerHTML = `<div>${docRows}</div>${uploadForm}`;
   }
 
-  function onLoanDocFileSelected(event) {
-    _loanDocFile = event.target.files?.[0] || null;
-  }
-
-  async function submitLoanDocument() {
-    const errEl = document.getElementById('ld-error');
-    errEl.style.display = 'none';
-    const loanAccountId = _loanDocsCurrentLoanId;
-    const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
-    if (!acct || !_loanDocFile) {
-      errEl.textContent = 'Pick a file first.';
-      errEl.style.display = '';
-      return;
-    }
-    const docType = document.getElementById('ld-doc-type').value;
-    const title = document.getElementById('ld-title').value.trim();
-    const notes = document.getElementById('ld-notes').value.trim();
-
-    const btn = document.getElementById('ld-submit-btn');
-    btn.disabled = true; const origLabel = btn.textContent; btn.textContent = 'Uploading…';
-    try {
-      const safeName = _loanDocFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const path = `documents/${acct.lender_account_number}/${Date.now()}_${safeName}`;
-      const { error: upErr } = await db.storage.from('loan-statements').upload(path, _loanDocFile, { contentType: _loanDocFile.type || 'application/octet-stream' });
-      if (upErr) throw new Error(upErr.message || 'Upload failed');
-      const { error: insErr } = await db.from('loan_documents').insert({
-        loan_account_id: loanAccountId,
-        doc_type: docType,
-        title: title || null,
-        storage_path: path,
-        notes: notes || null,
-        uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
-      });
-      if (insErr) throw new Error(insErr.message || 'Could not save the document record');
-      showToast('Document attached.', 'success');
-      await loadLoans();
-      openLoanDocumentsModal(loanAccountId);
-    } catch (e) {
-      errEl.textContent = e.message || 'Something went wrong.';
-      errEl.style.display = '';
-    } finally {
-      btn.disabled = false; btn.textContent = origLabel;
-    }
-  }
+  // onLoanDocFileSelected / submitLoanDocument were removed in session 221 step 4.
+  // Both were superseded by the unified intake modal (openLoanIntakeModal ->
+  // _submitIntakeDocument), which does the identical storage upload + loan_documents
+  // insert but reads the file first. Deleted rather than left in place: a second,
+  // content-blind upload path is exactly the footgun this step existed to close.
 
   async function viewLoanDocument(path) {
     const win = window.open('', '_blank');
@@ -11053,35 +11055,70 @@ ${noActivityNote}
   }
 
   function _populateLoanSelect() {
-    const sel = document.getElementById('lu-loan-select');
+    const sel = document.getElementById('li-loan-select');
     if (!sel) return;
     sel.innerHTML = _allLoanAccounts.map(a =>
       `<option value="${a.id}" data-acctnum="${esc(a.lender_account_number)}">${esc(a.xero_account_name || a.lender_account_number)} — ${esc(a.lender)} #${esc(a.lender_account_number)}</option>`
     ).join('');
   }
 
-  function openLoanUploadModal(prefillLoanId) {
+  // Which "What is this?" values route to a real ingestion pipeline vs. plain filing.
+  // Everything NOT in these two sets is a loan_documents attachment whose value is the
+  // dropdown key itself, so adding a new doc_type needs no code change here.
+  const LI_STATEMENT_KIND = 'lender_statement';
+  const LI_BULK_KIND = 'transaction_history_bulk';
+
+  function openLoanIntakeModal(prefillLoanId) {
     if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Loans.', 'error'); return; }
-    document.getElementById('lu-error').style.display = 'none';
-    document.getElementById('lu-parse-note').textContent = '';
-    document.getElementById('lu-file-input').value = '';
-    document.getElementById('lu-statement-date').value = '';
-    document.getElementById('lu-principal-balance').value = '';
-    document.getElementById('lu-total-due').value = '';
-    document.getElementById('lu-due-date').value = '';
+    document.getElementById('li-error').style.display = 'none';
+    document.getElementById('li-parse-note').textContent = '';
+    document.getElementById('li-kind-note').textContent = '';
+    const loanNote = document.getElementById('li-loan-note');
+    loanNote.style.display = 'none'; loanNote.textContent = '';
+    document.getElementById('li-file-input').value = '';
+    document.getElementById('li-statement-date').value = '';
+    document.getElementById('li-principal-balance').value = '';
+    document.getElementById('li-total-due').value = '';
+    document.getElementById('li-due-date').value = '';
+    document.getElementById('li-title').value = '';
+    document.getElementById('li-notes').value = '';
+    document.getElementById('li-bulk-fields').innerHTML = '';
+    document.getElementById('li-kind-select').value = LI_STATEMENT_KIND;
     _loanUploadFile = null;
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedBulkPeriods = null;
-    const submitBtn0 = document.getElementById('lu-submit-btn');
-    if (submitBtn0) submitBtn0.textContent = 'Ingest Statement';
+    _liRawFile = null;
+    _liKindTouchedByUser = false;
     _populateLoanSelect();
-    if (prefillLoanId) document.getElementById('lu-loan-select').value = prefillLoanId;
-    document.getElementById('modal-loan-upload').classList.add('open');
+    if (prefillLoanId) document.getElementById('li-loan-select').value = prefillLoanId;
+    onLoanIntakeKindChanged();
+    document.getElementById('modal-loan-intake').classList.add('open');
   }
-  function closeLoanUploadModal() {
-    document.getElementById('modal-loan-upload').classList.remove('open');
+  function closeLoanIntakeModal() {
+    document.getElementById('modal-loan-intake').classList.remove('open');
+  }
+
+  // Show only the fieldset that belongs to the chosen kind, and keep the submit
+  // button's label honest about what pressing it will actually do.
+  function onLoanIntakeKindChanged(fromUser) {
+    if (fromUser) _liKindTouchedByUser = true;
+    const kind = document.getElementById('li-kind-select').value;
+    const isStatement = kind === LI_STATEMENT_KIND;
+    const isBulk = kind === LI_BULK_KIND;
+    document.getElementById('li-statement-fields').style.display = isStatement ? '' : 'none';
+    document.getElementById('li-bulk-fields').style.display = isBulk ? '' : 'none';
+    document.getElementById('li-doc-fields').style.display = (isStatement || isBulk) ? 'none' : '';
+    const btn = document.getElementById('li-submit-btn');
+    const n = (_loanUploadParsedBulkPeriods || []).length;
+    btn.textContent = isStatement ? 'Ingest Statement'
+      : isBulk ? (n ? `Import ${n} Statements` : 'Import Statements')
+      : 'Attach Document';
+    const note = document.getElementById('li-kind-note');
+    note.textContent = (isStatement || isBulk)
+      ? 'This will read the numbers and create a principal/interest split for review.'
+      : 'This keeps the file on record against the loan. No split is computed.';
   }
 
   // Known lender PDF statement layouts (session 218). Each entry: `detect` —
@@ -11422,175 +11459,311 @@ ${noActivityNote}
   // unrecognized CSV or PDF just gets attached as-is — the numbers below are
   // then filled in by hand, same safety net as always: auto-fill only ever
   // populates the visible, editable fields, it never skips the review step.
-  async function onLoanFileSelected(event) {
+  // ── Unified intake: file selected ─────────────────────────────────────────────
+  // Runs TWO readers, in a deliberate ORDER that matters:
+  //   1. the BROWSER parsers run FIRST and are applied IMMEDIATELY -- they are the sole
+  //      source of the payload that reaches loan-ingest-statement, and the timing is
+  //      identical to before this refactor (parse, fill, done -- no network in between).
+  //   2. loan-document-intake (edge fn) runs AFTER, purely to decorate: classify files
+  //      the browser has no parser for, add provenance, match the loan, cross-check.
+  //
+  // The order is load-bearing, not stylistic. An earlier draft awaited the edge function
+  // BEFORE applying the browser's results, which opened a window (up to _loanFn's 25s
+  // timeout) where the fields were filled but `transactions` / `explicit_split` were
+  // still null. Submitting inside that window would have sent a Rapid Finance statement
+  // with no transaction detail -- and Rapid has no single amount-due figure to diff
+  // against, so loan-ingest-statement would have silently produced NO split. Never put
+  // a network call between parsing a statement and applying what was parsed.
+  async function onLoanIntakeFileSelected(event) {
     const file = event.target.files?.[0];
-    const noteEl = document.getElementById('lu-parse-note');
+    const note = document.getElementById('li-parse-note');
+    const kindSel = document.getElementById('li-kind-select');
+    const loanNote = document.getElementById('li-loan-note');
+    loanNote.style.display = 'none'; loanNote.textContent = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      const base64 = dataUrl.split(',')[1];
-      _loanUploadFile = { base64, filename: file.name };
-      // Bug fix (session 218 cont.): these used to persist across file picks within
-      // the same modal session -- pick a Rapid PDF, then swap to a Ford Pro CSV
-      // without closing the modal, and the CSV upload would still carry the PDF's
-      // stale account number / transaction list. Reset per-file, before branching.
-      _loanUploadParsedAcctNum = null;
-      _loanUploadParsedTransactions = null;
-      _loanUploadParsedExplicitSplit = null;
-      _loanUploadParsedBulkPeriods = null;
-      const submitBtn = document.getElementById('lu-submit-btn');
-      if (submitBtn) submitBtn.textContent = 'Ingest Statement';
 
-      if (file.name.toLowerCase().endsWith('.csv')) {
-        try {
-          const text = atob(base64);
-          // Session 220 (cont. further): PayPal's loan-history CSV is a whole
-          // transaction history, not a single statement -- check for that shape first.
-          const bulkPeriods = _parsePayPalHistoryCsv(text);
-          if (bulkPeriods) {
-            _loanUploadParsedBulkPeriods = bulkPeriods;
-            const last = bulkPeriods[bulkPeriods.length - 1];
-            document.getElementById('lu-statement-date').value = last.statementDate;
-            document.getElementById('lu-principal-balance').value = last.principalBalance;
-            document.getElementById('lu-total-due').value = last.totalAmountDue.toFixed(2);
-            // No account number in this file to auto-match against -- David picks the
-            // loan by hand below, same fallback as any other unrecognized upload.
-            noteEl.style.color = 'var(--green)';
-            noteEl.textContent = `Auto-read: ${bulkPeriods.length} weekly periods found (${bulkPeriods[0].statementDate} through ${last.statementDate}). Pick the loan below, then Import will create a statement + split for each period.`;
-            if (submitBtn) submitBtn.textContent = `Import ${bulkPeriods.length} Statements`;
-            return;
-          }
-          const lines = text.trim().split(/\r?\n/);
-          const header = lines[0].split(',');
-          const vals = lines[1].split(',');
-          const row = {};
-          header.forEach((h, i) => { row[h.trim()] = (vals[i] || '').trim(); });
-          if (row.Principal_Balance && row.Account_Number && row.Statement_Date) {
-            document.getElementById('lu-statement-date').value = row.Statement_Date;
-            document.getElementById('lu-principal-balance').value = row.Principal_Balance;
-            if (row.Total_Amount_Due) document.getElementById('lu-total-due').value = row.Total_Amount_Due;
-            if (row.Payment_Due_Date) document.getElementById('lu-due-date').value = row.Payment_Due_Date;
-            _loanUploadParsedAcctNum = row.Account_Number;
-            const sel = document.getElementById('lu-loan-select');
-            const opt = Array.from(sel.options).find(o => o.dataset.acctnum === row.Account_Number);
-            if (opt) sel.value = opt.value;
-            noteEl.style.color = 'var(--green)';
-            noteEl.textContent = `Auto-read: account #${row.Account_Number}, balance $${row.Principal_Balance}${row.Total_Amount_Due ? `, $${row.Total_Amount_Due} due` : ''}.`;
-            return;
-          }
-        } catch (_) { /* fall through to manual entry */ }
-      } else if (file.name.toLowerCase().endsWith('.pdf')) {
-        try {
-          const text = await _extractPdfText(base64);
-          const parsed = text ? _parseKnownLenderPdf(text) : null;
-          if (parsed) {
-            document.getElementById('lu-statement-date').value = parsed.statementDate;
-            document.getElementById('lu-principal-balance').value = parsed.principalBalance;
-            // session 220 (cont. further): some parsers also find the statement's own
-            // stated total due (e.g. PCV's "Total received") -- auto-fill it the same
-            // way the CSV path already does, so it flows through as total_amount_due
-            // for the backend's cross-check.
-            if (parsed.totalAmountDue != null) document.getElementById('lu-total-due').value = parsed.totalAmountDue;
-            if (parsed.accountNumber) {
-              _loanUploadParsedAcctNum = parsed.accountNumber;
-              const sel = document.getElementById('lu-loan-select');
-              const opt = Array.from(sel.options).find(o => o.dataset.acctnum === parsed.accountNumber);
-              if (opt) sel.value = opt.value;
-            }
-            // session 218 (cont.): some lender PDFs (Rapid's Line of Credit Summary)
-            // list individual payment/fee transactions instead of a single "amount
-            // due" figure -- when the parser found those, carry them through to
-            // submitLoanUpload() so the backend can generate the matching splits
-            // itself. Without this, ingestion would silently produce no split at
-            // all for these loans (see loan-ingest-statement's `transactions` param).
-            _loanUploadParsedTransactions = parsed.transactions || null;
-            // session 220 (cont. further): lenders that state their own principal/
-            // interest split directly (BayFirst, iBusiness, SBA EIDL, PCV, Ford Pro's
-            // PDF format) -- carried through as `explicit_split` (loan-ingest-statement
-            // v21), the simplest of the split sources since it needs no diffing at all.
-            _loanUploadParsedExplicitSplit = parsed.explicitSplit || null;
-            noteEl.style.color = 'var(--green)';
-            noteEl.textContent = `Auto-read (${parsed.lenderLabel}): balance $${parsed.principalBalance} as of ${parsed.statementDate}`
-              + (parsed.transactions ? `, ${parsed.transactions.payments.length} payment(s) and ${parsed.transactions.fees.length} fee(s) found.` : '')
-              + (parsed.explicitSplit ? `, split $${parsed.explicitSplit.principal.toFixed(2)} principal / $${parsed.explicitSplit.interest.toFixed(2)} interest.` : '.');
-            return;
-          }
-        } catch (_) { /* fall through to manual entry */ }
-      }
-      noteEl.style.color = 'var(--gray-500)';
-      noteEl.textContent = "Couldn't auto-read this file — enter the statement's numbers below. The file itself is still attached and stored either way.";
-    };
-    reader.readAsDataURL(file);
-  }
+    // Generation guard. Picking a second file while the first is still being read must
+    // not let the slower one finish last and repaint its values over the newer file's.
+    // Without this you can end up with file A's balance, split and loan selected while
+    // csv_base64 carries file B -- i.e. recorded figures that contradict the stored
+    // evidence. Every await below re-checks this before touching shared state.
+    const myGen = ++_liFileGeneration;
+    const stale = () => myGen !== _liFileGeneration;
 
-  async function submitLoanUpload() {
-    const errEl = document.getElementById('lu-error');
-    errEl.style.display = 'none';
-    const loanId = document.getElementById('lu-loan-select').value;
-    const loan = _allLoanAccounts.find(a => a.id === loanId);
-    const statementDate = document.getElementById('lu-statement-date').value;
-    const principalBalance = document.getElementById('lu-principal-balance').value;
-    const totalDue = document.getElementById('lu-total-due').value;
-    const dueDate = document.getElementById('lu-due-date').value;
+    // Reset every derived value before re-deriving (session 218 bug: swapping files
+    // mid-modal used to carry stale parse state from the previous file).
+    _loanUploadFile = null;
+    _loanUploadParsedAcctNum = null;
+    _loanUploadParsedTransactions = null;
+    _loanUploadParsedExplicitSplit = null;
+    _loanUploadParsedBulkPeriods = null;
+    _liRawFile = file;
+    document.getElementById('li-statement-date').value = '';
+    document.getElementById('li-principal-balance').value = '';
+    document.getElementById('li-total-due').value = '';
+    document.getElementById('li-due-date').value = '';
+    document.getElementById('li-bulk-fields').innerHTML = '';
 
-    // Session 220 (cont. further): bulk multi-period import (currently just PayPal's
-    // history CSV, see _parsePayPalHistoryCsv) -- loops the same loan-ingest-statement
-    // call once per period instead of once for the whole file. Runs oldest-to-newest;
-    // each call is independently idempotent by period (loan-ingest-statement upserts on
-    // loan_account_id+period_label), so a mid-run failure just leaves that one period
-    // failed rather than corrupting or duplicating the periods that already succeeded.
-    if (_loanUploadParsedBulkPeriods && _loanUploadParsedBulkPeriods.length) {
-      if (!loan) {
-        errEl.textContent = 'Pick which loan this history belongs to first.';
-        errEl.style.display = '';
-        return;
-      }
-      const periods = _loanUploadParsedBulkPeriods;
-      const bulkBtn = document.getElementById('lu-submit-btn');
-      bulkBtn.disabled = true; const bulkOrigLabel = bulkBtn.textContent;
-      let succeeded = 0, splitCount = 0; const errors = [];
-      for (let i = 0; i < periods.length; i++) {
-        const p = periods[i];
-        bulkBtn.textContent = `Importing ${i + 1}/${periods.length}…`;
-        try {
-          const { ok, data } = await _loanFn('loan-ingest-statement', {
-            lender_account_number: loan.lender_account_number,
-            statement_date: p.statementDate,
-            principal_balance: Number(p.principalBalance),
-            total_amount_due: p.totalAmountDue,
-            payment_due_date: null,
-            csv_filename: _loanUploadFile.filename,
-            csv_base64: _loanUploadFile.base64,
-            pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
-            explicit_split: p.explicitSplit,
-          });
-          if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
-          succeeded++;
-          splitCount += (data.splits_created?.length ?? (data.split ? 1 : 0));
-        } catch (e) {
-          errors.push(`${p.statementDate}: ${e.message || 'failed'}`);
-        }
-      }
-      bulkBtn.disabled = false; bulkBtn.textContent = bulkOrigLabel;
-      if (errors.length) {
-        errEl.textContent = `Imported ${succeeded}/${periods.length} periods. ${errors.length} failed: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '…' : ''}`;
-        errEl.style.display = '';
-      } else {
-        closeLoanUploadModal();
-        showToast(`Imported ${succeeded} statements — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review.`, 'success');
-      }
-      loadLoans();
+    note.style.color = 'var(--gray-500)';
+    note.textContent = 'Reading…';
+
+    const base64 = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+    if (stale()) return;
+    if (!base64) {
+      note.textContent = "Couldn't read that file — try picking it again.";
       return;
     }
+    _loanUploadFile = { base64, filename: file.name };
+
+    // ── reader 1: browser parsers, applied immediately ────────────────────────
+    let browserParsed = null;
+    let browserBulk = null;
+    try {
+      if (/\.pdf$/i.test(file.name)) {
+        const text = await _extractPdfText(base64);
+        if (stale()) return;
+        browserParsed = _parseKnownLenderPdf(text);
+      } else if (/\.csv$/i.test(file.name)) {
+        const text = atob(base64);
+        browserBulk = _parsePayPalHistoryCsv(text);
+        if (!browserBulk) {
+          const lines = text.trim().split(/\r?\n/);
+          if (lines.length >= 2) {
+            const header = lines[0].split(',').map(h => h.trim());
+            const vals = lines[1].split(',').map(v => v.trim());
+            const row = Object.fromEntries(header.map((h, ix) => [h, vals[ix]]));
+            if (row.Principal_Balance && row.Account_Number && row.Statement_Date) {
+              browserParsed = {
+                lenderLabel: 'Ford Pro FinSimple statement (CSV)',
+                statementDate: row.Statement_Date,
+                principalBalance: row.Principal_Balance,
+                accountNumber: row.Account_Number,
+                totalAmountDue: row.Total_Amount_Due ? Number(row.Total_Amount_Due) : null,
+                paymentDueDate: row.Payment_Due_Date || null,
+              };
+            }
+          }
+        }
+      }
+    } catch (_) { /* non-fatal: manual entry still works */ }
+    if (stale()) return;
+
+    if (browserBulk && browserBulk.length) {
+      _loanUploadParsedBulkPeriods = browserBulk;
+      if (!_liKindTouchedByUser) kindSel.value = LI_BULK_KIND;
+      const first = browserBulk[0], last = browserBulk[browserBulk.length - 1];
+      document.getElementById('li-bulk-fields').innerHTML =
+        `<div style="background:var(--gray-50);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--gray-700)">
+           <strong>${browserBulk.length} periods</strong> found, ${esc(first.statementDate)} to ${esc(last.statementDate)}.<br>
+           Ending principal balance <strong>$${Number(last.principalBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>.
+           Each period is imported separately and each gets its own split to review.
+         </div>`;
+      note.style.color = 'var(--green)';
+      note.textContent = `Auto-read: ${browserBulk.length} periods (${first.statementDate} – ${last.statementDate}).`;
+    } else if (browserParsed) {
+      if (!_liKindTouchedByUser) kindSel.value = LI_STATEMENT_KIND;
+      document.getElementById('li-statement-date').value = browserParsed.statementDate;
+      document.getElementById('li-principal-balance').value = browserParsed.principalBalance;
+      if (browserParsed.totalAmountDue != null) document.getElementById('li-total-due').value = browserParsed.totalAmountDue;
+      if (browserParsed.paymentDueDate) document.getElementById('li-due-date').value = browserParsed.paymentDueDate;
+      _loanUploadParsedTransactions = browserParsed.transactions || null;
+      _loanUploadParsedExplicitSplit = browserParsed.explicitSplit || null;
+      _loanUploadParsedAcctNum = browserParsed.accountNumber || null;
+      if (browserParsed.accountNumber) {
+        const loanSel = document.getElementById('li-loan-select');
+        const m = Array.from(loanSel.options).find(o => o.dataset.acctnum === browserParsed.accountNumber);
+        if (m) loanSel.value = m.value;
+      }
+      const bits = [`Auto-read (${browserParsed.lenderLabel}): balance $${browserParsed.principalBalance} as of ${browserParsed.statementDate}`];
+      if (browserParsed.explicitSplit) {
+        bits.push(`split $${browserParsed.explicitSplit.principal} principal / $${browserParsed.explicitSplit.interest} interest`);
+      }
+      note.style.color = 'var(--green)';
+      note.textContent = bits.join(', ') + '.';
+    }
+    // Everything the statement path needs is now in place. The submit button is safe to
+    // press from this point on, whatever the edge function does next.
+    onLoanIntakeKindChanged();
+
+    // ── reader 2: server second opinion (decoration only, never load-bearing) ──
+    let server = null, serverFailed = false;
+    try {
+      const { ok, data } = await _loanFn('loan-document-intake', {
+        base64, filename: file.name,
+        loan_account_id: document.getElementById('li-loan-select').value || undefined,
+      });
+      if (ok && data && !data.error) server = data; else serverFailed = true;
+    } catch (_) { serverFailed = true; }
+    if (stale()) return;
+
+    if (browserParsed) {
+      _liApplyServerExtras(server, serverFailed, browserParsed, note);
+    } else if (!browserBulk || !browserBulk.length) {
+      const k = server?.classification?.kind;
+      const opt = k ? Array.from(kindSel.options).find(o => o.value === k) : null;
+      if (k && k !== 'unknown' && opt) {
+        if (!_liKindTouchedByUser) kindSel.value = k;
+        const conf = server.classification.confidence;
+        const label = opt.textContent.split('—')[0].trim();
+        note.style.color = conf === 'high' ? 'var(--green)' : 'var(--gray-600)';
+        note.textContent = conf === 'high'
+          ? `Read this as: ${label}. Change it above if that's wrong.`
+          : `This looks like it might be: ${label} — worth a second look. Change it above if that's wrong.`;
+      } else {
+        // Nothing recognised it. Leave the dropdown exactly as the user left it --
+        // an unreadable file is not a reason to discard a choice they already made.
+        note.style.color = 'var(--gray-500)';
+        note.textContent = serverFailed
+          ? "Couldn't auto-read this file. Pick what it is above and fill in anything needed — the file is stored either way."
+          : "Couldn't auto-read this file — pick what it is above. If it's a statement, enter its numbers below. The file is stored either way.";
+      }
+    }
+    _liApplyServerLoanMatch(server, note);
+    onLoanIntakeKindChanged();
+  }
+
+  // Surfaces the server's extra facts and flags any disagreement with the browser's
+  // reading. A mismatch here means two independent readers disagree about a number
+  // that is about to hit the books -- it must never be resolved silently.
+  function _liApplyServerExtras(server, serverFailed, browserParsed, note) {
+    if (serverFailed || !server) {
+      note.textContent += ' (Second-opinion check unavailable — numbers above are from this browser only.)';
+      return;
+    }
+    const facts = server.facts || [];
+    const f = (name) => facts.find(x => x.field === name);
+    const sBal = f('principal_balance');
+    const sDate = f('statement_date');
+    const diffs = [];
+    if (sBal && Math.abs(Number(sBal.value) - Number(browserParsed.principalBalance)) > 0.005) {
+      diffs.push(`balance ${browserParsed.principalBalance} here vs ${sBal.value} on the server`);
+    }
+    if (sDate && String(sDate.value) !== String(browserParsed.statementDate)) {
+      diffs.push(`date ${browserParsed.statementDate} here vs ${sDate.value} on the server`);
+    }
+    if (diffs.length) {
+      note.style.color = 'var(--red)';
+      note.textContent += ` ⚠ Two readings disagree (${diffs.join('; ')}). Check the statement before ingesting.`;
+      return;
+    }
+    // Extra separately-typed figures the statement also states -- surfaced so they
+    // can't later be mistaken for the principal balance (the exact confusion that left
+    // PayPal with an unexplainable discrepancy for nine months).
+    const payoff = f('payoff_amount');
+    if (payoff) {
+      note.textContent += ` This statement also quotes a payoff of $${Number(payoff.value).toLocaleString('en-US', { minimumFractionDigits: 2 })}${payoff.as_of ? ' good through ' + payoff.as_of : ''} — that's a different figure from the principal balance and is not what gets recorded.`;
+    }
+  }
+
+  // The loan the DOCUMENT names beats the loan the dropdown happens to be showing --
+  // but never silently. Step 3 shipped this override without telling anyone; this is
+  // the affordance that was missing.
+  function _liApplyServerLoanMatch(server, note) {
+    if (!server || !server.loan_match) return;
+    const lm = server.loan_match;
+    const sel = document.getElementById('li-loan-select');
+    const loanNote = document.getElementById('li-loan-note');
+    const before = sel.value;
+    if (lm.matched && lm.matched_on === 'account_number_exact' && lm.loan_account_id) {
+      sel.value = lm.loan_account_id;
+      if (before && before !== lm.loan_account_id) {
+        const prev = _allLoanAccounts.find(a => a.id === before);
+        loanNote.style.color = '#b45309';
+        loanNote.style.display = '';
+        loanNote.textContent = `Switched to the loan this document names (#${lm.lender_account_number})`
+          + (prev ? ` — you had ${prev.xero_account_name || prev.lender_account_number} selected.` : '.')
+          + " Change it back if that's wrong.";
+      }
+    } else if (lm.matched_on === 'account_number_ambiguous') {
+      loanNote.style.color = 'var(--red)';
+      loanNote.style.display = '';
+      loanNote.textContent = 'More than one loan uses that account number — pick the right one yourself.';
+    }
+  }
+
+  // ── Unified intake: submit ────────────────────────────────────────────────────
+  // Pure router. Every branch below calls exactly the same edge function / storage
+  // write, with exactly the same payload shape, as before this refactor -- the only
+  // thing that changed is which fields the values were gathered from. Nothing about
+  // how a split is computed or posted was touched.
+  async function submitLoanIntake() {
+    const kind = document.getElementById('li-kind-select').value;
+    if (kind === LI_BULK_KIND) return _submitIntakeBulk();
+    if (kind === LI_STATEMENT_KIND) return _submitIntakeStatement();
+    return _submitIntakeDocument(kind);
+  }
+
+  async function _submitIntakeBulk() {
+    const errEl = document.getElementById('li-error');
+    errEl.style.display = 'none';
+    const loanId = document.getElementById('li-loan-select').value;
+    const loan = _allLoanAccounts.find(a => a.id === loanId);
+    const periods = _loanUploadParsedBulkPeriods;
+    if (!periods || !periods.length) {
+      errEl.textContent = "No periods were read from this file. Pick a different file, or choose a different type above.";
+      errEl.style.display = ''; return;
+    }
+    if (!loan) {
+      errEl.textContent = 'Pick which loan this history belongs to first.';
+      errEl.style.display = ''; return;
+    }
+    const bulkBtn = document.getElementById('li-submit-btn');
+    bulkBtn.disabled = true; const bulkOrigLabel = bulkBtn.textContent;
+    let succeeded = 0, splitCount = 0; const errors = [];
+    for (let i = 0; i < periods.length; i++) {
+      const p = periods[i];
+      bulkBtn.textContent = `Importing ${i + 1}/${periods.length}…`;
+      try {
+        const { ok, data } = await _loanFn('loan-ingest-statement', {
+          lender_account_number: loan.lender_account_number,
+          statement_date: p.statementDate,
+          principal_balance: Number(p.principalBalance),
+          total_amount_due: p.totalAmountDue,
+          payment_due_date: null,
+          csv_filename: _loanUploadFile.filename,
+          csv_base64: _loanUploadFile.base64,
+          pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+          explicit_split: p.explicitSplit,
+        });
+        if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
+        succeeded++;
+        splitCount += (data.splits_created?.length ?? (data.split ? 1 : 0));
+      } catch (e) {
+        errors.push(`${p.statementDate}: ${e.message || 'failed'}`);
+      }
+    }
+    bulkBtn.disabled = false; bulkBtn.textContent = bulkOrigLabel;
+    if (errors.length) {
+      errEl.textContent = `Imported ${succeeded}/${periods.length} periods. ${errors.length} failed: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '…' : ''}`;
+      errEl.style.display = '';
+    } else {
+      closeLoanIntakeModal();
+      showToast(`Imported ${succeeded} statements — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review.`, 'success');
+    }
+    loadLoans();
+  }
+
+  async function _submitIntakeStatement() {
+    const errEl = document.getElementById('li-error');
+    errEl.style.display = 'none';
+    const loanId = document.getElementById('li-loan-select').value;
+    const loan = _allLoanAccounts.find(a => a.id === loanId);
+    const statementDate = document.getElementById('li-statement-date').value;
+    const principalBalance = document.getElementById('li-principal-balance').value;
+    const totalDue = document.getElementById('li-total-due').value;
+    const dueDate = document.getElementById('li-due-date').value;
 
     if (!loan || !statementDate || !principalBalance || !_loanUploadFile) {
       errEl.textContent = 'Loan, statement date, principal balance, and a file are all required.';
-      errEl.style.display = '';
-      return;
+      errEl.style.display = ''; return;
     }
 
-    const btn = document.getElementById('lu-submit-btn');
+    const btn = document.getElementById('li-submit-btn');
     btn.disabled = true; const origLabel = btn.textContent; btn.textContent = 'Ingesting…';
     try {
       const { ok, data } = await _loanFn('loan-ingest-statement', {
@@ -11602,30 +11775,59 @@ ${noActivityNote}
         csv_filename: _loanUploadFile.filename,
         csv_base64: _loanUploadFile.base64,
         pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
-        // session 218 (cont.): per-transaction detail from a PDF parser (see
-        // LOAN_PDF_PARSERS) for lenders like Rapid Finance whose statements have
-        // no single "amount due" figure to diff against a prior statement --
-        // loan-ingest-statement uses this to generate the matching splits itself
-        // instead of the upload silently producing nothing to review.
         transactions: _loanUploadParsedTransactions || undefined,
-        // session 220 (cont. further): for lenders that state their own principal/
-        // interest split directly (see LOAN_PDF_PARSERS) -- loan-ingest-statement v21
-        // records the split from this instead of diffing against a prior statement.
         explicit_split: _loanUploadParsedExplicitSplit || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
-      closeLoanUploadModal();
-      // session 218 (cont.): loan-ingest-statement v16 can also backfill a split for
-      // a LATER statement that was already on file but never got one (because at the
-      // time it was ingested, this earlier statement didn't exist yet to diff
-      // against) -- surface that distinctly so it's clear something older just got
-      // resolved, not just this upload's own period.
+      closeLoanIntakeModal();
       const splitCount = (data.splits_created?.length ?? (data.split ? 1 : 0)) + (data.backfilled_split && !data.backfilled_split.error ? 1 : 0);
       const backfillNote = data.backfilled_split && !data.backfilled_split.error
         ? ` (including a backfilled split for ${data.backfilled_split.period_label}, which was missing this statement to diff against)`
         : '';
       showToast(splitCount ? `Statement ingested — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review${backfillNote}.` : 'Statement ingested.', 'success');
       loadLoans();
+    } catch (e) {
+      errEl.textContent = e.message || 'Something went wrong.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false; btn.textContent = origLabel;
+    }
+  }
+
+  // Same direct-to-storage upload + loan_documents insert the old Attach Document form
+  // did. `docType` comes straight from the "What is this?" dropdown, so the classifier's
+  // proposal and a human's override travel the identical path -- there is no
+  // "trusted because the machine said so" shortcut.
+  async function _submitIntakeDocument(docType) {
+    const errEl = document.getElementById('li-error');
+    errEl.style.display = 'none';
+    const loanId = document.getElementById('li-loan-select').value;
+    const acct = _allLoanAccounts.find(a => a.id === loanId);
+    if (!acct || !_liRawFile) {
+      errEl.textContent = 'Pick a loan and a file first.';
+      errEl.style.display = ''; return;
+    }
+    const title = document.getElementById('li-title').value.trim();
+    const notes = document.getElementById('li-notes').value.trim();
+    const btn = document.getElementById('li-submit-btn');
+    btn.disabled = true; const origLabel = btn.textContent; btn.textContent = 'Uploading…';
+    try {
+      const safeName = _liRawFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `documents/${acct.lender_account_number}/${Date.now()}_${safeName}`;
+      const { error: upErr } = await db.storage.from('loan-statements').upload(path, _liRawFile, { contentType: _liRawFile.type || 'application/octet-stream' });
+      if (upErr) throw new Error(upErr.message || 'Upload failed');
+      const { error: insErr } = await db.from('loan_documents').insert({
+        loan_account_id: loanId,
+        doc_type: docType,
+        title: title || null,
+        storage_path: path,
+        notes: notes || null,
+        uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (insErr) throw new Error(insErr.message || 'Could not save the document record');
+      closeLoanIntakeModal();
+      showToast('Document attached.', 'success');
+      await loadLoans();
     } catch (e) {
       errEl.textContent = e.message || 'Something went wrong.';
       errEl.style.display = '';
@@ -11786,7 +11988,7 @@ ${noActivityNote}
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
     if (currentPage === 'inbox')     { openComposeSMS(); return; }
     if (currentPage === 'bookkeeping') {
-      if (_bookkeepingActiveTab === 'loans')   openLoanUploadModal();
+      if (_bookkeepingActiveTab === 'loans')   openLoanIntakeModal();
       else if (_bookkeepingActiveTab === 'payroll') openPayrollUploadModal();
       return;
     }
