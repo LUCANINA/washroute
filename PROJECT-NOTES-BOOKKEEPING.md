@@ -211,7 +211,7 @@ session — see the session log below for why).
 
 ## Session Log
 
-*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Build steps 1–3 of 7 done: `loan-document-intake` v1 deployed dry-run-only, with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements.***
+*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Build steps 1–4 of 7 done: `loan-document-intake` v1 deployed dry-run-only with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements, and the two upload surfaces merged into one intake modal (6 defects found and fixed first — three by review, three only by driving the real screen).***
 
 ### Session 221 — the design pass, and what auditing first turned up
 
@@ -378,7 +378,86 @@ extraction + deterministic classification layer, deployed and verified end to en
   must surface "you selected X, this document says Y, using Y" rather than quietly overriding.
   Underlying behaviour is safe; the affordance is missing.
 
-**Remaining build order:** ~~3 `loan-document-intake` edge function~~ ✅ done — (extraction + deterministic
+**Build step 4 — SHIPPED (unified intake modal).** David chose the full merge over the
+safer incremental option, so both upload surfaces were replaced by one `#modal-loan-intake`.
+- **De-risked by changing the front door, not the plumbing.** The browser parsers remain the
+  SOLE source of the payload reaching `loan-ingest-statement`, and `_submitIntakeStatement` /
+  `_submitIntakeBulk` / `_submitIntakeDocument` send payloads field-for-field identical to the
+  functions they replaced (verified by review against the old source). Nothing about how a
+  split is computed or posted changed. `loan-document-intake` runs alongside as a second
+  opinion only.
+- **The old failure mode is now structurally impossible.** There is one upload surface, and it
+  reads the file before anything else happens — a lender statement can no longer be silently
+  swallowed as a dead attachment by picking the wrong door thirty seconds too early.
+- `onLoanDocFileSelected` / `submitLoanDocument` / `_loanDocFile` were **deleted**, not left
+  orphaned: a second, content-blind upload path is exactly the footgun this step closed.
+  The Documents modal keeps its list and now opens the unified modal to upload.
+
+**Six defects found before this was called done — three by code review, three by driving the
+real screen. The split matters: the review caught structural faults, but the three that only
+appeared in a live browser were all cases where the code looked correct and wasn't.**
+
+Found by QA review (pre-ship):
+1. **Ordering — a regression introduced by the refactor itself.** The first draft awaited the
+   edge function BEFORE applying the browser's parse results, opening a window up to
+   `_loanFn`'s 25s timeout where the fields were filled but `transactions` / `explicit_split`
+   were still null. Submitting inside it would have sent a Rapid Finance statement with no
+   transaction detail — and Rapid has no single amount-due figure to diff against, so ingest
+   would have silently produced **no split at all**. Fixed: browser results apply immediately,
+   before any network call. **Rule: never put a network hop between parsing a statement and
+   applying what was parsed.**
+2. **No generation guard.** Picking a second file while the first was still reading let the
+   slower earlier read finish last and repaint its values over the newer file's — ending with
+   file A's balance, split and loan selected while `csv_base64` carried file B, i.e. recorded
+   figures contradicting the stored evidence. Fixed with a per-pick counter re-checked after
+   every `await`.
+3. **Silent discard of a human choice.** The no-parse fallback reset "What is this?" to
+   `other` unconditionally, throwing away a type the user had deliberately set.
+
+Found only by live testing (each shipped as its own fix):
+4. **Stale loan across files (`86fd781`).** Uploading a Ford Pro statement (auto-selects
+   #61564140) then swapping to PayPal's history CSV left Ford Pro selected with 34 PayPal
+   periods queued against it — the CSV names no account number, so nothing corrected or
+   questioned it. Resetting the dropdown would be worse (it could discard a deliberate
+   choice), so a file that cannot confirm its loan now says so. Advisory, never blocking.
+5. **The browser-side override was the silent one (`86fd781`).** The server-side override
+   announced itself — but the browser parser sets the loan FIRST, so the server always agreed
+   and the notice never fired. The switch the user actually experienced was the unannounced
+   one. Both readers now route through one `_liSelectLoanFromDocument` helper. Auto-selecting
+   over the mere default stays silent (nothing was overridden); overriding a deliberate choice
+   announces itself.
+6. **A check that was structurally incapable of firing (`072c746`).** The advisory added in
+   #4 never fired, because the client passes the selected loan to `loan-document-intake` as
+   `loan_account_id`, and when a document names no account number the function falls back to
+   it and reports `matched:true` / `matched_on:'caller_supplied'` — echoing our own dropdown
+   back at us. The check tested `!lm.matched` and was therefore never true. **Sharp edge worth
+   remembering anywhere else that response is read: `matched` answers "do we have a loan to
+   work with", NOT "did the document tell us which loan". Only `matched_on ===
+   'account_number_exact'` is real evidence.**
+7. **Unreadable files landed on the one action that cannot succeed.** A Stripe Capital
+   agreement matched no parser and no heuristic (correctly — it is revenue-based financing and
+   uses none of the borrower/lender language the low-confidence `agreement` heuristic looks
+   for), and the fallback correctly refused to guess. But the type stayed on the
+   "Lender statement" default, whose submit path requires a date and balance that demonstrably
+   could not be read. Now defaults to plain filing when the user hasn't chosen — while still
+   never overwriting a choice they made.
+
+**Verified live, all paths:** Ford Pro (auto-read + its payoff quote surfaced as a
+separately-typed figure with a plain-English explanation that it is *not* what gets recorded);
+BayFirst; Rapid Finance (balance, date, loan match, and **4 payments + 4 fees** captured — the
+path defect #1 would have silently broken); PayPal CSV (34 periods, ending balance $58,775.97,
+button "Import 34 Statements"); manual type override swapping fieldset and submit target; a
+user-set type surviving a later file that suggested otherwise; the loan-override announcement;
+the can't-confirm-loan advisory; and the unreadable-file fallback. **Nothing was submitted —
+every test was read-and-cancel.**
+
+**Testing-method note worth keeping:** one "finding" during this round was a false alarm of my
+own making — I checked `window._loanUploadParsedTransactions` and got `undefined`, and nearly
+reported Rapid as broken. Those are `let` bindings at script scope and never become `window`
+properties; the bare identifier resolves fine and showed the data was there all along. When
+probing this app's internals from the console, read bare identifiers, not `window.*`.
+
+**Remaining build order:** ~~3 `loan-document-intake` edge function~~ ✅ done — ~~4 unified intake UI~~ ✅ done — (extraction + deterministic
 classification, dry-run only, parallel-diff against the browser) → 4 unified intake UI →
 5 cross-checks (`basis_conflict` and `schedule_vs_statement` first — PCV and PayPal can
 exercise both immediately) → 6 schedule ingest path → 7 AI routing for unrecognised docs.

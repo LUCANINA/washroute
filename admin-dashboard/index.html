@@ -11616,8 +11616,14 @@ ${noActivityNote}
           ? `Read this as: ${label}. Change it above if that's wrong.`
           : `This looks like it might be: ${label} — worth a second look. Change it above if that's wrong.`;
       } else {
-        // Nothing recognised it. Leave the dropdown exactly as the user left it --
-        // an unreadable file is not a reason to discard a choice they already made.
+        // Nothing recognised it. If the human already chose a type, leave it alone -- an
+        // unreadable file is not a reason to discard a choice they made. But if they
+        // haven't, fall back to plain filing rather than leaving the dropdown on its
+        // "Lender statement" default: statement ingestion needs a date and balance we
+        // demonstrably could not read, whereas keeping the file on record always works.
+        // Landing on the one action that cannot succeed is a confusing place to leave
+        // someone.
+        if (!_liKindTouchedByUser) kindSel.value = 'other';
         note.style.color = 'var(--gray-500)';
         note.textContent = serverFailed
           ? "Couldn't auto-read this file. Pick what it is above and fill in anything needed — the file is stored either way."
