@@ -211,7 +211,7 @@ session — see the session log below for why).
 
 ## Session Log
 
-*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Build steps 1–4 of 7 done: `loan-document-intake` v1 deployed dry-run-only with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements, and the two upload surfaces merged into one intake modal (6 defects found and fixed first — three by review, three only by driving the real screen).***
+*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Build steps 1–5 of 7 done: `loan-document-intake` v1 deployed dry-run-only with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements, and the two upload surfaces merged into one intake modal (6 defects found and fixed first — three by review, three only by driving the real screen).***
 
 ### Session 221 — the design pass, and what auditing first turned up
 
@@ -457,7 +457,66 @@ reported Rapid as broken. Those are `let` bindings at script scope and never bec
 properties; the bare identifier resolves fine and showed the data was there all along. When
 probing this app's internals from the console, read bare identifiers, not `window.*`.
 
-**Remaining build order:** ~~3 `loan-document-intake` edge function~~ ✅ done — ~~4 unified intake UI~~ ✅ done — (extraction + deterministic
+**Build step 5 — SHIPPED (`loan-cross-check` v2 + `reconciliation-run` v10).** The
+cross-validation David actually asked for, now live and finding real things.
+
+**Prerequisite shipped first (`reconciliation-run` v10).** Its resolve sweep loaded
+findings UNSCOPED and closed anything it did not re-find — so the moment intake wrote a
+finding, the next engine run would have silently auto-resolved it. One-line fix:
+`.eq('source','engine')`. Verified the sweep's load is the only read of that table, so
+scoping the load scopes the sweep. **Residual risk flagged and handled by construction:**
+the engine upserts with `onConflict:'fingerprint'` and does not set `source`, so a
+fingerprint collision could let it clobber an intake row (including a human's pinned
+note). Every intake fingerprint is therefore prefixed `intake:`, and engine fingerprints
+always begin with one of its six check_keys — collision is impossible BY CONSTRUCTION, not
+by convention. **If a third writer is ever added, replace the unique index with
+`(source, fingerprint)` and update BOTH functions' `onConflict` together; do not rely on
+prefixes at that point.**
+
+**Three checks, each verified against real data BEFORE being built** (deliberately — a
+check that fires on nothing is worse than no check, because it looks like coverage):
+- **`basis_conflict` (error).** Fires when a loan's newest balance anchor measures
+  something other than principal while the Xero ledger is principal-basis. **Fires today on
+  PayPal** and states the conclusion plainly: *"This is almost certainly why this loan has
+  looked out of balance."*
+- **`schedule_vs_statement` (warn/info).** The headline check. Compares a lender statement
+  against the schedule's projection for the same date — but **only when both bases are
+  known AND equal**; a basis mismatch is `basis_conflict`'s business, not a number to
+  report. Zero findings today because **no loan currently has both a schedule and
+  independent statements** (PCV's schedule starts 2026-08-04 and doesn't overlap its own
+  history; Verdant's statements are derived FROM its schedule, so comparing them is
+  circular). PayPal is its one real future customer, the moment the CSV is imported.
+- **`missing_statement_period` (warn).** Gaps in a regular statement cadence. **Fires today
+  on Ford Pro #61564140** — a 61-day gap where 31 is typical, i.e. a missing May statement,
+  which means that period's split was never computed and its interest is probably still
+  sitting in the loan account. Requires a median gap ≥20 days so it does NOT fire on
+  Rapid's ad-hoc line-of-credit pulls (verified against real cadence data first).
+
+**Quantified proof the basis work was worth doing.** Simulated what
+`schedule_vs_statement` will face when PayPal's 34 principal-basis statements meet its
+total_payback schedule: **33 of 33 rows would be flagged as discrepancies by a naive
+comparison**, with gaps from $2,983.12 up to $19,819.11 — and **all 33 are explained by
+the unearned fee to within $0.0000**. So the basis typing does not merely tidy the data
+model; it is the difference between one correct finding and 33 false alarms on a single
+import.
+
+**Verified live:** dry run over all 22 loans → 2 findings, 0 false positives. Persisted
+with `source='intake'`; both render in Needs Attention alongside engine findings with no
+UI changes at all (the shared `_bkLoanAttentionItems()` and `_bkOneLine()` clamping pick
+them up automatically — the "one shared function per count" invariant paying off), and the
+badge moved 18 → 20.
+
+**One defect caught and fixed during live testing:** the function had no resolve sweep, so
+a finding would stay open forever after the problem was fixed — while the UI card
+explicitly promises *"Clears automatically once a check confirms it's fixed."* A promise
+the code doesn't keep is worse than no promise; it teaches people to ignore the list.
+Added in v2, scoped **two** ways: `source='intake'` (never resolve what it doesn't own)
+AND `loan_account_id IN (loans actually examined)` — because a single-loan run resolving
+every other loan's findings is precisely the bug that makes `reconciliation-run` unsafe to
+scope, and it would have been careless to reproduce it having just documented it.
+**Proven, not assumed:** a run scoped to PayPal alone left Ford Pro's finding open.
+
+**Remaining build order:** ~~3 `loan-document-intake` edge function~~ ✅ done — ~~4 unified intake UI~~ ✅ done — ~~5 cross-checks~~ ✅ done — (extraction + deterministic
 classification, dry-run only, parallel-diff against the browser) → 4 unified intake UI →
 5 cross-checks (`basis_conflict` and `schedule_vs_statement` first — PCV and PayPal can
 exercise both immediately) → 6 schedule ingest path → 7 AI routing for unrecognised docs.
