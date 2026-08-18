@@ -11405,6 +11405,11 @@ ${noActivityNote}
 
   async function approveAndPostSplit(splitId, bankTransactionId) {
     const btn = document.getElementById('loan-approve-btn');
+    // v26 (session 220): remember whatever the button actually said (it now varies --
+    // "Approve & Split in Xero" for a direct_split proposal, "Approve & Post to Xero"
+    // otherwise) instead of hardcoding the post-journal label on failure, which used
+    // to silently mislabel the button after a failed direct-split attempt.
+    const originalLabel = btn ? btn.textContent : 'Approve & Post to Xero';
     if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
     try {
       const { ok, data } = await _loanFn('loan-xero-post', {
@@ -11415,11 +11420,20 @@ ${noActivityNote}
       });
       if (!ok || data.error) throw new Error(data.error || 'Posting failed');
       closeLoanReviewModal();
-      showToast('Posted to Xero' + (data.attachment?.attached ? ' — statement attached.' : '.'), 'success');
+      // v26: distinguish an actual direct split from loan-xero-post's silent
+      // fallback to a Manual Journal (e.g. the Update BankTransaction call failed) --
+      // without this, David would see "Posted to Xero" either way and have no signal
+      // that the split didn't happen the way the review modal showed it.
+      showToast(
+        data.kind === 'direct_split'
+          ? 'Transaction split in Xero.'
+          : 'Posted to Xero' + (data.attachment?.attached ? ' — statement attached.' : '.'),
+        'success'
+      );
       loadLoans();
     } catch (e) {
       showToast(e.message || 'Posting failed', 'error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
+      if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
     }
   }
 
