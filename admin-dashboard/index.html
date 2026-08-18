@@ -11343,6 +11343,29 @@ ${noActivityNote}
         return;
       }
 
+      // v26 (session 220): Direct Transaction Split gets its own render branch --
+      // completely different shape from the manual-journal proposal below (no
+      // "journal to post", just "this real transaction gets split in place"). Only
+      // returned for direct_split_enabled loans (Rapid Credit Line, v1) when a clean
+      // +/-2-day match was found; every other split still falls through to the
+      // journal-shaped rendering unchanged.
+      if (data.kind === 'direct_split') {
+        const dsm = data.matched_bank_transaction;
+        body.innerHTML = `
+          <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Direct Transaction Split — this splits the real Xero bank transaction dated ${esc(dsm.date?.slice(0,10))} for $${dsm.total} in place${dsm.reconciled ? ' (already reconciled)' : ''}. No separate Manual Journal.</div>
+          <div class="form-section-head">Currently posted as</div>
+          <div style="margin-bottom:14px">${(dsm.current_lines||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description||'(no description)')} — $${l.LineAmount} → ${esc(l.AccountCode)}${l.AccountName ? ` <span style="color:var(--gray-500)">— ${esc(l.AccountName)}</span>` : ''}</div>`).join('') || '<div style="font-size:13px;color:var(--gray-400)">—</div>'}</div>
+          <div class="form-section-head">Will become</div>
+          <div style="margin-bottom:14px">${(data.proposed_split||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.LineAmount}</b> → ${esc(l.AccountCode)}${l.AccountName ? ` <span style="color:var(--gray-500)">— ${esc(l.AccountName)}</span>` : ''}</div>`).join('')}</div>
+          ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
+        `;
+        footer.innerHTML = `
+          <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
+          ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Split in Xero</button>`}
+        `;
+        return;
+      }
+
       const journal = data.proposed_journal;
       const mbt = data.matched_bank_transaction;
       // Bug fix (session 218): loan-xero-post v19 added two "no bank transaction
