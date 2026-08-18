@@ -8159,6 +8159,7 @@
   let _loanUploadFile = null;       // { base64, filename }
   let _loanUploadParsedAcctNum = null;
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
+  let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
   let _allLoanDocuments = [];       // generic per-loan file attachments (Aug 2026) -- payoff letters,
                                      // transaction histories, amortization schedules, correspondence, etc.
   let _loanDocFile = null;          // pending File object selected in the Documents modal, awaiting upload
@@ -11070,6 +11071,7 @@ ${noActivityNote}
     _loanUploadFile = null;
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
+    _loanUploadParsedExplicitSplit = null;
     _populateLoanSelect();
     if (prefillLoanId) document.getElementById('lu-loan-select').value = prefillLoanId;
     document.getElementById('modal-loan-upload').classList.add('open');
@@ -11091,6 +11093,14 @@ ${noActivityNote}
   function _mdyToIso(mdy) {
     const [mm, dd, yyyy] = mdy.split('/');
     return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // Session 220 (cont. further): BayFirst prints dates as M/D/YY (single-digit month/day
+  // allowed, 2-digit year) instead of the zero-padded MM/DD/YYYY every other lender uses.
+  function _mdy2ToIso(mdy) {
+    const [m, d, yy] = mdy.split('/');
+    const yyyy = Number(yy) < 70 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
+    return `${yyyy}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
 
   const LOAN_PDF_PARSERS = [
@@ -11156,6 +11166,151 @@ ${noActivityNote}
         };
       },
     },
+    // Session 220 (cont. further): the five parsers below all cover lenders that state
+    // their own principal/interest split directly in the statement -- no diffing against
+    // a prior statement needed. Each returns `explicitSplit: {principal, interest}`,
+    // carried through to loan-ingest-statement's `explicit_split` field (v21). Regexes
+    // were built and verified against real statements via `pdftotext -layout`; pdf.js
+    // (used at runtime, see _extractPdfText) flattens each page to a single space-joined
+    // line instead of preserving pdftotext's column layout, so these lean on bounded
+    // "look nearby" windows ([\s\S]{0,N}) rather than assuming exact adjacency. If a
+    // real upload doesn't auto-fill, the existing safety net still applies unchanged:
+    // the file is attached as-is and the numbers are entered by hand.
+    {
+      lenderLabel: 'BayFirst SBA statement',
+      detect: (text) => /BAYFIRST NATIONAL BANK/i.test(text) && /SBA LOAN\b/i.test(text),
+      extract: (text) => {
+        const acct = text.match(/ACCOUNT NUMBER\s+(\d+)/i);
+        const balAfter = text.match(/PRINCIPAL BALANCE\s+([\d,]+\.\d{2})/i);
+        // BayFirst prints the amounts DUE for the upcoming period (PRINCIPAL DUE /
+        // INTEREST DUE) separately from what was actually applied last period -- the
+        // real split lives in the transaction table's "... Split Out" rows. Use those,
+        // not the DUE figures, so we record what actually happened, not what's next due.
+        const principalRow = text.match(/(\d{1,2}\/\d{1,2}\/\d{2})\s+Principal Payment Split Out\s+([\d,]+\.\d{2})/i);
+        const interestRow = text.match(/(\d{1,2}\/\d{1,2}\/\d{2})\s+Interest Payment Split Out\s+([\d,]+\.\d{2})/i);
+        if (!acct || !balAfter || !principalRow || !interestRow) return null;
+        return {
+          statementDate: _mdy2ToIso(principalRow[1]),
+          principalBalance: balAfter[1].replace(/,/g, ''),
+          accountNumber: acct[1],
+          explicitSplit: {
+            principal: parseFloat(principalRow[2].replace(/,/g, '')),
+            interest: parseFloat(interestRow[2].replace(/,/g, '')),
+          },
+        };
+      },
+    },
+    {
+      lenderLabel: 'iBusiness Funding / FC Marketplace statement',
+      detect: (text) => /FC Marketplace/i.test(text) && /ibusinessfunding\.com/i.test(text),
+      extract: (text) => {
+        const loanNum = text.match(/Loan Number:\s*(\d+)/i);
+        const billingDate = text.match(/Billing Statement Date:\s*(\d{2}\/\d{2}\/\d{4})/i);
+        const principalBalance = text.match(/Current Principal Balance:\s*\$?([\d,]+\.\d{2})/i);
+        // "Past Payment Summary" gives the actual applied split for the month just
+        // completed -- each line has TWO dollar figures (Last Month, then Year-to-Date);
+        // matching the first amount after each label grabs Last Month.
+        const principalSplit = text.match(/Principal:\s+\$?([\d,]+\.\d{2})/i);
+        const interestSplit = text.match(/Interest:\s+\$?([\d,]+\.\d{2})/i);
+        if (!loanNum || !billingDate || !principalBalance || !principalSplit || !interestSplit) return null;
+        // The billing date is when the NEXT bill is issued, but "Last Month" describes
+        // the PRIOR calendar month -- back the period off by one month so it buckets
+        // under the month the payment actually happened in.
+        const [mm, , yyyy] = billingDate[1].split('/');
+        let py = Number(yyyy), pm = Number(mm) - 1;
+        if (pm === 0) { pm = 12; py -= 1; }
+        return {
+          statementDate: `${py}-${String(pm).padStart(2, '0')}-01`,
+          principalBalance: principalBalance[1].replace(/,/g, ''),
+          accountNumber: loanNum[1],
+          explicitSplit: {
+            principal: parseFloat(principalSplit[1].replace(/,/g, '')),
+            interest: parseFloat(interestSplit[1].replace(/,/g, '')),
+          },
+        };
+      },
+    },
+    {
+      lenderLabel: 'SBA EIDL statement',
+      detect: (text) => /Small Business Administration/i.test(text) && /SBA Loan #/i.test(text),
+      extract: (text) => {
+        const loanNum = text.match(/SBA Loan #:\s*(\d+)/i);
+        // The "Last Payment Amount / Last Payment Date / Applied to Principal / Applied
+        // to Interest / Outstanding Balance" row is the only place in the statement with
+        // this exact 5-value shape (amount, date, amount, amount, amount) -- the earlier
+        // "Statement Amount / Payment Due / Due Date" row only has 3 values, so it can't
+        // accidentally match here.
+        const row = text.match(/\$?([\d,]+\.\d{2})\s+(\d{2}\/\d{2}\/\d{4})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/);
+        if (!loanNum || !row) return null;
+        const [, , lastPaymentDate, appliedPrincipal, appliedInterest, outstandingBalance] = row;
+        return {
+          statementDate: _mdyToIso(lastPaymentDate),
+          principalBalance: outstandingBalance.replace(/,/g, ''),
+          accountNumber: loanNum[1],
+          explicitSplit: {
+            principal: parseFloat(appliedPrincipal.replace(/,/g, '')),
+            interest: parseFloat(appliedInterest.replace(/,/g, '')),
+          },
+        };
+      },
+    },
+    {
+      lenderLabel: 'Pacific Community Ventures statement',
+      detect: (text) => /myloanpanel\.com/i.test(text) && /Loan ID:/i.test(text),
+      extract: (text) => {
+        const loanId = text.match(/Loan ID:\s*(\d+)/i);
+        const lastPaymentDate = text.match(/Last payment received:\s*(\d{2}\/\d{2}\/\d{4})/i);
+        const interest = text.match(/\bInterest:\s+([\d,]+\.\d{2})/i);
+        const principal = text.match(/\bPrincipal:\s+([\d,]+\.\d{2})/i);
+        const totalReceived = text.match(/Total received:\s+([\d,]+\.\d{2})/i);
+        const balance = text.match(/Latest account balance\s*\(before current interest charges\)\s*([\d,]+\.\d{2})/i);
+        if (!loanId || !lastPaymentDate || !interest || !principal || !balance) return null;
+        return {
+          statementDate: _mdyToIso(lastPaymentDate[1]),
+          principalBalance: balance[1].replace(/,/g, ''),
+          accountNumber: loanId[1],
+          explicitSplit: {
+            principal: parseFloat(principal[1].replace(/,/g, '')),
+            interest: parseFloat(interest[1].replace(/,/g, '')),
+          },
+          // Cross-checked against principal+interest by loan-ingest-statement -- if PCV
+          // ever applies part of a payment to fees/escrow (both 0.00 in every sample
+          // seen so far, but the statement has dedicated fields for them), this total
+          // won't match and the split correctly gets flagged needs_attention instead of
+          // silently dropping the fee/escrow portion.
+          totalAmountDue: totalReceived ? parseFloat(totalReceived[1].replace(/,/g, '')) : null,
+        };
+      },
+    },
+    {
+      lenderLabel: 'Ford Pro FinSimple statement (PDF)',
+      detect: (text) => /ford\.com\/finance/i.test(text) && /Your Transactions Since Last Statement/i.test(text),
+      extract: (text) => {
+        const acct = text.match(/Account Number:\s*(\d+)/i);
+        // The running "Principal Balance:" figure sits at the end of the same visual
+        // row as the payment transaction line (lender-specific two-column layout) --
+        // anchor on "Payment Received" and take the SECOND dollar amount that follows
+        // it (the first is the payment itself, the second is the resulting balance).
+        const principalBal = text.match(/Payment Received[\s\S]{0,40}?\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/i);
+        // Bare "Principal"/"Interest" labels (not "Principal Balance:") only appear as
+        // the two lines of a payment's split -- if this statement's period had no
+        // payment applied (e.g. "paid ahead", $0 due), neither is present and this
+        // correctly returns null, falling back to manual entry.
+        const principalSplit = text.match(/\bPrincipal\s+\$?([\d,]+\.\d{2})/i);
+        const interestSplit = text.match(/\bInterest\s+\$?([\d,]+\.\d{2})/i);
+        const paymentDate = text.match(/(\d{2}\/\d{2}\/\d{4})\s+Payment Received/i);
+        if (!acct || !principalBal || !principalSplit || !interestSplit || !paymentDate) return null;
+        return {
+          statementDate: _mdyToIso(paymentDate[1]),
+          principalBalance: principalBal[2].replace(/,/g, ''),
+          accountNumber: acct[1],
+          explicitSplit: {
+            principal: parseFloat(principalSplit[1].replace(/,/g, '')),
+            interest: parseFloat(interestSplit[1].replace(/,/g, '')),
+          },
+        };
+      },
+    },
   ];
 
   function _parseKnownLenderPdf(text) {
@@ -11206,6 +11361,7 @@ ${noActivityNote}
       // stale account number / transaction list. Reset per-file, before branching.
       _loanUploadParsedAcctNum = null;
       _loanUploadParsedTransactions = null;
+      _loanUploadParsedExplicitSplit = null;
 
       if (file.name.toLowerCase().endsWith('.csv')) {
         try {
@@ -11236,6 +11392,11 @@ ${noActivityNote}
           if (parsed) {
             document.getElementById('lu-statement-date').value = parsed.statementDate;
             document.getElementById('lu-principal-balance').value = parsed.principalBalance;
+            // session 220 (cont. further): some parsers also find the statement's own
+            // stated total due (e.g. PCV's "Total received") -- auto-fill it the same
+            // way the CSV path already does, so it flows through as total_amount_due
+            // for the backend's cross-check.
+            if (parsed.totalAmountDue != null) document.getElementById('lu-total-due').value = parsed.totalAmountDue;
             if (parsed.accountNumber) {
               _loanUploadParsedAcctNum = parsed.accountNumber;
               const sel = document.getElementById('lu-loan-select');
@@ -11249,9 +11410,15 @@ ${noActivityNote}
             // itself. Without this, ingestion would silently produce no split at
             // all for these loans (see loan-ingest-statement's `transactions` param).
             _loanUploadParsedTransactions = parsed.transactions || null;
+            // session 220 (cont. further): lenders that state their own principal/
+            // interest split directly (BayFirst, iBusiness, SBA EIDL, PCV, Ford Pro's
+            // PDF format) -- carried through as `explicit_split` (loan-ingest-statement
+            // v21), the simplest of the split sources since it needs no diffing at all.
+            _loanUploadParsedExplicitSplit = parsed.explicitSplit || null;
             noteEl.style.color = 'var(--green)';
             noteEl.textContent = `Auto-read (${parsed.lenderLabel}): balance $${parsed.principalBalance} as of ${parsed.statementDate}`
-              + (parsed.transactions ? `, ${parsed.transactions.payments.length} payment(s) and ${parsed.transactions.fees.length} fee(s) found.` : '.');
+              + (parsed.transactions ? `, ${parsed.transactions.payments.length} payment(s) and ${parsed.transactions.fees.length} fee(s) found.` : '')
+              + (parsed.explicitSplit ? `, split $${parsed.explicitSplit.principal.toFixed(2)} principal / $${parsed.explicitSplit.interest.toFixed(2)} interest.` : '.');
             return;
           }
         } catch (_) { /* fall through to manual entry */ }
@@ -11296,6 +11463,10 @@ ${noActivityNote}
         // loan-ingest-statement uses this to generate the matching splits itself
         // instead of the upload silently producing nothing to review.
         transactions: _loanUploadParsedTransactions || undefined,
+        // session 220 (cont. further): for lenders that state their own principal/
+        // interest split directly (see LOAN_PDF_PARSERS) -- loan-ingest-statement v21
+        // records the split from this instead of diffing against a prior statement.
+        explicit_split: _loanUploadParsedExplicitSplit || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       closeLoanUploadModal();
