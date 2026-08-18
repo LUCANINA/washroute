@@ -134,6 +134,27 @@ session — see the session log below for why).
 
 **Scope note:** this touches the core posting flow for every statement-based loan (`ingestion_method='portal_manual'`), not just Rapid — needs the same live-verification discipline as tonight's v17→v19 saga (diagnostic against real data, confirm deployed source matches intended source byte-for-byte, etc.) before it's trusted in production. **David: "We begin building this new version tomorrow."**
 
+**Build plan, firmed up session 219 (David's decisions in bold):**
+
+- **Rollout scope: Rapid Credit Line only for v1.** Gated by a new `loan_accounts.direct_split_enabled boolean not null default false` column, not a hardcoded loan ID in code — flipping a data value, not a redeploy, is what turns this on for a second loan once Rapid's proven out. Every other loan keeps posting through the existing manual-journal path untouched.
+- **Match window: ±3 days** between a fee's date and a not-yet-split payment transaction on the loan's own Xero bank account, closest date wins. Ambiguous (0 or 2+ equally-close candidates) or the candidate already has more than one line item → **fall back to the existing manual-journal path**, per the fallback rule below. Doesn't reuse `findLumpSumMatches` — that sums a lump sum across many entries; this matches to exactly one transaction.
+- **Historical reclass journals: left alone.** No retroactive cleanup pass. Going forward only — existing Manual Journals (like the Aug 3 / Aug 10 Rapid ones in the screenshot) stay exactly as posted.
+
+**Schema (needs `washroute-migration-review` before applying — checked against real column names via `information_schema.columns`, both tables confirmed as of session 219):**
+- `loan_accounts.direct_split_enabled boolean not null default false` — the v1 allowlist. Set `true` for Rapid Credit Line only once the build is tested.
+- `loan_splits.posting_method text not null default 'manual_journal'` with a `CHECK (posting_method IN ('manual_journal','direct_split'))` — records which mechanism actually posted a given split, so revert knows which code path to run. Every existing row defaults to `'manual_journal'` (correct — that's what actually happened for all of them).
+- `loan_splits.pre_split_line_items_snapshot jsonb` — nullable, populated ONLY when `posting_method='direct_split'`. Snapshot of the bank transaction's exact original `LineItems` array (account, description, amount) captured immediately before the Update BankTransaction call. Revert restores this snapshot verbatim rather than reconstructing "one line, full amount, loan account code" from scratch — a reconstruction could silently drop a real original description or a tracking category Xero had on the line.
+- `matched_xero_bank_transaction_id` (already exists on `loan_splits`, currently always null) is what gets populated for a `direct_split` row — this is the column it was added for.
+
+**Build order:**
+1. Migration (the three columns above), reviewed via `washroute-migration-review` first, applied, verified via `information_schema.columns` after.
+2. `loan-xero-post` preview step: for a `direct_split_enabled` loan's pending split, attempt the ±3-day match; if found, preview response includes a new proposal shape (`kind:'direct_split'`, the matched `bank_transaction_id`, its date/total, and the proposed principal/interest split) instead of the manual-journal proposal. No match, ambiguous match, or already-split candidate → preview falls back to today's manual-journal proposal, unchanged.
+3. `loan-xero-post` confirm step: on a `direct_split` proposal, snapshot the transaction's current `LineItems` into `pre_split_line_items_snapshot`, call Xero's Update BankTransaction with the two-line split, then write `posting_method='direct_split'`, `matched_xero_bank_transaction_id`, `status='posted'` — no `xero_manual_journal_id` for these rows. Any failure in the Update call (network, Xero error, anything) → fall back to creating a Manual Journal exactly like today, not a failed post and not a silent skip.
+4. Revert path, branching on `posting_method`: `manual_journal` rows revert exactly as today (void the journal). `direct_split` rows revert by calling Update BankTransaction with the saved `pre_split_line_items_snapshot`, then clearing the split's posting fields. **This needs its own tested round-trip (split → verify in Xero → revert → verify original state restored) before the confirm path is trusted on a real payment.**
+5. Frontend: review modal needs a render branch for the `direct_split` proposal shape (something like "This will split the bank transaction dated Aug 4 for $2,068.89 into $1,569.61 principal / $499.42 interest," not "a new journal will post").
+
+**Testing sequence before this touches a real Rapid payment:** preview-only dry run against Rapid's real pending splits first (no confirm) to eyeball whether the ±3-day matching actually finds the right transactions by hand-checking a few against Xero; then one real confirm+revert cycle on a single low-stakes period to prove the revert path actually restores the original line item, before trusting confirm on anything else.
+
 ---
 
 ## Session Log
