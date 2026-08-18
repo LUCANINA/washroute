@@ -13,7 +13,19 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: August 16, 2026 — Session 217 — **Added a "Flagged" tile to Payroll's own summary strip so the same number reads the same way on Overview and on Payroll itself.**
+*Last updated: August 18, 2026 — Session 218 — **Fixed POS site routing not following a customer's processing-site change — Foothill's team couldn't see Homebase's and Soul Sanctuary's upcoming orders.**
+
+David reported by text that the ladies at Foothill weren't seeing Homebase or Soul Sanctuary even though he'd set both accounts' processing site to Foothill.
+
+**Root cause.** Recurring orders are generated several days ahead of their pickup date by `trg_create_recurring_order_fn`, and `set_order_site_on_insert` (the trigger that stamps a new order's `site_id` from the customer's `default_site_id`) only ever fires at INSERT time. It correctly reads the customer's CURRENT default site when a new order row is created — but nothing re-points an order that already exists when the customer's default site changes later. So changing a customer's processing site only affected brand-new orders generated after the change; every order already sitting in `scheduled`/`picked_up`/`processing`/`ready_for_delivery`/`out_for_delivery` kept its old `site_id` forever. Confirmed via direct query: Homebase had 2 of 3 open orders still pointing at 23rd Ave, Soul Sanctuary had all 3.
+
+**Fix** (migration `session_backfill_and_sync_order_site_from_customer_default`): (1) backfilled the 5 affected open orders to the correct site, after snapshotting the pre-fix state to `_archive._backfill_order_site_id_20260818`; (2) root-cause fix — new trigger `trg_sync_open_order_sites_on_customer_default_change` (`AFTER UPDATE OF default_site_id ON customers`) now automatically repoints all of that customer's currently-open orders to the new site whenever `default_site_id` changes, so this can't silently drift for any account again, matching the same "re-resolve from the customer record, don't let a copied value go stale" pattern already used for zone_id (session 129) and subscription_id re-resolution (session 201).
+
+**Verified live:** queried both accounts' open orders post-fix (all 6 now show Foothill Blvd, matching each customer's `default_site_id`); tested the new trigger itself inside a rolled-back transaction (flipped Homebase's `default_site_id` away and back, confirmed its open orders followed both times); audited every customer with a non-null `default_site_id` against their open orders' `site_id` and confirmed no other accounts were affected.
+
+✅ Fully live — this was a direct DB migration + trigger, no app-code deploy needed.*
+
+*Previously: August 16, 2026 — Session 217 — **Added a "Flagged" tile to Payroll's own summary strip so the same number reads the same way on Overview and on Payroll itself.**
 
 **What David asked.** After the copy fix and the Overview undercount fix, he pointed out the deeper problem: *"That's confusing because we're using tiles differently from overview page to Payroll page. Suggest a better way."* Fair — Overview presents every number the same way (4 flat, same-size, same-style tiles), but Payroll's own page split the identical information into two different components: a 3-tile workflow strip (Needs Review / Reviewed / Posted to Xero — mutually exclusive stages) sitting above a completely separately-styled Needs Attention card with a small red badge chip. The flagged count Overview shows as a tile wasn't a tile anywhere on Payroll's own page at all.
 
