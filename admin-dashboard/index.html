@@ -11703,14 +11703,24 @@ ${noActivityNote}
       loanNote.style.color = 'var(--red)';
       loanNote.style.display = '';
       loanNote.textContent = 'More than one loan uses that account number — pick the right one yourself.';
-    } else if (!lm.matched) {
-      // Found in live testing (session 221 step 4): the file names no account number, so
-      // NOTHING here confirms the dropdown is right -- and it may still be showing a loan
-      // that a PREVIOUS file in this same modal session auto-selected. Swapping a Ford Pro
-      // statement for PayPal's history CSV left "Ford Pro #61564140" selected with 34
-      // PayPal periods queued against it. Resetting the dropdown would be worse (it could
-      // silently discard a deliberate choice), so say plainly that this file can't confirm
-      // it. Advisory only -- never blocks the upload.
+    } else {
+      // Everything that is NOT an exact account-number match means the DOCUMENT ITSELF
+      // told us nothing about which loan it belongs to.
+      //
+      // Note the trap this branch exists to avoid: loan-document-intake reports
+      // `matched: true` with `matched_on: 'caller_supplied'` when it falls back to the
+      // loan_account_id we passed it -- i.e. it echoes our own dropdown back at us. That
+      // is not evidence, it is circular, and an earlier version of this check tested
+      // `!lm.matched` and therefore never fired. Key off `matched_on` being an exact
+      // document match, never off `matched`.
+      //
+      // Found in live testing: the file names no account number, so NOTHING here confirms
+      // the dropdown is right -- and it may still show a loan a PREVIOUS file in this same
+      // modal session auto-selected. Swapping a Ford Pro statement for PayPal's history CSV
+      // left "Ford Pro #61564140" selected with 34 PayPal periods queued against it.
+      // Resetting the dropdown would be worse (it could silently discard a deliberate
+      // choice), so say plainly that this file cannot confirm it. Advisory only -- never
+      // blocks the upload.
       loanNote.style.color = '#b45309';
       loanNote.style.display = '';
       loanNote.textContent = "This file doesn't say which loan it belongs to — check the loan above is the right one before uploading.";
