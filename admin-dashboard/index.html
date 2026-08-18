@@ -11359,11 +11359,15 @@ ${noActivityNote}
       detect: (text) => /ford\.com\/finance/i.test(text) && /Your\s+Transactions\s+Since\s+Last\s+Statement/i.test(text),
       extract: (text) => {
         const acct = text.match(/Account\s+Number:\s*(\d+)/i);
-        // The running "Principal Balance:" figure sits at the end of the same visual
-        // row as the payment transaction line (lender-specific two-column layout) --
-        // anchor on "Payment Received" and take the SECOND dollar amount that follows
-        // it (the first is the payment itself, the second is the resulting balance).
-        const principalBal = text.match(/Payment\s+Received[\s\S]{0,40}?\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/i);
+        // "Principal Balance:" is its own explicit label earlier in the statement,
+        // independent of the payment-transaction line -- use it directly. (Live pdf.js
+        // extraction interleaves the "Principal"/"Interest" split labels with their own
+        // values right after the payment line, not appended onto the payment's own row,
+        // so the old positional two-dollar-amount read after "Payment Received" never
+        // matched real output.) The \s+ before the amount means this can't accidentally
+        // match "Principal Balance:" itself, since "Balance:" -- not a dollar sign or
+        // digit -- immediately follows "Principal " there.
+        const principalBal = text.match(/Principal\s+Balance:\s*\$?([\d,]+\.\d{2})/i);
         // Bare "Principal"/"Interest" labels (not "Principal Balance:") only appear as
         // the two lines of a payment's split -- if this statement's period had no
         // payment applied (e.g. "paid ahead", $0 due), neither is present and this
@@ -11374,7 +11378,7 @@ ${noActivityNote}
         if (!acct || !principalBal || !principalSplit || !interestSplit || !paymentDate) return null;
         return {
           statementDate: _mdyToIso(paymentDate[1]),
-          principalBalance: principalBal[2].replace(/,/g, ''),
+          principalBalance: principalBal[1].replace(/,/g, ''),
           accountNumber: acct[1],
           explicitSplit: {
             principal: parseFloat(principalSplit[1].replace(/,/g, '')),
