@@ -118,6 +118,28 @@ session — see the session log below for why).
 
 ---
 
+## Next Up — Statement Ingestion Breadth (scoped Aug 18, session 220; build starts Aug 19)
+
+**The problem.** Only ONE lender has an actual PDF parser today (`LOAN_PDF_PARSERS` in `admin-dashboard/index.html` — Rapid Finance only). Every other active `portal_manual` loan — Ford Pro FinSimple (4 active loans), BayFirst National Bank SBA (2 loans), iBusiness Funding/FC Marketplace (1), SBA EIDL (1) — gets its statement numbers typed in by hand from the PDF on every upload. Real ongoing manual work, real typo risk.
+
+**David's framing: build this to be reusable, not just a WashRoute fix.** Explicit goal — everything learned here should be applicable to a future product ("Bookswell") down the line. That changes HOW this gets built, not just what:
+- **Parsing must stay strictly separate from business mapping.** Each parser's `extract()` returns a generic shape — `{statementDate, principalBalance, totalAmountDue, transactions: {payments, fees}}` — with zero WashRoute-specific fields (no account codes, no `loan_account_id`, nothing tied to Family Laundry's chart of accounts). This is already accidentally true of `LOAN_PDF_PARSERS`'s existing shape; make it a deliberate, enforced boundary, not an incidental one, so the parsing layer could be lifted into a different product wholesale.
+- **Document the statement-shape taxonomy as a standalone artifact**, not buried in code comments — the distinction between "states its own P&I split," "balance-delta only" (diff against the prior statement), "transaction-list based" (Rapid-style — every payment and fee its own line, no lump total), and "transaction-list with same-day payment+fee pairs" (the Direct Split shape) is a general bookkeeping-automation problem, not a WashRoute quirk.
+- **Build a fixture-based test harness per parser**: real historical PDFs (already sitting in the `loan-statements` Storage bucket from past uploads) + their known-correct expected output, run automatically. Something that travels intact if this is ever extracted into its own tool.
+
+**Scope: attempt a parser for every `portal_manual` lender**, not just the highest-volume ones (David's explicit call, overriding my instinct to prioritize by volume). In practice this is ~5 new parsers, not 22 — Ford Pro's 4 active loans almost certainly share one statement format (same lender), same for BayFirst's 2. **First thing tomorrow: confirm that assumption by actually diffing 2+ real PDFs per lender before building anything** — don't assume format uniformity within a lender without checking.
+
+**Build order:**
+1. Inventory pass: pull 2-4 real historical statement PDFs per active `portal_manual` lender from the `loan-statements` bucket. Read them, don't assume. Confirm same-lender format uniformity (or find the exception).
+2. Classify each lender's actual shape against the taxonomy above; write the taxonomy up as its own doc/section.
+3. Build one parser per distinct lender-format, following `LOAN_PDF_PARSERS`'s existing `detect()`/`extract()` dispatch pattern — additive, not a rewrite.
+4. Fixture-test each new parser against real already-uploaded statements for that lender, diffing extracted numbers against what's already correct in `loan_statements`/`loan_splits` for those same periods. A parser that doesn't reproduce known-good history exactly doesn't ship.
+5. The existing upload-modal review step (auto-parse fills the form, David reviews/edits before submit) stays as the human check either way — the fixture tests are an additional check, not a replacement for it.
+
+**Explicitly out of scope for this pass** (keep it from sprawling into last session's territory): no changes to `loan-xero-post`'s posting logic, no expanding Direct Transaction Split to other lenders. Pure ingestion-and-parsing breadth.
+
+---
+
 ## Next Up — Direct Transaction Split (scoped Aug 17, session 218+; build starts Aug 18)
 
 **The idea, David's framing:** instead of posting a payment 100% to the loan account and then adding a separate reclass journal to move the interest portion over (today's pattern — 2 Xero objects per real payment: 1 payment + 1 journal, so 4 line items for 2 weeks), directly edit the payment's own bank transaction so principal and interest are split on that ONE transaction. Half as many Xero objects, no separate "adjustment," matches how some of Rapid's own historical transactions already look in Xero (e.g. the Jun 16, 2026 transaction, which has both a 247 line and an 800 line on the same Spend Money entry — someone did this by hand at some point).
