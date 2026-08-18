@@ -3761,7 +3761,7 @@
             <div class="modal-body">
               <div class="form-group">
                 <label class="form-label">Loan</label>
-                <select class="form-select" id="li-loan-select"></select>
+                <select class="form-select" id="li-loan-select" onchange="_liLoanDeliberate = true"></select>
                 <div id="li-loan-note" style="font-size:12px;margin-top:6px;display:none"></div>
               </div>
               <div class="form-group">
@@ -8217,6 +8217,8 @@
   let _liRawFile = null;           // the raw File object -- the document path uploads it directly to storage
   let _liFileGeneration = 0;       // bumped per file pick; a slower earlier read must not repaint a newer one
   let _liKindTouchedByUser = false;// once the human sets 'What is this?', no auto-detection overwrites it
+  let _liLoanDeliberate = false;   // true when the loan was chosen on purpose (row click or manual pick),
+                                   // so an auto-switch away from it is worth announcing rather than doing quietly
   let _allLoanDocuments = [];       // generic per-loan file attachments (Aug 2026) -- payoff letters,
                                      // transaction histories, amortization schedules, correspondence, etc.
   let _loanDocsCurrentLoanId = null;
@@ -11091,6 +11093,7 @@ ${noActivityNote}
     _loanUploadParsedBulkPeriods = null;
     _liRawFile = null;
     _liKindTouchedByUser = false;
+    _liLoanDeliberate = !!prefillLoanId;   // arriving from a specific loan's row IS a deliberate choice
     _populateLoanSelect();
     if (prefillLoanId) document.getElementById('li-loan-select').value = prefillLoanId;
     onLoanIntakeKindChanged();
@@ -11575,9 +11578,7 @@ ${noActivityNote}
       _loanUploadParsedExplicitSplit = browserParsed.explicitSplit || null;
       _loanUploadParsedAcctNum = browserParsed.accountNumber || null;
       if (browserParsed.accountNumber) {
-        const loanSel = document.getElementById('li-loan-select');
-        const m = Array.from(loanSel.options).find(o => o.dataset.acctnum === browserParsed.accountNumber);
-        if (m) loanSel.value = m.value;
+        _liSelectLoanFromDocument(browserParsed.accountNumber);
       }
       const bits = [`Auto-read (${browserParsed.lenderLabel}): balance $${browserParsed.principalBalance} as of ${browserParsed.statementDate}`];
       if (browserParsed.explicitSplit) {
@@ -11660,6 +11661,33 @@ ${noActivityNote}
     }
   }
 
+  // Single place where a DOCUMENT's own account number changes the selected loan.
+  // Both readers route through here so the behaviour is identical either way: the
+  // document's evidence wins over the dropdown (it is the stronger signal), but if the
+  // human had deliberately chosen a different loan -- by opening from that loan's row, or
+  // by picking one by hand -- the switch is announced instead of made quietly. A silent
+  // override is precisely what this whole step exists to eliminate; it would be
+  // incoherent to introduce one here.
+  function _liSelectLoanFromDocument(acctNumber, knownLoanId) {
+    const sel = document.getElementById('li-loan-select');
+    const loanNote = document.getElementById('li-loan-note');
+    const before = sel.value;
+    let targetId = knownLoanId || null;
+    if (!targetId && acctNumber) {
+      const m = Array.from(sel.options).find(o => o.dataset.acctnum === acctNumber);
+      targetId = m ? m.value : null;
+    }
+    if (!targetId || targetId === before) return;
+    sel.value = targetId;
+    if (!_liLoanDeliberate) return;   // it was only ever the default -- nothing was overridden
+    const prev = _allLoanAccounts.find(a => a.id === before);
+    loanNote.style.color = '#b45309';
+    loanNote.style.display = '';
+    loanNote.textContent = `Switched to the loan this document names (#${acctNumber})`
+      + (prev ? ` — you had ${prev.xero_account_name || prev.lender_account_number} selected.` : '.')
+      + " Change it back if that's wrong.";
+  }
+
   // The loan the DOCUMENT names beats the loan the dropdown happens to be showing --
   // but never silently. Step 3 shipped this override without telling anyone; this is
   // the affordance that was missing.
@@ -11670,19 +11698,22 @@ ${noActivityNote}
     const loanNote = document.getElementById('li-loan-note');
     const before = sel.value;
     if (lm.matched && lm.matched_on === 'account_number_exact' && lm.loan_account_id) {
-      sel.value = lm.loan_account_id;
-      if (before && before !== lm.loan_account_id) {
-        const prev = _allLoanAccounts.find(a => a.id === before);
-        loanNote.style.color = '#b45309';
-        loanNote.style.display = '';
-        loanNote.textContent = `Switched to the loan this document names (#${lm.lender_account_number})`
-          + (prev ? ` — you had ${prev.xero_account_name || prev.lender_account_number} selected.` : '.')
-          + " Change it back if that's wrong.";
-      }
+      _liSelectLoanFromDocument(lm.lender_account_number, lm.loan_account_id);
     } else if (lm.matched_on === 'account_number_ambiguous') {
       loanNote.style.color = 'var(--red)';
       loanNote.style.display = '';
       loanNote.textContent = 'More than one loan uses that account number — pick the right one yourself.';
+    } else if (!lm.matched) {
+      // Found in live testing (session 221 step 4): the file names no account number, so
+      // NOTHING here confirms the dropdown is right -- and it may still be showing a loan
+      // that a PREVIOUS file in this same modal session auto-selected. Swapping a Ford Pro
+      // statement for PayPal's history CSV left "Ford Pro #61564140" selected with 34
+      // PayPal periods queued against it. Resetting the dropdown would be worse (it could
+      // silently discard a deliberate choice), so say plainly that this file can't confirm
+      // it. Advisory only -- never blocks the upload.
+      loanNote.style.color = '#b45309';
+      loanNote.style.display = '';
+      loanNote.textContent = "This file doesn't say which loan it belongs to — check the loan above is the right one before uploading.";
     }
   }
 
