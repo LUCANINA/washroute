@@ -114,6 +114,12 @@ session — see the session log below for why).
 
 **Read-only until proven otherwise:** `_loanOutstandingBalance()`/`_loanStatementsToDate()`'s "only past-dated rows are real" filter, and the Needs Attention "one shared function per count" pattern, exist because both were bitten in production before (see session log). Don't remove or bypass either without understanding why they're there first — re-read the relevant session-log entry below.
 
+**Every balance-like figure carries an explicit basis, and two figures may only be compared when their bases match (session 221 — a type error that ran in production for nine months):**
+- `balance` meant three different things across three tables and nothing distinguished them. `loan_amortization_rows.balance` for PayPal A00845102 is **total payback** (principal + unearned fee); `loan_statements.principal_balance` is remaining **principal**; Ford Pro statements print a **payoff quote** ($16,873.78) right next to the principal balance ($16,755.81) on the same page. `reconciliation-run` compared them interchangeably as competing "anchors," which left PayPal carrying a permanent phantom discrepancy nobody could explain.
+- The rule now: `loan_statements.balance_basis` (per row — sources genuinely differ) and `loan_amortization_schedules.balance_basis` (on the SCHEDULE, not the row, so per-row drift is unrepresentable) ∈ `principal_only` / `total_payback` / `payoff_quote` / `unknown`. **Never compare two figures whose bases differ.** Either convert through the defined relationship (`total_payback − principal_only = unamortized fee remaining`, verified exact to the cent for PayPal at 2026-07-29) or surface it as a `basis_conflict` finding. Never compare silently.
+- **The default is `'unknown'` on purpose.** An untyped figure must be *visibly* untyped and refused for comparison, not silently assumed to be principal. 386 existing rows (`xero_derived`, `xero_balance_snapshot`) are deliberately left `'unknown'` because their Xero booking basis was never verified — do not "tidy" these to `principal_only` without checking each loan's actual origination entry first.
+- When writing ANY new parser, ask which quantity the lender is printing before writing the regex. Several lenders print two or three of them on one page. The six shipped parsers all deliberately take the principal balance.
+
 **Never delete-then-reinsert in one step (session 219 — real data loss incident, see session log below):** `payroll-ingest` v19's adjustment-merge logic deleted every existing line on an import, then tried to reinsert the ones it meant to keep alongside the new ones in a single INSERT. The insert failed (a `created_at` NOT NULL violation from spreading a raw DB row back into an insert) — but the DELETE had already committed, so Maria Castellanos' entire payroll line vanished, and by the time it was caught by hand and manually recovered from her original CSV, David had already posted the adjustment to Xero without her, leaving a live Manual Journal short $144.00 of wages. **Any code path that must replace some rows while keeping others must delete ONLY the exact rows about to be overwritten (`.delete().in('id', [...])`), never a blanket delete of the whole set with a promise to reinsert the rest later.** If the reinsert never happens — because of a bug, a timeout, a retry — a blanket delete has already destroyed data that a scoped delete never would have touched.
 
 ---
@@ -205,7 +211,138 @@ session — see the session log below for why).
 
 ## Session Log
 
-*Last updated: August 18, 2026 — Session 220 (cont. further, round 3) — **Live-tested all 6 shipped loan-statement parsers in the real browser per David's request ("Take it for a spin"). Found and fixed 3 real bugs that offline `pdftotext`-based testing had missed — all traced to the same root cause: `pdf.js`'s real text extraction doesn't match `pdftotext -layout`'s spacing/grouping. BayFirst + iBusiness fixed via `\s+` regex conversion (`daec56d`); SBA EIDL and Ford Pro (PDF) fixed by switching from positional-row reads to label-anchored reads (`fa970fe`, `ba6dba2`). Pacific Community Ventures and the PayPal CSV importer passed with no changes. All 6 re-confirmed live after redeploy.**
+*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Design doc written; build steps 1–2 of 7 done.***
+
+### Session 221 — the design pass, and what auditing first turned up
+
+David asked to start the deferred document-classifier/cross-validation design pass, and
+moved the session to Opus for it. **Investigated before designing** — read the
+reconciliation engine end to end, both client upload paths, and queried live data. That
+ordering was the whole ballgame; almost every load-bearing assumption in the previous
+session's notes turned out to be wrong or incomplete.
+
+**What the audit corrected:**
+- **The cross-check David asked for genuinely does not exist.** `reconciliation-run` merges
+  amortization rows and lender statements into one array, sorts by date, and uses ONLY
+  `anchors[0]`. They are competing candidates for "the anchor," never operands of a
+  comparison. A newer statement silently discards the schedule and vice versa.
+- **"Propose an action for the CPA" is close to a stub**, not "largely already built" as the
+  session-220 notes claimed. `proposed_action` is NULL on every `balance_vs_lender`,
+  `derived_drift`, `stale_anchor` and `future_dated_rows` row. One check writes it; its main
+  output is a constant string with no amounts. No `kind` registry, no consumer.
+- **`reconciliation-run` cannot be invoked scoped to one loan.** Its checkpoint map is global
+  and self-overwriting (a single-loan run would write a 1-key map, so the next run finds no
+  checkpoint for the other 21 loans and silently stops running `balance_vs_lender` and
+  `derived_drift` for all of them), and its resolve sweep is unscoped. Intake must write its
+  own findings directly, never call the engine scoped.
+- **The document-attach flow never reads a byte of the file** — `doc_type` is a pure user
+  assertion; 5 document rows exist in total. And **there is no amortization-schedule upload
+  path in the client at all** — `loan-ingest-amortization` has no caller; schedules were
+  loaded out-of-band.
+
+**The finding that reshaped the design — a live type error.** `balance` means three
+different things across three tables and nothing distinguished them:
+`loan_amortization_rows.balance` for PayPal A00845102 is a **total-payback** figure
+(principal + unearned fee) while `loan_statements.principal_balance` is remaining
+**principal**, and the engine compared them interchangeably. Ford Pro statements print a
+payoff quote *and* a principal balance on the same page ($16,873.78 vs $16,755.81), so the
+same confusion was one careless parser away elsewhere. **Conclusion: the classifier is not
+the hard part — the untyped substrate is. Types first, classifier second.** Bolting a
+classifier onto an untyped substrate only lets it misfile faster.
+
+**PayPal audit (read-only, via two disposable `temp-*` diagnostics, both retired with their
+findings recorded in their stubs).** David asked where the $20,565.12 loan fee landed in
+Xero on 2025-12-10. Answer: **nowhere.** Origination is one clean entry — RECEIVE
+$157,000.00, single line to account 284, description "New loan." Booked **principal-only**;
+the fee was never recorded as a liability, discount, or prepaid interest.
+- **An earlier claim in this session was wrong and was corrected to David directly:** Xero is
+  NOT on a total-payback basis. The $65,024.08 figure came from a mid-cycle snapshot. The
+  real weekly mechanism is that the bank feed books the FULL $3,414.71 against the liability
+  with $0 to interest, then a separate correction journal moves the interest portion to 800.
+  Net weekly effect ties to the lender CSV's principal to the penny across four consecutive
+  weeks checked. **So Xero and the CSV agree; the schedule was the outlier.** Nothing needs
+  re-booking — a much smaller fix than first thought.
+- **⚠️ CPA ITEM — suspected ~$3,142 double-count.** A 2026-07-31 journal, *"To reclass the
+  payment made for paypal"*, for −$3,142.26 drops the balance to exactly $58,775.97 — the
+  principal figure *after* the 2026-08-05 payment, which had not happened yet. The real bank
+  entry then lands 2026-08-06 and books it again. Backing that journal out and applying the
+  two not-yet-posted August split corrections lands ~$55,662 against an expected ~$55,641
+  (within ~$20; the last step uses an estimated 8/12 principal since the CSV ends 8/05).
+  **Not touched — flagged for David's accountant.**
+- **The correction trail is fragile**, which is likely how it happened: 20 adjustment journals
+  in 9 months, including three separate 2026 monthlies whose narration all still reads
+  *"to match end balance Feb 26"* (copy-paste), a −$9,700.61 *"reverse part of the adjustment
+  from march"*, and a 2025-12-31 entry adding $15,671.08 to the loan that matches neither the
+  $20,565.12 fee nor any other sourceable figure. A human hand-posts a correction every week
+  because the bank feed books the payment wrong.
+
+**Design decisions (David's answers).** Five layers — vocabulary → intake → classify →
+cross-check → propose. Full write-up in `DESIGN-document-intake-221.md` and in the Next Up
+section above. His calls:
+1. **Classifier = option B**: AI may identify *what a document is and whose it is*, but never
+   originates a financial figure. Extends the rule the reconciliation engine's own header
+   already states ("the LLM ... will never compute a number"). Every extracted figure carries
+   per-figure provenance (`basis`, `as_of`, `source_text`), which is also the safeguard that
+   would make a future option C safe.
+2. **Extraction moves to an edge function** — browser-only pdf.js is why last session's three
+   parser bugs were only findable by hand in a live browser. **Hard constraint recorded: it
+   must run the SAME pdf.js library (Deno build), not a different PDF library, or all six
+   live-verified parsers need re-verification from scratch.** Parallel-diff both extractors
+   during rollout before cutting over.
+3. **Schedule upload gets built** — cross-validating a schedule against a statement is
+   pointless while schedules can only arrive via hand-written SQL.
+4. **PayPal's 34-period import stays parked** until the basis typing is in (now done).
+
+**Shipped this session — build steps 1 and 2 of 7:**
+- **Migration `bookkeeping_add_balance_basis_and_finding_source`** (reviewed against
+  `washroute-migration-review` first; additive only, so the DROP/RENAME audits didn't apply).
+  Adds `loan_statements.balance_basis` (per row — sources genuinely differ),
+  `loan_amortization_schedules.balance_basis` (on the SCHEDULE, not the row, so per-row drift
+  is unrepresentable), and `reconciliation_findings.source ∈ ('engine','intake')`. All NOT
+  NULL with defaults + CHECK constraints. **Default is `'unknown'`, deliberately** — an
+  untyped figure should be visibly untyped and refused for comparison, not silently assumed.
+  - Verified: `information_schema` shows all three correct; a `DO` block proved **all three
+    CHECK constraints actively reject a bogus value** (not silently accepted); and the
+    ADD COLUMN / PostgREST stale-cache rule was honored — **columns-only push, no dependent
+    code deployed with it** — with Data API visibility proven by REST round-trip. Note the
+    `reconciliation_findings` probe returns `42501 permission denied` (anon has no grant on
+    that table), which is *inconclusive on its own*; a control request for a deliberately
+    bogus column on the same table returned `42703 column does not exist`, proving PostgREST
+    resolves columns BEFORE the permission check and therefore that `source` did resolve.
+    No project restart needed.
+- **Backfill, derived from evidence rather than hardcoded.** Schedule basis was computed by
+  asking whether `balance` decrements by `payment` or by `principal` across ≥5 payment rows.
+  Result: 4 schedules `principal_only` (Dexter ×2, PCV, Verdant), **PayPal `total_payback`** —
+  the sole outlier, confirmed across 32 rows. Statements: 247 typed `principal_only` (61
+  `lender_statement`, 11 `portal_manual_pull`, 5 `email_pdf_upload`, 170 `amortization_schedule`
+  inheriting their schedule's basis). **386 rows deliberately left `'unknown'`** (341
+  `xero_derived`, 45 `xero_balance_snapshot`) because only PayPal's Xero booking basis was
+  actually verified — the gap is left visible rather than guessed.
+- **PayPal's standing discrepancy is now formally explained rather than flagged.** Verified
+  the conversion identity holds exactly at 2026-07-29: schedule (total_payback) $64,879.69 −
+  principal $61,896.57 = **$2,983.12**, which equals unamortized fee remaining ($20,565.12 −
+  $17,582.00 paid) = **$2,983.12**. Exact to the cent. The two sources are convertible, not
+  contradictory — which is the whole point of the basis column.
+
+**Latent bugs found along the way (not fixed, cheap, worth doing):** schedule anchors are
+pulled with no `row_type` filter so `annual_total`/`grand_total` rows can become a loan's
+anchor; `stale_anchor` and `future_dated_rows` findings carry neither `detail.date` nor
+`detail.anchor_date` so the resolve sweep's date guard doesn't protect them;
+`loan_accounts.original_amount` for PayPal is $177,500.00, which is neither the $157,000.00
+principal nor the exact $177,565.12 payback; 341 `xero_derived` + 45 `xero_balance_snapshot`
+statement rows match no filter in any balance check (Verdant's balance in particular is
+verified by nothing); ~130 `temp-*` edge functions still deployed, mostly neutered stubs.
+
+**Remaining build order:** 3 `loan-document-intake` edge function (extraction + deterministic
+classification, dry-run only, parallel-diff against the browser) → 4 unified intake UI →
+5 cross-checks (`basis_conflict` and `schedule_vs_statement` first — PCV and PayPal can
+exercise both immediately) → 6 schedule ingest path → 7 AI routing for unrecognised docs.
+**Before intake writes its first finding, `reconciliation-run`'s resolve sweep must be scoped
+to `source = 'engine'`** or the new findings will be silently auto-resolved by the next run.
+
+---
+
+*Previously: August 18, 2026 — Session 220 (cont. further, round 3) — **Live-tested all 6 shipped loan-statement parsers in the real browser per David's request ("Take it for a spin"). Found and fixed 3 real bugs that offline `pdftotext`-based testing had missed — all traced to the same root cause: `pdf.js`'s real text extraction doesn't match `pdftotext -layout`'s spacing/grouping. BayFirst + iBusiness fixed via `\s+` regex conversion (`daec56d`); SBA EIDL and Ford Pro (PDF) fixed by switching from positional-row reads to label-anchored reads (`fa970fe`, `ba6dba2`). Pacific Community Ventures and the PayPal CSV importer passed with no changes. All 6 re-confirmed live after redeploy.**
 
 **Round 3 (this entry) — live browser verification.** Per David's explicit instruction after pushing the 5-parser + PayPal-importer commits ("I trashed the 'to delete' file and pushed the updates. The app is open on chrome. Take it for a spin please"), tested all 6 shipped parsers against real sample files in David's actual Chrome session via `claude-in-chrome` browser automation — not just the offline `pdftotext`-based verification the previous round relied on. This immediately paid off: **BayFirst and iBusiness both failed to auto-read on the first live attempt**, despite passing every offline check. Diagnosed via `javascript_tool`, extracting each uploaded file's real `pdf.js` text in-page (`_extractPdfText`) and testing sub-regexes against it directly — found `pdf.js` inserts 3 spaces between words for these PDF generators, silently breaking every literal-single-space multi-word label regex. Fixed (14 `\s+` conversions across the 5 new parsers, pre-emptively, since the same class of regex existed in all of them), redeployed (David pushed again), re-verified BayFirst + iBusiness live — both passed. **Continued testing turned up 2 more, structurally different bugs**, not caught by the `\s+` fix because they weren't spacing bugs: SBA EIDL's positional 5-value row-read and Ford Pro's positional two-dollar-amount balance inference both assumed a column-grouped layout that real `pdf.js` output doesn't produce (it interleaves each label with its own value inline instead). Both rewritten to anchor on their labels directly, verified the same way (real extracted text, in-page, before writing the fix), redeployed, re-confirmed live — along with all 4 available Ford Pro PDF samples (3 auto-read; the 4th correctly defers to manual entry for its no-payment-this-period edge case) and a second full PayPal CSV + Pacific Community Ventures pass. Full technical detail in the "Live-tested all 6 shipped parsers" bullet in the Next Up section above. **Every commit in this round was made locally via `device_bash` and required David to run `git push` by hand from his Mac terminal** — confirmed this session as a hard, standing constraint: `device_bash` has no network access, so it can commit but can never push; that's David's step in every future round of this workflow, not a one-off.
 
