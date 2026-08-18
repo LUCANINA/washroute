@@ -11247,16 +11247,16 @@ ${noActivityNote}
     // the file is attached as-is and the numbers are entered by hand.
     {
       lenderLabel: 'BayFirst SBA statement',
-      detect: (text) => /BAYFIRST NATIONAL BANK/i.test(text) && /SBA LOAN\b/i.test(text),
+      detect: (text) => /BAYFIRST\s+NATIONAL\s+BANK/i.test(text) && /SBA\s+LOAN\b/i.test(text),
       extract: (text) => {
-        const acct = text.match(/ACCOUNT NUMBER\s+(\d+)/i);
-        const balAfter = text.match(/PRINCIPAL BALANCE\s+([\d,]+\.\d{2})/i);
+        const acct = text.match(/ACCOUNT\s+NUMBER\s+(\d+)/i);
+        const balAfter = text.match(/PRINCIPAL\s+BALANCE\s+([\d,]+\.\d{2})/i);
         // BayFirst prints the amounts DUE for the upcoming period (PRINCIPAL DUE /
         // INTEREST DUE) separately from what was actually applied last period -- the
         // real split lives in the transaction table's "... Split Out" rows. Use those,
         // not the DUE figures, so we record what actually happened, not what's next due.
-        const principalRow = text.match(/(\d{1,2}\/\d{1,2}\/\d{2})\s+Principal Payment Split Out\s+([\d,]+\.\d{2})/i);
-        const interestRow = text.match(/(\d{1,2}\/\d{1,2}\/\d{2})\s+Interest Payment Split Out\s+([\d,]+\.\d{2})/i);
+        const principalRow = text.match(/(\d{1,2}\/\d{1,2}\/\d{2})\s+Principal\s+Payment\s+Split\s+Out\s+([\d,]+\.\d{2})/i);
+        const interestRow = text.match(/(\d{1,2}\/\d{1,2}\/\d{2})\s+Interest\s+Payment\s+Split\s+Out\s+([\d,]+\.\d{2})/i);
         if (!acct || !balAfter || !principalRow || !interestRow) return null;
         return {
           statementDate: _mdy2ToIso(principalRow[1]),
@@ -11271,11 +11271,11 @@ ${noActivityNote}
     },
     {
       lenderLabel: 'iBusiness Funding / FC Marketplace statement',
-      detect: (text) => /FC Marketplace/i.test(text) && /ibusinessfunding\.com/i.test(text),
+      detect: (text) => /FC\s+Marketplace/i.test(text) && /ibusinessfunding\.com/i.test(text),
       extract: (text) => {
-        const loanNum = text.match(/Loan Number:\s*(\d+)/i);
-        const billingDate = text.match(/Billing Statement Date:\s*(\d{2}\/\d{2}\/\d{4})/i);
-        const principalBalance = text.match(/Current Principal Balance:\s*\$?([\d,]+\.\d{2})/i);
+        const loanNum = text.match(/Loan\s+Number:\s*(\d+)/i);
+        const billingDate = text.match(/Billing\s+Statement\s+Date:\s*(\d{2}\/\d{2}\/\d{4})/i);
+        const principalBalance = text.match(/Current\s+Principal\s+Balance:\s*\$?([\d,]+\.\d{2})/i);
         // "Past Payment Summary" gives the actual applied split for the month just
         // completed -- each line has TWO dollar figures (Last Month, then Year-to-Date);
         // matching the first amount after each label grabs Last Month.
@@ -11301,9 +11301,9 @@ ${noActivityNote}
     },
     {
       lenderLabel: 'SBA EIDL statement',
-      detect: (text) => /Small Business Administration/i.test(text) && /SBA Loan #/i.test(text),
+      detect: (text) => /Small\s+Business\s+Administration/i.test(text) && /SBA\s+Loan\s+#/i.test(text),
       extract: (text) => {
-        const loanNum = text.match(/SBA Loan #:\s*(\d+)/i);
+        const loanNum = text.match(/SBA\s+Loan\s+#:\s*(\d+)/i);
         // The "Last Payment Amount / Last Payment Date / Applied to Principal / Applied
         // to Interest / Outstanding Balance" row is the only place in the statement with
         // this exact 5-value shape (amount, date, amount, amount, amount) -- the earlier
@@ -11325,14 +11325,14 @@ ${noActivityNote}
     },
     {
       lenderLabel: 'Pacific Community Ventures statement',
-      detect: (text) => /myloanpanel\.com/i.test(text) && /Loan ID:/i.test(text),
+      detect: (text) => /myloanpanel\.com/i.test(text) && /Loan\s+ID:/i.test(text),
       extract: (text) => {
-        const loanId = text.match(/Loan ID:\s*(\d+)/i);
-        const lastPaymentDate = text.match(/Last payment received:\s*(\d{2}\/\d{2}\/\d{4})/i);
+        const loanId = text.match(/Loan\s+ID:\s*(\d+)/i);
+        const lastPaymentDate = text.match(/Last\s+payment\s+received:\s*(\d{2}\/\d{2}\/\d{4})/i);
         const interest = text.match(/\bInterest:\s+([\d,]+\.\d{2})/i);
         const principal = text.match(/\bPrincipal:\s+([\d,]+\.\d{2})/i);
-        const totalReceived = text.match(/Total received:\s+([\d,]+\.\d{2})/i);
-        const balance = text.match(/Latest account balance\s*\(before current interest charges\)\s*([\d,]+\.\d{2})/i);
+        const totalReceived = text.match(/Total\s+received:\s+([\d,]+\.\d{2})/i);
+        const balance = text.match(/Latest\s+account\s+balance\s*\(before\s+current\s+interest\s+charges\)\s*([\d,]+\.\d{2})/i);
         if (!loanId || !lastPaymentDate || !interest || !principal || !balance) return null;
         return {
           statementDate: _mdyToIso(lastPaymentDate[1]),
@@ -11353,21 +11353,21 @@ ${noActivityNote}
     },
     {
       lenderLabel: 'Ford Pro FinSimple statement (PDF)',
-      detect: (text) => /ford\.com\/finance/i.test(text) && /Your Transactions Since Last Statement/i.test(text),
+      detect: (text) => /ford\.com\/finance/i.test(text) && /Your\s+Transactions\s+Since\s+Last\s+Statement/i.test(text),
       extract: (text) => {
-        const acct = text.match(/Account Number:\s*(\d+)/i);
+        const acct = text.match(/Account\s+Number:\s*(\d+)/i);
         // The running "Principal Balance:" figure sits at the end of the same visual
         // row as the payment transaction line (lender-specific two-column layout) --
         // anchor on "Payment Received" and take the SECOND dollar amount that follows
         // it (the first is the payment itself, the second is the resulting balance).
-        const principalBal = text.match(/Payment Received[\s\S]{0,40}?\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/i);
+        const principalBal = text.match(/Payment\s+Received[\s\S]{0,40}?\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/i);
         // Bare "Principal"/"Interest" labels (not "Principal Balance:") only appear as
         // the two lines of a payment's split -- if this statement's period had no
         // payment applied (e.g. "paid ahead", $0 due), neither is present and this
         // correctly returns null, falling back to manual entry.
         const principalSplit = text.match(/\bPrincipal\s+\$?([\d,]+\.\d{2})/i);
         const interestSplit = text.match(/\bInterest\s+\$?([\d,]+\.\d{2})/i);
-        const paymentDate = text.match(/(\d{2}\/\d{2}\/\d{4})\s+Payment Received/i);
+        const paymentDate = text.match(/(\d{2}\/\d{2}\/\d{4})\s+Payment\s+Received/i);
         if (!acct || !principalBal || !principalSplit || !interestSplit || !paymentDate) return null;
         return {
           statementDate: _mdyToIso(paymentDate[1]),
