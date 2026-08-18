@@ -11783,7 +11783,12 @@ ${noActivityNote}
 
     if (browserParsed) {
       _liApplyServerExtras(server, serverFailed, browserParsed, note);
-    } else if (!browserBulk || !browserBulk.length) {
+    } else if ((!browserBulk || !browserBulk.length) && !_liParsedSchedule) {
+      // Skipped when a schedule was parsed and arithmetically verified locally. The
+      // server's classification is a keyword heuristic that reports 'medium' confidence;
+      // a 69-row parse whose balances and splits all tie out is far stronger evidence.
+      // Letting the weaker signal repaint the stronger one's message is how a confident,
+      // proven result ends up reading as "might be ... worth a second look".
       const k = server?.classification?.kind;
       const opt = k ? Array.from(kindSel.options).find(o => o.value === k) : null;
       if (k && k !== 'unknown' && opt) {
