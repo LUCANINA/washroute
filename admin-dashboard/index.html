@@ -11303,23 +11303,26 @@ ${noActivityNote}
       lenderLabel: 'SBA EIDL statement',
       detect: (text) => /Small\s+Business\s+Administration/i.test(text) && /SBA\s+Loan\s+#/i.test(text),
       extract: (text) => {
+        // Live pdf.js extraction interleaves each label with its value on the same line
+        // (e.g. "...Last Payment Date  07/22/2026  Applied to Principal  $0.00...") rather
+        // than grouping all 5 values together the way pdftotext -layout's column output did
+        // -- a positional 5-value regex can't match this. Anchor on each label instead.
         const loanNum = text.match(/SBA\s+Loan\s+#:\s*(\d+)/i);
-        // The "Last Payment Amount / Last Payment Date / Applied to Principal / Applied
-        // to Interest / Outstanding Balance" row is the only place in the statement with
-        // this exact 5-value shape (amount, date, amount, amount, amount) -- the earlier
-        // "Statement Amount / Payment Due / Due Date" row only has 3 values, so it can't
-        // accidentally match here.
-        const row = text.match(/\$?([\d,]+\.\d{2})\s+(\d{2}\/\d{2}\/\d{4})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})/);
-        if (!loanNum || !row) return null;
-        const [, , lastPaymentDate, appliedPrincipal, appliedInterest, outstandingBalance] = row;
+        const statementDate = text.match(/Statement\s+Date:\s*(\d{2}\/\d{2}\/\d{4})/i);
+        const appliedPrincipal = text.match(/Applied\s+to\s+Principal\s+\$?([\d,]+\.\d{2})/i);
+        const appliedInterest = text.match(/Applied\s+to\s+Interest\s+\$?([\d,]+\.\d{2})/i);
+        const outstandingBalance = text.match(/Outstanding\s+Balance\s+\$?([\d,]+\.\d{2})/i);
+        const paymentDue = text.match(/Payment\s+Due\s+\$?([\d,]+\.\d{2})/i);
+        if (!loanNum || !statementDate || !appliedPrincipal || !appliedInterest || !outstandingBalance) return null;
         return {
-          statementDate: _mdyToIso(lastPaymentDate),
-          principalBalance: outstandingBalance.replace(/,/g, ''),
+          statementDate: _mdyToIso(statementDate[1]),
+          principalBalance: outstandingBalance[1].replace(/,/g, ''),
           accountNumber: loanNum[1],
           explicitSplit: {
-            principal: parseFloat(appliedPrincipal.replace(/,/g, '')),
-            interest: parseFloat(appliedInterest.replace(/,/g, '')),
+            principal: parseFloat(appliedPrincipal[1].replace(/,/g, '')),
+            interest: parseFloat(appliedInterest[1].replace(/,/g, '')),
           },
+          totalAmountDue: paymentDue ? parseFloat(paymentDue[1].replace(/,/g, '')) : null,
         };
       },
     },
