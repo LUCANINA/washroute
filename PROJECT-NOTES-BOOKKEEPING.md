@@ -211,7 +211,7 @@ session — see the session log below for why).
 
 ## Session Log
 
-*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Design doc written; build steps 1–2 of 7 done.***
+*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Build steps 1–3 of 7 done: `loan-document-intake` v1 deployed dry-run-only, with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements.***
 
 ### Session 221 — the design pass, and what auditing first turned up
 
@@ -333,7 +333,52 @@ principal nor the exact $177,565.12 payback; 341 `xero_derived` + 45 `xero_balan
 statement rows match no filter in any balance check (Verdant's balance in particular is
 verified by nothing); ~130 `temp-*` edge functions still deployed, mostly neutered stubs.
 
-**Remaining build order:** 3 `loan-document-intake` edge function (extraction + deterministic
+**Build step 3 — SHIPPED (`loan-document-intake` v1, dry-run only).** The server-side
+extraction + deterministic classification layer, deployed and verified end to end.
+- **The hard constraint is satisfied, and proven rather than assumed.** It runs pdf.js at the
+  SAME version the browser uses (3.11.174), with byte-identical join semantics. Verified by
+  extracting five real lender statements in BOTH runtimes and comparing SHA-256 of the full
+  text: SBA EIDL (663 chars), Ford Pro (6,862), PCV (1,436), BayFirst (1,216), iBusiness
+  (2,459) — **all five hashes match exactly**, including the pdf.js multi-space quirk that
+  caused three parser bugs last session (BayFirst renders as `YOUNG   &   FOOLISH,   LLC` in
+  both). That parity is what makes it safe to run the six live-verified parsers server-side
+  without re-verifying each by hand.
+- **Interop trap found and closed by the probe (`temp-pdfjs-probe-221`, now retired with its
+  findings recorded in its stub):** pdfjs-dist 3.x legacy is CommonJS, and under Deno's `npm:`
+  interop a NAMESPACE import silently yields a binding with no `getDocument` — it does not
+  throw, it just looks like every PDF has no text. Fixed by using the DEFAULT import plus a
+  **hard throw** if the library fails to resolve, so an infrastructure failure can never be
+  mistaken for an unreadable document. The response also reports the *loaded* version and a
+  `version_matches_browser` flag, so silent npm drift surfaces on every call.
+- **Parsers are a verbatim port, not a rewrite** — every regex byte-for-byte identical to the
+  live-verified browser versions. The one addition is `balanceBasis` per parser, recording
+  which quantity each deliberately reads.
+- **Provenance works, demonstrated on the exact confusion that caused the PayPal problem.**
+  Ford Pro now returns BOTH `principal_balance=16755.81 [principal_only]` AND
+  `payoff_amount=16873.78 [payoff_quote]` as separately-typed facts from the same page,
+  instead of discarding the payoff figure and leaving it available to be mistaken for the
+  balance later. Every figure leaves through one `fact()` constructor that requires a basis,
+  which is what makes an untyped number unrepresentable rather than merely discouraged.
+- **Live results, all six sample files, through the real authenticated path:** all five PDFs
+  classified `lender_statement` at high confidence, correct lender, correct loan matched on
+  exact account number, and every figure identical to what the browser produced last session.
+  The PayPal CSV classified `transaction_history` with 34 periods and balance $58,775.97
+  tagged `principal_only` — and correctly returned `matched:false / needs_human:true`, because
+  that file contains no account number and the function refuses to guess which loan it belongs
+  to. That refusal is the designed behaviour, not a shortfall.
+- **Safety verified, not asserted:** `confirm:true` and `dry_run:false` are both actively
+  REFUSED with an explanatory error (a silent no-op would be worse — the caller would believe
+  something was saved). After all testing, row counts created in the last hour: 0 in
+  `loan_statements`, `loan_documents`, `reconciliation_findings`, `loan_amortization_rows`,
+  `loan_amortization_schedules`. It wrote nothing, anywhere.
+- **Known gap, deliberately deferred to step 4 (recorded so it is not lost):** when a document
+  states an account number AND the caller supplies a different loan, the document's own
+  account number wins (correct — evidence beats a dropdown), but the override is currently
+  *silent*. The `conflict` field only populates on the narrower caller-supplied path. The UI
+  must surface "you selected X, this document says Y, using Y" rather than quietly overriding.
+  Underlying behaviour is safe; the affordance is missing.
+
+**Remaining build order:** ~~3 `loan-document-intake` edge function~~ ✅ done — (extraction + deterministic
 classification, dry-run only, parallel-diff against the browser) → 4 unified intake UI →
 5 cross-checks (`basis_conflict` and `schedule_vs_statement` first — PCV and PayPal can
 exercise both immediately) → 6 schedule ingest path → 7 AI routing for unrecognised docs.
