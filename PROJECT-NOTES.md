@@ -13,7 +13,21 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: August 18, 2026 — Session 218 — **Fixed POS site routing not following a customer's processing-site change — Foothill's team couldn't see Homebase's and Soul Sanctuary's upcoming orders.**
+*Last updated: August 18, 2026 — Session 218 (cont.) — **Fixed a recurring driver-app error, "duplicate key value violates unique constraint idx_orders_recurring_no_dup", that was blocking Mark Delivered for Nit Pixies Clinic's two-location recurring account — Eve hit it live this morning.**
+
+David forwarded a screen recording: driver Eve took the delivery photo for a Nit Pixies Clinic stop, tapped Mark Delivered, and got a raw Postgres constraint-violation error instead of a success toast. The stop was left stuck in `en_route` with the photo already uploaded.
+
+**Root cause — a session 200 fix that was only half-applied.** Nit Pixies Clinic has 2 real locations, both recurring weekly, and they sometimes land on the same calendar date. Session 200 correctly scoped `trg_create_recurring_order_fn`'s own duplicate-detection SELECT to `pickup_address_id`, so the trigger itself always concluded "not a dup, go ahead" when the two locations shared a date. But the actual invariant is enforced by a separate UNIQUE INDEX, `idx_orders_recurring_no_dup`, and that index was never widened to match — it was still scoped only to `(customer_id, date)`. So when completing one location's delivery advanced its order to `delivered` and the trigger tried to auto-create that location's next occurrence, Postgres itself rejected the INSERT because the OTHER location already had an open recurring order on the same date — even though the trigger's own logic had already (correctly) decided this wasn't a real duplicate. The exception propagated all the way up through `advance_order_status` → `complete_route_stop`, so the entire "Mark Delivered" action failed and surfaced a raw DB error straight to the driver, despite the physical delivery having already happened. Textbook case of the invariant living in two places that had drifted apart — the same failure shape flagged generally elsewhere in this file (re-resolve from source, don't let a duplicate copy go stale).
+
+**Fix** (migration `session_widen_recurring_no_dup_index_to_include_pickup_address`): dropped and recreated `idx_orders_recurring_no_dup` as `UNIQUE (customer_id, pickup_address_id, pickup_date)` instead of `(customer_id, pickup_date)` — the same scope the trigger's own check already used, so the two layers now agree. Widening a unique index (adding a discriminating column) can only make it less restrictive, so this could not fail against existing data and needed no backfill.
+
+**Recovered the stuck stop.** Confirmed Eve's delivery photo was already captured (`route_stops.proof_photo_url` set, stop status `en_route`, today's route). Since the delivery had genuinely already happened and only the system record was stuck, completed it on her behalf via `complete_route_stop` (as `service_role`, attributed to Eve in the actor name) rather than making her redo a real-world delivery. Verified live: both Nit Pixies Clinic locations now show `delivered` for 8/17, and their next occurrences (8/24, same date, different addresses) were created side-by-side with no conflict — exactly the scenario that used to collide.
+
+**Swept for other exposure:** queried every customer with more than one address among their currently-open recurring orders. Only one other customer matched (a residential customer with two saved addresses on different future dates, no actual same-day collision) — confirmed nothing else is currently stuck.
+
+✅ Fully live — DB migration only, no app-code deploy needed.*
+
+*Previously: August 18, 2026 — Session 218 — **Fixed POS site routing not following a customer's processing-site change — Foothill's team couldn't see Homebase's and Soul Sanctuary's upcoming orders.**
 
 David reported by text that the ladies at Foothill weren't seeing Homebase or Soul Sanctuary even though he'd set both accounts' processing site to Foothill.
 
