@@ -3797,6 +3797,17 @@
 
               <div id="li-bulk-fields" style="display:none"></div>
 
+              <div id="li-sched-fields" style="display:none">
+                <div class="form-group">
+                  <label class="form-label">Schedule dated</label>
+                  <input type="date" class="form-input" id="li-sched-date">
+                  <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px">
+                    The date this schedule was drawn up. Re-uploading the same schedule with the same date replaces it rather than adding a duplicate.
+                  </div>
+                </div>
+                <div id="li-sched-summary"></div>
+              </div>
+
               <div id="li-doc-fields" style="display:none">
                 <div class="form-group">
                   <label class="form-label">Title (optional)</label>
@@ -8217,6 +8228,7 @@
   let _liRawFile = null;           // the raw File object -- the document path uploads it directly to storage
   let _liFileGeneration = 0;       // bumped per file pick; a slower earlier read must not repaint a newer one
   let _liKindTouchedByUser = false;// once the human sets 'What is this?', no auto-detection overwrites it
+  let _liParsedSchedule = null;    // verified amortization schedule parse, if the file turned out to be one
   let _liLoanDeliberate = false;   // true when the loan was chosen on purpose (row click or manual pick),
                                    // so an auto-switch away from it is worth announcing rather than doing quietly
   let _allLoanDocuments = [];       // generic per-loan file attachments (Aug 2026) -- payoff letters,
@@ -11069,6 +11081,7 @@ ${noActivityNote}
   // dropdown key itself, so adding a new doc_type needs no code change here.
   const LI_STATEMENT_KIND = 'lender_statement';
   const LI_BULK_KIND = 'transaction_history_bulk';
+  const LI_SCHEDULE_KIND = 'amortization_schedule';
 
   function openLoanIntakeModal(prefillLoanId) {
     if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Loans.', 'error'); return; }
@@ -11091,6 +11104,7 @@ ${noActivityNote}
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedBulkPeriods = null;
+    _liParsedSchedule = null;
     _liRawFile = null;
     _liKindTouchedByUser = false;
     _liLoanDeliberate = !!prefillLoanId;   // arriving from a specific loan's row IS a deliberate choice
@@ -11110,18 +11124,26 @@ ${noActivityNote}
     const kind = document.getElementById('li-kind-select').value;
     const isStatement = kind === LI_STATEMENT_KIND;
     const isBulk = kind === LI_BULK_KIND;
+    // A schedule only becomes an INGEST if we actually parsed and verified one. Choosing
+    // "Amortization schedule" for a file we couldn't read still just files it -- the
+    // dropdown expresses intent, the parse decides what is actually possible.
+    const isSched = kind === LI_SCHEDULE_KIND && !!(_liParsedSchedule && _liParsedSchedule.verified);
     document.getElementById('li-statement-fields').style.display = isStatement ? '' : 'none';
     document.getElementById('li-bulk-fields').style.display = isBulk ? '' : 'none';
-    document.getElementById('li-doc-fields').style.display = (isStatement || isBulk) ? 'none' : '';
+    document.getElementById('li-sched-fields').style.display = isSched ? '' : 'none';
+    document.getElementById('li-doc-fields').style.display = (isStatement || isBulk || isSched) ? 'none' : '';
     const btn = document.getElementById('li-submit-btn');
     const n = (_loanUploadParsedBulkPeriods || []).length;
     btn.textContent = isStatement ? 'Ingest Statement'
       : isBulk ? (n ? `Import ${n} Statements` : 'Import Statements')
+      : isSched ? `Import Schedule (${_liParsedSchedule.rows.length} rows)`
       : 'Attach Document';
     const note = document.getElementById('li-kind-note');
     note.textContent = (isStatement || isBulk)
       ? 'This will read the numbers and create a principal/interest split for review.'
-      : 'This keeps the file on record against the loan. No split is computed.';
+      : isSched
+        ? 'This stores the whole schedule so future periods can be split from it without a statement.'
+        : 'This keeps the file on record against the loan. No split is computed.';
   }
 
   // Known lender PDF statement layouts (session 218). Each entry: `detect` —
@@ -11210,6 +11232,131 @@ ${noActivityNote}
       });
     }
     return periods.length ? periods : null;
+  }
+
+  // ── Amortization schedule parsing (session 221, build step 6) ───────────────
+  // Schedules arrive as 70-100 row tables and their column layouts differ per lender, so
+  // a per-lender regex (the approach used for statements) is a poor fit -- a schedule is
+  // uploaded once per loan lifetime, not monthly. Instead this INFERS the layout by
+  // testing which interpretation makes the arithmetic tie out, which means a correct
+  // parse proves itself rather than being taken on trust. If no interpretation ties out,
+  // it returns null and the user enters the schedule another way -- it never guesses.
+  //
+  // Verified against both real schedule PDFs on file:
+  //   Pacific Community Ventures -> period, date, starting, payment, principal, interest, ending  (5 numbers)
+  //   Verdant Capital            -> period, date, payment, principal, interest, balance           (4 numbers)
+
+  // Some PDFs embed a font with a custom encoding and no ToUnicode map, so pdf.js hands
+  // back raw glyph codes instead of characters -- Verdant's schedule extracts as
+  // "'DWH 3D\PHQW" rather than "Date Payment". A constant offset recovers it (29 for that
+  // file). Rather than hardcode the offset or pattern-match on words, try each candidate
+  // and keep whichever yields the most parseable table rows: the correct shift is simply
+  // the one the row parser can read.
+  function _deGarblePdfText(text) {
+    const rowRe = /\d{1,2}\/\d{1,2}\/\d{4}/g;
+    const score = (t) => (t.match(rowRe) || []).length;
+    const asIs = score(text);
+    if (asIs >= 5) return { text, offset: 0 };           // already readable
+    let best = { text, offset: 0, hits: asIs };
+    for (let off = 1; off <= 64; off++) {
+      // Shift only NON-whitespace. The spaces pdf.js inserts between text items are
+      // already real spaces; shifting them too turns every column separator into '='
+      // and the row regex stops matching -- which is exactly how this failed on the
+      // first attempt against Verdant's schedule.
+      const shifted = Array.from(text)
+        .map(c => (/\s/.test(c) ? c : String.fromCharCode(c.charCodeAt(0) + off)))
+        .join('');
+      const hits = score(shifted);
+      if (hits > best.hits) best = { text: shifted, offset: off, hits };
+    }
+    return best.hits >= 5 ? { text: best.text, offset: best.offset } : { text, offset: 0 };
+  }
+
+  // Candidate column layouts, tried in order. Each maps the N numbers that follow a date
+  // to named quantities. Extend this list if a lender turns up with a new shape -- do NOT
+  // loosen the verification below to make a stubborn file pass.
+  const _AMORT_LAYOUTS = [
+    { n: 5, name: 'starting,payment,principal,interest,ending',
+      map: (v) => ({ payment: v[1], principal: v[2], interest: v[3], balance: v[4] }) },
+    { n: 4, name: 'payment,principal,interest,balance',
+      map: (v) => ({ payment: v[0], principal: v[1], interest: v[2], balance: v[3] }) },
+    { n: 3, name: 'principal,interest,balance',
+      map: (v) => ({ payment: null, principal: v[0], interest: v[1], balance: v[2] }) },
+  ];
+
+  function _parseAmortizationSchedule(rawText) {
+    const { text, offset } = _deGarblePdfText(rawText || '');
+    // A row is a date followed by 3-5 money figures. Currency symbols, thousands commas
+    // and any leading period number are tolerated; a trailing period number belonging to
+    // the NEXT row is excluded by requiring the decimal cents on every captured figure.
+    const rowRe = /(\d{1,2}\/\d{1,2}\/\d{4})((?:\s+\$?-?[\d,]+\.\d{2})+)/g;
+    const raw = [];
+    let m;
+    while ((m = rowRe.exec(text))) {
+      const nums = (m[2].match(/-?[\d,]+\.\d{2}/g) || []).map(x => parseFloat(x.replace(/,/g, '')));
+      raw.push({ date: m[1], nums });
+    }
+    if (raw.length < 3) return null;
+
+    // Use the most common column count; rows that differ (totals lines, rate-change rows)
+    // are set aside rather than force-fitted.
+    const counts = {};
+    for (const r of raw) counts[r.nums.length] = (counts[r.nums.length] || 0) + 1;
+    const n = Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]);
+    const body = raw.filter(r => r.nums.length === n);
+    const setAside = raw.length - body.length;
+
+    const layout = _AMORT_LAYOUTS.find(l => l.n === n);
+    if (!layout || body.length < 3) return null;
+
+    const rows = body.map(r => {
+      const f = layout.map(r.nums);
+      const [mm, dd, yyyy] = r.date.split('/');
+      return {
+        row_date: `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`,
+        row_type: 'payment',
+        payment: f.payment, principal: f.principal, interest: f.interest, balance: f.balance,
+      };
+    });
+
+    // ── verification: the parse has to prove itself ──────────────────────────
+    // Two independent identities. A misread column or a dropped digit breaks them
+    // immediately, so passing both across ~90 rows is strong evidence the layout was
+    // inferred correctly -- far stronger than "the regex matched".
+    let balanceChecked = 0, balanceOk = 0, splitChecked = 0, splitOk = 0;
+    const failures = [];
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1], cur = rows[i];
+      if (prev.balance != null && cur.balance != null && cur.principal != null) {
+        balanceChecked++;
+        const expected = prev.balance - cur.principal;
+        if (Math.abs(expected - cur.balance) <= 0.02) balanceOk++;
+        else if (failures.length < 5) failures.push(`${cur.row_date}: balance ${cur.balance.toFixed(2)}, expected ${expected.toFixed(2)}`);
+      }
+    }
+    for (const r of rows) {
+      if (r.payment != null && r.principal != null && r.interest != null) {
+        splitChecked++;
+        if (Math.abs((r.principal + r.interest) - r.payment) <= 0.02) splitOk++;
+        else if (failures.length < 5) failures.push(`${r.row_date}: ${r.principal.toFixed(2)} + ${r.interest.toFixed(2)} != payment ${r.payment.toFixed(2)}`);
+      }
+    }
+    const balanceRate = balanceChecked ? balanceOk / balanceChecked : 0;
+    const splitRate = splitChecked ? splitOk / splitChecked : 1;   // no payment column = not applicable
+    // Deliberately strict. A schedule is arithmetic; "mostly right" means misread, and a
+    // wrong schedule silently corrupts every future split computed from it.
+    const verified = balanceChecked >= 3 && balanceRate >= 0.98 && splitRate >= 0.98;
+
+    return {
+      rows, verified, layout: layout.name, encodingOffset: offset, setAside,
+      checks: {
+        balance_continuity: `${balanceOk}/${balanceChecked}`,
+        principal_plus_interest: splitChecked ? `${splitOk}/${splitChecked}` : 'n/a (no payment column)',
+      },
+      failures,
+      firstDate: rows[0].row_date, lastDate: rows[rows.length - 1].row_date,
+      openingBalance: rows[0].balance, closingBalance: rows[rows.length - 1].balance,
+    };
   }
 
   const LOAN_PDF_PARSERS = [
@@ -11500,6 +11647,7 @@ ${noActivityNote}
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedBulkPeriods = null;
+    _liParsedSchedule = null;
     _liRawFile = file;
     document.getElementById('li-statement-date').value = '';
     document.getElementById('li-principal-balance').value = '';
@@ -11568,7 +11716,38 @@ ${noActivityNote}
          </div>`;
       note.style.color = 'var(--green)';
       note.textContent = `Auto-read: ${browserBulk.length} periods (${first.statementDate} – ${last.statementDate}).`;
-    } else if (browserParsed) {
+    } else if (!browserParsed && /\.(pdf|csv)$/i.test(file.name)) {
+      // No lender statement parser claimed it -- try reading it as an amortization
+      // schedule. Deliberately AFTER the statement parsers: a statement is the common
+      // case and a schedule is uploaded roughly once per loan lifetime.
+      let text = '';
+      try {
+        text = /\.pdf$/i.test(file.name) ? await _extractPdfText(base64) : atob(base64);
+      } catch (_) { /* non-fatal */ }
+      if (stale()) return;
+      const sched = text ? _parseAmortizationSchedule(text) : null;
+      if (sched) {
+        _liParsedSchedule = sched;
+        if (!_liKindTouchedByUser) kindSel.value = LI_SCHEDULE_KIND;
+        const d = document.getElementById('li-sched-date');
+        if (d && !d.value) d.value = _todayIsoLocal();
+        _liRenderScheduleSummary(sched);
+        if (sched.verified) {
+          note.style.color = 'var(--green)';
+          note.textContent = `Auto-read an amortization schedule: ${sched.rows.length} rows, `
+            + `${sched.firstDate} to ${sched.lastDate}. The figures check out arithmetically `
+            + `(see below), so this can be imported.`;
+        } else {
+          // Parsed something, but it does not add up. Say so and refuse to treat it as
+          // importable -- a wrong schedule silently corrupts every split derived from it.
+          note.style.color = 'var(--red)';
+          note.textContent = `This looks like an amortization schedule, but the numbers don't add up `
+            + `(${sched.checks.balance_continuity} rows balance correctly). It will not be imported as a `
+            + `schedule — file it as a document instead, or check the PDF.`;
+        }
+      }
+    }
+    if (browserParsed) {
       if (!_liKindTouchedByUser) kindSel.value = LI_STATEMENT_KIND;
       document.getElementById('li-statement-date').value = browserParsed.statementDate;
       document.getElementById('li-principal-balance').value = browserParsed.principalBalance;
@@ -11632,6 +11811,32 @@ ${noActivityNote}
     }
     _liApplyServerLoanMatch(server, note);
     onLoanIntakeKindChanged();
+  }
+
+  function _todayIsoLocal() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  // Shows what was read AND the arithmetic proof, because "we parsed 84 rows" is not by
+  // itself a reason to trust 84 rows of financial data. The checks are the evidence.
+  function _liRenderScheduleSummary(sched) {
+    const box = document.getElementById('li-sched-summary');
+    if (!box) return;
+    const ok = sched.verified;
+    const fmt = (v) => v == null ? '—' : '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 });
+    box.innerHTML = `
+      <div style="background:var(--gray-50);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--gray-700)">
+        <strong>${sched.rows.length} rows</strong> — ${esc(sched.firstDate)} to ${esc(sched.lastDate)}<br>
+        Opening ${fmt(sched.openingBalance)} → closing ${fmt(sched.closingBalance)}<br>
+        <div style="margin-top:6px;color:${ok ? 'var(--green)' : 'var(--red)'}">
+          ${ok ? '✓' : '✗'} Balance continuity ${esc(sched.checks.balance_continuity)} ·
+          principal + interest ${esc(sched.checks.principal_plus_interest)}
+        </div>
+        ${sched.encodingOffset ? `<div style="margin-top:4px;color:var(--gray-500)">This PDF stored its text in a non-standard encoding; it was decoded before reading.</div>` : ''}
+        ${sched.setAside ? `<div style="margin-top:4px;color:var(--gray-500)">${sched.setAside} non-payment row(s) (totals or origination lines) set aside.</div>` : ''}
+        ${sched.failures.length ? `<div style="margin-top:4px;color:var(--red)">${sched.failures.map(esc).join('<br>')}</div>` : ''}
+      </div>`;
   }
 
   // Surfaces the server's extra facts and flags any disagreement with the browser's
@@ -11742,6 +11947,10 @@ ${noActivityNote}
     const kind = document.getElementById('li-kind-select').value;
     if (kind === LI_BULK_KIND) return _submitIntakeBulk();
     if (kind === LI_STATEMENT_KIND) return _submitIntakeStatement();
+    // Only route to the schedule ingest when a VERIFIED parse exists. Picking the
+    // schedule option for an unreadable file falls through to plain filing rather than
+    // sending rows nobody has checked.
+    if (kind === LI_SCHEDULE_KIND && _liParsedSchedule && _liParsedSchedule.verified) return _submitIntakeSchedule();
     return _submitIntakeDocument(kind);
   }
 
@@ -11845,6 +12054,59 @@ ${noActivityNote}
   // did. `docType` comes straight from the "What is this?" dropdown, so the classifier's
   // proposal and a human's override travel the identical path -- there is no
   // "trusted because the machine said so" shortcut.
+  async function _submitIntakeSchedule() {
+    const errEl = document.getElementById('li-error');
+    errEl.style.display = 'none';
+    const loanId = document.getElementById('li-loan-select').value;
+    const loan = _allLoanAccounts.find(a => a.id === loanId);
+    const sched = _liParsedSchedule;
+    const genDate = document.getElementById('li-sched-date').value;
+    if (!loan || !_loanUploadFile || !sched) {
+      errEl.textContent = 'Pick a loan and a schedule file first.';
+      errEl.style.display = ''; return;
+    }
+    if (!sched.verified) {
+      errEl.textContent = "This schedule's figures don't add up, so it won't be imported. File it as a document instead.";
+      errEl.style.display = ''; return;
+    }
+    if (!genDate) {
+      // Part of the idempotency key. Without it the backend cannot match an existing
+      // schedule and would create a duplicate on every re-upload, silently.
+      errEl.textContent = 'Set the date this schedule was drawn up — it is what lets a re-upload replace the old one instead of duplicating it.';
+      errEl.style.display = ''; return;
+    }
+
+    const btn = document.getElementById('li-submit-btn');
+    btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Importing schedule…';
+    try {
+      const { ok, data } = await _loanFn('loan-ingest-amortization', {
+        lender_account_number: loan.lender_account_number,
+        contract_id: loan.lender_account_number,   // stable half of the idempotency key
+        schedule_generated_date: genDate,
+        amort_type: 'amortization_schedule',
+        filename: _loanUploadFile.filename,
+        file_base64: _loanUploadFile.base64,
+        uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+        rows: sched.rows,
+        // The balance-continuity check that verified this parse IS the definition of a
+        // principal-only balance (each balance falls by exactly that period's principal).
+        // So a verified schedule has proven its own basis rather than being assumed.
+        balance_basis: 'principal_only',
+        source: 'client_parsed_verified',
+      });
+      if (!ok || data.error) throw new Error(data.error || 'Schedule import failed');
+      closeLoanIntakeModal();
+      const warn = data.idempotency_warning ? ' (note: ' + data.idempotency_warning + ')' : '';
+      showToast(`Schedule imported — ${data.rows_inserted} rows on file.${warn}`, 'success');
+      loadLoans();
+    } catch (e) {
+      errEl.textContent = e.message || 'Something went wrong.';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false; btn.textContent = orig;
+    }
+  }
+
   async function _submitIntakeDocument(docType) {
     const errEl = document.getElementById('li-error');
     errEl.style.display = 'none';
