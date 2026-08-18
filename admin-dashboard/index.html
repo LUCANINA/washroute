@@ -8160,6 +8160,7 @@
   let _loanUploadParsedAcctNum = null;
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
   let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
+  let _loanUploadParsedBulkPeriods = null; // array of {statementDate, principalBalance, explicitSplit, totalAmountDue} from a multi-period CSV (e.g. PayPal), if any
   let _allLoanDocuments = [];       // generic per-loan file attachments (Aug 2026) -- payoff letters,
                                      // transaction histories, amortization schedules, correspondence, etc.
   let _loanDocFile = null;          // pending File object selected in the Documents modal, awaiting upload
@@ -11072,6 +11073,9 @@ ${noActivityNote}
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
+    _loanUploadParsedBulkPeriods = null;
+    const submitBtn0 = document.getElementById('lu-submit-btn');
+    if (submitBtn0) submitBtn0.textContent = 'Ingest Statement';
     _populateLoanSelect();
     if (prefillLoanId) document.getElementById('lu-loan-select').value = prefillLoanId;
     document.getElementById('modal-loan-upload').classList.add('open');
@@ -11101,6 +11105,71 @@ ${noActivityNote}
     const [m, d, yy] = mdy.split('/');
     const yyyy = Number(yy) < 70 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
     return `${yyyy}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  // Session 220 (cont. further): PayPal's loan-history CSV export is a different shape
+  // from every other CSV/PDF this app reads -- instead of one row describing a single
+  // statement, it's the loan's FULL transaction history with a self-contained
+  // principal/fee split already given on every row, going all the way back to
+  // origination. There's no lender-stated running balance anywhere in the file and no
+  // account/loan number either, so this returns a LIST of periods to bulk-import rather
+  // than auto-filling one statement -- David still picks the loan by hand (nothing to
+  // auto-match against), same safety net as any unrecognized file. The running balance
+  // is derived purely from the file's own origination "Wire" row (the disbursed
+  // principal) plus each payment's own Principal column -- verified against a real
+  // portal balance screenshot for the same account and reproduced it to the penny, so
+  // this doesn't depend on any number outside the CSV itself.
+  function _parsePayPalHistoryCsv(text) {
+    const lines = text.trim().split(/\r?\n/);
+    const header = lines[0].split(',').map((h) => h.trim());
+    const need = ['Date', 'Description', 'Amount', 'Principal', 'Fee'];
+    if (!need.every((h) => header.includes(h))) return null;
+    const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+
+    // Dollar amounts are quoted and contain commas (e.g. "-$3,414.71") -- split respecting
+    // quotes rather than a naive comma split, which would break on those fields.
+    const splitCsvLine = (line) => {
+      const out = [];
+      let cur = '';
+      let inQuotes = false;
+      for (const ch of line) {
+        if (ch === '"') { inQuotes = !inQuotes; continue; }
+        if (ch === ',' && !inQuotes) { out.push(cur); cur = ''; continue; }
+        cur += ch;
+      }
+      out.push(cur);
+      return out;
+    };
+    const money = (s) => parseFloat(String(s).replace(/\$/g, '').replace(/,/g, '')) || 0;
+
+    const rows = lines.slice(1).map(splitCsvLine).map((cols) => ({
+      date: cols[idx.Date],
+      description: (cols[idx.Description] || '').trim(),
+      amount: money(cols[idx.Amount]),
+      principal: money(cols[idx.Principal]),
+      fee: money(cols[idx.Fee]),
+    })).filter((r) => r.date);
+    if (!rows.length) return null;
+
+    // File is newest-first -- walk oldest-to-newest to build the running balance and to
+    // emit periods in chronological order (the order they'll actually be ingested in).
+    const chrono = [...rows].reverse();
+    let balance = 0;
+    const periods = [];
+    for (const row of chrono) {
+      balance += row.principal; // "Wire" is positive (disbursement); payments are negative
+      if (row.description === 'Wire' || row.description === 'Total Loan Fee') continue;
+      periods.push({
+        statementDate: _mdyToIso(row.date),
+        principalBalance: balance.toFixed(2),
+        explicitSplit: { principal: Math.abs(row.principal), interest: Math.abs(row.fee) },
+        // Cross-checked by the backend against principal+interest -- if a row ever has a
+        // nonzero "Other" charge not captured by explicitSplit, amount and the split
+        // total won't match and it correctly gets flagged needs_attention.
+        totalAmountDue: Math.abs(row.amount),
+      });
+    }
+    return periods.length ? periods : null;
   }
 
   const LOAN_PDF_PARSERS = [
@@ -11362,10 +11431,29 @@ ${noActivityNote}
       _loanUploadParsedAcctNum = null;
       _loanUploadParsedTransactions = null;
       _loanUploadParsedExplicitSplit = null;
+      _loanUploadParsedBulkPeriods = null;
+      const submitBtn = document.getElementById('lu-submit-btn');
+      if (submitBtn) submitBtn.textContent = 'Ingest Statement';
 
       if (file.name.toLowerCase().endsWith('.csv')) {
         try {
           const text = atob(base64);
+          // Session 220 (cont. further): PayPal's loan-history CSV is a whole
+          // transaction history, not a single statement -- check for that shape first.
+          const bulkPeriods = _parsePayPalHistoryCsv(text);
+          if (bulkPeriods) {
+            _loanUploadParsedBulkPeriods = bulkPeriods;
+            const last = bulkPeriods[bulkPeriods.length - 1];
+            document.getElementById('lu-statement-date').value = last.statementDate;
+            document.getElementById('lu-principal-balance').value = last.principalBalance;
+            document.getElementById('lu-total-due').value = last.totalAmountDue.toFixed(2);
+            // No account number in this file to auto-match against -- David picks the
+            // loan by hand below, same fallback as any other unrecognized upload.
+            noteEl.style.color = 'var(--green)';
+            noteEl.textContent = `Auto-read: ${bulkPeriods.length} weekly periods found (${bulkPeriods[0].statementDate} through ${last.statementDate}). Pick the loan below, then Import will create a statement + split for each period.`;
+            if (submitBtn) submitBtn.textContent = `Import ${bulkPeriods.length} Statements`;
+            return;
+          }
           const lines = text.trim().split(/\r?\n/);
           const header = lines[0].split(',');
           const vals = lines[1].split(',');
@@ -11438,6 +11526,56 @@ ${noActivityNote}
     const principalBalance = document.getElementById('lu-principal-balance').value;
     const totalDue = document.getElementById('lu-total-due').value;
     const dueDate = document.getElementById('lu-due-date').value;
+
+    // Session 220 (cont. further): bulk multi-period import (currently just PayPal's
+    // history CSV, see _parsePayPalHistoryCsv) -- loops the same loan-ingest-statement
+    // call once per period instead of once for the whole file. Runs oldest-to-newest;
+    // each call is independently idempotent by period (loan-ingest-statement upserts on
+    // loan_account_id+period_label), so a mid-run failure just leaves that one period
+    // failed rather than corrupting or duplicating the periods that already succeeded.
+    if (_loanUploadParsedBulkPeriods && _loanUploadParsedBulkPeriods.length) {
+      if (!loan) {
+        errEl.textContent = 'Pick which loan this history belongs to first.';
+        errEl.style.display = '';
+        return;
+      }
+      const periods = _loanUploadParsedBulkPeriods;
+      const bulkBtn = document.getElementById('lu-submit-btn');
+      bulkBtn.disabled = true; const bulkOrigLabel = bulkBtn.textContent;
+      let succeeded = 0, splitCount = 0; const errors = [];
+      for (let i = 0; i < periods.length; i++) {
+        const p = periods[i];
+        bulkBtn.textContent = `Importing ${i + 1}/${periods.length}…`;
+        try {
+          const { ok, data } = await _loanFn('loan-ingest-statement', {
+            lender_account_number: loan.lender_account_number,
+            statement_date: p.statementDate,
+            principal_balance: Number(p.principalBalance),
+            total_amount_due: p.totalAmountDue,
+            payment_due_date: null,
+            csv_filename: _loanUploadFile.filename,
+            csv_base64: _loanUploadFile.base64,
+            pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+            explicit_split: p.explicitSplit,
+          });
+          if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
+          succeeded++;
+          splitCount += (data.splits_created?.length ?? (data.split ? 1 : 0));
+        } catch (e) {
+          errors.push(`${p.statementDate}: ${e.message || 'failed'}`);
+        }
+      }
+      bulkBtn.disabled = false; bulkBtn.textContent = bulkOrigLabel;
+      if (errors.length) {
+        errEl.textContent = `Imported ${succeeded}/${periods.length} periods. ${errors.length} failed: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '…' : ''}`;
+        errEl.style.display = '';
+      } else {
+        closeLoanUploadModal();
+        showToast(`Imported ${succeeded} statements — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review.`, 'success');
+      }
+      loadLoans();
+      return;
+    }
 
     if (!loan || !statementDate || !principalBalance || !_loanUploadFile) {
       errEl.textContent = 'Loan, statement date, principal balance, and a file are all required.';
