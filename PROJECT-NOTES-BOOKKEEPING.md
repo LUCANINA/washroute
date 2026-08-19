@@ -124,6 +124,67 @@ session — see the session log below for why).
 
 ---
 
+## Tech Debt — deliberately deferred, with the next step written down
+
+Per the Root-Cause Rule: a one-time data fix without its root-cause fix is not done. When the
+root-cause fix can't ship in the same session it goes HERE, with a concrete next step — not into
+prose halfway down the session log where the next session won't find it.
+
+**1. `checkDerivedDrift` has no notion of a correcting journal dated after the balance date.
+(Opened session 221, 2026-08-19. `reconciliation-run` v12.)**
+
+*Symptom:* v12 widened the drift check to cover `xero_balance_snapshot` rows and immediately
+produced two false positives on PCV Good and Green (254) — 2026-05-01 off by $1,831.47 and
+2026-08-01 off by $5,335.52. Both were chased to ground against the live Xero ledger. Neither is
+a data error.
+
+*Cause:* PCV's payments are posted **gross** to the loan account and a **month-end manual journal
+splits the interest back out**. August is a −$7,138.10 SPEND dated 2026-08-**03** plus a
++$1,802.58 journal dated 2026-08-**31**, netting to exactly the $5,335.52 principal WashRoute
+recorded. `balanceAt()` rebuilds inclusive of a cutoff date, so a rebuild "as of 2026-08-01" sees
+neither leg and returns July's balance unchanged. April/May is the same shape. Xero and WashRoute
+agree on the money and disagree only on effective dating. Contributing factor: payments drift off
+the 1st (Jan 02, Feb 02, Mar 02, Aug 03) while WashRoute books balances on the 1st.
+
+*Next step:* teach `checkDerivedDrift` what `checkLumpedPayments` already knows. That check
+carries `REALLOC_WINDOW_DAYS = 40` precisely because "month-end corrections for an early-month
+payment can be ~30 days out." Before reporting a difference, look for a correcting entry within
+that window **after** the balance date that accounts for it, and suppress or downgrade to `info`
+if one is found. Reuse the existing constant and the existing matching helper — do not invent a
+second, slightly-different reallocation window.
+
+*Guard rail, and the reason this is written down rather than left to judgement:* the suppression
+must fire ONLY when a later correction of matching amount actually exists. **This would not have
+hidden the Stripe Capital sign inversion** that motivated v12 in the first place — that drift was
+$11,720.59 with no correcting entry anywhere. A rule that suppresses drift merely because it is
+recent, or merely because it is below some tolerance, would re-open the exact hole v12 closed.
+Match on the correction, or report.
+
+*Until it ships:* the two PCV findings will reappear on every run. Leave them open rather than
+resolving them by hand — hand-resolving hides a real modeling gap, and they come back next run.
+
+**2. Xero client-credentials app is missing the `accounting.journals` scope.**
+The `Journals` endpoint returns 401 `AuthorizationUnsuccessful`, so every ledger rebuild in
+`reconciliation-run` and every diagnostic is BankTransactions + ManualJournals only — Invoices,
+Bills, Credit Notes and Payments touching a loan account are invisible to us. Caught only because
+a completeness flag was added in session 221; without it an incomplete scan reads as a tidy
+complete answer. *Next step:* add the scope in the Xero developer app, reconnect, then re-run
+`reconciliation-run` in `deep` mode and diff the findings against the current set.
+
+**3. Authority ranking for statement sources (agreed worth building, session 221).**
+`_loanOutstandingBalance()` takes the newest statement with a non-null balance and applies **no
+source filter**, so a computed `xero_balance_snapshot` silently outranks an actual lender document
+purely by being newer. That is what let a bad snapshot become the displayed truth for Stripe
+Capital. *Next step:* rank by authority first (lender document > portal pull > amortization
+schedule > computed snapshot), date second, and surface which source won in the UI.
+
+**4. Smaller items already noted in prose, restated here so they're findable:** a dedicated
+`balance_screenshot` `doc_type` (small additive migration, bundle with the classifier work);
+Stripe Capital still has no periodic balance-snapshot job of its own; temp diagnostic functions
+`temp-stripe-304-august-221` and `temp-pcv-254-221` are still deployed and should be retired.
+
+---
+
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
 
 **The scope grew.** The original plan was "write parsers for the 3-4 lenders still missing one." David then uploaded a large mixed batch (statements, an amortization schedule, a loan agreement, payoff letters, portal balance screenshots) spanning ~10+ lenders and reframed the actual goal: *"The system should eventually be able to discern what is what, put it in context, and propose an action for the CPA (or business owner) to approve. If two pieces of information are available, say an amortization doc + an actual statement, the system should compare them and see if everything checks out. If not, the system flags the inconsistency."* That's a document-classification + cross-validation layer, not just more parsers.
@@ -1221,3 +1282,5 @@ The amortization series closes perfectly once both are netted (5,182.46 → 5,20
 **State at end of this stretch:** `xero-payout-sync` v16 ACTIVE (`verify_jwt:false` preserved), `reconciliation-run` v12 ACTIVE (`verify_jwt:false` preserved), both round-tripped byte-identical via `get_edge_function`. Migration applied and verified: 0 negative splits remain, 0 `unknown` basis rows remain, 0 rows where the balance increases. Repo copies of the v16 and v12 sources still need committing and pushing.
 
 **Still open for David / his accountant:** the ~$3,142 PayPal suspected double-count; Verdant's $572,400 of hand-posted corrections (largest single item $284,350). **Housekeeping:** retire `temp-stripe-304-august-221` and `temp-pcv-254-221`; `_to_delete/` needs a local `rm -rf`; the authority-ranking work (rank statement sources by authority, not just date, so a lender document cannot be silently overridden by a computed snapshot) is the next thing David agreed is worth building.
+
+**Everything deferred out of this session is written up in the `## Tech Debt` section near the top of this file, not just here** — including the `checkDerivedDrift` correcting-journal-window gap, which is item 1 and carries an explicit guard rail against "fixing" it in a way that would re-open the Stripe hole.
