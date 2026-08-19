@@ -216,6 +216,36 @@ async function callerRole(req: Request) {
 // an explicit pick that fails validation (wrong amount/account/status/already split)
 // is now a hard error instead of a silent fallback, matching how the manual-journal
 // path has always treated an explicit pick.
+//
+// v29 (session 222, 2026-08-19): RECONCILED TRANSACTIONS CANNOT BE DIRECT-SPLIT --
+// the real reason the first live direct split never worked, and it invalidates the
+// assumption v24-v28 were built on. Proven live: replaying v28's exact Update payload
+// against the real 2026-08-18 Rapid transaction returned HTTP 400 "This Bank Transaction
+// cannot be edited as it has been reconciled with a Bank Statement." Nothing was written.
+// That is the same constraint already documented in the session-205 note above, which was
+// never applied to this feature. (David's 2026-08-17 Xero *UI* test looked like it
+// contradicted this; the UI's split tool and the API's Update endpoint differ -- the UI
+// can re-code a reconciled transaction, the API cannot touch it.) Every Rapid payment
+// arrives auto-reconciled, and Rapid is the only direct_split_enabled loan, so in-place
+// splits can effectively never succeed there. That failure used to be invisible: preview
+// promised a direct split, confirm silently fell through to the manual-journal path,
+// whose wider -15/+3 window then hit all three identical $2,068.89 weekly payments and
+// returned an "ambiguous candidates" error unrelated to the real cause.
+// Fixed by degrading honestly instead of silently: findDirectSplitCandidate() checks
+// IsReconciled (both branches) and returns 'reconciled_cannot_edit' WITH the candidate,
+// so the doomed Update is never attempted; that reason is excluded from the explicit-pick
+// hard-error set (the pick was right, only the mechanism is unavailable); and the
+// identified transaction is carried into the manual-journal path via effectiveBankTxnId
+// so the journal posts against THAT transaction rather than re-searching -- which is what
+// makes a fixed repeating payment postable at all, since the tight +/-2-day matcher can
+// tell the three weekly payments apart and the wider window structurally cannot.
+// Responses carry `direct_split_skipped` with a plain-English explanation, and the
+// preview's `note` leads with it, so the operator knows the mechanism before approving.
+// Accounting outcome is identical either way -- loan account reduced by principal only,
+// interest on 800; one two-line transaction vs. transaction + reallocating journal.
+// direct_split_enabled is deliberately left ON for Rapid: it costs one extra Xero read,
+// it is now honest, and it starts working by itself for any transaction posted before
+// the bank feed reconciles it. See PROJECT-NOTES-BOOKKEEPING.md tech-debt item 9.
 
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
 const ZERO_TOLERANCE = 0.005 // dollars -- treat anything under half a cent as exactly zero
@@ -381,6 +411,14 @@ async function findDirectSplitCandidate(
         errorStatus: 409,
       }
     }
+    // v29: reconciled transactions cannot be edited via the API at all (see the v29
+    // note above). This is NOT an error and NOT a bad pick -- the operator named the
+    // right transaction, Xero simply won't let this mechanism touch it. Returned WITH
+    // the candidate so the caller can hand this exact transaction to the manual-journal
+    // path instead of falling back into a blind re-search.
+    if (picked.IsReconciled) {
+      return { candidate: picked, reason: 'reconciled_cannot_edit' }
+    }
     return { candidate: picked, reason: 'ok' }
   }
 
@@ -431,6 +469,14 @@ async function findDirectSplitCandidate(
   const detail = detailJson?.BankTransactions?.[0] || best
   if ((detail.LineItems || []).length !== 1) {
     return { candidate: null, reason: 'already_split', candidates: live }
+  }
+  // v29: see the explicit-pick branch above -- a reconciled transaction is a correct
+  // match that this mechanism simply cannot write to. Return it so the caller can reuse
+  // the identification (it is the single closest amount+account match within the tight
+  // window) for the manual-journal path, instead of discarding it and re-searching a
+  // much wider window that, for a fixed weekly payment, will always be ambiguous.
+  if (detail.IsReconciled) {
+    return { candidate: detail, reason: 'reconciled_cannot_edit' }
   }
   return { candidate: detail, reason: 'ok' }
 }
@@ -705,6 +751,14 @@ async function handleRequest(req: Request): Promise<Response> {
     // in-place Update BankTransaction as an auto-matched pick would. An explicit pick
     // that fails validation is a hard error (see immediately below), never a silent
     // fallback to Manual Journal -- a human named a specific transaction on purpose.
+    // v29: set when the direct-split matcher positively identified the right bank
+    // transaction but could not split it in place. Carries that identification into the
+    // manual-journal path below so it posts against the SAME transaction rather than
+    // re-searching. Also surfaced on the response so the operator is told which
+    // mechanism they are actually getting, and why.
+    let directSplitSkipped: Record<string, any> | null = null
+    let identifiedBankTxnId: string | null = null
+
     if (loanAcct.direct_split_enabled) {
       const periodLabelIsRealDate = /^\d{4}-\d{2}-\d{2}$/.test(String(split.period_label))
       const dsAnchor = periodLabelIsRealDate
@@ -713,18 +767,33 @@ async function handleRequest(req: Request): Promise<Response> {
           ? new Date(amortRow.row_date)
           : (priorStmt?.payment_due_date ? new Date(priorStmt.payment_due_date) : new Date(priorStmt?.statement_date || stmt.statement_date)))
       const dsResult = await findDirectSplitCandidate(headers, loanAcct, split, dsAnchor, bank_transaction_id)
-      if (bank_transaction_id && dsResult.reason !== 'ok') {
+      // 'reconciled_cannot_edit' is deliberately excluded from the hard-error set: the
+      // operator's pick was correct, only the mechanism is unavailable. It degrades to
+      // a Manual Journal below (identical GL outcome) instead of erroring.
+      if (bank_transaction_id && dsResult.reason !== 'ok' && dsResult.reason !== 'reconciled_cannot_edit') {
         return new Response(JSON.stringify({
           error: dsResult.errorMessage,
           bank_transaction: dsResult.errorDetail,
         }), { status: dsResult.errorStatus || 409 })
+      }
+      if (dsResult.reason === 'reconciled_cannot_edit' && dsResult.candidate) {
+        identifiedBankTxnId = dsResult.candidate.BankTransactionID
+        directSplitSkipped = {
+          reason: 'reconciled_cannot_edit',
+          bank_transaction_id: dsResult.candidate.BankTransactionID,
+          bank_transaction_date: dsResult.candidate.DateString?.slice(0, 10),
+          explanation: `This payment is already reconciled against a bank statement in Xero, and Xero does not allow a reconciled bank transaction's line items to be edited. Posting a separate Manual Journal instead -- the resulting balances on ${loanAcct.xero_account_name} and Interest Expense are identical, it is just recorded as two documents rather than one split transaction.`,
+        }
       }
       const directSplitAttempt: Record<string, any> = {
         attempted: true,
         reason: dsResult.reason,
         candidate_count: dsResult.candidates?.length ?? (dsResult.candidate ? 1 : 0),
       }
-      if (dsResult.candidate) {
+      // v29: `reason === 'ok'` is now required, not just a non-null candidate --
+      // 'reconciled_cannot_edit' also returns a candidate, but attempting the Update
+      // for it is guaranteed to fail with a Xero ValidationException.
+      if (dsResult.candidate && dsResult.reason === 'ok') {
         const originalTotal = Number(dsResult.candidate.Total)
         // Split amounts must sum EXACTLY to the original transaction total -- Xero
         // enforces this same rule server-side (confirmed live via David's hand-test in
@@ -847,14 +916,21 @@ async function handleRequest(req: Request): Promise<Response> {
     // split's period than the direct-split window allows. Reported, never enforced.
     let pickedDateWarning: string | null = null
 
-    if (bank_transaction_id) {
-      const r = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${bank_transaction_id}`, { headers })
+    // v29: an operator's explicit pick still wins, but when the direct-split matcher
+    // already positively identified the transaction (and only declined because it is
+    // reconciled), reuse that identification rather than re-searching. Without this, a
+    // loan with a fixed repeating payment amount -- Rapid's $2,068.89 every week -- is
+    // permanently ambiguous in the wider -15/+3 window below and can never post.
+    const effectiveBankTxnId: string | null = bank_transaction_id || identifiedBankTxnId
+
+    if (effectiveBankTxnId) {
+      const r = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${effectiveBankTxnId}`, { headers })
       const j = await r.json().catch(() => null)
       candidate = j?.BankTransactions?.[0] || null
-      if (!candidate) return new Response(JSON.stringify({ error: `Bank transaction ${bank_transaction_id} not found in Xero`, status: r.status }), { status: 404 })
+      if (!candidate) return new Response(JSON.stringify({ error: `Bank transaction ${effectiveBankTxnId} not found in Xero`, status: r.status }), { status: 404 })
       if (!isLiveBankTxn(candidate)) {
         return new Response(JSON.stringify({
-          error: `Bank transaction ${bank_transaction_id} has Xero status ${candidate.Status} -- it is not a live transaction and must not be posted against. If there is an identical AUTHORISED transaction on or near this date, pass that one's ID instead.`,
+          error: `Bank transaction ${effectiveBankTxnId} has Xero status ${candidate.Status} -- it is not a live transaction and must not be posted against. If there is an identical AUTHORISED transaction on or near this date, pass that one's ID instead.`,
           bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total, status: candidate.Status },
         }), { status: 409 })
       }
@@ -866,18 +942,20 @@ async function handleRequest(req: Request): Promise<Response> {
       // ledger. Those two can never be waved through.
       if (Math.abs(Number(candidate.Total) - Number(split.total_amount)) >= 0.02) {
         return new Response(JSON.stringify({
-          error: `Bank transaction ${bank_transaction_id} is $${Number(candidate.Total).toFixed(2)} but this split is $${Number(split.total_amount).toFixed(2)}. Refusing to post a split against a transaction of a different amount.`,
+          error: `Bank transaction ${effectiveBankTxnId} is $${Number(candidate.Total).toFixed(2)} but this split is $${Number(split.total_amount).toFixed(2)}. Refusing to post a split against a transaction of a different amount.`,
           bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total, status: candidate.Status },
         }), { status: 409 })
       }
       if (candidate.BankAccount?.AccountID?.toLowerCase() !== loanAcct.xero_bank_account_id?.toLowerCase()) {
         return new Response(JSON.stringify({
-          error: `Bank transaction ${bank_transaction_id} is not on this loan's bank account. Refusing to post a split against a transaction from a different bank account.`,
+          error: `Bank transaction ${effectiveBankTxnId} is not on this loan's bank account. Refusing to post a split against a transaction from a different bank account.`,
           bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total, status: candidate.Status, bank_account_id: candidate.BankAccount?.AccountID },
         }), { status: 409 })
       }
       const pickedDistDays = candidate.DateString ? wholeDaysBetween(new Date(candidate.DateString), warnAnchor) : null
-      pickedDateWarning = (pickedDistDays !== null && pickedDistDays > DIRECT_SPLIT_WINDOW_DAYS)
+      // v29: only meaningful for a real operator pick. An auto-identified candidate came
+      // from the tight +/-2-day matcher, so it can never exceed the window anyway.
+      pickedDateWarning = (bank_transaction_id && pickedDistDays !== null && pickedDistDays > DIRECT_SPLIT_WINDOW_DAYS)
         ? `The transaction you picked is dated ${candidate.DateString.slice(0, 10)}, which is ${pickedDistDays} day${pickedDistDays === 1 ? '' : 's'} from this split's period (${isoDay(warnAnchor)}). Check this is the right payment.`
         : null
     } else {
@@ -980,9 +1058,12 @@ async function handleRequest(req: Request): Promise<Response> {
         matched_bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total, status: candidate.Status, current_lines: withAccountNames(candidate.LineItems, acctMap), reconciled: candidate.IsReconciled },
         ignored_deleted_or_voided: suppressedNonLive,
         picked_date_warning: pickedDateWarning,
+        direct_split_skipped: directSplitSkipped,
         proposed_journal: { ...journalPayload.ManualJournals[0], JournalLines: withAccountNames(journalPayload.ManualJournals[0].JournalLines, acctMap) },
         split,
-        note: isScheduleSourced
+        note: directSplitSkipped
+          ? directSplitSkipped.explanation
+          : isScheduleSourced
           ? 'Schedule-sourced split -- no per-period statement file to attach; the full amortization schedule is already the permanent record in Storage from ingestion.'
           : (candidate.IsReconciled
             ? 'This bank transaction is reconciled -- it will be left untouched. A separate Manual Journal (shown above) reallocates the interest amount instead.'
@@ -1041,6 +1122,7 @@ async function handleRequest(req: Request): Promise<Response> {
       ok: true,
       original_bank_transaction: { id: candidate.BankTransactionID, note: 'left untouched, not edited' },
       picked_date_warning: pickedDateWarning,
+      direct_split_skipped: directSplitSkipped,
       manual_journal: { id: journal?.ManualJournalID, lines: withAccountNames(journal?.JournalLines, acctMap) },
       attachment: attachmentResult,
       loan_splits_update_error: updateErr?.message,

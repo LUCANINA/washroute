@@ -370,9 +370,87 @@ non-direct-split loan explicit pick → manual_journal unchanged; auto-match wit
 direct_split) before deploying. Deployed as v28 (`loan-xero-post`) and confirmed the deployed
 source matches the intended source byte-for-byte via `get_edge_function`.
 
-*Not yet watched live* — David has not yet re-clicked one of the 3 candidates on the actual Rapid
-Credit Line split that surfaced this. That click is still the first real end-to-end test of both
-the Direct Transaction Split write path AND this disambiguation fix together.
+*Superseded in the same session by item 9 below* — the disambiguation fix is correct and still
+shipped, but it was not the reason the split failed. See item 9 for the actual cause.
+
+**9. ✅ SHIPPED session 222, 2026-08-19 — `loan-xero-post` v29 (deployed as function version 31).
+RECONCILED TRANSACTIONS CANNOT BE DIRECT-SPLIT. This invalidates the core assumption the entire
+Direct Transaction Split feature (v24–v28, sessions 220–222) was built on.**
+
+*How it presented:* the Review Split modal previewed a clean Direct Transaction Split on the
+2026-08-18 Rapid payment, but clicking "Approve & Split in Xero" returned
+`3 live bank transactions matched the amount ($2068.89) in the date window -- pass
+bank_transaction_id to pick the right one.` Deleting and re-uploading the statement reproduced it
+exactly. Two earlier fixes this session (v28 disambiguation; the Xero reconnection) each looked
+plausible and neither changed the outcome, because neither was the cause.
+
+*Actual cause, proven live rather than inferred.* I replayed v28's exact Update BankTransaction
+payload against the real transaction (`a5854a78-…`) via a temporary read/write diagnostic and
+captured Xero's raw response:
+
+```
+HTTP 400  ValidationException
+"This Bank Transaction cannot be edited as it has been reconciled with a Bank Statement."
+```
+
+Nothing was written — Xero rejected the whole request (re-checked afterwards: still one line item,
+$2,068.89, unchanged). **This is the exact constraint already documented in the session-205 note at
+the top of `loan-xero-post/index.ts`** — *"Xero rejects any attempt to edit a bank transaction's own
+line items once it has been reconciled with a bank statement"* — which is why the Manual Journal
+mechanism was chosen in the first place. The direct-split feature was then designed and shipped
+across three sessions without that note ever being applied to it. David's 2026-08-17 hand-test in
+the Xero **UI** appeared to license the whole feature (it failed only on an unbalanced total, implying
+a balanced edit was allowed), but the web UI's split tool and the public API's Update endpoint do not
+share this restriction: **the UI can re-code a reconciled transaction; the API cannot touch it at all.**
+A UI hand-test is not a valid proxy for an API capability — that is the transferable lesson here.
+
+*Why the error message was so misleading.* The Update failure hit v26's deliberate
+"never block a post, only downgrade its mechanism" silent fallthrough into the manual-journal path.
+That path re-searches a much wider −15/+3 day window, which for a **fixed weekly payment** finds all
+three identical $2,068.89 transactions (08-04, 08-11, 08-18) and returns an ambiguity error with no
+relationship to the real failure. The silent fallback was sound in principle and actively harmful in
+practice: it converted a precise, actionable Xero error into a confusing one.
+
+*Fix — degrade honestly instead of silently (three parts):*
+1. `findDirectSplitCandidate()` checks `IsReconciled` on **both** the auto-match and explicit-pick
+   branches and returns `reason: 'reconciled_cannot_edit'` **with the candidate**. The doomed Update
+   is never attempted, so neither the failed write nor its misleading downstream error occurs.
+2. That reason is excluded from v28's explicit-pick hard-error set — an operator who picked the
+   correct transaction gets a working Manual Journal, not a 409. The pick was right; only the
+   mechanism is unavailable.
+3. The identified transaction is carried into the manual-journal path via `effectiveBankTxnId`, so
+   the journal posts against **that** transaction instead of re-searching. This is what makes a
+   fixed repeating payment postable at all: the tight ±2-day matcher can tell the three weekly
+   payments apart; the wider journal window structurally cannot. Without this, Rapid could never
+   post by either mechanism.
+
+Responses now carry `direct_split_skipped` (with a plain-English explanation), and the preview's
+`note` leads with it, so the operator is told which mechanism they are getting **before** approving
+rather than discovering it afterwards.
+
+*Accounting impact: none.* Loan account reduced by principal only, interest to 800 — identical
+either way. A direct split records that as one two-line bank transaction; a Manual Journal as the
+original transaction plus a reallocating journal. Same balances, two documents instead of one.
+
+*Verified:* 9-case standalone logic test (auto-match reconciled → manual journal against the
+identified txn; explicit pick reconciled → no hard error; unreconciled → still direct-splits, both
+branches; the three v28 hard-error cases preserved; no-match and non-direct-split loans unchanged),
+plus an esbuild parse of the full function, plus a byte-for-byte `get_edge_function` diff of the
+deployed source against the intended source.
+
+*Decision left open for David:* `direct_split_enabled` is deliberately left **ON** for Rapid Credit
+Line even though every Rapid payment arrives auto-reconciled, so in practice every post now degrades
+to a Manual Journal. It costs one extra Xero read per post, it is now honest about what it does, and
+it starts working by itself for any transaction posted **before** the bank feed reconciles it.
+Turning it off is a one-column change. **The larger question worth deciding deliberately: whether
+the Direct Transaction Split feature has a real use case at all**, given that any loan whose payments
+arrive via a bank feed will be reconciled by the time a statement is uploaded. If not, v24–v29 is
+dead weight that should be retired rather than maintained.
+
+*Housekeeping:* temp diagnostic `temp-rapid-check-222` is deployed and currently a disabled no-op
+(`Deno.serve(() => new Response('disabled'))`). The Supabase MCP has no delete-function tool, so it
+must be removed from the dashboard — add it to the retirement list alongside
+`temp-stripe-304-august-221` and `temp-pcv-254-221`.
 
 ---
 
