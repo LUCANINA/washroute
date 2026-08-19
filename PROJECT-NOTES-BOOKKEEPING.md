@@ -610,6 +610,47 @@ is attached to journal `91f454f7-…`). The long-standing "attachments scope not
 
 ---
 
+**12. ✅ SHIPPED session 222, 2026-08-19 — `loan-xero-post` v34: the fee/reclass journal now
+attaches its source statement.**
+
+Build-order step 1 from `DESIGN-LOAN-POSTING-MODEL.md` §5/§7. The pure-reclass branch hardcoded
+`attachment: { attached: false, reason: 'pure reclass -- no bank transaction, nothing to attach to' }`.
+That reason conflated two things: **the attachment goes on the JOURNAL, not on a bank transaction.**
+There is a journal and there is a statement, so it can and should attach.
+
+*Verified against real data before writing the fix, not assumed:* every one of the 15
+`abs(total_amount) < 0.005 AND abs(interest_amount) >= 0.005` rows in `loan_splits` has
+`current_statement_id IS NOT NULL`. So this path was skipping the attachment in **100% of actual
+cases** — it was never an edge-case guard, it was simply wrong. It matters more now than it used to,
+because session 222 made the fee journal the normal output for Rapid and Funding Circle.
+
+*Shape:* rather than copy the attach block into the second branch, extracted one shared
+`attachStatementToJournal(supa, token, tenantId, stmt, journalId, skipReason?)` used by **both**
+call sites, plus a shared `SCHEDULE_SOURCED_SKIP` constant so both give the reviewer identical
+wording for identical situations.
+
+**The helper never throws, by design — do not "improve" this later.** At both call sites the journal
+is ALREADY posted in Xero by the time the attach runs. Turning an attachment failure into a 500
+would report a successful post as a failure, and the natural human response to that is to click post
+again — creating a duplicate journal. A documented journal missing its PDF is strictly better than a
+duplicate in the ledger. Failures surface in the response body instead, and Xero's error body is
+preserved (401 = scope regression, 400 = usually filename/content-type; different fixes, so the
+status code alone is not actionable).
+
+Also deleted the stale session-205 comment claiming the attachments scope was unauthorized — true
+when written, never revisited after the scope was added, disproved by C7.
+
+`deno check`: clean. Deployed v34, `verify_jwt: false` preserved, markers confirmed in the deployed
+source. *Note on byte-verification:* the deployed body reads 74,566 chars vs 74,570 local. That is a
+reporting artifact, not truncation — `_shared/xero-auth.ts`, untouched this round and byte-verified
+identical earlier the same day, shows the same constant 3-char offset (5,360 vs 5,363).
+
+**Still unproven in production.** Type-check and marker checks are not the same as a real post. The
+honest test is to post one Rapid fee split, confirm `attachment.attached: true` comes back, and open
+the journal in Xero to see the PDF on it. Do that before treating step 1 as done.
+
+---
+
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
 
 **The scope grew.** The original plan was "write parsers for the 3-4 lenders still missing one." David then uploaded a large mixed batch (statements, an amortization schedule, a loan agreement, payoff letters, portal balance screenshots) spanning ~10+ lenders and reframed the actual goal: *"The system should eventually be able to discern what is what, put it in context, and propose an action for the CPA (or business owner) to approve. If two pieces of information are available, say an amortization doc + an actual statement, the system should compare them and see if everything checks out. If not, the system flags the inconsistency."* That's a document-classification + cross-validation layer, not just more parsers.
