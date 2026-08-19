@@ -37666,6 +37666,28 @@ async function _dvIframeLoaded() {
     };
   }
 
+  // Finds the top performer WITHIN each title category for the current
+  // period: most total pounds processed, and fastest Lbs/Hr. Computed from
+  // the effective rows (so the Exclude Retail Attendants checkbox affects
+  // who's eligible), independent of the KPI-tile visibility filter — a
+  // Tech II winner is still crowned even while the table is filtered to
+  // show only Tech I.
+  function _lndrCategoryTrophies() {
+    const winners  = { I: { mostLbsId: null, fastestId: null }, II: { mostLbsId: null, fastestId: null } };
+    const bestLbs  = { I: 0, II: 0 };
+    const bestRate = { I: 0, II: 0 };
+    _lndrEffectiveRows().forEach(r => {
+      const cat = _lndrTitleCategory(r.title);
+      if (!cat) return;
+      if (r.lbs > 0 && r.lbs > bestLbs[cat]) { bestLbs[cat] = r.lbs; winners[cat].mostLbsId = r.id; }
+      if (r.hrs != null && r.hrs > 0 && r.lbs > 0) {
+        const rate = r.lbs / r.hrs;
+        if (rate > bestRate[cat]) { bestRate[cat] = rate; winners[cat].fastestId = r.id; }
+      }
+    });
+    return winners;
+  }
+
   // % above/below this launderer's category average Lbs/Hr, or null if it
   // can't be computed (no hours logged, no category match, category has no
   // average yet).
@@ -37682,6 +37704,22 @@ async function _dvIframeLoaded() {
     const sign  = pct >= 0 ? '+' : '';
     const color = pct >= 0 ? 'var(--green)' : 'var(--red)';
     return `<span style="font-weight:600;color:${color}">${sign}${pct.toFixed(0)}%</span>`;
+  }
+
+  // "🏆 Most Lbs" / "⚡ Fastest" tags, awarded per title category for the
+  // selected period (see _lndrCategoryTrophies).
+  function _fmtLndrTrophies(r, trophies) {
+    const cat = _lndrTitleCategory(r.title);
+    const win = cat ? trophies[cat] : null;
+    if (!win) return '';
+    let out = '';
+    if (win.mostLbsId === r.id) {
+      out += ` <span style="display:inline-block;margin-left:6px;font-size:12px;vertical-align:middle" title="Most pounds processed among Laundry Tech ${cat} this period">🏆</span>`;
+    }
+    if (win.fastestId === r.id) {
+      out += ` <span style="display:inline-block;margin-left:4px;font-size:12px;vertical-align:middle" title="Fastest Lbs/Hr among Laundry Tech ${cat} this period">⚡</span>`;
+    }
+    return out;
   }
 
   // Small "🛒 Retail" tag shown next to a launderer's name when they also
@@ -37711,7 +37749,8 @@ async function _dvIframeLoaded() {
       ? `<span style="font-weight:600">${(lbs / hrs).toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> lbs/hr</span>`
       : `<span style="color:var(--gray-300)">—</span>`;
 
-    const catAvg = _lndrCategoryAverages();
+    const catAvg   = _lndrCategoryAverages();
+    const trophies = _lndrCategoryTrophies();
 
     // Retail-attendant exclusion drops rows entirely (out of the table AND
     // out of every average — see _lndrEffectiveRows). The category filter
@@ -37723,7 +37762,7 @@ async function _dvIframeLoaded() {
     const showUnassigned = !_lndrCategoryFilter && unassigned.orders > 0;
 
     tbody.innerHTML = visibleRows.map(r => `<tr>
-      <td>${esc(r.name)}${_fmtLndrAttendantTag(r)}</td>
+      <td>${esc(r.name)}${_fmtLndrTrophies(r, trophies)}${_fmtLndrAttendantTag(r)}</td>
       <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
       <td>${fmtCount(r.orders)}</td>
       <td>${fmtCount(r.bags)}</td>
@@ -38058,10 +38097,11 @@ async function _dvIframeLoaded() {
     const { rows, unassigned, issuesUnassigned, from, to } = _laundererReportData;
     if (!rows?.length && !unassigned?.orders) return;
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const headers = ['Folder','Retail Attendant','Title','Orders','Bags','Pounds','Hours Worked','Lbs/Hr','Performance vs Category Avg','Issues'];
+    const headers = ['Folder','Retail Attendant','Title','Orders','Bags','Pounds','Hours Worked','Lbs/Hr','Performance vs Category Avg','Awards','Issues'];
     // Orders & bags can be fractional (when participating in a split fold).
     const fmtNum  = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
-    const catAvg  = _lndrCategoryAverages();
+    const catAvg   = _lndrCategoryAverages();
+    const trophies = _lndrCategoryTrophies();
     // Export mirrors whatever category filter is currently applied on-screen.
     const baseExportRows = _lndrExcludeAttendants ? (rows || []).filter(r => !r.isAttendant) : (rows || []);
     const exportRows = _lndrCategoryFilter
@@ -38071,10 +38111,16 @@ async function _dvIframeLoaded() {
       const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
       const pct = _lndrPerformancePct(r, catAvg);
       const perf = pct == null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`;
-      return [r.name, r.isAttendant ? 'Yes' : '', r.title || '', fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr, perf, r.issues || 0].map(esc).join(',');
+      const cat = _lndrTitleCategory(r.title);
+      const win = cat ? trophies[cat] : null;
+      const awards = [
+        win && win.mostLbsId === r.id ? 'Most Lbs' : null,
+        win && win.fastestId === r.id ? 'Fastest' : null,
+      ].filter(Boolean).join(', ');
+      return [r.name, r.isAttendant ? 'Yes' : '', r.title || '', fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr, perf, awards, r.issues || 0].map(esc).join(',');
     });
     if (!_lndrCategoryFilter && unassigned?.orders > 0) {
-      csvRows.push(['Unassigned', '', '', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', '', '', issuesUnassigned || 0].map(esc).join(','));
+      csvRows.push(['Unassigned', '', '', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', '', '', '', issuesUnassigned || 0].map(esc).join(','));
     }
     const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
