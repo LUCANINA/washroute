@@ -36,6 +36,7 @@ from documentation — Xero's own docs pages are JS-rendered and could not be fe
 | C8 | **`If-Modified-Since` works — but ONLY in ISO 8601 format. RFC 1123 is silently ignored.** | Verified 2026-08-19. `If-Modified-Since: Mon, 18 Aug 2026 00:00:00 GMT` → HTTP 200 and the **full** unfiltered result set (1,183 manual journals, 32 invoices). `2026-08-18T00:00:00` (also `…Z`, `…​.000`, and bare `2026-08-18`) → 1 and 0 respectively. `where=UpdatedDateUTC>=DateTime(2026,08,18)` works identically. **The failure mode is silent — no error, no warning, just everything back.** Anything built on the RFC 1123 form would look like it was syncing deltas while actually reprocessing the entire org every cycle. |
 | C9 | **Xero permanently declined API reconciliation.** | Re-declined 6 May 2026 on their developer ideas forum, explicitly including never exposing unreconciled bank statement lines via the public API, citing open-banking/CDR reasons. There is no future relief to wait for: a human always clicks reconcile. |
 | C10 | **Attaching a file to a Manual Journal is idempotent by filename — a repeat PUT replaces, it does not duplicate.** | Verified live 2026-08-19 by accident and then on purpose: journal `dac01378-…` (Rapid 2026-08-03, $513.28) received the same `PUT .../Attachments/{filename}` **twice** and Xero's Files column still shows **1**. Control: journal `2e721761-…` (2026-08-10) got a single PUT and also shows 1. This is what makes `attach_only` safe to retry, which matters because retrying is its entire purpose. Do NOT add a list-then-skip guard on the strength of intuition — it is unnecessary. |
+| C11 | **Rapid's "fee" is interest on a declining balance, not a fixed fee.** | Tested 2026-08-19 against the statement rather than taking the lender's framing at face value. The charge is **0.894% of the opening balance every week across 10 consecutive periods, spread 0.0009 percentage points** (0.8938%–0.8947%), and equals the fixed $2,068.89 payment minus that week's principal reduction to the cent. A fixed one-time fee does not shrink as the balance is paid down. ≈46.5% simple APR / 58.9% compounded. **Consequence:** it is interest expense as incurred, not a debt issuance cost to capitalise and amortise under ASC 835-30 — and "balance fee" was the one available wording that implied it was *not* interest. Journal narration changed to "interest". Worth one sentence of confirmation from a CPA before this hardens into a portfolio-wide convention. |
 
 **The single most important consequence:** C1 + C4 together mean in-place splitting of a payment
 that came from a bank feed is impossible, permanently, for every loan. C2 means splitting is only
@@ -208,8 +209,12 @@ document, with the exceptions listed" is a stronger product than "we posted your
    session 222** — `loan-xero-post` v34 + the `attach_only` repair mode. Both August Rapid fee
    journals now carry `2026-08-16-Rapid transactions all.pdf`, confirmed visually in Xero, not just
    by a 200 response. Stale scope comment deleted. See §2 C10 for the idempotency finding.
-2. **Batched journals for Kind B loans** (Tier 2). Contained change to split generation and posting;
-   no new Xero mechanism, no new risk class. Delivers the volume reduction David asked about.
+2. ~~**Batched journals for Kind B loans** (Tier 2).~~ 🅿️ **SHELVED, session 222 — decided against
+   on the merits, not deferred for time.** David chose to keep the **weekly** Rapid cadence. Batching
+   only collapses what arrives *together*; at a weekly pull each ingest contains one new period and
+   produces one journal, so there is nothing to collapse and the change would deliver a zero-journal
+   reduction. Revisit **only** if the cadence moves to monthly — at which point this is still the
+   right design, unchanged.
 3. **Pre-staging for the three schedule loans** (Tier 1) — Verdant, PCV, Dexter 2. Highest-value and
    the "one click in Xero" story, but it introduces a genuinely new risk class (duplicates, stale
    stages) and must ship *with* its sweeps, not before them. Prove on one loan, one period, with a
@@ -223,17 +228,23 @@ payments (impossible, C1+C4); using bank rules to split (C6); month-end batch da
 
 ## 8. Open questions for David
 
-- **Statement cadence.** Batching only collapses what arrives together. Pulling Rapid monthly instead
-  of weekly is what actually takes it from ~52 journals/year to ~12. Is a monthly pull acceptable, or
-  is the more-frequent balance visibility worth the journal volume?
-- **Retire or park Direct Transaction Split?** `loan-xero-post` v24–v29 and `loan-ingest-statement`
-  v20 are now dormant with no loan enabled. Proven to work on unreconciled transactions (C2), so it
-  is not dead code — Tier 1 would reuse the same write path. Recommend **parking**, since Tier 1
-  makes it useful again.
-- **Journal wording on the other loans.** Session 222 renamed Rapid's fee journal to "balance fee".
-  The bank-matched journal used by every other loan still says "interest reallocation" / "principal
-  correction". Deliberately left alone rather than rewriting wording mid-stream on loans that were
-  not under discussion — worth a conscious decision either way.
+- ~~**Statement cadence.**~~ ✅ **ANSWERED session 222: weekly.** The more-frequent balance
+  visibility is worth the journal volume. This is what shelved Tier 2 (see §7 step 2).
+- ~~**Retire or park Direct Transaction Split?**~~ **✅ DECIDED — PARKED (David, 2026-08-19,
+  REELOAD V1 planning session):** `loan-xero-post` v24–v29 and `loan-ingest-statement` v20 stay in
+  place, dormant, with no loan enabled (`direct_split_enabled = false` everywhere). David's explicit
+  instruction: *"Park it. Reuse the function for the trx 'pre-split'"* — i.e. the Update/Create
+  BankTransaction write path, the sum-must-match check, the `pre_split_line_items_snapshot` revert
+  discipline, and the review-modal split preview are the starting point for **Tier 1 pre-staged
+  split transactions** (§4), not code to be rewritten. Do not delete; do not re-enable for any loan
+  in its original in-place-edit form (impossible per C1+C4). When Tier 1 gets built, it reuses this
+  code with one inversion: **create** the transaction pre-split before the feed line arrives,
+  instead of trying to edit one that already exists.
+- **Journal wording.** ✅ **Partly answered session 222.** Rapid's journal now says **"interest"**,
+  on the strength of C11 — the numbers show it is interest, and "balance fee" was actively
+  misleading. **Still open:** every other loan's bank-matched journal says "interest reallocation" /
+  "principal correction". Three wordings for closely-related operations is the kind of inconsistency
+  a reviewer notices. Standardising them is cheap and purely cosmetic; not yet done.
 
 ---
 

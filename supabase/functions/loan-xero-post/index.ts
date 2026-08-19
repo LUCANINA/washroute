@@ -250,17 +250,22 @@ async function callerRole(req: Request) {
 // FOLLOW-UP (same session): direct_split_enabled was subsequently turned OFF for Rapid
 // Credit Line -- see PROJECT-NOTES-BOOKKEEPING.md item 10. With it off, loan-ingest-
 // statement's v20 pairing also stops, so Rapid returns to the two-row model: the bank
-// payment is 100% principal and gets NO Xero write at all, and the lender's balance fee
+// payment is 100% principal and gets NO Xero write at all, and the lender's interest charge
 // posts as its own journal dated the day the fee was charged. One document per week,
 // and it reads as a finance charge rather than a correction to a payment.
 
-// v30 (session 222, 2026-08-19): WORDING. The fee/reclass journal is what David now
-// sees in Xero every week for Rapid (direct_split_enabled was turned off in the same
-// change -- see PROJECT-NOTES-BOOKKEEPING.md item 10), so its wording matters. It said
-// "<Loan> reclass" / "Interest reclass" / "<Loan> reclass", which reads like someone
-// fixing a mistake. It is not a correction: it books the lender's balance fee on the
-// date the lender charged it. Renamed to "<Loan> - balance fee, <date>" / "Interest" /
-// "Balance fee". No change to accounts, amounts, dates, signs, or any posting logic.
+// v30 (session 222, 2026-08-19): WORDING, first pass. The fee/reclass journal is what
+// David now sees in Xero every week for Rapid (direct_split_enabled was turned off in the
+// same change -- see PROJECT-NOTES-BOOKKEEPING.md item 10), so its wording matters. It
+// said "<Loan> reclass" / "Interest reclass" / "<Loan> reclass", which reads like someone
+// fixing a mistake. It is not a correction: it books a charge on the date the lender
+// charged it. Renamed to "<Loan> - balance fee, <date>" / "Interest" / "Balance fee".
+//
+// SUPERSEDED later the same session -- see the comment at the journal payload itself.
+// "Balance fee" adopted Rapid's own framing without testing it. The numbers say the
+// charge is interest on a declining balance, so the wording is now "interest". Design
+// doc constraint C11. Still no change to accounts, amounts, dates, signs, or any
+// posting logic -- every wording change in this function has been narration-only.
 
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
 const ZERO_TOLERANCE = 0.005 // dollars -- treat anything under half a cent as exactly zero
@@ -788,12 +793,20 @@ async function handleRequest(req: Request): Promise<Response> {
     if (Math.abs(totalAmt) < ZERO_TOLERANCE) {
       const journalPayload = {
         ManualJournals: [{
-          Narration: `${loanAcct.xero_account_name} — balance fee, ${split.period_label}`,
+          // Wording settled session 222 after testing the numbers rather than taking the
+          // lender's framing at face value. Rapid presents this as a "fee", which reads
+          // like a fixed one-time charge -- but it is 0.894% of the OUTSTANDING BALANCE
+          // every week across 10 measured periods, with a spread of 0.0009 percentage
+          // points, and equals payment minus that week's principal reduction exactly.
+          // A fixed fee does not shrink as the balance is paid down. This is interest on
+          // a declining balance (~46.5% simple APR), and calling it a "fee" in the ledger
+          // was the one wording that implied it was NOT interest. See design doc C11.
+          Narration: `${loanAcct.xero_account_name} — interest, ${split.period_label}`,
           Date: split.period_label,
           Status: 'POSTED',
           JournalLines: [
             { LineAmount: interest, AccountCode: INTEREST_EXPENSE_ACCOUNT_CODE, Description: `Interest`, TaxType: 'NONE' },
-            { LineAmount: -interest, AccountCode: loanAcct.xero_account_code, Description: `Balance fee`, TaxType: 'NONE' },
+            { LineAmount: -interest, AccountCode: loanAcct.xero_account_code, Description: `Interest charged to loan balance`, TaxType: 'NONE' },
           ],
         }],
       }
