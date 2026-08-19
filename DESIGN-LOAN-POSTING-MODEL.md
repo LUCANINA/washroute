@@ -33,6 +33,8 @@ from documentation — Xero's own docs pages are JS-rendered and could not be fe
 | C5 | **Turning off bank rules does not help.** | Follows from C4. Bank rules only pre-fill the reconcile screen. With them off, the statement line still sits unreconciled and *no bank transaction exists at all* — so there would be nothing to split, not something easier to split. It would mean more manual clicking for strictly worse results. |
 | C6 | **Xero bank rules can only split by percentage, not fixed amount.** | Xero Central / bank-rules documentation. A loan's interest portion changes every period, so a percentage rule is wrong almost every time. Bank rules are not a viable splitting mechanism for loans. |
 | C7 | **The `accounting.attachments` scope is granted and attachment works.** | Verified 2026-08-19: `2026-08-18-Rapid to date.pdf` (92,652 bytes) is attached to journal `91f454f7-…`. The long-standing "attachments scope missing" caveat in the code comments is **stale and should be removed.** |
+| C8 | **`If-Modified-Since` works — but ONLY in ISO 8601 format. RFC 1123 is silently ignored.** | Verified 2026-08-19. `If-Modified-Since: Mon, 18 Aug 2026 00:00:00 GMT` → HTTP 200 and the **full** unfiltered result set (1,183 manual journals, 32 invoices). `2026-08-18T00:00:00` (also `…Z`, `…​.000`, and bare `2026-08-18`) → 1 and 0 respectively. `where=UpdatedDateUTC>=DateTime(2026,08,18)` works identically. **The failure mode is silent — no error, no warning, just everything back.** Anything built on the RFC 1123 form would look like it was syncing deltas while actually reprocessing the entire org every cycle. |
+| C9 | **Xero permanently declined API reconciliation.** | Re-declined 6 May 2026 on their developer ideas forum, explicitly including never exposing unreconciled bank statement lines via the public API, citing open-banking/CDR reasons. There is no future relief to wait for: a human always clicks reconcile. |
 
 **The single most important consequence:** C1 + C4 together mean in-place splitting of a payment
 that came from a bank feed is impossible, permanently, for every loan. C2 means splitting is only
@@ -229,3 +231,109 @@ payments (impossible, C1+C4); using bank rules to split (C6); month-end batch da
   The bank-matched journal used by every other loan still says "interest reallocation" / "principal
   correction". Deliberately left alone rather than rewriting wording mid-stream on loans that were
   not under discussion — worth a conscious decision either way.
+
+---
+
+## 9. Verified Xero capability matrix
+
+Every row below was **probed live against the Family Laundry org on 2026-08-19** with the current
+credentials. This is what the product can actually reach today — not what the documentation implies.
+
+**Granted scopes: 40 (all that a Custom Connection offers).** Notably absent: `accounting.journals.read`,
+`accounting.reports.bankstatement.read`, and every `finance.*` scope.
+
+| Endpoint | Result | Notes |
+|---|---|---|
+| `GET /Journals` | **401** | The general ledger. Scope not offered to Custom Connections. |
+| `GET /Reports/BankStatement` | **401** | Requires `accounting.reports.bankstatement.read` + a signed terms addendum. |
+| `GET finance.xro/1.0/CashValidation` | **401** | No `finance.*` scopes. Partner-gated. |
+| `GET finance.xro/1.0/FinancialStatements/*` | **401** | Same. |
+| `GET finance.xro/1.0/BankStatementsPlus` | **401** | Same. |
+| `GET finance.xro/1.0/AccountingActivities/*` | **404** | Path not found at this API version — unavailable regardless of scope. |
+| `GET /Accounts` | 200 | 212 accounts. |
+| `GET /Organisation` | 200 | **`PeriodLockDate` = null, `EndOfYearLockDate` = null.** FY ends 31 Dec, USD. |
+| `GET /BankTransactions` | 200 | 26,963. No `UpdatedDateUTC`-based incremental issue — see C8. |
+| `GET /ManualJournals` | 200 | 1,183. |
+| `GET /BankTransfers` | 200 | **730** — and the object carries **no `UpdatedDateUTC`**, so this one cannot be incrementally synced; full-pull only (small enough that it doesn't matter). |
+| `GET /Payments` | 200 | 46. |
+| `GET /Invoices` | 200 | 32. |
+| `GET /CreditNotes` / `/Prepayments` / `/Overpayments` | 200 | All zero rows in this org today — but the endpoints are reachable, so they will not become silent blind spots later. |
+| `GET /Reports/TrialBalance` | 200 | |
+| `GET /Reports/BalanceSheet` | 200 | |
+| `GET /Reports/BankSummary` | 200 | |
+| `GET assets.xro/1.0/Assets` | 200 | **10 registered fixed assets with live depreciation.** Entirely unexploited — see below. |
+| `GET files.xro/1.0/Files` | 200 | 50 documents. Unexploited. |
+
+### What this changes
+
+**Incremental sync is alive** (C8). The earlier worry that a full 26,963-row pull would be needed
+every cycle was wrong — it was a bad header format on my side, not a Xero limitation. Both
+`If-Modified-Since` (ISO 8601) and `where=UpdatedDateUTC>=DateTime(...)` filter correctly.
+
+**The ledger can be reconstructed without `/Journals`**, by stitching the subledger endpoints that
+*are* reachable: BankTransactions + ManualJournals + Invoices + Payments + CreditNotes + Prepayments
++ Overpayments + BankTransfers, plus payroll via the payroll scopes. What is genuinely lost:
+
+- **Xero's reversal trail.** `/Journals` never mutates — an edit writes a reversal plus a replacement,
+  giving a free before/after. Via subledgers you learn *that* a record changed (`UpdatedDateUTC`), not
+  what it changed from. Recovering before/after means snapshotting values yourself and diffing.
+- **System-generated entries** (FX revaluation, rounding, conversion balances) have no subledger home.
+  Immaterial for a single-currency US business; would matter elsewhere.
+- **`/BankTransfers` has no `UpdatedDateUTC`**, so transfer edits are undetectable incrementally.
+
+**The post-close-edit monitor has nothing to anchor to yet.** Both lock dates are null — there is no
+closed period in this org. That is itself a finding worth telling a CPA: without a lock date, nothing
+prevents a prior year being edited. Setting one is a prerequisite for the feature, not an obstacle to it.
+
+### The unexploited seam: Assets
+
+The Assets API returns a live fixed-asset register with purchase dates, cost, and accumulated
+depreciation — e.g. `FA-095` desks, $1,250.00, accum. dep. $20.83; `FA-088` at $46,850.55, accum. dep.
+$3,904.21. Fixed-asset rollforwards and depreciation schedules are a recurring, genuinely tedious CPA
+task, and the raw material is already sitting there behind a scope that is already granted.
+
+Also worth noting as an immediate exception-report candidate: asset `FA-088` is named *"Partial payment
+for invoice 4872 $46,850.55 ($23,855 remaining)"*. That is an asset record being used to carry a payment
+note — exactly the sort of thing a review layer should surface.
+
+---
+
+## 10. The strategic constraint: app type
+
+This is bigger than any individual scope and should be settled before building anything on §9.
+
+The Xero connection is a **Custom Connection** (`client_credentials`, machine-to-machine). Two
+consequences, and the second matters more than the first:
+
+1. **A restricted scope ceiling.** All 40 available scopes are enabled and `accounting.journals.read`
+   is not among them. This is not a configuration error — it is not on the menu.
+2. **Custom Connections are single-organisation by design.** They connect to exactly one Xero org.
+   Serving a second client is not a matter of adding a connection.
+
+So if this is ever to be a product rather than an internal tool, moving to a standard OAuth 2.0 app is
+mandatory *regardless* of scopes — and that move is also the most likely route to `accounting.journals.read`.
+The two questions collapse into one decision.
+
+**Cheapest next action: create a standard OAuth 2.0 app in the Xero developer portal and check whether
+`accounting.journals.read` appears in its scope list.** Roughly fifteen minutes, no code, and it
+determines whether the assurance layer is cheap (one clean GL feed) or expensive (subledger stitching
+plus self-managed snapshots). Do this before writing any assurance code.
+
+Not yet investigated: whether a standard OAuth app changes access to the Finance API (probably not —
+that is partner-gated on a separate track) or to `accounting.reports.bankstatement.read` (a terms
+addendum, likely available to standard apps).
+
+---
+
+## 11. Revised immediate priorities
+
+Superseding §7 where they conflict:
+
+0. **Settle the app-type question** (§10). Fifteen minutes, unblocks everything else.
+1. **Attach the source statement to the reclass/fee journal** (§5). Unchanged — small, right, and
+   independent of every open question above.
+2. **Batched fee journals** (Tier 2). Unchanged.
+3. **Assets** (§9) — genuinely unexploited, already permitted, and addresses a real CPA time sink.
+   Worth scoping before pre-staging.
+4. **Pre-staging** (Tier 1) — still gated on verifying in a Xero demo org what the reconcile screen
+   actually shows the CPA (§4), which remains unconfirmed.
