@@ -275,28 +275,112 @@ function balanceAt(code: string, D: string, ledger: Record<string, any[]>, check
 // loan's anchors are confirmed principal_only, this check produces nothing rather than
 // guessing; that loan's basis gap, if any, is the intake system's basis_conflict to
 // report, not a second inconsistent message from here.
-function checkBalanceVsLender(loan: any, ledger: any, cp: number, cpDate: string, anchors: any[], today: string, windowFrom: string): Finding[] {
-  const anchor = anchors.find(a => a.balance_basis === 'principal_only')
-  if (!anchor) return []
-  // The ledger only contains what we pulled. Comparing against an anchor that
-  // predates the window means walking the balance back through transactions we
-  // never fetched — which yields a confident, wrong answer. Skip instead.
-  if (anchor.statement_date < windowFrom) return []
+// v17 (session 222, 2026-08-19): split into computeTieOut() + a thin finding builder.
+//
+// WHY. This check returned [] in FIVE different situations that mean completely different
+// things: the loan ties perfectly; there is no anchor at all; the only anchors predate the
+// pulled window; no anchor is confirmed principal_only; there is no trustworthy checkpoint.
+// From the outside all five are indistinguishable -- "no finding" reads as "fine". That is
+// exactly the false pass a tie-out must not have, because a CPA signing off on a portfolio
+// needs "we checked and it ties" to be a different statement from "we never checked".
+//
+// So the comparison now always produces an explicit verdict, and the finding is derived
+// FROM that verdict rather than computed alongside it. One computation, two consumers --
+// the finding text and the tie-out row can never disagree, which they would within a
+// session or two if this logic were duplicated.
+//
+// Findings emitted are byte-for-byte what they were before: 'tied' and 'not_comparable'
+// produce nothing, exactly as the old early returns did.
+interface TieOut {
+  loan_account_id: string
+  status: 'tied' | 'explained' | 'exception' | 'not_comparable'
+  reason_code: string | null
+  as_of: string | null
+  xero_balance: number | null
+  lender_balance: number | null
+  difference: number | null
+  balance_basis: string | null
+  anchor_source: string | null
+  statement_id: string | null
+  storage_path: string | null
+  detail: Record<string, unknown>
+}
+
+function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, anchors: any[], windowFrom: string, haveCheckpoint: boolean): TieOut {
+  const base: TieOut = {
+    loan_account_id: loan.id,
+    status: 'not_comparable',
+    reason_code: null,
+    as_of: null, xero_balance: null, lender_balance: null, difference: null,
+    balance_basis: null, anchor_source: null, statement_id: null, storage_path: null,
+    detail: {},
+  }
+
+  // Balance-dependent comparison needs a trustworthy starting point. Without a prior
+  // run's checkpoint the rebuilt balance is only as old as the pulled window.
+  if (!haveCheckpoint) return { ...base, reason_code: 'no_checkpoint' }
+  if (!anchors.length) return { ...base, reason_code: 'no_anchor' }
+
+  // Never compare two figures whose bases differ -- a total_payback schedule includes the
+  // unamortized fee and will land near a principal-only rebuild by coincidence.
+  const anchor = anchors.find((a: any) => a.balance_basis === 'principal_only')
+  if (!anchor) {
+    return { ...base, reason_code: 'no_principal_only_basis',
+      detail: { available_bases: Array.from(new Set(anchors.map((a: any) => a.balance_basis ?? 'unknown'))) } }
+  }
+
+  // Comparing against an anchor older than the pulled window means walking the balance
+  // back through transactions we never fetched -- a confident, wrong answer.
+  if (anchor.statement_date < windowFrom) {
+    return { ...base, reason_code: 'anchor_before_window',
+      as_of: anchor.statement_date, anchor_source: anchor.source, balance_basis: anchor.balance_basis,
+      lender_balance: Number(anchor.principal_balance),
+      statement_id: anchor.statement_id ?? null, storage_path: anchor.storage_path ?? null,
+      detail: { window_from: windowFrom } }
+  }
+
   const code = loan.xero_account_code
   const xeroAtAnchor = balanceAt(code, anchor.statement_date, ledger, cp, cpDate)
   const diff = Math.round((xeroAtAnchor - Number(anchor.principal_balance)) * 100) / 100
-  if (Math.abs(diff) < 0.02) return []
 
-  // Before calling this an error: is there a POSTED entry dated after the anchor that
-  // would close the gap? A month-end-dated correction for an early-month payment looks
-  // like a mismatch on the anchor date but is already handled. Report it as info.
+  // Is there a POSTED entry dated after the anchor that would close the gap? A month-end
+  // correction for an early-month payment looks like a mismatch on the anchor date but is
+  // already handled.
   const laterOnLoan = (ledger[code] || []).filter((r: any) => r.date > anchor.statement_date)
-  const laterNet = laterOnLoan.reduce((s: number, r: any) => s + effect(r, code), 0)
+  const laterNet = laterOnLoan.reduce((sum: number, r: any) => sum + effect(r, code), 0)
   const closesIt = laterOnLoan.some((r: any) =>
     r.srcType === 'ManualJournal' && Math.abs(effect(r, code) + diff) < 0.02)
+  const ties = Math.abs(diff) < 0.02
+
+  return {
+    ...base,
+    status: ties ? 'tied' : (closesIt ? 'explained' : 'exception'),
+    reason_code: ties ? null : (closesIt ? 'later_journal_closes_gap' : null),
+    as_of: anchor.statement_date,
+    xero_balance: xeroAtAnchor,
+    lender_balance: Number(anchor.principal_balance),
+    difference: diff,
+    balance_basis: anchor.balance_basis,
+    anchor_source: anchor.source,
+    statement_id: anchor.statement_id ?? null,
+    storage_path: anchor.storage_path ?? null,
+    detail: { code, entries_after_anchor: laterOnLoan.length, net_after_anchor: Math.round(laterNet * 100) / 100 },
+  }
+}
+
+function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
+  // A tie and an un-checkable loan both produced no finding before this refactor; they
+  // still do. The un-checkable case is now VISIBLE in the tie-out instead of silent.
+  if (tie.status === 'tied' || tie.status === 'not_comparable') return []
+
+  const code = loan.xero_account_code
+  const diff = tie.difference as number
+  const closesIt = tie.status === 'explained'
+  const lender = tie.lender_balance as number
+  const xeroAtAnchor = tie.xero_balance as number
 
   return [{
-    fingerprint: `balance_vs_lender:${code}:${anchor.statement_date}`,
+    fingerprint: `balance_vs_lender:${code}:${tie.as_of}`,
     check_key: 'balance_vs_lender',
     severity: closesIt ? 'info' : 'error',
     loan_account_id: loan.id,
@@ -304,9 +388,9 @@ function checkBalanceVsLender(loan: any, ledger: any, cp: number, cpDate: string
       ? `${loan.xero_account_name} — ties once a later-dated correction takes effect`
       : `${loan.xero_account_name} — Xero is ${money(Math.abs(diff))} ${diff < 0 ? 'below' : 'above'} the lender`,
     plain_english: closesIt
-      ? `On ${anchor.statement_date} the lender says ${money(Number(anchor.principal_balance))} and Xero says ${money(xeroAtAnchor)}. A correcting journal dated after that statement already covers the ${money(Math.abs(diff))} difference, so nothing is wrong — the two only line up from that journal's date onward. Dating the journal at the payment instead would make them agree continuously.`
-      : `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${anchor.statement_date}. The lender's own statement for that date says ${money(Number(anchor.principal_balance))} — a difference of ${money(Math.abs(diff))}. Something is either missing from Xero or recorded twice.`,
-    detail: { code, anchor_date: anchor.statement_date, anchor_source: anchor.source, lender_balance: Number(anchor.principal_balance), xero_balance: xeroAtAnchor, difference: diff, entries_after_anchor: laterOnLoan.length, net_after_anchor: Math.round(laterNet * 100) / 100 },
+      ? `On ${tie.as_of} the lender says ${money(lender)} and Xero says ${money(xeroAtAnchor)}. A correcting journal dated after that statement already covers the ${money(Math.abs(diff))} difference, so nothing is wrong — the two only line up from that journal's date onward. Dating the journal at the payment instead would make them agree continuously.`
+      : `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${tie.as_of}. The lender's own statement for that date says ${money(lender)} — a difference of ${money(Math.abs(diff))}. Something is either missing from Xero or recorded twice.`,
+    detail: { code, anchor_date: tie.as_of, anchor_source: tie.anchor_source, lender_balance: lender, xero_balance: xeroAtAnchor, difference: diff, entries_after_anchor: (tie.detail as any).entries_after_anchor, net_after_anchor: (tie.detail as any).net_after_anchor },
   }]
 }
 
@@ -755,6 +839,7 @@ async function handle(req: Request): Promise<Response> {
     const ledger = buildLedger(allEntries, codes)
 
     const findings: Finding[] = []
+    const tieOuts: TieOut[] = []
     for (const loan of active) {
       const code = loan.xero_account_code
       const cpDate = checkpointDate || windowFrom
@@ -763,7 +848,9 @@ async function handle(req: Request): Promise<Response> {
       const mine = (statements || []).filter(s => s.loan_account_id === loan.id)
       const stmtAnchors = mine
         .filter(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date <= today)
-        .map(s => ({ statement_date: s.statement_date, principal_balance: s.principal_balance, source: s.source, balance_basis: s.balance_basis }))
+        // statement_id + storage_path ride along so a tie-out row can link straight to the
+        // actual document, and keep linking after the statement row is gone.
+        .map(s => ({ statement_date: s.statement_date, principal_balance: s.principal_balance, source: s.source, balance_basis: s.balance_basis, statement_id: s.id, storage_path: s.storage_path }))
       const schedAnchors = (amortRows || [])
         .filter((r: any) => r.loan_amortization_schedules?.loan_account_id === loan.id && r.row_date <= today)
         .map((r: any) => ({ statement_date: r.row_date, principal_balance: r.balance, source: 'amortization_schedule', balance_basis: r.loan_amortization_schedules?.balance_basis ?? null }))
@@ -773,9 +860,14 @@ async function handle(req: Request): Promise<Response> {
       const derived = mine.filter(s => isDerivedSource(s.source) && s.statement_date <= today)
       const mySplits = (splits || []).filter(s => s.loan_account_id === loan.id)
 
-      // Balance-dependent checks need a trustworthy starting point.
+      // Always produce a verdict, even when it is "could not compare" -- that is the whole
+      // point of the tie-out. checkBalanceVsLender then derives its finding from it.
+      const tie = computeTieOut(loan, ledger, cp, cpDate, anchors, windowFrom, haveCheckpoint)
+      tieOuts.push(tie)
+      findings.push(...checkBalanceVsLender(loan, tie))
+
+      // Still gated: derived drift genuinely has nothing to say without a checkpoint.
       if (haveCheckpoint) {
-        findings.push(...checkBalanceVsLender(loan, ledger, cp, cpDate, anchors, today, windowFrom))
         findings.push(...checkDerivedDrift(loan, ledger, cp, cpDate, derived, windowFrom))
       }
       findings.push(...checkLumpedPayments(loan, ledger, today, mine))
@@ -853,6 +945,15 @@ async function handle(req: Request): Promise<Response> {
       findings_new: enriched.filter(f => f._state === 'new').length,
       findings_open: enriched.filter(f => f._state === 'open').length,
       findings_resolved: enriched.filter(f => f._state === 'resolved').length,
+    }
+
+    // Persist the tie-out snapshot. Deliberately non-fatal: the findings and the report are
+    // the run's primary output, and losing a snapshot must not fail a run that otherwise
+    // succeeded. Upsert on (run_id, loan_account_id) so a re-run is idempotent.
+    if (tieOuts.length) {
+      const { error: tieErr } = await supa.from('loan_tie_outs')
+        .upsert(tieOuts.map(t => ({ ...t, run_id: run.id })), { onConflict: 'run_id,loan_account_id' })
+      if (tieErr) console.error('loan_tie_outs write failed (run continues):', tieErr.message)
     }
 
     const meta = { loansChecked: active.length, previousRunAt: prev?.started_at ?? null, changedOldCount: relevantChangedOld.length }
