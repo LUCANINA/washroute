@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { getXeroAuth } from '../_shared/xero-auth.ts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -87,18 +88,6 @@ async function callerRole(req: Request) {
 
 // ── Xero ─────────────────────────────────────────────────────────────────────
 
-async function getXeroToken() {
-  const clientId = Deno.env.get('XERO_CLIENT_ID')!
-  const clientSecret = Deno.env.get('XERO_CLIENT_SECRET')!
-  const res = await fetch('https://identity.xero.com/connect/token', {
-    method: 'POST',
-    headers: { 'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=client_credentials',
-  })
-  const j = await res.json()
-  if (!res.ok) throw new Error(`Xero token request failed: ${JSON.stringify(j).slice(0, 300)}`)
-  return j.access_token as string
-}
 
 function normDate(dateString: any, dateRaw: any): string {
   if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateString)) return dateString.slice(0, 10)
@@ -112,7 +101,12 @@ async function fetchPaged(baseUrl: string, token: string, tenantId: string, key:
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json',
   }
-  if (modifiedSince) headers['If-Modified-Since'] = new Date(modifiedSince).toUTCString()
+  // Xero requires ISO 8601 here. toUTCString() emits RFC 1123 ("Mon, 18 Aug 2026 ...")
+  // which Xero accepts with HTTP 200 and then SILENTLY IGNORES, returning the full
+  // unfiltered set -- so this "incremental" pull was never incremental. Verified live
+  // 2026-08-19: RFC 1123 returned 1183/1183 manual journals, ISO returned 1/1183.
+  // See DESIGN-LOAN-POSTING-MODEL.md constraint C8.
+  if (modifiedSince) headers['If-Modified-Since'] = new Date(modifiedSince).toISOString().slice(0, 19)
   for (let page = 1; page <= maxPages; page++) {
     const sep = baseUrl.includes('?') ? '&' : '?'
     let res: Response | null = null
@@ -158,8 +152,7 @@ function effect(rec: any, code: string) {
 }
 
 async function pullXero(fromDate: string, toDate: string, modifiedSince: string | null) {
-  const token = await getXeroToken()
-  const tenantId = Deno.env.get('XERO_TENANT_ID')!
+  const { accessToken: token, tenantId } = await getXeroAuth()
 
   const norm = (arr: any[], type: 'BankTransaction' | 'ManualJournal') => arr.map((x: any) => type === 'BankTransaction' ? ({
     srcType: 'BankTransaction', srcId: x.BankTransactionID, date: normDate(x.DateString, x.Date),

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { getXeroAuth } from '../_shared/xero-auth.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-06-20',
@@ -53,18 +54,6 @@ const NON_REVENUE_TYPES = new Set([
 function emptyBucket() { return { gross: 0, fee: 0, net: 0, count: 0 } }
 const dollars = (c: number) => Math.round(c) / 100
 
-async function getXeroToken() {
-  const clientId = Deno.env.get('XERO_CLIENT_ID')!
-  const clientSecret = Deno.env.get('XERO_CLIENT_SECRET')!
-  const basic = btoa(`${clientId}:${clientSecret}`)
-  const res = await fetch('https://identity.xero.com/connect/token', {
-    method: 'POST',
-    headers: { 'Authorization': `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=client_credentials',
-  })
-  if (!res.ok) throw new Error(`Xero token request failed: ${res.status} ${await res.text()}`)
-  return (await res.json()).access_token as string
-}
 
 async function requireAdmin(req: Request) {
   const auth = req.headers.get('authorization') || ''
@@ -407,8 +396,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     return { posted: false, blocked_reason: plan.blockedReason }
   }
 
-  const token = await getXeroToken()
-  const tenantId = Deno.env.get('XERO_TENANT_ID')!
+  const { accessToken: token, tenantId } = await getXeroAuth()
   const postRes = await fetch('https://api.xero.com/api.xro/2.0/BankTransactions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json', 'Content-Type': 'application/json' },

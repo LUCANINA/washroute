@@ -516,6 +516,63 @@ untested, and its first real use should still be a deliberate round-trip test.
 transactions, so it is not dead code — but it has no live use case unless the pre-created-transaction
 architecture is ever built. Decide deliberately whether to retire it or leave it parked.
 
+**11. ✅ SHIPPED session 222, 2026-08-19 — edge-function sweep + Xero auth decoupling.**
+
+*The sweep.* There were **232 deployed edge functions**, **134** of them one-off `temp-*`
+diagnostics accumulated across past sessions. **122 had `verify_jwt = false`** — invocable by anyone
+holding the anon key, which is client-side and therefore effectively public. **29 of those were
+write-capable**, including functions that void Xero Manual Journals, post splits, and delete records.
+
+The Supabase MCP tooling has no delete-function capability, so:
+- **5 neutered immediately** (body replaced with a 410, `verify_jwt` flipped to true): the four that
+  could void Xero journals or delete data — `temp-void-rapid-journals-218`,
+  `temp-void-rapid-dupes-218b`, `temp-void-payroll-journals-219`, `temp-delete-dup-125k` — plus
+  `temp-668-correction-post`.
+- **`scripts/cleanup-temp-functions.sh` added** to delete the whole `temp-*` set properly via the
+  Management API. Dry-runs by default; needs `--confirm`; the `temp-` prefix filter is applied once,
+  before the delete loop, so it cannot touch anything else. **David runs it with his own access
+  token — the token never comes near this session.** Still to be run.
+
+Also found: **`payroll-xero-post` is deployed but not in git** — the same gap `loan-xero-post` had
+until this morning. So "what the repo says" is still not a reliable answer to "what is running".
+
+*The decoupling.* All three Xero-calling functions each carried their own `getXeroToken()` and read
+`XERO_TENANT_ID` straight from the environment. Replaced with a single
+`supabase/functions/_shared/xero-auth.ts` exporting `getXeroAuth(orgRef?)`, which returns
+ready-to-use `headers` plus `tenantId`/`accessToken`. Net **−47 lines, +15**. `orgRef` is accepted
+and deliberately *rejected* when it doesn't match the configured tenant rather than being silently
+ignored — a silent ignore is how a multi-tenant bug ends up writing to the wrong org's ledger.
+
+Why now: the connection is a **Custom Connection**, which is one-organisation-only, Marketplace-
+ineligible, and $5/mo per org (the standard code flow is free and allows 25+ connections). A move to
+a standard OAuth 2.0 app is therefore inevitable for any multi-client future, and under that flow
+token acquisition becomes stateful per-org — look up refresh token, refresh, **persist the rotated
+one**, use with that org's tenant. That logic must exist exactly once. See
+`DESIGN-LOAN-POSTING-MODEL.md` §10.
+
+*Bug found while doing it — `reconciliation-run` line 115:*
+```js
+headers['If-Modified-Since'] = new Date(modifiedSince).toUTCString()   // RFC 1123
+```
+`toUTCString()` emits exactly the format Xero **silently ignores** (constraint C8 — verified live:
+RFC 1123 returned 1183/1183 manual journals, ISO returned 1/1183). So that "incremental" pull has
+never been incremental, and the `304` check below it could never fire. **Not a correctness bug** —
+it errs toward fetching *more* data, not less — but it burns rate limit and pushes the run toward
+the `maxPages` hard-fail that caused a real truncation incident on 2026-08-16. Fixed to
+`.toISOString().slice(0, 19)`.
+
+*Verified:* the `_shared/` multi-file deploy pattern was proved end-to-end on a throwaway function
+first (import resolves, live Xero call succeeds, wrong-org guard fires) before touching anything
+production. All four files pass an esbuild parse. Repo HEAD was confirmed to still match the
+deployed source for all three functions, so the refactor introduces no regression risk.
+
+**⚠️ NOT YET DEPLOYED — deliberate.** The refactor is behaviour-neutral and the `If-Modified-Since`
+fix is a cost/robustness improvement rather than a correctness fix, so all three were left to deploy
+with the next deliberate change to each rather than pushing 158 KB of otherwise-unchanged code
+through the tooling at the end of a long session. This is *documented* drift, not silent drift —
+and it is one command per function whenever wanted. Deploying requires passing
+`_shared/xero-auth.ts` alongside `index.ts` in the `files` array (proved working).
+
 **➡️ FORWARD DESIGN: see `DESIGN-LOAN-POSTING-MODEL.md`** (new, session 222). Items 9 and 10 above
 are the post-mortem; that doc is the plan. It carries the seven verified Xero constraints (each
 proven live, not read from docs), the Kind A / Kind B portfolio split that makes a single universal

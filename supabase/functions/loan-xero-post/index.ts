@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { getXeroAuth } from '../_shared/xero-auth.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
 // admin/manager may do both. Anything else is rejected outright.
@@ -291,18 +292,6 @@ function contentTypeFor(filename: string) {
   return 'application/octet-stream'
 }
 
-async function getXeroToken() {
-  const clientId = Deno.env.get('XERO_CLIENT_ID')!
-  const clientSecret = Deno.env.get('XERO_CLIENT_SECRET')!
-  const basic = btoa(`${clientId}:${clientSecret}`)
-  const res = await fetch('https://identity.xero.com/connect/token', {
-    method: 'POST',
-    headers: { 'Authorization': `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=client_credentials',
-  })
-  if (!res.ok) throw new Error(`Xero token request failed: ${res.status} ${await res.text()}`)
-  return (await res.json()).access_token as string
-}
 
 // v20: code -> name lookup for the chart of accounts, used purely to annotate review
 // output with human-readable account names. Never throws -- a failure here should
@@ -529,9 +518,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (split.status !== 'posted') {
         return new Response(JSON.stringify({ error: 'This split is not posted -- nothing to revert.' }), { status: 409 })
       }
-      const revertToken = await getXeroToken()
-      const revertTenantId = Deno.env.get('XERO_TENANT_ID')!
-      const revertHeaders = { 'Authorization': `Bearer ${revertToken}`, 'Xero-tenant-id': revertTenantId, 'Accept': 'application/json' }
+      const { headers: revertHeaders } = await getXeroAuth()
 
       if (split.posting_method === 'direct_split') {
         if (!split.matched_xero_bank_transaction_id || !split.pre_split_line_items_snapshot) {
@@ -643,9 +630,9 @@ async function handleRequest(req: Request): Promise<Response> {
     const interest = Number(split.interest_amount)
     const totalAmt = Number(split.total_amount)
 
-    const token = await getXeroToken()
-    const tenantId = Deno.env.get('XERO_TENANT_ID')!
-    const headers = { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
+    // token + tenantId are still destructured out: the attachment PUT below builds its
+    // own headers because it needs a different Content-Type.
+    const { headers, accessToken: token, tenantId } = await getXeroAuth()
 
     // --- v19: no-bank-match paths (see the version note above for why these exist) ---
 
