@@ -44,6 +44,20 @@ const REALLOC_WINDOW_DAYS = 40
 // we derived from Xero ourselves. Only these can anchor a reconciliation — comparing
 // Xero against a number we computed from Xero proves nothing.
 const REAL_ANCHOR_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
+// A statement row is "derived" if it is NOT a lender document and NOT a schedule
+// projection -- i.e. a balance we computed from Xero ourselves and stored. Deliberately
+// defined as the complement of the known-good sources rather than as an allowlist:
+// v11 filtered on source === 'xero_derived' alone, so the 46 rows written with
+// source='xero_balance_snapshot' (Stripe Capital 304 and Pacific Community Ventures 254)
+// were never once compared against Xero. That blind spot is exactly what let
+// xero-payout-sync's sign inversion overstate Stripe Capital by $11,720.59 across ten
+// days in Aug 2026 without the engine saying a word. A future writer inventing a new
+// source string must not be able to escape this check the same way -- unknown sources
+// now fail INTO the check, not out of it.
+// 'amortization_schedule' is excluded because it is a projection of what the balance
+// SHOULD be, not a record of what Xero says it is; drifting from it is expected.
+const isDerivedSource = (src: string) =>
+  !REAL_ANCHOR_SOURCES.includes(src) && src !== 'amortization_schedule'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -413,14 +427,14 @@ function checkDerivedDrift(loan: any, ledger: any, cp: number, cpDate: string, d
       severity: 'warn',
       loan_account_id: loan.id,
       title: `${loan.xero_account_name} — our stored balance for ${d.statement_date} disagrees with Xero by ${money(Math.abs(diff))}`,
-      plain_english: `WashRoute has ${money(Number(d.principal_balance))} recorded for ${d.statement_date}, but rebuilding that date from Xero's live entries gives ${money(computed)}. Xero is the source of truth here, so our stored copy is the one that's wrong. This is usually caused by a deleted Xero entry that our records still count.`,
+      plain_english: `WashRoute has ${money(Number(d.principal_balance))} recorded for ${d.statement_date}, but rebuilding that date from Xero's live entries gives ${money(computed)}. Xero is the source of truth here, so our stored copy is the one that's wrong. The usual causes are a deleted Xero entry our records still count, or a sync that wrote the balance with the wrong sign.`,
       detail: { code, date: d.statement_date, stored: Number(d.principal_balance), computed, difference: diff },
     })
   }
   return out
 }
 
-function checkNonLiveCounted(loan: any, allEntries: any[], derived: any[], splits: any[]): Finding[] {
+function checkNonLiveCounted(loan: any, allEntries: any[], splits: any[]): Finding[] {
   const code = loan.xero_account_code
   const touchesCode = (r: any) => r.lines.some((l: any) => l.c === code)
 
@@ -673,7 +687,7 @@ async function handle(req: Request): Promise<Response> {
       // Newest first, so anchors[0] is the most recent document of either kind.
       const anchors = [...stmtAnchors, ...schedAnchors].sort((a, b) => b.statement_date.localeCompare(a.statement_date))
       const futureOnlyAnchor = !anchors.length && mine.some(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date > today)
-      const derived = mine.filter(s => s.source === 'xero_derived' && s.statement_date <= today)
+      const derived = mine.filter(s => isDerivedSource(s.source) && s.statement_date <= today)
       const mySplits = (splits || []).filter(s => s.loan_account_id === loan.id)
 
       // Balance-dependent checks need a trustworthy starting point.
@@ -684,7 +698,7 @@ async function handle(req: Request): Promise<Response> {
       findings.push(...checkLumpedPayments(loan, ledger, today, mine))
       findings.push(...checkFutureDatedStatements(loan, mine, today))
       findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor))
-      findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), derived, mySplits))
+      findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), mySplits))
       findings.push(...checkUnexplainedLedgerAdjustment(loan, ledger, mySplits, windowFrom))
     }
 

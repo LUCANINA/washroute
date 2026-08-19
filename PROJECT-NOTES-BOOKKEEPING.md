@@ -1144,3 +1144,80 @@ This was caught by a follow-up verification query, not by the UI (which showed s
 **Status at end of session:** `payroll-ingest` v20 and `payroll-xero-post` v21 are both live and verified. The Xero-side gap is resolved (see above). Frontend commit `5adb9fc` and notes commit `fae2af0` are local-only — need `git push` from a terminal with network access, same as prior sessions' commits.
 
 **START HERE NEXT SESSION:** push commit `f44fe56` (`git push` from a terminal with network — device_bash couldn't). Then decide on PayPal 2's $144.39 residual and E-Transit 4140's unsplit April payment. **Also open:** the two August journals are dated 2026-08-31 rather than at their payment dates (see the 2026-08-16 entry below); the 16 voided Stripe payout-sync entries on 2026-08-04 deserve a look as a sync-health question; phase 3 (Claude interpreting findings) needs `ANTHROPIC_API_KEY` in Supabase → Edge Functions → Secrets.*
+
+---
+
+**August 19, 2026 — Session 221 (cont.) — Stripe Capital sign-inversion repaired, and the blind spot that hid it closed.**
+
+**The three-part plan David approved ("true. Go forward"), all three now done.**
+
+**Part 1 — the code. `xero-payout-sync` v15 → v16.** The function computed a Stripe Capital paydown and wrote it to `loan_statements`/`loan_splits` with the sign it happened to arrive in, and looked up its base row with no date filter. Three changes, all at the write:
+- `const paydownAbs = Math.abs(loanPaydown)` — the magnitude is forced once, at the top, and every stored write uses it (`principal_amount`, `total_amount`, and the new balance's subtrahend).
+- `.lte('statement_date', arrivalDate)` on the base-row query, plus `.order('statement_date', {ascending:false})` — the base is now the newest statement *at or before* the payout's date, not simply the newest row in the table.
+- A hard guard: if the computed `newBalance` is not strictly below the row it derives from, the function `console.error`s and returns without writing. A repayment that fails to reduce the balance is, by definition, wrong.
+
+The Xero line item (line 251, `UnitAmount: -Math.abs(loanPaydown)`) was verified byte-unchanged. **Xero was never wrong** — the manual journals posted correctly the whole time. Only WashRoute's stored copy was inverted.
+
+**Part 2 — the data. Migration `repair_stripe_capital_payout_sync_sign_bug_221`.**
+
+The bug reproduced exactly, which is what made the repair safe to compute rather than guess. Old code did `base + paydown` instead of `base − paydown`, with `base` = newest row in the table regardless of date. Every corrupted value is reproducible from that formula to the cent, including the out-of-order case (2026-08-07 was written before 2026-08-06, so 08-06 derived from 08-07):
+
+```
+08-07 = 134,479.86 (08-05) + 495.10  = 134,974.96 ✓ stored
+08-06 = 134,974.96 (08-07) + 520.21  = 135,495.17 ✓ stored
+08-10 = 134,974.96 (08-07) + 450.31  = 135,425.27 ✓ stored
+… through 08-19 = 138,911.76 + 1,168.29 = 140,080.05 ✓ stored
+```
+
+The migration snapshots first (`_archive.stripe_payout_sync_sign_fix_221_statements`, 30 rows; `_archive.stripe_payout_sync_sign_fix_221_splits`, 10 rows), then flips the 10 split signs with `ABS()` (scoped to this account AND `principal_amount < 0`, so it is idempotent), then rewrites the 10 balances from the verified chain anchored on **2026-08-05 = 134,479.86** — a live Xero TrialBalance pull that the bug never touched.
+
+The chain's own intermediate result is the proof it is right: **2026-08-18 → 129,527.75**, which is exactly the closing balance on David's own Xero account-304 report. Nothing in the reconstruction was fitted to that number; it fell out.
+
+Final: **2026-08-19 = 128,359.46**, down from the stored 140,080.05. WashRoute had been overstating Stripe Capital by **$11,720.59**.
+
+Also set `balance_basis = 'total_payback'` on all 30 rows for this account (they were all `unknown`). Xero account 304 carries the total payback — $125,000 advance plus the $20,875 fixed fee, the fee having been expensed to 264-Loan Fees and credited to 304 on 2026-06-30 (journal #52168). Without the basis typed, the cross-check engine cannot legally compare these to a lender document at all.
+
+Note for a future session: `loan_statements` has **no `notes` column** (only `loan_accounts` does). A first draft of this migration failed on `s.notes` — the audit trail for statement rows is the `_archive` snapshot, not an inline note. `loan_splits` does have `review_notes`, and the sign correction is recorded there.
+
+**Part 3 — the blind spot. `reconciliation-run` v11 → v12.**
+
+`checkDerivedDrift` rebuilds each stored balance from Xero's live entries and reports the difference. It would have caught this on day one. It never ran, because the filter was:
+
+```js
+const derived = mine.filter(s => s.source === 'xero_derived' && s.statement_date <= today)
+```
+
+and every row `xero-payout-sync` writes carries `source = 'xero_balance_snapshot'`. **46 rows across two accounts had never once been compared against Xero.** An allowlist of source strings that a *different* writer is free to add to is not a filter, it is a hole.
+
+Replaced with the complement, so unknown sources fail INTO the check rather than out of it:
+
+```js
+const isDerivedSource = (src) =>
+  !REAL_ANCHOR_SOURCES.includes(src) && src !== 'amortization_schedule'
+```
+
+(`amortization_schedule` stays excluded on purpose — it is a projection of what the balance *should* be, not a record of what Xero says it is; drifting from it is expected and is `schedule_vs_statement`'s job.) Also dropped the unused `derived` parameter from `checkNonLiveCounted`, which never read it, and widened the drift finding's plain-English cause list to include a bad sign.
+
+**Verified end-to-end, not just deployed.** Ran the engine from the live app with David's session token. **Stripe Capital produced zero drift findings** — the repaired chain now agrees with Xero's live ledger as recomputed independently by the engine, which is a much stronger result than re-reading the rows I just wrote.
+
+**What the widened check immediately found — two real, and both false positives (diagnosed, not assumed).**
+
+The first thing v12 did was surface two `derived_drift` warnings on **PCV Good and Green (code 254)**, rows that had never been checked:
+- 2026-08-01: stored 427,284.34 vs Xero 432,619.86 (−5,335.52)
+- 2026-05-01: stored 443,224.57 vs Xero 441,393.10 (+1,831.47)
+
+Both were run down against the live Xero ledger (read-only temp function `temp-pcv-254-221`, adapted from `temp-stripe-304-august-221`). **Neither is a data error. Both are the same date-cutoff artefact:**
+
+PCV payments are posted *gross* to 254, and a month-end manual journal splits the interest back out.
+- August: SPEND 2026-08-**03** −7,138.10, then MJ 2026-08-**31** +1,802.58. Net −5,335.52 exactly. A rebuild "as of 2026-08-01" sees neither component, so it returns July's balance unchanged.
+- April/May: SPEND 2026-04-01 −7,078.98, then MJ 2026-05-**31** +1,831.47. WashRoute books April's net principal in April; the Xero rebuild at 2026-05-01 still carries the uncorrected gross.
+
+The amortization series closes perfectly once both are netted (5,182.46 → 5,204.05 → 5,225.74 → 5,247.51* → 5,269.38 → 5,291.33 → 5,313.38 → 5,335.52*, level payment ≈ 7,078.98). Xero and WashRoute agree on the economics; they disagree on effective dating.
+
+**Open — the generalisable fix this points at.** `checkDerivedDrift` is date-cutoff-sensitive and has no notion of a correcting journal landing after the balance date. `checkLumpedPayments` already models exactly this with `REALLOC_WINDOW_DAYS = 40` ("month-end corrections for an early-month payment can be ~30 days out"). The clean fix is to teach `checkDerivedDrift` the same thing: before reporting a difference, look for a correcting entry within the realloc window *after* the balance date that accounts for it, and suppress or downgrade if found. **Important: this would NOT have hidden the Stripe bug** — suppression fires only when a later correction of matching amount exists, and Stripe's $11,720.59 had none. Not built; needs David's go-ahead.
+
+**Also worth noting:** the Xero client-credentials app still lacks the `accounting.journals` scope, so the `Journals` endpoint returns 401 and every ledger rebuild is BankTransactions + ManualJournals only. That was caught here only because a completeness flag was added earlier in the session; without it the PCV diagnosis would have read as tidy and complete while silently missing a whole entry class.
+
+**State at end of this stretch:** `xero-payout-sync` v16 ACTIVE (`verify_jwt:false` preserved), `reconciliation-run` v12 ACTIVE (`verify_jwt:false` preserved), both round-tripped byte-identical via `get_edge_function`. Migration applied and verified: 0 negative splits remain, 0 `unknown` basis rows remain, 0 rows where the balance increases. Repo copies of the v16 and v12 sources still need committing and pushing.
+
+**Still open for David / his accountant:** the ~$3,142 PayPal suspected double-count; Verdant's $572,400 of hand-posted corrections (largest single item $284,350). **Housekeeping:** retire `temp-stripe-304-august-221` and `temp-pcv-254-221`; `_to_delete/` needs a local `rm -rf`; the authority-ranking work (rank statement sources by authority, not just date, so a lender document cannot be silently overridden by a computed snapshot) is the next thing David agreed is worth building.
