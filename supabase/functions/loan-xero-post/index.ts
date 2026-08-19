@@ -36,7 +36,9 @@ async function callerRole(req: Request) {
 // it leaves it exactly as-is and posts a separate Manual Journal instead. Works
 // regardless of reconciliation status.
 //
-// Body: { loan_split_id: string, confirm?: boolean, revert?: boolean, bank_transaction_id?: string, posted_by?: string }
+// Body: { loan_split_id: string, confirm?: boolean, revert?: boolean, bank_transaction_id?: string, posted_by?: string, attach_only?: boolean }
+// attach_only=true attaches the source statement to an ALREADY-posted journal and does
+// nothing else -- no journal is created, no database row is written. See its branch below.
 // Default is a dry run (confirm !== true): returns the matched candidate(s) and the
 // proposed journal without writing anything to Xero. If more than one bank transaction
 // matches, none are auto-selected -- pass bank_transaction_id explicitly to disambiguate.
@@ -554,14 +556,14 @@ async function handleRequest(req: Request): Promise<Response> {
   try {
     if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'POST only' }), { status: 405 })
     const body = await req.json().catch(() => ({}))
-    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by } = body
+    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by, attach_only } = body
     if (!loan_split_id) return new Response(JSON.stringify({ error: 'loan_split_id is required' }), { status: 400 })
 
     const role = await callerRole(req)
     if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403 })
     }
-    if ((confirm || revert) && !['admin', 'manager'].includes(role)) {
+    if ((confirm || revert || attach_only) && !['admin', 'manager'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Your account has read-only access -- posting to or reverting from Xero requires an admin or manager.' }), { status: 403 })
     }
 
@@ -698,6 +700,42 @@ async function handleRequest(req: Request): Promise<Response> {
     const principal = Number(split.principal_amount)
     const interest = Number(split.interest_amount)
     const totalAmt = Number(split.total_amount)
+
+    // --- attach_only: attach the statement to an ALREADY-posted journal (session 222) ---
+    //
+    // Repair path, deliberately narrow. It exists for two situations:
+    //   1. Splits posted BEFORE v34, whose journal never got its statement because the
+    //      pure-reclass branch hardcoded attached:false. Those journals are correct but
+    //      undocumented, and there was previously no way to fix that short of voiding and
+    //      re-posting -- which is a far riskier operation than attaching a PDF.
+    //   2. A post where the journal succeeded but the attachment leg failed. Since
+    //      attachStatementToJournal() never throws (by design -- see its comment), that
+    //      combination is reachable and needs a retry that does NOT re-post the journal.
+    //
+    // Writes NOTHING to the database and creates NO journal. It requires the split to
+    // already carry an xero_manual_journal_id and refuses otherwise, so it cannot be used
+    // to sneak a write onto an unposted split.
+    if (attach_only) {
+      if (!split.xero_manual_journal_id) {
+        return new Response(JSON.stringify({
+          error: 'This split has no posted Manual Journal to attach to. attach_only repairs the attachment on an already-posted split; it never posts.',
+          split_status: split.status,
+        }), { status: 409 })
+      }
+      const { accessToken: aToken, tenantId: aTenant } = await getXeroAuth()
+      const result = await attachStatementToJournal(
+        supa, aToken, aTenant, stmt, split.xero_manual_journal_id,
+        isScheduleSourced ? SCHEDULE_SOURCED_SKIP : undefined,
+      )
+      return new Response(JSON.stringify({
+        ok: true,
+        attach_only: true,
+        manual_journal_id: split.xero_manual_journal_id,
+        period_label: split.period_label,
+        statement_path: stmt?.storage_path ?? null,
+        attachment: result,
+      }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+    }
 
     // token + tenantId are still destructured out: the attachment PUT below builds its
     // own headers because it needs a different Content-Type.
