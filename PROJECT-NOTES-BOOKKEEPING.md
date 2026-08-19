@@ -531,7 +531,31 @@ The Supabase MCP tooling has no delete-function capability, so:
 - **`scripts/cleanup-temp-functions.sh` added** to delete the whole `temp-*` set properly via the
   Management API. Dry-runs by default; needs `--confirm`; the `temp-` prefix filter is applied once,
   before the delete loop, so it cannot touch anything else. **David runs it with his own access
-  token — the token never comes near this session.** Still to be run.
+  token — the token never comes near this session.**
+- **RUN AND VERIFIED, same session.** All 134 deleted, 0 failed. Re-listed the functions through the
+  Supabase API afterwards rather than trusting the script's own tally: **232 -> 98**, zero remaining
+  `temp-*`, and all 11 production functions present at the expected versions (`loan-xero-post` v33,
+  `reconciliation-run` v16, `xero-payout-sync` v17 among them). Two pre-flight safety checks were run
+  before confirming: no app/edge source references any `temp-*` function (grepped all four SPAs and
+  every `supabase/functions/*/index.ts` for `functions/v1/temp-*` and `functions.invoke('temp-*')`),
+  and no `cron.job` command mentions `temp-` (crons are invisible writers that a code grep misses).
+
+  *The script took three revisions to actually work*, all failures worth remembering because they are
+  generic: (a) it used `mapfile`, which does not exist in **bash 3.2** — what macOS ships, and what
+  David runs; (b) it validated the API response with `json.load()` alone, so an **error object served
+  with HTTP 200** passed validation and was then iterated as a list, producing a cryptic
+  `TypeError: string indices must be integers`; (c) the fix for (b) put a heredoc *and* a stdin
+  redirect on the same `python3 -` invocation, so the JSON never reached Python at all. Final version
+  checks HTTP status first, detects a dict-vs-list payload explicitly, guards against the literal
+  placeholder token being exported verbatim, and writes the Python helper to a temp file invoked with
+  real arguments. Tested against 8 payload scenarios before delivery.
+
+  **Not finished — a second sweep is warranted.** The `temp-` prefix filter was safe but *narrow*.
+  The post-sweep listing shows the same class of one-off diagnostic surviving under other names:
+  `diag-*`, `payroll-fix-*`, `xero-*-check`, `support-refund-order-11140`. These need the same
+  treatment — audit each of the 98 for whether it is genuinely one-off, check `verify_jwt` and write
+  capability, produce a reviewed delete list. Do not extend the script to guess by name; the naming
+  is exactly what proved unreliable.
 
 Also found: **`payroll-xero-post` is deployed but not in git** — the same gap `loan-xero-post` had
 until this morning. So "what the repo says" is still not a reliable answer to "what is running".
