@@ -752,6 +752,71 @@ must be **verified after apply**, since the GRANT alone does not tell you the wh
 
 ---
 
+**15. ⚠️ OPEN — the `balance_basis` vocabulary has a latent inconsistency. Do not patch it casually.**
+
+Found session 222 while investigating Rapid in the lender portal (design doc C13). Three functions
+consume `balance_basis` and they do not agree about what the **Xero ledger** measures:
+
+- `loan-cross-check` asserts `const LEDGER_BASIS = 'principal_only'` — "an anchor that is NOT
+  principal_only cannot be compared to the ledger as-is."
+- `reconciliation-run`'s `computeTieOut` requires `balance_basis === 'principal_only'`.
+- `loan-document-intake` assigns the basis, with vocabulary
+  `principal_only | total_payback | payoff_quote | unknown`.
+
+**The assumption is not universally true.** For most loans the lender's interest is paid in cash out
+of the payment and never touches the loan account, so the Xero balance really is principal — and the
+6 loans that currently tie do so exactly, which corroborates that. **But for Rapid the fee is charged
+to the balance and our reclass journal credits it back to the loan account**, so Xero's Rapid balance
+is principal + charged fees. Rapid's statement is on that same amount-owed basis (C13). The two agree,
+which is why the check works — but both are mislabelled `principal_only`, and the label is what the
+whole basis guard rests on.
+
+**There are really three distinct measures, and the vocabulary only names two of them:**
+
+1. `principal_only` — principal drawn less principal repaid; fees excluded entirely.
+2. *(unnamed)* **amount owed** — principal + fees charged to date − payments. This is what a GL
+   liability account actually holds, and what Rapid reports.
+3. `total_payback` — principal + ALL fees to maturity, including unearned. PayPal 2's schedule.
+
+Comparing (1) against (2) is only safe when there are no unpaid fees in the balance. Comparing
+anything against (3) is never safe.
+
+**Deliberately NOT changed this session.** The obvious "fix" — re-typing Rapid's 8 anchors to
+`total_payback` — would make `computeTieOut` refuse them and silently turn a **true $1,056.19
+exception into `not_comparable`**. That trades a real signal for false silence, which is the exact
+failure mode the tie-out was built to eliminate. Writing the truth down is the fix for tonight.
+
+*Also unresolved, and a reason to wait:* the portal shows Available Credit $49,356.40 against a
+$100,000 limit, implying principal drawn of $50,643.60 and leaving **$2,025.75 of fees inside the
+$52,669.35 outstanding balance**. That figure does not equal the $4,480 of draw fees, and Rapid's
+tooltip for Available Credit is too vague to settle it. **Do not treat $50,643.60 as established
+principal** — it is inferred from one derived number.
+
+*Next step, in order:* (a) David's CPA rules on the draw-fee treatment (C12), which determines what
+Xero *should* hold and therefore which basis is correct; (b) only then introduce an `amount_owed`
+basis value and teach `computeTieOut` / `loan-cross-check` to accept it alongside `principal_only`
+while still refusing `total_payback`; (c) re-type Rapid's anchors in the same change, never before.
+There is no CHECK constraint on `balance_basis` today (values in use: `unknown` 357,
+`principal_only` 247, `total_payback` 30), so adding a value is a data change, not DDL — which makes
+it easy to do carelessly. Add the CHECK constraint at the same time.
+
+---
+
+**16. 📋 FOR THE CPA — $4,480 of Rapid draw fees have never been classified.**
+
+Rapid charges a **Draw Fee of exactly 4.00% of every draw**, separate from the weekly Balance Fee:
+$4,000.00 on the $100,000 initial draw (2025-11-03) and $480.00 on the $12,000 draw (2026-03-12).
+**Neither appears in `loan_splits`** — they have never been split out or expensed.
+
+Unlike the weekly Balance Fee (which the numbers prove is interest — C11), a draw fee is a genuine
+fixed one-time origination charge. Under ASC 835-30 that is a debt issuance cost: capitalised against
+the debt's carrying amount and amortised to interest expense over the term, rather than expensed as
+incurred. **This is a judgment call, one of the two periods is in a prior year, and nobody here is an
+accountant — David's CPA decides before anything is written to Xero.** Surface both as tie-out
+exceptions in the meantime.
+
+---
+
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
 
 **The scope grew.** The original plan was "write parsers for the 3-4 lenders still missing one." David then uploaded a large mixed batch (statements, an amortization schedule, a loan agreement, payoff letters, portal balance screenshots) spanning ~10+ lenders and reframed the actual goal: *"The system should eventually be able to discern what is what, put it in context, and propose an action for the CPA (or business owner) to approve. If two pieces of information are available, say an amortization doc + an actual statement, the system should compare them and see if everything checks out. If not, the system flags the inconsistency."* That's a document-classification + cross-validation layer, not just more parsers.
