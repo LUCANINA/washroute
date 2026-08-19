@@ -515,6 +515,11 @@ untested, and its first real use should still be a deliberate round-trip test.
 `loan-ingest-statement`) is now dormant with no loan enabled. It is proven to work on unreconciled
 transactions, so it is not dead code — but it has no live use case unless the pre-created-transaction
 architecture is ever built. Decide deliberately whether to retire it or leave it parked.
+**→ ✅ DECIDED 2026-08-19 (same day, during the REELOAD V1 planning session on the Bookswell side):
+PARKED, not retired.** David: *"Park it. Reuse the function for the trx 'pre-split'"* — the write
+path is the designated starting point for Tier 1 pre-staged split transactions in
+`DESIGN-LOAN-POSTING-MODEL.md` §4/§8 (updated there too). No code change; everything stays
+disabled exactly as this item left it.
 
 **11. ✅ SHIPPED session 222, 2026-08-19 — edge-function sweep + Xero auth decoupling.**
 
@@ -669,6 +674,81 @@ deliberately targets posted rows must be exempted from it explicitly.
 received the same PUT twice and Xero's Files column still shows 1; the 2026-08-10 control got one
 PUT and also shows 1. Xero replaces rather than duplicating, so `attach_only` needs no
 list-then-skip guard. Recorded as constraint **C10** in the design doc.
+
+---
+
+**13. 🚧 IN PROGRESS session 222, 2026-08-19 — the assurance layer (tie-out), phase 1 of 3.**
+
+*Why this and not Tier 2.* David chose **weekly** statement cadence, which shelves batched fee
+journals entirely (see design doc §7 step 2 — decided against on the merits, not deferred). He then
+picked the assurance layer over pre-staging, matching design doc §6: *"here are your 20 loan
+balances, each tied to a lender document, with the exceptions listed" is a stronger product than
+"we posted your journals for you."*
+
+*The gap found when mapping what exists.* The engine is strong — 8 checks in `reconciliation-run`
+plus 3 from `loan-document-intake`, fingerprint dedupe, pinned notes surviving re-runs, one merged
+Needs Attention list. But **there is no per-loan view of "Xero says X, the lender document says Y,
+here is the document."** That comparison lives only as prose inside a `balance_vs_lender` finding.
+No tie-out, no workpaper, no packet, and no CSV export for loans or findings at all.
+
+**✅ Phase 1 DONE — `public.loan_tie_outs` + `reconciliation-run` v17.**
+
+The load-bearing insight: `checkBalanceVsLender` returned `[]` in **five** situations that mean
+completely different things — the loan ties; no anchor exists; the only anchors predate the pulled
+window; no anchor is confirmed `principal_only`; there is no trustworthy checkpoint. From outside,
+all five read as "fine". **That is the exact false pass a tie-out cannot have** — "we checked and it
+ties" must be a visibly different statement from "we never checked". Hence an explicit row per
+active loan per run, never the absence of one.
+
+Refactored into `computeTieOut()` + a thin finding builder that derives FROM the verdict. One
+computation, two consumers, so finding text and tie-out row cannot drift — duplicated logic here
+would diverge within a session or two. **Findings emitted are unchanged**: `tied` and
+`not_comparable` produce nothing, exactly as the old early returns did. Status is
+`tied | explained | exception | not_comparable`, with `reason_code` for the last two
+(`later_journal_closes_gap`, `no_anchor`, `anchor_before_window`, `no_principal_only_basis`,
+`no_checkpoint`). Anchors now carry `statement_id` + `storage_path`; the FK is ON DELETE SET NULL
+and the path is denormalized so an old packet still renders after a statement row is deleted. The
+write is deliberately **non-fatal** — losing a snapshot must not fail an otherwise good run.
+
+*Decisions David made, for the record:* artifact = **screen first, then export** (live Tie-Out tab
+plus a one-click dated packet). Non-tying loans = **explain-or-flag with notes** (every exception
+carries an automatic explanation or a human note; unexplained differences stay loud). Explicitly
+NOT a tolerance threshold — it would hide small real errors and the threshold would be arbitrary.
+
+**⬜ Phase 2 — the Tie-Out tab** in admin-dashboard, third sub-toggle beside Manage / Debt Schedule.
+**⬜ Phase 3 — the packet export**, rendered from persisted rows for a chosen run, NOT from today's
+live state, so a year-end position reproduces later.
+**⬜ Verification** — not done. Run the engine, then check every loan's row by hand against Xero and
+the lender document. Specifically confirm: a known-good loan reads `tied`; a basis mismatch is never
+silently compared; a stale-anchor loan is an exception rather than a false pass.
+
+**⚠️ NOT YET DEPLOYED at session end.** `reconciliation-run` v17 and `loan-xero-post` (narration)
+are committed but not pushed to Supabase. Deploy both, then run the check once.
+
+---
+
+**14. ⚠️ TECH DEBT — 63 of 73 public tables grant `anon` INSERT/UPDATE/DELETE/TRUNCATE.**
+
+Found session 222 by verifying grants after creating `loan_tie_outs` rather than assuming the
+`GRANT SELECT` had done the job. It had not: the `public` schema still carries default privileges
+(`pg_default_acl`) that **auto-grant anon + authenticated ALL on every newly created table** until
+this project flips to the new default on **2026-10-30**. So the explicit GRANT was additive on top
+of an auto-granted full DML. Fixed for `loan_tie_outs` with an explicit REVOKE (migration
+`lock_down_loan_tie_outs_grants`), verified through a real REST round-trip, not just the catalog.
+
+**Not a live hole — checked before raising it.** Every one of the 63 has RLS enabled *and* at least
+one policy, and RLS is the real boundary; zero tables have anon-write plus no RLS/policies. This is
+a defense-in-depth gap: the grants are doing no protective work, so a future table shipped with a
+missing or permissive policy would have nothing behind it.
+
+*Next step:* a sweep that REVOKEs anon/authenticated DML on every table where the apps do not
+actually need it, matching grants to real usage rather than reflexively granting. Do it BEFORE
+2026-10-30, because after the cutover new tables get nothing by default and the failure mode
+inverts — a forgotten grant silently breaks a new feature with no error at create time.
+
+*Standing rule from here on:* every `CREATE TABLE` migration must be followed by an explicit
+`REVOKE ALL FROM anon, authenticated` and then only the grants actually needed — and the result
+must be **verified after apply**, since the GRANT alone does not tell you the whole story.
 
 ---
 
