@@ -90,7 +90,8 @@ async function callerRole(req: Request) {
 // needs (or can meaningfully use) a bank-transaction match:
 //   - total_amount == 0, interest != 0  ->  post a direct 2-line reclass journal dated
 //     at the split's own period_label (the real fee/adjustment date), no bank txn
-//     involved, no attachment (nothing was pulled specifically for this reclass).
+//     involved. As of session 222 this journal DOES carry the source statement as an
+//     attachment -- the attachment belongs to the journal, not to a bank transaction.
 //   - interest_amount == 0  ->  nothing to reallocate. Marked 'posted' with no Xero
 //     write at all -- there is no journal that would do anything.
 // This is a general fix, not Rapid-specific: any loan with a genuinely $0-interest
@@ -291,6 +292,74 @@ function contentTypeFor(filename: string) {
   if (ext === 'csv') return 'text/csv'
   return 'application/octet-stream'
 }
+
+// --- Attach a source statement to a posted Manual Journal (session 222) ---
+//
+// One implementation, two call sites: the pure-reclass/fee journal and the bank-matched
+// journal. Both post a Manual Journal and both have a source statement sitting in
+// Storage, so both should carry the proof document. Previously only the bank-matched
+// path attached, and the reclass path hardcoded `attached: false` with the reason
+// "no bank transaction, nothing to attach to" -- which conflated two different things:
+// the attachment goes on the JOURNAL, not on a bank transaction. There is a journal and
+// there is a statement, so it can and should attach. This matters more since session 222
+// made the fee journal the normal output for Rapid and Funding Circle: an attached
+// statement is the single biggest factor in whether a reviewer treats a journal as
+// documented or as unexplained.
+//
+// SCOPE NOTE: `accounting.attachments` IS authorized on this connection -- verified live
+// against a real Manual Journal. A comment here previously claimed the opposite; it was
+// written in session 205 when the scope genuinely was missing, and was never revisited
+// after the scope was added. Removed rather than left to mislead again.
+//
+// NEVER THROWS, by design. At every call site the journal is ALREADY posted in Xero by
+// the time this runs. Turning an attachment failure into a 500 would report a successful
+// post as a failure and invite a duplicate re-post -- strictly worse than a documented
+// journal missing its PDF. Failures surface in the response body instead.
+async function attachStatementToJournal(
+  supa: any,
+  token: string,
+  tenantId: string,
+  stmt: any,
+  journalId: string | undefined,
+  skipReason?: string,
+): Promise<Record<string, unknown>> {
+  if (skipReason) return { attached: false, reason: skipReason }
+  if (!journalId) return { attached: false, reason: 'Xero returned no ManualJournalID -- nothing to attach to' }
+  if (!stmt?.storage_path) return { attached: false, reason: 'no source statement file is linked to this split' }
+  try {
+    const { data: fileBlob, error: dlErr } = await supa.storage.from('loan-statements').download(stmt.storage_path)
+    if (dlErr || !fileBlob) return { attached: false, error: dlErr?.message || 'statement download from Storage failed' }
+    const fileBytes = new Uint8Array(await fileBlob.arrayBuffer())
+    const fileName = stmt.storage_path.split('/').pop()
+    const attRes = await fetch(
+      `https://api.xero.com/api.xro/2.0/ManualJournals/${journalId}/Attachments/${encodeURIComponent(fileName)}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Xero-tenant-id': tenantId,
+          'Accept': 'application/json',
+          'Content-Type': contentTypeFor(fileName),
+        },
+        body: fileBytes,
+      },
+    )
+    if (!attRes.ok) {
+      // Keep the body: a 401 here means a scope regression, a 400 usually means the
+      // filename or content type was rejected. Those need different fixes, so the
+      // status alone is not enough to act on.
+      const detail = await attRes.text().catch(() => '')
+      return { attached: false, status: attRes.status, filename: fileName, error: detail.slice(0, 300) }
+    }
+    return { attached: true, status: attRes.status, filename: fileName }
+  } catch (e) {
+    return { attached: false, error: String((e as any)?.message || e) }
+  }
+}
+
+// Shared so both call sites give the reviewer the same wording for the same situation.
+const SCHEDULE_SOURCED_SKIP =
+  'schedule-sourced split -- no per-period file exists; the full amortization schedule is already the permanent record in Storage'
 
 
 // v20: code -> name lookup for the chart of accounts, used purely to annotate review
@@ -707,6 +776,13 @@ async function handleRequest(req: Request): Promise<Response> {
         return new Response(JSON.stringify({ error: 'Xero journal post failed', status: postRes.status, details: postJson }), { status: 502 })
       }
       const journal = postJson.ManualJournals?.[0]
+
+      // Attach the statement this fee was read from. See attachStatementToJournal().
+      const reclassAttachment = await attachStatementToJournal(
+        supa, token, tenantId, stmt, journal?.ManualJournalID,
+        isScheduleSourced ? SCHEDULE_SOURCED_SKIP : undefined,
+      )
+
       const { error: updateErr } = await supa
         .from('loan_splits')
         .update({
@@ -722,7 +798,7 @@ async function handleRequest(req: Request): Promise<Response> {
         ok: true,
         original_bank_transaction: null,
         manual_journal: { id: journal?.ManualJournalID, lines: withAccountNames(journal?.JournalLines, acctMap) },
-        attachment: { attached: false, reason: 'pure reclass -- no bank transaction, nothing to attach to' },
+        attachment: reclassAttachment,
         loan_splits_update_error: updateErr?.message,
         flag_auto_resolve: flagAutoResolve2,
       }, null, 2), { headers: { 'Content-Type': 'application/json' } })
@@ -1081,27 +1157,11 @@ async function handleRequest(req: Request): Promise<Response> {
     }
     const journal = postJson.ManualJournals?.[0]
 
-    // --- Attach the source CSV as a permanent proof record (statement-sourced only) ---
-    // NOTE: as of session 205 this Xero Custom Connection does not have the attachments
-    // write scope authorized (confirmed live -- fails 401 AuthorizationUnsuccessful even
-    // against an unreconciled record). Left in place so it starts working automatically
-    // once that scope is added in Xero's app settings; until then, attached stays false.
-    let attachmentResult: any = { attached: false, reason: isScheduleSourced ? 'schedule-sourced split -- no per-period file to attach' : undefined }
-    if (!isScheduleSourced && stmt?.storage_path && journal?.ManualJournalID) {
-      const { data: fileBlob, error: dlErr } = await supa.storage.from('loan-statements').download(stmt.storage_path)
-      if (!dlErr && fileBlob) {
-        const fileBytes = new Uint8Array(await fileBlob.arrayBuffer())
-        const fileName = stmt.storage_path.split('/').pop()
-        const attRes = await fetch(`https://api.xero.com/api.xro/2.0/ManualJournals/${journal.ManualJournalID}/Attachments/${encodeURIComponent(fileName)}`, {
-          method: 'PUT',
-          headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json', 'Content-Type': contentTypeFor(fileName) },
-          body: fileBytes,
-        })
-        attachmentResult = { attached: attRes.ok, status: attRes.status, filename: fileName }
-      } else {
-        attachmentResult = { attached: false, error: dlErr?.message || 'download failed' }
-      }
-    }
+    // --- Attach the source statement as a permanent proof record ---
+    const attachmentResult = await attachStatementToJournal(
+      supa, token, tenantId, stmt, journal?.ManualJournalID,
+      isScheduleSourced ? SCHEDULE_SOURCED_SKIP : undefined,
+    )
 
     // --- Mark the split as posted ---
     const { error: updateErr } = await supa
