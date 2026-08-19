@@ -421,14 +421,41 @@ function checkDerivedDrift(loan: any, ledger: any, cp: number, cpDate: string, d
     const computed = balanceAt(code, d.statement_date, ledger, cp, cpDate)
     const diff = Math.round((Number(d.principal_balance) - computed) * 100) / 100
     if (Math.abs(diff) < 0.02) continue
+
+    // Tech Debt #1 (opened session 221): checkLumpedPayments already knows that a
+    // month-end correcting entry for an early-month posting can land up to
+    // REALLOC_WINDOW_DAYS later. balanceAt() rebuilds strictly as-of d.statement_date,
+    // so a correction dated after that cutoff is invisible to `computed` even though
+    // it's exactly what accounts for the gap (PCV Good and Green, 254: an April/May
+    // and an August pair each netted to the stored figure once the forward-dated leg
+    // was included). Sum every live entry on this code posted in that forward window
+    // — only when their combined effect closes the gap to the cent do we call this a
+    // dating difference instead of real drift. Recency or tolerance alone never
+    // qualifies: the Stripe Capital sign inversion this check exists to catch
+    // ($11,720.59, session 221) had no correcting entry anywhere in any window and
+    // must still fire. Reuses the same constant checkLumpedPayments uses — do not
+    // introduce a second, slightly-different window.
+    const laterInWindow = (ledger[code] || []).filter((r: any) =>
+      r.date > d.statement_date && daysBetween(d.statement_date, r.date) <= REALLOC_WINDOW_DAYS)
+    const laterNet = Math.round(laterInWindow.reduce((s: number, r: any) => s + effect(r, code), 0) * 100) / 100
+    const closesIt = laterInWindow.length > 0 && Math.abs(laterNet - diff) < 0.02
+
     out.push({
       fingerprint: `derived_drift:${code}:${d.statement_date}`,
       check_key: 'derived_drift',
-      severity: 'warn',
+      severity: closesIt ? 'info' : 'warn',
       loan_account_id: loan.id,
-      title: `${loan.xero_account_name} — our stored balance for ${d.statement_date} disagrees with Xero by ${money(Math.abs(diff))}`,
-      plain_english: `WashRoute has ${money(Number(d.principal_balance))} recorded for ${d.statement_date}, but rebuilding that date from Xero's live entries gives ${money(computed)}. Xero is the source of truth here, so our stored copy is the one that's wrong. The usual causes are a deleted Xero entry our records still count, or a sync that wrote the balance with the wrong sign.`,
-      detail: { code, date: d.statement_date, stored: Number(d.principal_balance), computed, difference: diff },
+      title: closesIt
+        ? `${loan.xero_account_name} — our stored balance for ${d.statement_date} ties once later-dated entries take effect`
+        : `${loan.xero_account_name} — our stored balance for ${d.statement_date} disagrees with Xero by ${money(Math.abs(diff))}`,
+      plain_english: closesIt
+        ? `WashRoute has ${money(Number(d.principal_balance))} recorded for ${d.statement_date}, and rebuilding that date from Xero's live entries alone gives ${money(computed)}. But ${laterInWindow.length === 1 ? 'an entry' : `${laterInWindow.length} entries`} posted within ${REALLOC_WINDOW_DAYS} days after ${d.statement_date} account for exactly the ${money(Math.abs(diff))} difference, so nothing is wrong — the two only line up from those entries' dates onward. Dating the correction at the original transaction instead would make them agree continuously.`
+        : `WashRoute has ${money(Number(d.principal_balance))} recorded for ${d.statement_date}, but rebuilding that date from Xero's live entries gives ${money(computed)}. Xero is the source of truth here, so our stored copy is the one that's wrong. The usual causes are a deleted Xero entry our records still count, or a sync that wrote the balance with the wrong sign.`,
+      detail: {
+        code, date: d.statement_date, stored: Number(d.principal_balance), computed, difference: diff,
+        closed_by_later_entries: closesIt, later_entries_in_window: laterInWindow.length,
+        later_entries_net: laterInWindow.length ? laterNet : null, window_days: REALLOC_WINDOW_DAYS,
+      },
     })
   }
   return out
