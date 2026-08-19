@@ -211,7 +211,7 @@ session — see the session log below for why).
 
 ## Session Log
 
-*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Build steps 1–5 of 7 done: `loan-document-intake` v1 deployed dry-run-only with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements, and the two upload surfaces merged into one intake modal (6 defects found and fixed first — three by review, three only by driving the real screen).***
+*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. Build steps 1–6 of 7 done: `loan-document-intake` v1 deployed dry-run-only with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements, and the two upload surfaces merged into one intake modal (6 defects found and fixed first — three by review, three only by driving the real screen).***
 
 ### Session 221 — the design pass, and what auditing first turned up
 
@@ -516,7 +516,101 @@ every other loan's findings is precisely the bug that makes `reconciliation-run`
 scope, and it would have been careless to reproduce it having just documented it.
 **Proven, not assumed:** a run scoped to PayPal alone left Ford Pro's finding open.
 
-**Remaining build order:** ~~3 `loan-document-intake` edge function~~ ✅ done — ~~4 unified intake UI~~ ✅ done — ~~5 cross-checks~~ ✅ done — (extraction + deterministic
+**Build step 6 — SHIPPED (schedule upload path).** Schedules could previously only be
+loaded by hand-written SQL: `loan-ingest-amortization` existed but nothing in the app
+called it, and **it had no CORS at all**, so a browser could never have called it however
+good the UI was.
+
+**Three real defects fixed in that function first (v10 → v11):**
+- **LIVE DATA-LOSS HAZARD.** It replaced a schedule's rows with an un-transacted
+  DELETE-then-INSERT: any insert failure committed the delete and destroyed the previous
+  schedule with nothing to roll back to. **This is the session-219 "never
+  delete-then-reinsert in one step" invariant, still live in a different table.** Replaced
+  with `replace_amortization_rows(uuid, jsonb)` (migration
+  `add_replace_amortization_rows_rpc`), whose body runs in one transaction. It also refuses
+  an empty array — an empty replace is indistinguishable from "the parser returned
+  nothing" and would silently blank a good 90-row schedule. **Proven, not assumed:** a
+  payload whose last row was invalid left PCV's 71 rows completely intact, and the
+  empty-array guard likewise. Grants tightened to `service_role` only (`authenticated`
+  had inherited EXECUTE from the schema default ACL).
+- **No CORS** on any of 10 response sites → browser calls failed 100% of the time, opaquely.
+  Fixed and verified live: an invalid payload now returns a readable 400 instead of a block.
+- **`balance_basis` was never set**, so every ingest landed `'unknown'` and silently undid
+  this session's typing work. Now a validated parameter.
+  (Also: `source` was hardcoded `'claude_assisted_parse'`; and because the upsert conflict
+  key contains nullable columns, omitting `contract_id`/`schedule_generated_date` silently
+  created duplicates — the response now returns an explicit `idempotency_warning`.)
+
+**The parser proves itself rather than being trusted.** Layouts differ per lender and a
+schedule is uploaded ~once per loan lifetime, so per-lender regexes are a poor trade.
+Instead it **infers the column layout by testing which interpretation makes the arithmetic
+tie out**, then verifies two independent identities on every row: `balance[n] ==
+balance[n-1] - principal[n]`, and `principal + interest == payment`. Below 98% on either it
+refuses to import as a schedule — a wrong schedule silently corrupts every split later
+derived from it. Verified with **no lender-specific code**: PCV 69 rows (68/68, 69/69),
+Verdant 84 rows (83/83, 84/84) — using *different* layouts.
+- Verdant also exposed a second problem: its PDF embeds a font with no ToUnicode map, so
+  pdf.js returns raw glyph codes (`'DWH 3D\PHQW` for `Date Payment`). Recovered by finding
+  the character offset yielding the most parseable rows (29). **My first attempt shifted
+  every character including pdf.js's own separator spaces**, turning every column break
+  into `=` and matching zero rows — caught by testing against the real file.
+- Nice consequence: the balance-continuity check IS the definition of a principal-only
+  balance, so a verified schedule **proves its own `balance_basis`** instead of assuming one.
+- **Defect found in live testing (`04dcfd0`):** the server's keyword classifier ran *after*
+  the local parse and repainted a 69-row arithmetically-verified result as *"might be…
+  worth a second look."* Weaker evidence getting the last word. Server classification is now
+  skipped when a schedule verified locally. Same shape as step 4b's silent override — the
+  question is never which reader is right in the abstract, it's which one the user reads.
+
+---
+
+## ⚠️ `loan-xero-post` hardened (v26 → v27) — found via a real pending split, session 221
+
+A genuine Rapid split appeared mid-session (period 2026-08-18, $1,583.40 P / $485.49 I) —
+**the first time session 220's direct-split pairing logic fired on real data**, which the
+notes had explicitly flagged as the moment to verify it. Previewing it read-only exposed
+four defects. David's call was to fix them rather than defer.
+
+**What actually happened (my first reading was wrong and the audit corrected it):** the
+±2-day window worked *correctly* — it looked for the 8/18 payment, correctly found nothing
+(the payment genuinely wasn't in Xero yet, statement uploaded same-day), and then fell
+through to a **separate, older manual-journal search using −15/+3 days anchored on the
+statement date**. That wide window surfaced payments from 8/11 and 8/04. Because Rapid's
+payment is a constant $2,068.89, **amount matching can never discriminate** — the date
+window is the only thing doing real work, and that path has no closest-wins tiebreak.
+
+**The four fixes (v27):**
+1. **An explicit `bank_transaction_id` bypassed nearly every check** — only `isLiveBankTxn`.
+   No amount check, no bank-account check. Any authorised transaction id would post. Now
+   amount and bank account are HARD 409 rejects; date distance is a non-blocking
+   `picked_date_warning` (a genuinely late payment can legitimately sit outside the window;
+   a wrong amount or wrong account categorically cannot).
+2. **The direct-split block ran BEFORE reading `bank_transaction_id` and never read it** —
+   so on a `direct_split_enabled` loan it could auto-select and edit a *different*
+   transaction than the human explicitly picked. Now skipped entirely when a pick is
+   supplied. **Consequence worth knowing: an explicit pick now always resolves as a manual
+   journal, never a direct split.** Safer, but a real behaviour change.
+3. **Candidates gave no sense of distance** — a 7-day-old match looked identical to an exact
+   one. Each candidate now carries `days_from_period`, plus a top-level `anchor_date`.
+4. **"Payment hasn't reached Xero yet" was a bare 404 indistinguishable from a real
+   mismatch** — and it is the EXPECTED case for a same-day statement. Now a machine-readable
+   `reason` (`ambiguous_candidates` / `payment_not_yet_in_xero` / `no_matching_transaction`)
+   with a calm "nothing to do right now" message for the normal case. Also fixed a hardcoded
+   "Wells Fargo feed" that appeared regardless of loan.
+
+**Blast radius of the bug had it been clicked:** amounts come from the split, so no wrong
+dollar figure — but the journal would be dated at the wrong transaction's date (8/11 or
+8/04 instead of 8/18) and the split permanently stamped as matched to the wrong Xero
+transaction. **Un-catchable by any amount-based reconciliation**, because Rapid's amount
+never varies. The "pick & post" links made that one click away.
+
+**NOT yet re-verified live** — the Chrome extension stopped responding immediately after
+deploy, so the v27 preview output has not been seen against the real split. Do this first
+next session: preview that Rapid split read-only and confirm `reason`, `anchor_date` and
+`days_from_period` come back. The client UI has NOT been updated to render the new fields
+yet either.
+
+**Remaining build order:** ~~3 `loan-document-intake` edge function~~ ✅ done — ~~4 unified intake UI~~ ✅ done — ~~5 cross-checks~~ ✅ done — ~~6 schedule ingest~~ ✅ done — (extraction + deterministic
 classification, dry-run only, parallel-diff against the browser) → 4 unified intake UI →
 5 cross-checks (`basis_conflict` and `schedule_vs_statement` first — PCV and PayPal can
 exercise both immediately) → 6 schedule ingest path → 7 AI routing for unrecognised docs.
