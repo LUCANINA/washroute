@@ -10039,17 +10039,31 @@
     // top-line stat anymore.
     const el = document.getElementById('loans-summary');
     if (!el) return;
-    const active = _allLoanAccounts.filter(a => a.status === 'active').length;
+    const activeLoans = _allLoanAccounts.filter(a => a.status === 'active');
+    const active = activeLoans.length;
 
-    const balances = _allLoanAccounts.map(a => _loanOutstandingBalance(a));
+    // Session 222: scoped to ACTIVE loans, and the "(n/m loans)" caption removed.
+    //
+    // That caption counted loans with a balance FIGURE on file -- a data-completeness
+    // measure -- and displayed it under a money figure, where every reader takes it to
+    // mean "loans carrying this debt". It read "20/22" while the tile immediately to its
+    // left read "14 Active loans", which is simply incoherent. The 20 was 13 active loans
+    // from statements + PayPal 2 from its schedule + SIX PAID-OFF LOANS CONTRIBUTING
+    // $0.00; the 2 excluded were also paid off, reported as unknown when they are in fact
+    // zero. Only the 14 active loans ever put a dollar into the total.
+    //
+    // Scoping to active also removes a live hazard: a paid-off loan with a stale non-zero
+    // balance would silently inflate the headline. Today all 8 sit at $0.00, so the
+    // displayed figure is unchanged -- this is defensive, not a restatement.
+    const balances = activeLoans.map(a => _loanOutstandingBalance(a));
     const known = balances.filter(Boolean);
     const totalOutstanding = known.reduce((sum, b) => sum + b.amount, 0);
-    const outstandingLabel = known.length === _allLoanAccounts.length
-      ? 'Total outstanding'
-      : `Total outstanding (${known.length}/${_allLoanAccounts.length} loans)`;
-    const outstandingTitle = known.length === _allLoanAccounts.length
+    const outstandingLabel = 'Total outstanding';
+    // Kept only as a hover, and only when an ACTIVE loan genuinely has no balance on
+    // file -- that is a real gap worth surfacing, unlike a paid-off loan having none.
+    const outstandingTitle = known.length === activeLoans.length
       ? ''
-      : 'No current balance on file yet for ' + (_allLoanAccounts.length - known.length) + ' loan(s) -- see All Loans below.';
+      : `No current balance on file yet for ${activeLoans.length - known.length} active loan(s) -- see All Loans below.`;
 
     // "Paid" reflects real-world lender payments a statement or amortization schedule
     // already shows as having happened -- it does NOT filter by loan_splits.status.
