@@ -2727,15 +2727,15 @@
                 <div class="stat-label">Lbs. Processed</div>
                 <div class="stat-value" id="rpt-lndr-lbs">—</div>
               </div>
-              <div class="stat-card">
+              <div class="stat-card" id="lndr-tile-all" onclick="setLndrCategoryFilter(null)" style="cursor:pointer" title="Click to show all launderers">
                 <div class="stat-label">Avg Lbs./Hr</div>
                 <div class="stat-value" id="rpt-lndr-lbs-per-hr">—</div>
               </div>
-              <div class="stat-card">
+              <div class="stat-card" id="lndr-tile-I" onclick="setLndrCategoryFilter('I')" style="cursor:pointer" title="Click to show only Laundry Tech I">
                 <div class="stat-label">Tech I — Lbs./Hr</div>
                 <div class="stat-value" id="rpt-lndr-t1-lbs-per-hr">—</div>
               </div>
-              <div class="stat-card">
+              <div class="stat-card" id="lndr-tile-II" onclick="setLndrCategoryFilter('II')" style="cursor:pointer" title="Click to show only Laundry Tech II">
                 <div class="stat-label">Tech II — Lbs./Hr</div>
                 <div class="stat-value" id="rpt-lndr-t2-lbs-per-hr">—</div>
               </div>
@@ -35065,6 +35065,8 @@ ${oneCopy}
 
     if (!_laundererReportData?.rows?.length) return;
 
+    const catAvg = _lndrCategoryAverages();
+
     const sorted = [..._laundererReportData.rows].sort((a, b) => {
       let va, vb;
       switch(col) {
@@ -35078,6 +35080,13 @@ ${oneCopy}
           va = (a.hrs != null && a.hrs > 0) ? a.lbs / a.hrs : -1;
           vb = (b.hrs != null && b.hrs > 0) ? b.lbs / b.hrs : -1;
           break;
+        case 'performance': {
+          const pa = _lndrPerformancePct(a, catAvg);
+          const pb = _lndrPerformancePct(b, catAvg);
+          va = pa == null ? -Infinity : pa;
+          vb = pb == null ? -Infinity : pb;
+          break;
+        }
         case 'issues': va = a.issues || 0; vb = b.issues || 0; break;
         default: va = 0; vb = 0;
       }
@@ -35087,43 +35096,12 @@ ${oneCopy}
     });
 
     // Update sort indicators
-    ['name','title','orders','bags','lbs','hrs','lbsPerHr','issues'].forEach(c => {
+    ['name','title','orders','bags','lbs','hrs','lbsPerHr','performance','issues'].forEach(c => {
       const el = document.getElementById('lndr-sort-' + c);
       if (el) el.textContent = c === _lndrSortCol ? (_lndrSortAsc ? '▲' : '▼') : '';
     });
 
-    const fmtLbs   = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-    const fmtHrs   = h => h != null
-      ? `<span style="font-weight:600">${h.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
-      : `<span style="color:var(--gray-300)">—</span>`;
-    const fmtLbsHr = (lbs, hrs) => (hrs != null && hrs > 0 && lbs > 0)
-      ? `<span style="font-weight:600">${(lbs / hrs).toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> lbs/hr</span>`
-      : `<span style="color:var(--gray-300)">—</span>`;
-
-    const unassigned = _laundererReportData.unassigned;
-    const tbody = document.querySelector('#lndr-report-table tbody');
-    if (!tbody) return;
-
-    const _issuesUnassigned = _laundererReportData.issuesUnassigned || 0;
-    tbody.innerHTML = sorted.map(r => `<tr>
-      <td>${r.name}</td>
-      <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
-      <td>${r.orders.toLocaleString()}</td>
-      <td>${r.bags.toLocaleString()}</td>
-      <td>${fmtLbs(r.lbs)}</td>
-      <td>${fmtHrs(r.hrs)}</td>
-      <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
-      <td>${_fmtLaundererIssues(r)}</td>
-    </tr>`).join('') + (unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
-      <td>Unassigned</td>
-      <td></td>
-      <td>${unassigned.orders.toLocaleString()}</td>
-      <td>${unassigned.bags.toLocaleString()}</td>
-      <td>${fmtLbs(unassigned.lbs)}</td>
-      <td><span style="color:var(--gray-300)">—</span></td>
-      <td><span style="color:var(--gray-300)">—</span></td>
-      <td>${_issuesUnassigned > 0 ? _issuesUnassigned.toLocaleString() : '<span style="color:var(--gray-300)">0</span>'}</td>
-    </tr>` : '');
+    _renderLndrTbody(sorted);
   }
 
   function exportDriverCSV() {
@@ -37625,6 +37603,144 @@ async function _dvIframeLoaded() {
 
   let _laundererReportData = [];
 
+  // ── Category filter (session: KPI-tile click-to-filter + Performance col) ──
+  // Set by clicking one of the 3 "average" KPI tiles above the table.
+  // null = show everyone, 'I' = Laundry Tech I only, 'II' = Laundry Tech II only.
+  let _lndrCategoryFilter = null;
+
+  // Buckets a launderer's title into 'I' / 'II' / null. 'II' is checked first
+  // since the string "Laundry Tech II" also contains "I".
+  function _lndrTitleCategory(title) {
+    if (!title) return null;
+    if (title.includes('II')) return 'II';
+    if (title.includes('I'))  return 'I';
+    return null;
+  }
+
+  function setLndrCategoryFilter(cat) {
+    _lndrCategoryFilter = (cat === null) ? null : (_lndrCategoryFilter === cat ? null : cat);
+    ['all', 'I', 'II'].forEach(key => {
+      const el = document.getElementById('lndr-tile-' + key);
+      if (!el) return;
+      const isActive = (key === 'all') ? (_lndrCategoryFilter === null) : (_lndrCategoryFilter === key);
+      el.style.outline = isActive ? '2px solid var(--accent)' : '';
+      el.style.outlineOffset = isActive ? '-2px' : '';
+      el.style.background = isActive ? 'rgba(59,130,246,0.08)' : '';
+    });
+    if (_laundererReportData?.rows?.length) sortLaundererReport(_lndrSortCol);
+  }
+  window.setLndrCategoryFilter = setLndrCategoryFilter;
+
+  // Computes each title category's average Lbs/Hr from the FULL dataset
+  // (never the filtered/visible subset) so "Performance" always compares a
+  // person to their true category average, filter or no filter.
+  function _lndrCategoryAverages() {
+    const totals = { I: { lbs: 0, hrs: 0 }, II: { lbs: 0, hrs: 0 } };
+    (_laundererReportData.rows || []).forEach(r => {
+      if (r.hrs == null || r.lbs <= 0) return;
+      const cat = _lndrTitleCategory(r.title);
+      if (cat && totals[cat]) { totals[cat].lbs += r.lbs; totals[cat].hrs += r.hrs; }
+    });
+    return {
+      I:  totals.I.hrs  > 0 ? totals.I.lbs  / totals.I.hrs  : null,
+      II: totals.II.hrs > 0 ? totals.II.lbs / totals.II.hrs : null,
+    };
+  }
+
+  // % above/below this launderer's category average Lbs/Hr, or null if it
+  // can't be computed (no hours logged, no category match, category has no
+  // average yet).
+  function _lndrPerformancePct(r, catAvg) {
+    const cat = _lndrTitleCategory(r.title);
+    const avg = cat ? catAvg[cat] : null;
+    if (!avg || r.hrs == null || r.hrs <= 0 || r.lbs <= 0) return null;
+    return ((r.lbs / r.hrs) - avg) / avg * 100;
+  }
+
+  function _fmtLndrPerformance(r, catAvg) {
+    const pct = _lndrPerformancePct(r, catAvg);
+    if (pct == null) return '<span style="color:var(--gray-300)">—</span>';
+    const sign  = pct >= 0 ? '+' : '';
+    const color = pct >= 0 ? 'var(--green)' : 'var(--red)';
+    return `<span style="font-weight:600;color:${color}">${sign}${pct.toFixed(0)}%</span>`;
+  }
+
+  // Shared table-body renderer for the Launderer report — used by both the
+  // initial load and every re-sort, so the category filter + Performance
+  // column stay correct no matter which column is sorted.
+  function _renderLndrTbody(sortedRows) {
+    const tbody = document.getElementById('lndr-report-tbody');
+    const tfoot = document.getElementById('lndr-report-tfoot');
+    if (!tbody || !_laundererReportData?.rows) return;
+    const unassigned = _laundererReportData.unassigned;
+    const _issuesUnassigned = _laundererReportData.issuesUnassigned || 0;
+
+    const fmtCount = n => Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+    const fmtLbs   = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+    const fmtHrs   = h => h != null
+      ? `<span style="font-weight:600">${h.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
+      : `<span style="color:var(--gray-300)">—</span>`;
+    const fmtLbsHr = (lbs, hrs) => (hrs != null && hrs > 0 && lbs > 0)
+      ? `<span style="font-weight:600">${(lbs / hrs).toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> lbs/hr</span>`
+      : `<span style="color:var(--gray-300)">—</span>`;
+
+    const catAvg = _lndrCategoryAverages();
+
+    // Category filter only affects which rows are VISIBLE — the averages
+    // above are always computed from everyone.
+    const visibleRows = _lndrCategoryFilter
+      ? sortedRows.filter(r => _lndrTitleCategory(r.title) === _lndrCategoryFilter)
+      : sortedRows;
+    const showUnassigned = !_lndrCategoryFilter && unassigned.orders > 0;
+
+    tbody.innerHTML = visibleRows.map(r => `<tr>
+      <td>${r.name}</td>
+      <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
+      <td>${fmtCount(r.orders)}</td>
+      <td>${fmtCount(r.bags)}</td>
+      <td>${fmtLbs(r.lbs)}</td>
+      <td>${fmtHrs(r.hrs)}</td>
+      <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
+      <td>${_fmtLndrPerformance(r, catAvg)}</td>
+      <td>${_fmtLaundererIssues(r)}</td>
+    </tr>`).join('') + (showUnassigned ? `<tr style="color:var(--gray-400);font-style:italic">
+        <td>Unassigned</td>
+        <td></td>
+        <td>${unassigned.orders.toLocaleString()}</td>
+        <td>${unassigned.bags.toLocaleString()}</td>
+        <td>${fmtLbs(unassigned.lbs)}</td>
+        <td><span style="color:var(--gray-300)">—</span></td>
+        <td><span style="color:var(--gray-300)">—</span></td>
+        <td><span style="color:var(--gray-300)">—</span></td>
+        <td>${_issuesUnassigned > 0 ? _issuesUnassigned.toLocaleString() : '<span style="color:var(--gray-300)">0</span>'}</td>
+      </tr>` : '');
+
+    if (tfoot) {
+      const tot = visibleRows.reduce((acc, r) => {
+        acc.orders += r.orders; acc.bags += r.bags; acc.lbs += r.lbs;
+        if (r.hrs != null) acc.hrs = (acc.hrs || 0) + r.hrs;
+        return acc;
+      }, {
+        orders: showUnassigned ? unassigned.orders : 0,
+        bags:   showUnassigned ? unassigned.bags   : 0,
+        lbs:    showUnassigned ? unassigned.lbs    : 0,
+        hrs: null,
+      });
+      const totIssues = visibleRows.reduce((a, r) => a + (r.issues || 0), 0) + (showUnassigned ? _issuesUnassigned : 0);
+      tfoot.innerHTML = `<tr>
+        <td>Total</td>
+        <td></td>
+        <td>${fmtCount(tot.orders)}</td>
+        <td>${fmtCount(tot.bags)}</td>
+        <td>${fmtLbs(tot.lbs)}</td>
+        <td>${tot.hrs != null ? fmtHrs(tot.hrs) : '—'}</td>
+        <td>${fmtLbsHr(tot.lbs, tot.hrs)}</td>
+        <td></td>
+        <td>${totIssues.toLocaleString()}</td>
+      </tr>`;
+    }
+  }
+
   // Issues cell for the Launderers report: raw count + trend arrow vs the prior
   // period, with a hover breakdown by category. More issues = worse, so an
   // increase is shown in red and a decrease in green.
@@ -37875,44 +37991,15 @@ async function _dvIframeLoaded() {
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('lbs')">Pounds <span id="lndr-sort-lbs" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('hrs')">Hours Worked <span id="lndr-sort-hrs" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('lbsPerHr')">Lbs/Hr <span id="lndr-sort-lbsPerHr" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('performance')" title="This person's Lbs/Hr vs. the average for their title (Tech I vs Tech II). Green = above average, red = below.">Performance <span id="lndr-sort-performance" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('issues')" title="Order-linked issues raised this period (hover a number for the breakdown by type). Arrow compares to the prior period.">Issues <span id="lndr-sort-issues" style="font-size:10px;color:var(--gray-400)"></span></th>
           </tr>
         </thead>
-        <tbody>
-          ${rows.map(r => `<tr>
-            <td>${r.name}</td>
-            <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
-            <td>${fmtCount(r.orders)}</td>
-            <td>${fmtCount(r.bags)}</td>
-            <td>${fmtLbs(r.lbs)}</td>
-            <td>${fmtHrs(r.hrs)}</td>
-            <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
-            <td>${_fmtLaundererIssues(r)}</td>
-          </tr>`).join('')}
-          ${unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
-            <td>Unassigned</td>
-            <td></td>
-            <td>${unassigned.orders.toLocaleString()}</td>
-            <td>${unassigned.bags.toLocaleString()}</td>
-            <td>${fmtLbs(unassigned.lbs)}</td>
-            <td><span style="color:var(--gray-300)">—</span></td>
-            <td><span style="color:var(--gray-300)">—</span></td>
-            <td>${_issuesUnassigned > 0 ? _issuesUnassigned.toLocaleString() : '<span style="color:var(--gray-300)">0</span>'}</td>
-          </tr>` : ''}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td>Total</td>
-            <td></td>
-            <td>${fmtCount(tot.orders)}</td>
-            <td>${fmtCount(tot.bags)}</td>
-            <td>${fmtLbs(tot.lbs)}</td>
-            <td>${tot.hrs != null ? fmtHrs(tot.hrs) : '—'}</td>
-            <td>${fmtLbsHr(tot.lbs, tot.hrs)}</td>
-            <td>${(rows.reduce((a, r) => a + (r.issues || 0), 0) + (_issuesUnassigned || 0)).toLocaleString()}</td>
-          </tr>
-        </tfoot>
+        <tbody id="lndr-report-tbody"></tbody>
+        <tfoot id="lndr-report-tfoot"></tfoot>
       </table>`;
+
+    _renderLndrTbody(rows);
 
     if (exportBtn) exportBtn.style.display = '';
   }
@@ -37921,15 +38008,22 @@ async function _dvIframeLoaded() {
     const { rows, unassigned, issuesUnassigned, from, to } = _laundererReportData;
     if (!rows?.length && !unassigned?.orders) return;
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const headers = ['Folder','Orders','Bags','Pounds','Hours Worked','Lbs/Hr','Issues'];
+    const headers = ['Folder','Title','Orders','Bags','Pounds','Hours Worked','Lbs/Hr','Performance vs Category Avg','Issues'];
     // Orders & bags can be fractional (when participating in a split fold).
     const fmtNum  = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
-    const csvRows = (rows || []).map(r => {
+    const catAvg  = _lndrCategoryAverages();
+    // Export mirrors whatever category filter is currently applied on-screen.
+    const exportRows = _lndrCategoryFilter
+      ? (rows || []).filter(r => _lndrTitleCategory(r.title) === _lndrCategoryFilter)
+      : (rows || []);
+    const csvRows = exportRows.map(r => {
       const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
-      return [r.name, fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr, r.issues || 0].map(esc).join(',');
+      const pct = _lndrPerformancePct(r, catAvg);
+      const perf = pct == null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`;
+      return [r.name, r.title || '', fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr, perf, r.issues || 0].map(esc).join(',');
     });
-    if (unassigned?.orders > 0) {
-      csvRows.push(['Unassigned', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', '', issuesUnassigned || 0].map(esc).join(','));
+    if (!_lndrCategoryFilter && unassigned?.orders > 0) {
+      csvRows.push(['Unassigned', '', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', '', '', issuesUnassigned || 0].map(esc).join(','));
     }
     const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
