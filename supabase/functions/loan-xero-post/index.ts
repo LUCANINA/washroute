@@ -685,7 +685,10 @@ async function handleRequest(req: Request): Promise<Response> {
       }, null, 2), { headers: { 'Content-Type': 'application/json' } })
     }
 
-    if (split.status === 'posted') {
+    // attach_only is exempt: it exists precisely to repair an ALREADY-posted split's
+    // attachment, so this guard would otherwise make it unreachable. Its own branch
+    // below enforces the stricter requirement (an xero_manual_journal_id must exist).
+    if (split.status === 'posted' && !attach_only) {
       return new Response(JSON.stringify({ error: 'This split is already posted to Xero.', matched_xero_bank_transaction_id: split.matched_xero_bank_transaction_id, xero_manual_journal_id: split.xero_manual_journal_id }), { status: 409 })
     }
 
