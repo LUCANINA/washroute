@@ -4690,6 +4690,59 @@
   // Session 196: the subscription (+ plan) this order is billed against, or null.
   // Subscription orders are priced from a POOLED monthly allowance, never per bag.
   let _posIntakeSub   = null;
+  // Session 219: the customer's pricelist + fee_exempt flag, fetched fresh each
+  // time the panel opens (see _ensurePosIntakeFeesSync below for why).
+  let _posIntakePricelist  = 'Delivery';
+  let _posIntakeFeeExempt  = false;
+
+  // ── POS intake fee resolution (session 219) ───────────────────────────
+  // Root-cause fix for the Covenant House / Onika Crossman / Kasa Hotels /
+  // Nourish Osteo / etc. missing-delivery-fee bug: recurring commercial
+  // orders are created with EMPTY line_items (base price is unknown until
+  // weighed), so when a driver drops one off at Foothill and an attendant
+  // weighs it in here, there was never a delivery_fee line item to
+  // "preserve" — this panel only ever rebuilt base + overage and copied
+  // forward whatever fee rows already existed. The admin dashboard's own
+  // Intake panel computes the delivery fee fresh every time (getFeesForPricelist
+  // + fee_exempt), so orders weighed in there were always correct; only the
+  // POS path silently dropped the fee. This mirrors that same admin logic.
+  let posServiceFeesCache = null;
+  async function loadPosServiceFees() {
+    if (posServiceFeesCache) return posServiceFeesCache;
+    const { data, error } = await db.from('service_fees').select('*');
+    if (error) { console.error('loadPosServiceFees:', error.message); return []; }
+    posServiceFeesCache = data || [];
+    return posServiceFeesCache;
+  }
+  // One row per fee NAME: prefer a pricelist-specific override over the
+  // global (pricelist=null) row, exactly like admin's getFeesForPricelist().
+  function _posFeeForPricelist(fees, feeName, pricelist) {
+    const pl = pricelist || 'Delivery';
+    return (fees || []).find(f => f.name === feeName && f.is_active && f.pricelist === pl)
+        || (fees || []).find(f => f.name === feeName && f.is_active && !f.pricelist)
+        || null;
+  }
+  // Adds a delivery_fee (and, for same-day orders, a same_day_surcharge) line
+  // item computed fresh from service_fees WHEN ONE ISN'T ALREADY PRESENT.
+  // Never touches an existing fee row (so an admin who manually removed or
+  // edited a fee at booking time is respected) and never charges a
+  // fee-exempt customer. Requires posServiceFeesCache to already be loaded
+  // (openPosIntake awaits loadPosServiceFees() before the panel is usable).
+  function _ensurePosIntakeFeesSync(items, isSameDay) {
+    const out = items.slice();
+    if (_posIntakeFeeExempt) return out;
+    if (!out.some(li => li.type === 'delivery_fee')) {
+      const rec = _posFeeForPricelist(posServiceFeesCache, 'Delivery Fee', _posIntakePricelist);
+      const amt = rec ? parseFloat(rec.amount || 0) : 0;
+      if (amt > 0) out.push({ type: 'delivery_fee', label: 'Delivery fee', amount: amt });
+    }
+    if (isSameDay && !out.some(li => li.type === 'same_day_surcharge')) {
+      const rec = _posFeeForPricelist(posServiceFeesCache, 'Same-Day Surcharge', _posIntakePricelist);
+      const amt = rec ? parseFloat(rec.amount || 0) : 0;
+      if (amt > 0) out.push({ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: amt });
+    }
+    return out;
+  }
 
   async function openPosIntake(orderId) {
     const order = (queueOrders || []).find(o => o.id === orderId);
@@ -4709,6 +4762,23 @@
       return;
     }
     _posIntakeSvc = svc;
+
+    // Session 219: fresh pricelist + fee_exempt (queueOrders' cached customer
+    // data doesn't carry these) so _ensurePosIntakeFeesSync can compute the
+    // right delivery fee for THIS customer before the panel is shown.
+    _posIntakePricelist = 'Delivery';
+    _posIntakeFeeExempt = false;
+    if (order.customer_id) {
+      const { data: custRow } = await db.from('customers')
+        .select('pricelist, fee_exempt')
+        .eq('id', order.customer_id)
+        .maybeSingle();
+      if (custRow) {
+        _posIntakePricelist = custRow.pricelist || 'Delivery';
+        _posIntakeFeeExempt = !!custRow.fee_exempt;
+      }
+    }
+    await loadPosServiceFees();
 
     // Session 196: subscription customers are NOT priced per bag. Their plan includes a
     // pooled monthly weight allowance (100 lbs) and charges overage at the PLAN's rate
@@ -4837,9 +4907,15 @@
     // ONLY; everything else stays. Same rule the admin's saveIntake follows
     // implicitly by passing the full re-computed list (it just rebuilds them
     // from procAddons state; we don't have that state on POS, so we preserve
-    // the existing rows verbatim).
+    // the existing rows verbatim) — PLUS (session 219) computes a delivery
+    // fee / same-day surcharge fresh when the order didn't already have one,
+    // so weighing an order in here charges the same as weighing it in on
+    // the admin dashboard. See _ensurePosIntakeFeesSync for why this was needed.
     const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
-    const preserved = existing.filter(li => li.type !== 'base' && li.type !== 'overage');
+    const preserved = _ensurePosIntakeFeesSync(
+      existing.filter(li => li.type !== 'base' && li.type !== 'overage'),
+      !!_posIntakeOrder.is_same_day
+    );
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
 
     const total = Math.round((p.base + p.overage + preservedTotal) * 100) / 100;
@@ -4903,8 +4979,14 @@
     // services (Delivery $59/bag) charge bags × base_price + overage.
     const p = _computeIntakePrice(_posIntakeSvc, weight, bags, _posIntakeSub);
 
+    // Session 219: same fee resolution as recalcPosIntake's preview — must
+    // match exactly, or the total charged would drift from what the attendant
+    // saw on screen a moment ago.
     const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
-    const preserved = existing.filter(li => li.type !== 'base' && li.type !== 'overage');
+    const preserved = _ensurePosIntakeFeesSync(
+      existing.filter(li => li.type !== 'base' && li.type !== 'overage'),
+      !!_posIntakeOrder.is_same_day
+    );
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
     const total = Math.round((p.base + p.overage + preservedTotal) * 100) / 100;
 
