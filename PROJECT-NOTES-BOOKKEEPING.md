@@ -250,6 +250,52 @@ check stops reproducing it), dropping total open findings back down substantiall
 2's real $89,411.25) still show a Debt Schedule balance sourced from a stale derived row with no
 authority ranking to prefer a real lender document over it — that's Tech Debt item 3.
 
+**6. ✅ SHIPPED session 222, 2026-08-19 — `reconciliation-run` v15. `checkBalanceVsLender` gained
+basis-awareness; PayPal 2's $144.39 "error" was a second basis-mismatch false positive.**
+
+*Symptom, found while verifying the v14 cleanup worked:* David asked me to check that all 12
+remaining Needs Attention items were real. Walking each one against the actual code and prior
+session evidence, PayPal 2's `balance_vs_lender` finding ("Xero is $144.39 above the lender," anchor
+2026-07-29) didn't add up — a small, oddly-precise gap with `anchor_source: amortization_schedule`
+and, separately, an intake-system `basis_conflict` finding open on the exact same loan and date.
+
+*Cause, confirmed against a number already verified in an earlier session:* PayPal 2's amortization
+schedule is typed `total_payback` (principal + unamortized fee) — the sole outlier among the five
+schedules in the system, all others `principal_only`. An earlier session verified the exact
+conversion at 2026-07-29: schedule (total_payback) $64,879.69 minus true principal $61,896.57 equals
+$2,983.12, matching the unamortized fee to the cent. `checkBalanceVsLender` picked `anchors[0]` — the
+single newest document of any kind — with no regard for what that document actually measures, so for
+PayPal (which has zero real lender statements on file, only the schedule) it directly compared the
+total-payback figure against Xero's principal-only rebuild. The resulting $144.39 "difference" was
+two incompatible numbers landing close together by coincidence, not a real accounting gap. Same root
+cause as Tech Debt #1/#4 (comparing two numbers without checking whether they measure the same
+thing), different check.
+
+*Fix shipped:* `checkBalanceVsLender` now only trusts an anchor whose `balance_basis` (already typed
+on both `loan_statements` and `loan_amortization_schedules` from an earlier session's basis-typing
+work) is confirmed `principal_only`. All 244 real lender-document anchors are already typed that way,
+so nothing changes for them. If the newest anchor fails the basis check, older anchors are tried in
+order rather than giving up outright, so a usable real statement further back still gets used. If
+none of a loan's anchors are confirmed `principal_only` (PayPal's case today), the check produces
+nothing — the basis gap is the intake system's `basis_conflict` to report, not a second, differently
+worded message from this engine. Verified with a standalone test script against 5 cases (PayPal-style
+skip, normal principal-only anchor, fall-back-to-older-anchor, PCV/Verdant-style schedule still
+usable, unknown/null basis treated as unusable) — all 5 correct. Deployed and verified byte-for-byte.
+
+*Not yet watched fire on a real run* — same auth limitation as items 1 and 5. David: next "Run
+Reconciliation Check" should show PayPal 2's $144.39 `balance_vs_lender` finding auto-resolve; the
+$18,922.10 `unexplained_ledger_adjustment` on the same loan is real and should stay open.
+
+*Also flagged during this review, not a bug, just worth a second look:* Verdant Capital's
+`unexplained_ledger_adjustment` finding ($572,400.13 across 6 corrections) is a real, non-engine-
+artifact finding — the manual journals are genuinely there — but its generic plain-English text
+("the payment is probably being recorded wrong") likely doesn't fit: the two largest entries are
+narrated "New acquired FA Through Loan (Verdant Capital)," which reads like a one-time loan-
+origination booking, not a recurring payment-splitting problem the check is written to describe. The
+check doesn't yet distinguish origination/reclass entries from the repeated-mis-posting pattern it's
+designed to catch. Not fixed — flagged for a human (or a future session) to read the actual entries
+before assuming the diagnosis text applies.
+
 ---
 
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)

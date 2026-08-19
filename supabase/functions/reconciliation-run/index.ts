@@ -255,8 +255,35 @@ function balanceAt(code: string, D: string, ledger: Record<string, any[]>, check
   return Math.round(b * 100) / 100
 }
 
+// Tech Debt follow-up (shipped session 222, 2026-08-19, same day as v14): this check
+// rebuilds Xero's ledger balance -- always principal-only, since it's summed straight
+// from live BankTransaction/ManualJournal lines on the loan's own account -- and
+// compared it against anchors[0], the single newest document of any kind, with no
+// regard for what that document actually measures. PayPal 2's amortization schedule
+// is typed 'total_payback' (principal + unamortized fee), confirmed exact-to-the-cent
+// against a real statement in an earlier session (schedule $64,879.69 minus true
+// principal $61,896.57 equals the $2,983.12 unamortized fee, verified precisely).
+// Comparing that total-payback figure straight against Xero's principal-only rebuild
+// produced a $144.39 "error" that was really just two incompatible numbers landing
+// close together by coincidence -- not a real gap. The separate document-intake
+// system already knows this (`basis_conflict`, source='intake') but this engine's own
+// balance_vs_lender check didn't yet carry the same basis-awareness, so it kept
+// reporting the false positive it lacked the information to recognize as false.
+//
+// Fix: only trust an anchor whose balance_basis is confirmed 'principal_only' -- the
+// same "never compare two figures whose bases differ" rule the intake system already
+// lives by. All 244 real lender-document anchors (lender_statement / portal_manual_pull
+// / email_pdf_upload) are already typed principal_only, so this changes nothing for
+// them. It only takes effect for schedule-sourced anchors, where 4 of 5 schedules
+// (Dexter x2, PCV, Verdant) are principal_only and unaffected, and PayPal's
+// total_payback schedule is now correctly skipped instead of misread. If the newest
+// anchor fails the basis check, older anchors are tried in order rather than giving up
+// outright -- a usable real statement further back should still be used. If NONE of a
+// loan's anchors are confirmed principal_only, this check produces nothing rather than
+// guessing; that loan's basis gap, if any, is the intake system's basis_conflict to
+// report, not a second inconsistent message from here.
 function checkBalanceVsLender(loan: any, ledger: any, cp: number, cpDate: string, anchors: any[], today: string, windowFrom: string): Finding[] {
-  const anchor = anchors[0]
+  const anchor = anchors.find(a => a.balance_basis === 'principal_only')
   if (!anchor) return []
   // The ledger only contains what we pulled. Comparing against an anchor that
   // predates the window means walking the balance back through transactions we
@@ -698,7 +725,7 @@ async function handle(req: Request): Promise<Response> {
       // had "never been checked against anything outside Xero" — flatly untrue, and
       // the kind of wrong that erodes trust in every other finding on the page.
       supa.from('loan_amortization_rows')
-        .select('row_date, balance, loan_amortization_schedules!inner(loan_account_id)')
+        .select('row_date, balance, loan_amortization_schedules!inner(loan_account_id, balance_basis)')
         .not('balance', 'is', null),
     ])
     const active = (loans || []).filter(l => l.xero_account_code)
@@ -743,10 +770,10 @@ async function handle(req: Request): Promise<Response> {
       const mine = (statements || []).filter(s => s.loan_account_id === loan.id)
       const stmtAnchors = mine
         .filter(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date <= today)
-        .map(s => ({ statement_date: s.statement_date, principal_balance: s.principal_balance, source: s.source }))
+        .map(s => ({ statement_date: s.statement_date, principal_balance: s.principal_balance, source: s.source, balance_basis: s.balance_basis }))
       const schedAnchors = (amortRows || [])
         .filter((r: any) => r.loan_amortization_schedules?.loan_account_id === loan.id && r.row_date <= today)
-        .map((r: any) => ({ statement_date: r.row_date, principal_balance: r.balance, source: 'amortization_schedule' }))
+        .map((r: any) => ({ statement_date: r.row_date, principal_balance: r.balance, source: 'amortization_schedule', balance_basis: r.loan_amortization_schedules?.balance_basis ?? null }))
       // Newest first, so anchors[0] is the most recent document of either kind.
       const anchors = [...stmtAnchors, ...schedAnchors].sort((a, b) => b.statement_date.localeCompare(a.statement_date))
       const futureOnlyAnchor = !anchors.length && mine.some(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date > today)
