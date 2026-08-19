@@ -243,9 +243,20 @@ async function callerRole(req: Request) {
 // preview's `note` leads with it, so the operator knows the mechanism before approving.
 // Accounting outcome is identical either way -- loan account reduced by principal only,
 // interest on 800; one two-line transaction vs. transaction + reallocating journal.
-// direct_split_enabled is deliberately left ON for Rapid: it costs one extra Xero read,
-// it is now honest, and it starts working by itself for any transaction posted before
-// the bank feed reconciles it. See PROJECT-NOTES-BOOKKEEPING.md tech-debt item 9.
+// FOLLOW-UP (same session): direct_split_enabled was subsequently turned OFF for Rapid
+// Credit Line -- see PROJECT-NOTES-BOOKKEEPING.md item 10. With it off, loan-ingest-
+// statement's v20 pairing also stops, so Rapid returns to the two-row model: the bank
+// payment is 100% principal and gets NO Xero write at all, and the lender's balance fee
+// posts as its own journal dated the day the fee was charged. One document per week,
+// and it reads as a finance charge rather than a correction to a payment.
+
+// v30 (session 222, 2026-08-19): WORDING. The fee/reclass journal is what David now
+// sees in Xero every week for Rapid (direct_split_enabled was turned off in the same
+// change -- see PROJECT-NOTES-BOOKKEEPING.md item 10), so its wording matters. It said
+// "<Loan> reclass" / "Interest reclass" / "<Loan> reclass", which reads like someone
+// fixing a mistake. It is not a correction: it books the lender's balance fee on the
+// date the lender charged it. Renamed to "<Loan> - balance fee, <date>" / "Interest" /
+// "Balance fee". No change to accounts, amounts, dates, signs, or any posting logic.
 
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
 const ZERO_TOLERANCE = 0.005 // dollars -- treat anything under half a cent as exactly zero
@@ -680,12 +691,12 @@ async function handleRequest(req: Request): Promise<Response> {
     if (Math.abs(totalAmt) < ZERO_TOLERANCE) {
       const journalPayload = {
         ManualJournals: [{
-          Narration: `${loanAcct.xero_account_name} reclass — ${split.period_label}`,
+          Narration: `${loanAcct.xero_account_name} — balance fee, ${split.period_label}`,
           Date: split.period_label,
           Status: 'POSTED',
           JournalLines: [
-            { LineAmount: interest, AccountCode: INTEREST_EXPENSE_ACCOUNT_CODE, Description: `Interest reclass`, TaxType: 'NONE' },
-            { LineAmount: -interest, AccountCode: loanAcct.xero_account_code, Description: `${loanAcct.xero_account_name} reclass`, TaxType: 'NONE' },
+            { LineAmount: interest, AccountCode: INTEREST_EXPENSE_ACCOUNT_CODE, Description: `Interest`, TaxType: 'NONE' },
+            { LineAmount: -interest, AccountCode: loanAcct.xero_account_code, Description: `Balance fee`, TaxType: 'NONE' },
           ],
         }],
       }

@@ -452,6 +452,70 @@ dead weight that should be retired rather than maintained.
 must be removed from the dashboard — add it to the retirement list alongside
 `temp-stripe-304-august-221` and `temp-pcv-254-221`.
 
+**10. ✅ DECIDED + SHIPPED session 222, 2026-08-19 — Direct Transaction Split turned OFF for Rapid
+Credit Line; back to the two-row model. `loan-xero-post` v30 (function version 32) for wording.**
+
+*The trigger.* Item 9's fix made the post work, and David immediately pushed back on the
+**result** rather than the mechanism: *"Having to reconcile through adjustments every time doesn't
+look great."* He was right, and the fix was not more code — it was undoing a design choice.
+
+*Two questions were settled first, both empirically:*
+
+- **Would turning off Xero bank rules create an unreconciled window for direct split to act in?
+  No.** A bank feed delivers *statement lines*, which are not BankTransactions. A BankTransaction
+  only comes into existence at the moment of reconciliation — whether via "Create" (which a bank
+  rule merely pre-fills) or "Match". With rules off, the statement line just sits in the Reconcile
+  tab and **no bank transaction exists at all**, so direct split would report "payment hasn't
+  appeared in Xero yet" indefinitely. Turning rules off makes it strictly worse. Evidence: of
+  **1,179 live transactions over 4 months, exactly 2 are unreconciled** — and both were created by
+  our own `xero-payout-sync` (the Stripe payouts). Not one feed-originated transaction is
+  unreconciled, including same-day ones.
+- **Does the split actually work on an unreconciled transaction? Yes — proven.** Created a
+  disposable $0.02 SPEND via the API, confirmed `IsReconciled: false`, ran v28's exact Update
+  payload → **HTTP 200**, two clean lines (247 + 800, total preserved) → then deleted it and
+  verified `DELETED`. So the mechanism is sound; it was only ever pointed at transactions it
+  cannot touch. The only architecture that could exploit this is **creating the bank transaction
+  ourselves, pre-split, before the feed line arrives** (exactly the `xero-payout-sync` pattern) —
+  blocked for Rapid by timing, since the interest figure comes from a statement that arrives after
+  the payment has already cleared and reconciled.
+
+*The actual fix — undo session 220's pairing.* `loan-ingest-statement` v20's fee↔payment pairing
+exists **solely** to feed direct split and is gated entirely on `direct_split_enabled`. With direct
+split dead, that pairing is the only thing producing the "reallocation journal against the payment"
+shape. Setting `direct_split_enabled = false` for Rapid (one column, no deploy) stops both at once
+and returns Rapid to the pre-session-220 two-row model, which is what July looked like:
+
+| | Row | Xero effect |
+|---|---|---|
+| Fee date (e.g. 08-17) | total $0.00, interest $485.49, principal −$485.49 | One journal dated the fee date |
+| Payment date (08-18) | total $2,068.89, **100% principal**, interest $0.00 | **No Xero write at all** (v19 short-circuit) |
+
+The bank payment is never touched, and the single journal books the lender's balance fee **on the
+day the lender charged it** — accrual, not correction. Arguably better than direct split ever would
+have been, since direct split dated the interest to the payment date instead of the fee date. Math
+is unchanged: fee +$485.49 to the loan, payment −$2,068.89, net −$1,583.40, tying exactly to the
+08-16 → 08-18 balance move ($54,252.75 → $52,669.35).
+
+*Wording (v30).* The fee journal is now what David sees weekly, so its copy matters. It said
+`"<Loan> reclass"` / `"Interest reclass"` / `"<Loan> reclass"` — reads like fixing a mistake.
+Renamed to `"<Loan> — balance fee, <date>"` / `"Interest"` / `"Balance fee"`. No change to accounts,
+amounts, dates, signs, or posting logic. **The bank-matched reallocation journal used by every OTHER
+loan was deliberately left alone** (it still says "interest reallocation" / "principal correction") —
+changing it would rewrite the wording mid-stream on loans David didn't ask about. Worth revisiting
+as a deliberate choice, not a side effect.
+
+*Cleanup performed.* The one 2026-08-18 split already posted in the old paired shape was reverted
+for consistency: Manual Journal `91f454f7-…` voided in Xero (verified `VOIDED` independently), the
+split and statement rows deleted, the stored PDF removed. **Done by hand via a temp function, not
+via v26's `revert: true` path** — that path requires an authenticated admin/manager JWT this
+environment cannot mint, so *the revert code path still has never been exercised.* It remains
+untested, and its first real use should still be a deliberate round-trip test.
+
+*Open, for David:* the Direct Transaction Split feature (v24–v29 of `loan-xero-post`, v20 of
+`loan-ingest-statement`) is now dormant with no loan enabled. It is proven to work on unreconciled
+transactions, so it is not dead code — but it has no live use case unless the pre-created-transaction
+architecture is ever built. Decide deliberately whether to retire it or leave it parked.
+
 ---
 
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
