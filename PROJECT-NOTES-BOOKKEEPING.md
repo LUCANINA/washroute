@@ -199,6 +199,57 @@ schedule > computed snapshot), date second, and surface which source won in the 
 Stripe Capital still has no periodic balance-snapshot job of its own; temp diagnostic functions
 `temp-stripe-304-august-221` and `temp-pcv-254-221` are still deployed and should be retired.
 
+**5. ✅ SHIPPED session 222, 2026-08-19 — `reconciliation-run` v14. Stale derived-row noise in
+`checkDerivedDrift`, permanent root-cause fix.**
+
+*Symptom:* David ran Reconciliation Check and open findings jumped to 27, then 32 — with Rapid
+Credit Line (247) alone showing 10+ nearly-identical findings, all the same $1,056.19 gap, one per
+week. He flagged this directly: "I'm skeptical these are real issues" — and he was right to be.
+
+*Cause, confirmed by SQL, not assumed:* `checkDerivedDrift` compares every `loan_statements` row
+whose `source` is `xero_derived` or `xero_balance_snapshot` against a fresh live rebuild of the
+loan's Xero ledger, every single run. But nothing in the codebase writes `xero_derived` at all —
+grepping the entire repo turns up zero INSERT/UPSERT sites — so all 341 existing `xero_derived`
+rows are permanently frozen one-time historical backfills done between 2026-08-05 and 2026-08-15.
+11 of the 12 affected loans show exactly ONE distinct `created_at` batch for their entire history.
+`xero_balance_snapshot` has exactly one live writer, `xero-payout-sync`, and it is hardcoded
+specifically to Stripe Capital (`xero_account_code` `304`, `loan_accounts.ingestion_method` =
+`'automatic'`) — PCV Good and Green's 16 `xero_balance_snapshot` rows are the same kind of
+one-shot backfill (1 batch, 2026-08-05), not a second live source. A row nothing will ever update
+generates the exact same unfixable warning forever — permanent noise, not a real recurring
+accounting error, and it was drowning out the findings that are actually actionable.
+
+*Two approaches considered and rejected:*
+- *Delete/archive the stale `loan_statements` rows.* Rejected — SQL confirmed 7 loans (Kabbage,
+  Stripe Capital, EIDL SBA, PCV, E-Transit N205-0309, Dexter Loan 2, Bluevine) currently have their
+  DISPLAYED Debt Schedule balance sourced from exactly these rows, because
+  `_loanOutstandingBalance()` applies no source filter (this is Tech Debt item 3, above). A blind
+  delete could silently blank out or change a real dashboard balance — Dexter Loan 2 in particular
+  shows an active $89,411.25 sourced from a derived row.
+- *Row-age heuristic (ignore anything older than N days).* Rejected — the actual data showed every
+  problematic batch was created only 4–14 days before this was caught, because the whole
+  Bookkeeping module itself is only weeks old. Recency alone would not have excluded any of them.
+
+*Fix shipped:* gated `checkDerivedDrift`'s comparison loop with a new `isLiveDerivedSource(loan,
+source)` check — only `xero_balance_snapshot` rows on a loan with `ingestion_method === 'automatic'`
+(currently just Stripe Capital) are trusted as a live signal worth re-checking; every `xero_derived`
+row, and every `xero_balance_snapshot` row on any other loan, is skipped. This is root-cause, not a
+cleanup: the gate is "does this loan have a genuinely live writer for its derived data" (verifiable
+from `loan_accounts.ingestion_method`), not "is this specific row old" — a fresh one-shot backfill
+written tomorrow would be excluded on day one, not just after it goes stale. No schema change, no
+migration, and zero `loan_statements` rows touched, so the Debt Schedule display is completely
+unaffected either way (that display-accuracy question is Tech Debt item 3, still open).
+
+Deployed and verified byte-for-byte against the intended source. **Not yet watched fire on a real
+run** — same auth limitation as item 1 above. David: next "Run Reconciliation Check" should show
+Rapid Credit Line's repeating $1,056.19 findings and Funding Circle's $2,033.77 findings
+auto-resolve (the existing resolve-sweep in `handle()` marks a fingerprint `resolved` once its
+check stops reproducing it), dropping total open findings back down substantially.
+
+*Still open, related, NOT fixed by this:* the same 7 loans called out above (especially Dexter Loan
+2's real $89,411.25) still show a Debt Schedule balance sourced from a stale derived row with no
+authority ranking to prefer a real lender document over it — that's Tech Debt item 3.
+
 ---
 
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)

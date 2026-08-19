@@ -412,10 +412,46 @@ function checkStaleAnchor(loan: any, anchors: any[], today: string, futureOnlyAn
   }]
 }
 
+// Tech Debt #4 (opened + shipped session 222, 2026-08-19): comparing against a
+// "derived" statement row is only meaningful if something is actually keeping that
+// row current. Audited every loan_statements row with source in ('xero_derived',
+// 'xero_balance_snapshot') against the codebase: NOTHING writes 'xero_derived' —
+// grepping the whole repo turns up zero INSERT/UPSERT sites, so every one of the
+// 341 existing rows is a permanently frozen one-time historical backfill from
+// Aug 5-15, 2026 (11 of 12 affected loans show exactly ONE distinct created_at
+// batch for their entire history — confirmed via SQL, not assumed). 'xero_balance_snapshot'
+// has exactly one live writer, xero-payout-sync, and it is hardcoded to Stripe
+// Capital (xero_account_code '304', loan_accounts.ingestion_method='automatic') --
+// PCV Good and Green's 16 xero_balance_snapshot rows are the same kind of one-shot
+// backfill (1 batch, 2026-08-05), not a second live source.
+//
+// Before this fix, checkDerivedDrift compared ALL of it, so a loan whose only
+// "derived" data was a dead 2021-era backfill (Rapid Credit Line: 10+ weekly
+// findings, all the identical $1,056.19 -- a frozen historical gap, not a new one
+// each week) generated the exact same unfixable warning on every single run,
+// forever, since nothing will ever update that row to make the gap close.
+// Permanent, unfixable noise defeats the entire point of this engine -- a report
+// worth reading leads with what's actionable, and a finding nobody can ever
+// resolve by definition isn't. THIS IS THE ROOT-CAUSE FIX, not a one-time
+// cleanup: it holds for any future backfill too, without needing another patch,
+// because the gate is "is this loan's derived source actually live-maintained"
+// (verifiable from loan_accounts.ingestion_method), not "is this specific row
+// old" -- a fresh one-shot backfill written tomorrow would be excluded on day
+// one, not just after it goes stale.
+//
+// Nothing in loan_statements is touched by this change -- the Debt Schedule's
+// displayed balance (_loanOutstandingBalance() in admin-dashboard) reads
+// loan_statements directly and is completely unaffected either way. This is
+// purely about what reconciliation-run is willing to treat as a live signal
+// worth re-checking every run.
+const isLiveDerivedSource = (loan: any, source: string) =>
+  source === 'xero_balance_snapshot' && loan.ingestion_method === 'automatic'
+
 function checkDerivedDrift(loan: any, ledger: any, cp: number, cpDate: string, derived: any[], windowFrom: string): Finding[] {
   const code = loan.xero_account_code
   const out: Finding[] = []
   for (const d of derived) {
+    if (!isLiveDerivedSource(loan, d.source)) continue  // frozen historical backfill -- see Tech Debt #4 above
     if (d.statement_date < windowFrom) continue      // outside what we pulled — can't judge
     if (d.principal_balance == null) continue
     const computed = balanceAt(code, d.statement_date, ledger, cp, cpDate)
