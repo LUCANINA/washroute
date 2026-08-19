@@ -802,18 +802,67 @@ it easy to do carelessly. Add the CHECK constraint at the same time.
 
 ---
 
-**16. 📋 FOR THE CPA — $4,480 of Rapid draw fees have never been classified.**
+**16. 📋 FOR THE CPA — $4,480 of Rapid draw fees are expensed as interest and would need
+RECLASSIFYING, not recording.**
 
-Rapid charges a **Draw Fee of exactly 4.00% of every draw**, separate from the weekly Balance Fee:
-$4,000.00 on the $100,000 initial draw (2025-11-03) and $480.00 on the $12,000 draw (2026-03-12).
-**Neither appears in `loan_splits`** — they have never been split out or expensed.
+⚠️ **This item was initially written wrong and is corrected here.** The first version said the draw
+fees "have never been split out or expensed." That came from querying `loan_splits` for exact amounts
+of 4000.00 and 480.00 and getting no rows. **They were bundled inside larger rows all along:**
 
-Unlike the weekly Balance Fee (which the numbers prove is interest — C11), a draw fee is a genuine
-fixed one-time origination charge. Under ASC 835-30 that is a debt issuance cost: capitalised against
-the debt's carrying amount and amortised to interest expense over the term, rather than expensed as
-incurred. **This is a judgment call, one of the two periods is in a prior year, and nobody here is an
-accountant — David's CPA decides before anything is written to Xero.** Surface both as tie-out
-exceptions in the meantime.
+| Draw fee | Sits inside | Arithmetic |
+|---|---|---|
+| $4,000.00 (2025-11-03) | the 2025-12-31 lump journal, $11,029.84 | $7,029.84 of 2025 balance fees + $4,000.00 |
+| $480.00 (2026-03-12) | the 2026-03-31 split, $1,222.60 | $742.60 balance fee + $480.00 |
+
+Both tie to the cent. *Lesson worth keeping: an exact-amount search is not an existence test when the
+system aggregates. Reconcile totals, don't grep for values.*
+
+**So both draw fees are already in the P&L as interest expense** — $4,000 in FY2025, $480 in FY2026.
+Rapid charges a Draw Fee of exactly 4.00% of every draw, and unlike the weekly Balance Fee (which the
+numbers prove is interest — C11) that is a genuine fixed origination charge. Under ASC 835-30 it is a
+debt issuance cost: capitalised against the debt's carrying amount and amortised to interest expense
+over the term, rather than expensed as incurred.
+
+**What the CPA is actually deciding, therefore, is whether to reclassify existing entries — one of
+them in a year that is likely closed and filed.** That is a materially different question from
+"record a missing expense", and the FY2025 item may simply not be worth a prior-period adjustment on
+$4,000. Nobody here is an accountant; this is the CPA's call.
+
+*If the answer is yes, split them out:* see item 17 for what changes in the system.
+
+---
+
+**17. 🔭 IF THE CPA SAYS SPLIT THE DRAW FEE OUT — what actually changes.**
+
+Scoped session 222 as a hypothetical, not built. Ordered by whether it is worth doing at all.
+
+**A. The durable fix: ingest the lender's fee TYPE, not just the amount.** Today ingestion derives
+interest by differencing balances between statements, which silently sums every charge in a period
+into one `interest_amount`. That is exactly how a $480 origination fee ended up invisible inside a
+$1,222.60 row. Rapid publishes each fee with a **Description** (`Balance Fee` / `Draw Fee`) and an
+exact amount — a strictly better source than a derived difference. Change: parse the fee table, emit
+**one `loan_splits` row per fee**, and carry a `fee_type` so the two are separable forever. This is
+worth doing **whatever the CPA decides**, because it makes the classification visible instead of
+implicit, and it removes a derivation in favour of the lender's own figure.
+
+Requires a `fee_type` column on `loan_splits` (nullable text, no backfill needed — historic rows stay
+null and are simply "unclassified"). Follow the item-14 rule: explicit REVOKE/GRANT and verify after
+apply.
+
+**B. The FY2026 item ($480).** Reclass journal: debit a debt-issuance-cost asset, credit interest
+expense, dated 2026-03-12. Then amortise over the remaining term. Small, current-year, clean.
+
+**C. The FY2025 item ($4,000).** Sits inside the 2025-12-31 lump journal in a year that is likely
+closed and filed. This is a prior-period adjustment, not a bookkeeping edit, and $4,000 may simply
+not clear a materiality threshold. **Do not touch this without the CPA saying so explicitly.**
+
+**D. What this does NOT fix.** The tie-out's $1,056.19 Rapid gap is *not* a missing-fee problem —
+C14 reconciles our interest to the lender's fee table to $0.00. Whatever causes that difference lies
+on the Xero side (payments, draws, or the opening balance), not in the fee ledger. Chasing it is a
+separate investigation, and C14 has usefully eliminated the most obvious suspect.
+
+**E. Genuinely missing right now:** the 2026-08-17 balance fee of $485.49, plus the 08/18 payment.
+One period, un-ingested. Independent of the CPA question.
 
 ---
 
