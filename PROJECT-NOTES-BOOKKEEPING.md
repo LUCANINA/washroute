@@ -562,6 +562,62 @@ Verdant 84 rows (83/83, 84/84) — using *different* layouts.
   skipped when a schedule verified locally. Same shape as step 4b's silent override — the
   question is never which reader is right in the abstract, it's which one the user reads.
 
+
+---
+
+## New check: `unexplained_ledger_adjustment` (`reconciliation-run` v11, session 221)
+
+**David's question, which was the right one to ask:** "The tool shows 20 issues. Why is
+this [the suspected ~$3,142 PayPal double-count] not being flagged automatically?"
+
+**Answer, part 1 — it WAS flagged, as a $144.39 problem.** `balance_vs_lender` reported
+*"Paypal 2 — Xero is $144.39 above the lender."* That comparison put Xero's principal-basis
+balance ($65,024.08) against the schedule's TOTAL-PAYBACK figure ($64,879.69). Both are
+wrong relative to true principal ($61,896.57) — Xero by **$3,127.51** (the double-count),
+the schedule by **$2,983.12** (unearned fee) — and in the same direction. Subtract them and
+you get exactly the $144.39 reported. **Two independent errors nearly cancelled, disguising
+a ~$3,100 problem as a rounding nuisance.** Confirmed to the cent.
+- The lesson is sharper than "the basis was wrong": a wrong number that looks *alarming*
+  gets investigated; a wrong number that looks *benign* does not. Cancelling errors are the
+  dangerous kind. This is the strongest argument yet for the basis typing, and it means
+  **importing the PayPal CSV un-masks the real figure with no new code** — that same check
+  would then compare principal against principal and report ~$3,127 instead of $144.
+
+**Answer, part 2 — separately, nothing looked for "the same payment recorded twice."**
+Now it does. But NOT by matching amounts: the PayPal journal is $3,142.26 while the payment
+is $3,414.71, so an amount-equality rule would have missed it entirely. The detectable,
+generalisable signal is **the correction trail itself** — a loan needing repeated manual
+adjustment is a loan whose automated posting is wrong, and every hand-correction is a chance
+to book a payment twice.
+
+**Mechanics:** flags hand-posted ManualJournals hitting a loan's Xero account, **excluding
+journals this system posted** (via `loan_splits.xero_manual_journal_id`). Fires at ≥3
+adjustments (`warn`) or >$1,000 combined (`info`). Skips `automatic` and `paid_off` loans.
+Reuses the engine's existing Xero pull and its already-fetched splits — zero new queries,
+zero new Xero fetches.
+- **Subtlety that would have silently broken it:** Postgres returns lowercase uuids, Xero
+  returns mixed-case GUIDs. Without lowercasing both sides the "exclude our own journals"
+  filter would never have matched a single row, and every posted journal would have been
+  reported as an unexplained correction.
+- `detail.date` is populated deliberately, set to the newest adjustment — `stale_anchor` and
+  `future_dated_rows` carry no date and are therefore unprotected by the resolve sweep's
+  date guard. This check does not repeat that.
+
+**Live results (first run, `checks_run: 7`, 6 new findings, `findings_resolved: 0` —
+confirming the `source='engine'` scoping kept the intake findings safe):**
+| loan | adjustments | total moved | largest |
+|---|---|---|---|
+| Verdant Capital | 6 (warn) | **$572,400.13** | $284,354.50 — "To reverse the Entry bo…" |
+| PayPal | 4 (warn) | $18,922.10 | $9,700.61 — "To reverse part of the adjustment from march" |
+| Pacific Community Ventures | 2 (info) | $3,634.05 | $1,831.47 — "understated interest for April" |
+| Dexter Financial | 2 (info) | $6,579.46 | $3,289.73 |
+| Ford Pro FinSimple ×2 | 1 each (info) | $4,903.20 / $7,687.53 | "To reclass the May 2026 Ford paymentt in May" |
+
+**The 2026-07-31 −$3,142.26 "To reclass the payment made for paypal" journal now appears
+first in PayPal's finding**, which was the whole point. Also newly visible: **Verdant's
+$572,400 of corrections** including a full reversal of the loan principal — larger than
+anything previously surfaced and worth its own look.
+
 ---
 
 ## ⚠️ `loan-xero-post` hardened (v26 → v27) — found via a real pending split, session 221

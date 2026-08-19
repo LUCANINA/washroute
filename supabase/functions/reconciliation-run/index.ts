@@ -276,7 +276,17 @@ function checkBalanceVsLender(loan: any, ledger: any, cp: number, cpDate: string
   }]
 }
 
-function checkLumpedPayments(loan: any, ledger: any, today: string): Finding[] {
+// v8 (session 218 cont.): `statements` is now passed in so this check can tell WHY a
+// payment hasn't been split, not just THAT it hasn't. Before this, every unsplit
+// payment got the same generic "split once the lender statement or schedule gives the
+// exact figures" note — even when the real reason was a specific, fixable gap: no
+// lender statement on file predates the payment, so loan-ingest-statement's diff logic
+// (which needs a PRIOR statement to compute principal vs. interest) has nothing to work
+// from. That was exactly David's E-Transit Loan 4140 case (statements 04-27, 06-27,
+// 07-28 on file; nothing before the 04-17 payment). The fix: distinguish that specific,
+// actionable case from the general "we just haven't gotten to it yet" case, and name
+// what's missing and what to do about it.
+function checkLumpedPayments(loan: any, ledger: any, today: string, statements: any[]): Finding[] {
   const code = loan.xero_account_code
   const rows = ledger[code] || []
   const out: Finding[] = []
@@ -290,6 +300,16 @@ function checkLumpedPayments(loan: any, ledger: any, today: string): Finding[] {
   // interest left to split. Aquarecycle's $7,984.52 payoff on 2026-05-21 was flagged
   // as "missed" on 2026-08-16; it wasn't.
   if (loan.status === 'paid_off') return []
+
+  // Real lender documents on file for this loan, oldest first. Only these can ever
+  // serve as the "prior statement" loan-ingest-statement diffs against — an
+  // amortization-schedule row or a derived balance doesn't count, same rule as anchors.
+  const realStatementDates = (statements || [])
+    .filter((s: any) => REAL_ANCHOR_SOURCES.includes(s.source))
+    .map((s: any) => s.statement_date)
+    .sort()
+  const oldestStatementDate = realStatementDates[0] ?? null
+
   for (const r of rows) {
     if (r.srcType !== 'BankTransaction') continue
     if (!String(r.type || '').startsWith('SPEND')) continue
@@ -302,15 +322,30 @@ function checkLumpedPayments(loan: any, ledger: any, today: string): Finding[] {
       && j.lines.some((l: any) => l.c === code && Number(l.a) < 0))
     if (paired) continue
     const amt = Math.abs(Number(r.total || 0))
+
+    // Does at least one real statement predate this payment? If not, but the loan DOES
+    // have real statements on file (just none early enough), that's the specific,
+    // nameable, fixable gap — as opposed to "no statements at all" (a different,
+    // pre-existing problem the stale_anchor check already covers) or "a prior statement
+    // exists but ingestion just hasn't produced a split yet" (the generic case below).
+    const hasPriorStatement = realStatementDates.some((d: string) => d < r.date)
+    const missingPrior = !hasPriorStatement && oldestStatementDate != null
+
     out.push({
       fingerprint: `lumped_payment:${code}:${r.srcId}`,
-      check_key: 'lumped_payment',
+      check_key: missingPrior ? 'lumped_payment_missing_prior_statement' : 'lumped_payment',
       severity: daysBetween(r.date, today) > 45 ? 'warn' : 'info',
       loan_account_id: loan.id,
-      title: `${loan.xero_account_name} — ${r.date} payment of ${money(amt)} has no interest split`,
-      plain_english: `The whole ${money(amt)} was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. ${daysBetween(r.date, today) > 45 ? 'This one is over 45 days old, so it is probably genuinely missed rather than just pending month-end.' : 'Recent — most likely just waiting for month-end or the lender statement.'}`,
-      detail: { code, date: r.date, amount: amt, bank_transaction_id: r.srcId, contact: r.contact, age_days: daysBetween(r.date, today) },
-      proposed_action: { kind: 'reallocation_journal', note: 'Split principal/interest once the lender statement or schedule gives the exact figures, then post via loan-xero-post.' },
+      title: missingPrior
+        ? `${loan.xero_account_name} — ${r.date} payment of ${money(amt)} needs a statement from before ${oldestStatementDate}`
+        : `${loan.xero_account_name} — ${r.date} payment of ${money(amt)} has no interest split`,
+      plain_english: missingPrior
+        ? `The whole ${money(amt)} was recorded as paying down the loan, with nothing booked as interest. This can't be split yet because it needs to be compared against the statement from just before it, and the oldest lender statement on file for this loan is ${oldestStatementDate} — after this payment, not before it. Upload a statement dated before ${r.date} for this loan and the split will be computed and posted for review automatically.`
+        : `The whole ${money(amt)} was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. ${daysBetween(r.date, today) > 45 ? 'This one is over 45 days old, so it is probably genuinely missed rather than just pending month-end.' : 'Recent — most likely just waiting for month-end or the lender statement.'}`,
+      detail: { code, date: r.date, amount: amt, bank_transaction_id: r.srcId, contact: r.contact, age_days: daysBetween(r.date, today), oldest_statement_on_file: oldestStatementDate },
+      proposed_action: missingPrior
+        ? { kind: 'upload_earlier_statement', note: `Upload the lender statement covering the period just before ${r.date} for this loan (the oldest one on file is dated ${oldestStatementDate}). Once it's on file, this split will be computed and posted for review automatically — no other action needed.` }
+        : { kind: 'reallocation_journal', note: 'Split principal/interest once the lender statement or schedule gives the exact figures, then post via loan-xero-post.' },
     })
   }
   return out
@@ -418,6 +453,82 @@ function checkNonLiveCounted(loan: any, allEntries: any[], derived: any[], split
     })
   }
   return out
+}
+
+// v11 (session 219): PayPal A00845102 carries ~20 hand-posted adjustment journals over
+// nine months, because the bank feed books each weekly payment entirely to the loan
+// liability with $0 interest and a person posts a correction every week. One of those
+// corrections (2026-07-31, "To reclass the payment made for paypal", −$3,142.26) books
+// a payment that had not happened yet; the real bank entry then books it again days
+// later — a double-count. Matching on amount would never have caught it: the journal is
+// $3,142.26 and the payment is $3,414.71. The detectable, generalisable signal is the
+// correction trail itself. A loan whose ledger needs repeated manual adjustment is a
+// loan whose automated posting is wrong, and every hand-correction is an opportunity to
+// count a payment twice.
+//
+// Journals THIS system posted are expected, not corrections, so they are excluded via
+// loan_splits.xero_manual_journal_id. Postgres returns uuids lowercased and Xero returns
+// GUIDs in mixed case, so both sides are lowercased before comparing. `splits` is the
+// per-loan slice the runner already computed — no extra query, no extra Xero fetch.
+function checkUnexplainedLedgerAdjustment(loan: any, ledger: any, splits: any[], windowFrom: string): Finding[] {
+  const code = loan.xero_account_code
+  // Same skips as checkLumpedPayments / checkStaleAnchor. Stripe Capital (automatic)
+  // repays by straight principal deduction with no interest to reallocate, so it has
+  // nothing to correct; a paid-off loan's correction trail is history, not an open risk.
+  if (loan.ingestion_method === 'automatic') return []
+  if (loan.status === 'paid_off') return []
+
+  const ours = new Set((splits || [])
+    .map((sp: any) => sp.xero_manual_journal_id)
+    .filter(Boolean)
+    .map((id: any) => String(id).toLowerCase()))
+
+  // ledger[code] is already live-only (POSTED) and already narrowed to entries that
+  // touch this loan's account — reuse it rather than re-scanning allEntries.
+  const handPosted = (ledger[code] || []).filter((r: any) =>
+    r.srcType === 'ManualJournal'
+    && r.date >= windowFrom
+    && !ours.has(String(r.srcId || '').toLowerCase()))
+  if (!handPosted.length) return []
+
+  const count = handPosted.length
+  const totalAbs = Math.round(handPosted.reduce((s: number, r: any) => s + Math.abs(effect(r, code)), 0) * 100) / 100
+  // Either a repeated trail, or a small number of large ones. Both mean the automated
+  // posting is not landing where it should.
+  if (count < 3 && totalAbs <= 1000) return []
+
+  const newestFirst = handPosted.slice().sort((a: any, b: any) => b.date.localeCompare(a.date))
+  const latest = newestFirst[0]
+  const largest = handPosted.slice().sort((a: any, b: any) => Math.abs(effect(b, code)) - Math.abs(effect(a, code)))[0]
+  const largestAbs = Math.round(Math.abs(effect(largest, code)) * 100) / 100
+  const narr = (s: any) => String(s ?? '').trim().slice(0, 80)
+  const examples = newestFirst.slice(0, 4).map((r: any) => ({
+    date: r.date, amount: Math.round(effect(r, code) * 100) / 100, narration: narr(r.narration),
+  }))
+
+  return [{
+    fingerprint: `unexplained_ledger_adjustment:${code}`,
+    check_key: 'unexplained_ledger_adjustment',
+    severity: count >= 3 ? 'warn' : 'info',
+    loan_account_id: loan.id,
+    title: `${loan.xero_account_name} — ${count} hand-posted correction${count === 1 ? '' : 's'} totalling ${money(totalAbs)} since ${windowFrom}`,
+    plain_english: `This loan's ledger has needed ${count} manual correction${count === 1 ? '' : 's'} in this period, moving ${money(totalAbs)} in total. The largest was ${money(largestAbs)} on ${largest.date}${narr(largest.narration) ? ` ("${narr(largest.narration)}")` : ''}. When a loan needs hand-fixing this often it usually means the payment is being recorded wrong in the first place — typically the bank feed puts the whole payment against the loan and someone has to move the interest back by hand afterwards. That matters beyond the tidying: each correction is a chance for the same payment to end up on the books twice, once when the correction is posted and again when the real payment comes through the bank. Worth fixing where the payment is first recorded, so no correction is needed next time.`,
+    detail: {
+      code,
+      // `date` is load-bearing, not decoration: the resolve sweep only protects a
+      // finding from being auto-resolved when it can read a date off it, and both
+      // stale_anchor and future_dated_rows carry none. Newest adjustment date keeps
+      // this finding inside that guard.
+      date: latest.date,
+      adjustment_count: count,
+      total_abs_effect: totalAbs,
+      examples,
+    },
+    proposed_action: {
+      kind: 'review_manual_adjustments',
+      note: `Review the ${count} manual journal${count === 1 ? '' : 's'} posted against ${loan.xero_account_name} since ${windowFrom}, starting with the ${money(largestAbs)} one dated ${largest.date}, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source — split principal and interest on the payment itself — so the weekly hand-correction is no longer needed.`,
+    },
+  }]
 }
 
 // ── Report ───────────────────────────────────────────────────────────────────
@@ -570,14 +681,19 @@ async function handle(req: Request): Promise<Response> {
         findings.push(...checkBalanceVsLender(loan, ledger, cp, cpDate, anchors, today, windowFrom))
         findings.push(...checkDerivedDrift(loan, ledger, cp, cpDate, derived, windowFrom))
       }
-      findings.push(...checkLumpedPayments(loan, ledger, today))
+      findings.push(...checkLumpedPayments(loan, ledger, today, mine))
       findings.push(...checkFutureDatedStatements(loan, mine, today))
       findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor))
       findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), derived, mySplits))
+      findings.push(...checkUnexplainedLedgerAdjustment(loan, ledger, mySplits, windowFrom))
     }
 
     // ── new / still-open / resolved, by fingerprint ──
-    const { data: existing } = await supa.from('reconciliation_findings').select('*')
+    // Engine-owned rows only. This table is now shared with the intake subsystem
+    // (source='intake'), and the resolve sweep below closes anything it did not
+    // re-find. The engine never produces intake check_keys, so an unscoped load
+    // would silently auto-resolve every intake finding. Never resolve what we don't own.
+    const { data: existing } = await supa.from('reconciliation_findings').select('*').eq('source', 'engine')
     const byFp: Record<string, any> = Object.fromEntries((existing || []).map(f => [f.fingerprint, f]))
     const seenFps = new Set(findings.map(f => f.fingerprint))
     const enriched: any[] = []
@@ -650,7 +766,7 @@ async function handle(req: Request): Promise<Response> {
     await supa.from('reconciliation_runs').update({
       status: 'complete', finished_at: new Date().toISOString(),
       period_from: windowFrom, period_to: today,
-      checks_run: 6, loans_checked: active.length, ...counts,
+      checks_run: 7, loans_checked: active.length, ...counts,
       summary: {
         checkpoint: newCheckpoint,
         xero_entries_scanned: allEntries.length,
