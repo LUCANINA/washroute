@@ -12166,14 +12166,46 @@ ${noActivityNote}
       const { ok, data } = await _loanFn('loan-xero-post', { loan_split_id: splitId, confirm: false });
       if (!ok || data.error) {
         const canPost = currentUserRole !== 'cpa';
-        body.innerHTML = `<div style="color:var(--red);font-size:13.5px">${esc(data.error || 'Could not find a matching Xero transaction.')}</div>
-          ${data.candidates && data.candidates.length ? `<div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">Candidates found${canPost ? '' : ' (read-only — ask an admin or manager to post)'}:</div>
-          <div style="margin-top:6px">${data.candidates.map(c => `<div style="padding:8px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
-            ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${canPost ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
-          </div>`).join('')}</div>` : ''}`;
+        // Session 221: loan-xero-post v27 distinguishes "the payment simply hasn't reached
+        // Xero yet" -- the EXPECTED state for a statement uploaded the same day -- from a
+        // genuine mismatch. Rendering the normal case in alarming red taught people to
+        // ignore this screen, so it now reads as a calm wait rather than a failure.
+        const waiting = data.reason === 'payment_not_yet_in_xero';
+        body.innerHTML = `<div style="color:${waiting ? 'var(--gray-600)' : 'var(--red)'};font-size:13.5px">${
+            waiting ? '⏳ ' : ''}${esc(data.error || 'Could not find a matching Xero transaction.')}</div>
+          ${data.candidates && data.candidates.length ? `
+          <div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">
+            Candidates found${canPost ? '' : ' (read-only — ask an admin or manager to post)'}${
+              data.anchor_date ? `, measured against this split's period of ${esc(data.anchor_date)}` : ''}:
+          </div>
+          ${data.candidates.length > 1 ? `<div style="margin-top:6px;font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">
+            More than one transaction matches this amount, so the amount alone can't tell them apart — check the dates below before picking. Posting against the wrong one dates the entry to that transaction's day and can't be spotted later by the amounts.
+          </div>` : ''}
+          <div style="margin-top:6px">${data.candidates.map(c => {
+            // Distance is the only real discriminator when a loan's payment never varies
+            // (Rapid's is always the same figure), so it is shown, not buried.
+            const d = c.days_from_period;
+            const far = d != null && Math.abs(d) > 2;
+            const dist = d == null ? ''
+              : (d === 0 ? '<span style="color:var(--green)">same day as the period</span>'
+                : `<span style="color:${far ? '#b45309' : 'var(--gray-500)'}">${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} ${d > 0 ? 'before' : 'after'} the period${far ? ' — outside the usual matching window' : ''}</span>`);
+            return `<div style="padding:8px;border:1px solid ${far ? '#fde68a' : 'var(--gray-200)'};border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
+              ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${canPost ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
+              ${dist ? `<div style="font-size:11.5px;margin-top:3px">${dist}</div>` : ''}
+            </div>`;
+          }).join('')}</div>` : ''}`;
         footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
         return;
       }
+
+      // Session 221: when an operator explicitly picked a transaction and it sits outside
+      // the normal matching window, say so on the preview they are about to approve.
+      // v27 validates amount and bank account as hard rejects, but a date mismatch is
+      // legitimate often enough that it warns rather than blocks -- so the warning has to
+      // actually reach the screen or the check accomplishes nothing.
+      const pickedWarn = data.picked_date_warning
+        ? `<div style="margin-bottom:10px;font-size:12.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">⚠ ${esc(data.picked_date_warning)}</div>`
+        : '';
 
       // v26 (session 220): Direct Transaction Split gets its own render branch --
       // completely different shape from the manual-journal proposal below (no
@@ -12183,7 +12215,7 @@ ${noActivityNote}
       // journal-shaped rendering unchanged.
       if (data.kind === 'direct_split') {
         const dsm = data.matched_bank_transaction;
-        body.innerHTML = `
+        body.innerHTML = `${pickedWarn}
           <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">Direct Transaction Split — this splits the real Xero bank transaction dated ${esc(dsm.date?.slice(0,10))} for $${dsm.total} in place${dsm.reconciled ? ' (already reconciled)' : ''}. No separate Manual Journal.</div>
           <div class="form-section-head">Currently posted as</div>
           <div style="margin-bottom:14px">${(dsm.current_lines||[]).map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description||'(no description)')} — $${l.LineAmount} → ${esc(l.AccountCode)}${l.AccountName ? ` <span style="color:var(--gray-500)">— ${esc(l.AccountName)}</span>` : ''}</div>`).join('') || '<div style="font-size:13px;color:var(--gray-400)">—</div>'}</div>
@@ -12217,7 +12249,7 @@ ${noActivityNote}
         <div style="margin-bottom:14px">${journal.JournalLines.map(l => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${l.LineAmount}</b> → ${esc(l.AccountCode)}${l.AccountName ? ` <span style="color:var(--gray-500)">— ${esc(l.AccountName)}</span>` : ''}</div>`).join('')}</div>`
         : `<div class="form-section-head">No journal needed</div>
         <div style="margin-bottom:14px;font-size:13px;color:var(--gray-500)">Approving will mark this split posted with no Xero write.</div>`;
-      body.innerHTML = `
+      body.innerHTML = `${pickedWarn}
         ${mbtSectionHtml}
         ${journalSectionHtml}
         ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
