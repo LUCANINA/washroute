@@ -866,6 +866,56 @@ One period, un-ingested. Independent of the CPA question.
 
 ---
 
+**18. ✅ SHIPPED session 222 — Loans tile: dropped the "(20/22 loans)" caption, scoped the
+total to active loans.**
+
+David spotted it: the tile read `$2,376,323.65 — Total outstanding (20/22 loans)` directly beside a
+tile reading `14 — Active loans`. Both cannot be true.
+
+The caption counted loans with a balance **figure on file** — a data-completeness measure — and
+displayed it under a money figure, where every reader takes it to mean "loans carrying this debt".
+The 20 broke down as **13 active loans from statements + PayPal 2 from its schedule + six PAID-OFF
+loans contributing $0.00**. The 2 excluded (Dexter Loan 3, E-Transit N202) were also paid off, shown
+as *unknown* when they are in fact *zero*. Only the 14 active loans ever contributed a dollar.
+
+Fixed by scoping the sum to `status='active'` and removing the caption. The displayed figure is
+**unchanged** — all 8 paid-off loans already sit at $0.00 — so this is defensive, not a restatement:
+a paid-off loan that ever carried a stale non-zero balance would have silently inflated the headline
+with nothing to flag it. The hover tooltip is kept but now only fires when an *active* loan has no
+balance on file, which is a real gap; a paid-off loan having none is not.
+
+**Still overstated by $2,983.12, knowingly.** PayPal 2 contributes $64,879.69 from a `total_payback`
+schedule that includes unamortized fee. See item 19 — deliberately not patched here.
+
+---
+
+**19. ⚠️ THE REAL LESSON OF SESSION 222 — basis-blindness is one missing abstraction, not three bugs.**
+
+Three separate sites were found this session comparing or summing balances **without checking what
+the numbers measure**:
+
+1. `loan-cross-check` hardcodes `LEDGER_BASIS = 'principal_only'` and asserts that is what the Xero
+   ledger measures. Untrue for Rapid, where fees are charged to the balance (item 15 / C13).
+2. Rapid's 8 anchors are typed `principal_only` but are amount-owed figures including charged fees
+   (C13). The comparison happens to work; the label is a lie.
+3. The Loans tile summed PayPal 2's `total_payback` schedule alongside thirteen principal-only
+   figures, overstating outstanding debt by $2,983.12 (item 18).
+
+The reconciliation engine gets this right — `computeTieOut` refuses any anchor that is not confirmed
+`principal_only`, which is exactly why PayPal 2 comes back `not_comparable`. **The engine has the
+discipline; nothing else does.** Every other site re-derives or re-sums balances with no basis guard
+at all.
+
+**The abstraction that is missing:** one shared helper that takes a balance and its basis and either
+returns a comparable figure or refuses, with the three-measure vocabulary from item 15
+(`principal_only` / `amount_owed` / `total_payback`). Every consumer routes through it. Patching any
+one of the three sites in isolation is how this recurs a fourth time.
+
+*Do this after the CPA answers the draw-fee question (item 16), because that determines what Xero
+should hold for Rapid and therefore which basis is correct.*
+
+---
+
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
 
 **The scope grew.** The original plan was "write parsers for the 3-4 lenders still missing one." David then uploaded a large mixed batch (statements, an amortization schedule, a loan agreement, payoff letters, portal balance screenshots) spanning ~10+ lenders and reframed the actual goal: *"The system should eventually be able to discern what is what, put it in context, and propose an action for the CPA (or business owner) to approve. If two pieces of information are available, say an amortization doc + an actual statement, the system should compare them and see if everything checks out. If not, the system flags the inconsistency."* That's a document-classification + cross-validation layer, not just more parsers.
@@ -948,6 +998,41 @@ One period, un-ingested. Independent of the CPA question.
 **Build order 1-5 all shipped this session.** What's left before this is trusted on a real Rapid payment is entirely the testing sequence below — no more code to write, just verification against real data.
 
 **Testing sequence before this touches a real Rapid payment:** preview-only dry run against Rapid's real pending splits first (no confirm) to eyeball whether the ±3-day matching actually finds the right transactions by hand-checking a few against Xero; then one real confirm+revert cycle on a single low-stakes period to prove the revert path actually restores the original line item, before trusting confirm on anything else.
+
+---
+
+## Session 222 close-out (2026-08-19) — where to pick up
+
+**Deployed and verified:** `loan-xero-post` **v38**, `reconciliation-run` **v18**,
+`xero-payout-sync` v17. Repo clean and pushed. Nothing half-finished.
+
+**The one thing to do first next session:** ingest the missing Rapid period —
+**2026-08-17 balance fee $485.49** and the 08/18 payment — and record today's portal balance
+(**$52,669.35** as of 2026-08-19) as a fresh anchor. It is one period on the loan with the largest
+open difference, and it is independent of every open question below.
+
+**Then, in this order (the sequencing matters):**
+
+1. **CPA answers the draw-fee question** (item 16). It is a reclassification of existing entries, one
+   in a filed year — not a missing expense. It gates items 15, 17 and 19, because it determines what
+   Xero *should* hold for Rapid and therefore which basis is correct.
+2. **Fix basis-blindness once** (item 19), not at the three sites separately.
+3. **Tie-Out tab** (item 13, phase 2) then the packet export (phase 3). Phase 1 is done and verified.
+
+**Open exceptions the tie-out currently reports** — all three real, none a basis artifact:
+Funding Circle $2,033.77 · E-Transit 4140 $1,180.32 · Rapid $1,056.19. For Rapid, C14 has eliminated
+missing fees as the cause (our interest reconciles to the lender's fee table to **$0.00**), so
+whatever it is sits on the Xero side — payments, draws, or the opening balance.
+
+**Two corrections I made to my own earlier claims this session, recorded so they are not re-learned:**
+the attachments scope *is* granted (C7 — a stale 2005-era comment said otherwise for three sessions),
+and the Rapid draw fees *were* already expensed, bundled inside larger rows (item 16 — an
+exact-amount search is not an existence test when the system aggregates).
+
+**Housekeeping:** `_to_delete/` has accumulated git lock files again — clear it from Finder or with
+`rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
+`payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
+to "what is running".
 
 ---
 
