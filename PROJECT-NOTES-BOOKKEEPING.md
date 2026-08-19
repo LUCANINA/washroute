@@ -335,6 +335,45 @@ after editing.
 *Not yet watched live in the browser* — the next real PDF upload (Rapid or otherwise) is the first
 live confirmation that the option greys out and, if applicable, the switch-away note appears.
 
+**8. ✅ SHIPPED session 222, 2026-08-19 — `loan-xero-post` v28. An explicit `bank_transaction_id`
+no longer silently downgrades a Direct Transaction Split to a Manual Journal.**
+
+*Symptom:* the very first live confirm attempt on a Rapid Credit Line split hit "3 live bank
+transactions matched the amount ($2068.89) in the date window -- pass bank_transaction_id to pick
+the right one." The frontend's existing candidate picker (built for the manual-journal path)
+rendered fine and is wired to call `approveAndPostSplit(splitId, c.id)` on click — but confirming
+that pick would have posted the WRONG mechanism for this loan.
+
+*Root cause, found by reading `loan-xero-post` line by line before touching anything:* the direct-
+split block was gated `if (loanAcct.direct_split_enabled && !bank_transaction_id)`. Supplying
+`bank_transaction_id` skipped that block entirely and fell into the old Manual Journal code path,
+which happily accepts an explicit ID, validates it, and posts a separate reallocation journal —
+never touching the bank transaction in place. So clicking the candidate picker on a
+`direct_split_enabled` loan (Rapid Credit Line, the only one, v1) would have silently posted a
+Manual Journal instead of the in-place edit the Review Split modal had just promised, with no
+error and no indication the mechanism had changed. `bank_transaction_id` was being read as "skip
+auto-matching, use the old mechanism" when what an operator picking a candidate actually means is
+"skip auto-matching, use THIS transaction" — those are different, and only the second was ever
+intended.
+
+*Fix:* `findDirectSplitCandidate()` now accepts an optional `preferredBankTransactionId`. When
+supplied it fetches that transaction directly and validates it exactly like the manual-journal
+path's own explicit-ID handling always has (live status, amount matches the split, right bank
+account, not already multi-line) — any failure is a hard error, never a silent fallback, because a
+human named a specific transaction on purpose. The confirm-call gate no longer excludes
+`direct_split_enabled` loans just because an ID was passed; the ID is threaded into the matcher
+instead, so a validated explicit pick still performs the same in-place Update BankTransaction an
+auto-matched pick would. Non-direct-split loans are completely unaffected — their explicit-ID
+handling in the older Manual Journal path is untouched. Verified with a standalone 6-case logic
+test (explicit valid pick → direct_split; wrong amount / not live / already split → hard error;
+non-direct-split loan explicit pick → manual_journal unchanged; auto-match with no explicit ID →
+direct_split) before deploying. Deployed as v28 (`loan-xero-post`) and confirmed the deployed
+source matches the intended source byte-for-byte via `get_edge_function`.
+
+*Not yet watched live* — David has not yet re-clicked one of the 3 candidates on the actual Rapid
+Credit Line split that surfaced this. That click is still the first real end-to-end test of both
+the Direct Transaction Split write path AND this disambiguation fix together.
+
 ---
 
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
