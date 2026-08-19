@@ -130,8 +130,24 @@ Per the Root-Cause Rule: a one-time data fix without its root-cause fix is not d
 root-cause fix can't ship in the same session it goes HERE, with a concrete next step — not into
 prose halfway down the session log where the next session won't find it.
 
-**1. `checkDerivedDrift` has no notion of a correcting journal dated after the balance date.
-(Opened session 221, 2026-08-19. `reconciliation-run` v12.)**
+**1. ✅ SHIPPED session 222, 2026-08-19 — `reconciliation-run` v13. Awaiting a live run to confirm.**
+`checkDerivedDrift` now sums every live entry on the loan's code posted within
+`REALLOC_WINDOW_DAYS` (40) days *after* the balance date (same constant and
+"month-end correction can land ~30 days out" reasoning `checkLumpedPayments`
+already used) and only downgrades a finding to `info` when that combined
+effect closes the gap to the cent — same "match the correction, or report"
+discipline as the guard rail below required. Deployed and verified the
+deployed source matches the intended source byte-for-byte. **Not yet watched
+fire on a real run** — the edge function requires an authenticated
+admin/manager/cpa session (`callerRole()`), which this environment can't
+mint headlessly. David: click "Run Reconciliation Check" on the Bookkeeping
+tab once and confirm the two PCV Good and Green (254) findings below either
+disappear or flip to `info` severity — everything else (Rapid Credit Line
+247's repeating $1,056.19 and Funding Circle 253's $2,033.77, both open at
+the time this was written) is a *different* root cause and is expected to
+stay open; this fix only closes a timing gap, not every derived_drift.
+
+**Original symptom (kept for context):**
 
 *Symptom:* v12 widened the drift check to cover `xero_balance_snapshot` rows and immediately
 produced two false positives on PCV Good and Green (254) — 2026-05-01 off by $1,831.47 and
