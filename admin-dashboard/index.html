@@ -37665,6 +37665,14 @@ async function _dvIframeLoaded() {
     return `<span style="font-weight:600;color:${color}">${sign}${pct.toFixed(0)}%</span>`;
   }
 
+  // Small "🛒 Retail" tag shown next to a launderer's name when they also
+  // have a POS PIN set (launderers.pin) — i.e. they also work the register
+  // as a retail attendant, not just laundering.
+  function _fmtLndrAttendantTag(r) {
+    if (!r.isAttendant) return '';
+    return ' <span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;background:rgba(59,130,246,0.1);color:var(--accent);vertical-align:middle" title="Also signs into the POS as a retail attendant (has a POS PIN set)">🛒 Retail</span>';
+  }
+
   // Shared table-body renderer for the Launderer report — used by both the
   // initial load and every re-sort, so the category filter + Performance
   // column stay correct no matter which column is sorted.
@@ -37694,7 +37702,7 @@ async function _dvIframeLoaded() {
     const showUnassigned = !_lndrCategoryFilter && unassigned.orders > 0;
 
     tbody.innerHTML = visibleRows.map(r => `<tr>
-      <td>${r.name}</td>
+      <td>${esc(r.name)}${_fmtLndrAttendantTag(r)}</td>
       <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
       <td>${fmtCount(r.orders)}</td>
       <td>${fmtCount(r.bags)}</td>
@@ -37802,7 +37810,7 @@ async function _dvIframeLoaded() {
     }
 
     const [{ data: launderers }, { data: orders, error }, laborData] = await Promise.all([
-      db.from('launderers').select('id, name, square_employee_name').eq('is_active', true).order('name'),
+      db.from('launderers').select('id, name, square_employee_name, pin').eq('is_active', true).order('name'),
       fetchAllLaundererOrders(),
       fetchSquareLaborHours(fromEl.value, toEl.value)
     ]);
@@ -37883,7 +37891,10 @@ async function _dvIframeLoaded() {
         const squareName = l?.square_employee_name || name;
         const hrs  = laborData.laundry_hours[squareName] ?? null;
         const title = laborData.laundry_titles?.[squareName] || '—';
-        return { id, name, title, hrs, ...s };
+        // Anyone with a POS PIN set also works the register as a retail
+        // attendant — surfaced as a small tag next to their name below.
+        const isAttendant = !!l?.pin;
+        return { id, name, title, hrs, isAttendant, ...s };
       })
       .sort((a, b) => b.orders - a.orders);
 
@@ -38008,7 +38019,7 @@ async function _dvIframeLoaded() {
     const { rows, unassigned, issuesUnassigned, from, to } = _laundererReportData;
     if (!rows?.length && !unassigned?.orders) return;
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const headers = ['Folder','Title','Orders','Bags','Pounds','Hours Worked','Lbs/Hr','Performance vs Category Avg','Issues'];
+    const headers = ['Folder','Retail Attendant','Title','Orders','Bags','Pounds','Hours Worked','Lbs/Hr','Performance vs Category Avg','Issues'];
     // Orders & bags can be fractional (when participating in a split fold).
     const fmtNum  = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
     const catAvg  = _lndrCategoryAverages();
@@ -38020,10 +38031,10 @@ async function _dvIframeLoaded() {
       const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
       const pct = _lndrPerformancePct(r, catAvg);
       const perf = pct == null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`;
-      return [r.name, r.title || '', fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr, perf, r.issues || 0].map(esc).join(',');
+      return [r.name, r.isAttendant ? 'Yes' : '', r.title || '', fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr, perf, r.issues || 0].map(esc).join(',');
     });
     if (!_lndrCategoryFilter && unassigned?.orders > 0) {
-      csvRows.push(['Unassigned', '', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', '', '', issuesUnassigned || 0].map(esc).join(','));
+      csvRows.push(['Unassigned', '', '', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', '', '', issuesUnassigned || 0].map(esc).join(','));
     }
     const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
