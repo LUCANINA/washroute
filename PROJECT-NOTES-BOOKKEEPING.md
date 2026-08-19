@@ -516,6 +516,17 @@ untested, and its first real use should still be a deliberate round-trip test.
 transactions, so it is not dead code — but it has no live use case unless the pre-created-transaction
 architecture is ever built. Decide deliberately whether to retire it or leave it parked.
 
+**➡️ FORWARD DESIGN: see `DESIGN-LOAN-POSTING-MODEL.md`** (new, session 222). Items 9 and 10 above
+are the post-mortem; that doc is the plan. It carries the seven verified Xero constraints (each
+proven live, not read from docs), the Kind A / Kind B portfolio split that makes a single universal
+mechanism wrong, and a three-tier model: pre-staged split transactions for the three loans with
+forward amortization schedules (178 periods already computable), batched fee journals elsewhere, and
+no write at all for 100%-principal payments. Build order starts with a small concrete gap it
+identifies: **the reclass/fee journal path never attaches its source statement** even though the
+`accounting.attachments` scope is now confirmed working (verified live — the Rapid PDF, 92,652 bytes,
+is attached to journal `91f454f7-…`). The long-standing "attachments scope not authorized" comment in
+`loan-xero-post` is stale and should be deleted.
+
 ---
 
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
