@@ -2740,7 +2740,11 @@
                 <div class="stat-value" id="rpt-lndr-t2-lbs-per-hr">—</div>
               </div>
             </div>
-            <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:16px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray-600);cursor:pointer;user-select:none" title="Drop anyone with a POS PIN (retail attendants) from the table and from every average on this report">
+                <input type="checkbox" id="lndr-exclude-attendants" onchange="toggleLndrExcludeAttendants(this.checked)">
+                Exclude retail attendants
+              </label>
               <button class="rev-export-btn" id="launderer-export-btn" style="display:none" onclick="exportLaundererCSV()">Export CSV</button>
             </div>
             <div id="launderer-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
@@ -37608,6 +37612,21 @@ async function _dvIframeLoaded() {
   // null = show everyone, 'I' = Laundry Tech I only, 'II' = Laundry Tech II only.
   let _lndrCategoryFilter = null;
 
+  // Set by the "Exclude retail attendants" checkbox above the table. When
+  // true, anyone with a POS PIN (isAttendant) is dropped from the table AND
+  // from every average/total on this report — not just hidden cosmetically.
+  let _lndrExcludeAttendants = false;
+
+  // The rows this report currently treats as "everyone" — the full dataset,
+  // minus retail attendants when the exclude checkbox is checked. Every
+  // average / total / category-average computation should read from this
+  // instead of _laundererReportData.rows directly, so the checkbox actually
+  // changes the math, not just what's on screen.
+  function _lndrEffectiveRows() {
+    const rows = _laundererReportData.rows || [];
+    return _lndrExcludeAttendants ? rows.filter(r => !r.isAttendant) : rows;
+  }
+
   // Buckets a launderer's title into 'I' / 'II' / null. 'II' is checked first
   // since the string "Laundry Tech II" also contains "I".
   function _lndrTitleCategory(title) {
@@ -37636,7 +37655,7 @@ async function _dvIframeLoaded() {
   // person to their true category average, filter or no filter.
   function _lndrCategoryAverages() {
     const totals = { I: { lbs: 0, hrs: 0 }, II: { lbs: 0, hrs: 0 } };
-    (_laundererReportData.rows || []).forEach(r => {
+    _lndrEffectiveRows().forEach(r => {
       if (r.hrs == null || r.lbs <= 0) return;
       const cat = _lndrTitleCategory(r.title);
       if (cat && totals[cat]) { totals[cat].lbs += r.lbs; totals[cat].hrs += r.hrs; }
@@ -37694,11 +37713,13 @@ async function _dvIframeLoaded() {
 
     const catAvg = _lndrCategoryAverages();
 
-    // Category filter only affects which rows are VISIBLE — the averages
-    // above are always computed from everyone.
+    // Retail-attendant exclusion drops rows entirely (out of the table AND
+    // out of every average — see _lndrEffectiveRows). The category filter
+    // (from the KPI tiles) only narrows what's visible among what's left.
+    const baseRows = _lndrExcludeAttendants ? sortedRows.filter(r => !r.isAttendant) : sortedRows;
     const visibleRows = _lndrCategoryFilter
-      ? sortedRows.filter(r => _lndrTitleCategory(r.title) === _lndrCategoryFilter)
-      : sortedRows;
+      ? baseRows.filter(r => _lndrTitleCategory(r.title) === _lndrCategoryFilter)
+      : baseRows;
     const showUnassigned = !_lndrCategoryFilter && unassigned.orders > 0;
 
     tbody.innerHTML = visibleRows.map(r => `<tr>
@@ -37768,6 +37789,52 @@ async function _dvIframeLoaded() {
       ? `<span style="font-weight:600"${titleAttr}>${n}</span>`
       : `<span style="color:var(--gray-300)">0</span>`) + arrow;
   }
+
+  // Recomputes the 4 KPI tiles (Lbs. Processed, Avg / Tech I / Tech II
+  // Lbs./Hr) from the current effective rows — i.e. honoring the "Exclude
+  // retail attendants" checkbox. Unassigned pounds are always included in
+  // the Lbs. Processed total since they aren't attributable to any one
+  // launderer.
+  function _updateLndrStatCards() {
+    if (!_laundererReportData?.rows) return;
+    const unassigned = _laundererReportData.unassigned || { lbs: 0 };
+    const effRows = _lndrEffectiveRows();
+
+    const lbsEl = document.getElementById('rpt-lndr-lbs');
+    if (lbsEl) {
+      const totalLbs = effRows.reduce((a, r) => a + r.lbs, 0) + (unassigned.lbs || 0);
+      lbsEl.textContent = totalLbs > 0 ? totalLbs.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+    }
+
+    const lbsHrEl = document.getElementById('rpt-lndr-lbs-per-hr');
+    if (lbsHrEl) {
+      let trackedLbs = 0, trackedHrs = 0;
+      effRows.forEach(r => { if (r.hrs != null && r.lbs > 0) { trackedLbs += r.lbs; trackedHrs += r.hrs; } });
+      lbsHrEl.textContent = (trackedHrs > 0) ? (trackedLbs / trackedHrs).toFixed(1) : '—';
+    }
+
+    const t1El = document.getElementById('rpt-lndr-t1-lbs-per-hr');
+    const t2El = document.getElementById('rpt-lndr-t2-lbs-per-hr');
+    if (t1El || t2El) {
+      let t1Lbs = 0, t1Hrs = 0, t2Lbs = 0, t2Hrs = 0;
+      effRows.forEach(r => {
+        if (r.hrs == null || r.lbs <= 0) return;
+        if (r.title && r.title.includes('II')) { t2Lbs += r.lbs; t2Hrs += r.hrs; }
+        else if (r.title && r.title.includes('I')) { t1Lbs += r.lbs; t1Hrs += r.hrs; }
+      });
+      if (t1El) t1El.textContent = (t1Hrs > 0) ? (t1Lbs / t1Hrs).toFixed(1) : '—';
+      if (t2El) t2El.textContent = (t2Hrs > 0) ? (t2Lbs / t2Hrs).toFixed(1) : '—';
+    }
+  }
+
+  function toggleLndrExcludeAttendants(checked) {
+    _lndrExcludeAttendants = checked;
+    if (_laundererReportData?.rows?.length) {
+      _updateLndrStatCards();
+      sortLaundererReport(_lndrSortCol);
+    }
+  }
+  window.toggleLndrExcludeAttendants = toggleLndrExcludeAttendants;
 
   async function loadLaundererReport() {
     const fromEl    = document.getElementById('rpt-from');
@@ -37950,35 +38017,7 @@ async function _dvIframeLoaded() {
 
     _laundererReportData = { rows, unassigned, issuesUnassigned: _issuesUnassigned, from: fromEl.value, to: toEl.value };
 
-    // Totals include unassigned
-    const tot = rows.reduce((acc, r) => {
-      acc.orders += r.orders; acc.bags += r.bags; acc.lbs += r.lbs;
-      if (r.hrs != null) acc.hrs = (acc.hrs || 0) + r.hrs;
-      return acc;
-    }, { orders: unassigned.orders, bags: unassigned.bags, lbs: unassigned.lbs, hrs: null });
-
-    // Stat cards — use full total lbs (including unassigned)
-    const lbsEl = document.getElementById('rpt-lndr-lbs');
-    if (lbsEl) lbsEl.textContent = tot.lbs > 0 ? tot.lbs.toLocaleString('en-US', {maximumFractionDigits:0}) : '—';
-    const lbsHrEl = document.getElementById('rpt-lndr-lbs-per-hr');
-    if (lbsHrEl) {
-      let trackedLbs = 0, trackedHrs = 0;
-      rows.forEach(r => { if (r.hrs != null && r.lbs > 0) { trackedLbs += r.lbs; trackedHrs += r.hrs; } });
-      lbsHrEl.textContent = (trackedHrs > 0) ? (trackedLbs / trackedHrs).toFixed(1) : '—';
-    }
-    // Per-title KPI cards
-    const t1El = document.getElementById('rpt-lndr-t1-lbs-per-hr');
-    const t2El = document.getElementById('rpt-lndr-t2-lbs-per-hr');
-    if (t1El || t2El) {
-      let t1Lbs = 0, t1Hrs = 0, t2Lbs = 0, t2Hrs = 0;
-      rows.forEach(r => {
-        if (r.hrs == null || r.lbs <= 0) return;
-        if (r.title && r.title.includes('II')) { t2Lbs += r.lbs; t2Hrs += r.hrs; }
-        else if (r.title && r.title.includes('I')) { t1Lbs += r.lbs; t1Hrs += r.hrs; }
-      });
-      if (t1El) t1El.textContent = (t1Hrs > 0) ? (t1Lbs / t1Hrs).toFixed(1) : '—';
-      if (t2El) t2El.textContent = (t2Hrs > 0) ? (t2Lbs / t2Hrs).toFixed(1) : '—';
-    }
+    _updateLndrStatCards();
 
     // Bags & orders can be fractional (e.g. 0.5 of a 2-way split).
     // Display at most 1 decimal place; hide ".0" for clean integers.
@@ -38024,9 +38063,10 @@ async function _dvIframeLoaded() {
     const fmtNum  = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
     const catAvg  = _lndrCategoryAverages();
     // Export mirrors whatever category filter is currently applied on-screen.
+    const baseExportRows = _lndrExcludeAttendants ? (rows || []).filter(r => !r.isAttendant) : (rows || []);
     const exportRows = _lndrCategoryFilter
-      ? (rows || []).filter(r => _lndrTitleCategory(r.title) === _lndrCategoryFilter)
-      : (rows || []);
+      ? baseExportRows.filter(r => _lndrTitleCategory(r.title) === _lndrCategoryFilter)
+      : baseExportRows;
     const csvRows = exportRows.map(r => {
       const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
       const pct = _lndrPerformancePct(r, catAvg);
