@@ -32,9 +32,10 @@ from documentation — Xero's own docs pages are JS-rendered and could not be fe
 | C4 | **Bank-feed transactions are born reconciled; there is no unreconciled window to act in.** | Of **1,179 live transactions over 4 months, exactly 2 were unreconciled** — and both were created by our own `xero-payout-sync`. Zero feed-originated transactions were unreconciled, including same-day ones. A BankTransaction only comes into existence *at the moment of reconciliation*; before that there is only a statement line, which C3 says we cannot see. |
 | C5 | **Turning off bank rules does not help.** | Follows from C4. Bank rules only pre-fill the reconcile screen. With them off, the statement line still sits unreconciled and *no bank transaction exists at all* — so there would be nothing to split, not something easier to split. It would mean more manual clicking for strictly worse results. |
 | C6 | **Xero bank rules can only split by percentage, not fixed amount.** | Xero Central / bank-rules documentation. A loan's interest portion changes every period, so a percentage rule is wrong almost every time. Bank rules are not a viable splitting mechanism for loans. |
-| C7 | **The `accounting.attachments` scope is granted and attachment works.** | Verified 2026-08-19: `2026-08-18-Rapid to date.pdf` (92,652 bytes) is attached to journal `91f454f7-…`. The long-standing "attachments scope missing" caveat in the code comments is **stale and should be removed.** |
+| C7 | **The `accounting.attachments` scope is granted and attachment works.** | Verified 2026-08-19: `2026-08-18-Rapid to date.pdf` (92,652 bytes) is attached to journal `91f454f7-…`. The long-standing "attachments scope missing" caveat in the code comments was **stale and was removed in v34.** |
 | C8 | **`If-Modified-Since` works — but ONLY in ISO 8601 format. RFC 1123 is silently ignored.** | Verified 2026-08-19. `If-Modified-Since: Mon, 18 Aug 2026 00:00:00 GMT` → HTTP 200 and the **full** unfiltered result set (1,183 manual journals, 32 invoices). `2026-08-18T00:00:00` (also `…Z`, `…​.000`, and bare `2026-08-18`) → 1 and 0 respectively. `where=UpdatedDateUTC>=DateTime(2026,08,18)` works identically. **The failure mode is silent — no error, no warning, just everything back.** Anything built on the RFC 1123 form would look like it was syncing deltas while actually reprocessing the entire org every cycle. |
 | C9 | **Xero permanently declined API reconciliation.** | Re-declined 6 May 2026 on their developer ideas forum, explicitly including never exposing unreconciled bank statement lines via the public API, citing open-banking/CDR reasons. There is no future relief to wait for: a human always clicks reconcile. |
+| C10 | **Attaching a file to a Manual Journal is idempotent by filename — a repeat PUT replaces, it does not duplicate.** | Verified live 2026-08-19 by accident and then on purpose: journal `dac01378-…` (Rapid 2026-08-03, $513.28) received the same `PUT .../Attachments/{filename}` **twice** and Xero's Files column still shows **1**. Control: journal `2e721761-…` (2026-08-10) got a single PUT and also shows 1. This is what makes `attach_only` safe to retry, which matters because retrying is its entire purpose. Do NOT add a list-then-skip guard on the strength of intuition — it is unnecessary. |
 
 **The single most important consequence:** C1 + C4 together mean in-place splitting of a payment
 that came from a bank feed is impossible, permanently, for every loan. C2 means splitting is only
@@ -203,8 +204,10 @@ document, with the exceptions listed" is a stronger product than "we posted your
 
 ## 7. Build order
 
-1. **Attach the statement to the reclass/fee journal** (§5). Small, immediate, improves everything
-   currently being posted. Delete the stale scope comment at the same time.
+1. ~~**Attach the statement to the reclass/fee journal** (§5).~~ ✅ **DONE and proven live,
+   session 222** — `loan-xero-post` v34 + the `attach_only` repair mode. Both August Rapid fee
+   journals now carry `2026-08-16-Rapid transactions all.pdf`, confirmed visually in Xero, not just
+   by a 200 response. Stale scope comment deleted. See §2 C10 for the idempotency finding.
 2. **Batched journals for Kind B loans** (Tier 2). Contained change to split generation and posting;
    no new Xero mechanism, no new risk class. Delivers the volume reduction David asked about.
 3. **Pre-staging for the three schedule loans** (Tier 1) — Verdant, PCV, Dexter 2. Highest-value and

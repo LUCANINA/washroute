@@ -645,9 +645,30 @@ source. *Note on byte-verification:* the deployed body reads 74,566 chars vs 74,
 reporting artifact, not truncation — `_shared/xero-auth.ts`, untouched this round and byte-verified
 identical earlier the same day, shows the same constant 3-char offset (5,360 vs 5,363).
 
-**Still unproven in production.** Type-check and marker checks are not the same as a real post. The
-honest test is to post one Rapid fee split, confirm `attachment.attached: true` comes back, and open
-the journal in Xero to see the PDF on it. Do that before treating step 1 as done.
+**PROVEN LIVE, same session.** Both August Rapid fee journals now carry
+`2026-08-16-Rapid transactions all.pdf` — `attached: true, status: 200` from the API AND the file
+visible in Xero's Files column, which are two different claims and only the second one settles it.
+
+*How it was proven without a new statement upload:* there were zero unposted splits, and resetting a
+posted one to re-post it would have created a duplicate journal. So instead a permanent
+`attach_only` mode was added to `loan-xero-post` — it attaches the statement to an ALREADY-posted
+journal, creates nothing, and writes nothing to the database. It runs the **shipped** helper against
+a real journal and a real file, so it is a real test of the real path rather than a copy of the
+logic in a throwaway function. It also backfills the two historical documentation gaps and remains
+useful as a retry tool (see the never-throws note above: "journal posted, attachment failed" is a
+reachable state that needs a retry which does not re-post).
+
+**Bug caught by that test, first call:** `attach_only` shipped unreachable. The
+`if (split.status === 'posted') return 409` guard sits above the branch, and attach_only operates
+exclusively on posted splits. Fixed by exempting it from that guard (`&& !attach_only`) rather than
+reordering, since the branch depends on `stmt`/`isScheduleSourced` computed below it. *Generalisable
+lesson:* an early-return "already posted" check is a global precondition — any new mode that
+deliberately targets posted rows must be exempted from it explicitly.
+
+**Verified, do not re-litigate:** attaching is **idempotent by filename**. The 2026-08-03 journal
+received the same PUT twice and Xero's Files column still shows 1; the 2026-08-10 control got one
+PUT and also shows 1. Xero replaces rather than duplicating, so `attach_only` needs no
+list-then-skip guard. Recorded as constraint **C10** in the design doc.
 
 ---
 
