@@ -296,6 +296,45 @@ check doesn't yet distinguish origination/reclass entries from the repeated-mis-
 designed to catch. Not fixed — flagged for a human (or a future session) to read the actual entries
 before assuming the diagnosis text applies.
 
+**7. ✅ SHIPPED session 222, 2026-08-19 — Upload a Document modal: "Full transaction history —
+import every period" is now disabled for PDFs instead of silently failing at submit.**
+
+*Symptom, and the honest cause: I gave David wrong advice.* Asked which "What is this?" option to
+pick for a real Rapid Finance PDF, I read the option label at face value and told him to choose
+"Full transaction history — import every period." He did, and got "No periods were read from this
+file" on submit.
+
+*Real cause, found by reading the actual code:* `transaction_history_bulk` (that option's value) is
+wired ONLY to `_parsePayPalHistoryCsv` — `_loanUploadParsedBulkPeriods` is never populated for a PDF,
+regardless of lender, regardless of how well a PDF parser reads it. Confirmed by extracting the exact
+PDF with `pdfjs-dist@3.11.174` (the same version and build the app itself uses) and running the
+Rapid parser's own regexes against the real output: they matched 51 payment rows and 52 fee rows
+cleanly, dedup would have brought that to the correct ~40+40 — the PDF reading was never broken. The
+option I told David to pick was the wrong one: "Lender statement" is actually the path that reads
+every payment/fee line off a PDF via `_loanUploadParsedTransactions` and builds a real split — the
+same mechanism already verified in session 218/220 ("4 payments + 4 fees" captured). The auto-select
+logic already existed and would have picked "Lender statement" correctly on its own
+(`if (!_liKindTouchedByUser) kindSel.value = LI_STATEMENT_KIND`) — it only got bypassed because my
+bad advice made David set the dropdown by hand first, and the modal correctly (by design) never
+overrides a deliberate human choice.
+
+*Fix shipped — close off the wrong choice at the source, not just correct the advice:* the "Full
+transaction history" `<option>` is now disabled the moment a `.pdf` file is picked (added
+`id="li-kind-bulk-option"`, toggled in `onLoanIntakeFileSelected`), since it can never work for a PDF
+no matter which lender. If a stale earlier choice (e.g. from a previous file swapped mid-modal-session)
+left it selected when a PDF lands, the dropdown is switched back to "Lender statement" automatically
+and an amber note says so and why — same "announce, never silently discard a deliberate choice"
+convention the modal already uses for its loan auto-selection. The advisory text survives whatever
+status message the auto-read/schedule-parse logic sets next (it used to get silently overwritten;
+fixed by threading a `bulkSwitchNote` variable through all three places `note.textContent` gets set
+after it). CSV uploads (PayPal's real use case for this option) are completely unaffected — verified
+with a 4-case logic test (Rapid PDF with a stale bulk choice, Rapid PDF fresh, PayPal CSV with a
+stale bulk choice, PayPal CSV fresh) before deploying. Syntax-checked the full 1.78MB app script
+after editing.
+
+*Not yet watched live in the browser* — the next real PDF upload (Rapid or otherwise) is the first
+live confirmation that the option greys out and, if applicable, the switch-away note appears.
+
 ---
 
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)

@@ -3773,7 +3773,7 @@
                 <label class="form-label">What is this?</label>
                 <select class="form-select" id="li-kind-select" onchange="onLoanIntakeKindChanged(true)">
                   <option value="lender_statement">Lender statement — read the balance and compute the split</option>
-                  <option value="transaction_history_bulk">Full transaction history — import every period</option>
+                  <option id="li-kind-bulk-option" value="transaction_history_bulk">Full transaction history — import every period</option>
                   <option value="payoff_letter">Payoff letter — keep on file</option>
                   <option value="amortization_schedule">Amortization schedule — keep on file</option>
                   <option value="transaction_history">Transaction history — just keep the file</option>
@@ -11099,6 +11099,8 @@ ${noActivityNote}
     document.getElementById('li-notes').value = '';
     document.getElementById('li-bulk-fields').innerHTML = '';
     document.getElementById('li-kind-select').value = LI_STATEMENT_KIND;
+    const bulkOptionReset = document.getElementById('li-kind-bulk-option');
+    if (bulkOptionReset) bulkOptionReset.disabled = false;
     _loanUploadFile = null;
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
@@ -11704,6 +11706,36 @@ ${noActivityNote}
     } catch (_) { /* non-fatal: manual entry still works */ }
     if (stale()) return;
 
+    // Tech debt found session 222: "Full transaction history — import every period"
+    // (LI_BULK_KIND) is wired ONLY to the CSV-based multi-period reader
+    // (_parsePayPalHistoryCsv above) -- browserBulk is never populated for a PDF, no
+    // matter which lender it is or how well a PDF parser reads it. Before this fix,
+    // picking that option for any PDF silently failed at submit time with a generic
+    // "no periods read" error -- which is exactly what happened live picking it for a
+    // Rapid Finance PDF, a lender this modal already handles correctly through the
+    // OTHER path (LI_STATEMENT_KIND + _loanUploadParsedTransactions, verified against
+    // real Rapid statements). Close off the wrong choice at the source instead of
+    // explaining it after the fact: disable the option whenever the picked file is a
+    // PDF, and if a stale earlier choice (from a previous file picked earlier in this
+    // same modal session) left it selected, switch away and say so -- same "announce,
+    // never silently discard a deliberate choice" convention this modal already uses
+    // for loan auto-selection.
+    const isPdfFile = /\.pdf$/i.test(file.name);
+    const bulkOption = document.getElementById('li-kind-bulk-option');
+    if (bulkOption) bulkOption.disabled = isPdfFile;
+    // Carried into whichever branch below ends up setting `note.textContent`, so the
+    // announcement survives instead of being silently overwritten by the very next
+    // status message (auto-read confirmation, schedule summary, etc.) -- an override
+    // that isn't visible anywhere isn't really an announcement.
+    let bulkSwitchNote = null;
+    if (isPdfFile && kindSel.value === LI_BULK_KIND) {
+      kindSel.value = LI_STATEMENT_KIND;
+      _liKindTouchedByUser = false;
+      bulkSwitchNote = '"Full transaction history" only applies to certain CSV exports (like PayPal\'s loan history) — switched to "Lender statement" since this file is a PDF.';
+      note.style.color = '#b45309';
+      note.textContent = bulkSwitchNote;
+    }
+
     if (browserBulk && browserBulk.length) {
       _loanUploadParsedBulkPeriods = browserBulk;
       if (!_liKindTouchedByUser) kindSel.value = LI_BULK_KIND;
@@ -11734,14 +11766,16 @@ ${noActivityNote}
         _liRenderScheduleSummary(sched);
         if (sched.verified) {
           note.style.color = 'var(--green)';
-          note.textContent = `Auto-read an amortization schedule: ${sched.rows.length} rows, `
+          note.textContent = (bulkSwitchNote ? bulkSwitchNote + ' ' : '')
+            + `Auto-read an amortization schedule: ${sched.rows.length} rows, `
             + `${sched.firstDate} to ${sched.lastDate}. The figures check out arithmetically `
             + `(see below), so this can be imported.`;
         } else {
           // Parsed something, but it does not add up. Say so and refuse to treat it as
           // importable -- a wrong schedule silently corrupts every split derived from it.
           note.style.color = 'var(--red)';
-          note.textContent = `This looks like an amortization schedule, but the numbers don't add up `
+          note.textContent = (bulkSwitchNote ? bulkSwitchNote + ' ' : '')
+            + `This looks like an amortization schedule, but the numbers don't add up `
             + `(${sched.checks.balance_continuity} rows balance correctly). It will not be imported as a `
             + `schedule — file it as a document instead, or check the PDF.`;
         }
@@ -11759,7 +11793,9 @@ ${noActivityNote}
       if (browserParsed.accountNumber) {
         _liSelectLoanFromDocument(browserParsed.accountNumber);
       }
-      const bits = [`Auto-read (${browserParsed.lenderLabel}): balance $${browserParsed.principalBalance} as of ${browserParsed.statementDate}`];
+      const bits = [];
+      if (bulkSwitchNote) bits.push(bulkSwitchNote);
+      bits.push(`Auto-read (${browserParsed.lenderLabel}): balance $${browserParsed.principalBalance} as of ${browserParsed.statementDate}`);
       if (browserParsed.explicitSplit) {
         bits.push(`split $${browserParsed.explicitSplit.principal} principal / $${browserParsed.explicitSplit.interest} interest`);
       }
