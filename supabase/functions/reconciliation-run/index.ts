@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
 //
 // Rebuilds every loan's balance from Xero's own transactions and compares it to
@@ -34,7 +34,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 //  5. IT NEVER WRITES TO XERO. It reads Xero and writes only its own two tables.
 //     Posting a correcting journal remains a separate, explicit human action
 //     through loan-xero-post.
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────
 
 const INTEREST_CODE = '800'
 const STALE_ANCHOR_DAYS = 45
@@ -86,7 +86,7 @@ async function callerRole(req: Request) {
   return profile?.role || null
 }
 
-// ── Xero ─────────────────────────────────────────────────────────────────────
+// ── Xero ─────────────────────────────────────────────────────────────────
 
 
 function normDate(dateString: any, dateRaw: any): string {
@@ -213,7 +213,7 @@ async function pullXero(fromDate: string, toDate: string, modifiedSince: string 
   return { entries, changedOld }
 }
 
-// ── Checks ───────────────────────────────────────────────────────────────────
+// ── Checks ──────────────────────────────────────────────────────────────
 // Each returns findings. A finding is a plain object; the runner handles storage,
 // fingerprint dedup and new/open/resolved bookkeeping.
 
@@ -628,7 +628,7 @@ function checkUnexplainedLedgerAdjustment(loan: any, ledger: any, splits: any[],
   }]
 }
 
-// ── Report ───────────────────────────────────────────────────────────────────
+// ── Report ──────────────────────────────────────────────────────────────
 
 function renderReport(run: any, findings: any[], loansById: Record<string, any>, meta: any) {
   const sev = (s: string) => s === 'error' ? '#dc2626' : s === 'warn' ? '#b45309' : '#3b82f6'
@@ -669,7 +669,7 @@ function renderReport(run: any, findings: any[], loansById: Record<string, any>,
 </div></body></html>`
 }
 
-// ── Runner ───────────────────────────────────────────────────────────────────
+// ── Runner ──────────────────────────────────────────────────────────────
 
 async function handle(req: Request): Promise<Response> {
   const supa = admin()

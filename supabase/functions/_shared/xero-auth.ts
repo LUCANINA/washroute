@@ -25,7 +25,7 @@
 // Callers already pass an orgRef and receive ready-to-use headers back.
 //
 // USAGE
-//   import { getXeroAuth } from './xero-auth.ts'
+//   import { getXeroAuth } from '../_shared/xero-auth.ts'
 //   const { headers, tenantId } = await getXeroAuth()
 //   const res = await fetch(url, { headers })
 //   // and for writes:
