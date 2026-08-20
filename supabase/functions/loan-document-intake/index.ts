@@ -300,11 +300,22 @@ const LOAN_PDF_PARSERS: LenderParser[] = [
     detect: (text) => /ford\.com\/finance/i.test(text) && /Your\s+Transactions\s+Since\s+Last\s+Statement/i.test(text),
     extract: (text) => {
       const acct = text.match(/Account\s+Number:\s*(\d+)/i)
+      // "Statement Date  07/20/2026" heads every Ford statement (round 4,
+      // verified against David's real sample PDFs) -- THE statement's own
+      // date, and the same cycle date Ford's portal CSV export carries, so a
+      // PDF and the CSV of the same cycle collide on the exact-date duplicate
+      // check. (Previously dated by the payment-received date.)
+      const stmtDate = text.match(/Statement\s+Date\s+(\d{2}\/\d{2}\/\d{4})/i)
       const principalBal = text.match(/Principal\s+Balance:\s*\$?([\d,]+\.\d{2})/i)
+      if (!acct || !stmtDate || !principalBal) return null
+      // A no-payment statement ("paid ahead", $0 due -- E4's live case) has no
+      // payment line and no Principal/Interest split, but is still a real
+      // monthly statement: it extracts with balance + statement date and no
+      // explicit split (round 4 -- these used to return null and fall to the
+      // fingerprint-only needs-a-look path).
+      const paymentDate = text.match(/(\d{2}\/\d{2}\/\d{4})\s+Payment\s+Received/i)
       const principalSplit = text.match(/\bPrincipal\s+\$?([\d,]+\.\d{2})/i)
       const interestSplit = text.match(/\bInterest\s+\$?([\d,]+\.\d{2})/i)
-      const paymentDate = text.match(/(\d{2}\/\d{2}\/\d{4})\s+Payment\s+Received/i)
-      if (!acct || !principalBal || !principalSplit || !interestSplit || !paymentDate) return null
       // Ford Pro prints a PAYOFF QUOTE on the same page as the principal balance
       // ($16,873.78 vs $16,755.81 on the July 2026 statement). The parser
       // deliberately reads the principal balance -- but the payoff figure is
@@ -320,16 +331,19 @@ const LOAN_PDF_PARSERS: LenderParser[] = [
           goodThru ? mdyToIso(goodThru[1]) : null, payoff[0],
         ))
       }
-      return {
-        statementDate: mdyToIso(paymentDate[1]),
+      const out: any = {
+        statementDate: mdyToIso(stmtDate[1]),
         principalBalance: principalBal[1].replace(/,/g, ''),
         accountNumber: acct[1],
-        explicitSplit: {
-          principal: parseFloat(principalSplit[1].replace(/,/g, '')),
-          interest: parseFloat(interestSplit[1].replace(/,/g, '')),
-        },
         extraFacts,
       }
+      if (paymentDate && principalSplit && interestSplit) {
+        out.explicitSplit = {
+          principal: parseFloat(principalSplit[1].replace(/,/g, '')),
+          interest: parseFloat(interestSplit[1].replace(/,/g, '')),
+        }
+      }
+      return out
     },
   },
 ]

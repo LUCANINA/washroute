@@ -13065,32 +13065,42 @@ ${noActivityNote}
       detect: (text) => /ford\.com\/finance/i.test(text) && /Your\s+Transactions\s+Since\s+Last\s+Statement/i.test(text),
       extract: (text) => {
         const acct = text.match(/Account\s+Number:\s*(\d+)/i);
+        // "Statement Date  07/20/2026" heads every Ford statement (round 4,
+        // verified against David's real sample PDFs). It is THE statement's
+        // own date — and the same cycle date Ford's portal CSV export
+        // carries, so a PDF and the CSV of the same cycle now collide on the
+        // exact-date duplicate check instead of leaning on balance
+        // heuristics. (Before round 4 this parser dated statements by the
+        // payment-received date, up to ~2 weeks earlier.)
+        const stmtDate = text.match(/Statement\s+Date\s+(\d{2}\/\d{2}\/\d{4})/i);
         // "Principal Balance:" is its own explicit label earlier in the statement,
-        // independent of the payment-transaction line -- use it directly. (Live pdf.js
-        // extraction interleaves the "Principal"/"Interest" split labels with their own
-        // values right after the payment line, not appended onto the payment's own row,
-        // so the old positional two-dollar-amount read after "Payment Received" never
-        // matched real output.) The \s+ before the amount means this can't accidentally
-        // match "Principal Balance:" itself, since "Balance:" -- not a dollar sign or
-        // digit -- immediately follows "Principal " there.
+        // independent of the payment-transaction line -- use it directly. The \s+
+        // before the amount means the bare-"Principal" split regex below can't
+        // accidentally match "Principal Balance:" itself, since "Balance:" -- not a
+        // dollar sign or digit -- immediately follows "Principal " there.
         const principalBal = text.match(/Principal\s+Balance:\s*\$?([\d,]+\.\d{2})/i);
-        // Bare "Principal"/"Interest" labels (not "Principal Balance:") only appear as
-        // the two lines of a payment's split -- if this statement's period had no
-        // payment applied (e.g. "paid ahead", $0 due), neither is present and this
-        // correctly returns null, falling back to manual entry.
+        if (!acct || !stmtDate || !principalBal) return null;
+        // Bare "Principal"/"Interest" labels (not "Principal Balance:") only appear
+        // as the two lines of a payment's split. A no-payment statement ("paid
+        // ahead", $0 due -- E4's live case) has no payment line and no split, but
+        // it is still a REAL monthly statement: it files with balance + statement
+        // date and simply no explicit split (round 4 -- these used to return null
+        // and dead-end in needs-a-look).
+        const paymentDate = text.match(/(\d{2}\/\d{2}\/\d{4})\s+Payment\s+Received/i);
         const principalSplit = text.match(/\bPrincipal\s+\$?([\d,]+\.\d{2})/i);
         const interestSplit = text.match(/\bInterest\s+\$?([\d,]+\.\d{2})/i);
-        const paymentDate = text.match(/(\d{2}\/\d{2}\/\d{4})\s+Payment\s+Received/i);
-        if (!acct || !principalBal || !principalSplit || !interestSplit || !paymentDate) return null;
-        return {
-          statementDate: _mdyToIso(paymentDate[1]),
+        const out = {
+          statementDate: _mdyToIso(stmtDate[1]),
           principalBalance: principalBal[1].replace(/,/g, ''),
           accountNumber: acct[1],
-          explicitSplit: {
+        };
+        if (paymentDate && principalSplit && interestSplit) {
+          out.explicitSplit = {
             principal: parseFloat(principalSplit[1].replace(/,/g, '')),
             interest: parseFloat(interestSplit[1].replace(/,/g, '')),
-          },
-        };
+          };
+        }
+        return out;
       },
     },
   ];
