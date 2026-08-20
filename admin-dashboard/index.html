@@ -3260,6 +3260,7 @@
             <button class="section-tab active" id="bkvt-overview" onclick="switchBookkeepingView('overview')">Overview</button>
             <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
+            <button class="section-tab" id="bkvt-kpis" onclick="switchBookkeepingView('kpis')">KPIs</button>
           </div>
           <!-- Session 213: Debt Schedule and Reconciliation folded into Loans (below) as a
                toggle + section rather than separate top-level tabs -- David's tab-consolidation
@@ -3431,12 +3432,6 @@
               </div>
             </div>
 
-            <!-- KPIs at the bottom, per the mockup. Bare tiles, no wrapping card. -->
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-              <div class="card-sub" id="bk-kpi-asof" style="margin:0">Live from Xero</div>
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
-            </div>
-            <div id="bk-kpi-tiles"></div>
           </div>
 
           <!-- Loans (session 205; toggle + Reconciliation section added session 213) -->
@@ -3658,6 +3653,18 @@
             </div>
           </div>
           </div><!-- /bk-view-payroll -->
+
+          <!-- KPIs (session 224 cont., per David: "the KPI section is
+               distracting. make KPIs its own tab.") — moved wholesale out of
+               Overview's bottom. Same tiles, same 6h snapshot + Refresh; the
+               Overview stays a pure workspace (dropzone + queue). -->
+          <div id="bk-view-kpis" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div class="card-sub" id="bk-kpi-asof" style="margin:0">Live from Xero</div>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
+            </div>
+            <div id="bk-kpi-tiles"></div>
+          </div><!-- /bk-view-kpis -->
         </div><!-- /page-bookkeeping -->
 
         <!-- Payroll Upload modal -->
@@ -8157,14 +8164,16 @@
     // of silently falling back to Overview.
     if (view === 'debtsched') { _loansActiveSubView = 'debtsched'; view = 'loans'; }
     if (view === 'reconciliation') view = 'loans';
-    if (!['overview', 'loans', 'payroll'].includes(view)) view = 'overview';
+    if (!['overview', 'loans', 'payroll', 'kpis'].includes(view)) view = 'overview';
     _bookkeepingActiveTab = view;
     document.getElementById('bk-view-overview').style.display  = view === 'overview'  ? '' : 'none';
     document.getElementById('bk-view-loans').style.display     = view === 'loans'     ? '' : 'none';
     document.getElementById('bk-view-payroll').style.display   = view === 'payroll'   ? '' : 'none';
+    document.getElementById('bk-view-kpis').style.display      = view === 'kpis'      ? '' : 'none';
     document.getElementById('bkvt-overview').classList.toggle('active', view === 'overview');
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
+    document.getElementById('bkvt-kpis').classList.toggle('active', view === 'kpis');
 
     // Session 223 cont. 2: the per-tab Upload Statement / Upload Payroll
     // Report buttons merged into the Overview dropzone — no topbar CTA on any
@@ -8172,6 +8181,10 @@
     document.getElementById('topbar-cta').style.display = 'none';
 
     if (view === 'overview') renderBookkeepingOverview();
+    // KPI tiles live in their own tab (session 224 cont.) but are rendered by
+    // the same renderBookkeepingOverview() — both panes exist in the DOM at all
+    // times, only display toggles, so one renderer keeps them in sync.
+    if (view === 'kpis') renderBookkeepingOverview();
     if (view === 'loans') switchLoansSubView(_loansActiveSubView);
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
   }
@@ -8632,10 +8645,20 @@
         // imported instead of offering a full re-file of a known history.
         const onFile = new Set((_allLoanStatements || []).filter(s => s.loan_account_id === loan.id).map(s => s.statement_date));
         const newPeriods = item.browserBulk.filter(per => !onFile.has(per.statementDate)).length;
+        // Second acceptance-test finding: this history's periods can already be
+        // tracked through the loan's AMORTIZATION SCHEDULE (Paypal 2's 34 rows,
+        // session 221) with zero statement rows. Stacking 34 statements on top
+        // of a schedule that covers the same periods is a judgment call, not a
+        // one-tap — route it to the human with the reason spelled out.
+        const amortTracked = (_allLoanAmortRows || []).some(r =>
+          r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === loan.id);
         item.loan = loan;
         if (newPeriods === 0) {
           item.status = 'duplicate'; item.dupOf = 'all_periods_imported';
           item.proposal = `PayPal loan history — all ${item.browserBulk.length} periods (${first.statementDate} to ${last.statementDate}) are already imported for ${_bkLoanLabel(loan)}. Skipped.`;
+        } else if (amortTracked) {
+          item.status = 'manual';
+          item.proposal = `PayPal loan history — ${item.browserBulk.length} periods → ${_bkLoanLabel(loan)}. That loan already tracks these periods through its amortization schedule, so adding statement rows on top is your call — open it below if you want them anyway.`;
         } else {
           item.status = 'ready';
           item.proposal = `PayPal loan history — ${item.browserBulk.length} periods, ${first.statementDate} to ${last.statementDate} → ${_bkLoanLabel(loan)} (the only PayPal loan on file).`
