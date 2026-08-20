@@ -3300,6 +3300,16 @@
             .bk-queue-reason { font-size: 12.5px; color: var(--gray-500); margin-top: 2px; line-height: 1.45; }
             .bk-review-link { font-size: 12.5px; font-weight: 600; color: var(--accent); white-space: nowrap; padding-top: 1px; }
             .bk-queue-empty { color: var(--gray-400); font-size: 13px; padding: 26px; text-align: center; }
+            /* Session 223 cont. 2: the REELOAD dropzone — one entry point for
+               every document. Routes into the existing loan-intake / payroll
+               upload modals until the ingestion engine can classify files
+               itself (planned next). */
+            .bk-dropzone { background: #fff; border: 1.5px dashed var(--gray-300); border-radius: 20px; padding: 34px 24px; text-align: center; cursor: pointer; margin-bottom: 20px; transition: border-color .15s, background .15s; }
+            .bk-dropzone:hover, .bk-dropzone.drag { border-color: var(--accent); background: #eff6ff; }
+            .bk-drop-icon { width: 44px; height: 44px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; color: var(--accent); font-size: 18px; font-weight: 700; }
+            .bk-dropzone:hover .bk-drop-icon, .bk-dropzone.drag .bk-drop-icon { background: #fff; }
+            .bk-drop-title { font-size: 16px; font-weight: 650; color: var(--gray-900); margin-bottom: 4px; }
+            .bk-drop-sub { font-size: 12.5px; color: var(--gray-500); }
           </style>
 
           <!-- Overview — the CPA-centric landing view: everything needing a look,
@@ -3323,25 +3333,68 @@
                  APPROVALS queue item (it's a ready-to-post journal, nothing is
                  wrong) instead of its former red standalone card —
                  checkRetailCashReclassStatus() feeds _retailReclassPeriod. -->
-            <!-- Bare KPI tiles, no wrapping card — matches the Orders page. -->
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-              <div class="card-sub" id="bk-kpi-asof" style="margin:0">Live from Xero</div>
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
+            <!-- Session 223 cont. 2 (David's next pass): dropzone first, queue
+                 second, KPIs at the bottom — the client-view mockup's order.
+                 The dropzone replaces the per-tab Upload Statement / Upload
+                 Payroll Report topbar buttons: one entry point, and until the
+                 ingestion engine can recognize document types itself (next up),
+                 a one-tap "what is this?" routes into the existing loan-intake
+                 or payroll-upload modal, carrying a dragged file straight into
+                 the modal's file picker. -->
+            <div class="bk-dropzone" id="bk-dropzone" onclick="bkShowDropChoice(null)"
+                 ondragover="event.preventDefault();this.classList.add('drag')"
+                 ondragleave="this.classList.remove('drag')"
+                 ondrop="bkHandleDrop(event)">
+              <div class="bk-drop-icon">↑</div>
+              <div class="bk-drop-title">Drop your documents here</div>
+              <div class="bk-drop-sub">Loan statements · amortization schedules · payroll reports</div>
+              <div id="bk-drop-choice" style="display:none;margin-top:18px" onclick="event.stopPropagation()">
+                <div style="font-size:13px;font-weight:600;color:var(--gray-700);margin-bottom:10px" id="bk-drop-choice-label">What are you uploading?</div>
+                <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+                  <button class="btn btn-primary" onclick="bkRouteDrop('loan')">Loan document</button>
+                  <button class="btn btn-primary" onclick="bkRouteDrop('payroll')">Payroll report</button>
+                  <button class="btn btn-ghost" onclick="bkHideDropChoice()">Never mind</button>
+                </div>
+              </div>
             </div>
-            <div id="bk-kpi-tiles" style="margin-bottom:20px"></div>
-            <div class="card">
+
+            <div class="card" style="margin-bottom:20px">
               <div class="card-header" style="padding:20px 24px">
                 <div style="flex:1">
                   <div class="card-title" id="bk-ov-queue-label">Needs your attention</div>
                   <div class="card-sub" id="bk-ov-statusline"></div>
+                  <div class="card-sub" id="recon-lastrun" style="margin-top:2px"></div>
+                  <div id="recon-summary" style="margin-top:2px"></div>
                 </div>
-                <div class="bk-seg-toggle" style="align-self:center">
-                  <button class="bk-seg active" id="bk-ov-seg-issues" onclick="_bkSetOverviewSeg('issues')">Issues</button>
-                  <button class="bk-seg" id="bk-ov-seg-approvals" onclick="_bkSetOverviewSeg('approvals')">Approvals</button>
-                </div>
+                <span style="display:flex;align-items:center;gap:14px">
+                  <button class="btn btn-ghost" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
+                  <div class="bk-seg-toggle">
+                    <button class="bk-seg active" id="bk-ov-seg-issues" onclick="_bkSetOverviewSeg('issues')">Issues</button>
+                    <button class="bk-seg" id="bk-ov-seg-approvals" onclick="_bkSetOverviewSeg('approvals')">Approvals</button>
+                  </div>
+                </span>
               </div>
               <div id="bk-ov-queue-list"></div>
+              <!-- Quiet reference material under the queue (came here from the
+                   Loans page when its Reconciliation section was removed):
+                   recently-resolved history + informational findings (filled by
+                   renderLoansAttention) and past reconciliation reports. All
+                   collapsed by default. -->
+              <div id="loans-recon-extras"></div>
+              <div style="padding:10px 20px 16px">
+                <span onclick="toggleOverviewPanel('recon-reports-wrap',this)" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline">Past reconciliation reports</span>
+                <div id="recon-reports-wrap" style="display:none;margin-top:10px">
+                  <div id="recon-reports"></div>
+                </div>
+              </div>
             </div>
+
+            <!-- KPIs at the bottom, per the mockup. Bare tiles, no wrapping card. -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div class="card-sub" id="bk-kpi-asof" style="margin:0">Live from Xero</div>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
+            </div>
+            <div id="bk-kpi-tiles"></div>
           </div>
 
           <!-- Loans (session 205; toggle + Reconciliation section added session 213) -->
@@ -3354,32 +3407,11 @@
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="loans-summary" style="margin-bottom:20px"></div>
 
-          <!-- Session 223 cont.: the queue left this page entirely — Issues and
-               Approvals live on the Overview now (David: "Loans is where I see
-               what loans I have outstanding, my debt schedule" — a repository
-               of information, not a to-do list). What stays here is the
-               reconciliation MECHANISM and its history: the run button, the
-               last-run recap, recently-resolved items, informational findings,
-               and past reports. renderLoansAttention() now fills
-               loans-recon-extras with the resolved/info sections only. -->
-          <div class="card" style="margin-bottom:20px" id="loans-recon-card">
-            <div class="card-header" style="padding:20px 24px">
-              <div style="flex:1">
-                <div class="card-title">Reconciliation</div>
-                <div class="card-sub" id="recon-lastrun" style="margin-top:2px"></div>
-                <div id="recon-summary" style="margin-top:2px"></div>
-              </div>
-              <button class="btn btn-ghost" id="recon-run-btn" style="font-size:12px;padding:6px 12px;align-self:center" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
-            </div>
-            <div id="loans-recon-extras"></div>
-            <div style="padding:12px 20px 16px">
-              <span onclick="toggleOverviewPanel('recon-reports-wrap',this)" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline">Past reconciliation reports</span>
-              <div id="recon-reports-wrap" style="display:none;margin-top:10px">
-                <div id="recon-reports"></div>
-              </div>
-            </div>
-          </div>
-
+          <!-- Session 223 cont. 2: the Reconciliation card left this page too —
+               the run button and last-run stamp live on the Overview queue
+               header, and the resolved/info/past-reports references sit under
+               the Overview queue. Loans is now purely: summary tiles, All
+               Loans, Debt Schedule. -->
           <div class="card" id="loans-all-card">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('loans-table-wrap',this)">
               <div style="flex:1">
@@ -3395,10 +3427,11 @@
                 </label>
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanPaymentReportModal()">📄 Payment Report</button>
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();loadLoans()">↻ Refresh</button>
-                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Hide</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▾</span></span>
               </span>
             </div>
-            <div id="loans-table-wrap" style="display:none">
+            <!-- Session 223 cont. 2: open by default — this page IS the loan list. -->
+            <div id="loans-table-wrap">
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
@@ -8087,11 +8120,10 @@
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
 
-    const ctaLabel = document.getElementById('topbar-cta-label');
-    const ctaBtn   = document.getElementById('topbar-cta');
-    if (view === 'loans')   { ctaLabel.textContent = 'Upload Statement';      ctaBtn.style.display = ''; }
-    else if (view === 'payroll') { ctaLabel.textContent = 'Upload Payroll Report'; ctaBtn.style.display = ''; }
-    else { ctaBtn.style.display = 'none'; }
+    // Session 223 cont. 2: the per-tab Upload Statement / Upload Payroll
+    // Report buttons merged into the Overview dropzone — no topbar CTA on any
+    // Bookkeeping view.
+    document.getElementById('topbar-cta').style.display = 'none';
 
     if (view === 'overview') renderBookkeepingOverview();
     if (view === 'loans') switchLoansSubView(_loansActiveSubView);
@@ -8296,6 +8328,63 @@
       </div>
       ${it.action ? `<span class="bk-review-link">${esc(it.action)} →</span>` : ''}
     </div>`;
+  }
+
+  // ── The dropzone (session 223 cont. 2) ────────────────────────────────────
+  // One entry point for every document. Until the ingestion engine can
+  // classify a file itself (planned next), a one-tap "what is this?" routes to
+  // the existing loan-intake or payroll-upload modal. A file dragged onto the
+  // zone is handed straight into that modal's file picker via DataTransfer, so
+  // drag-drop skips the second picker entirely.
+  let _bkDroppedFile = null;
+
+  function bkHandleDrop(e) {
+    e.preventDefault();
+    const zone = document.getElementById('bk-dropzone');
+    if (zone) zone.classList.remove('drag');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    _bkDroppedFile = f || null;
+    bkShowDropChoice(f ? f.name : null);
+  }
+
+  function bkShowDropChoice(fname) {
+    const c = document.getElementById('bk-drop-choice');
+    const l = document.getElementById('bk-drop-choice-label');
+    if (!c) return;
+    if (l) l.textContent = fname ? `Got it — what is “${fname}”?` : 'What are you uploading?';
+    c.style.display = '';
+  }
+
+  function bkHideDropChoice() {
+    const c = document.getElementById('bk-drop-choice');
+    if (c) c.style.display = 'none';
+    _bkDroppedFile = null;
+  }
+
+  function _bkInjectDroppedFile(inputId) {
+    const f = _bkDroppedFile;
+    _bkDroppedFile = null;
+    if (!f) return;
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (_) { /* browser refused the handoff — the modal's own picker still works */ }
+  }
+
+  function bkRouteDrop(kind) {
+    const c = document.getElementById('bk-drop-choice');
+    if (c) c.style.display = 'none';
+    if (kind === 'payroll') {
+      openPayrollUploadModal(false);
+      _bkInjectDroppedFile('payroll-upload-input');
+    } else {
+      openLoanIntakeModal();
+      _bkInjectDroppedFile('li-file-input');
+    }
   }
 
   function _bkSetOverviewSeg(seg) { _bkOverviewSeg = seg; renderBookkeepingOverview(); }
@@ -8600,7 +8689,7 @@
     const el = document.getElementById('payroll-table-wrap');
     if (!el) return;
     if (!_allPayrollImports.length) {
-      el.innerHTML = `<div class="empty"><div class="empty-icon">🧾</div><div class="empty-title">No payroll reports uploaded yet</div><div class="empty-sub">Use the "Upload Payroll Report" button above to add the first one.</div></div>`;
+      el.innerHTML = `<div class="empty"><div class="empty-icon">🧾</div><div class="empty-title">No payroll reports uploaded yet</div><div class="empty-sub">Drop a Square payroll CSV on the Overview\u2019s upload box to add the first one.</div></div>`;
       return;
     }
     const statusBadgeMap = { parsed: ['badge-amber','Needs Review'], reviewed: ['badge-blue','Reviewed'], posted: ['badge-green','Posted'], void: ['badge-gray','Void'] };
@@ -10507,7 +10596,10 @@
     renderLoansTable();
   }
   function _bkHideClosedLoans() {
-    try { return sessionStorage.getItem('wr-loans-hide-closed') === '1'; } catch(_) { return false; }
+    // Session 223 cont. 2: David wants closed loans hidden by DEFAULT — the
+    // checkbox starts checked; unchecking it (stored '0') persists for the
+    // session, same convention as before.
+    try { const v = sessionStorage.getItem('wr-loans-hide-closed'); return v == null ? true : v === '1'; } catch(_) { return true; }
   }
 
   function renderLoansTable() {

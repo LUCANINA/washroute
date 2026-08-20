@@ -1038,6 +1038,44 @@ to "what is running".
 
 ## Session Log
 
+### Session 223 cont. 2 (2026-08-20) — dropzone, KPIs to the bottom, Loans reduced to the loan list
+
+David's next design pass, all shipped:
+
+- **One upload entry point.** The per-tab "Upload Statement" / "Upload Payroll
+  Report" topbar buttons are gone; the Overview now opens with a REELOAD-style
+  "Drop your documents here" dropzone. Click or drop → a one-tap "What is
+  this?" (Loan document / Payroll report) routes into the EXISTING loan-intake
+  or payroll-upload modal. A dragged file is handed straight into the chosen
+  modal's file input via DataTransfer + a dispatched change event, so drag-drop
+  skips the second picker. The chooser is explicitly interim: **next up is the
+  ingestion engine that classifies documents itself** (payroll vs statement vs
+  schedule), at which point the chooser disappears. Per-loan upload paths (row
+  click in All Loans, prefilled to the right loan) are untouched.
+- **Overview order now matches the client-view mockup:** dropzone → queue →
+  KPI tiles at the bottom (with the as-of line + Refresh above them).
+- **Run Reconciliation Check moved to the Overview queue header** (with the
+  last-run stamp and recap — recon-lastrun/recon-summary/recon-run-btn kept
+  their ids, so loadReconciliation/runReconciliationCheck needed no changes).
+  The queue footer hosts the quiet reference links: Recently resolved (n),
+  For information (n), Past reconciliation reports — all collapsed.
+- **Loans page reduced to a pure repository:** summary tiles + All Loans +
+  Debt Schedule. The Reconciliation card is gone (its pieces moved to the
+  Overview as above). **All Loans is open by default** and **"Hide closed
+  loans" is checked by default** (`_bkHideClosedLoans()` now defaults true;
+  unchecking persists per session as before).
+
+**Verified:** headless render of Overview (order + chooser with a dropped
+filename) and Loans (table open, checkbox checked, 1-of-2 badge with the
+closed loan hidden); node --check on both inline scripts; all relocated
+element ids unique. Screenshots in chat.
+
+**For tomorrow (David):** the ingestion engine — recognize payroll CSVs vs
+loan statements vs amortization schedules at the dropzone so the "what is
+this?" tap disappears. The dropzone funnels everything through
+bkRouteDrop(kind); that's the seam the classifier replaces.
+
+
 ### Session 223 cont. (2026-08-20) — David's design feedback round: bare page, 4 KPIs, capped friendly queue, Loans/Payroll as pure info pages
 
 Same-day follow-up to the REELOAD port, all four asks + two mid-turn notes shipped:
