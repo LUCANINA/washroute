@@ -3397,6 +3397,31 @@
               <div id="bk-batch-notes" style="display:none;padding:10px 20px 14px;border-top:1px solid var(--gray-100);font-size:12.5px;color:var(--gray-600)"></div>
             </div>
 
+            <!-- Document peek (session 224 cont., per David: "I wish I could see
+                 the relevant document quickly without having to open it").
+                 A floating magnifier over the file that's ALREADY IN MEMORY on
+                 the batch row — no storage round-trip. PDFs render via the same
+                 pdf.js build the parsers use; for a parsed statement the view
+                 auto-centers on (and highlights) the balance figure the parser
+                 read, so "the relevant section" is literally where it opens.
+                 Drag to pan, scroll or +/− to zoom, ‹ › for pages, Esc closes. -->
+            <div id="bk-peek" style="display:none;position:fixed;z-index:1200;right:24px;top:80px;width:560px;max-width:calc(100vw - 48px);background:#fff;border:1px solid var(--gray-200);border-radius:14px;box-shadow:0 12px 40px rgba(15,39,68,.18);overflow:hidden">
+              <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--gray-100)">
+                <div id="bk-peek-title" style="flex:1;font-size:13px;font-weight:600;color:var(--gray-800);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                <button class="btn btn-ghost" id="bk-peek-prev" style="font-size:12px;padding:3px 8px" onclick="bkPeekPage(-1)">‹</button>
+                <span id="bk-peek-pageinfo" style="font-size:12px;color:var(--gray-500)"></span>
+                <button class="btn btn-ghost" id="bk-peek-next" style="font-size:12px;padding:3px 8px" onclick="bkPeekPage(1)">›</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkPeekZoom(-1)">−</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkPeekZoom(1)">+</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkClosePeek()">✕</button>
+              </div>
+              <div id="bk-peek-body" style="position:relative;height:420px;overflow:hidden;background:var(--gray-100);cursor:grab">
+                <canvas id="bk-peek-canvas" style="position:absolute;left:0;top:0"></canvas>
+                <pre id="bk-peek-text" style="display:none;margin:0;padding:14px;font-size:11.5px;line-height:1.5;height:100%;overflow:auto;background:#fff;box-sizing:border-box"></pre>
+                <div id="bk-peek-msg" style="display:none;padding:40px 20px;text-align:center;font-size:13px;color:var(--gray-500)"></div>
+              </div>
+            </div>
+
             <div class="card" style="margin-bottom:20px">
               <div class="card-header" style="padding:20px 24px">
                 <div style="flex:1">
@@ -8926,19 +8951,22 @@
   }
 
   function _bkBatchRowActions(i) {
-    if (currentUserRole === 'cpa') return '';
     const btn = (label, fn, ghost) => `<button class="btn ${ghost ? 'btn-ghost' : 'btn-primary'}" style="font-size:11.5px;padding:4px 9px" onclick="${fn}">${esc(label)}</button>`;
+    // Peek is read-only and always available (cpa included) — the file is
+    // already in this browser's memory, nothing is fetched or written.
+    const peek = i.base64 ? btn('👁', `bkPeekItem('${i.id}')`, true) : '';
+    if (currentUserRole === 'cpa') return peek;
     switch (i.status) {
-      case 'ready':      return btn('Not this', `bkBatchSkip('${i.id}')`, true);
-      case 'manual':     return btn('Loan document', `bkBatchManual('${i.id}','loan')`, true)
+      case 'ready':      return peek + btn('Not this', `bkBatchSkip('${i.id}')`, true);
+      case 'manual':     return peek + btn('Loan document', `bkBatchManual('${i.id}','loan')`, true)
                               + btn('Payroll report', `bkBatchManual('${i.id}','payroll')`, true)
                               + btn('Skip', `bkBatchSkip('${i.id}')`, true);
-      case 'duplicate':  return btn('File anyway', `bkBatchForce('${i.id}')`, true);
-      case 'unreadable': return btn('File by hand', `bkBatchManual('${i.id}','loan')`, true)
+      case 'duplicate':  return peek + btn('File anyway', `bkBatchForce('${i.id}')`, true);
+      case 'unreadable': return peek + btn('File by hand', `bkBatchManual('${i.id}','loan')`, true)
                               + btn('Skip', `bkBatchSkip('${i.id}')`, true);
-      case 'failed':     return btn('Try again', `bkBatchRetry('${i.id}')`, true);
-      case 'skipped':    return btn('Undo', `bkBatchUnskip('${i.id}')`, true);
-      default: return '';
+      case 'failed':     return peek + btn('Try again', `bkBatchRetry('${i.id}')`, true);
+      case 'skipped':    return peek + btn('Undo', `bkBatchUnskip('${i.id}')`, true);
+      default: return peek;
     }
   }
   function _bkItem(id) { return _bkBatch && _bkBatch.items.find(i => i.id === id); }
@@ -8983,8 +9011,210 @@
   }
   function bkClearBatch() {
     if (_bkBatch && (_bkBatch.running || _bkBatch.items.some(i => i.status === 'filing'))) return;
+    bkClosePeek();
     _bkBatch = null;
     renderBkBatch();
+  }
+
+  // ── Document peek ──────────────────────────────────────────────────────────
+  // The file is already sitting in memory on the batch item, so the preview is
+  // instant and local — nothing is fetched, nothing is written. Click 👁 on any
+  // row: PDFs and images render into a pannable, zoomable canvas; CSVs and
+  // other text show as text. For a statement the parser read, the opening view
+  // centers on the balance figure it found and highlights it. Scoped to batch
+  // rows today — the Documents lists elsewhere still open the stored file.
+  let _bkPeekState = null;
+  let _bkPeekWired = false;
+
+  function _bkPeekEls() {
+    return {
+      panel: document.getElementById('bk-peek'),
+      body: document.getElementById('bk-peek-body'),
+      canvas: document.getElementById('bk-peek-canvas'),
+      text: document.getElementById('bk-peek-text'),
+      msg: document.getElementById('bk-peek-msg'),
+      title: document.getElementById('bk-peek-title'),
+      pageinfo: document.getElementById('bk-peek-pageinfo'),
+      prev: document.getElementById('bk-peek-prev'),
+      next: document.getElementById('bk-peek-next'),
+    };
+  }
+
+  function _bkPeekWire() {
+    if (_bkPeekWired) return;
+    _bkPeekWired = true;
+    const { body, canvas } = _bkPeekEls();
+    let dragging = null;
+    body.addEventListener('mousedown', (e) => {
+      if (!_bkPeekState || _bkPeekState.kind === 'text') return;
+      dragging = { x: e.clientX, y: e.clientY, panX: _bkPeekState.panX, panY: _bkPeekState.panY };
+      body.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging || !_bkPeekState) return;
+      _bkPeekState.panX = dragging.panX + (e.clientX - dragging.x);
+      _bkPeekState.panY = dragging.panY + (e.clientY - dragging.y);
+      canvas.style.transform = `translate(${_bkPeekState.panX}px,${_bkPeekState.panY}px)`;
+    });
+    window.addEventListener('mouseup', () => { dragging = null; body.style.cursor = 'grab'; });
+    body.addEventListener('wheel', (e) => {
+      if (!_bkPeekState || _bkPeekState.kind === 'text') return;
+      e.preventDefault();
+      bkPeekZoom(e.deltaY < 0 ? 1 : -1);
+    }, { passive: false });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && _bkPeekState) bkClosePeek();
+    });
+  }
+
+  async function bkPeekItem(id) {
+    const item = _bkItem(id);
+    if (!item || !item.base64) { showToast("That file isn't readable for a preview.", 'error'); return; }
+    _bkPeekWire();
+    const els = _bkPeekEls();
+    if (!els.panel) return;
+    // Tear down any previous peek first (also frees the previous pdf).
+    bkClosePeek();
+    els.panel.style.display = '';
+    els.title.textContent = item.name;
+    els.canvas.style.display = 'none'; els.text.style.display = 'none';
+    els.msg.style.display = ''; els.msg.textContent = 'Opening…';
+    els.prev.style.display = 'none'; els.next.style.display = 'none'; els.pageinfo.textContent = '';
+
+    const isPdf = /\.pdf$/i.test(item.name);
+    const isImg = /\.(png|jpe?g|webp|gif)$/i.test(item.name);
+    _bkPeekState = { item, kind: isPdf ? 'pdf' : isImg ? 'img' : 'text', pdf: null, img: null, pageNum: 1, pageCount: 1, zoom: 2, panX: 0, panY: 0 };
+
+    try {
+      if (_bkPeekState.kind === 'text') {
+        const lines = atob(item.base64).split(/\r?\n/).slice(0, 300);
+        els.msg.style.display = 'none';
+        els.text.style.display = '';
+        els.text.textContent = lines.join('\n');
+        return;
+      }
+      if (_bkPeekState.kind === 'img') {
+        const img = new Image();
+        await new Promise((res, rej) => {
+          img.onload = res; img.onerror = () => rej(new Error('image failed to decode'));
+          img.src = 'data:' + (item.file.type || 'image/png') + ';base64,' + item.base64;
+        });
+        _bkPeekState.img = img;
+        _bkPeekState.zoom = 1.2;
+        await _bkPeekRender();
+        return;
+      }
+      if (!window.pdfjsLib) throw new Error('the PDF library did not load — check the network and refresh');
+      const bytes = Uint8Array.from(atob(item.base64), c => c.charCodeAt(0));
+      _bkPeekState.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      _bkPeekState.pageCount = _bkPeekState.pdf.numPages;
+      await _bkPeekRender(true);
+    } catch (e) {
+      if (_bkPeekState) {
+        els.canvas.style.display = 'none'; els.text.style.display = 'none';
+        els.msg.style.display = '';
+        els.msg.textContent = "Couldn't preview this file — " + ((e && e.message) || e) + '.';
+      }
+    }
+  }
+
+  function bkClosePeek() {
+    const els = _bkPeekEls();
+    if (els.panel) els.panel.style.display = 'none';
+    if (_bkPeekState && _bkPeekState.pdf) { try { _bkPeekState.pdf.destroy(); } catch (_) {} }
+    _bkPeekState = null;
+  }
+
+  function bkPeekPage(delta) {
+    const s = _bkPeekState;
+    if (!s || s.kind !== 'pdf') return;
+    const target = Math.min(s.pageCount, Math.max(1, s.pageNum + delta));
+    if (target === s.pageNum) return;
+    s.pageNum = target; s.panX = 0; s.panY = 0;
+    _bkPeekRender(target === 1);
+  }
+
+  function bkPeekZoom(step) {
+    const s = _bkPeekState;
+    if (!s || s.kind === 'text') return;
+    const before = s.zoom;
+    s.zoom = Math.min(4, Math.max(0.6, s.zoom * (step > 0 ? 1.3 : 1 / 1.3)));
+    if (s.zoom === before) return;
+    // Keep the point under the middle of the viewport fixed while zooming.
+    const { body } = _bkPeekEls();
+    const f = s.zoom / before;
+    const cx = body.clientWidth / 2, cy = body.clientHeight / 2;
+    s.panX = cx - f * (cx - s.panX);
+    s.panY = cy - f * (cy - s.panY);
+    _bkPeekRender(false);
+  }
+
+  async function _bkPeekRender(centerOnMatch) {
+    const s = _bkPeekState;
+    if (!s) return;
+    const els = _bkPeekEls();
+    const ctxScale = window.devicePixelRatio > 1 ? 2 : 1;   // crisp on retina
+    els.msg.style.display = 'none'; els.text.style.display = 'none';
+    els.canvas.style.display = '';
+
+    if (s.kind === 'img') {
+      const w = Math.round(s.img.naturalWidth * s.zoom), h = Math.round(s.img.naturalHeight * s.zoom);
+      els.canvas.width = w * ctxScale; els.canvas.height = h * ctxScale;
+      els.canvas.style.width = w + 'px'; els.canvas.style.height = h + 'px';
+      const ctx = els.canvas.getContext('2d');
+      ctx.setTransform(ctxScale, 0, 0, ctxScale, 0, 0);
+      ctx.drawImage(s.img, 0, 0, w, h);
+      if (!s.panX && !s.panY) s.panX = Math.min(0, (els.body.clientWidth - w) / 2);
+      els.canvas.style.transform = `translate(${s.panX}px,${s.panY}px)`;
+      return;
+    }
+
+    const page = await s.pdf.getPage(s.pageNum);
+    if (!_bkPeekState || _bkPeekState !== s) return;   // closed while rendering
+    const viewport = page.getViewport({ scale: s.zoom });
+    els.canvas.width = viewport.width * ctxScale; els.canvas.height = viewport.height * ctxScale;
+    els.canvas.style.width = viewport.width + 'px'; els.canvas.style.height = viewport.height + 'px';
+    const ctx = els.canvas.getContext('2d');
+    ctx.setTransform(ctxScale, 0, 0, ctxScale, 0, 0);
+    await page.render({ canvasContext: ctx, viewport, transform: ctxScale !== 1 ? [ctxScale, 0, 0, ctxScale, 0, 0] : undefined }).promise;
+    if (!_bkPeekState || _bkPeekState !== s) return;
+
+    els.pageinfo.textContent = `${s.pageNum} / ${s.pageCount}`;
+    els.prev.style.display = s.pageCount > 1 ? '' : 'none';
+    els.next.style.display = s.pageCount > 1 ? '' : 'none';
+
+    // "The relevant section": if the parser read a balance off this document,
+    // find that exact figure in the page's text layer, highlight it, and open
+    // the view centered on it. Falls back to top-of-page when not found.
+    let matched = false;
+    if (centerOnMatch && s.item.browserParsed && s.pageNum === 1) {
+      const p = s.item.browserParsed;
+      const targets = [];
+      const n = Number(p.principalBalance);
+      if (isFinite(n)) targets.push(n.toLocaleString('en-US', { minimumFractionDigits: 2 }));
+      if (p.principalBalance != null) targets.push(String(p.principalBalance));
+      try {
+        const tc = await page.getTextContent();
+        if (!_bkPeekState || _bkPeekState !== s) return;
+        const hit = tc.items.find(it => it.str && targets.some(t => t && it.str.includes(t)));
+        if (hit) {
+          const tx = pdfjsLib.Util.transform(viewport.transform, hit.transform);
+          const hh = Math.hypot(tx[2], tx[3]) || 12;
+          const ww = (hit.width || 8) * s.zoom;
+          ctx.fillStyle = 'rgba(255, 214, 0, 0.35)';
+          ctx.fillRect(tx[4] - 4, tx[5] - hh, ww + 8, hh * 1.5);
+          s.panX = els.body.clientWidth / 2 - (tx[4] + ww / 2);
+          s.panY = els.body.clientHeight / 2 - (tx[5] - hh / 2);
+          matched = true;
+        }
+      } catch (_) { /* highlight is a nicety — the render already succeeded */ }
+    }
+    if (!matched && centerOnMatch) {
+      s.panX = Math.min(0, (els.body.clientWidth - viewport.width) / 2);
+      s.panY = 0;
+    }
+    els.canvas.style.transform = `translate(${s.panX}px,${s.panY}px)`;
   }
 
   // ── Batch filing: ONE tap, same review-gated doors as the modals ───────────
