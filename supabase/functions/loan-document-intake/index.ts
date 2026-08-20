@@ -109,7 +109,7 @@ function fact(
   return { field, value, basis, as_of, source_text, confidence }
 }
 
-// ── PDF text extraction ──────────────────────────────────────────────────────
+// ── PDF text extraction ──────────────────────────────────────────────────
 // Join semantics are byte-identical to the browser's _extractPdfText. Do not
 // "improve" them (e.g. sorting items by position, collapsing runs of spaces):
 // every shipped parser regex is tuned to THIS output, multiple spaces included.
@@ -722,7 +722,7 @@ Deno.serve(async (req) => {
     const { data: loansForAi } = await supa.from('loan_accounts')
       .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code')
 
-    // ── classify + extract ────────────────────────────────────────────────────
+    // ── classify + extract ──────────────────────────────────────────────────
     let kind = 'unknown'
     let lenderLabel: string | null = null
     let confidence: 'high' | 'medium' | 'low' = 'low'
@@ -731,11 +731,19 @@ Deno.serve(async (req) => {
     let accountNumber: string | null = null
     let periodCount: number | null = null
 
+    // Session 224 acceptance-test fix: a PDF can POSITIVELY match a known
+    // lender's fingerprint (detect()) while its numbers can't be auto-read
+    // (extract() declines — Ford Pro's no-payment-this-period statements are
+    // the live case). The fingerprint is a stronger signal than the keyword
+    // heuristics below, which used to see the payoff-quote box Ford prints on
+    // EVERY statement and mislabel the whole document a payoff letter. Record
+    // the detection so the file is named honestly as an unparseable statement.
+    let fingerprintOnlyLabel: string | null = null
     if (isPdf && text) {
       for (const p of LOAN_PDF_PARSERS) {
         if (!p.detect(text)) continue
         const r = p.extract(text)
-        if (!r) continue
+        if (!r) { fingerprintOnlyLabel = p.lenderLabel; continue }
         kind = 'lender_statement'; lenderLabel = p.lenderLabel
         confidence = 'high'; method = 'deterministic_lender_parser'
         accountNumber = r.accountNumber
@@ -793,6 +801,16 @@ Deno.serve(async (req) => {
           }
         }
       }
+    }
+
+    // Fingerprint-without-parse beats the keyword heuristics below: the file is
+    // known to BE a lender statement even though its figures couldn't be read.
+    // Medium confidence, no facts — a human fills the numbers in.
+    if (kind === 'unknown' && fingerprintOnlyLabel) {
+      kind = 'lender_statement'
+      lenderLabel = fingerprintOnlyLabel
+      confidence = 'medium'
+      method = 'deterministic_fingerprint_only'
     }
 
     // Heuristic kind hints, only when no deterministic parser claimed the file.
