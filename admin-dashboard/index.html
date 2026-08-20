@@ -8433,7 +8433,7 @@
         status: 'pending', kind: null, label: null, confidence: null, method: null,
         loan: null, proposal: 'Waiting…', detail: null, base64: null, sha: null,
         browserParsed: null, browserBulk: null, parsedSchedule: null, payrollMeta: null,
-        server: null, dupOf: null, issuer: null, error: null,
+        fingerprintLabel: null, server: null, dupOf: null, issuer: null, error: null,
       });
     }
     renderBkBatch();
@@ -8552,6 +8552,7 @@
       if (!item.browserParsed) {
         const sched = _parseAmortizationSchedule(text);
         if (sched) item.parsedSchedule = sched;
+        else item.fingerprintLabel = _detectKnownLenderPdfLabel(text);
       }
     } else if (isCsv && text) {
       item.browserBulk = _parsePayPalHistoryCsv(text);
@@ -8595,13 +8596,26 @@
     if (item.browserParsed) {
       const p = item.browserParsed;
       const loan = _bkLoanByAcct(p.accountNumber);
-      // Semantic statement duplicate: same loan + same statement date already
-      // on file — works for ALL historical rows, hash or no hash.
+      // Semantic statement duplicates: same loan + same statement date already
+      // on file — works for ALL historical rows, hash or no hash. Session 224's
+      // acceptance test added the second check: same loan + same balance TO THE
+      // CENT within 45 days is the same statement wearing a different date —
+      // older portal pulls were dated by the day they were pulled, while the
+      // parser dates by what the statement itself says, so exact-date matching
+      // let five re-uploads through as "ready."
+      const daysBetween = (a, b) => Math.abs(Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000;
       const already = loan && (_allLoanStatements || []).some(s => s.loan_account_id === loan.id && s.statement_date === p.statementDate);
+      const nearSame = !already && loan && (_allLoanStatements || []).find(s =>
+        s.loan_account_id === loan.id && s.principal_balance != null &&
+        Math.abs(Number(s.principal_balance) - Number(p.principalBalance)) < 0.005 &&
+        s.statement_date && daysBetween(s.statement_date, p.statementDate) <= 45);
       item.kind = 'lender_statement'; item.label = p.lenderLabel; item.confidence = 'high'; item.method = 'browser_parser';
       if (already) {
         item.status = 'duplicate'; item.dupOf = 'statement_date'; item.loan = loan;
         item.proposal = `${p.lenderLabel} for ${_bkLoanLabel(loan)}, ${p.statementDate} — a statement for that date is already on file. Skipped.`;
+      } else if (nearSame) {
+        item.status = 'duplicate'; item.dupOf = 'same_balance_near_date'; item.loan = loan;
+        item.proposal = `${p.lenderLabel} for ${_bkLoanLabel(loan)} — the identical balance ($${Number(p.principalBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}) is already on file dated ${nearSame.statement_date}; almost certainly the same statement. Skipped.`;
       } else if (loan) {
         item.loan = loan; item.status = 'ready';
         item.proposal = `${p.lenderLabel} — ${_bkLoanLabel(loan)}, balance ${fmt$(p.principalBalance)} as of ${p.statementDate}.`;
@@ -8614,8 +8628,19 @@
       const first = item.browserBulk[0], last = item.browserBulk[item.browserBulk.length - 1];
       item.kind = 'transaction_history'; item.label = 'PayPal loan history CSV'; item.confidence = 'high'; item.method = 'browser_parser';
       if (loan) {
-        item.loan = loan; item.status = 'ready';
-        item.proposal = `PayPal loan history — ${item.browserBulk.length} periods, ${first.statementDate} to ${last.statementDate} → ${_bkLoanLabel(loan)} (the only PayPal loan on file).`;
+        // Session 224 acceptance test: check the periods against what's already
+        // imported instead of offering a full re-file of a known history.
+        const onFile = new Set((_allLoanStatements || []).filter(s => s.loan_account_id === loan.id).map(s => s.statement_date));
+        const newPeriods = item.browserBulk.filter(per => !onFile.has(per.statementDate)).length;
+        item.loan = loan;
+        if (newPeriods === 0) {
+          item.status = 'duplicate'; item.dupOf = 'all_periods_imported';
+          item.proposal = `PayPal loan history — all ${item.browserBulk.length} periods (${first.statementDate} to ${last.statementDate}) are already imported for ${_bkLoanLabel(loan)}. Skipped.`;
+        } else {
+          item.status = 'ready';
+          item.proposal = `PayPal loan history — ${item.browserBulk.length} periods, ${first.statementDate} to ${last.statementDate} → ${_bkLoanLabel(loan)} (the only PayPal loan on file).`
+            + (newPeriods < item.browserBulk.length ? ` ${newPeriods} ${newPeriods === 1 ? 'is' : 'are'} new; the rest are already on file and get skipped.` : '');
+        }
       } else {
         item.status = 'manual';
         item.proposal = `PayPal loan history (${item.browserBulk.length} periods) — pick which loan it belongs to.`;
@@ -8628,6 +8653,14 @@
       item.proposal = s.verified
         ? `Amortization schedule — ${s.rows.length} rows, ${s.firstDate} to ${s.lastDate}, figures check out. Pick which loan it belongs to.`
         : `Looks like an amortization schedule, but its numbers don't add up — needs a look before anything is filed.`;
+    } else if (item.fingerprintLabel) {
+      // Positively a known lender's statement, but the parser declined to read
+      // its numbers (Ford Pro's no-payment periods are the live case). Named
+      // honestly, routed to the human — never re-guessed by weaker signals.
+      item.kind = 'lender_statement'; item.label = item.fingerprintLabel;
+      item.confidence = 'medium'; item.method = 'browser_fingerprint';
+      item.status = 'manual';
+      item.proposal = `${item.fingerprintLabel} that couldn't be auto-read — often a statement with no payment this period. File it by hand.`;
     } else if (item.payrollMeta) {
       const m = item.payrollMeta;
       const dupImport = (_allPayrollImports || []).some(pi =>
@@ -8668,9 +8701,11 @@
       }
       return;
     }
-    // Bulk / payroll / schedule verdicts from the browser stand on their own
-    // deterministic parses; the server has nothing stronger to add.
-    if (item.method === 'browser_parser') return;
+    // Bulk / payroll / schedule / fingerprint-only verdicts from the browser
+    // stand on their own deterministic checks; the server has nothing stronger
+    // to add (its heuristics are exactly what mislabeled the Ford no-payment
+    // statement as a payoff letter in the acceptance test).
+    if (item.method === 'browser_parser' || item.method === 'browser_fingerprint') return;
 
     if (!server) {
       item.status = 'unreadable';
@@ -12427,6 +12462,20 @@ ${noActivityNote}
       if (!parser.detect(text)) continue;
       const result = parser.extract(text);
       if (result) return { ...result, lenderLabel: parser.lenderLabel };
+    }
+    return null;
+  }
+
+  // Fingerprint-without-parse (session 224 acceptance test): a document can be
+  // POSITIVELY a known lender's statement (detect() matches) while extract()
+  // declines — Ford Pro's no-payment-this-period statements are the live case.
+  // Before this, such a file fell through to the keyword heuristics, which saw
+  // the payoff-quote box Ford prints on EVERY statement and confidently called
+  // the whole thing a payoff letter. The fingerprint is the stronger signal:
+  // say what it is, admit it couldn't be auto-read, let the human file it.
+  function _detectKnownLenderPdfLabel(text) {
+    for (const parser of LOAN_PDF_PARSERS) {
+      if (parser.detect(text)) return parser.lenderLabel;
     }
     return null;
   }
