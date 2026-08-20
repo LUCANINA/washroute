@@ -1038,6 +1038,28 @@ to "what is running".
 
 ## Session Log
 
+### Session 223 cont. 6 (2026-08-20) — the right-edge shadow, actually fixed
+
+The cont.-4 overflow containment treated a symptom; the shadow persisted
+because it never came from Bookkeeping content at all. Instrumenting the
+rendered page (every element's rect + computed box-shadow at 3 widths) found
+the source: **the four `.slide-over` panels (e.g. #slideover-team-member)
+park 60px off the right edge when closed, but stay visible — and their
+`-6px 0 40px` box-shadow's soft gaussian tail bled a faint full-height
+shadow strip onto the right edge of EVERY page, app-wide.**
+
+Fix: `.slide-over` is `visibility:hidden` when closed, `visible` when
+`.open`, with a delayed visibility transition (`0s linear .22s`) so the
+slide-in/out animation is unchanged in both directions. Bonus: closed
+slide-overs leave the tab order. Verified headlessly: all 4 report
+`visibility:hidden` closed, `visible` with `.open`.
+
+Lesson recorded: when hunting a rendering artifact, instrument the live DOM
+(rects + computed styles) instead of reasoning from the code you most
+recently touched — the offender had been in the codebase all along and had
+nothing to do with the session's changes.
+
+
 ### Session 223 cont. 5 (2026-08-20) — All Loans alignment + Split History modal
 
 - **All Loans columns now line up across every lender group.** Each group is

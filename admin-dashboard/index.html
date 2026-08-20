@@ -1029,8 +1029,13 @@
     .sched-cell:hover { opacity:.8;border-color:rgba(0,0,0,.15); }
     .sched-override { box-shadow:inset 0 0 0 2px rgba(255,255,255,.55); }
     /* Template slide-over */
-    .slide-over { position:fixed;top:0;right:0;bottom:0;width:430px;background:white;box-shadow:-6px 0 40px rgba(0,0,0,.18);z-index:900;transform:translateX(calc(100% + 60px));transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
-    .slide-over.open { transform:translateX(0); }
+    /* Session 223 cont. 6: closed slide-overs are now visibility:hidden. They
+       park 60px off the right edge, but their 40px-blur box-shadow's soft tail
+       still bled a faint full-height shadow strip onto the right edge of every
+       page (David spotted it on Bookkeeping — it was app-wide). The delayed
+       visibility transition keeps the slide animation intact both ways. */
+    .slide-over { position:fixed;top:0;right:0;bottom:0;width:430px;background:white;box-shadow:-6px 0 40px rgba(0,0,0,.18);z-index:900;transform:translateX(calc(100% + 60px));visibility:hidden;transition:transform .22s ease, visibility 0s linear .22s;display:flex;flex-direction:column;overflow:hidden; }
+    .slide-over.open { transform:translateX(0);visibility:visible;transition:transform .22s ease, visibility 0s; }
     .slide-over-header { padding:18px 24px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-shrink:0; }
     .slide-over-body { flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px; }
     .slide-over-footer { padding:14px 24px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0; }
