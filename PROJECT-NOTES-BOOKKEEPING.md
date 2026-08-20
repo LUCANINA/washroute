@@ -1038,7 +1038,93 @@ to "what is running".
 
 ## Session Log
 
-*Last updated: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. All 7 build steps done: `loan-document-intake` v1 deployed dry-run-only with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements, and the two upload surfaces merged into one intake modal (6 defects found and fixed first — three by review, three only by driving the real screen).***
+### Session 223 — REELOAD design port: Issues/Approvals queue + real Xero KPIs on Overview (2026-08-20)
+
+David asked for a design review of the Bookkeeping page against the REELOAD design
+philosophy (bookswell/REELOAD-V1-ARCHITECTURE.md + design/mockup-cpa-view-v4.html),
+a restructure that distinguishes ISSUES vs APPROVALS only, and real KPIs on the
+Overview pulled from Xero. All three shipped.
+
+**The design thesis (from the review):** the old Overview showed four workflow-count
+tiles and no queue — counts where money should be. The mockup's insight: tiles are
+about the BUSINESS, the queue is about the WORK, and every work item is one of
+exactly two kinds — *something is wrong, decide* (Issue) or *nothing is wrong,
+approve* (Approval).
+
+**What changed (frontend, `admin-dashboard/index.html`):**
+- **Overview rebuilt.** (a) "At a Glance" KPI card: Cash on hand, Revenue this month
+  (MTD vs same point last month), Net profit last month, Total debt + monthly debt
+  service, Cash runway — each with a delta and a REELOAD-style sparkline, plus an
+  "updated N min ago" stamp and a Refresh button. (b) One cross-domain queue with an
+  Issues/Approvals segmented toggle (`_bkIssueQueueItems()`/`_bkApprovalQueueItems()`
+  — the ONE place each list is computed; they read the same shared sources as the
+  tabs, per the one-function-per-count invariant). The old four count-tiles and
+  Recent Activity card are gone.
+- **Loans page:** "Needs Attention" + "Ready to Post" merged into one always-open
+  queue card with the Issues (n) / Approvals (m) toggle. Ready-to-post splits render
+  as quiet queue rows ("Approve →" into the existing review modal) instead of a
+  table. The Action Needed/Resolved subtabs became a collapsible "Recently resolved
+  (n)" link under the Issues list. Run Reconciliation Check + past-reports link stay
+  on the card.
+- **Payroll page:** same toggle — Issues = attention flags + standing notices
+  (unchanged content); Approvals = parsed/reviewed pay periods as queue rows.
+- **Design-language pass (scoped to Bookkeeping):** `.bk-*` CSS classes ported from
+  the v4 mockup; summary strips on Loans / Payroll / Debt Schedule de-nested from
+  gray boxes into ONE hairline-divided tile row (session-219 one-contrast-step rule);
+  the four one-time payroll correction cards restyled amber (they're approvals, not
+  fires); amber dots for warns, red reserved for errors.
+- **Retail cash reclass** now surfaces as an Approvals queue item on Overview
+  (`_retailReclassPeriod`, set by `checkRetailCashReclassStatus`) instead of the old
+  standalone red card.
+
+**Backend (new):**
+- **`bookkeeping_kpi_snapshots` table** (migration `session_223_bookkeeping_kpi_snapshots`):
+  RLS admin/manager/cpa SELECT, service_role writes, anon revoked. One row per pull.
+- **`bookkeeping-kpis` edge function v4** (repo `supabase/functions/bookkeeping-kpis/`):
+  reads Xero `Reports/ProfitAndLoss` (×3) + `Reports/BalanceSheet` via the shared
+  `xero-auth.ts`, READ-ONLY against Xero, stores a snapshot the page reads instantly
+  (never calls Xero on page load — same design as payroll-check-attention). Auth:
+  admin/manager/cpa JWT or the pg_cron source; 5-min throttle unless `force:true`;
+  failed runs stored with `error` set (never read as data); 90-day prune.
+- **pg_cron `wr-bookkeeping-kpis`** (`0 */6 * * *`) — preflighted: zero
+  customer-contact pathways, LOW risk.
+- Total debt is deliberately NOT in the snapshot — computed client-side from the
+  same loan data the Debt Schedule uses (`_loanOutstandingBalance`; new
+  `_loanBalanceAsOf(a, iso)` powers the history sparkline only).
+
+**⚠️ New Xero API lesson — comparison columns mirror the requested day-span.**
+With `periods`+`timeframe`, each comparison column covers the SAME day-span in the
+earlier period: ask P&L for Aug 1–19 and the "July" column comes back as Jul 1–19,
+not full July (verified live — the mirrored column equaled a separate Jul 1–19 pull
+to the cent, $120,281.52 vs full July's $251,907.26). Any monthly series must be
+anchored on the last FULL month, with the current partial month fetched separately.
+Same applies to BalanceSheet: `date=today&periods=N` returns the same day-of-month
+in prior months, not month-ends — the KPI cash series is labelled accordingly.
+Also: this org's Balance Sheet uses the US-GAAP layout — the bank section is
+"Cash and Cash Equivalents", not "Bank".
+
+**Bugs found & fixed along the way:**
+- `_bkOneLine()` truncated summaries mid-number — its sentence-end regex matched the
+  decimal point in "$1,180.32", rendering "Xero carries $1,180." on every card that
+  led with a dollar amount. Fixed: sentence end must be punctuation followed by
+  whitespace/end. (Live production bug, caught in the headless render check.)
+- `renderLoansSummary()` used `new Date().toISOString().slice(0,7)` — the banned TZ
+  pattern; after ~4-5pm PT on a month's last day, "Paid last month"/"Paid YTD"
+  shifted a month forward. Fixed to `today().slice(0,7)`.
+
+**Verified:** edge function live-tested end-to-end (real snapshot rows with real
+figures); all page states rendered in headless Chromium with mock queue data + the
+real KPI payload (Overview Issues/Approvals, Loans both segments, Payroll both
+segments) — screenshots delivered in chat; both inline scripts pass `node --check`.
+
+**Removed/renamed IDs for future greps:** `loans-attention-badge`,
+`loans-pending-badge`, `payroll-attention-badge`, `bk-overview-attention`,
+`bk-overview-recent`, `retail-cashreclass-card` (element gone; state lives in
+`_retailReclassPeriod`), `setLoanAttnTab`/`_loanAttnTab` (replaced by
+`_bkSetLoansSeg`). `.loan-attn-subtab` CSS is now unused (left in place).
+
+
+*Last updated: August 20, 2026 — Session 223 (see entry above). Prior update: August 18, 2026 — Session 221 — **Document Intake & Cross-Validation design pass, plus a PayPal audit that found a type error running in production for nine months and a suspected ~$3,142 double-count (CPA item). Migration `bookkeeping_add_balance_basis_and_finding_source` applied and backfilled from verified evidence. All 7 build steps done: `loan-document-intake` v1 deployed dry-run-only with browser/server pdf.js extraction proven BYTE-IDENTICAL across five real statements, and the two upload surfaces merged into one intake modal (6 defects found and fixed first — three by review, three only by driving the real screen).***
 
 ### Session 221 — the design pass, and what auditing first turned up
 
