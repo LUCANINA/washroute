@@ -8649,16 +8649,22 @@
       // Semantic statement duplicates: same loan + same statement date already
       // on file — works for ALL historical rows, hash or no hash. Session 224's
       // acceptance test added the second check: same loan + same balance TO THE
-      // CENT within 45 days is the same statement wearing a different date —
+      // CENT within a few days is the same statement wearing a different date —
       // older portal pulls were dated by the day they were pulled, while the
       // parser dates by what the statement itself says, so exact-date matching
       // let five re-uploads through as "ready."
+      // Window is 14 days, NOT a month+ (round 4, David's Ford PDFs): on a
+      // no-payment loan the balance is frozen to the cent for months, so
+      // consecutive REAL monthly statements carry identical balances — a
+      // 45-day window called a genuine May statement a duplicate of June's.
+      // 14 days still covers the pull-day-vs-content-date lag it exists for,
+      // while different-month statements with a frozen balance file cleanly.
       const daysBetween = (a, b) => Math.abs(Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000;
       const already = loan && (_allLoanStatements || []).some(s => s.loan_account_id === loan.id && s.statement_date === p.statementDate);
       const nearSame = !already && loan && (_allLoanStatements || []).find(s =>
         s.loan_account_id === loan.id && s.principal_balance != null &&
         Math.abs(Number(s.principal_balance) - Number(p.principalBalance)) < 0.005 &&
-        s.statement_date && daysBetween(s.statement_date, p.statementDate) <= 45);
+        s.statement_date && daysBetween(s.statement_date, p.statementDate) <= 14);
       item.kind = 'lender_statement'; item.label = p.lenderLabel; item.confidence = 'high'; item.method = 'browser_parser';
       if (already) {
         item.status = 'duplicate'; item.dupOf = 'statement_date'; item.loan = loan;
@@ -11895,14 +11901,16 @@
       if (!byMonth[ym] || (!byMonth[ym].storage_path && s.storage_path)) byMonth[ym] = s;
     }
     // Cadence inference (round 3, per David: "only the Ford statements show
-    // as missing — they are not"). Ford Pro doesn't ISSUE monthly statements:
-    // those CSVs are on-demand payoff pulls from the portal, dated by pull
-    // day. Judging a lender like that against a monthly calendar marks
-    // perfectly healthy loans as full of holes. So a month with nothing on
-    // file only counts as MISSING when this loan's own record shows a monthly
-    // rhythm — three or more consecutive months on file at some point. Until
-    // then, non-filled months stay neutral. Self-correcting: the moment a
-    // third consecutive month lands, gap-flagging switches on by itself.
+    // as missing — they are not"): a month with nothing on file only counts
+    // as MISSING when this loan's own record shows a monthly rhythm — three
+    // or more consecutive months on file at some point. A loan with only a
+    // couple of scattered months on file (the Fords: history was simply never
+    // uploaded) shouldn't read as full of holes; until a rhythm shows,
+    // non-filled months stay neutral. Self-correcting: the moment a third
+    // consecutive month lands, gap-flagging switches on by itself. The card's
+    // summary describes the RECORD ("no monthly rhythm on file yet"), never
+    // guesses at the lender's behavior — round 4 corrected wording that
+    // wrongly claimed Ford statements were on-demand pulls.
     const keys = Object.keys(byMonth).sort();
     let maxRun = 1, run = 1;
     for (let i = 1; i < keys.length; i++) {
@@ -11972,7 +11980,7 @@
     const missing = d.monthly ? expected.filter(ym => !d.byMonth[ym]) : [];
     const latestDate = onFile.map(ym => d.byMonth[ym].statement_date).sort().pop();
     const summary = !d.monthly
-      ? `${onFile.length} statement${onFile.length !== 1 ? 's' : ''} on file, latest ${latestDate}. This loan's statements are pulled on demand rather than issued monthly, so no months are marked missing.`
+      ? `${onFile.length} statement${onFile.length !== 1 ? 's' : ''} on file, latest ${latestDate}. This loan doesn't have a monthly rhythm on file yet, so no months are marked missing — drop more statements on the Overview upload box to build the record.`
       : (missing.length === 0
         ? `All ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)}. Complete.`
         : `${onFile.length} of ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)} — missing ${missing.length <= 4 ? missing.map(_bkMonthLabel).join(', ') : missing.length + ' months'}.`);
@@ -11988,7 +11996,7 @@
           return `<span style="${cell};background:var(--accent);color:#fff${s.storage_path ? ';cursor:pointer' : ''}"${peek} title="${esc(_bkMonthLabel(ym))} — statement ${esc(s.statement_date)} on file${s.storage_path ? '. Click to take a look.' : ''}">${mn[0]}</span>`;
         }
         if (ym === d.curYm) return `<span style="${cell};background:var(--gray-100);color:var(--gray-400)" title="${esc(_bkMonthLabel(ym))} — no statement yet (statements usually arrive after the month ends)">${mn[0]}</span>`;
-        if (!d.monthly) return `<span style="${cell};background:var(--gray-100);color:var(--gray-400)" title="${esc(_bkMonthLabel(ym))} — no statement pulled that month">${mn[0]}</span>`;
+        if (!d.monthly) return `<span style="${cell};background:var(--gray-100);color:var(--gray-400)" title="${esc(_bkMonthLabel(ym))} — no statement on file for this month">${mn[0]}</span>`;
         return `<span style="${cell};background:#fff;border:1px solid var(--gray-300);color:var(--gray-500)" title="${esc(_bkMonthLabel(ym))} — no statement on file">${mn[0]}</span>`;
       }).join('');
       return `<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="width:34px;font-size:11px;color:var(--gray-500);text-align:right">${yr}</span><span style="white-space:nowrap">${cells}</span></div>`;
