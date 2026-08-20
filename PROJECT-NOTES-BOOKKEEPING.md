@@ -1038,6 +1038,32 @@ to "what is running".
 
 ## Session Log
 
+### Session 223 cont. 3 (2026-08-20) — one History record under the queue
+
+David flagged the queue footer: three links in three styles (RECENTLY RESOLVED
+all-caps, For information, Past reconciliation reports misaligned), and asked
+why resolved + informational were separate at all — "why not make past
+reconciliations THE record of resolved issues (resolved on XXX by XYZ)?"
+
+Shipped: the three links collapsed into ONE "History ▾" toggle under the
+Overview queue. Inside, three consistently styled groups (`.bk-history-label`
+uppercase eyebrows, `.bk-history-row` hairline rows, shared left alignment):
+
+- **Resolved (n)** — human-resolved loan flags and engine-cleared findings
+  MERGED into one dated, attributed list, newest first: "Resolved on Aug 15,
+  2026 by David — <resolution note> · Reopen" for flags; "Resolved on <date>
+  by the reconciliation check" for findings the engine cleared.
+- **For your information — nothing to do (n)** — info-severity findings.
+- **Reconciliation reports** — the run list (restyled to the same row style).
+
+renderLoansAttention() rewritten around the unified entries list; ids
+`bk-history-wrap` / `loans-recon-extras` / `recon-reports` (kept, so
+loadReconciliation is untouched). Removed ids: `recon-reports-wrap`.
+
+Verified headlessly with resolved flags + cleared findings + a report row;
+node --check clean. Screenshot in chat.
+
+
 ### Session 223 cont. 2 (2026-08-20) — dropzone, KPIs to the bottom, Loans reduced to the loan list
 
 David's next design pass, all shipped:

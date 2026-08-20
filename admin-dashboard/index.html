@@ -3310,6 +3310,8 @@
             .bk-dropzone:hover .bk-drop-icon, .bk-dropzone.drag .bk-drop-icon { background: #fff; }
             .bk-drop-title { font-size: 16px; font-weight: 650; color: var(--gray-900); margin-bottom: 4px; }
             .bk-drop-sub { font-size: 12.5px; color: var(--gray-500); }
+            .bk-history-label { font-size: 11px; font-weight: 700; color: var(--gray-400); text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 4px; }
+            .bk-history-row { padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
           </style>
 
           <!-- Overview — the CPA-centric landing view: everything needing a look,
@@ -3375,15 +3377,18 @@
                 </span>
               </div>
               <div id="bk-ov-queue-list"></div>
-              <!-- Quiet reference material under the queue (came here from the
-                   Loans page when its Reconciliation section was removed):
-                   recently-resolved history + informational findings (filled by
-                   renderLoansAttention) and past reconciliation reports. All
-                   collapsed by default. -->
-              <div id="loans-recon-extras"></div>
-              <div style="padding:10px 20px 16px">
-                <span onclick="toggleOverviewPanel('recon-reports-wrap',this)" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline">Past reconciliation reports</span>
-                <div id="recon-reports-wrap" style="display:none;margin-top:10px">
+              <!-- History (session 223 cont. 3, per David): ONE record of
+                   everything settled — resolved issues with who/when,
+                   informational notes, and the reconciliation reports they came
+                   from. Replaces the three mismatched links (Recently resolved /
+                   For information / Past reconciliation reports). Collapsed by
+                   default; renderLoansAttention fills loans-recon-extras,
+                   loadReconciliation fills recon-reports. -->
+              <div style="padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
+                <span onclick="toggleOverviewPanel('bk-history-wrap',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">History<span class="overview-chevron" style="font-size:13px;transition:transform .2s">▸</span></span>
+                <div id="bk-history-wrap" style="display:none">
+                  <div id="loans-recon-extras"></div>
+                  <div class="bk-history-label">Reconciliation reports</div>
                   <div id="recon-reports"></div>
                 </div>
               </div>
@@ -9831,7 +9836,7 @@
       ? reported.map(r => {
           const n = r.findings_new ?? 0;
           const detail = (n ? `${n} new finding${n === 1 ? '' : 's'}` : 'no new findings') + (r.run_by ? ' · ' + esc(r.run_by) : '');
-          return `<div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openReconReport(${escAttrJSArg(r.report_path)})">
+          return `<div class="bk-history-row" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openReconReport(${escAttrJSArg(r.report_path)})">
             <div>
               <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${esc(fmtDate(r.started_at))} · ${esc(r.mode || '')}</div>
               <div style="font-size:12px;color:var(--gray-500)">${detail}</div>
@@ -9839,7 +9844,7 @@
             <div style="font-size:12px;color:var(--gray-400);white-space:nowrap">Open report →</div>
           </div>`;
         }).join('')
-      : `<div style="padding:16px 20px;font-size:13px;color:var(--gray-500)">No reports yet.</div>`;
+      : `<div style="padding:10px 0;font-size:12.5px;color:var(--gray-500)">No reports yet.</div>`;
   }
 
   // Kicks off a new incremental check. The edge function does its own role check
@@ -10533,56 +10538,49 @@
     const el = document.getElementById('loans-recon-extras');
     if (!el) return;
 
+    // ONE resolved record (session 223 cont. 3): human-resolved loan flags and
+    // engine-cleared findings merged into a single dated, attributed list —
+    // "Resolved on X by Y" — newest first. Informational findings sit below
+    // as their own small group. Both live inside the History section, next to
+    // the reconciliation reports they came from.
     const resolvedAccounts = (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status === 'resolved');
     const resolvedCutoff = Date.now() - RECON_RESOLVED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const resolvedFindings = (_reconFindings || []).filter(f => f.status === 'resolved' && f.resolved_at && new Date(f.resolved_at).getTime() >= resolvedCutoff);
-    const resolvedCount = resolvedAccounts.length + resolvedFindings.length;
-    const infoFindings = _bkReconInfoFindings();
 
-    const resolvedAccountCard = (a) => `
-      <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
-        <div style="display:flex;gap:10px;align-items:flex-start">
-          <span class="badge badge-green" style="margin-top:2px">resolved</span>
-          <div style="flex:1;min-width:0">
-            <div class="td-name" style="margin-bottom:2px">${esc(a.xero_account_name || a.lender_account_number)}</div>
-            <div style="font-size:12.5px;color:var(--gray-600)">${esc(a.flag_summary || a.flagged_note)}</div>
-            <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Resolved by ${esc(a.flag_resolved_by || 'unknown')}${a.flag_resolved_at ? ' on ' + esc(a.flag_resolved_at.slice(0, 10)) : ''}</div>
-            ${a.flag_resolution_note ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;white-space:pre-wrap">${esc(a.flag_resolution_note)}</div>` : ''}
-            <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="reopenLoanFlag('${a.id}')">Reopen</button>
-          </div>
-        </div>
-      </div>`;
-    const resolvedFindingCard = (f) => `
-      <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
-        <div style="display:flex;gap:10px;align-items:flex-start">
-          <span class="badge badge-green" style="margin-top:2px">resolved</span>
-          <div style="flex:1;min-width:0">
-            <div class="td-name" style="margin-bottom:2px">${esc(f.title || 'Untitled finding')}</div>
-            ${f.plain_english ? `<div style="font-size:12.5px;color:var(--gray-600)">${esc(f.plain_english)}</div>` : ''}
-            <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Cleared ${f.resolved_at ? esc(f.resolved_at.slice(0, 10)) : ''}</div>
-          </div>
-        </div>
-      </div>`;
-    const infoCard = (f) => `<div style="padding:10px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
-      <span style="width:6px;height:6px;border-radius:50%;background:var(--gray-300);margin-top:6px;flex-shrink:0"></span>
-      <div><div style="font-size:12.5px;font-weight:600;color:var(--gray-600)">${esc(f.title || 'Untitled finding')}</div>
-      ${f.plain_english ? `<div style="font-size:12px;color:var(--gray-400);margin-top:2px">${esc(f.plain_english)}</div>` : ''}</div>
+    const entries = [];
+    resolvedAccounts.forEach(a => entries.push({
+      when: a.flag_resolved_at || '',
+      name: a.xero_account_name || a.lender_account_number || 'Loan',
+      summary: a.flag_summary || a.flagged_note || '',
+      who: a.flag_resolved_by || 'unknown',
+      note: a.flag_resolution_note || '',
+      reopenId: a.id,
+    }));
+    resolvedFindings.forEach(f => entries.push({
+      when: f.resolved_at || '',
+      name: f.title || 'Untitled finding',
+      summary: f.plain_english || '',
+      who: 'the reconciliation check',
+      note: '',
+      reopenId: null,
+    }));
+    entries.sort((x, y) => (x.when < y.when ? 1 : -1));
+
+    const row = (e) => `<div class="bk-history-row">
+      <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${esc(e.name)}</div>
+      ${e.summary ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:2px">${esc(e.summary)}</div>` : ''}
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px">Resolved${e.when ? ' on ' + esc(fmtDate(e.when.slice(0, 10))) : ''} by ${esc(e.who)}${e.note ? ' — ' + esc(e.note) : ''}${e.reopenId ? ` · <span onclick="reopenLoanFlag('${e.reopenId}')" style="color:var(--accent);cursor:pointer">Reopen</span>` : ''}</div>
     </div>`;
 
-    const resolvedBlock = resolvedCount
-      ? `<div style="padding-top:4px">
-          <span onclick="toggleOverviewPanel('loans-resolved-wrap',this)" style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.03em;padding:0 16px;cursor:pointer;text-decoration:underline;display:inline-block;margin-bottom:6px">Recently resolved (${resolvedCount})</span>
-          <div id="loans-resolved-wrap" style="display:none">${resolvedAccounts.map(resolvedAccountCard).join('') + resolvedFindings.map(resolvedFindingCard).join('')}</div>
-        </div>`
-      : '';
-    const infoBlock = infoFindings.length
-      ? `<div style="padding-top:8px">
-          <span onclick="toggleOverviewPanel('recon-info-findings',this)" style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.03em;padding:0 16px;cursor:pointer;text-decoration:underline;display:inline-block;margin-bottom:6px">For information (${infoFindings.length}) — nothing to do</span>
-          <div id="recon-info-findings" style="display:none">${infoFindings.map(infoCard).join('')}</div>
-        </div>`
-      : '';
+    const infoFindings = _bkReconInfoFindings();
+    const infoRow = (f) => `<div class="bk-history-row">
+      <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${esc(f.title || 'Untitled finding')}</div>
+      ${f.plain_english ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:2px">${esc(f.plain_english)}</div>` : ''}
+    </div>`;
 
-    el.innerHTML = resolvedBlock + infoBlock;
+    el.innerHTML =
+      (entries.length ? `<div class="bk-history-label">Resolved (${entries.length})</div>` + entries.map(row).join('') : '') +
+      (infoFindings.length ? `<div class="bk-history-label">For your information — nothing to do (${infoFindings.length})</div>` + infoFindings.map(infoRow).join('') : '');
   }
 
   // "Hide closed loans" (session 217, David's request off a screenshot of "All
