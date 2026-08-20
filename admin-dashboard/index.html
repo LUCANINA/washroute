@@ -3399,11 +3399,16 @@
 
             <!-- Document peek (session 224 cont., per David: "I wish I could see
                  the relevant document quickly without having to open it").
-                 A floating magnifier over the file that's ALREADY IN MEMORY on
-                 the batch row — no storage round-trip. PDFs render via the same
-                 pdf.js build the parsers use; for a parsed statement the view
-                 auto-centers on (and highlights) the balance figure the parser
-                 read, so "the relevant section" is literally where it opens.
+                 A clean whole-document viewer over the file that's ALREADY IN
+                 MEMORY on the batch row — no storage round-trip. PDFs render via
+                 the same pdf.js build the parsers use and open with the entire
+                 page visible; CSVs render as a readable table instead of raw
+                 comma text. Round 6 removed the yellow figure-highlights: real
+                 lender PDFs carry invisible text runs (metadata layers) that
+                 pdf.js text extraction can't tell apart from visible ink, so a
+                 string-match highlight can land on the wrong spot — it misfired
+                 on David's real statements three rounds running. Show the doc,
+                 don't decorate it.
                  Drag to pan, scroll or +/− to zoom, ‹ › for pages, Esc closes. -->
             <div id="bk-peek-backdrop" style="display:none;position:fixed;inset:0;z-index:1199;background:rgba(15,39,68,.35)" onclick="bkClosePeek()"></div>
             <div id="bk-peek" style="display:none;position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1100px, 94vw);background:#fff;border:1px solid var(--gray-200);border-radius:14px;box-shadow:0 12px 40px rgba(15,39,68,.18);overflow:hidden">
@@ -3418,7 +3423,7 @@
               </div>
               <div id="bk-peek-body" style="position:relative;height:min(78vh, 950px);overflow:hidden;background:var(--gray-100);cursor:grab">
                 <canvas id="bk-peek-canvas" style="position:absolute;left:0;top:0"></canvas>
-                <pre id="bk-peek-text" style="display:none;margin:0;padding:14px;font-size:11.5px;line-height:1.5;height:100%;overflow:auto;background:#fff;box-sizing:border-box"></pre>
+                <div id="bk-peek-text" style="display:none;margin:0;padding:14px;font-size:12px;line-height:1.5;background:#fff;box-sizing:border-box"></div>
                 <div id="bk-peek-msg" style="display:none;padding:40px 20px;text-align:center;font-size:13px;color:var(--gray-500)"></div>
               </div>
             </div>
@@ -9026,10 +9031,10 @@
   // ── Document peek ──────────────────────────────────────────────────────────
   // The file is already sitting in memory on the batch item, so the preview is
   // instant and local — nothing is fetched, nothing is written. Click 👁 on any
-  // row: PDFs and images render into a pannable, zoomable canvas; CSVs and
-  // other text show as text. For a statement the parser read, the opening view
-  // centers on the balance figure it found and highlights it. Scoped to batch
-  // rows today — the Documents lists elsewhere still open the stored file.
+  // row: PDFs and images render into a pannable, zoomable canvas opened at
+  // fit-page; CSVs render as a readable table, other text wraps. Stored
+  // documents (queue cards, split modal) come through the same viewer via a
+  // cached one-time download.
   let _bkPeekState = null;
   let _bkPeekWired = false;
 
@@ -9097,11 +9102,62 @@
 
   const _BK_PEEK_IMG_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 
+  // CSV → readable table for the peek (round 6, per David's screenshot of a
+  // one-line CSV running off the panel edge). Quote-aware cell splitter —
+  // good enough for lender exports, not a full RFC parser. One data row
+  // (most lender statement pulls) reads far better transposed: field name on
+  // the left, value on the right. Values are shown VERBATIM from the file —
+  // this is a document view, nothing is reformatted or interpreted.
+  function _bkCsvCells(line) {
+    const out = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false; }
+        else cur += ch;
+      } else if (ch === '"') inQ = true;
+      else if (ch === ',') { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function _bkCsvTableHtml(raw) {
+    const lines = raw.split('\n').filter(l => l.trim() !== '');
+    if (!lines.length) return '<div style="color:var(--gray-500)">This file is empty.</div>';
+    const rows = lines.slice(0, 201).map(_bkCsvCells);
+    const truncated = lines.length > 201;
+    const label = h => esc(String(h || '').replace(/_/g, ' ').trim() || '—');
+    const th = 'padding:6px 12px;text-align:left;font-weight:600;color:var(--gray-600);background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap';
+    const td = 'padding:6px 12px;color:var(--gray-800);border-bottom:1px solid var(--gray-100)';
+    let html;
+    if (rows.length === 2) {
+      // Header + one data row → transposed field/value pairs.
+      const pairs = rows[0].map((h, i) => [h, rows[1][i] ?? ''])
+        .filter(([h, v]) => String(h).trim() !== '' || String(v).trim() !== '');
+      html = '<table style="border-collapse:collapse;font-size:12.5px"><tbody>'
+        + pairs.map(([h, v]) => `<tr><td style="${td};color:var(--gray-600);white-space:nowrap;padding-right:24px">${label(h)}</td><td style="${td}">${esc(v)}</td></tr>`).join('')
+        + '</tbody></table>';
+    } else {
+      html = '<div style="overflow:auto"><table style="border-collapse:collapse;font-size:12px"><thead><tr>'
+        + rows[0].map(h => `<th style="${th}">${label(h)}</th>`).join('')
+        + '</tr></thead><tbody>'
+        + rows.slice(1).map(r => '<tr>' + rows[0].map((_, i) => `<td style="${td};white-space:nowrap">${esc(r[i] ?? '')}</td>`).join('') + '</tr>').join('')
+        + '</tbody></table></div>';
+      if (truncated) html += '<div style="padding:8px 0 0;font-size:12px;color:var(--gray-500)">Showing the first 200 rows.</div>';
+    }
+    return html;
+  }
+
   // The document-agnostic core: takes { title, filename, base64, mimeType,
-  // targets } and renders it — targets is a priority-ordered list of strings
-  // to hunt for in the page-1 text layer; the first one found gets the
-  // highlight and the opening center. Batch rows, Needs Attention cards and
-  // the split review modal all come through here.
+  // targets } and renders it. Batch rows, Needs Attention cards and the split
+  // review modal all come through here. `targets` is accepted for
+  // compatibility but no longer drawn — round 6 removed the figure
+  // highlights: real lender PDFs carry invisible text runs that pdf.js text
+  // extraction can't tell from visible ink, so string-match highlights kept
+  // landing on the wrong spot on David's real statements. The peek's job is
+  // to show the whole document clearly, nothing fancier.
   async function _bkOpenPeekDoc(spec) {
     _bkPeekWire();
     const els = _bkPeekEls();
@@ -9119,14 +9175,34 @@
     const isPdf = /\.pdf$/i.test(spec.filename);
     const ext = (spec.filename.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
     const isImg = !!_BK_PEEK_IMG_MIME[ext];
-    _bkPeekState = { kind: isPdf ? 'pdf' : isImg ? 'img' : 'text', pdf: null, img: null, pageNum: 1, pageCount: 1, zoom: 2, minZoom: 0.3, hits: null, needCenter: true, panX: 0, panY: 0 };
+    _bkPeekState = { kind: isPdf ? 'pdf' : isImg ? 'img' : 'text', pdf: null, img: null, pageNum: 1, pageCount: 1, zoom: 2, minZoom: 0.3, needCenter: true, panX: 0, panY: 0 };
+
+    // Text/CSV peeks size to their content (no sea of empty white under a
+    // two-line CSV); PDF and image peeks keep the fixed viewport for pan/zoom.
+    if (_bkPeekState.kind === 'text') {
+      els.body.style.height = 'auto'; els.body.style.maxHeight = 'min(78vh, 950px)'; els.body.style.overflow = 'auto'; els.body.style.cursor = 'default';
+    } else {
+      els.body.style.height = 'min(78vh, 950px)'; els.body.style.maxHeight = ''; els.body.style.overflow = 'hidden'; els.body.style.cursor = 'grab';
+    }
 
     try {
       if (_bkPeekState.kind === 'text') {
-        const lines = atob(spec.base64).split(/\r?\n/).slice(0, 300);
+        const raw = atob(spec.base64).split(/\r?\n/).slice(0, 300).join('\n');
         els.msg.style.display = 'none';
         els.text.style.display = '';
-        els.text.textContent = lines.join('\n');
+        if (ext === 'csv') {
+          // A CSV shown as raw comma text runs off the edge of the panel and
+          // is unreadable (David's screenshot, round 6). Render it as a real
+          // table — and a one-row CSV (most lender statements) reads far
+          // better transposed: field name on the left, value on the right.
+          els.text.style.whiteSpace = ''; els.text.style.wordBreak = ''; els.text.style.fontFamily = '';
+          els.text.innerHTML = _bkCsvTableHtml(raw);
+        } else {
+          els.text.style.whiteSpace = 'pre-wrap';
+          els.text.style.wordBreak = 'break-word';
+          els.text.style.fontFamily = "ui-monospace, 'SF Mono', Menlo, monospace";
+          els.text.textContent = raw;
+        }
         return;
       }
       if (_bkPeekState.kind === 'img') {
@@ -9148,40 +9224,16 @@
       const bytes = Uint8Array.from(atob(spec.base64), c => c.charCodeAt(0));
       _bkPeekState.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
       _bkPeekState.pageCount = _bkPeekState.pdf.numPages;
-      // Pick the opening zoom BEFORE the first paint. Default: fit the page
-      // width. When a target figure is found in the page-1 text layer — at
-      // scale-1 coordinates, which scale linearly with zoom — every render can
-      // highlight it, the first render opens magnified and centered on it, and
-      // − can still pull all the way out to the whole page.
-      // Session 224 round 5, per David: "I want to be able to see it all."
-      // The peek opens with the ENTIRE page visible (fit-page), always — the
-      // highlight marks where the relevant figures sit on that full view, and
-      // + / scroll zooms in from there. No auto-magnification: orientation
-      // first, magnification on demand.
+      // Session 224 round 5-6, per David: "I want to be able to see it all."
+      // The peek opens with the ENTIRE page visible (fit-page), always —
+      // + / scroll zooms in from there. No auto-magnification and no figure
+      // highlights: orientation first, magnification on demand.
       const page1 = await _bkPeekState.pdf.getPage(1);
       const vp1 = page1.getViewport({ scale: 1 });
       const fitW = els.body.clientWidth / vp1.width;
       const fitPage = Math.min(fitW, els.body.clientHeight / vp1.height);
       _bkPeekState.zoom = fitPage;
       _bkPeekState.minZoom = fitPage * 0.6;
-      if (spec.targets && spec.targets.length) {
-        try {
-          const tc = await page1.getTextContent();
-          // Mark EVERY visible occurrence of any target figure (a balance often
-          // appears more than once). Zero-size items are skipped — PDFs carry
-          // invisible text runs whose phantom highlights are worse than none.
-          const hits = [];
-          for (const it of tc.items) {
-            if (!it.str || !(it.width > 0) || hits.length >= 12) continue;
-            if (!spec.targets.some(t => t && it.str.includes(t))) continue;
-            const tx = pdfjsLib.Util.transform(vp1.transform, it.transform);
-            const h = Math.hypot(tx[2], tx[3]);
-            if (!(h > 1)) continue;
-            hits.push({ x: tx[4], y: tx[5], w: it.width, h });
-          }
-          if (hits.length) _bkPeekState.hits = hits;
-        } catch (_) { /* highlight is a nicety — the preview works without it */ }
-      }
       await _bkPeekRender();
     } catch (e) {
       if (_bkPeekState) {
@@ -9194,9 +9246,10 @@
 
   // ── Peek for STORED documents (session 224 cont. — "peek everywhere") ──────
   // The Needs Attention queue and the split review modal reference documents
-  // that live in the loan-statements bucket. Same magnifier, fed by a one-time
-  // download (cached per path for the session); targets carry the disputed
-  // figures so the view opens centered on the number in question.
+  // that live in the loan-statements bucket. Same viewer, fed by a one-time
+  // download (cached per path for the session). Specs still carry `targets`
+  // (the disputed figures) for compatibility, but the viewer no longer draws
+  // them — see the round-6 note on _bkOpenPeekDoc.
   const _bkPeekDocCache = new Map();
 
   function _bkNumTargets(vals) {
@@ -9370,16 +9423,6 @@
     els.prev.style.display = s.pageCount > 1 ? '' : 'none';
     els.next.style.display = s.pageCount > 1 ? '' : 'none';
 
-    // Relevant-figure highlights (found once at open, scale-1 coordinates)
-    // survive every zoom level and re-render. The page itself opens whole —
-    // the marks just show where to look.
-    if (s.hits && s.pageNum === 1) {
-      const z = s.zoom;
-      ctx.fillStyle = 'rgba(255, 214, 0, 0.35)';
-      for (const hit of s.hits) {
-        ctx.fillRect(hit.x * z - 4, (hit.y - hit.h) * z, hit.w * z + 8, hit.h * z * 1.5);
-      }
-    }
     if (s.needCenter) { s.panX = 0; s.panY = 0; }
     s.needCenter = false;
     _bkPeekSettlePan(s, els, viewport.width, viewport.height);
