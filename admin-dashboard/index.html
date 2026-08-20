@@ -11853,17 +11853,23 @@
   }
 
   // ── Statement coverage month-grid (session 224 cont., David's pick) ────────
-  // Twelve little cells per statement-sourced loan — one per month, newest on
-  // the right — so a hole in the statement record is visible at a glance
-  // instead of buried in a list. Filled = a statement for that month is on
-  // file (click it to peek the document); hollow = nothing on file that month;
-  // faint = months before the loan's first statement, and the current month
-  // when its statement simply hasn't arrived yet — neither is a problem, so
-  // neither shouts. Descriptive, not judgmental: a hollow cell says "nothing
-  // on file", never "overdue". String math on YYYY-MM only (same rule as
-  // _bkBatchSetNotes — no Date objects, no timezone exposure). Skipped for
-  // automatic and schedule-sourced loans (no monthly statements exist to be
-  // missing) and for paid-off loans (a closed loan needs no coverage).
+  // Round 2 per David ("the dots are small enough that it's almost impossible
+  // to hover on just one"): the in-row strip is now purely a glanceable
+  // summary — ONE click target, no per-dot hovering — and clicking it opens a
+  // proper coverage card: every year of the loan's statement history as a
+  // labeled month grid with comfortable cells, a plain-language summary line,
+  // and click-to-peek on any month that's on file. Filled = statement on
+  // file; hollow = nothing on file that month; faint = before the first
+  // statement, or the current month whose statement simply hasn't arrived
+  // yet — neither is a problem, so neither shouts. Descriptive, not
+  // judgmental: hollow says "nothing on file", never "overdue". String math
+  // on YYYY-MM only (same rule as _bkBatchSetNotes — no Date objects, no
+  // timezone exposure). Skipped for automatic and schedule-sourced loans (no
+  // monthly statements exist to be missing) and for paid-off loans.
+  // Trust note: on day one this grid showed 3 Ford loans as mostly-missing
+  // and David assumed a bug — the DB agreed with the grid (only Jun+Jul 2026
+  // ever ingested). The card's summary line exists so that story is legible
+  // instead of alarming.
   const _BK_MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function _bkMonthLabel(ym) { const [y, m] = ym.split('-'); return `${_BK_MONTH_NAMES[Number(m) - 1]} ${y}`; }
 
@@ -11874,10 +11880,12 @@
     return out;
   }
 
-  function _bkCoverageStripHtml(a) {
-    if (a.ingestion_method === 'automatic' || a.ingestion_method === 'amortization_schedule' || a.status === 'paid_off') return '';
+  // Shared month-map for the strip and the card: statement (or null) per
+  // YYYY-MM, plus the first-on-file and current months.
+  function _bkCoverageData(a) {
+    if (a.ingestion_method === 'automatic' || a.ingestion_method === 'amortization_schedule' || a.status === 'paid_off') return null;
     const stmts = _loanStatementsToDate(a.id);
-    if (!stmts.length) return '';
+    if (!stmts.length) return null;
     const byMonth = {};
     for (const s of stmts) {
       const ym = (s.statement_date || '').slice(0, 7);
@@ -11886,20 +11894,96 @@
       // row has a storage_path and the winner doesn't — peekable beats not.
       if (!byMonth[ym] || (!byMonth[ym].storage_path && s.storage_path)) byMonth[ym] = s;
     }
-    const firstYm = Object.keys(byMonth).sort()[0];
-    const curYm = today().slice(0, 7);
+    return { byMonth, firstYm: Object.keys(byMonth).sort()[0], curYm: today().slice(0, 7) };
+  }
+
+  function _bkCoverageStripHtml(a) {
+    const d = _bkCoverageData(a);
+    if (!d) return '';
     const base = 'display:inline-block;width:7px;height:11px;border-radius:2px;margin-right:2px;box-sizing:border-box';
     const cells = _bkCoverageMonths().map(ym => {
-      const s = byMonth[ym];
-      if (s) {
-        const peek = s.storage_path ? ` onclick="event.stopPropagation();bkPeekCoverageDoc('${a.id}','${ym}')"` : '';
-        return `<span style="${base};background:var(--accent)${s.storage_path ? ';cursor:pointer' : ''}"${peek} title="${esc(_bkMonthLabel(ym))} — statement ${esc(s.statement_date)} on file${s.storage_path ? '. Click to take a look.' : ''}"></span>`;
-      }
-      if (ym < firstYm) return `<span style="${base};background:var(--gray-100)" title="${esc(_bkMonthLabel(ym))} — before the first statement on file"></span>`;
-      if (ym === curYm) return `<span style="${base};background:var(--gray-100)" title="${esc(_bkMonthLabel(ym))} — no statement yet (statements usually arrive after the month ends)"></span>`;
-      return `<span style="${base};background:#fff;border:1px solid var(--gray-300)" title="${esc(_bkMonthLabel(ym))} — no statement on file"></span>`;
+      if (d.byMonth[ym]) return `<span style="${base};background:var(--accent)"></span>`;
+      if (ym < d.firstYm || ym === d.curYm) return `<span style="${base};background:var(--gray-100)"></span>`;
+      return `<span style="${base};background:#fff;border:1px solid var(--gray-300)"></span>`;
     }).join('');
-    return `<div style="margin-top:4px;line-height:1;white-space:nowrap">${cells}</div>`;
+    return `<div onclick="event.stopPropagation();bkOpenCoverageCard(event,'${a.id}')" style="margin-top:4px;line-height:1;white-space:nowrap;cursor:pointer;display:inline-block;padding:2px 3px 1px;margin-left:-3px;border-radius:5px" onmouseenter="this.style.background='var(--gray-100)'" onmouseleave="this.style.background=''" title="Statement coverage, last 12 months — click for the full month-by-month view">${cells}</div>`;
+  }
+
+  // The full coverage card: one row per calendar year from the first statement
+  // on file through today, every month a comfortable labeled cell.
+  let _bkCovCardWired = false;
+  function _bkCovCardEl() {
+    let el = document.getElementById('bk-cov-card');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'bk-cov-card';
+      el.style.cssText = 'display:none;position:fixed;z-index:1150;background:#fff;border:1px solid var(--gray-200);border-radius:12px;box-shadow:0 10px 32px rgba(15,39,68,.16);padding:14px 16px;max-height:70vh;overflow:auto';
+      document.body.appendChild(el);
+    }
+    if (!_bkCovCardWired) {
+      _bkCovCardWired = true;
+      document.addEventListener('mousedown', (e) => {
+        const card = document.getElementById('bk-cov-card');
+        if (card && card.style.display !== 'none' && !card.contains(e.target)) card.style.display = 'none';
+      }, true);
+      window.addEventListener('keydown', (e) => {
+        const card = document.getElementById('bk-cov-card');
+        if (e.key === 'Escape' && card) card.style.display = 'none';
+      });
+    }
+    return el;
+  }
+
+  function bkOpenCoverageCard(ev, loanId) {
+    const a = _allLoanAccounts.find(x => x.id === loanId);
+    const d = a && _bkCoverageData(a);
+    if (!d) return;
+    // Every month from the first statement's month through the current month.
+    const months = [];
+    let [y, m] = d.firstYm.split('-').map(Number);
+    const [ey, em] = d.curYm.split('-').map(Number);
+    while (y < ey || (y === ey && m <= em)) {
+      months.push(`${y}-${String(m).padStart(2, '0')}`);
+      m++; if (m > 12) { m = 1; y++; }
+    }
+    const onFile = months.filter(ym => d.byMonth[ym]);
+    // The current month doesn't count against coverage — its statement
+    // usually hasn't been issued yet.
+    const expected = months.filter(ym => ym !== d.curYm || d.byMonth[ym]);
+    const missing = expected.filter(ym => !d.byMonth[ym]);
+    const summary = missing.length === 0
+      ? `All ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)}. Complete.`
+      : `${onFile.length} of ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)} — missing ${missing.length <= 4 ? missing.map(_bkMonthLabel).join(', ') : missing.length + ' months'}.`;
+    const years = [...new Set(months.map(ym => ym.slice(0, 4)))];
+    const cell = 'display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;margin:0 3px 3px 0;font-size:10px;font-weight:600;box-sizing:border-box';
+    const rows = years.map(yr => {
+      const cells = _BK_MONTH_NAMES.map((mn, i) => {
+        const ym = `${yr}-${String(i + 1).padStart(2, '0')}`;
+        if (ym < d.firstYm || ym > d.curYm) return `<span style="${cell};visibility:hidden">${mn[0]}</span>`;
+        const s = d.byMonth[ym];
+        if (s) {
+          const peek = s.storage_path ? ` onclick="document.getElementById('bk-cov-card').style.display='none';bkPeekCoverageDoc('${a.id}','${ym}')"` : '';
+          return `<span style="${cell};background:var(--accent);color:#fff${s.storage_path ? ';cursor:pointer' : ''}"${peek} title="${esc(_bkMonthLabel(ym))} — statement ${esc(s.statement_date)} on file${s.storage_path ? '. Click to take a look.' : ''}">${mn[0]}</span>`;
+        }
+        if (ym === d.curYm) return `<span style="${cell};background:var(--gray-100);color:var(--gray-400)" title="${esc(_bkMonthLabel(ym))} — no statement yet (statements usually arrive after the month ends)">${mn[0]}</span>`;
+        return `<span style="${cell};background:#fff;border:1px solid var(--gray-300);color:var(--gray-500)" title="${esc(_bkMonthLabel(ym))} — no statement on file">${mn[0]}</span>`;
+      }).join('');
+      return `<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="width:34px;font-size:11px;color:var(--gray-500);text-align:right">${yr}</span><span style="white-space:nowrap">${cells}</span></div>`;
+    }).join('');
+    const el = _bkCovCardEl();
+    el.innerHTML = `
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px">
+        <span style="font-size:13px;font-weight:600;color:var(--gray-900)">${esc(a.xero_account_name || 'Loan')}</span>
+        <span style="font-size:11px;color:var(--gray-400)">statement coverage</span>
+      </div>
+      <div style="font-size:12px;color:${missing.length ? 'var(--gray-700)' : 'var(--gray-500)'};margin-bottom:8px;max-width:340px">${esc(summary)}${missing.length ? ' Drop the missing ones on the Overview upload box and they’ll file themselves.' : ''}</div>
+      ${rows}`;
+    el.style.display = '';
+    // Position near the strip, clamped to the viewport (measure after render).
+    const r = ev.currentTarget.getBoundingClientRect();
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    el.style.top = (r.bottom + h + 8 > window.innerHeight ? Math.max(8, r.top - h - 8) : r.bottom + 8) + 'px';
   }
 
   function bkPeekCoverageDoc(loanId, ym) {
