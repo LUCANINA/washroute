@@ -1038,6 +1038,15 @@ to "what is running".
 
 ## Session Log
 
+### Session 223 cont. 7 (2026-08-20) — Debt Schedule export print sizing
+
+David: the export "doesn't print well full legal page — increase font by 2
+points." All explicit sizes inside exportDebtSchedulePDF bumped +2px (rows
+11.5→13.5, column headers 10→12, group labels 12→14, footer note
+10.5→12.5) and the print rule now defaults to `size: legal landscape`.
+Scoped strictly to the export function — on-screen styles untouched.
+
+
 ### Session 223 cont. 6 (2026-08-20) — the right-edge shadow, actually fixed
 
 The cont.-4 overflow containment treated a symptom; the shadow persisted
