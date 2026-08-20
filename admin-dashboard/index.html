@@ -3321,6 +3321,18 @@
             .bk-dropzone:hover .bk-drop-icon, .bk-dropzone.drag .bk-drop-icon { background: #fff; }
             .bk-drop-title { font-size: 16px; font-weight: 650; color: var(--gray-900); margin-bottom: 4px; }
             .bk-drop-sub { font-size: 12.5px; color: var(--gray-500); }
+            /* Batch sorting card (session 224): the dump-everything flow. One
+               row per dropped file, grouped into piles; spacing + hairline
+               dividers only inside the card (one contrast step, session 219). */
+            .bk-batch-row { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
+            .bk-batch-row:last-child { border-bottom: none; }
+            .bk-batch-ic { width: 22px; text-align: center; flex: none; font-size: 14px; }
+            .bk-batch-name { font-weight: 600; color: var(--gray-800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; flex: none; }
+            .bk-batch-prop { flex: 1; color: var(--gray-600); min-width: 0; }
+            .bk-batch-actions { flex: none; display: flex; gap: 6px; }
+            .bk-batch-spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: bkspin .8s linear infinite; }
+            @keyframes bkspin { to { transform: rotate(360deg); } }
+            .bk-pilehead { padding: 12px 20px 4px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--gray-500); }
             .bk-history-label { font-size: 11px; font-weight: 700; color: var(--gray-400); text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 4px; }
             .bk-history-row { padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
           </style>
@@ -3354,21 +3366,34 @@
                  a one-tap "what is this?" routes into the existing loan-intake
                  or payroll-upload modal, carrying a dragged file straight into
                  the modal's file picker. -->
-            <div class="bk-dropzone" id="bk-dropzone" onclick="bkShowDropChoice(null)"
+            <!-- Session 224: the dropzone is now a dump-everything batch intake.
+                 Any number of files, any mix — each runs the 3-rung ladder
+                 (browser fingerprints → server classify → human fallback) and
+                 lands in a pile below. The old "What are you uploading?" tap
+                 lives on inside the batch card's "needs a look" pile. -->
+            <div class="bk-dropzone" id="bk-dropzone" onclick="document.getElementById('bk-batch-input').click()"
                  ondragover="event.preventDefault();this.classList.add('drag')"
                  ondragleave="this.classList.remove('drag')"
                  ondrop="bkHandleDrop(event)">
               <div class="bk-drop-icon">↑</div>
               <div class="bk-drop-title">Drop your documents here</div>
-              <div class="bk-drop-sub">Loan statements · amortization schedules · payroll reports</div>
-              <div id="bk-drop-choice" style="display:none;margin-top:18px" onclick="event.stopPropagation()">
-                <div style="font-size:13px;font-weight:600;color:var(--gray-700);margin-bottom:10px" id="bk-drop-choice-label">What are you uploading?</div>
-                <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-                  <button class="btn btn-primary" onclick="bkRouteDrop('loan')">Loan document</button>
-                  <button class="btn btn-primary" onclick="bkRouteDrop('payroll')">Payroll report</button>
-                  <button class="btn btn-ghost" onclick="bkHideDropChoice()">Never mind</button>
+              <div class="bk-drop-sub">Statements · schedules · payroll reports · invoices · screenshots — any mix, any amount. They'll be sorted automatically.</div>
+              <input type="file" id="bk-batch-input" multiple accept=".pdf,.csv,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="bkBatchFilesChosen(event)">
+            </div>
+
+            <div class="card" id="bk-batch-card" style="display:none;margin-bottom:20px">
+              <div class="card-header" style="padding:16px 24px">
+                <div style="flex:1">
+                  <div class="card-title" id="bk-batch-title">Sorting…</div>
+                  <div class="card-sub" id="bk-batch-sub"></div>
                 </div>
+                <span style="display:flex;gap:10px;align-items:center">
+                  <button class="btn btn-primary" id="bk-batch-fileall" style="display:none" onclick="bkFileAllBatch()">File all</button>
+                  <button class="btn btn-ghost" id="bk-batch-clear" onclick="bkClearBatch()">Clear</button>
+                </span>
               </div>
+              <div id="bk-batch-list"></div>
+              <div id="bk-batch-notes" style="display:none;padding:10px 20px 14px;border-top:1px solid var(--gray-100);font-size:12.5px;color:var(--gray-600)"></div>
             </div>
 
             <div class="card" style="margin-bottom:20px">
@@ -3398,6 +3423,7 @@
               <div style="padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
                 <span onclick="toggleOverviewPanel('bk-history-wrap',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">History<span class="overview-chevron" style="font-size:13px;transition:transform .2s">▸</span></span>
                 <div id="bk-history-wrap" style="display:none">
+                  <div id="intake-batch-receipts"></div>
                   <div id="loans-recon-extras"></div>
                   <div class="bk-history-label">Reconciliation reports</div>
                   <div id="recon-reports"></div>
@@ -8357,27 +8383,366 @@
   // drag-drop skips the second picker entirely.
   let _bkDroppedFile = null;
 
+  // ── Batch document intake (session 224) ───────────────────────────────────
+  // The dump-everything dropzone. Every file runs the same 3-rung ladder:
+  //   1. free, instant fingerprints IN THIS BROWSER (the six lender parsers,
+  //      PayPal history CSV, Ford Pro CSV, amortization schedules, Square
+  //      payroll CSVs) — most repeat documents never need more;
+  //   2. the loan-document-intake edge function — server parsers + keyword
+  //      heuristics + AI routing for TYPE and IDENTITY only (Option B: it can
+  //      never originate a figure) — for anything the browser didn't
+  //      recognize, and as a SECOND OPINION on statements the browser did
+  //      recognize: two independent readers must agree before a number sits
+  //      one tap from the books, same discipline as the single-file modal;
+  //   3. the human — anything below the confidence bar lands in "needs a
+  //      look" with the old what-is-this routing. Honest beats wrong.
+  // Results triage into piles (ready / needs a look / duplicates / couldn't
+  // read); ONE "File all" tap routes the ready pile through the exact same
+  // review-gated flows the modals use (loan-ingest-statement /
+  // loan-ingest-amortization / payroll-ingest / document attach). NOTHING
+  // writes before that tap, and splits/payroll imports still land in their
+  // normal review queues afterwards — the batch saves the sorting, never the
+  // approving.
+  let _bkBatch = null;
+  let _bkBatchSeq = 0;
+
   function bkHandleDrop(e) {
     e.preventDefault();
     const zone = document.getElementById('bk-dropzone');
     if (zone) zone.classList.remove('drag');
-    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    _bkDroppedFile = f || null;
-    bkShowDropChoice(f ? f.name : null);
+    const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+    if (files.length) bkStartBatch(files);
   }
 
-  function bkShowDropChoice(fname) {
-    const c = document.getElementById('bk-drop-choice');
-    const l = document.getElementById('bk-drop-choice-label');
-    if (!c) return;
-    if (l) l.textContent = fname ? `Got it — what is “${fname}”?` : 'What are you uploading?';
-    c.style.display = '';
+  function bkBatchFilesChosen(e) {
+    const files = Array.from((e.target && e.target.files) || []);
+    e.target.value = '';
+    if (files.length) bkStartBatch(files);
   }
 
-  function bkHideDropChoice() {
-    const c = document.getElementById('bk-drop-choice');
-    if (c) c.style.display = 'none';
-    _bkDroppedFile = null;
+  async function bkStartBatch(files) {
+    if (_bkBatch && _bkBatch.running) {
+      showToast('Still working on the current batch — wait for it to finish or clear it first.', 'error');
+      return;
+    }
+    _bkBatch = { items: [], running: true, notes: [], receiptWritten: false };
+    for (const f of files) {
+      _bkBatch.items.push({
+        id: 'bi' + (++_bkBatchSeq), file: f, name: f.name, size: f.size,
+        status: 'pending', kind: null, label: null, confidence: null, method: null,
+        loan: null, proposal: 'Waiting…', detail: null, base64: null, sha: null,
+        browserParsed: null, browserBulk: null, parsedSchedule: null, payrollMeta: null,
+        server: null, dupOf: null, issuer: null, error: null,
+      });
+    }
+    renderBkBatch();
+    // Concurrency-capped worker pool: 3 at a time keeps a 30-file dump moving
+    // without racing 30 simultaneous edge-function calls into _loanFn's 25s
+    // timeout. Fingerprinted files still label themselves near-instantly.
+    const queue = [..._bkBatch.items];
+    const batch = _bkBatch;
+    const workers = Array.from({ length: 3 }, async () => {
+      while (queue.length && _bkBatch === batch) {
+        const item = queue.shift();
+        try { await _bkClassifyItem(item); }
+        catch (e) {
+          item.status = 'unreadable';
+          item.proposal = 'Something went wrong reading this file.';
+          item.error = String((e && e.message) || e);
+        }
+        renderBkBatch();
+      }
+    });
+    await Promise.all(workers);
+    if (_bkBatch === batch) {
+      batch.running = false;
+      _bkBatchSetNotes();
+      renderBkBatch();
+    }
+  }
+
+  async function _bkSha256Hex(bytes) {
+    const buf = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function _bkLoanByAcct(acct) {
+    if (!acct) return null;
+    const m = (_allLoanAccounts || []).filter(a => a.lender_account_number === acct);
+    return m.length === 1 ? m[0] : null;   // ambiguous = no match, human decides
+  }
+  function _bkLoanLabel(a) { return a.xero_account_name || a.lender_account_number || a.lender; }
+  // Lender-word inference: only usable when EXACTLY ONE active loan matches —
+  // e.g. a PayPal history CSV names no account number, but there is only one
+  // PayPal loan on file, so the match is unambiguous and said out loud.
+  function _bkSingleActiveLoanForLender(word) {
+    const m = (_allLoanAccounts || []).filter(a => a.status !== 'paid_off' && (a.lender || '').toLowerCase().includes(word.toLowerCase()));
+    return m.length === 1 ? m[0] : null;
+  }
+
+  // Square Payroll Summary CSV fingerprint — the same checks payroll-ingest
+  // itself performs (meta date rows + "First Name,Last Name" header), so a
+  // file this recognizes is guaranteed to at least reach that parser, which
+  // stays the sole authority on every dollar inside the CSV.
+  function _sniffSquarePayrollCsv(text) {
+    const lines = text.split(/\r?\n/);
+    const metaDate = (label) => {
+      const line = lines.find(l => l.trim().toLowerCase().startsWith(label.toLowerCase() + ','));
+      if (!line) return null;
+      const raw = (line.split(',')[1] || '').trim();
+      const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      return m ? `${m[3]}-${m[1]}-${m[2]}` : null;
+    };
+    const payPeriodStart = metaDate('Pay Period Start');
+    const payPeriodEnd = metaDate('Pay Period End');
+    const payDate = metaDate('Pay Date');
+    const headerIdx = lines.findIndex(l => l.trim().toLowerCase().startsWith('first name,last name'));
+    if (!payPeriodStart || !payPeriodEnd || !payDate || headerIdx === -1) return null;
+    let employeeRows = 0, totalsOnly = false;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const first = ((lines[i] || '').split(',')[0] || '').trim();
+      if (!lines[i] || !lines[i].trim() || !first) break;
+      if (first.toLowerCase() === 'total') { totalsOnly = employeeRows === 0; break; }
+      employeeRows++;
+    }
+    return { payPeriodStart, payPeriodEnd, payDate, employeeRows, totalsOnly };
+  }
+
+  async function _bkClassifyItem(item) {
+    item.status = 'classifying'; item.proposal = 'Reading…'; renderBkBatch();
+    const base64 = await new Promise((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',')[1]);
+      r.onerror = () => resolve(null);
+      r.readAsDataURL(item.file);
+    });
+    if (!base64) { item.status = 'unreadable'; item.proposal = "Couldn't read this file from disk — try dropping it again."; return; }
+    item.base64 = base64;
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    item.sha = await _bkSha256Hex(bytes);
+
+    // Duplicates first — identical bytes never need classifying.
+    const twin = _bkBatch.items.find(o => o !== item && o.sha === item.sha);
+    if (twin) {
+      item.status = 'duplicate'; item.dupOf = 'batch';
+      item.proposal = `Same file as “${twin.name}” in this drop — skipped.`;
+      return;
+    }
+    const dbDup = (_allLoanDocuments || []).find(d => d.file_sha256 && d.file_sha256 === item.sha)
+      || (_allLoanStatements || []).find(s => s.file_sha256 && s.file_sha256 === item.sha);
+    if (dbDup) {
+      item.status = 'duplicate'; item.dupOf = 'db';
+      item.proposal = 'You already have this exact file on record — skipped.';
+      return;
+    }
+
+    const isPdf = /\.pdf$/i.test(item.name);
+    const isCsv = /\.csv$/i.test(item.name);
+
+    // ── rung 1: browser fingerprints ──
+    let text = '';
+    try {
+      if (isPdf) text = await _extractPdfText(base64);
+      else if (isCsv) text = atob(base64);
+    } catch (_) { /* non-fatal — the server gets its own shot below */ }
+
+    if (isPdf && text) {
+      item.browserParsed = _parseKnownLenderPdf(text);
+      if (!item.browserParsed) {
+        const sched = _parseAmortizationSchedule(text);
+        if (sched) item.parsedSchedule = sched;
+      }
+    } else if (isCsv && text) {
+      item.browserBulk = _parsePayPalHistoryCsv(text);
+      if (!item.browserBulk) {
+        const lines = text.trim().split(/\r?\n/);
+        if (lines.length >= 2) {
+          const header = lines[0].split(',').map(h => h.trim());
+          const vals = lines[1].split(',').map(v => v.trim());
+          const row = Object.fromEntries(header.map((h, ix) => [h, vals[ix]]));
+          if (row.Principal_Balance && row.Account_Number && row.Statement_Date) {
+            item.browserParsed = {
+              lenderLabel: 'Ford Pro FinSimple statement (CSV)',
+              statementDate: row.Statement_Date,
+              principalBalance: row.Principal_Balance,
+              accountNumber: row.Account_Number,
+              totalAmountDue: row.Total_Amount_Due ? Number(row.Total_Amount_Due) : null,
+              paymentDueDate: row.Payment_Due_Date || null,
+            };
+          }
+        }
+        if (!item.browserParsed) item.payrollMeta = _sniffSquarePayrollCsv(text);
+      }
+    }
+
+    _bkApplyBrowserVerdict(item);
+    renderBkBatch();
+
+    // ── rung 2: the server — classifier for what the browser missed, second
+    //    opinion on statements it recognized ──
+    let server = null, serverFailed = false;
+    try {
+      const { ok, data } = await _loanFn('loan-document-intake', { base64, filename: item.name });
+      if (ok && data && !data.error) server = data; else serverFailed = true;
+    } catch (_) { serverFailed = true; }
+    item.server = server;
+    _bkApplyServerVerdict(item, server, serverFailed);
+  }
+
+  function _bkApplyBrowserVerdict(item) {
+    const fmt$ = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
+    if (item.browserParsed) {
+      const p = item.browserParsed;
+      const loan = _bkLoanByAcct(p.accountNumber);
+      // Semantic statement duplicate: same loan + same statement date already
+      // on file — works for ALL historical rows, hash or no hash.
+      const already = loan && (_allLoanStatements || []).some(s => s.loan_account_id === loan.id && s.statement_date === p.statementDate);
+      item.kind = 'lender_statement'; item.label = p.lenderLabel; item.confidence = 'high'; item.method = 'browser_parser';
+      if (already) {
+        item.status = 'duplicate'; item.dupOf = 'statement_date'; item.loan = loan;
+        item.proposal = `${p.lenderLabel} for ${_bkLoanLabel(loan)}, ${p.statementDate} — a statement for that date is already on file. Skipped.`;
+      } else if (loan) {
+        item.loan = loan; item.status = 'ready';
+        item.proposal = `${p.lenderLabel} — ${_bkLoanLabel(loan)}, balance ${fmt$(p.principalBalance)} as of ${p.statementDate}.`;
+      } else {
+        item.status = 'manual';
+        item.proposal = `${p.lenderLabel}, ${p.statementDate} — couldn't tell which loan it belongs to.`;
+      }
+    } else if (item.browserBulk && item.browserBulk.length) {
+      const loan = _bkSingleActiveLoanForLender('paypal');
+      const first = item.browserBulk[0], last = item.browserBulk[item.browserBulk.length - 1];
+      item.kind = 'transaction_history'; item.label = 'PayPal loan history CSV'; item.confidence = 'high'; item.method = 'browser_parser';
+      if (loan) {
+        item.loan = loan; item.status = 'ready';
+        item.proposal = `PayPal loan history — ${item.browserBulk.length} periods, ${first.statementDate} to ${last.statementDate} → ${_bkLoanLabel(loan)} (the only PayPal loan on file).`;
+      } else {
+        item.status = 'manual';
+        item.proposal = `PayPal loan history (${item.browserBulk.length} periods) — pick which loan it belongs to.`;
+      }
+    } else if (item.parsedSchedule) {
+      const s = item.parsedSchedule;
+      item.kind = 'amortization_schedule'; item.label = 'Amortization schedule'; item.method = 'browser_parser';
+      item.confidence = s.verified ? 'high' : 'low';
+      item.status = 'manual';   // schedules rarely name their loan — human picks it
+      item.proposal = s.verified
+        ? `Amortization schedule — ${s.rows.length} rows, ${s.firstDate} to ${s.lastDate}, figures check out. Pick which loan it belongs to.`
+        : `Looks like an amortization schedule, but its numbers don't add up — needs a look before anything is filed.`;
+    } else if (item.payrollMeta) {
+      const m = item.payrollMeta;
+      const dupImport = (_allPayrollImports || []).some(pi =>
+        pi.pay_period_start === m.payPeriodStart && pi.pay_period_end === m.payPeriodEnd &&
+        (m.totalsOnly ? pi.import_type === 'reimbursement_only' : pi.import_type === 'regular'));
+      item.kind = 'payroll_report'; item.label = 'Square payroll report'; item.confidence = 'high'; item.method = 'browser_parser';
+      if (dupImport) {
+        item.status = 'duplicate'; item.dupOf = 'payroll_period';
+        item.proposal = `Square payroll for ${m.payPeriodStart} – ${m.payPeriodEnd} — that period is already imported. Skipped.`;
+      } else {
+        item.status = 'ready';
+        item.proposal = m.totalsOnly
+          ? `Square payroll — monthly reimbursement-only run, ${m.payPeriodStart} – ${m.payPeriodEnd}.`
+          : `Square payroll — ${m.employeeRows} employee${m.employeeRows === 1 ? '' : 's'}, ${m.payPeriodStart} – ${m.payPeriodEnd} (paid ${m.payDate}).`;
+      }
+    }
+  }
+
+  function _bkApplyServerVerdict(item, server, serverFailed) {
+    if (item.status === 'duplicate') return;
+
+    if (item.browserParsed) {
+      if (server) {
+        // Two independent readers about to put a number one tap from the books
+        // must agree — a disagreement is never resolved silently (same rule as
+        // the single-file modal's _liApplyServerExtras).
+        const f = (server.facts || []).find(x => x.field === 'principal_balance');
+        const d = (server.facts || []).find(x => x.field === 'statement_date');
+        const diffs = [];
+        if (f && Math.abs(Number(f.value) - Number(item.browserParsed.principalBalance)) > 0.005) diffs.push('balance');
+        if (d && String(d.value) !== String(item.browserParsed.statementDate)) diffs.push('date');
+        if (diffs.length) {
+          item.status = 'manual'; item.confidence = 'low';
+          item.proposal = `Two readings of this statement disagree on the ${diffs.join(' and ')} — check it by hand before filing.`;
+        }
+      } else if (serverFailed && item.status === 'ready') {
+        item.detail = 'Second-opinion check was unavailable for this file — numbers are from this browser only.';
+      }
+      return;
+    }
+    // Bulk / payroll / schedule verdicts from the browser stand on their own
+    // deterministic parses; the server has nothing stronger to add.
+    if (item.method === 'browser_parser') return;
+
+    if (!server) {
+      item.status = 'unreadable';
+      item.proposal = serverFailed
+        ? "Couldn't reach the classifier for this file — you can still file it by hand."
+        : "Couldn't recognize this file.";
+      return;
+    }
+    const c = server.classification || {};
+    const lm = server.loan_match || {};
+    const kind = c.kind || 'unknown';
+    item.kind = kind; item.confidence = c.confidence; item.method = c.method;
+    item.issuer = c.ai_issuer_seen || null;
+    if (c.ai_evidence) item.detail = `Why: “${c.ai_evidence}”`;
+
+    const KIND_WORDS = {
+      payoff_letter: 'payoff letter', amortization_schedule: 'amortization schedule',
+      agreement: 'loan agreement', correspondence: 'lender letter',
+      balance_screenshot: 'balance screenshot', lender_statement: 'lender statement',
+      transaction_history: 'transaction history', payroll_report: 'payroll report',
+      invoice: 'invoice', insurance_bill: 'insurance bill', bank_statement: 'bank statement',
+    };
+    const word = KIND_WORDS[kind] || kind;
+    const cap = w => w.charAt(0).toUpperCase() + w.slice(1);
+    const matchedLoan = (lm.matched && lm.matched_on === 'account_number_exact')
+      ? (_allLoanAccounts || []).find(a => a.id === lm.loan_account_id) : null;
+    const LOAN_ATTACH_KINDS = ['payoff_letter', 'agreement', 'correspondence', 'balance_screenshot', 'transaction_history', 'amortization_schedule'];
+    const BUSINESS_KINDS = ['invoice', 'insurance_bill', 'bank_statement'];
+
+    if (kind === 'unknown') {
+      const unreadable = !!(server.extraction && server.extraction.error);
+      item.status = unreadable ? 'unreadable' : 'manual';
+      item.proposal = unreadable
+        ? "Couldn't read this file — you can still file it by hand."
+        : "Couldn't tell what this is — pick what it is to file it.";
+      return;
+    }
+    if (kind === 'lender_statement' || kind === 'payroll_report') {
+      // The deterministic parsers already declined this file, so a statement /
+      // payroll claim here rests on heuristics or AI — too weak a signal to
+      // put numbers one tap from the books. Human confirms.
+      item.status = 'manual';
+      if (matchedLoan) item.loan = matchedLoan;
+      item.proposal = `Looks like a ${word}${matchedLoan ? ' for ' + _bkLoanLabel(matchedLoan) : ''}, but it couldn't be auto-read — needs a look.`;
+      return;
+    }
+    if (LOAN_ATTACH_KINDS.includes(kind)) {
+      if (matchedLoan && (item.confidence === 'high' || item.confidence === 'medium')) {
+        // Filing an attachment writes no figures — a verified loan match plus
+        // solid type confidence is enough for the one-tap pile.
+        item.loan = matchedLoan; item.status = 'ready';
+        item.proposal = `${cap(word)} for ${_bkLoanLabel(matchedLoan)} — will be attached to that loan.`;
+      } else {
+        item.status = 'manual';
+        const hint = c.ai_account_claimed
+          ? ` It seems to mention account ${c.ai_account_claimed} — confirm that below.`
+          : (item.issuer ? ` Looks like it's from ${item.issuer}.` : '');
+        item.proposal = `Looks like a ${word} — pick which loan it belongs to.${hint}`;
+      }
+      return;
+    }
+    if (BUSINESS_KINDS.includes(kind)) {
+      if (item.confidence === 'high' || item.confidence === 'medium') {
+        item.status = 'ready';
+        item.proposal = `${cap(word)}${item.issuer ? ' from ' + item.issuer : ''} — will be kept on record under business documents.`;
+      } else {
+        item.status = 'manual';
+        item.proposal = `Might be a ${word}${item.issuer ? ' from ' + item.issuer : ''} — worth a second look.`;
+      }
+      return;
+    }
+    item.status = 'manual';
+    item.proposal = `Looks like a ${word} — needs a look.`;
   }
 
   function _bkInjectDroppedFile(inputId) {
@@ -8395,8 +8760,6 @@
   }
 
   function bkRouteDrop(kind) {
-    const c = document.getElementById('bk-drop-choice');
-    if (c) c.style.display = 'none';
     if (kind === 'payroll') {
       openPayrollUploadModal(false);
       _bkInjectDroppedFile('payroll-upload-input');
@@ -8404,6 +8767,364 @@
       openLoanIntakeModal();
       _bkInjectDroppedFile('li-file-input');
     }
+  }
+
+  // ── Batch rendering + actions ──────────────────────────────────────────────
+  function renderBkBatch() {
+    const card = document.getElementById('bk-batch-card');
+    const list = document.getElementById('bk-batch-list');
+    if (!card || !list) return;
+    const b = _bkBatch;
+    if (!b) { card.style.display = 'none'; return; }
+    card.style.display = '';
+
+    const items = b.items;
+    const n = s => items.filter(i => i.status === s).length;
+    const sorting = n('pending') + n('classifying');
+    const nReady = n('ready'), nManual = n('manual'), nDup = n('duplicate'),
+      nBad = n('unreadable'), nFiled = n('filed'), nFailed = n('failed'),
+      nHand = n('handed_off'), nSkip = n('skipped'), nFiling = n('filing');
+
+    const title = document.getElementById('bk-batch-title');
+    const sub = document.getElementById('bk-batch-sub');
+    if (sorting) {
+      title.textContent = `Sorting ${items.length} document${items.length === 1 ? '' : 's'}…`;
+      sub.textContent = `${items.length - sorting} of ${items.length} identified so far.`;
+    } else if (nFiling) {
+      title.textContent = 'Filing…';
+      sub.textContent = `${nFiled} filed so far.`;
+    } else if (nFiled || nFailed) {
+      title.textContent = `${items.length} file${items.length === 1 ? '' : 's'} — ${nFiled} filed`;
+      sub.textContent = [
+        nFailed ? `${nFailed} failed` : null, nHand ? `${nHand} handled by hand` : null,
+        nDup ? `${nDup} duplicate${nDup === 1 ? '' : 's'} skipped` : null,
+        nManual ? `${nManual} still need a look` : null, nBad ? `${nBad} unreadable` : null,
+        nSkip ? `${nSkip} skipped` : null,
+      ].filter(Boolean).join(' · ') || 'All done.';
+    } else {
+      title.textContent = `${items.length} file${items.length === 1 ? '' : 's'} sorted`;
+      sub.textContent = [
+        nReady ? `${nReady} ready to file` : null, nManual ? `${nManual} need a quick look` : null,
+        nHand ? `${nHand} handled by hand` : null,
+        nDup ? `${nDup} you already have` : null, nBad ? `${nBad} couldn't be read` : null,
+        nSkip ? `${nSkip} skipped` : null,
+      ].filter(Boolean).join(' · ') || 'Nothing to do.';
+    }
+
+    const fileAllBtn = document.getElementById('bk-batch-fileall');
+    if (fileAllBtn) {
+      const canFile = !sorting && !nFiling && nReady > 0 && currentUserRole !== 'cpa';
+      fileAllBtn.style.display = canFile ? '' : 'none';
+      fileAllBtn.textContent = `File all ${nReady}`;
+    }
+    const clearBtn = document.getElementById('bk-batch-clear');
+    if (clearBtn) clearBtn.disabled = !!(sorting || nFiling);
+
+    const PILES = [
+      ['filing', 'Filing'], ['failed', 'Filing failed'], ['filed', 'Filed'],
+      ['ready', 'Ready to file'], ['manual', 'Need a quick look'],
+      ['handed_off', 'Opened for hand filing'], ['duplicate', 'You already have these'],
+      ['unreadable', "Couldn't read"], ['skipped', 'Skipped'],
+      ['classifying', 'Reading now'], ['pending', 'Waiting'],
+    ];
+    const IC = {
+      ready: '✓', filed: '✓', manual: '?', duplicate: '⏸', unreadable: '✗',
+      failed: '✗', skipped: '—', handed_off: '↗', filing: '', classifying: '', pending: '·',
+    };
+    const COLOR = {
+      ready: 'var(--green)', filed: 'var(--green)', manual: '#b45309', duplicate: 'var(--gray-400)',
+      unreadable: 'var(--red)', failed: 'var(--red)', skipped: 'var(--gray-400)',
+      handed_off: 'var(--gray-500)', pending: 'var(--gray-400)',
+    };
+    let html = '';
+    for (const [status, label] of PILES) {
+      const group = items.filter(i => i.status === status);
+      if (!group.length) continue;
+      html += `<div class="bk-pilehead">${esc(label)} · ${group.length}</div>`;
+      for (const i of group) {
+        const spin = (status === 'classifying' || status === 'filing') ? '<span class="bk-batch-spin"></span>' : `<span style="color:${COLOR[status] || 'var(--gray-500)'}">${IC[status] || ''}</span>`;
+        const actions = _bkBatchRowActions(i);
+        const tip = [i.label, i.confidence ? `confidence: ${i.confidence}` : null, i.method, i.detail, i.error].filter(Boolean).join(' · ');
+        html += `<div class="bk-batch-row" title="${esc(tip)}">
+          <span class="bk-batch-ic">${spin}</span>
+          <span class="bk-batch-name">${esc(i.name)}</span>
+          <span class="bk-batch-prop">${esc(i.proposal)}</span>
+          <span class="bk-batch-actions">${actions}</span>
+        </div>`;
+      }
+    }
+    list.innerHTML = html;
+
+    const notesEl = document.getElementById('bk-batch-notes');
+    if (notesEl) {
+      if (b.notes && b.notes.length) {
+        notesEl.style.display = '';
+        notesEl.innerHTML = b.notes.map(nt => `<div style="margin-top:4px">💡 ${esc(nt)}</div>`).join('');
+      } else {
+        notesEl.style.display = 'none';
+      }
+    }
+  }
+
+  function _bkBatchRowActions(i) {
+    if (currentUserRole === 'cpa') return '';
+    const btn = (label, fn, ghost) => `<button class="btn ${ghost ? 'btn-ghost' : 'btn-primary'}" style="font-size:11.5px;padding:4px 9px" onclick="${fn}">${esc(label)}</button>`;
+    switch (i.status) {
+      case 'ready':      return btn('Not this', `bkBatchSkip('${i.id}')`, true);
+      case 'manual':     return btn('Loan document', `bkBatchManual('${i.id}','loan')`, true)
+                              + btn('Payroll report', `bkBatchManual('${i.id}','payroll')`, true)
+                              + btn('Skip', `bkBatchSkip('${i.id}')`, true);
+      case 'duplicate':  return btn('File anyway', `bkBatchForce('${i.id}')`, true);
+      case 'unreadable': return btn('File by hand', `bkBatchManual('${i.id}','loan')`, true)
+                              + btn('Skip', `bkBatchSkip('${i.id}')`, true);
+      case 'failed':     return btn('Try again', `bkBatchRetry('${i.id}')`, true);
+      case 'skipped':    return btn('Undo', `bkBatchUnskip('${i.id}')`, true);
+      default: return '';
+    }
+  }
+  function _bkItem(id) { return _bkBatch && _bkBatch.items.find(i => i.id === id); }
+
+  function bkBatchSkip(id) {
+    const i = _bkItem(id); if (!i) return;
+    i._before = { status: i.status, proposal: i.proposal };
+    i.status = 'skipped'; i.proposal = 'Skipped — nothing was filed.';
+    renderBkBatch();
+  }
+  function bkBatchUnskip(id) {
+    const i = _bkItem(id); if (!i || !i._before) return;
+    i.status = i._before.status; i.proposal = i._before.proposal; i._before = null;
+    renderBkBatch();
+  }
+  // "File anyway" on a duplicate: if the classification is complete enough to
+  // file automatically, promote it to the ready pile; otherwise hand it to the
+  // human via the modal — never silently guess past a duplicate warning.
+  function bkBatchForce(id) {
+    const i = _bkItem(id); if (!i) return;
+    if ((i.browserParsed && i.loan) || (i.payrollMeta)) {
+      i.status = 'ready';
+      i.proposal += ' (Filing anyway at your request.)';
+    } else {
+      bkBatchManual(id, 'loan');
+      return;
+    }
+    renderBkBatch();
+  }
+  function bkBatchManual(id, kind) {
+    const i = _bkItem(id); if (!i) return;
+    _bkDroppedFile = i.file;
+    i.status = 'handed_off';
+    i.proposal = 'Opened in the filing form — finish it there.';
+    bkRouteDrop(kind);
+    renderBkBatch();
+  }
+  function bkBatchRetry(id) {
+    const i = _bkItem(id); if (!i) return;
+    i.status = 'ready'; i.error = null;
+    renderBkBatch();
+  }
+  function bkClearBatch() {
+    if (_bkBatch && (_bkBatch.running || _bkBatch.items.some(i => i.status === 'filing'))) return;
+    _bkBatch = null;
+    renderBkBatch();
+  }
+
+  // ── Batch filing: ONE tap, same review-gated doors as the modals ───────────
+  async function bkFileAllBatch() {
+    const batch = _bkBatch;
+    if (!batch || batch.running) return;
+    if (currentUserRole === 'cpa') { showToast('Your account has read-only access.', 'error'); return; }
+    const ready = batch.items.filter(i => i.status === 'ready');
+    if (!ready.length) return;
+    batch.running = true;
+    for (const item of ready) {
+      item.status = 'filing'; renderBkBatch();
+      try {
+        await _bkFileItem(item);
+        item.status = 'filed';
+        item.proposal = item.proposal.replace(/\s*\(Filing anyway.*\)$/, '') + ' Filed.';
+      } catch (e) {
+        item.status = 'failed';
+        item.error = String((e && e.message) || e);
+        item.proposal += ` — filing failed: ${item.error}`;
+      }
+      renderBkBatch();
+    }
+    batch.running = false;
+    await _bkWriteBatchReceipt();
+    renderBkBatch();
+    showToast('Batch filed — anything with numbers is now waiting in its normal review queue.', 'success');
+    await loadLoans();
+    await loadPayroll();
+    renderBookkeepingOverview();
+  }
+
+  async function _bkFileItem(item) {
+    const by = currentUserDisplayName || currentUserRole || 'admin dashboard';
+    // Lender statement: the browser parse is the payload source, exactly like
+    // _submitIntakeStatement (whose payload shape this must stay in sync with —
+    // same fields, same edge function; change one, change both).
+    if (item.kind === 'lender_statement' && item.browserParsed && item.loan) {
+      const p = item.browserParsed;
+      const { ok, data } = await _loanFn('loan-ingest-statement', {
+        lender_account_number: item.loan.lender_account_number,
+        statement_date: p.statementDate,
+        principal_balance: Number(p.principalBalance),
+        total_amount_due: p.totalAmountDue != null ? Number(p.totalAmountDue) : null,
+        payment_due_date: p.paymentDueDate || null,
+        csv_filename: item.name,
+        csv_base64: item.base64,
+        pulled_by: by,
+        transactions: p.transactions || undefined,
+        explicit_split: p.explicitSplit || undefined,
+      });
+      if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
+      return;
+    }
+    // PayPal history: one ingest per period, same loop as _submitIntakeBulk.
+    if (item.kind === 'transaction_history' && item.browserBulk && item.loan) {
+      let failed = 0;
+      for (const per of item.browserBulk) {
+        const { ok, data } = await _loanFn('loan-ingest-statement', {
+          lender_account_number: item.loan.lender_account_number,
+          statement_date: per.statementDate,
+          principal_balance: Number(per.principalBalance),
+          total_amount_due: per.totalAmountDue,
+          payment_due_date: null,
+          csv_filename: item.name,
+          csv_base64: item.base64,
+          pulled_by: by,
+          explicit_split: per.explicitSplit,
+        });
+        if (!ok || data.error) failed++;
+      }
+      if (failed) throw new Error(`${failed}/${item.browserBulk.length} periods failed to import`);
+      return;
+    }
+    if (item.kind === 'payroll_report' && item.payrollMeta) {
+      const { ok, data } = await _payrollFn('payroll-ingest', {
+        csv_base64: item.base64, csv_filename: item.name, uploaded_by: by,
+      });
+      if (!ok || (data && data.error)) {
+        if (data && data.existing_import) throw new Error('that pay period is already imported');
+        throw new Error((data && data.error) || 'Payroll ingest failed');
+      }
+      return;
+    }
+    const LOAN_ATTACH_KINDS = ['payoff_letter', 'agreement', 'correspondence', 'balance_screenshot', 'transaction_history', 'amortization_schedule'];
+    if (item.loan && LOAN_ATTACH_KINDS.includes(item.kind)) {
+      await _attachLoanDocument(item.loan.id, item.loan.lender_account_number, item.file, item.kind, { sha: item.sha, by });
+      return;
+    }
+    if (['invoice', 'insurance_bill', 'bank_statement'].includes(item.kind)) {
+      await _fileBusinessDocument(item, by);
+      return;
+    }
+    throw new Error('not enough information to file this automatically — use the filing form');
+  }
+
+  // Non-loan documents land in business_documents. NOTE (naming debt, same
+  // family as the loan-document-intake slug): the storage bucket is still
+  // `loan-statements` because its policies already allow authenticated staff
+  // uploads — business files live under the business/ prefix inside it.
+  async function _fileBusinessDocument(item, by) {
+    const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `business/${item.kind}/${Date.now()}_${safeName}`;
+    const { error: upErr } = await db.storage.from('loan-statements').upload(path, item.file, { contentType: item.file.type || 'application/octet-stream' });
+    if (upErr) throw new Error(upErr.message || 'Upload failed');
+    const { error: insErr } = await db.from('business_documents').insert({
+      doc_type: item.kind,
+      issuer: item.issuer || null,
+      storage_path: path,
+      file_sha256: item.sha,
+      uploaded_by: by,
+    });
+    if (insErr) throw new Error(insErr.message || 'Could not save the document record');
+  }
+
+  // ── Set-level pass: what the batch as a WHOLE says ─────────────────────────
+  function _bkBatchSetNotes() {
+    const b = _bkBatch; if (!b) return;
+    const notes = [];
+    const stByLoan = {};
+    for (const i of b.items) {
+      if (i.kind === 'lender_statement' && i.browserParsed && i.loan) {
+        (stByLoan[i.loan.id] = stByLoan[i.loan.id] || { loan: i.loan, dates: [] }).dates.push(i.browserParsed.statementDate);
+      }
+    }
+    // Missing-month detection: string math on YYYY-MM only (no Date objects,
+    // no timezone exposure). Only speaks up when the batch looks like a
+    // monthly run with a small number of holes.
+    for (const key of Object.keys(stByLoan)) {
+      const { loan, dates } = stByLoan[key];
+      if (dates.length < 3) continue;
+      const months = [...new Set(dates.map(d => d.slice(0, 7)))].sort();
+      const missing = [];
+      let [y, m] = months[0].split('-').map(Number);
+      const [ey, em] = months[months.length - 1].split('-').map(Number);
+      while (y < ey || (y === ey && m < em)) {
+        m++; if (m > 12) { m = 1; y++; }
+        const k2 = `${y}-${String(m).padStart(2, '0')}`;
+        if ((y < ey || (y === ey && m <= em)) && !months.includes(k2)) missing.push(k2);
+      }
+      if (missing.length && missing.length <= 3) {
+        notes.push(`${_bkLoanLabel(loan)}: this batch covers ${months[0]} to ${months[months.length - 1]}, but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing.`);
+      }
+    }
+    for (const i of b.items) {
+      if (i.kind === 'amortization_schedule' && i.loan && stByLoan[i.loan.id]) {
+        notes.push(`${_bkLoanLabel(i.loan)}: this batch has both an amortization schedule and a statement — once filed, the reconciliation check will compare them and flag any disagreement.`);
+      }
+      if (i.kind === 'payoff_letter' && i.loan) {
+        notes.push(`The payoff letter for ${_bkLoanLabel(i.loan)} may mean that loan is closing — if it's paid off, mark it so on the Loans page after filing.`);
+      }
+    }
+    b.notes = notes;
+  }
+
+  // One History line per finished batch — the audit trail of what the machine
+  // did versus what you did.
+  async function _bkWriteBatchReceipt() {
+    const b = _bkBatch;
+    if (!b || b.receiptWritten) return;
+    const items = b.items;
+    const n = s => items.filter(i => i.status === s).length;
+    const { error } = await db.from('intake_batches').insert({
+      file_count: items.length,
+      filed_count: n('filed'),
+      duplicate_count: n('duplicate'),
+      manual_count: n('handed_off') + n('manual') + n('skipped'),
+      unreadable_count: n('unreadable') + n('failed'),
+      summary: items.map(i => ({
+        name: i.name, kind: i.kind, status: i.status,
+        loan: i.loan ? (i.loan.xero_account_name || i.loan.lender_account_number) : null,
+        error: i.error || undefined,
+      })),
+      created_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+    });
+    if (!error) b.receiptWritten = true;
+    _renderIntakeBatchReceipts(true);
+  }
+
+  let _allIntakeBatches = [];
+  async function _renderIntakeBatchReceipts(refetch) {
+    const el = document.getElementById('intake-batch-receipts');
+    if (!el) return;
+    if (refetch || !_allIntakeBatches.length) {
+      const { data } = await db.from('intake_batches').select('*').order('created_at', { ascending: false }).limit(15);
+      _allIntakeBatches = data || [];
+    }
+    if (!_allIntakeBatches.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="bk-history-label">Document uploads</div>` + _allIntakeBatches.map(b => {
+      const bits = [
+        `${b.filed_count} filed`,
+        b.manual_count ? `${b.manual_count} by hand` : null,
+        b.duplicate_count ? `${b.duplicate_count} duplicate${b.duplicate_count === 1 ? '' : 's'} skipped` : null,
+        b.unreadable_count ? `${b.unreadable_count} unreadable` : null,
+      ].filter(Boolean).join(', ');
+      return `<div style="padding:6px 0;font-size:12.5px;color:var(--gray-600);border-bottom:1px solid var(--gray-100)">
+        ${esc(fmtDate(b.created_at))} — ${b.file_count} file${b.file_count === 1 ? '' : 's'}: ${esc(bits)}${b.created_by ? ` · ${esc(b.created_by)}` : ''}
+      </div>`;
+    }).join('');
   }
 
   function _bkSetOverviewSeg(seg) { _bkOverviewSeg = seg; renderBookkeepingOverview(); }
@@ -9693,6 +10414,7 @@
     renderLoansTable();
     _populateLoanSelect();
     renderDebtSchedule();
+    _renderIntakeBatchReceipts(true);   // History → Document uploads (session 224)
 
     _bkUpdateNavBadge();
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
@@ -12268,6 +12990,29 @@ ${noActivityNote}
     }
   }
 
+  // Shared by the intake modal's plain-filing path and the batch flow. Same
+  // direct-to-storage upload + loan_documents insert the old Attach Document
+  // form did — now also records file_sha256 so future batch drops can spot
+  // "you already have this exact file" (session 224).
+  async function _attachLoanDocument(loanId, acctNumber, file, docType, opts) {
+    opts = opts || {};
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `documents/${acctNumber}/${Date.now()}_${safeName}`;
+    const { error: upErr } = await db.storage.from('loan-statements').upload(path, file, { contentType: file.type || 'application/octet-stream' });
+    if (upErr) throw new Error(upErr.message || 'Upload failed');
+    const { error: insErr } = await db.from('loan_documents').insert({
+      loan_account_id: loanId,
+      doc_type: docType,
+      title: opts.title || null,
+      storage_path: path,
+      notes: opts.notes || null,
+      uploaded_by: opts.by || currentUserDisplayName || currentUserRole || 'admin dashboard',
+      file_sha256: opts.sha || null,
+    });
+    if (insErr) throw new Error(insErr.message || 'Could not save the document record');
+    return path;
+  }
+
   async function _submitIntakeDocument(docType) {
     const errEl = document.getElementById('li-error');
     errEl.style.display = 'none';
@@ -12282,19 +13027,16 @@ ${noActivityNote}
     const btn = document.getElementById('li-submit-btn');
     btn.disabled = true; const origLabel = btn.textContent; btn.textContent = 'Uploading…';
     try {
-      const safeName = _liRawFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const path = `documents/${acct.lender_account_number}/${Date.now()}_${safeName}`;
-      const { error: upErr } = await db.storage.from('loan-statements').upload(path, _liRawFile, { contentType: _liRawFile.type || 'application/octet-stream' });
-      if (upErr) throw new Error(upErr.message || 'Upload failed');
-      const { error: insErr } = await db.from('loan_documents').insert({
-        loan_account_id: loanId,
-        doc_type: docType,
-        title: title || null,
-        storage_path: path,
-        notes: notes || null,
-        uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
-      });
-      if (insErr) throw new Error(insErr.message || 'Could not save the document record');
+      // Content hash for duplicate detection — same digest the batch flow and
+      // the intake edge function compute, so all three always agree.
+      let sha = null;
+      try {
+        if (_loanUploadFile && _loanUploadFile.base64) {
+          const bytes = Uint8Array.from(atob(_loanUploadFile.base64), c => c.charCodeAt(0));
+          sha = await _bkSha256Hex(bytes);
+        }
+      } catch (_) { /* hash is best-effort — never blocks a filing */ }
+      await _attachLoanDocument(loanId, acct.lender_account_number, _liRawFile, docType, { title, notes, sha });
       closeLoanIntakeModal();
       showToast('Document attached.', 'success');
       await loadLoans();
