@@ -3262,6 +3262,12 @@
                unchanged and still fire on every bookkeeping page load, so this is a pure
                relocation, not a data/logic change. -->
           <style>
+            /* Session 223 cont. 4: containment — nothing inside Bookkeeping may
+               widen the page (the nowrap KPI sub-lines were forcing horizontal
+               overflow at reduced widths, which read as a phantom "shadow" at
+               the right screen edge). Inner tables keep their own overflow-x
+               scrolling wrappers. */
+            #page-bookkeeping { overflow-x: hidden; }
             .loans-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 16px; }
             .loans-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
             .loans-subtoggle button.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -3280,11 +3286,11 @@
                separate rounded white cards with gaps, bold numbers, small gray
                sub-line. (Replaces the hairline-joined REELOAD row.) */
             .bk-tiles { display: flex; gap: 12px; flex-wrap: wrap; }
-            .bk-tile { flex: 1; min-width: 170px; background: #fff; border: 1px solid var(--gray-200); border-radius: 14px; padding: 16px 18px 14px; box-shadow: 0 1px 2px rgba(15,37,71,.03); }
+            .bk-tile { flex: 1; min-width: 160px; background: #fff; border: 1px solid var(--gray-200); border-radius: 14px; padding: 16px 18px 14px; box-shadow: 0 1px 2px rgba(15,37,71,.03); overflow: hidden; }
             .bk-tile-label { font-size: 13px; color: var(--gray-700); font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .bk-tile-value { font-size: 25px; font-weight: 750; color: var(--gray-900); letter-spacing: -0.01em; line-height: 1.1; white-space: nowrap; }
             .bk-tile-unit { font-size: 13px; color: var(--gray-400); font-weight: 500; }
-            .bk-tile-delta { font-size: 11.5px; font-weight: 600; margin-top: 7px; white-space: nowrap; }
+            .bk-tile-delta { font-size: 11.5px; font-weight: 600; margin-top: 7px; }
             .bk-tile-delta.good { color: var(--green); }
             .bk-tile-delta.bad { color: #dc2626; }
             .bk-tile-delta.flat { color: var(--gray-400); }
@@ -8449,7 +8455,7 @@
           _bkDeltaHtml(oi.ytd, oi.prior_ytd, { goodWhenUp: true, suffix: 'vs. this point last year' }),
           _bkSpark(oiSeries)) +
         tile('Cash flow this month', cfHtml,
-          cf.avg_3mo != null ? `<div class="bk-tile-delta flat">averaging ${cf.avg_3mo >= 0 ? '+' : ''}${money0(cf.avg_3mo)}/mo over the last 3 months</div>` : '',
+          cf.avg_3mo != null ? `<div class="bk-tile-delta flat">avg ${cf.avg_3mo >= 0 ? '+' : ''}${money0(cf.avg_3mo)}/mo over the last 3 months</div>` : '',
           _bkSpark(cfSeries))
       }</div>`;
     }
@@ -9695,8 +9701,24 @@
   function _loanStatementsToDate(accountId) {
     const todayIso = today();   // Pacific YYYY-MM-DD via BIZ_TZ -- never
                                 // toISOString(), which rolls over after 5pm PT.
+    // Session 223 cont. 4: REAL lender documents get a 31-day forward grace
+    // window. The SBA dates EIDL statements at the END of the billing cycle,
+    // so the current cycle's statement (a genuine lender document, uploaded
+    // 2026-08-05, dated 2026-08-25) was being excluded as "future" and the
+    // balance fell back to a 2024 relic with a stale warning. The strict
+    // date <= today rule exists to keep OUR OWN projections out of live
+    // balances (session 196: Verdant's amortization rows ingested into
+    // loan_statements with source='amortization_schedule'; also
+    // 'xero_derived'/'xero_balance_snapshot' rows we computed) — those
+    // sources keep the hard filter. A document the LENDER issued is not a
+    // projection of ours; the grace window is deliberately short so a
+    // mis-dated upload can't park a wrong balance forever. Mirrors the
+    // engine's REAL_ANCHOR_SOURCES concept (reconciliation-run).
+    const graceIso = addDaysPacific(todayIso, 31);
+    const REAL_DOC_SOURCES = ['lender_statement', 'portal_manual_pull', 'email_pdf_upload'];
     return (_allLoanStatements || []).filter(s =>
-      (accountId == null || s.loan_account_id === accountId) && s.statement_date <= todayIso);
+      (accountId == null || s.loan_account_id === accountId) &&
+      (s.statement_date <= todayIso || (REAL_DOC_SOURCES.includes(s.source) && s.statement_date <= graceIso)));
   }
 
   // Outstanding balance per loan, sourced from data loadLoans() already pulled --
@@ -9940,12 +9962,6 @@
     return Math.ceil(n);
   }
 
-  function _addMonthsIso(monthsFromNow) {
-    const d = new Date();
-    d.setMonth(d.getMonth() + monthsFromNow);
-    return `${d.toLocaleString('en-US', { month: 'short', timeZone: 'America/Los_Angeles' })} ${d.getFullYear()}`;
-  }
-
   // 'YYYY-MM-DD' -> 'M/YYYY' without going through a Date object (these are
   // plain business-fact dates, not calendar timestamps — no timezone to get
   // wrong, but also no reason to round-trip through Date parsing).
@@ -10018,9 +10034,9 @@
       if (e.months == null) return `<span style="color:var(--gray-400);font-size:11.5px" title="Add an interest rate and monthly payment to calculate">— add rate/payment</span>`;
       if (e.months === Infinity) return `<span style="color:#dc2626;font-weight:600;font-size:12px" title="The scheduled payment doesn't cover the interest accruing at the current rate — the balance will never go down at this payment.">⚠ payment ≤ interest</span>`;
       if (e.months === 0) return `<span style="color:var(--green)">paid off</span>`;
-      const years = Math.floor(e.months / 12), rem = e.months % 12;
-      const readable = years ? `${years}y ${rem}mo` : `${e.months}mo`;
-      return `${e.months} mo <div style="font-size:10.5px;color:var(--gray-400)">(${readable} — ~${_addMonthsIso(e.months)})</div>`;
+      // Session 223 cont. 4 (David): just the number — the "(2y 2mo — ~Oct 2028)"
+      // sub-line duplicated what Maturity already says.
+      return `${e.months} mo`;
     };
 
     const rowHtml = (e) => {
@@ -10196,8 +10212,11 @@
     const grandBal = rows.reduce((s, e) => s + (e.bal?.amount || 0), 0);
     const grandPmt = rows.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
 
+    // Absolute URL — the report window is about:blank, so a relative
+    // ../assets path would not resolve there.
+    const logoUrl = new URL('../assets/logo_white.png', location.href).href;
     const html = `<!DOCTYPE html>
-<html><head><title>Debt Schedule — ${esc(new Date().toISOString().slice(0, 10))}</title>
+<html><head><title>Debt Schedule — ${esc(today())}</title>
 <style>
   @media print { body { margin: 0; } .no-print { display: none !important; } @page { margin: 0.4in; size: landscape; } }
   html, body { background: #ffffff; }
@@ -10211,9 +10230,12 @@
 </div>
 
 <div style="background:#1f2937;color:#fff;padding:20px 30px;margin:0 -30px 16px;display:flex;justify-content:space-between;align-items:center">
-  <div>
-    <div style="font-size:18px;font-weight:700;letter-spacing:-0.02em">Debt Schedule</div>
-    <div style="font-size:11px;color:#d1d5db;margin-top:2px">Family Laundry / WashRoute</div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <img src="${logoUrl}" alt="Family Laundry" style="height:36px;display:block">
+    <div>
+      <div style="font-size:18px;font-weight:700;letter-spacing:-0.02em">Debt Schedule</div>
+      <div style="font-size:11px;color:#d1d5db;margin-top:2px">Family Laundry / WashRoute</div>
+    </div>
   </div>
   <div style="text-align:right">
     <div style="font-size:11px;color:#d1d5db">As of ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })}</div>

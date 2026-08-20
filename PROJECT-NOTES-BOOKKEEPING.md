@@ -1038,6 +1038,45 @@ to "what is running".
 
 ## Session Log
 
+### Session 223 cont. 4 (2026-08-20) — bleed fix, EIDL stale warning resolved, Debt Schedule polish
+
+Four fixes from David's review:
+
+- **Horizontal bleed / phantom right-edge "shadow" fixed.** The KPI tiles'
+  nowrap sub-lines ("averaging −$11,530/mo over the last 3 months") forced the
+  page wider than the viewport at reduced widths — content spilled past the
+  cards' rounded right edge, reading as a shadow strip. Fix: `#page-bookkeeping
+  { overflow-x: hidden }` (containment — inner tables keep their own
+  overflow-x scroll wrappers), `.bk-tile { overflow: hidden }`, and
+  `.bk-tile-delta` may wrap now. Verified 0px document overflow at 1024px on
+  both Overview and Debt Schedule.
+- **EIDL SBA stale warning resolved at the root.** The SBA dates statements at
+  the END of the billing cycle, so the only real lender document (uploaded
+  Aug 5, dated 2026-08-25, $960,005.00) was excluded as "future" and the
+  balance fell back to a 2024-03-31 xero_derived relic with the ⚠ stale badge.
+  `_loanStatementsToDate()` now gives REAL lender documents (sources
+  lender_statement / portal_manual_pull / email_pdf_upload) a **31-day forward
+  grace window**; every derived/projected source keeps the hard
+  `date <= today` filter. This is a deliberate, narrow amendment to the
+  "future rows are projections" invariant — a document the LENDER issued is
+  not a projection of ours, and the window is short so a mis-dated upload
+  can't park a wrong balance forever. **Verified the session-196 Verdant bug
+  cannot return:** a future amortization_schedule row is still excluded (test:
+  Verdant kept its real Aug-10 statement balance, EIDL flipped to $960,005 as
+  of 2026-08-25, stale badge gone). The engine-side warn finding ("only lender
+  document is dated in the future") self-resolves after Aug 25; if the
+  cycle-end dating keeps producing it every month, teach reconciliation-run
+  the same grace window (follow-up, not done).
+- **Debt Schedule "Months Left": just the number** ("26 mo") — the
+  "(2y 2mo — ~Oct 2028)" sub-line duplicated the Maturity column. Helper
+  `_addMonthsIso` removed as dead code.
+- **Debt Schedule export now carries the Family Laundry logo** (white wordmark,
+  `assets/logo_white.png`, on the dark header band) — embedded via an ABSOLUTE
+  URL because the report opens in an about:blank window where relative paths
+  don't resolve. Also fixed another banned-TZ pattern in the export title
+  (`toISOString().slice(0,10)` → `today()`).
+
+
 ### Session 223 cont. 3 (2026-08-20) — one History record under the queue
 
 David flagged the queue footer: three links in three styles (RECENTLY RESOLVED
