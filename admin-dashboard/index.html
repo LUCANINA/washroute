@@ -13778,19 +13778,33 @@ ${noActivityNote}
           ${data.candidates.length > 1 ? `<div style="margin-top:6px;font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">
             More than one transaction matches this amount, so the amount alone can't tell them apart — check the dates below before picking. Posting against the wrong one dates the entry to that transaction's day and can't be spotted later by the amounts.
           </div>` : ''}
-          <div style="margin-top:6px">${data.candidates.map(c => {
+          <div style="margin-top:6px">${(() => {
             // Distance is the only real discriminator when a loan's payment never varies
-            // (Rapid's is always the same figure), so it is shown, not buried.
+            // (Ford's and Rapid's are the same figure every month), so: sort CLOSEST
+            // first (the list used to arrive farthest-first, burying the right answer
+            // at the bottom of six identical amounts), and give the closest candidate
+            // a calm green "closest to this split's period" note when it's within a
+            // month — an autopay pulled ~11 days before the statement date is the
+            // normal Ford pattern, not an anomaly worth an amber warning. Every other
+            // candidate keeps the distance warning. Guidance only: the human still
+            // picks, nothing auto-posts.
+            const sorted = [...data.candidates].sort((a, b) =>
+              (a.days_from_period == null ? 1e9 : Math.abs(a.days_from_period)) -
+              (b.days_from_period == null ? 1e9 : Math.abs(b.days_from_period)));
+            const minAbs = sorted.length && sorted[0].days_from_period != null ? Math.abs(sorted[0].days_from_period) : null;
+            return sorted.map((c, idx) => {
             const d = c.days_from_period;
-            const far = d != null && Math.abs(d) > 2;
+            const closest = idx === 0 && minAbs != null && minAbs <= 31 && sorted.length > 1;
+            const far = !closest && d != null && Math.abs(d) > 2;
             const dist = d == null ? ''
               : (d === 0 ? '<span style="color:var(--green)">same day as the period</span>'
+                : closest ? `<span style="color:var(--green)">${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} ${d > 0 ? 'before' : 'after'} the period — closest to this split's period</span>`
                 : `<span style="color:${far ? '#b45309' : 'var(--gray-500)'}">${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} ${d > 0 ? 'before' : 'after'} the period${far ? ' — outside the usual matching window' : ''}</span>`);
-            return `<div style="padding:8px;border:1px solid ${far ? '#fde68a' : 'var(--gray-200)'};border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
+            return `<div style="padding:8px;border:1px solid ${closest ? 'var(--green)' : far ? '#fde68a' : 'var(--gray-200)'};border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
               ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${canPost ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
               ${dist ? `<div style="font-size:11.5px;margin-top:3px">${dist}</div>` : ''}
             </div>`;
-          }).join('')}</div>` : ''}`;
+          }).join(''); })()}</div>` : ''}`;
         footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
         return;
       }
