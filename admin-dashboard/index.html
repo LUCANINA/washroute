@@ -3405,7 +3405,8 @@
                  auto-centers on (and highlights) the balance figure the parser
                  read, so "the relevant section" is literally where it opens.
                  Drag to pan, scroll or +/− to zoom, ‹ › for pages, Esc closes. -->
-            <div id="bk-peek" style="display:none;position:fixed;z-index:1200;right:24px;top:80px;width:560px;max-width:calc(100vw - 48px);background:#fff;border:1px solid var(--gray-200);border-radius:14px;box-shadow:0 12px 40px rgba(15,39,68,.18);overflow:hidden">
+            <div id="bk-peek-backdrop" style="display:none;position:fixed;inset:0;z-index:1199;background:rgba(15,39,68,.35)" onclick="bkClosePeek()"></div>
+            <div id="bk-peek" style="display:none;position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1100px, 94vw);background:#fff;border:1px solid var(--gray-200);border-radius:14px;box-shadow:0 12px 40px rgba(15,39,68,.18);overflow:hidden">
               <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--gray-100)">
                 <div id="bk-peek-title" style="flex:1;font-size:13px;font-weight:600;color:var(--gray-800);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
                 <button class="btn btn-ghost" id="bk-peek-prev" style="font-size:12px;padding:3px 8px" onclick="bkPeekPage(-1)">‹</button>
@@ -3415,7 +3416,7 @@
                 <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkPeekZoom(1)">+</button>
                 <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkClosePeek()">✕</button>
               </div>
-              <div id="bk-peek-body" style="position:relative;height:420px;overflow:hidden;background:var(--gray-100);cursor:grab">
+              <div id="bk-peek-body" style="position:relative;height:min(78vh, 950px);overflow:hidden;background:var(--gray-100);cursor:grab">
                 <canvas id="bk-peek-canvas" style="position:absolute;left:0;top:0"></canvas>
                 <pre id="bk-peek-text" style="display:none;margin:0;padding:14px;font-size:11.5px;line-height:1.5;height:100%;overflow:auto;background:#fff;box-sizing:border-box"></pre>
                 <div id="bk-peek-msg" style="display:none;padding:40px 20px;text-align:center;font-size:13px;color:var(--gray-500)"></div>
@@ -9052,6 +9053,8 @@
     // Reparent the panel to <body>: it's authored inside the Overview pane for
     // locality, but it now opens from the Loans page and from inside modals
     // too — a display:none ancestor would hide a position:fixed child.
+    const backdropEl = document.getElementById('bk-peek-backdrop');
+    if (backdropEl && backdropEl.parentElement !== document.body) document.body.appendChild(backdropEl);
     const panelEl = document.getElementById('bk-peek');
     if (panelEl && panelEl.parentElement !== document.body) document.body.appendChild(panelEl);
     const { body, canvas } = _bkPeekEls();
@@ -9105,6 +9108,8 @@
     if (!els.panel) return;
     // Tear down any previous peek first (also frees the previous pdf).
     bkClosePeek();
+    const backdrop = document.getElementById('bk-peek-backdrop');
+    if (backdrop) backdrop.style.display = '';
     els.panel.style.display = '';
     els.title.textContent = spec.title || spec.filename;
     els.canvas.style.display = 'none'; els.text.style.display = 'none';
@@ -9114,7 +9119,7 @@
     const isPdf = /\.pdf$/i.test(spec.filename);
     const ext = (spec.filename.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
     const isImg = !!_BK_PEEK_IMG_MIME[ext];
-    _bkPeekState = { kind: isPdf ? 'pdf' : isImg ? 'img' : 'text', pdf: null, img: null, pageNum: 1, pageCount: 1, zoom: 2, minZoom: 0.3, hit: null, needCenter: true, panX: 0, panY: 0 };
+    _bkPeekState = { kind: isPdf ? 'pdf' : isImg ? 'img' : 'text', pdf: null, img: null, pageNum: 1, pageCount: 1, zoom: 2, minZoom: 0.3, hits: null, needCenter: true, panX: 0, panY: 0 };
 
     try {
       if (_bkPeekState.kind === 'text') {
@@ -9148,26 +9153,33 @@
       // scale-1 coordinates, which scale linearly with zoom — every render can
       // highlight it, the first render opens magnified and centered on it, and
       // − can still pull all the way out to the whole page.
+      // Session 224 round 5, per David: "I want to be able to see it all."
+      // The peek opens with the ENTIRE page visible (fit-page), always — the
+      // highlight marks where the relevant figures sit on that full view, and
+      // + / scroll zooms in from there. No auto-magnification: orientation
+      // first, magnification on demand.
       const page1 = await _bkPeekState.pdf.getPage(1);
       const vp1 = page1.getViewport({ scale: 1 });
       const fitW = els.body.clientWidth / vp1.width;
       const fitPage = Math.min(fitW, els.body.clientHeight / vp1.height);
-      _bkPeekState.zoom = fitW;
-      _bkPeekState.minZoom = fitPage * 0.75;
+      _bkPeekState.zoom = fitPage;
+      _bkPeekState.minZoom = fitPage * 0.6;
       if (spec.targets && spec.targets.length) {
         try {
           const tc = await page1.getTextContent();
-          let hit = null;
-          for (const t of spec.targets) {
-            if (!t) continue;
-            hit = tc.items.find(it => it.str && it.str.includes(t));
-            if (hit) break;
+          // Mark EVERY visible occurrence of any target figure (a balance often
+          // appears more than once). Zero-size items are skipped — PDFs carry
+          // invisible text runs whose phantom highlights are worse than none.
+          const hits = [];
+          for (const it of tc.items) {
+            if (!it.str || !(it.width > 0) || hits.length >= 12) continue;
+            if (!spec.targets.some(t => t && it.str.includes(t))) continue;
+            const tx = pdfjsLib.Util.transform(vp1.transform, it.transform);
+            const h = Math.hypot(tx[2], tx[3]);
+            if (!(h > 1)) continue;
+            hits.push({ x: tx[4], y: tx[5], w: it.width, h });
           }
-          if (hit) {
-            const tx = pdfjsLib.Util.transform(vp1.transform, hit.transform);
-            _bkPeekState.hit = { x: tx[4], y: tx[5], w: hit.width || 8, h: Math.hypot(tx[2], tx[3]) || 12 };
-            _bkPeekState.zoom = Math.max(1.8, fitW);
-          }
+          if (hits.length) _bkPeekState.hits = hits;
         } catch (_) { /* highlight is a nicety — the preview works without it */ }
       }
       await _bkPeekRender();
@@ -9284,6 +9296,8 @@
   function bkClosePeek() {
     const els = _bkPeekEls();
     if (els.panel) els.panel.style.display = 'none';
+    const backdrop = document.getElementById('bk-peek-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
     if (_bkPeekState && _bkPeekState.pdf) { try { _bkPeekState.pdf.destroy(); } catch (_) {} }
     _bkPeekState = null;
   }
@@ -9356,20 +9370,17 @@
     els.prev.style.display = s.pageCount > 1 ? '' : 'none';
     els.next.style.display = s.pageCount > 1 ? '' : 'none';
 
-    // The relevant-figure highlight (found once at open, scale-1 coordinates)
-    // survives every zoom level and re-render; the FIRST render also opens
-    // centered on it.
-    if (s.hit && s.pageNum === 1) {
+    // Relevant-figure highlights (found once at open, scale-1 coordinates)
+    // survive every zoom level and re-render. The page itself opens whole —
+    // the marks just show where to look.
+    if (s.hits && s.pageNum === 1) {
       const z = s.zoom;
       ctx.fillStyle = 'rgba(255, 214, 0, 0.35)';
-      ctx.fillRect(s.hit.x * z - 4, (s.hit.y - s.hit.h) * z, s.hit.w * z + 8, s.hit.h * z * 1.5);
-      if (s.needCenter) {
-        s.panX = els.body.clientWidth / 2 - (s.hit.x + s.hit.w / 2) * z;
-        s.panY = els.body.clientHeight / 2 - (s.hit.y - s.hit.h / 2) * z;
+      for (const hit of s.hits) {
+        ctx.fillRect(hit.x * z - 4, (hit.y - hit.h) * z, hit.w * z + 8, hit.h * z * 1.5);
       }
-    } else if (s.needCenter) {
-      s.panX = 0; s.panY = 0;
     }
+    if (s.needCenter) { s.panX = 0; s.panY = 0; }
     s.needCenter = false;
     _bkPeekSettlePan(s, els, viewport.width, viewport.height);
   }
