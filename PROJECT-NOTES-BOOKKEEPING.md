@@ -195,9 +195,21 @@ Capital. *Next step:* rank by authority first (lender document > portal pull > a
 schedule > computed snapshot), date second, and surface which source won in the UI.
 
 **4. Smaller items already noted in prose, restated here so they're findable:** a dedicated
-`balance_screenshot` `doc_type` (small additive migration, bundle with the classifier work);
+`balance_screenshot` `doc_type` (✅ shipped session 224, migration `session_224_document_intake_batch`);
 Stripe Capital still has no periodic balance-snapshot job of its own; temp diagnostic functions
 `temp-stripe-304-august-221` and `temp-pcv-254-221` are still deployed and should be retired.
+
+**5. Session 224 leftovers, each small:** (a) naming debt — the `loan-document-intake` slug now
+classifies far more than loan documents, and business files live under a `business/` prefix
+inside the `loan-statements` storage bucket; rename both in one tiny dedicated commit once the
+batch feature settles. (b) `loan_statements.file_sha256` stays NULL until loan-ingest-statement
+learns to store it — statement duplicates are fully covered by the semantic (loan, date) check
+meanwhile, so this is an optimization, not a gap. (c) iPhone HEIC photos aren't supported by the
+vision API and land in "couldn't read" (PNG/JPG screenshots work fine) — if real HEIC uploads
+show up, add a conversion step. (d) an off-cycle ADJUSTMENT payroll CSV dropped into the batch
+files as a regular-import attempt and 409s against the existing period — correct refusal,
+unhelpful copy; the batch could offer the adjustment route, but today the explicit Off-cycle
+button on Payroll remains the way.
 
 **5. ✅ SHIPPED session 222, 2026-08-19 — `reconciliation-run` v14. Stale derived-row noise in
 `checkDerivedDrift`, permanent root-cause fix.**
@@ -918,6 +930,12 @@ should hold for Rapid and therefore which basis is correct.*
 
 ## Next Up — THE INGESTION ENGINE (Aug 21, first thing — David: "this will set us apart from everyone else")
 
+> **STATUS (session 224): largely BUILT — see the Session 224 entry in the Session Log.**
+> Morning-list steps 2–5 and 7 shipped; step 1's deploy/data checks passed (visual check
+> still pending a Chrome session); step 6 — the acceptance test on the real mixed batch —
+> is the remaining gate and needs David's `git push` first. The plan below is kept for
+> the original scope and reasoning.
+
 **The goal, in the user's terms:** an accountant drops ANY document on the box —
 loan statement, amortization schedule, payroll report, invoice, insurance bill,
 payoff letter, portal screenshot — and the SYSTEM tells THEM what it is:
@@ -1164,6 +1182,28 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 224 (2026-08-20) — THE INGESTION ENGINE, day one: classify step generalized + the dump-everything batch dropzone built
+
+**The ladder decision (proposed as the day's one architecture decision; David chose "talk it through first", then approved):** 3 rungs — (1) free deterministic fingerprints in the browser (six lender parsers, PayPal history CSV, Ford Pro CSV, amortization schedules, and a NEW Square-payroll-CSV sniff mirroring payroll-ingest's own checks); (2) the `loan-document-intake` edge function — server parsers + keyword heuristics + AI routing for TYPE and IDENTITY only (Option B untouched: the model's tool schema has no field that can carry a number); (3) the human — below the confidence bar, the old "What are you uploading?" routing lives on inside the batch card's "needs a look" pile. Honest beats wrong.
+
+**Batch design (David approved all three shape choices):** dump any number/mix of files on the dropzone; each row resolves live through the ladder; results triage into PILES (ready to file / need a quick look / you already have these / couldn't read); ONE "File all N" tap routes the ready pile through the exact same review-gated flows the modals use (loan-ingest-statement / payroll-ingest / document attach) — nothing writes before the tap, and splits/payroll imports still land in their normal review queues after it; duplicates skip by default with a "File anyway" override; each finished batch writes ONE `intake_batches` History receipt row ("N files — X filed, Y by hand, Z duplicates skipped").
+
+**Server (`loan-document-intake` v4 deployed, verified byte-identical to the repo copy, STILL dry-run only):** new kinds payroll_report / invoice / insurance_bill / bank_statement; Square payroll CSV deterministic fingerprint (period dates are identity facts — every dollar inside stays payroll-ingest's exclusive business); images (png/jpg/webp/gif) and scanned PDFs (<50 chars of extracted text, ≤3.5MB) go to the vision classifier, whose claimed account number is returned as an UNVERIFIED hint that can never drive an automatic loan match (no text to verify the claim against); `needs_human` no longer demands a loan match for non-loan kinds; `issuer_seen` (lender/vendor/insurer/bank) replaces lender-only naming.
+
+**Duplicates, three layers:** byte-identical sha256 within the batch; sha256 against `loan_documents`/`loan_statements` (new nullable `file_sha256` columns, written on new filings); and SEMANTIC checks that work on ALL historical rows — same (loan, statement_date) already on file, same payroll (period, import_type) already imported. Confirmed against `loan-ingest-statement` v21 source: it upserts on (loan_account_id, statement_date) and skips existing split labels, so "File anyway" replaces rather than duplicates — no double-entry risk.
+
+**Set-level pass (after classification, batch-wide):** missing-month callouts when ≥3 statements of one loan span a gap (string math on YYYY-MM only — no Date objects, no TZ exposure); a schedule+statement pairing note (the reconciliation engine does the actual comparing after filing — deliberately NOT rebuilt client-side); payoff letter → "may mean this loan is closing" hint.
+
+**Two-reader discipline kept:** a browser-parsed statement still gets the server's second opinion; a balance/date disagreement demotes the row to "needs a look" with the mismatch named — never silently resolved (same rule as the single-file modal's `_liApplyServerExtras`).
+
+**Migration `session_224_document_intake_batch`** (run through washroute-migration-review first): doc_type CHECK widened with `balance_screenshot`; `file_sha256` added to loan_documents + loan_statements; NEW `business_documents` table (invoice / insurance_bill / bank_statement / tax_document / other — classify-and-file only; proposing their journal entries is a later, separate feature) and `intake_batches` (batch receipts), both with RLS mirroring loan_documents and explicit authenticated-only grants (no anon), per the session-162 Data-API rule.
+
+**QA:** 24 offline checks green across two headless-Chromium scenarios (stubbed Supabase, synthetic files — pile placement, ingest payload shapes, receipts, business filing, vision hint, disagreement demotion). The washroute-qa pass found and fixed one real gap: `LOAN_DOC_TYPE_LABELS` and the intake modal's what-is-this dropdown were missing `balance_screenshot` (would have rendered as a raw key). Blast radius checks: zero DB functions reference doc_type; storage policies are bucket-wide so the `business/` prefix works; PostgREST stale-cache trap avoided by ordering (schema landed + reload sent hours before the client code can deploy).
+
+**NOT done — the next session's gate:** (a) **the acceptance test** — the real session-220 mixed batch through the live UI, measuring the hit rate ("that number is the demo"); needs David's `git push` (3 commits ahead) and a Chrome session; every miss becomes a Tier-1 fingerprint or a prompt fix. (b) The session-223 warm-up VISUAL check (shadow gone / KPIs / EIDL badge / Debt Schedule legal print) — push + Vercel deploy and the EIDL data were verified from this side, but the visuals still need eyes in a browser. (c) Tech-debt leftovers in item 5 above.
+
+Commits: `c069722` (server generalization), `ced9526` (batch dropzone client, +778 lines), `557830e` (QA fix). Edge function: loan-document-intake v4.
 
 ### Session 223 cont. 7 (2026-08-20) — Debt Schedule export print sizing
 
