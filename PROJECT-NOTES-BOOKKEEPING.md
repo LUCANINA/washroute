@@ -916,6 +916,133 @@ should hold for Rapid and therefore which basis is correct.*
 
 ---
 
+## Next Up — THE INGESTION ENGINE (Aug 21, first thing — David: "this will set us apart from everyone else")
+
+**The goal, in the user's terms:** an accountant drops ANY document on the box —
+loan statement, amortization schedule, payroll report, invoice, insurance bill,
+payoff letter, portal screenshot — and the SYSTEM tells THEM what it is:
+*"This looks like a Ford Pro statement for E-Transit 4140, July — want me to
+file it?"* One tap. The "What are you uploading?" chooser becomes the fallback
+for low confidence, not the flow. **North star: the accountants and bookkeepers
+slogging through client ledgers. Make it feel easy — magical, even.**
+
+**Do NOT start from scratch.** The foundations already exist and are listed
+here so tomorrow's session doesn't reinvent them:
+
+- **`loan-document-intake` v1 (deployed, dry-run only)** is the spine: extract
+  (server-side pdf.js at the browser's exact version — the version constraint
+  in its header is LAW) → classify → extract facts with per-figure provenance
+  (`basis`/`as_of`/`source_text`) → match to a loan → return a proposal.
+  Never writes.
+- **The Anthropic key is already in this Supabase project** — `draft-reply`
+  uses `ANTHROPIC_API_KEY` in production. No setup blocker for LLM classify.
+- **Session 221's five-layer design** (vocabulary → intake → classify →
+  cross-check → propose) and **David's Option B rule: the AI may say WHAT a
+  document is and WHOSE it is — it never originates a financial figure.**
+- **The 8-shape taxonomy** in "Next Up — Document Intake & Cross-Validation"
+  below, the 6 live-verified `LOAN_PDF_PARSERS`, the PayPal bulk CSV importer,
+  and `payroll-ingest`'s CSV handling — these are the routing TARGETS, all
+  already built.
+- **The dropzone seam is `bkRouteDrop(kind)`** in admin-dashboard — built two
+  sessions ago precisely so the classifier can replace the human tap.
+- Reference reading (read-only, Bookswell repo — features never auto-sync):
+  `bookswell/design/document-ingestion-taxonomy.md`.
+
+**The morning's action list, in order:**
+
+1. **Warm-up (15 min):** hard-refresh the deployed app; confirm the shadow is
+   gone everywhere, KPIs read right, EIDL shows $960,005 with no stale badge,
+   Debt Schedule prints well on legal. Yesterday's round survives contact with
+   reality before anything new goes in.
+2. **Decide the classification ladder** (the one architecture decision of the
+   day, propose to David before building):
+   - **Tier 1 — deterministic sniffers.** Free, instant, no AI: file
+     extension + CSV header shapes (PayPal history, Square payroll summary) +
+     PDF text fingerprints from the six known lenders. Most repeat documents
+     never need more than this.
+   - **Tier 2 — LLM classify** (new `document-intake` classify step, Claude
+     via edge function): document type, issuer, which loan/client account,
+     period. Type and identity ONLY — Option B, no figures.
+   - **Tier 3 — the human.** Below a confidence bar, fall back to today's
+     "What are you uploading?" tap. Honest beats wrong; a payroll CSV filed
+     as a loan statement is a mess to unwind.
+3. **Generalize `loan-document-intake` → cover the new classes** (payroll
+   report, invoice, insurance bill, bank statement) in the classify step.
+   Keep it DRY-RUN first, same as v1 — classification quality gets proven
+   before anything writes.
+4. **Wire the dropzone to classify-first:** drop → dry-run classify → show
+   the proposal sentence with one Confirm tap → route into the EXISTING
+   flows (loan intake modal prefilled / `payroll-ingest` /
+   `loan-ingest-amortization` / document attach). The existing review-before-
+   write discipline is untouched — the classifier only saves the human the
+   sorting, never the approving.
+5. **Small additive migration while in there:** dedicated
+   `balance_screenshot` (and likely `invoice` / `insurance_bill`) values for
+   `loan_documents.doc_type` — flagged since session 220, bundle with this
+   work (run `washroute-migration-review` first, as always).
+6. **Acceptance test = the real session-220 mixed batch** (statements,
+   schedule, agreement, payoff letters, screenshots, ~10 lenders). Classify
+   all of it; every miss becomes a Tier-1 fingerprint or a prompt fix.
+   Measure the hit rate — that number is the demo.
+7. **Carry the standing guardrails:** parse what was APPLIED, never what's
+   due next; verify parsers against real pdf.js extraction, never pdftotext;
+   every extracted figure carries basis + provenance; review-before-posting
+   everywhere.
+
+**Explicitly NOT tomorrow:** accounting treatment for invoices/insurance
+bills (classify + file them, yes; proposing their journal entries is its own
+later pass), the cross-validation layer (designed in session 221, separate
+build), porting the 31-day lender-doc grace window into reconciliation-run
+(only needed if the EIDL warn finding reappears after Aug 25).
+
+---
+
+## Session 223 — day wrap-up (2026-08-20): what today taught us
+
+One day, seven rounds, all committed (46dadfc → 2ad3c68 + b544bad). The
+digest, so future sessions don't have to re-read seven entries:
+
+**Product/design decisions now standing:**
+- The Bookkeeping module follows the REELOAD philosophy: **the Overview is
+  the workspace** (dropzone → one Issues/Approvals queue, max 5 rows +
+  Show all → 4 real KPIs at the bottom); **Loans and Payroll are quiet
+  repositories of information**, not to-do lists.
+- **Two kinds of work items, only two:** something is wrong → Issue; nothing
+  is wrong, awaiting a human → Approval.
+- **History is THE record:** resolved issues ("Resolved on X by Y — note ·
+  Reopen"), informational notes, and reconciliation reports live together in
+  one collapsed section under the queue.
+- **KPIs:** cash on hand, revenue this month, operating income this year
+  (Xero's own row — never net income), cash flow this month. Orders-page
+  tile style (separate rounded cards), sparklines, honest deltas
+  (MTD-vs-same-span comparisons).
+- **Copy convention (David, verbatim intent): issue summaries in real-life
+  language a 13-year-old could follow.** No "timing misstatement /
+  re-journaling". Applies to flag_summary, notices, and future engine copy.
+
+**Technical lessons (each cost real debugging today):**
+- **Xero comparison columns mirror the requested day-span** — ask for Aug
+  1–19 with `periods`, and "July" is Jul 1–19. Anchor monthly series on full
+  months; fetch the partial month separately. (Verified to the cent.)
+- **This org's P&L/BS use the US-GAAP layout:** "Cash and Cash Equivalents"
+  (not "Bank"), an explicit "Operating Income / (Loss)" row, payroll inside
+  Cost of Sales. Parse the ledger's own rows; keep computed fallbacks.
+- **A real lender document dated slightly in the future is not a projection
+  of ours** — SBA dates statements at cycle end. Hence the 31-day grace
+  window for REAL_DOC_SOURCES only; every derived source keeps `<= today`.
+- **When hunting a rendering artifact, instrument the DOM** (rects +
+  computed styles) instead of reasoning from recent changes — the "shadow"
+  was four off-screen slide-over panels' box-shadow bleeding into the
+  viewport, in the codebase all along.
+- **Regex + money:** a sentence-end regex must require whitespace after the
+  punctuation or "$1,180.32" truncates at the decimal (live `_bkOneLine`
+  bug). Two more banned-TZ `toISOString()` date patterns were found and
+  fixed while in there (renderLoansSummary, the debt-schedule export title).
+- **Per-lender-group tables need one shared `<colgroup>`** or auto layout
+  drifts every group's columns differently.
+
+---
+
 ## Next Up — Document Intake & Cross-Validation (rescoped Aug 18, session 220 cont. further — supersedes the original "Statement Ingestion Breadth" framing below)
 
 **The scope grew.** The original plan was "write parsers for the 3-4 lenders still missing one." David then uploaded a large mixed batch (statements, an amortization schedule, a loan agreement, payoff letters, portal balance screenshots) spanning ~10+ lenders and reframed the actual goal: *"The system should eventually be able to discern what is what, put it in context, and propose an action for the CPA (or business owner) to approve. If two pieces of information are available, say an amortization doc + an actual statement, the system should compare them and see if everything checks out. If not, the system flags the inconsistency."* That's a document-classification + cross-validation layer, not just more parsers.
