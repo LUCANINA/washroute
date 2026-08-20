@@ -11852,6 +11852,63 @@
     try { const v = sessionStorage.getItem('wr-loans-hide-closed'); return v == null ? true : v === '1'; } catch(_) { return true; }
   }
 
+  // ── Statement coverage month-grid (session 224 cont., David's pick) ────────
+  // Twelve little cells per statement-sourced loan — one per month, newest on
+  // the right — so a hole in the statement record is visible at a glance
+  // instead of buried in a list. Filled = a statement for that month is on
+  // file (click it to peek the document); hollow = nothing on file that month;
+  // faint = months before the loan's first statement, and the current month
+  // when its statement simply hasn't arrived yet — neither is a problem, so
+  // neither shouts. Descriptive, not judgmental: a hollow cell says "nothing
+  // on file", never "overdue". String math on YYYY-MM only (same rule as
+  // _bkBatchSetNotes — no Date objects, no timezone exposure). Skipped for
+  // automatic and schedule-sourced loans (no monthly statements exist to be
+  // missing) and for paid-off loans (a closed loan needs no coverage).
+  const _BK_MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function _bkMonthLabel(ym) { const [y, m] = ym.split('-'); return `${_BK_MONTH_NAMES[Number(m) - 1]} ${y}`; }
+
+  function _bkCoverageMonths() {
+    const out = [];
+    let [y, m] = today().slice(0, 7).split('-').map(Number);
+    for (let i = 0; i < 12; i++) { out.unshift(`${y}-${String(m).padStart(2, '0')}`); m--; if (m < 1) { m = 12; y--; } }
+    return out;
+  }
+
+  function _bkCoverageStripHtml(a) {
+    if (a.ingestion_method === 'automatic' || a.ingestion_method === 'amortization_schedule' || a.status === 'paid_off') return '';
+    const stmts = _loanStatementsToDate(a.id);
+    if (!stmts.length) return '';
+    const byMonth = {};
+    for (const s of stmts) {
+      const ym = (s.statement_date || '').slice(0, 7);
+      if (!ym) continue;
+      // Source order is newest-first: first seen wins, unless an earlier-dated
+      // row has a storage_path and the winner doesn't — peekable beats not.
+      if (!byMonth[ym] || (!byMonth[ym].storage_path && s.storage_path)) byMonth[ym] = s;
+    }
+    const firstYm = Object.keys(byMonth).sort()[0];
+    const curYm = today().slice(0, 7);
+    const base = 'display:inline-block;width:7px;height:11px;border-radius:2px;margin-right:2px;box-sizing:border-box';
+    const cells = _bkCoverageMonths().map(ym => {
+      const s = byMonth[ym];
+      if (s) {
+        const peek = s.storage_path ? ` onclick="event.stopPropagation();bkPeekCoverageDoc('${a.id}','${ym}')"` : '';
+        return `<span style="${base};background:var(--accent)${s.storage_path ? ';cursor:pointer' : ''}"${peek} title="${esc(_bkMonthLabel(ym))} — statement ${esc(s.statement_date)} on file${s.storage_path ? '. Click to take a look.' : ''}"></span>`;
+      }
+      if (ym < firstYm) return `<span style="${base};background:var(--gray-100)" title="${esc(_bkMonthLabel(ym))} — before the first statement on file"></span>`;
+      if (ym === curYm) return `<span style="${base};background:var(--gray-100)" title="${esc(_bkMonthLabel(ym))} — no statement yet (statements usually arrive after the month ends)"></span>`;
+      return `<span style="${base};background:#fff;border:1px solid var(--gray-300)" title="${esc(_bkMonthLabel(ym))} — no statement on file"></span>`;
+    }).join('');
+    return `<div style="margin-top:4px;line-height:1;white-space:nowrap">${cells}</div>`;
+  }
+
+  function bkPeekCoverageDoc(loanId, ym) {
+    const s = _loanStatementsToDate(loanId).find(x => (x.statement_date || '').slice(0, 7) === ym && x.storage_path);
+    if (!s) { showToast('No stored document for that month.', 'error'); return; }
+    const a = _allLoanAccounts.find(x => x.id === loanId);
+    bkPeekStored(s.storage_path, `${(a && a.xero_account_name) || 'Loan'} — statement ${s.statement_date}`, []);
+  }
+
   function renderLoansTable() {
     const el = document.getElementById('loans-table-wrap');
     const badge = document.getElementById('loans-all-badge');
@@ -11932,7 +11989,7 @@
         <td class="td-name">${esc(a.xero_account_name || '—')}</td>
         <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
         <td>${statusBadge}</td>
-        <td class="td-mono">${isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic${lastStmt ? ' (as of ' + esc(lastStmt.statement_date) + ')' : ''}</span>` : (isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—'))}</td>
+        <td class="td-mono">${isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic${lastStmt ? ' (as of ' + esc(lastStmt.statement_date) + ')' : ''}</span>` : (isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—') + _bkCoverageStripHtml(a))}</td>
         <td>${splitBadge}${historyLink}${docsLink}</td>
         <td style="text-align:right">${balCell}</td>
       </tr>`;
@@ -11967,7 +12024,9 @@
                group — each group is its own table, and auto layout let the
                columns drift a different amount per group (David: "Ford align
                all columns"). Fixed layout + identical colgroup pins them. -->
-          <colgroup><col style="width:22%"><col style="width:12%"><col style="width:9%"><col style="width:13%"><col style="width:32%"><col style="width:12%"></colgroup>
+          <!-- Session 224 cont.: col 4 widened 13% → 16% (col 5 gives it back)
+               so the 12-cell coverage strip fits without bleeding at 860px. -->
+          <colgroup><col style="width:22%"><col style="width:12%"><col style="width:9%"><col style="width:16%"><col style="width:29%"><col style="width:12%"></colgroup>
           <thead><tr><th>Xero account</th><th>Account #</th><th>Status</th><th>Last statement</th><th>Last split</th><th style="text-align:right">Outstanding</th></tr></thead>
           <tbody>${loans.map(loanRow).join('')}</tbody></table>
         </div>
