@@ -1026,6 +1026,9 @@ async function handleRequest(req: Request): Promise<Response> {
     //     never edited, only read) ---
     let candidate: any = null
     let candidates: any[] = []
+    // Session 224: set when the SINGLE amount+account match turns out to be a
+    // transaction that was already split in Xero — the exception case below.
+    let candidateAnnotationsSeed: { id: string; lines: any[] } | null = null
     // Count of amount+account matches rejected purely because they are DELETED/VOIDED.
     // Surfaced in the not-found response so "no match" never silently hides the fact
     // that a deleted duplicate exists on that date -- that ambiguity is the whole
@@ -1079,6 +1082,24 @@ async function handleRequest(req: Request): Promise<Response> {
           error: `Bank transaction ${effectiveBankTxnId} is not on this loan's bank account. Refusing to post a split against a transaction from a different bank account.`,
           bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total, status: candidate.Status, bank_account_id: candidate.BankAccount?.AccountID },
         }), { status: 409 })
+      }
+      // Session 224 (David): "Redoing already split transactions is a recipe for
+      // a big mess." A picked transaction that already carries a split — more
+      // than one line item, or an interest-account line — was already handled
+      // (by this system or by the CPA directly in Xero). Posting a reallocation
+      // journal for it would double the interest move. Hard refusal, plain
+      // language, evidence included so the CPA can verify in Xero.
+      {
+        const pickedLines = candidate.LineItems || []
+        const pickedWorked = pickedLines.length > 1 ||
+          pickedLines.some((l: any) => String(l.AccountCode) === INTEREST_EXPENSE_ACCOUNT_CODE)
+        if (pickedWorked) {
+          return new Response(JSON.stringify({
+            reason: 'picked_already_worked',
+            error: `That ${candidate.DateString?.slice(0, 10)} transaction has already been split in Xero — its coding already includes ${pickedLines.length > 1 ? `${pickedLines.length} lines` : 'an interest line'}. Posting this split against it would double up the interest. Nothing was posted. If this month still needs work, that's a question for whoever coded the transaction in Xero.`,
+            bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total, current_lines: candidate.LineItems },
+          }), { status: 409 })
+        }
       }
       const pickedDistDays = candidate.DateString ? wholeDaysBetween(new Date(candidate.DateString), warnAnchor) : null
       // v29: only meaningful for a real operator pick. An auto-identified candidate came
@@ -1134,6 +1155,67 @@ async function handleRequest(req: Request): Promise<Response> {
         const detailRes = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${candidates[0].BankTransactionID}`, { headers })
         const detailJson = await detailRes.json().catch(() => null)
         candidate = detailJson?.BankTransactions?.[0] || candidates[0]
+        // Session 224: even a unique match must not be re-done if its Xero
+        // coding shows it was already split (see the block below for the rule).
+        const soleLines = candidate.LineItems || []
+        if (soleLines.length > 1 || soleLines.some((l: any) => String(l.AccountCode) === INTEREST_EXPENSE_ACCOUNT_CODE)) {
+          candidateAnnotationsSeed = { id: candidate.BankTransactionID, lines: soleLines }
+          candidate = null
+        }
+      }
+    }
+
+    // ── Session 224 (David): "Giving the bookkeeper 6 dates to choose from is
+    // not helpful. We need to be abstracting as much as possible here." ──────
+    // The system can answer most of the question itself, from facts it already
+    // has: a transaction whose Xero coding carries more than one line item, or
+    // an interest-account line, has ALREADY been worked — by this system or by
+    // the CPA directly in Xero. And a transaction another split has posted
+    // against is taken. So, when the amount alone is ambiguous:
+    //   - classify every candidate (bounded detail fetches),
+    //   - if exactly ONE unworked, untaken candidate remains, proceed with it
+    //     automatically (the operator still reviews and approves — this only
+    //     removes the pointless multiple-choice quiz),
+    //   - if NONE remain, the month was already handled in Xero: flag it as an
+    //     EXCEPTION for the CPA to verify — per David, the system must never
+    //     "redo" an already-split transaction, so there is no write path here,
+    //   - otherwise show the (shorter) picker with the worked ones labeled and
+    //     unclickable.
+    // Everything here READS Xero and our own loan_splits; nothing is guessed.
+    let candidateAnnotations: Map<string, { alreadyWorked: boolean; usedByPeriod: string | null; lines: any[] }> | null = null
+    if (!candidate && candidates.length > 1 && candidates.length <= 8) {
+      const { data: usedRows } = await supa.from('loan_splits')
+        .select('id, period_label, matched_xero_bank_transaction_id')
+        .eq('loan_account_id', loanAcct.id)
+        .not('matched_xero_bank_transaction_id', 'is', null)
+      const usedBy = new Map<string, string>()
+      for (const r of (usedRows || [])) {
+        if (r.id !== loan_split_id && r.matched_xero_bank_transaction_id) {
+          usedBy.set(String(r.matched_xero_bank_transaction_id).toLowerCase(), r.period_label)
+        }
+      }
+      candidateAnnotations = new Map()
+      const detailedById = new Map<string, any>()
+      for (const c of candidates) {
+        const dr = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${c.BankTransactionID}`, { headers })
+        const dj = await dr.json().catch(() => null)
+        const d = dj?.BankTransactions?.[0] || c
+        detailedById.set(c.BankTransactionID, d)
+        const lines = d.LineItems || []
+        const alreadyWorked = lines.length > 1 ||
+          lines.some((l: any) => String(l.AccountCode) === INTEREST_EXPENSE_ACCOUNT_CODE)
+        candidateAnnotations.set(c.BankTransactionID, {
+          alreadyWorked,
+          usedByPeriod: usedBy.get(String(c.BankTransactionID).toLowerCase()) || null,
+          lines: withAccountNames(lines, acctMap),
+        })
+      }
+      const open = candidates.filter(c => {
+        const a = candidateAnnotations!.get(c.BankTransactionID)!
+        return !a.alreadyWorked && !a.usedByPeriod
+      })
+      if (open.length === 1) {
+        candidate = detailedById.get(open[0].BankTransactionID) || open[0]
       }
     }
 
@@ -1146,19 +1228,56 @@ async function handleRequest(req: Request): Promise<Response> {
       const notFoundRefDate = isScheduleSourced ? amortRow.row_date : (stmt.payment_due_date || stmt.statement_date)
       const daysFromToday = notFoundRefDate ? Math.round((Date.now() - new Date(notFoundRefDate).getTime()) / 86400000) : null
       const statementIsRecent = daysFromToday !== null && Math.abs(daysFromToday) <= 5
+      const feedLabel = loanAcct.xero_account_name ? `the ${loanAcct.xero_account_name} feed` : 'the bank feed'
+      // Session 224: annotated candidates + the already-handled exception state.
+      const annotatedCandidates = candidates.map(c => {
+        const a = candidateAnnotations?.get(c.BankTransactionID) || null
+        return {
+          id: c.BankTransactionID, date: c.DateString, total: c.Total,
+          reference: c.Reference, contact: c.Contact?.Name,
+          days_from_period: c.DateString ? wholeDaysBetween(new Date(c.DateString), warnAnchor) : null,
+          already_worked: a ? a.alreadyWorked : null,
+          used_by_period: a ? a.usedByPeriod : null,
+          current_lines: a && a.alreadyWorked ? a.lines : undefined,
+        }
+      })
+      const openCount = candidateAnnotations
+        ? annotatedCandidates.filter(c => !c.already_worked && !c.used_by_period).length
+        : null
+      const soleWorked = candidateAnnotationsSeed !== null
+      const allHandled = soleWorked || (candidateAnnotations !== null && openCount === 0)
+      if (allHandled) {
+        // Every payment matching this amount has already been split in Xero (or
+        // is attached to another period's split). Per David: FLAG the exception
+        // for the CPA to investigate in Xero — never redo an already-split
+        // transaction, and offer no write path here.
+        return new Response(JSON.stringify({
+          reason: 'already_handled_in_xero',
+          error: soleWorked
+            ? `The one bank transaction matching this amount was already split in Xero — its coding already carries the interest breakdown. WashRoute will not touch it again.`
+            : `Every bank transaction matching this amount ($${split.total_amount}) has already been handled — split in Xero or attached to another period's split. WashRoute will not redo any of them.`,
+          anchor_date: isoDay(warnAnchor),
+          candidates: soleWorked
+            ? [{ id: candidateAnnotationsSeed!.id, already_worked: true, used_by_period: null, current_lines: withAccountNames(candidateAnnotationsSeed!.lines, acctMap) }]
+            : annotatedCandidates,
+          cpa_note: 'This split stays pending as a flag. Ask whoever keeps the books in Xero to confirm the period was split correctly there; if it was, this row is just history catching up and can be left as-is.',
+        }), { status: 409 })
+      }
       const notFoundReason = candidates.length > 1
         ? 'ambiguous_candidates'
         : (statementIsRecent ? 'payment_not_yet_in_xero' : 'no_matching_transaction')
-      const feedLabel = loanAcct.xero_account_name ? `the ${loanAcct.xero_account_name} feed` : 'the bank feed'
+      const handledCount = candidateAnnotations ? candidates.length - (openCount ?? candidates.length) : 0
       return new Response(JSON.stringify({
         reason: notFoundReason,
         error: notFoundReason === 'ambiguous_candidates'
-          ? `${candidates.length} live bank transactions matched the amount ($${split.total_amount}) in the date window -- pass bank_transaction_id to pick the right one.`
+          ? (handledCount > 0
+            ? `${candidates.length} payments matched this amount — ${handledCount} ${handledCount === 1 ? 'is' : 'are'} already handled, leaving ${openCount} to choose from.`
+            : `${candidates.length} live bank transactions matched the amount ($${split.total_amount}) in the date window -- pass bank_transaction_id to pick the right one.`)
           : (notFoundReason === 'payment_not_yet_in_xero'
             ? `The $${split.total_amount} payment for ${notFoundRefDate} hasn't appeared on ${feedLabel} in Xero yet. That's normal this soon after the statement date -- it will match itself once the bank feed syncs. Nothing to do right now.`
             : `No live bank transaction found on ${feedLabel} matching $${split.total_amount} near ${notFoundRefDate}. It may not have cleared/synced yet, or the payment amount doesn't match.`),
         anchor_date: isoDay(warnAnchor),
-        candidates: candidates.map(c => ({ id: c.BankTransactionID, date: c.DateString, total: c.Total, reference: c.Reference, contact: c.Contact?.Name, days_from_period: c.DateString ? wholeDaysBetween(new Date(c.DateString), warnAnchor) : null })),
+        candidates: annotatedCandidates,
         ignored_deleted_or_voided: suppressedNonLive,
         ignored_note: suppressedNonLive
           ? `${suppressedNonLive} transaction(s) matched the amount and account but are DELETED or VOIDED in Xero, so they were ignored. A deleted draft alongside a live payment is normal -- it is not a second payment.`

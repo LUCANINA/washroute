@@ -13768,6 +13768,29 @@ ${noActivityNote}
         // genuine mismatch. Rendering the normal case in alarming red taught people to
         // ignore this screen, so it now reads as a calm wait rather than a failure.
         const waiting = data.reason === 'payment_not_yet_in_xero';
+        // Session 224 (David): "the system should flag/highlight EXCEPTIONS so
+        // the CPA can investigate and/or fix them in Xero. Redoing already split
+        // transactions is a recipe for a big mess." When the server determined
+        // this month's payment was already split in Xero, this is an EXCEPTION
+        // view, not an error and not a picker: show the evidence (the existing
+        // coding, read from Xero) and stop. There is deliberately no button —
+        // WashRoute never redoes an already-split transaction.
+        if (data.reason === 'already_handled_in_xero') {
+          const lineHtml = (l) => `<div style="font-size:12.5px;padding:3px 0 3px 12px">${esc(l.Description || '(no description)')} — $${l.LineAmount} → ${esc(String(l.AccountCode ?? ''))}${l.AccountName ? ` <span style="color:var(--gray-500)">— ${esc(l.AccountName)}</span>` : ''}</div>`;
+          body.innerHTML = `
+            <div style="font-size:13.5px;color:var(--gray-800);background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px">
+              ✓ ${esc(data.error)}
+            </div>
+            <div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">What's already in Xero:</div>
+            <div style="margin-top:6px">${(data.candidates || []).filter(c => c.already_worked || c.used_by_period).map(c => `
+              <div style="padding:8px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px">
+                ${c.date ? esc(String(c.date).slice(0, 10)) + ' — ' : ''}${c.total ? '$' + c.total + ' — ' : ''}${c.used_by_period ? `attached to the ${esc(c.used_by_period)} split` : 'already split in Xero'}
+                ${(c.current_lines || []).map(lineHtml).join('')}
+              </div>`).join('')}</div>
+            ${data.cpa_note ? `<div style="margin-top:8px;font-size:12.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">🏷 ${esc(data.cpa_note)}</div>` : ''}`;
+          footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+          return;
+        }
         body.innerHTML = `<div style="color:${waiting ? 'var(--gray-600)' : 'var(--red)'};font-size:13.5px">${
             waiting ? '⏳ ' : ''}${esc(data.error || 'Could not find a matching Xero transaction.')}</div>
           ${data.candidates && data.candidates.length ? `
@@ -13775,33 +13798,39 @@ ${noActivityNote}
             Candidates found${canPost ? '' : ' (read-only — ask an admin or manager to post)'}${
               data.anchor_date ? `, measured against this split's period of ${esc(data.anchor_date)}` : ''}:
           </div>
-          ${data.candidates.length > 1 ? `<div style="margin-top:6px;font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">
+          ${data.candidates.filter(c => !c.already_worked && !c.used_by_period).length > 1 ? `<div style="margin-top:6px;font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">
             More than one transaction matches this amount, so the amount alone can't tell them apart — check the dates below before picking. Posting against the wrong one dates the entry to that transaction's day and can't be spotted later by the amounts.
           </div>` : ''}
           <div style="margin-top:6px">${(() => {
             // Distance is the only real discriminator when a loan's payment never varies
             // (Ford's and Rapid's are the same figure every month), so: sort CLOSEST
-            // first (the list used to arrive farthest-first, burying the right answer
-            // at the bottom of six identical amounts), and give the closest candidate
-            // a calm green "closest to this split's period" note when it's within a
-            // month — an autopay pulled ~11 days before the statement date is the
-            // normal Ford pattern, not an anomaly worth an amber warning. Every other
-            // candidate keeps the distance warning. Guidance only: the human still
-            // picks, nothing auto-posts.
+            // first, and give the closest PICKABLE candidate a calm green note when
+            // it's within a month — an autopay pulled ~11 days before the statement
+            // date is the normal Ford pattern, not an anomaly. Candidates the server
+            // marked already-handled (split in Xero, or attached to another period's
+            // split) render dimmed and unclickable — they are exceptions to look at,
+            // never options to redo. Guidance only: the human still picks.
+            const handled = (c) => !!(c.already_worked || c.used_by_period);
             const sorted = [...data.candidates].sort((a, b) =>
-              (a.days_from_period == null ? 1e9 : Math.abs(a.days_from_period)) -
-              (b.days_from_period == null ? 1e9 : Math.abs(b.days_from_period)));
-            const minAbs = sorted.length && sorted[0].days_from_period != null ? Math.abs(sorted[0].days_from_period) : null;
-            return sorted.map((c, idx) => {
+              (handled(a) ? 1 : 0) - (handled(b) ? 1 : 0) ||
+              ((a.days_from_period == null ? 1e9 : Math.abs(a.days_from_period)) -
+               (b.days_from_period == null ? 1e9 : Math.abs(b.days_from_period))));
+            const pickable = sorted.filter(c => !handled(c));
+            const minAbs = pickable.length && pickable[0].days_from_period != null ? Math.abs(pickable[0].days_from_period) : null;
+            return sorted.map((c) => {
             const d = c.days_from_period;
-            const closest = idx === 0 && minAbs != null && minAbs <= 31 && sorted.length > 1;
-            const far = !closest && d != null && Math.abs(d) > 2;
-            const dist = d == null ? ''
+            const isHandled = handled(c);
+            const closest = !isHandled && pickable[0] === c && minAbs != null && minAbs <= 31 && sorted.length > 1;
+            const far = !isHandled && !closest && d != null && Math.abs(d) > 2;
+            const dist = isHandled
+              ? `<span style="color:var(--gray-500)">${c.used_by_period ? `already attached to the ${esc(c.used_by_period)} split` : 'already split in Xero — your bookkeeper has handled this one'}</span>`
+              : d == null ? ''
               : (d === 0 ? '<span style="color:var(--green)">same day as the period</span>'
                 : closest ? `<span style="color:var(--green)">${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} ${d > 0 ? 'before' : 'after'} the period — closest to this split's period</span>`
                 : `<span style="color:${far ? '#b45309' : 'var(--gray-500)'}">${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} ${d > 0 ? 'before' : 'after'} the period${far ? ' — outside the usual matching window' : ''}</span>`);
-            return `<div style="padding:8px;border:1px solid ${closest ? 'var(--green)' : far ? '#fde68a' : 'var(--gray-200)'};border-radius:8px;margin-bottom:6px;${canPost ? 'cursor:pointer' : ''}"${canPost ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
-              ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${canPost ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
+            const clickable = canPost && !isHandled;
+            return `<div style="padding:8px;border:1px solid ${closest ? 'var(--green)' : isHandled ? 'var(--gray-200)' : far ? '#fde68a' : 'var(--gray-200)'};border-radius:8px;margin-bottom:6px;${isHandled ? 'opacity:.55' : ''}${clickable ? 'cursor:pointer' : ''}"${clickable ? ` onclick="approveAndPostSplit('${splitId}','${c.id}')"` : ''}>
+              ${esc(c.date)} — $${c.total} — ${esc(c.reference || c.contact || '')} ${clickable ? '<span style="color:var(--accent);font-weight:600">→ pick &amp; post</span>' : ''}
               ${dist ? `<div style="font-size:11.5px;margin-top:3px">${dist}</div>` : ''}
             </div>`;
           }).join(''); })()}</div>` : ''}`;
