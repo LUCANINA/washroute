@@ -195,7 +195,6 @@
        card is separated by spacing and hairline dividers, not by re-running
        the same card treatment at a smaller scale. Scoped to Bookkeeping, not
        promoted to body{} -- still not asked for app-wide. */
-    #page-bookkeeping { background: var(--gray-100); margin: -20px; padding: 20px; }
     .card-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--gray-100); }
     .card-title { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
     .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
@@ -3277,10 +3276,13 @@
             .bk-seg { font-size: 12.5px; font-weight: 600; color: var(--gray-500); padding: 6px 13px; border-radius: 7px; cursor: pointer; background: none; border: none; transition: color .15s; white-space: nowrap; }
             .bk-seg:hover:not(.active) { color: var(--gray-700); }
             .bk-seg.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 2px rgba(15,37,71,.10); }
-            .bk-tiles { display: flex; gap: 1px; background: var(--gray-200); border-radius: 12px; overflow: hidden; border: 1px solid var(--gray-200); }
-            .bk-tile { flex: 1; background: #fff; padding: 16px 18px 14px; min-width: 0; }
-            .bk-tile-label { font-size: 12px; color: var(--gray-500); font-weight: 500; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .bk-tile-value { font-size: 22px; font-weight: 650; color: var(--gray-900); letter-spacing: -0.01em; line-height: 1; white-space: nowrap; }
+            /* Session 223 cont.: Orders-page tile style at David's request —
+               separate rounded white cards with gaps, bold numbers, small gray
+               sub-line. (Replaces the hairline-joined REELOAD row.) */
+            .bk-tiles { display: flex; gap: 12px; flex-wrap: wrap; }
+            .bk-tile { flex: 1; min-width: 170px; background: #fff; border: 1px solid var(--gray-200); border-radius: 14px; padding: 16px 18px 14px; box-shadow: 0 1px 2px rgba(15,37,71,.03); }
+            .bk-tile-label { font-size: 13px; color: var(--gray-700); font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .bk-tile-value { font-size: 25px; font-weight: 750; color: var(--gray-900); letter-spacing: -0.01em; line-height: 1.1; white-space: nowrap; }
             .bk-tile-unit { font-size: 13px; color: var(--gray-400); font-weight: 500; }
             .bk-tile-delta { font-size: 11.5px; font-weight: 600; margin-top: 7px; white-space: nowrap; }
             .bk-tile-delta.good { color: var(--green); }
@@ -3321,16 +3323,12 @@
                  APPROVALS queue item (it's a ready-to-post journal, nothing is
                  wrong) instead of its former red standalone card —
                  checkRetailCashReclassStatus() feeds _retailReclassPeriod. -->
-            <div class="card" style="margin-bottom:20px">
-              <div class="card-header" style="padding:20px 24px">
-                <div style="flex:1">
-                  <div class="card-title">At a Glance</div>
-                  <div class="card-sub" id="bk-kpi-asof">Live from Xero</div>
-                </div>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;align-self:center" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
-              </div>
-              <div id="bk-kpi-tiles" style="padding:0 16px 16px"></div>
+            <!-- Bare KPI tiles, no wrapping card — matches the Orders page. -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div class="card-sub" id="bk-kpi-asof" style="margin:0">Live from Xero</div>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
             </div>
+            <div id="bk-kpi-tiles" style="margin-bottom:20px"></div>
             <div class="card">
               <div class="card-header" style="padding:20px 24px">
                 <div style="flex:1">
@@ -3353,58 +3351,27 @@
             <button id="loans-subtoggle-debtsched" onclick="switchLoansSubView('debtsched')">Debt Schedule</button>
           </div>
           <div id="loans-subview-manage">
-          <div class="card" style="margin-bottom:20px">
-            <div class="card-header">
-              <div class="card-title">Loan Reconciliation</div>
-            </div>
-            <div id="loans-summary" style="padding:0 16px 16px"></div>
-          </div>
+          <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
+          <div id="loans-summary" style="margin-bottom:20px"></div>
 
-          <!-- Session 214 redesign — David's feedback on session 213's first pass: two
-               different "Needs Attention" counts on one page (3 loan flags vs. 11
-               reconciliation findings) with no way to tell which one mattered, and 8
-               headings total. Down to 4 sections now: Loan Summary (above), Needs
-               Attention (below — ONE unified list/count, merging loan-level flags,
-               split mismatches, AND reconciliation findings; also where Reconciliation's
-               run button + last-run recap + past reports now live, since they're the
-               mechanism that feeds this list), Ready to Post (routine queue, kept
-               separate on purpose — see renderLoansAttention()'s comment for why), and
-               All Loans. The single source of truth for the count is
-               _bkLoanAttentionItems() — Overview's tile reads the same function, so the
-               two screens can't disagree again. Deliberately NOT deduping a loan that
-               has both a manual flag AND a matching reconciliation finding (e.g. Funding
-               Circle) into one card — no reliable way to know they're the same fact
-               without a shared fingerprint, and silently hiding one felt riskier than a
-               loan occasionally showing two related cards. Revisit if that turns out to
-               be noisy in practice. -->
-          <!-- Session 223: the former "Needs Attention" + "Ready to Post" cards
-               merged into ONE queue with an Issues/Approvals segmented toggle
-               (the REELOAD v4 pattern). Issues = something is wrong and needs a
-               decision (loan flags, split mismatches, error/warn reconciliation
-               findings). Approvals = nothing is wrong, just waiting on a human
-               to approve a post (splits pending review). Always open — the
-               queue IS the page; only reference sections collapse. Counts still
-               come from _bkLoanAttentionItems() and the pending_review filter —
-               one function per number, unchanged. -->
-          <div class="card" style="margin-bottom:20px" id="loans-attention-card">
+          <!-- Session 223 cont.: the queue left this page entirely — Issues and
+               Approvals live on the Overview now (David: "Loans is where I see
+               what loans I have outstanding, my debt schedule" — a repository
+               of information, not a to-do list). What stays here is the
+               reconciliation MECHANISM and its history: the run button, the
+               last-run recap, recently-resolved items, informational findings,
+               and past reports. renderLoansAttention() now fills
+               loans-recon-extras with the resolved/info sections only. -->
+          <div class="card" style="margin-bottom:20px" id="loans-recon-card">
             <div class="card-header" style="padding:20px 24px">
               <div style="flex:1">
-                <div class="card-title">Needs your attention</div>
+                <div class="card-title">Reconciliation</div>
                 <div class="card-sub" id="recon-lastrun" style="margin-top:2px"></div>
                 <div id="recon-summary" style="margin-top:2px"></div>
               </div>
-              <span style="display:flex;align-items:center;gap:14px">
-                <button class="btn btn-ghost" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
-                <div class="bk-seg-toggle">
-                  <button class="bk-seg active" id="loans-seg-issues" onclick="_bkSetLoansSeg('issues')">Issues</button>
-                  <button class="bk-seg" id="loans-seg-approvals" onclick="_bkSetLoansSeg('approvals')">Approvals</button>
-                </div>
-              </span>
+              <button class="btn btn-ghost" id="recon-run-btn" style="font-size:12px;padding:6px 12px;align-self:center" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
             </div>
-            <div id="loans-attention-list" style="padding:4px 0 0"></div>
-            <div id="loans-pending-list" style="display:none;padding:4px 0 0">
-              <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
-            </div>
+            <div id="loans-recon-extras"></div>
             <div style="padding:12px 20px 16px">
               <span onclick="toggleOverviewPanel('recon-reports-wrap',this)" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline">Past reconciliation reports</span>
               <div id="recon-reports-wrap" style="display:none;margin-top:10px">
@@ -3449,18 +3416,13 @@
                update automatically every time a statement is ingested. Folded under the
                Loans Manage/Debt Schedule toggle session 213 -- was its own top-level tab. -->
           <div id="loans-subview-debtsched" style="display:none">
-          <div class="card" style="margin-bottom:20px">
-            <div class="card-header">
-              <div class="card-title">Debt Schedule</div>
-              <div class="card-sub">Click the pencil to edit a loan's original amount, rate, maturity, or security.</div>
-            </div>
-            <div id="debtsched-summary" style="padding:0 16px 16px"></div>
-          </div>
+          <div id="debtsched-summary" style="margin-bottom:20px"></div>
           <div class="card">
             <div class="card-header" style="padding:20px 24px">
               <div style="flex:1">
                 <div class="card-title">All Debt</div>
                 <div class="card-sub" id="debtsched-asof"></div>
+                <div class="card-sub">Click the pencil to edit a loan's original amount, rate, maturity, or security.</div>
               </div>
               <span style="display:flex;align-items:center;gap:10px">
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()">📄 Export PDF</button>
@@ -3474,15 +3436,8 @@
 
           <!-- Payroll (session 206) -->
           <div id="bk-view-payroll" style="display:none">
-          <div class="card" style="margin-bottom:20px">
-            <div class="card-header">
-              <div style="flex:1">
-                <div class="card-title">Payroll Allocation</div>
-              </div>
-              <button class="btn btn-ghost" style="align-self:center;white-space:nowrap" onclick="openPayrollUploadModal(true)" title="For a late correction CSV covering the same calendar pay period as a regular run already uploaded (e.g. a forgotten employee or a sick-leave add), paid on a different date">Off-cycle adjustment</button>
-            </div>
-            <div id="payroll-summary" style="padding:0 16px 16px"></div>
-          </div>
+          <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
+          <div id="payroll-summary" style="margin-bottom:20px"></div>
 
           <!-- One-time correction (Aug 6, 2026): a since-deleted Xero bank rule
                was auto-coding 8 raw Square payroll bank drafts (all July 2026)
@@ -3566,38 +3521,20 @@
                background. "Refresh Now" re-runs the check on demand instead of
                waiting for the next scheduled pass. Same collapsible-card
                convention as loans-attention-card. -->
-          <!-- Session 223: same Issues/Approvals queue as Loans and Overview.
-               Issues = per-import attention flags + standing payroll notices
-               (unchanged content, still fed by payroll-check-attention's 2h
-               cron). Approvals = pay periods parsed (waiting on review) or
-               reviewed (waiting on the Xero post) — nothing wrong, one click
-               to the review modal. -->
-          <div class="card" style="margin-bottom:20px" id="payroll-attention-card">
-            <div class="card-header" style="padding:20px 24px">
-              <div style="flex:1">
-                <div style="display:flex;align-items:center;gap:12px">
-                  <div class="card-title">Needs your attention</div>
-                  <span id="payroll-attention-stale" style="font-size:11.5px;color:var(--gray-400);display:none">last checked a while ago</span>
-                </div>
-              </div>
-              <span style="display:flex;align-items:center;gap:14px">
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="refreshPayrollAttention()" id="payroll-attention-refresh-btn">↻ Refresh Now</button>
-                <div class="bk-seg-toggle">
-                  <button class="bk-seg active" id="payroll-seg-issues" onclick="_bkSetPayrollSeg('issues')">Issues</button>
-                  <button class="bk-seg" id="payroll-seg-approvals" onclick="_bkSetPayrollSeg('approvals')">Approvals</button>
-                </div>
-              </span>
-            </div>
-            <div id="payroll-attention-list" style="padding:4px 0 16px"></div>
-            <div id="payroll-approvals-list" style="display:none;padding:4px 0 16px"></div>
-          </div>
-
+          <!-- Session 223 cont.: the payroll queue also left this page — Issues
+               and Approvals live on the Overview. This page is the payroll
+               repository: reports, employee mapping, department rules. The
+               attention check still runs on its 2h cron; ↻ Check for issues
+               below re-runs it on demand. -->
           <div class="card" id="payroll-all-card">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('payroll-table-wrap',this)">
               <div style="flex:1">
                 <div class="card-title">Payroll Reports</div>
+                <div class="card-sub" id="payroll-attention-stale" style="display:none">issue check hasn't run in a while — hit “Check for issues”</div>
               </div>
               <span style="display:flex;align-items:center;gap:14px">
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;white-space:nowrap" onclick="event.stopPropagation();openPayrollUploadModal(true)" title="For a late correction CSV covering the same calendar pay period as a regular run already uploaded (e.g. a forgotten employee or a sick-leave add), paid on a different date">Off-cycle adjustment</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;white-space:nowrap" id="payroll-attention-refresh-btn" onclick="event.stopPropagation();refreshPayrollAttention()" title="Re-runs the automatic payroll issue check now instead of waiting for the every-2-hours schedule">↻ Check for issues</button>
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();loadPayroll()">↻ Refresh</button>
                 <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
               </span>
@@ -8187,19 +8124,25 @@
     badge.style.display = n ? '' : 'none';
   }
 
-  // ── Bookkeeping Overview (session 223 redesign) ─────────────────────────
-  // Two things, per the REELOAD v4 mockup: real business KPIs from Xero up
-  // top, and ONE work queue below with an Issues/Approvals segmented toggle.
-  // KPI values read the latest bookkeeping_kpi_snapshots row (written by the
-  // bookkeeping-kpis edge function — 6h pg_cron + the Refresh button); the
-  // page itself never calls Xero on load. Queue items are gathered by
-  // _bkIssueQueueItems()/_bkApprovalQueueItems(), which read the SAME shared
-  // sources the Loans/Payroll tabs use (_bkLoanAttentionItems, attention_flag
-  // rows, payroll notices, pending splits/imports) — one function per number,
-  // so no two screens can disagree.
+  // ── Bookkeeping Overview (session 223, reworked same session per David) ──
+  // Four real KPIs from Xero — cash on hand, revenue this month, operating
+  // income this year, cash flow this month — as Orders-style stat tiles, and
+  // ONE work queue with an Issues/Approvals toggle. Lists show at most 5 rows
+  // with a "Show all" reveal. Issue rows are SELF-SUFFICIENT: the Loans and
+  // Payroll pages no longer host a queue, so a loan flag / reconciliation
+  // finding expands in place with its full detail and Mark Resolved action
+  // (same flows and element ids as before — toggleLoanResolveForm /
+  // confirmResolveLoanFlag are unchanged).
+  //
+  // KPI values read the latest bookkeeping_kpi_snapshots row (bookkeeping-kpis
+  // edge function, 6h pg_cron + the Refresh button) — the page never calls
+  // Xero on load. "Operating income" is Xero's own Operating Income / (Loss)
+  // row (excludes the Other Income and Expense section — grants, interest,
+  // one-offs), NOT net income, per David's explicit ask.
   let _bkKpiSnapshot = null;        // latest bookkeeping_kpi_snapshots payload
   let _bkKpiCapturedAt = null;
   let _bkOverviewSeg = 'issues';
+  let _bkOvQueueExpanded = { issues: false, approvals: false };
   let _retailReclassPeriod = null;  // e.g. '2026-07' while the monthly retail cash reclass is outstanding
 
   async function loadBookkeepingKpis() {
@@ -8220,8 +8163,8 @@
     showToast('KPIs refreshed from Xero', 'success');
   }
 
-  // Tiny sparkline, mockup-style: gray history, accent-colored last segment +
-  // end dot. Takes the series oldest → newest.
+  // Tiny sparkline: gray history, accent-colored last segment + end dot.
+  // Takes the series oldest → newest.
   function _bkSpark(series) {
     const pts = (series || []).filter(v => v != null && isFinite(v));
     if (pts.length < 3) return '';
@@ -8247,44 +8190,57 @@
     if (Math.abs(d) < 0.005) return `<div class="bk-tile-delta flat">— unchanged ${esc(opts.suffix || '')}</div>`;
     const up = d > 0;
     const good = opts.goodWhenUp ? up : !up;
-    const mag = opts.money !== false
-      ? '$' + Math.abs(d).toLocaleString('en-US', { maximumFractionDigits: 0 })
-      : Math.abs(d).toFixed(1);
+    const mag = '$' + Math.abs(d).toLocaleString('en-US', { maximumFractionDigits: 0 });
     return `<div class="bk-tile-delta ${good ? 'good' : 'bad'}">${up ? '↑' : '↓'} ${mag} ${esc(opts.suffix || '')}</div>`;
   }
 
-  // Historical total debt for the sparkline only. Same row-selection logic as
-  // _loanOutstandingBalance (statement first, then amortization row, only rows
-  // dated on-or-before the cutoff), parameterized by date. The tile's headline
-  // number still comes from _loanOutstandingBalance itself — identical logic at
-  // cutoff=today — so it can never disagree with the Debt Schedule.
-  function _loanBalanceAsOf(a, iso) {
-    const lastStmt = (_allLoanStatements || [])
-      .filter(s => s.loan_account_id === a.id && s.principal_balance != null && s.statement_date <= iso)
-      .sort((x, y) => (x.statement_date < y.statement_date ? 1 : -1))[0];
-    if (lastStmt) return Number(lastStmt.principal_balance);
-    const row = (_allLoanAmortRows || [])
-      .filter(r => r.loan_amortization_schedules?.loan_account_id === a.id && r.balance != null && r.row_date <= iso)
-      .sort((x, y) => (x.row_date < y.row_date ? 1 : -1))[0];
-    return row ? Number(row.balance) : null;
-  }
-
-  // ISSUES: something is wrong and needs a human decision.
+  // ISSUES: something needs a human decision. Each item is a friendly one-line
+  // summary; loan flags and findings carry a detailHtml panel that expands in
+  // place (full text + Mark Resolved / upload actions), split mismatches and
+  // payroll flags open their existing review modals.
   function _bkIssueQueueItems() {
     const items = [];
-    _bkLoanAttentionItems().forEach(it => items.push({
-      dot: it.severityRank === 0 ? 'red' : 'amber',
-      name: it.title, reason: it.explain || 'Needs a decision.',
-      action: 'Review',
-      onclick: it.kind === 'split_mismatch' ? `openLoanReviewModal('${it.split.id}')` : `switchBookkeepingView('loans')`,
-    }));
+    _bkLoanAttentionItems().forEach(it => {
+      let detailHtml = null, onclick = null;
+      if (it.kind === 'split_mismatch') {
+        onclick = `openLoanReviewModal('${it.split.id}')`;
+      } else if (it.kind === 'loan_flag') {
+        const a = it.account;
+        detailHtml = _bkAttnDetailHtml(it) +
+          `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">` +
+          (a.flag_fixable ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : '') +
+          `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button></div>
+          <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:10px">
+            <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
+            <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="confirmResolveLoanFlag('${a.id}')">Confirm Resolved</button>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
+            </div>
+          </div>`;
+      } else {
+        // recon_finding — full explanation + the one real action when the
+        // engine proposed one; otherwise it clears itself on a passing check.
+        const f = it.finding;
+        detailHtml = _bkAttnDetailHtml(it) +
+          ((f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
+            ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button></div>`
+            : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">This clears on its own once a reconciliation check confirms it's fixed.</div>`);
+      }
+      items.push({
+        key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
+        name: it.title, reason: it.explain || 'Needs a decision.',
+        action: 'Review', onclick, detailHtml,
+      });
+    });
     (_allPayrollNotices || []).forEach(nt => items.push({
-      dot: nt.severity === 'error' ? 'red' : 'amber',
+      key: 'pnotice-' + nt.key, dot: nt.severity === 'error' ? 'red' : 'amber',
       name: nt.title || 'Payroll notice', reason: _bkOneLine(nt.detail || ''),
-      action: 'Review', onclick: `switchBookkeepingView('payroll')`,
+      action: 'Review',
+      detailHtml: nt.detail ? `<div style="white-space:pre-wrap">${esc(nt.detail)}</div><div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">A standing note for your CPA — nothing to click here.</div>` : null,
     }));
     (_allPayrollImports || []).filter(i => i.attention_flag).forEach(imp => items.push({
-      dot: imp.attention_flag === 'unmapped_employees' ? 'red' : 'amber',
+      key: 'pflag-' + imp.id, dot: imp.attention_flag === 'unmapped_employees' ? 'red' : 'amber',
       name: `Payroll ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}`,
       reason: _bkOneLine(imp.attention_summary || ''),
       action: 'Review', onclick: `openPayrollReviewModal('${imp.id}')`,
@@ -8298,9 +8254,9 @@
     (_allLoanSplits || []).filter(s => s.status === 'pending_review').forEach(s => {
       const name = s.loan_accounts?.xero_account_name || s.loan_accounts?.lender_account_number || 'Loan';
       items.push({
-        dot: 'green',
+        key: 'appr-split-' + s.id, dot: 'green',
         name: `${name} — ${s.period_label}`,
-        reason: `Split computed: ${fmtMoney(Number(s.principal_amount))} principal / ${fmtMoney(Number(s.interest_amount))} interest, ready to post`,
+        reason: `Split worked out: ${fmtMoney(Number(s.principal_amount))} went to the loan, ${fmtMoney(Number(s.interest_amount))} was interest — ready to post`,
         action: 'Approve', onclick: `openLoanReviewModal('${s.id}')`,
       });
     });
@@ -8309,76 +8265,59 @@
       const wage = lines.reduce((s, l) => s + Number(l.wage_amount || 0), 0);
       const emps = lines.filter(l => l.line_type !== 'reimbursement_only').length;
       items.push({
-        dot: 'green',
+        key: 'appr-pimp-' + imp.id, dot: 'green',
         name: `Payroll ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}${imp.import_type === 'adjustment' ? ' (adjustment)' : ''}`,
         reason: imp.status === 'parsed'
-          ? `${fmtMoney(wage)} across ${emps} employee${emps === 1 ? '' : 's'}, parsed — review the breakdown`
+          ? `${fmtMoney(wage)} across ${emps} employee${emps === 1 ? '' : 's'} — give the breakdown a quick look`
           : `${fmtMoney(wage)} across ${emps} employee${emps === 1 ? '' : 's'}, reviewed — ready to post to Xero`,
         action: imp.status === 'parsed' ? 'Review' : 'Approve', onclick: `openPayrollReviewModal('${imp.id}')`,
       });
     });
     if (_retailReclassPeriod) items.push({
-      dot: 'green',
+      key: 'appr-retail', dot: 'green',
       name: `Retail cash reclass — ${_retailReclassPeriod}`,
-      reason: 'Monthly correction: moves cash-paid Wash & Fold and Vending sales out of Retail - Self service, ready to post',
+      reason: 'Monthly tidy-up: moves cash sales for Wash & Fold and Vending into their own accounts — ready to post',
       action: 'Review & post', onclick: 'openRetailCashReclassModal()',
     });
     return items;
   }
 
   function _bkQueueRowHtml(it) {
-    return `<div class="bk-queue-row" onclick="${it.onclick}">
-      <div class="bk-queue-left">
+    const panelId = it.detailHtml ? 'bk-qd-' + String(it.key).replace(/[^a-zA-Z0-9_-]/g, '') : null;
+    const click = panelId ? `_bkToggleAttnDetail('${panelId}', null)` : (it.onclick || '');
+    return `<div class="bk-queue-row"${click ? ` onclick="${click}"` : ' style="cursor:default"'}>
+      <div class="bk-queue-left" style="flex:1;min-width:0">
         <span class="bk-dot ${it.dot}"></span>
-        <div style="min-width:0">
+        <div style="min-width:0;flex:1">
           <div class="bk-queue-name">${esc(it.name)}</div>
           <div class="bk-queue-reason">${esc(it.reason)}</div>
+          ${panelId ? `<div id="${panelId}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12.5px;color:var(--gray-600)" onclick="event.stopPropagation()">${it.detailHtml}</div>` : ''}
         </div>
       </div>
-      <span class="bk-review-link">${esc(it.action)} →</span>
+      ${it.action ? `<span class="bk-review-link">${esc(it.action)} →</span>` : ''}
     </div>`;
   }
 
   function _bkSetOverviewSeg(seg) { _bkOverviewSeg = seg; renderBookkeepingOverview(); }
+  function _bkToggleQueueExpand() {
+    _bkOvQueueExpanded[_bkOverviewSeg] = !_bkOvQueueExpanded[_bkOverviewSeg];
+    renderBookkeepingOverview();
+  }
 
   function renderBookkeepingOverview() {
     const tilesEl = document.getElementById('bk-kpi-tiles');
     const listEl = document.getElementById('bk-ov-queue-list');
     if (!tilesEl || !listEl) return;
 
-    // ── KPI tiles ──
+    // ── KPI tiles (4, Orders-page style) ──
     const p = _bkKpiSnapshot;
     const money0 = n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString('en-US', { maximumFractionDigits: 0 });
-    const tile = (label, valueHtml, deltaHtml, sparkHtml) => `<div class="bk-tile">
+    const tile = (label, valueHtml, subHtml, sparkHtml) => `<div class="bk-tile">
       <div class="bk-tile-label">${label}</div>
       <div class="bk-tile-value">${valueHtml}</div>
-      ${deltaHtml || ''}${sparkHtml || ''}
+      ${subHtml || ''}${sparkHtml || ''}
     </div>`;
-
-    // Total debt + monthly debt service — client-side, from the exact data the
-    // Debt Schedule reads (one function per number).
-    const activeLoans = (_allLoanAccounts || []).filter(a => a.status === 'active');
-    const debtNow = activeLoans.map(a => _loanOutstandingBalance(a)).filter(Boolean).reduce((s, b) => s + b.amount, 0);
-    const monthlyPayment = activeLoans.reduce((s, a) => s + Number(a.scheduled_monthly_payment || 0), 0);
-    const todayIso = today();
-    // Calendar arithmetic on a Pacific date string via UTC — deterministic, no
-    // "now"-derived toISOString() (the banned pattern is clock-based rollover).
-    const monthEndIso = (offset) => {
-      const [yy, mm] = todayIso.split('-').map(Number);
-      return new Date(Date.UTC(yy, mm - offset, 0)).toISOString().slice(0, 10);
-    };
-    const debtSeriesRaw = [];
-    for (let i = 8; i >= 1; i--) {
-      let sum = 0, n = 0;
-      activeLoans.forEach(a => { const b = _loanBalanceAsOf(a, monthEndIso(i)); if (b != null) { sum += b; n++; } });
-      debtSeriesRaw.push({ sum, n });
-    }
-    debtSeriesRaw.push({ sum: debtNow, n: activeLoans.length });
-    // Drop leading months where loan data coverage was thin — a growing data
-    // set would otherwise read as exploding debt.
-    const maxN = Math.max(...debtSeriesRaw.map(r => r.n), 1);
-    const debtSeries = debtSeriesRaw.filter(r => r.n >= maxN * 0.8).map(r => r.sum);
-    const debtPrev = debtSeries.length >= 2 ? debtSeries[debtSeries.length - 2] : null;
+    const dash = '<span style="color:var(--gray-400);font-size:16px">—</span>';
 
     const asOfEl = document.getElementById('bk-kpi-asof');
     if (asOfEl) {
@@ -8393,21 +8332,18 @@
 
     if (!p) {
       tilesEl.innerHTML = `<div class="bk-tiles">${
-        tile('Cash on hand', '<span style="color:var(--gray-400);font-size:15px">—</span>') +
-        tile('Revenue this month', '<span style="color:var(--gray-400);font-size:15px">—</span>') +
-        tile('Net profit last month', '<span style="color:var(--gray-400);font-size:15px">—</span>') +
-        tile('Total debt', money0(debtNow), `<div class="bk-tile-delta flat">${esc(fmtMoney(monthlyPayment))}/mo debt service</div>`, _bkSpark(debtSeries)) +
-        tile('Cash runway', '<span style="color:var(--gray-400);font-size:15px">—</span>')
+        tile('Cash on hand', dash) + tile('Revenue this month', dash) +
+        tile('Operating income this year', dash) + tile('Cash flow this month', dash)
       }</div>`;
     } else {
-      const rev = p.revenue || {}, np = p.net_profit || {}, cash = p.cash || {};
+      const rev = p.revenue || {}, cash = p.cash || {}, oi = p.operating_income || {}, cf = p.cashflow || {};
       const cashSeries = (cash.series || []).slice().reverse();
       const revSeries = (rev.series || []).slice().reverse();
-      const npSeries = (np.series || []).slice().reverse();
-      const npVal = np.last_month;
-      const runwayHtml = p.runway_months != null
-        ? `${p.runway_months.toFixed(1)}<span class="bk-tile-unit"> months</span>`
-        : `<span style="color:var(--green);font-size:16px;font-weight:650">Cash-flow positive</span>`;
+      const oiSeries = (oi.series || []).slice().reverse();
+      const cfSeries = (cf.series || []).slice().reverse();
+      const cfVal = cf.mtd;
+      const cfHtml = cfVal == null ? dash
+        : `<span style="color:${cfVal >= 0 ? 'var(--green)' : '#dc2626'}">${cfVal >= 0 ? '+' : ''}${money0(cfVal)}</span>`;
       tilesEl.innerHTML = `<div class="bk-tiles">${
         tile('Cash on hand', money0(cash.current),
           _bkDeltaHtml(cash.current, cash.month_ago, { goodWhenUp: true, suffix: 'vs. a month ago' }),
@@ -8415,20 +8351,16 @@
         tile('Revenue this month', money0(rev.mtd),
           _bkDeltaHtml(rev.mtd, rev.prior_mtd, { goodWhenUp: true, suffix: 'vs. same point last month' }),
           _bkSpark(revSeries)) +
-        tile('Net profit last month', npVal != null && npVal < 0 ? `<span style="color:#dc2626">${money0(npVal)}</span>` : money0(npVal ?? 0),
-          _bkDeltaHtml(npVal, np.prior_month, { goodWhenUp: true, suffix: 'vs. month before' }),
-          _bkSpark(npSeries)) +
-        tile('Total debt', money0(debtNow),
-          (_bkDeltaHtml(debtNow, debtPrev, { goodWhenUp: false, suffix: 'vs. last month' }) || '') +
-            `<div class="bk-tile-delta flat">${esc(fmtMoney(monthlyPayment))}/mo debt service</div>`,
-          _bkSpark(debtSeries)) +
-        tile('Cash runway', runwayHtml,
-          `<div class="bk-tile-delta flat">at the last 3 months’ cash flow</div>`,
-          _bkSpark(cashSeries))
+        tile('Operating income this year', money0(oi.ytd ?? 0),
+          _bkDeltaHtml(oi.ytd, oi.prior_ytd, { goodWhenUp: true, suffix: 'vs. this point last year' }),
+          _bkSpark(oiSeries)) +
+        tile('Cash flow this month', cfHtml,
+          cf.avg_3mo != null ? `<div class="bk-tile-delta flat">averaging ${cf.avg_3mo >= 0 ? '+' : ''}${money0(cf.avg_3mo)}/mo over the last 3 months</div>` : '',
+          _bkSpark(cfSeries))
       }</div>`;
     }
 
-    // ── The queue ──
+    // ── The queue: max 5 rows, "Show all" reveals the rest ──
     const issues = _bkIssueQueueItems();
     const approvals = _bkApprovalQueueItems();
     const segI = document.getElementById('bk-ov-seg-issues');
@@ -8441,11 +8373,19 @@
     if (statusEl) statusEl.textContent = (!issues.length && !approvals.length)
       ? 'Everything is reconciled — nothing needs you right now.'
       : `${issues.length} need${issues.length === 1 ? 's' : ''} a decision · ${approvals.length} ready to post`;
+
     const items = _bkOverviewSeg === 'issues' ? issues : approvals;
-    listEl.innerHTML = items.length
-      ? items.map(_bkQueueRowHtml).join('')
+    const CAP = 5;
+    const expanded = _bkOvQueueExpanded[_bkOverviewSeg];
+    const shown = expanded ? items : items.slice(0, CAP);
+    const moreHtml = items.length > CAP
+      ? `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${items.length} ▾`}</span></div>`
+      : '';
+    listEl.innerHTML = shown.length
+      ? shown.map(_bkQueueRowHtml).join('') + moreHtml
       : `<div class="bk-queue-empty">${_bkOverviewSeg === 'issues' ? 'No issues — nothing needs a decision right now.' : 'Nothing waiting on your approval.'}</div>`;
   }
+
 
   // ── LOANS (session 205) ──
   // Loan statement reconciliation: ingest a pulled lender statement, review the
@@ -8562,8 +8502,7 @@
     _allPayrollDepartments = departments || [];
     _allPayrollEmployees = employees || [];
     renderPayrollSummary();
-    renderPayrollAttention();
-    renderPayrollApprovals();
+    _pkUpdateStaleHint();
     check668FixStatus();
     check171CatchupStatus();
     checkCaDupeStatus();
@@ -8582,12 +8521,6 @@
   // hours) plus an on-demand "Refresh Now" button. No Xero calls happen here
   // -- this is just rendering columns that are already sitting in the DB, so
   // opening the tab is always fast regardless of Xero's response time.
-  const PAYROLL_FLAG_LABELS = {
-    unmapped_employees: { badge: 'unmapped', color: 'red' },
-    insufficient_balance: { badge: 'waiting on cash', color: 'amber' },
-    xero_check_failed: { badge: 'check failed', color: 'gray' },
-  };
-
   function _payrollRelativeTime(ms) {
     const mins = Math.round((Date.now() - ms) / 60000);
     if (mins < 1) return 'just now';
@@ -8610,113 +8543,22 @@
     return (_allPayrollImports || []).filter(i => i.attention_flag).length + (_allPayrollNotices || []).length;
   }
 
-  function renderPayrollAttention() {
-    const card = document.getElementById('payroll-attention-card');
-    const el = document.getElementById('payroll-attention-list');
+  // Session 223 cont.: the payroll queue moved to the Overview. What remains
+  // page-side is a small staleness hint on the Payroll Reports card — if the
+  // background issue check (payroll-check-attention, every 2h) hasn't run in
+  // over ~4 hours, quiet-and-stale would look identical to all-clear.
+  function _pkUpdateStaleHint() {
     const staleEl = document.getElementById('payroll-attention-stale');
-    if (!el || !card) return;
-
-    const flagged = _allPayrollImports.filter(i => i.attention_flag);
-    const notices = _allPayrollNotices || [];
-    const totalCount = _pkFlaggedCount();
-
-    // Session 223: the red "N flagged" badge became the Issues segment count.
-    const segI = document.getElementById('payroll-seg-issues');
-    if (segI) segI.textContent = `Issues (${totalCount})`;
-
-    // If the most recent check is more than ~4 hours old (2x the scheduled
-    // cadence), say so -- a silently-stale check would defeat the point of
-    // "take me out of this": stale-and-quiet looks identical to all-clear.
-    const mostRecentCheck = _allPayrollImports.filter(i => i.attention_checked_at).map(i => new Date(i.attention_checked_at).getTime()).sort((a,b) => b-a)[0];
-    if (staleEl) {
-      const isStale = mostRecentCheck && (Date.now() - mostRecentCheck) > 4 * 60 * 60 * 1000;
-      staleEl.style.display = isStale ? '' : 'none';
-    }
-
-    if (!totalCount) {
-      const checkedText = mostRecentCheck ? _payrollRelativeTime(mostRecentCheck) : 'automatically every 2 hours';
-      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">Nothing needs attention right now — checked ${checkedText}.</div>`;
-      return;
-    }
-
-    const item = (imp) => {
-      const meta = PAYROLL_FLAG_LABELS[imp.attention_flag] || { badge: imp.attention_flag, color: 'gray' };
-      return `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;cursor:pointer" onclick="openPayrollReviewModal('${imp.id}')">
-        <span class="badge badge-${meta.color}" style="margin-top:2px">${esc(meta.badge)}</span>
-        <div style="flex:1;min-width:0">
-          <div class="td-name" style="margin-bottom:2px">${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}</div>
-          <div style="font-size:12.5px;color:var(--gray-600)">${esc(imp.attention_summary || '')}</div>
-          ${imp.attention_detail ? `<details style="margin-top:6px" onclick="event.stopPropagation()"><summary style="font-size:11.5px;color:var(--gray-400);cursor:pointer">Full detail</summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(imp.attention_detail)}</div></details>` : ''}
-        </div>
-      </div>`;
-    };
-
-    // Standing notices (not tied to a pay period, so not clickable through to
-    // a review modal) render above the per-period items.
-    const noticeItem = (nt) => `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
-        <span class="badge badge-${nt.severity === 'error' ? 'red' : 'amber'}" style="margin-top:2px">ask your CPA</span>
-        <div style="flex:1;min-width:0">
-          <div class="td-name" style="margin-bottom:2px">${esc(nt.title || '')}</div>
-          ${nt.detail ? `<details style="margin-top:6px"><summary style="font-size:11.5px;color:var(--gray-400);cursor:pointer">Full detail</summary><div style="font-size:12px;color:var(--gray-600);margin-top:6px;white-space:pre-wrap">${esc(nt.detail)}</div></details>` : ''}
-        </div>
-      </div>`;
-
-    // Session 219: reverted the grey-wrapper-behind-boxed-cards treatment --
-    // see renderLoansAttention's comment. Flat rows, hairline divider, same
-    // as this list looked before this pass.
-    el.innerHTML = notices.map(noticeItem).join('') + flagged.map(item).join('');
-  }
-
-  // Payroll's Issues/Approvals segmented toggle (session 223 — same pattern
-  // as the Overview and Loans queues).
-  let _payrollSeg = 'issues';
-  function _bkSetPayrollSeg(seg) {
-    _payrollSeg = seg;
-    const issuesEl = document.getElementById('payroll-attention-list');
-    const apprEl = document.getElementById('payroll-approvals-list');
-    if (issuesEl) issuesEl.style.display = seg === 'issues' ? '' : 'none';
-    if (apprEl) apprEl.style.display = seg === 'approvals' ? '' : 'none';
-    const segI = document.getElementById('payroll-seg-issues');
-    const segA = document.getElementById('payroll-seg-approvals');
-    if (segI) segI.classList.toggle('active', seg === 'issues');
-    if (segA) segA.classList.toggle('active', seg === 'approvals');
-  }
-
-  // APPROVALS for payroll: parsed (waiting on your review) + reviewed (waiting
-  // on the Xero post) pay periods — nothing is wrong, one click into the same
-  // review modal used everywhere else. Counts read the same _allPayrollImports
-  // statuses the summary strip reads.
-  function renderPayrollApprovals() {
-    const el = document.getElementById('payroll-approvals-list');
-    if (!el) return;
-    const pending = (_allPayrollImports || []).filter(i => i.status === 'parsed' || i.status === 'reviewed');
-    const segA = document.getElementById('payroll-seg-approvals');
-    if (segA) segA.textContent = `Approvals (${pending.length})`;
-    if (!pending.length) {
-      el.innerHTML = `<div class="bk-queue-empty">Nothing waiting on your approval.</div>`;
-      return;
-    }
-    el.innerHTML = pending.map(imp => {
-      const lines = (_allPayrollLines || []).filter(l => l.import_id === imp.id);
-      const wage = lines.reduce((s, l) => s + Number(l.wage_amount || 0), 0);
-      const emps = lines.filter(l => l.line_type !== 'reimbursement_only').length;
-      return _bkQueueRowHtml({
-        dot: 'green',
-        name: `${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}${imp.import_type === 'adjustment' ? ' (adjustment)' : ''}`,
-        reason: imp.status === 'parsed'
-          ? `${fmtMoney(wage)} across ${emps} employee${emps === 1 ? '' : 's'}, parsed — review the breakdown`
-          : `${fmtMoney(wage)} across ${emps} employee${emps === 1 ? '' : 's'}, reviewed — ready to post to Xero`,
-        action: imp.status === 'parsed' ? 'Review' : 'Approve',
-        onclick: `openPayrollReviewModal('${imp.id}')`,
-      });
-    }).join('');
+    if (!staleEl) return;
+    const mostRecentCheck = (_allPayrollImports || []).filter(i => i.attention_checked_at).map(i => new Date(i.attention_checked_at).getTime()).sort((a, b) => b - a)[0];
+    staleEl.style.display = (mostRecentCheck && (Date.now() - mostRecentCheck) > 4 * 60 * 60 * 1000) ? '' : 'none';
   }
 
   async function refreshPayrollAttention() {
     const btn = document.getElementById('payroll-attention-refresh-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
     const res = await _payrollFn('payroll-check-attention', {});
-    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh Now'; }
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Check for issues'; }
     if (!res.ok) { alert(res.data?.error || 'Could not run the check -- try again in a moment.'); return; }
     await loadPayroll();
   }
@@ -9740,7 +9582,6 @@
 
     renderLoansSummary();
     renderLoansAttention();
-    renderLoansPending();
     renderLoansTable();
     _populateLoanSelect();
     renderDebtSchedule();
@@ -10415,22 +10256,6 @@
   // edge function -- as of session 205 no flagged issue is safe to
   // one-click-resolve (each open case needs a human judgment call about
   // where misdirected money belongs), so pushLoanFix() below is a stub.
-  // Loans' Issues/Approvals segmented toggle (session 223 — replaces the old
-  // Action Needed/Resolved subtabs; Resolved is now a collapsible link at the
-  // bottom of the Issues list).
-  let _loansSeg = 'issues';
-  function _bkSetLoansSeg(seg) {
-    _loansSeg = seg;
-    const iEl = document.getElementById('loans-attention-list');
-    const aEl = document.getElementById('loans-pending-list');
-    if (iEl) iEl.style.display = seg === 'issues' ? '' : 'none';
-    if (aEl) aEl.style.display = seg === 'approvals' ? '' : 'none';
-    const sI = document.getElementById('loans-seg-issues');
-    const sA = document.getElementById('loans-seg-approvals');
-    if (sI) sI.classList.toggle('active', seg === 'issues');
-    if (sA) sA.classList.toggle('active', seg === 'approvals');
-  }
-
   function pushLoanFix(accountId) {
     alert('One-click fixes aren\'t wired up yet -- no currently flagged issue is safe to auto-resolve. This button is reserved for the next issue that turns out to be mechanically fixable, like the PayPal/Verdant lumped-payment fixes were.');
   }
@@ -10610,102 +10435,21 @@
       ${f?.proposed_action?.note ? `<div style="margin-top:4px;white-space:pre-wrap">${esc(f.proposed_action.note)}</div>` : ''}`;
   }
 
-  function _bkLoanAttentionCard(item) {
-    const dotColor = item.severityRank === 0 ? 'var(--red)' : 'var(--amber)';
-    const amountColor = item.severityRank === 0 ? 'var(--red)' : 'var(--amber)';
-    const amountHtml = item.amount != null
-      ? `<div style="font-size:14.5px;font-weight:700;color:${amountColor};white-space:nowrap">$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`
-      : '';
-
-    const detailPanelId = 'attn-detail-' + item.key;
-    const detailToggleHtml = `<button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();_bkToggleAttnDetail('${detailPanelId}', this)">Full detail</button>`;
-    const detailPanelHtml = `<div id="${detailPanelId}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12.5px;color:var(--gray-600);width:100%">${_bkAttnDetailHtml(item)}</div>`;
-
-    // Session 216, per David's review of the mockup: the trigger action on every card
-    // -- Mark Resolved, Review split -- is now the same solid blue button style as the
-    // mockup showed, matching Full detail's ghost style next to it. Previously "Mark
-    // Resolved" (the trigger, not "Confirm Resolved" inside the form) was a ghost
-    // button -- easy to overlook next to the resolved-history text below it.
-    let primaryActionHtml = '';
-    let cardClickAttr = '';
-    if (item.kind === 'split_mismatch') {
-      cardClickAttr = ` onclick="openLoanReviewModal('${item.split.id}')" style="cursor:pointer"`;
-      primaryActionHtml = `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanReviewModal('${item.split.id}')">Review split</button>`;
-    } else if (item.kind === 'loan_flag') {
-      const a = item.account;
-      primaryActionHtml =
-        (a.flag_fixable ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : '') +
-        `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button>
-         <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;width:100%">
-           <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
-           <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
-           <div style="display:flex;gap:8px;margin-top:8px">
-             <button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="confirmResolveLoanFlag('${a.id}')">Confirm Resolved</button>
-             <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
-           </div>
-         </div>`;
-    } else {
-      // recon_finding -- no manual resolve exists for these (they clear on the next
-      // check confirming the issue is gone, or stay pinned if a human wrote them up --
-      // see reconciliation-run's pinned_note mechanism). Nothing to invent here --
-      // EXCEPT session 218 cont.'s missing-prior-statement case: reconciliation-run
-      // v8+ now tells us exactly what's missing (proposed_action.kind ===
-      // 'upload_earlier_statement') and which loan it's for (finding.loan_account_id),
-      // so this one case gets a real one-click action instead of "wait for the
-      // engine" -- deep-links straight into the same upload modal Loans already uses,
-      // prefilled to the right loan.
-      const f = item.finding;
-      const uploadCta = (f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
-        ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="event.stopPropagation();openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button>`
-        : '';
-      primaryActionHtml = uploadCta || `<span style="font-size:11px;color:var(--gray-400)">Clears automatically once a check confirms it's fixed.</span>`;
-    }
-
-    return `<div class="loan-attn-card"${cardClickAttr} style="padding:14px 16px;border-bottom:1px solid var(--gray-100)">
-      <div style="display:flex;gap:10px;align-items:flex-start">
-        <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};margin-top:7px;flex-shrink:0"></span>
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline">
-            <div class="td-name">${esc(item.title)}</div>
-            ${amountHtml}
-          </div>
-          <div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(item.rawExplain || item.explain)}">${esc(item.explain)}</div>
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${detailToggleHtml}${primaryActionHtml}</div>
-          ${detailPanelHtml}
-        </div>
-      </div>
-    </div>`;
-  }
-
+  // Session 223 cont.: the Loans page hosts no queue anymore — open Issues and
+  // Approvals live on the Overview. This now fills the Reconciliation card's
+  // reference sections only: recently-resolved history and informational
+  // findings. (_bkLoanAttentionItems() itself is unchanged and feeds the
+  // Overview queue — one function per count, as always.)
   function renderLoansAttention() {
-    const card = document.getElementById('loans-attention-card');
-    const el = document.getElementById('loans-attention-list');
-    if (!el || !card) return;
+    const el = document.getElementById('loans-recon-extras');
+    if (!el) return;
 
-    const actionItems = _bkLoanAttentionItems();
-    const actionCount = actionItems.length;
-
-    // Session 223: the red "N open" badge became the Issues segment count.
-    const segI = document.getElementById('loans-seg-issues');
-    if (segI) segI.textContent = `Issues (${actionCount})`;
-
-    // Resolved tab: closed loan flags + recon findings the last check confirmed fixed
-    // (within the same window the old standalone Reconciliation section used) -- kept
-    // together for the same "one list, one place" reason as the open items above.
     const resolvedAccounts = (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status === 'resolved');
     const resolvedCutoff = Date.now() - RECON_RESOLVED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const resolvedFindings = (_reconFindings || []).filter(f => f.status === 'resolved' && f.resolved_at && new Date(f.resolved_at).getTime() >= resolvedCutoff);
     const resolvedCount = resolvedAccounts.length + resolvedFindings.length;
-
     const infoFindings = _bkReconInfoFindings();
-    // Session 223: the card never hides — it also hosts the Approvals segment
-    // and the Run Reconciliation Check button, and an honest empty state beats
-    // a section that silently vanishes.
 
-    // Resolved-tab cards keep their original, more detailed treatment (who resolved it,
-    // when, the resolution note, Reopen) for loan flags -- that flow is unchanged.
-    // Recently-resolved reconciliation findings get a simpler read-only card; there's no
-    // "who/when/reopen" for those, the engine just stopped finding the issue.
     const resolvedAccountCard = (a) => `
       <div class="loan-attn-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
         <div style="display:flex;gap:10px;align-items:flex-start">
@@ -10730,71 +10474,26 @@
           </div>
         </div>
       </div>`;
-
     const infoCard = (f) => `<div style="padding:10px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start">
       <span style="width:6px;height:6px;border-radius:50%;background:var(--gray-300);margin-top:6px;flex-shrink:0"></span>
       <div><div style="font-size:12.5px;font-weight:600;color:var(--gray-600)">${esc(f.title || 'Untitled finding')}</div>
       ${f.plain_english ? `<div style="font-size:12px;color:var(--gray-400);margin-top:2px">${esc(f.plain_english)}</div>` : ''}</div>
     </div>`;
 
-    // Session 223: no more Action Needed/Resolved subtabs — Issues are the
-    // body; Resolved collapses behind a quiet link below them (same pattern as
-    // the info findings), and Approvals live on the card's segmented toggle.
-    const body = actionCount
-      ? actionItems.map(_bkLoanAttentionCard).join('')
-      : `<div class="bk-queue-empty">No issues — nothing needs a decision right now.</div>`;
-
     const resolvedBlock = resolvedCount
-      ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-200)">
+      ? `<div style="padding-top:4px">
           <span onclick="toggleOverviewPanel('loans-resolved-wrap',this)" style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.03em;padding:0 16px;cursor:pointer;text-decoration:underline;display:inline-block;margin-bottom:6px">Recently resolved (${resolvedCount})</span>
           <div id="loans-resolved-wrap" style="display:none">${resolvedAccounts.map(resolvedAccountCard).join('') + resolvedFindings.map(resolvedFindingCard).join('')}</div>
         </div>`
       : '';
-
-    // Session 219: this used to always render open, which meant N repeated,
-    // near-identical "nothing to do" explanations (the same "ties once a
-    // later-dated correction takes effect" boilerplate for 3 different loans,
-    // etc.) permanently occupied real vertical space below the things that
-    // actually need a decision. Collapsed by default now, same
-    // toggleOverviewPanel pattern as "Past reconciliation reports" just below
-    // this card -- the content's still one click away if there's ever a
-    // reason to double-check why something that looks off isn't.
     const infoBlock = infoFindings.length
-      ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-200)">
+      ? `<div style="padding-top:8px">
           <span onclick="toggleOverviewPanel('recon-info-findings',this)" style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.03em;padding:0 16px;cursor:pointer;text-decoration:underline;display:inline-block;margin-bottom:6px">For information (${infoFindings.length}) — nothing to do</span>
           <div id="recon-info-findings" style="display:none">${infoFindings.map(infoCard).join('')}</div>
         </div>`
       : '';
 
-    // Session 219: tried a grey wrapper behind boxed white cards here first --
-    // David's screenshot called it out as boxes-within-boxes-within-boxes, and
-    // he was right. This list already lives inside a white .card, which
-    // already sits on the page's grey floor -- re-running that same
-    // white-on-grey trick one level down just stacked frames. Items are flat
-    // rows again, separated by a hairline divider and normal padding, same as
-    // this list looked before this pass started.
-    el.innerHTML = body + resolvedBlock + infoBlock;
-  }
-
-  function renderLoansPending() {
-    // Session 223: the Approvals segment of the Loans queue — REELOAD-style
-    // rows (green dot, one-line reason, "Approve →") instead of a table.
-    // Nothing here is wrong; each row is one click into the same review modal.
-    const el = document.getElementById('loans-pending-list');
-    if (!el) return;
-    const pending = _allLoanSplits.filter(s => s.status === 'pending_review');
-    const segA = document.getElementById('loans-seg-approvals');
-    if (segA) segA.textContent = `Approvals (${pending.length})`;
-    if (!pending.length) {
-      el.innerHTML = `<div class="bk-queue-empty">Nothing waiting on your approval.</div>`;
-      return;
-    }
-    el.innerHTML = pending.map(s => _bkQueueRowHtml({
-      dot: 'green',
-      name: `${s.loan_accounts?.xero_account_name || s.loan_accounts?.lender_account_number || '—'} — ${s.period_label}`,
-      reason: `Split computed: ${fmtMoney(Number(s.principal_amount))} principal / ${fmtMoney(Number(s.interest_amount))} interest = ${fmtMoney(Number(s.total_amount))}, ready to post`,
-      action: 'Approve', onclick: `openLoanReviewModal('${s.id}')`,
-    })).join('');
+    el.innerHTML = resolvedBlock + infoBlock;
   }
 
   // "Hide closed loans" (session 217, David's request off a screenshot of "All

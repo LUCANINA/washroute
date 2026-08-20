@@ -23,12 +23,14 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 //     a zero cash balance that's actually a parse failure is worse than no
 //     number at all.
 //
-// Calls made per run (3 total, well inside rate limits at 4 runs/day):
-//   GET /Reports/ProfitAndLoss   (current MTD + 11 prior full months, 1 call)
-//   GET /Reports/ProfitAndLoss   (prior month, same day-span, for a fair
-//                                 MTD-vs-MTD revenue delta)
-//   GET /Reports/BalanceSheet    (bank totals at current date + 8 prior
-//                                 month-ends)
+// Calls made per run (7 total, well inside rate limits at 4 runs/day):
+//   GET /Reports/ProfitAndLoss   (11 full months ending last month — series)
+//   GET /Reports/ProfitAndLoss   (this month to date — tile values)
+//   GET /Reports/ProfitAndLoss   (prior month, same day-span — fair MTD delta)
+//   GET /Reports/ProfitAndLoss   (Jan 1 → today — operating income YTD)
+//   GET /Reports/ProfitAndLoss   (same span last year — fair YTD delta)
+//   GET /Reports/BalanceSheet    (bank totals today + 8 prior months)
+//   GET /Reports/BalanceSheet    (last month-end — anchors "cash flow this month")
 // ────────────────────────────────────────────────────────────────────────
 
 const cors = {
@@ -89,6 +91,26 @@ function reportRowValues(report: any, labelRe: RegExp): number[] | null {
   })
 }
 
+// Operating income = (Gross Profit, or Total Income − Total Cost of Sales)
+// − Total Operating Expenses. Deliberately NOT net profit: it excludes the
+// "Other Income / Other Expenses" sections (grants, interest, one-offs) that
+// make net income jump around. Returns one value per period column (newest
+// first), or null if the report is missing the rows we need.
+function operatingIncomeValues(report: any): number[] | null {
+  // Prefer Xero's own "Operating Income / (Loss)" row when the layout has one
+  // (this org's does — verified live 2026-08-20, and it equals the computed
+  // gross-profit-minus-opex figure to the cent, $812,221.52 YTD).
+  const explicit = reportRowValues(report, /^operating (income|profit)\b/i)
+  if (explicit) return explicit
+  const income = reportRowValues(report, /^total (income|revenue)$/i)
+  const gross = reportRowValues(report, /^gross profit$/i)
+  const cos = reportRowValues(report, /^total cost of (sales|goods sold)$/i)
+  const opex = reportRowValues(report, /^total operating expenses$/i)
+  const base = gross || (income ? income.map((v, i) => v - (cos ? (cos[i] || 0) : 0)) : null)
+  if (!base || !opex) return null
+  return base.map((v, i) => v - (opex[i] || 0))
+}
+
 async function xeroReport(headers: Record<string, string>, path: string): Promise<any> {
   const res = await fetch(`https://api.xero.com/api.xro/2.0/${path}`, { headers })
   if (!res.ok) throw new Error(`Xero ${path.split('?')[0]} failed: ${res.status} ${await res.text()}`)
@@ -135,6 +157,23 @@ Deno.serve(async (req: Request) => {
 
     const { headers } = await getXeroAuth()
     const today = todayPacific()
+
+    // Read-only diagnostic: return the YTD P&L's actual row labels and values
+    // instead of storing a snapshot. Used to verify which sections exist in
+    // this org's layout before trusting a parse (rule 4 in the header).
+    if (body?.debug_rows === true) {
+      const yearStartD = today.slice(0, 4) + '-01-01'
+      const rep = await xeroReport(headers,
+        `Reports/ProfitAndLoss?fromDate=${yearStartD}&toDate=${today}&standardLayout=true`)
+      const rows = flattenRows(rep?.Rows).map(r => ({
+        label: String(r.Cells?.[0]?.Value || '').trim(),
+        value: r.Cells?.[1]?.Value ?? null,
+        type: r.RowType,
+      }))
+      const sections = (rep?.Rows || []).filter((r: XeroRow) => r.RowType === 'Section').map((r: XeroRow) => r.Title).filter(Boolean)
+      return json({ ok: true, sections, rows })
+    }
+
     const monthStart = firstOfMonth(today)
     const priorMonthStart = firstOfMonth(addMonths(monthStart, -1))
     // last day of the prior month = day before the 1st of this month
@@ -158,11 +197,24 @@ Deno.serve(async (req: Request) => {
     //    MTD-vs-MTD rather than partial-month-vs-full-month (which always lies).
     const plPrior = await xeroReport(headers,
       `Reports/ProfitAndLoss?fromDate=${priorMonthStart}&toDate=${priorSameDay}&standardLayout=true`)
-    // 4) Balance Sheet: bank totals today + the same day-of-month in 8 prior
+    // 4) P&L: Jan 1 → today, one column — operating income year-to-date.
+    const yearStart = today.slice(0, 4) + '-01-01'
+    const plYtd = await xeroReport(headers,
+      `Reports/ProfitAndLoss?fromDate=${yearStart}&toDate=${today}&standardLayout=true`)
+    // 5) P&L: the SAME Jan-1-to-this-date span one year earlier, so the YTD
+    //    delta compares like with like.
+    const priorYear = String(Number(today.slice(0, 4)) - 1)
+    const plYtdPrior = await xeroReport(headers,
+      `Reports/ProfitAndLoss?fromDate=${priorYear}-01-01&toDate=${priorYear}${today.slice(4)}&standardLayout=true`)
+    // 6) Balance Sheet: bank totals today + the same day-of-month in 8 prior
     //    months (the mirror behavior gives 19th-to-19th deltas — a clean
     //    month-over-month cadence, just not month-ends; labelled honestly).
     const bs = await xeroReport(headers,
       `Reports/BalanceSheet?date=${today}&periods=8&timeframe=MONTH&standardLayout=true`)
+    // 7) Balance Sheet at last month-end, one column — the anchor that makes
+    //    "cash flow this month" a true calendar-month figure.
+    const bsPrevEnd = await xeroReport(headers,
+      `Reports/BalanceSheet?date=${priorMonthLast}&standardLayout=true`)
 
     // Parse — fail loudly if a row we depend on is missing (rule 4).
     const income = reportRowValues(pl, /^total (income|revenue)$/i)          // full months, newest first
@@ -172,26 +224,37 @@ Deno.serve(async (req: Request) => {
     const netProfitMtd = reportRowValues(plMtd, /^net (profit|income)$/i)
     if (!incomeMtd || !netProfitMtd) throw new Error('P&L MTD parse failed: Total Income / Net Profit row not found')
     const incomePrior = reportRowValues(plPrior, /^total (income|revenue)$/i)
+    const opIncomeSeries = operatingIncomeValues(pl)
+    const opIncomeYtd = operatingIncomeValues(plYtd)
+    const opIncomeYtdPrior = operatingIncomeValues(plYtdPrior)
+    if (!opIncomeSeries || !opIncomeYtd) throw new Error('P&L parse failed: Gross Profit / Total Operating Expenses rows not found for operating income')
+
     // Family Laundry's org uses the US-GAAP layout: the bank section is titled
     // "Cash and Cash Equivalents" (verified live 2026-08-19), not "Bank".
-    let bank = reportRowValues(bs, /^total (bank|cash and cash equivalents)$/i)
-    if (!bank) {
-      // Fallback: the SummaryRow of the bank/cash section, whatever its label.
-      const bankSection = (bs?.Rows || []).find((r: XeroRow) =>
-        r.RowType === 'Section' && /(bank|cash and cash equivalents)/i.test(String(r.Title || '')))
-      const sum = (bankSection?.Rows || []).find((r: XeroRow) => r.RowType === 'SummaryRow')
-      if (sum?.Cells) {
-        bank = sum.Cells.slice(1).map(c => {
-          const n = Number(String(c.Value ?? '').replace(/,/g, ''))
-          return Number.isFinite(n) ? n : 0
-        })
+    const bankValues = (report: any): number[] | null => {
+      let vals = reportRowValues(report, /^total (bank|cash and cash equivalents)$/i)
+      if (!vals) {
+        // Fallback: the SummaryRow of the bank/cash section, whatever its label.
+        const bankSection = (report?.Rows || []).find((r: XeroRow) =>
+          r.RowType === 'Section' && /(bank|cash and cash equivalents)/i.test(String(r.Title || '')))
+        const sum = (bankSection?.Rows || []).find((r: XeroRow) => r.RowType === 'SummaryRow')
+        if (sum?.Cells) {
+          vals = sum.Cells.slice(1).map(c => {
+            const n = Number(String(c.Value ?? '').replace(/,/g, ''))
+            return Number.isFinite(n) ? n : 0
+          })
+        }
       }
+      return vals
     }
-    if (!bank) {
+    const bank = bankValues(bs)
+    const bankPrevEnd = bankValues(bsPrevEnd)
+    if (!bank || !bankPrevEnd) {
       // Diagnostic: list what the report actually contains, so a layout change
       // is a 2-minute fix instead of a mystery.
-      const labels = flattenRows(bs?.Rows).map(r => String(r.Cells?.[0]?.Value || '').trim()).filter(Boolean).slice(0, 40)
-      const sections = (bs?.Rows || []).filter((r: XeroRow) => r.RowType === 'Section').map((r: XeroRow) => r.Title).filter(Boolean)
+      const src = !bank ? bs : bsPrevEnd
+      const labels = flattenRows(src?.Rows).map(r => String(r.Cells?.[0]?.Value || '').trim()).filter(Boolean).slice(0, 40)
+      const sections = (src?.Rows || []).filter((r: XeroRow) => r.RowType === 'Section').map((r: XeroRow) => r.Title).filter(Boolean)
       throw new Error(`Balance Sheet parse failed: Total Bank row not found. Sections: [${sections.join(' | ')}]. Rows: [${labels.join(' | ')}]`)
     }
 
@@ -230,6 +293,17 @@ Deno.serve(async (req: Request) => {
         last_month: netProfit[0] ?? null,        // last FULL month
         prior_month: netProfit[1] ?? null,
         series: netProfit,
+      },
+      operating_income: {
+        ytd: opIncomeYtd[0],                     // Jan 1 → today
+        prior_ytd: opIncomeYtdPrior ? opIncomeYtdPrior[0] : null,   // same span last year
+        series: opIncomeSeries,                  // full months, newest first
+      },
+      cashflow: {
+        mtd: cashNow - bankPrevEnd[0],           // true calendar month: vs last month-end
+        prev_month_end_cash: bankPrevEnd[0],
+        avg_3mo: avgFlow3mo,
+        series: bank.slice(0, -1).map((v, i) => v - bank[i + 1]),   // month-over-month deltas, newest first
       },
       avg_net_cash_flow_3mo: avgFlow3mo,
       runway_months: runwayMonths,

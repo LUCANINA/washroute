@@ -1038,6 +1038,66 @@ to "what is running".
 
 ## Session Log
 
+### Session 223 cont. (2026-08-20) — David's design feedback round: bare page, 4 KPIs, capped friendly queue, Loans/Payroll as pure info pages
+
+Same-day follow-up to the REELOAD port, all four asks + two mid-turn notes shipped:
+
+- **Grey page background removed** ("I need to see this bare") — the session-219
+  `#page-bookkeeping` grey-floor rule is gone; the page sits on the default shell
+  background like every other tab.
+- **KPIs reduced to 4** — Cash on hand, Revenue this month, **Operating income
+  this year** (explicitly NOT net income), **Cash flow this month**. Total debt /
+  net profit / runway tiles removed (debt lives on Loans, where it belongs).
+  `bookkeeping-kpis` **v7**: +3 report calls (P&L Jan-1→today, same span last
+  year for a fair YTD delta, Balance Sheet at last month-end so "cash flow this
+  month" is a true calendar-month figure). Operating income reads Xero's own
+  "Operating Income / (Loss)" row (this org's US-GAAP layout has one — verified
+  live; equals gross-profit-minus-opex to the cent, $812,221.52 YTD; the
+  computed version stays as fallback). New payload keys: `operating_income`,
+  `cashflow`. Also added a `debug_rows:true` mode returning the YTD P&L's row
+  labels — used to verify the layout before trusting the parse.
+- **Tiles restyled to the Orders-page pattern** (David's screenshot): separate
+  rounded white cards with 12px gaps, bold numbers, small sub-line — replaces
+  the hairline-joined REELOAD row. Applies to Overview KPIs and the Loans /
+  Payroll / Debt Schedule summary strips, all now BARE on the page (no wrapping
+  card), exactly like Orders.
+- **Issues capped at 5** with a "Show all N ▾" reveal (per-segment state).
+- **Friendly language**: rewrote both open loan flag summaries in the DB
+  (Funding Circle now reads "The balance is correct — just give your CPA a
+  heads up that some interest was recorded in the wrong months between April
+  and July."; E-Transit E4: "You paid an extra $5,000 on Aug 11 — waiting on
+  the next Ford Pro statement to see if any of it was interest."). The
+  reconciliation engine's own plain_english was reviewed and is already in this
+  register. **Copy convention, from David directly: issue summaries must read
+  like real-life language a 13-year-old could follow — no "timing misstatement
+  / re-journaling" accountant-speak.** Applies to anything written into
+  flag_summary, payroll notices, or engine templates going forward.
+- **Loans page is now a pure information repository** — the queue card is gone
+  (Issues/Approvals live only on the Overview). What remains: bare summary
+  tiles, a slim "Reconciliation" card (Run Reconciliation Check, last-run recap,
+  Recently resolved + For information collapsibles, past reports), All Loans,
+  Debt Schedule. **Payroll was given the same treatment for consistency**
+  (David asked only about Loans — flag if he wants Payroll's queue back):
+  bare tiles, Payroll Reports (now hosting the Off-cycle adjustment and
+  "↻ Check for issues" buttons + the staleness hint), employee mapping, dept
+  rules, self-hiding one-time correction cards.
+- **Overview issue rows are now self-sufficient** (required once Loans lost its
+  queue): a loan flag or reconciliation finding row expands IN PLACE with its
+  full detail plus the real actions — Mark Resolved form (same
+  toggleLoanResolveForm/confirmResolveLoanFlag flow and element ids), Push fix,
+  Upload statement. Split mismatches and payroll flags still open their review
+  modals. Removed as dead code: `_bkLoanAttentionCard`, `renderLoansPending`,
+  `renderPayrollAttention`, `renderPayrollApprovals`, the per-page seg toggles,
+  `PAYROLL_FLAG_LABELS`, `_loanBalanceAsOf` (debt tile gone). New:
+  `_pkUpdateStaleHint()` keeps the payroll check-staleness warning visible on
+  the Payroll Reports card.
+
+**Verified:** v7 live-tested (operating income YTD $812,221.52 vs $766,224.04
+last year; cash flow this month −$69,184, avg −$11,530/mo over 3 months); all
+pages + the expanding detail row rendered headlessly (screenshots in chat);
+both inline scripts pass node --check; no orphan references to removed ids.
+
+
 ### Session 223 — REELOAD design port: Issues/Approvals queue + real Xero KPIs on Overview (2026-08-20)
 
 David asked for a design review of the Bookkeeping page against the REELOAD design
