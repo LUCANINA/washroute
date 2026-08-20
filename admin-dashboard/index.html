@@ -8347,6 +8347,10 @@
         key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
         name: it.title, reason: it.explain || 'Needs a decision.',
         action: 'Review', onclick, detailHtml,
+        // Evidence next to the question (session 224 cont.): when a stored
+        // source document resolves for this item, 👁 opens it centered on the
+        // disputed figure.
+        peek: _bkAttnPeekSpec(it) ? `bkPeekAttn('${it.key}')` : null,
       });
     });
     (_allPayrollNotices || []).forEach(nt => items.push({
@@ -8374,6 +8378,7 @@
         name: `${name} — ${s.period_label}`,
         reason: `Split worked out: ${fmtMoney(Number(s.principal_amount))} went to the loan, ${fmtMoney(Number(s.interest_amount))} was interest — ready to post`,
         action: 'Approve', onclick: `openLoanReviewModal('${s.id}')`,
+        peek: _bkSplitPeekSpec(s) ? `bkPeekSplitDoc('${s.id}')` : null,
       });
     });
     (_allPayrollImports || []).filter(i => i.status === 'parsed' || i.status === 'reviewed').forEach(imp => {
@@ -8410,6 +8415,7 @@
           ${panelId ? `<div id="${panelId}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12.5px;color:var(--gray-600)" onclick="event.stopPropagation()">${it.detailHtml}</div>` : ''}
         </div>
       </div>
+      ${it.peek ? `<button class="btn btn-ghost" style="font-size:12px;padding:3px 8px;flex:none;margin-right:2px" title="Peek at the source document" onclick="event.stopPropagation();${it.peek}">👁</button>` : ''}
       ${it.action ? `<span class="bk-review-link">${esc(it.action)} →</span>` : ''}
     </div>`;
   }
@@ -9043,6 +9049,11 @@
   function _bkPeekWire() {
     if (_bkPeekWired) return;
     _bkPeekWired = true;
+    // Reparent the panel to <body>: it's authored inside the Overview pane for
+    // locality, but it now opens from the Loans page and from inside modals
+    // too — a display:none ancestor would hide a position:fixed child.
+    const panelEl = document.getElementById('bk-peek');
+    if (panelEl && panelEl.parentElement !== document.body) document.body.appendChild(panelEl);
     const { body, canvas } = _bkPeekEls();
     let dragging = null;
     body.addEventListener('mousedown', (e) => {
@@ -9068,27 +9079,46 @@
     });
   }
 
+  // Batch-row entry point: the file is already in memory on the item.
   async function bkPeekItem(id) {
     const item = _bkItem(id);
     if (!item || !item.base64) { showToast("That file isn't readable for a preview.", 'error'); return; }
+    const targets = [];
+    if (item.browserParsed) {
+      const n = Number(item.browserParsed.principalBalance);
+      if (isFinite(n)) targets.push(n.toLocaleString('en-US', { minimumFractionDigits: 2 }));
+      if (item.browserParsed.principalBalance != null) targets.push(String(item.browserParsed.principalBalance));
+    }
+    await _bkOpenPeekDoc({ title: item.name, filename: item.name, base64: item.base64, mimeType: item.file.type, targets });
+  }
+
+  const _BK_PEEK_IMG_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+
+  // The document-agnostic core: takes { title, filename, base64, mimeType,
+  // targets } and renders it — targets is a priority-ordered list of strings
+  // to hunt for in the page-1 text layer; the first one found gets the
+  // highlight and the opening center. Batch rows, Needs Attention cards and
+  // the split review modal all come through here.
+  async function _bkOpenPeekDoc(spec) {
     _bkPeekWire();
     const els = _bkPeekEls();
     if (!els.panel) return;
     // Tear down any previous peek first (also frees the previous pdf).
     bkClosePeek();
     els.panel.style.display = '';
-    els.title.textContent = item.name;
+    els.title.textContent = spec.title || spec.filename;
     els.canvas.style.display = 'none'; els.text.style.display = 'none';
     els.msg.style.display = ''; els.msg.textContent = 'Opening…';
     els.prev.style.display = 'none'; els.next.style.display = 'none'; els.pageinfo.textContent = '';
 
-    const isPdf = /\.pdf$/i.test(item.name);
-    const isImg = /\.(png|jpe?g|webp|gif)$/i.test(item.name);
-    _bkPeekState = { item, kind: isPdf ? 'pdf' : isImg ? 'img' : 'text', pdf: null, img: null, pageNum: 1, pageCount: 1, zoom: 2, minZoom: 0.3, hit: null, needCenter: true, panX: 0, panY: 0 };
+    const isPdf = /\.pdf$/i.test(spec.filename);
+    const ext = (spec.filename.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+    const isImg = !!_BK_PEEK_IMG_MIME[ext];
+    _bkPeekState = { kind: isPdf ? 'pdf' : isImg ? 'img' : 'text', pdf: null, img: null, pageNum: 1, pageCount: 1, zoom: 2, minZoom: 0.3, hit: null, needCenter: true, panX: 0, panY: 0 };
 
     try {
       if (_bkPeekState.kind === 'text') {
-        const lines = atob(item.base64).split(/\r?\n/).slice(0, 300);
+        const lines = atob(spec.base64).split(/\r?\n/).slice(0, 300);
         els.msg.style.display = 'none';
         els.text.style.display = '';
         els.text.textContent = lines.join('\n');
@@ -9098,7 +9128,7 @@
         const img = new Image();
         await new Promise((res, rej) => {
           img.onload = res; img.onerror = () => rej(new Error('image failed to decode'));
-          img.src = 'data:' + (item.file.type || 'image/png') + ';base64,' + item.base64;
+          img.src = 'data:' + (spec.mimeType || _BK_PEEK_IMG_MIME[ext] || 'image/png') + ';base64,' + spec.base64;
         });
         _bkPeekState.img = img;
         // A phone photo can be 4000px wide — open with the WHOLE image visible
@@ -9110,30 +9140,29 @@
         return;
       }
       if (!window.pdfjsLib) throw new Error('the PDF library did not load — check the network and refresh');
-      const bytes = Uint8Array.from(atob(item.base64), c => c.charCodeAt(0));
+      const bytes = Uint8Array.from(atob(spec.base64), c => c.charCodeAt(0));
       _bkPeekState.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
       _bkPeekState.pageCount = _bkPeekState.pdf.numPages;
       // Pick the opening zoom BEFORE the first paint. Default: fit the page
-      // width. If the parser read a balance off this statement, find that
-      // figure in the page-1 text layer now — at scale-1 coordinates, which
-      // scale linearly with zoom — so every render can highlight it, the first
-      // render opens magnified and centered on it, and − can still pull all
-      // the way out to the whole page.
+      // width. When a target figure is found in the page-1 text layer — at
+      // scale-1 coordinates, which scale linearly with zoom — every render can
+      // highlight it, the first render opens magnified and centered on it, and
+      // − can still pull all the way out to the whole page.
       const page1 = await _bkPeekState.pdf.getPage(1);
       const vp1 = page1.getViewport({ scale: 1 });
       const fitW = els.body.clientWidth / vp1.width;
       const fitPage = Math.min(fitW, els.body.clientHeight / vp1.height);
       _bkPeekState.zoom = fitW;
       _bkPeekState.minZoom = fitPage * 0.75;
-      if (item.browserParsed) {
-        const p = item.browserParsed;
-        const targets = [];
-        const n = Number(p.principalBalance);
-        if (isFinite(n)) targets.push(n.toLocaleString('en-US', { minimumFractionDigits: 2 }));
-        if (p.principalBalance != null) targets.push(String(p.principalBalance));
+      if (spec.targets && spec.targets.length) {
         try {
           const tc = await page1.getTextContent();
-          const hit = tc.items.find(it => it.str && targets.some(t => t && it.str.includes(t)));
+          let hit = null;
+          for (const t of spec.targets) {
+            if (!t) continue;
+            hit = tc.items.find(it => it.str && it.str.includes(t));
+            if (hit) break;
+          }
           if (hit) {
             const tx = pdfjsLib.Util.transform(vp1.transform, hit.transform);
             _bkPeekState.hit = { x: tx[4], y: tx[5], w: hit.width || 8, h: Math.hypot(tx[2], tx[3]) || 12 };
@@ -9149,6 +9178,107 @@
         els.msg.textContent = "Couldn't preview this file — " + ((e && e.message) || e) + '.';
       }
     }
+  }
+
+  // ── Peek for STORED documents (session 224 cont. — "peek everywhere") ──────
+  // The Needs Attention queue and the split review modal reference documents
+  // that live in the loan-statements bucket. Same magnifier, fed by a one-time
+  // download (cached per path for the session); targets carry the disputed
+  // figures so the view opens centered on the number in question.
+  const _bkPeekDocCache = new Map();
+
+  function _bkNumTargets(vals) {
+    const out = [];
+    for (const v of (vals || [])) {
+      const n = Number(v);
+      if (!isFinite(n) || n === 0) continue;
+      const pretty = n.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      if (!out.includes(pretty)) out.push(pretty);
+      const plain = n.toFixed(2);
+      if (!out.includes(plain)) out.push(plain);
+    }
+    return out;
+  }
+
+  function _bkTextAmounts(text) {
+    const out = []; const re = /\$([\d,]+\.\d{2})/g; let m;
+    while ((m = re.exec(text || '')) && out.length < 4) out.push(m[1].replace(/,/g, ''));
+    return out;
+  }
+
+  function _bkSplitPeekSpec(split) {
+    if (!split) return null;
+    const stmt = split.current_statement_id ? (_allLoanStatements || []).find(x => x.id === split.current_statement_id) : null;
+    let path = stmt && stmt.storage_path;
+    if (!path && split.amortization_row_id) {
+      const row = (_allLoanAmortRows || []).find(r => r.id === split.amortization_row_id);
+      path = row && row.loan_amortization_schedules && row.loan_amortization_schedules.storage_path;
+    }
+    if (!path) return null;
+    return {
+      path,
+      targets: _bkNumTargets([split.total_amount, split.principal_amount, split.interest_amount, stmt && stmt.principal_balance]),
+      title: (split.loan_accounts?.xero_account_name || 'Loan') + ' — ' + (split.period_label || 'source document'),
+    };
+  }
+
+  function _bkLoanLatestDocSpec(loanAccountId, extraAmounts) {
+    const stmt = (_allLoanStatements || [])
+      .filter(s => s.loan_account_id === loanAccountId && s.storage_path)
+      .sort((a, b) => (String(a.statement_date) < String(b.statement_date) ? 1 : -1))[0];
+    if (!stmt) return null;
+    const loan = (_allLoanAccounts || []).find(a => a.id === loanAccountId);
+    return {
+      path: stmt.storage_path,
+      targets: _bkNumTargets([...(extraAmounts || []), stmt.principal_balance]),
+      title: (loan ? _bkLoanLabel(loan) : 'Loan') + ' — statement ' + (stmt.statement_date || ''),
+    };
+  }
+
+  function _bkAttnPeekSpec(item) {
+    if (!item) return null;
+    if (item.kind === 'split_mismatch') return _bkSplitPeekSpec(item.split);
+    if (item.kind === 'loan_flag') return _bkLoanLatestDocSpec(item.account.id, _bkTextAmounts(item.rawExplain));
+    if (item.kind === 'recon_finding') {
+      const f = item.finding || {};
+      if (!f.loan_account_id) return null;
+      return _bkLoanLatestDocSpec(f.loan_account_id, _bkTextAmounts((f.title || '') + ' ' + (f.plain_english || '')));
+    }
+    return null;
+  }
+
+  async function bkPeekStored(path, title, targets) {
+    try {
+      let b64 = _bkPeekDocCache.get(path);
+      if (!b64) {
+        const { data, error } = await db.storage.from('loan-statements').download(path);
+        if (error || !data) throw new Error((error && error.message) || 'download failed');
+        b64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(String(r.result).split(',')[1]);
+          r.onerror = () => rej(new Error('could not read the downloaded file'));
+          r.readAsDataURL(data);
+        });
+        _bkPeekDocCache.set(path, b64);
+      }
+      const fname = path.split('/').pop() || 'document';
+      await _bkOpenPeekDoc({ title: title || fname, filename: fname, base64: b64, mimeType: null, targets: targets || [] });
+    } catch (e) {
+      showToast("Couldn't open that document — " + ((e && e.message) || e), 'error');
+    }
+  }
+
+  function bkPeekAttn(key) {
+    const item = _bkLoanAttentionItems().find(i => i.key === key);
+    const spec = _bkAttnPeekSpec(item);
+    if (!spec) { showToast('No stored document is linked to this item.', 'error'); return; }
+    bkPeekStored(spec.path, spec.title, spec.targets);
+  }
+
+  function bkPeekSplitDoc(splitId) {
+    const spec = _bkSplitPeekSpec((_allLoanSplits || []).find(s => s.id === splitId));
+    if (!spec) { showToast('No stored document is linked to this split.', 'error'); return; }
+    bkPeekStored(spec.path, spec.title, spec.targets);
   }
 
   function bkClosePeek() {
@@ -13423,7 +13553,7 @@ ${noActivityNote}
               ${dist ? `<div style="font-size:11.5px;margin-top:3px">${dist}</div>` : ''}
             </div>`;
           }).join('')}</div>` : ''}`;
-        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+        footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
         return;
       }
 
@@ -13484,6 +13614,7 @@ ${noActivityNote}
         ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
       `;
       footer.innerHTML = `
+        ${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}
         <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
         ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Post to Xero</button>`}
       `;
