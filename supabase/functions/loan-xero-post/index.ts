@@ -561,14 +561,14 @@ async function handleRequest(req: Request): Promise<Response> {
   try {
     if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'POST only' }), { status: 405 })
     const body = await req.json().catch(() => ({}))
-    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by, attach_only } = body
+    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by, attach_only, mark_already_in_xero } = body
     if (!loan_split_id) return new Response(JSON.stringify({ error: 'loan_split_id is required' }), { status: 400 })
 
     const role = await callerRole(req)
     if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403 })
     }
-    if ((confirm || revert || attach_only) && !['admin', 'manager'].includes(role)) {
+    if ((confirm || revert || attach_only || mark_already_in_xero) && !['admin', 'manager'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Your account has read-only access -- posting to or reverting from Xero requires an admin or manager.' }), { status: 403 })
     }
 
@@ -696,6 +696,15 @@ async function handleRequest(req: Request): Promise<Response> {
     if (split.status === 'posted' && !attach_only) {
       return new Response(JSON.stringify({ error: 'This split is already posted to Xero.', matched_xero_bank_transaction_id: split.matched_xero_bank_transaction_id, xero_manual_journal_id: split.xero_manual_journal_id }), { status: 409 })
     }
+    // Session 224: 'already_in_xero' is the resolved state of the exception flow --
+    // a human looked at the evidence and recorded that the month was handled
+    // directly in Xero. Nothing further to do, ever.
+    if (split.status === 'already_in_xero') {
+      return new Response(JSON.stringify({ reason: 'already_marked', error: 'This split is already marked as handled in Xero -- nothing left to do here.', review_notes: split.review_notes }), { status: 409 })
+    }
+    if (mark_already_in_xero && bank_transaction_id) {
+      return new Response(JSON.stringify({ error: 'mark_already_in_xero takes no bank_transaction_id -- the server re-verifies the already-handled state itself.' }), { status: 400 })
+    }
 
     const stmt = split.current_stmt
     const priorStmt = split.prior_stmt
@@ -750,6 +759,12 @@ async function handleRequest(req: Request): Promise<Response> {
     const { headers, accessToken: token, tenantId } = await getXeroAuth()
 
     // --- v19: no-bank-match paths (see the version note above for why these exist) ---
+
+    // Session 224: the two no-bank-match shapes below have nothing to be
+    // "already handled" against -- marking doesn't apply, Approve is the path.
+    if (mark_already_in_xero && (Math.abs(interest) < ZERO_TOLERANCE || Math.abs(totalAmt) < ZERO_TOLERANCE)) {
+      return new Response(JSON.stringify({ error: "This split doesn't involve a matched bank payment, so 'already handled in Xero' doesn't apply -- use Approve; it posts exactly what the review screen shows." }), { status: 409 })
+    }
 
     // Case 1: nothing to reallocate at all -- a payment that is 100% principal.
     if (Math.abs(interest) < ZERO_TOLERANCE) {
@@ -887,7 +902,7 @@ async function handleRequest(req: Request): Promise<Response> {
     let directSplitSkipped: Record<string, any> | null = null
     let identifiedBankTxnId: string | null = null
 
-    if (loanAcct.direct_split_enabled) {
+    if (loanAcct.direct_split_enabled && !mark_already_in_xero) {
       const periodLabelIsRealDate = /^\d{4}-\d{2}-\d{2}$/.test(String(split.period_label))
       const dsAnchor = periodLabelIsRealDate
         ? new Date(split.period_label)
@@ -1219,6 +1234,17 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
+    // Session 224: marking re-verifies server-side and only succeeds when the
+    // already-handled state still holds. An untouched matching payment means the
+    // month is NOT fully handled -- refuse rather than hide real work.
+    if (mark_already_in_xero && candidate) {
+      return new Response(JSON.stringify({
+        reason: 'not_actually_handled',
+        error: `Re-checking found an untouched ${String(candidate.DateString || '').slice(0, 10)} payment matching this amount -- this month is not already handled, so it stays in your approvals. Open the review to post it normally.`,
+        bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total },
+      }), { status: 409 })
+    }
+
     if (!candidate) {
       // Zero candidates is two very different situations. A statement dated within the
       // last few days whose payment simply has not synced from the bank feed yet is the
@@ -1247,20 +1273,61 @@ async function handleRequest(req: Request): Promise<Response> {
       const soleWorked = candidateAnnotationsSeed !== null
       const allHandled = soleWorked || (candidateAnnotations !== null && openCount === 0)
       if (allHandled) {
+        const handledEvidence = soleWorked
+          ? [{ id: candidateAnnotationsSeed!.id, already_worked: true, used_by_period: null, current_lines: withAccountNames(candidateAnnotationsSeed!.lines, acctMap) }]
+          : annotatedCandidates
+        // Session 224 round 2 (David: "if they do [count as actionable], make
+        // them go away"): a human who has SEEN this evidence may record the
+        // resolution. The mark writes NOTHING to Xero -- it only moves OUR
+        // loan_splits row out of the approvals queue, with the evidence kept
+        // in review_notes. Server-verified on this same request, never taken
+        // from the client.
+        if (mark_already_in_xero) {
+          const evidenceNote = handledEvidence
+            .map((c: any) => `${String(c.date || '').slice(0, 10) || c.id}: ${(c.current_lines || []).map((l: any) => `$${l.LineAmount} -> ${l.AccountCode}${l.AccountName ? ' ' + l.AccountName : ''}`).join(', ') || (c.used_by_period ? `attached to ${c.used_by_period} split` : 'already split')}`)
+            .join(' | ')
+          const { error: markErr } = await supa
+            .from('loan_splits')
+            .update({
+              status: 'already_in_xero',
+              review_notes: (split.review_notes ? split.review_notes + ' -- ' : '')
+                + `Marked as already handled in Xero ${new Date().toISOString().slice(0, 10)}${posted_by ? ' by ' + posted_by : ''}. No WashRoute write; evidence read from Xero: ${evidenceNote}`.slice(0, 1500),
+            })
+            .eq('id', loan_split_id)
+          if (markErr) {
+            return new Response(JSON.stringify({ error: `Could not update the split: ${markErr.message}` }), { status: 500 })
+          }
+          const flagAutoResolveMark = await maybeAutoResolveFlag(supa, loanAcct)
+          return new Response(JSON.stringify({
+            ok: true,
+            marked: 'already_in_xero',
+            wrote_nothing_to_xero: true,
+            evidence: handledEvidence,
+            flag_auto_resolve: flagAutoResolveMark,
+          }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+        }
         // Every payment matching this amount has already been split in Xero (or
         // is attached to another period's split). Per David: FLAG the exception
         // for the CPA to investigate in Xero — never redo an already-split
-        // transaction, and offer no write path here.
+        // transaction. The only write on offer is can_mark -- recording, in OUR
+        // records alone, that a human confirmed it.
         return new Response(JSON.stringify({
+          can_mark: true,
           reason: 'already_handled_in_xero',
           error: soleWorked
             ? `The one bank transaction matching this amount was already split in Xero — its coding already carries the interest breakdown. WashRoute will not touch it again.`
             : `Every bank transaction matching this amount ($${split.total_amount}) has already been handled — split in Xero or attached to another period's split. WashRoute will not redo any of them.`,
           anchor_date: isoDay(warnAnchor),
-          candidates: soleWorked
-            ? [{ id: candidateAnnotationsSeed!.id, already_worked: true, used_by_period: null, current_lines: withAccountNames(candidateAnnotationsSeed!.lines, acctMap) }]
-            : annotatedCandidates,
+          candidates: handledEvidence,
           cpa_note: 'This split stays pending as a flag. Ask whoever keeps the books in Xero to confirm the period was split correctly there; if it was, this row is just history catching up and can be left as-is.',
+        }), { status: 409 })
+      }
+      if (mark_already_in_xero) {
+        return new Response(JSON.stringify({
+          reason: 'not_actually_handled',
+          error: candidates.length > 1
+            ? 'Re-checking found untouched payments matching this amount -- this month is not already handled, so it stays in your approvals.'
+            : 'Re-checking found no matching payment in Xero at all -- there is nothing to mark as handled. If the payment is recent, it may simply not have synced yet.',
         }), { status: 409 })
       }
       const notFoundReason = candidates.length > 1

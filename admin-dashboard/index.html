@@ -12071,7 +12071,9 @@
       const splitBadge = isAutomaticLoan
         ? `<span class="badge badge-gray">auto via Stripe payouts</span>`
         : (lastSplit
-          ? (lastSplit.status === 'posted' ? `<span class="badge badge-green">posted ${esc(lastSplit.period_label)}</span>` : `<span class="badge badge-amber">${esc(lastSplit.status)} ${esc(lastSplit.period_label)}</span>`)
+          ? (lastSplit.status === 'posted' ? `<span class="badge badge-green">posted ${esc(lastSplit.period_label)}</span>`
+            : lastSplit.status === 'already_in_xero' ? `<span class="badge badge-gray">handled in Xero ${esc(lastSplit.period_label)}</span>`
+            : `<span class="badge badge-amber">${esc(lastSplit.status)} ${esc(lastSplit.period_label)}</span>`)
           : `<span class="badge badge-gray">no split yet</span>`);
       // History link is separate from the row's own click (which opens the upload
       // modal) so a CPA — or anyone — can pull up every posted split's actual
@@ -12193,6 +12195,7 @@
     } else {
       const statusBadge = (s) => {
         if (s.status === 'posted') return `<span class="badge badge-green">posted</span>`;
+        if (s.status === 'already_in_xero') return `<span class="badge badge-gray" title="A human confirmed this period was already split directly in Xero — WashRoute posted nothing.">handled in Xero</span>`;
         if (s.status === 'needs_attention') return `<span class="badge badge-red">needs attention</span>`;
         return `<span class="badge badge-amber">${esc(s.status)}</span>`;
       };
@@ -13788,7 +13791,12 @@ ${noActivityNote}
                 ${(c.current_lines || []).map(lineHtml).join('')}
               </div>`).join('')}</div>
             ${data.cpa_note ? `<div style="margin-top:8px;font-size:12.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">🏷 ${esc(data.cpa_note)}</div>` : ''}`;
-          footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+          // Session 224 round 2 (David: "if they do [count as actionable], make
+          // them go away"): once a human has SEEN this evidence they can record
+          // the resolution. The button writes NOTHING to Xero -- the server
+          // re-verifies the already-handled state and only moves OUR split row
+          // out of the approvals queue, keeping the evidence in its notes.
+          footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>${(canPost && data.can_mark) ? `<button class="btn btn-primary" id="loan-mark-handled-btn" onclick="markSplitAlreadyInXero('${splitId}')">✓ Handled in Xero — remove from approvals</button>` : ''}`;
           return;
         }
         body.innerHTML = `<div style="color:${waiting ? 'var(--gray-600)' : 'var(--red)'};font-size:13.5px">${
@@ -13906,6 +13914,29 @@ ${noActivityNote}
   }
   function closeLoanReviewModal() {
     document.getElementById('modal-loan-review').classList.remove('open');
+  }
+
+  // Session 224: resolve an already-handled-in-Xero exception. Writes nothing
+  // to Xero -- loan-xero-post re-verifies the state server-side and flips only
+  // our own loan_splits row to 'already_in_xero', which removes it from the
+  // approvals queue while keeping the Xero evidence in its notes.
+  async function markSplitAlreadyInXero(splitId) {
+    const btn = document.getElementById('loan-mark-handled-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      const { ok, data } = await _loanFn('loan-xero-post', {
+        loan_split_id: splitId,
+        mark_already_in_xero: true,
+        posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (!ok || data.error) throw new Error(data.error || 'Could not mark this split.');
+      closeLoanReviewModal();
+      showToast('Marked as handled in Xero — removed from approvals. Nothing was posted.', 'success');
+      loadLoans();
+    } catch (e) {
+      showToast(e.message || 'Could not mark this split.', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '✓ Handled in Xero — remove from approvals'; }
+    }
   }
 
   async function approveAndPostSplit(splitId, bankTransactionId) {
