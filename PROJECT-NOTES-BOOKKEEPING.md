@@ -1038,6 +1038,21 @@ to "what is running".
 
 ## Session Log
 
+### Session 223 cont. 5 (2026-08-20) — All Loans alignment + Split History modal
+
+- **All Loans columns now line up across every lender group.** Each group is
+  its own <table> and auto layout let the columns land at a different x per
+  group. Fix: `table-layout:fixed` + one identical `<colgroup>`
+  (22/12/9/13/32/12%, min-width 860px inside the existing overflow-x wrapper)
+  in every group table. Verified headlessly: the 2nd column renders at the
+  same x across all groups.
+- **Split History modal widened** 760px → 1100px (max-width 95vw) — its 9
+  columns plus per-row review notes were clipping off the right edge.
+- **All Loans footer explainer removed** (David: "remove") — the
+  click-a-lender/click-a-row/History usage paragraph and the "N closed loans
+  hidden" tail are gone.
+
+
 ### Session 223 cont. 4 (2026-08-20) — bleed fix, EIDL stale warning resolved, Debt Schedule polish
 
 Four fixes from David's review:

@@ -3892,7 +3892,10 @@
 
         <!-- Loan Split History modal (session 205) -->
         <div class="modal-overlay" id="modal-loan-history">
-          <div class="modal" style="width:760px">
+          <!-- Session 223 cont. 5: widened — 9 columns plus per-row notes were
+               clipping at 760px (David's screenshot: the note and File column
+               ran off the edge). -->
+          <div class="modal" style="width:1100px;max-width:95vw">
             <div class="modal-header">
               <div class="modal-title" id="loan-history-title">Split History</div>
               <button class="modal-close" onclick="closeLoanHistoryModal()">
@@ -10732,15 +10735,19 @@
             <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:18px;transition:transform .2s">▸</span></span>
           </span>
         </div>
-        <div id="${bodyId}" style="display:none;overflow-x:auto"><table>
+        <div id="${bodyId}" style="display:none;overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:860px">
+          <!-- Session 223 cont. 5: one shared column grid across every lender
+               group — each group is its own table, and auto layout let the
+               columns drift a different amount per group (David: "Ford align
+               all columns"). Fixed layout + identical colgroup pins them. -->
+          <colgroup><col style="width:22%"><col style="width:12%"><col style="width:9%"><col style="width:13%"><col style="width:32%"><col style="width:12%"></colgroup>
           <thead><tr><th>Xero account</th><th>Account #</th><th>Status</th><th>Last statement</th><th>Last split</th><th style="text-align:right">Outstanding</th></tr></thead>
           <tbody>${loans.map(loanRow).join('')}</tbody></table>
         </div>
       </div>`;
     }).join('');
 
-    el.innerHTML = groups +
-      `<div style="padding:10px 16px;font-size:11.5px;color:var(--gray-400)">Click a lender to see its loans, click a loan row to add its next period (statement upload, or a one-click generate for schedule-only loans) — or "History" to see every split posted for that loan. Outstanding balances reflect the last pulled statement or schedule row, not a live Xero pull.${hideClosed && closedCount ? ` ${closedCount} closed loan${closedCount !== 1 ? 's' : ''} hidden.` : ''}</div>`;
+    el.innerHTML = groups;
   }
 
   // Full posted (and pending/flagged) split history for one loan — lets the CPA
