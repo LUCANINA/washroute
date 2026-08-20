@@ -11894,7 +11894,24 @@
       // row has a storage_path and the winner doesn't — peekable beats not.
       if (!byMonth[ym] || (!byMonth[ym].storage_path && s.storage_path)) byMonth[ym] = s;
     }
-    return { byMonth, firstYm: Object.keys(byMonth).sort()[0], curYm: today().slice(0, 7) };
+    // Cadence inference (round 3, per David: "only the Ford statements show
+    // as missing — they are not"). Ford Pro doesn't ISSUE monthly statements:
+    // those CSVs are on-demand payoff pulls from the portal, dated by pull
+    // day. Judging a lender like that against a monthly calendar marks
+    // perfectly healthy loans as full of holes. So a month with nothing on
+    // file only counts as MISSING when this loan's own record shows a monthly
+    // rhythm — three or more consecutive months on file at some point. Until
+    // then, non-filled months stay neutral. Self-correcting: the moment a
+    // third consecutive month lands, gap-flagging switches on by itself.
+    const keys = Object.keys(byMonth).sort();
+    let maxRun = 1, run = 1;
+    for (let i = 1; i < keys.length; i++) {
+      let [py, pm] = keys[i - 1].split('-').map(Number);
+      pm++; if (pm > 12) { pm = 1; py++; }
+      run = keys[i] === `${py}-${String(pm).padStart(2, '0')}` ? run + 1 : 1;
+      if (run > maxRun) maxRun = run;
+    }
+    return { byMonth, firstYm: keys[0], curYm: today().slice(0, 7), monthly: maxRun >= 3 };
   }
 
   function _bkCoverageStripHtml(a) {
@@ -11903,10 +11920,10 @@
     const base = 'display:inline-block;width:7px;height:11px;border-radius:2px;margin-right:2px;box-sizing:border-box';
     const cells = _bkCoverageMonths().map(ym => {
       if (d.byMonth[ym]) return `<span style="${base};background:var(--accent)"></span>`;
-      if (ym < d.firstYm || ym === d.curYm) return `<span style="${base};background:var(--gray-100)"></span>`;
+      if (!d.monthly || ym < d.firstYm || ym === d.curYm) return `<span style="${base};background:var(--gray-100)"></span>`;
       return `<span style="${base};background:#fff;border:1px solid var(--gray-300)"></span>`;
     }).join('');
-    return `<div onclick="event.stopPropagation();bkOpenCoverageCard(event,'${a.id}')" style="margin-top:4px;line-height:1;white-space:nowrap;cursor:pointer;display:inline-block;padding:2px 3px 1px;margin-left:-3px;border-radius:5px" onmouseenter="this.style.background='var(--gray-100)'" onmouseleave="this.style.background=''" title="Statement coverage, last 12 months — click for the full month-by-month view">${cells}</div>`;
+    return `<div onclick="event.stopPropagation();bkOpenCoverageCard(event,'${a.id}')" style="margin-top:4px;line-height:1;white-space:nowrap;cursor:pointer;display:inline-block;padding:2px 3px 1px;margin-left:-3px;border-radius:5px" onmouseenter="this.style.background='var(--gray-100)'" onmouseleave="this.style.background=''" title="${d.monthly ? 'Statement coverage, last 12 months' : 'Statements on file by month, last 12 months'} — click for the full month-by-month view">${cells}</div>`;
   }
 
   // The full coverage card: one row per calendar year from the first statement
@@ -11950,10 +11967,15 @@
     // The current month doesn't count against coverage — its statement
     // usually hasn't been issued yet.
     const expected = months.filter(ym => ym !== d.curYm || d.byMonth[ym]);
-    const missing = expected.filter(ym => !d.byMonth[ym]);
-    const summary = missing.length === 0
-      ? `All ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)}. Complete.`
-      : `${onFile.length} of ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)} — missing ${missing.length <= 4 ? missing.map(_bkMonthLabel).join(', ') : missing.length + ' months'}.`;
+    // "Missing" is only a meaningful word for loans with a monthly statement
+    // rhythm — see the cadence note on _bkCoverageData.
+    const missing = d.monthly ? expected.filter(ym => !d.byMonth[ym]) : [];
+    const latestDate = onFile.map(ym => d.byMonth[ym].statement_date).sort().pop();
+    const summary = !d.monthly
+      ? `${onFile.length} statement${onFile.length !== 1 ? 's' : ''} on file, latest ${latestDate}. This loan's statements are pulled on demand rather than issued monthly, so no months are marked missing.`
+      : (missing.length === 0
+        ? `All ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)}. Complete.`
+        : `${onFile.length} of ${expected.length} months on file since ${_bkMonthLabel(d.firstYm)} — missing ${missing.length <= 4 ? missing.map(_bkMonthLabel).join(', ') : missing.length + ' months'}.`);
     const years = [...new Set(months.map(ym => ym.slice(0, 4)))];
     const cell = 'display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;margin:0 3px 3px 0;font-size:10px;font-weight:600;box-sizing:border-box';
     const rows = years.map(yr => {
@@ -11966,6 +11988,7 @@
           return `<span style="${cell};background:var(--accent);color:#fff${s.storage_path ? ';cursor:pointer' : ''}"${peek} title="${esc(_bkMonthLabel(ym))} — statement ${esc(s.statement_date)} on file${s.storage_path ? '. Click to take a look.' : ''}">${mn[0]}</span>`;
         }
         if (ym === d.curYm) return `<span style="${cell};background:var(--gray-100);color:var(--gray-400)" title="${esc(_bkMonthLabel(ym))} — no statement yet (statements usually arrive after the month ends)">${mn[0]}</span>`;
+        if (!d.monthly) return `<span style="${cell};background:var(--gray-100);color:var(--gray-400)" title="${esc(_bkMonthLabel(ym))} — no statement pulled that month">${mn[0]}</span>`;
         return `<span style="${cell};background:#fff;border:1px solid var(--gray-300);color:var(--gray-500)" title="${esc(_bkMonthLabel(ym))} — no statement on file">${mn[0]}</span>`;
       }).join('');
       return `<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="width:34px;font-size:11px;color:var(--gray-500);text-align:right">${yr}</span><span style="white-space:nowrap">${cells}</span></div>`;
