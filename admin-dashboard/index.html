@@ -8678,7 +8678,13 @@
       if (!item.browserParsed) {
         const sched = _parseAmortizationSchedule(text);
         if (sched) item.parsedSchedule = sched;
-        else item.fingerprintLabel = _detectKnownLenderPdfLabel(text);
+        else {
+          // Ford Pro transaction-history export (session 225): the full payment
+          // record → history anchors only, never approvals.
+          const trx = _parseFordTrxHistoryPdf(text);
+          if (trx) { item.browserBulk = trx.periods; item.bulkMeta = trx; item.bulkAnchorsOnly = true; }
+          else item.fingerprintLabel = _detectKnownLenderPdfLabel(text);
+        }
       }
     } else if (isCsv && text) {
       item.browserBulk = _parsePayPalHistoryCsv(text);
@@ -8754,6 +8760,32 @@
       } else {
         item.status = 'manual';
         item.proposal = `${p.lenderLabel}, ${p.statementDate} — couldn't tell which loan it belongs to.`;
+      }
+    } else if (item.browserBulk && item.browserBulk.length && item.bulkAnchorsOnly) {
+      // Ford Pro transaction history (session 225): the loan's entire payment
+      // record. Files as history ANCHORS for the reconciliation walk — creates
+      // zero approvals — so the proposal says exactly that.
+      const meta = item.bulkMeta || {};
+      const loan = meta.accountSuffix
+        ? (_allLoanAccounts || []).find(a => String(a.lender || '').toLowerCase().includes('ford')
+            && String(a.lender_account_number || '').endsWith(meta.accountSuffix))
+        : null;
+      const first = item.browserBulk[0], last = item.browserBulk[item.browserBulk.length - 1];
+      item.kind = 'transaction_history'; item.label = 'Ford Pro transaction history'; item.confidence = 'high'; item.method = 'browser_parser';
+      if (loan) {
+        const onFile = new Set((_allLoanStatements || []).filter(s => s.loan_account_id === loan.id).map(s => s.statement_date));
+        const newPeriods = item.browserBulk.filter(per => !onFile.has(per.statementDate)).length;
+        item.loan = loan;
+        if (newPeriods === 0) {
+          item.status = 'duplicate'; item.dupOf = 'all_periods_imported';
+          item.proposal = `Ford transaction history — all ${item.browserBulk.length} payments (${first.statementDate} to ${last.statementDate}) are already on file for ${_bkLoanLabel(loan)}. Skipped.`;
+        } else {
+          item.status = 'ready';
+          item.proposal = `Ford transaction history — the loan's full payment record, ${item.browserBulk.length} payments (${first.statementDate} to ${last.statementDate}) → ${_bkLoanLabel(loan)}. Files as reconciliation history — nothing is added to your approvals.`;
+        }
+      } else {
+        item.status = 'manual';
+        item.proposal = `Ford transaction history (${item.browserBulk.length} payments) — couldn't tell which loan it belongs to.`;
       }
     } else if (item.browserBulk && item.browserBulk.length) {
       const loan = _bkSingleActiveLoanForLender('paypal');
@@ -9562,7 +9594,9 @@
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       return;
     }
-    // PayPal history: one ingest per period, same loop as _submitIntakeBulk.
+    // Transaction histories: one ingest per period, same loop as _submitIntakeBulk.
+    // Ford's (bulkAnchorsOnly) files as reconciliation anchors — the server skips
+    // split generation entirely, so a 45-payment history creates zero approvals.
     if (item.kind === 'transaction_history' && item.browserBulk && item.loan) {
       let failed = 0;
       for (const per of item.browserBulk) {
@@ -9576,6 +9610,8 @@
           csv_base64: item.base64,
           pulled_by: by,
           explicit_split: per.explicitSplit,
+          anchors_only: item.bulkAnchorsOnly || undefined,
+          balance_basis: item.bulkAnchorsOnly ? 'principal_only' : undefined,
         });
         if (!ok || data.error) failed++;
       }
@@ -10043,6 +10079,7 @@
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
   let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
   let _loanUploadParsedBulkPeriods = null; // array of {statementDate, principalBalance, explicitSplit, totalAmountDue} from a multi-period CSV (e.g. PayPal), if any
+  let _loanUploadBulkAnchorsOnly = false;  // session 225: true when the bulk periods are a Ford transaction history — file as reconciliation anchors, create no splits
   let _liRawFile = null;           // the raw File object -- the document path uploads it directly to storage
   let _liFileGeneration = 0;       // bumped per file pick; a slower earlier read must not repaint a newer one
   let _liKindTouchedByUser = false;// once the human sets 'What is this?', no auto-detection overwrites it
@@ -12939,6 +12976,7 @@ ${noActivityNote}
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedBulkPeriods = null;
+    _loanUploadBulkAnchorsOnly = false;
     _liParsedSchedule = null;
     _liRawFile = null;
     _liKindTouchedByUser = false;
@@ -13444,6 +13482,41 @@ ${noActivityNote}
     return null;
   }
 
+  // Ford Pro FinSimple "Transaction History" PDF (session 225, built from
+  // David's real 4140 export): the loan's ENTIRE payment record — one row per
+  // payment with the lender's own principal/interest/fees split and the
+  // principal balance after. Every row becomes a history ANCHOR
+  // (loan_statements, balance_basis principal_only) so the Find-the-difference
+  // engine can walk the loan from day one. Description-only rows (e.g.
+  // "Principal Payment", "Auto Debit Enrollment") carry no figures and are
+  // skipped by the row regex — their effects live in the next row's balance.
+  function _parseFordTrxHistoryPdf(text) {
+    if (!/Your\s+Activity\s+and\s+Transactions/i.test(text)) return null;
+    if (!/Transaction\s+Overview/i.test(text) || !/Transaction\s+Dates/i.test(text)) return null;
+    const acct = text.match(/Account\s+Number:\s*\*+(\d{3,6})/i);
+    const vin = text.match(/VIN:\s*\*+(\d{3,6})/i);
+    const rowRe = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})/g;
+    const num = s => parseFloat(s.replace(/,/g, ''));
+    const seen = new Set();
+    const periods = [];
+    let m;
+    while ((m = rowRe.exec(text))) {
+      const [, , txnDate, , , paymentReceived, principal, interest, , balance] = m;
+      const key = `${txnDate}|${balance}`;
+      if (seen.has(key)) continue; // page-boundary repeats, if any
+      seen.add(key);
+      periods.push({
+        statementDate: _mdyToIso(txnDate),
+        principalBalance: num(balance),
+        totalAmountDue: num(paymentReceived),
+        explicitSplit: { principal: num(principal), interest: num(interest) },
+      });
+    }
+    if (periods.length < 2) return null;
+    periods.sort((a, b) => a.statementDate.localeCompare(b.statementDate));
+    return { accountSuffix: acct ? acct[1] : null, vinSuffix: vin ? vin[1] : null, periods };
+  }
+
   // Extracts all text from a base64 PDF via pdf.js, page by page. Returns ''
   // (not throws) if pdf.js failed to load (e.g. CDN blocked) — callers treat
   // that the same as "couldn't auto-read", which is the existing, safe
@@ -13506,6 +13579,7 @@ ${noActivityNote}
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedBulkPeriods = null;
+    _loanUploadBulkAnchorsOnly = false;
     _liParsedSchedule = null;
     _liRawFile = file;
     document.getElementById('li-statement-date').value = '';
@@ -13538,6 +13612,20 @@ ${noActivityNote}
         const text = await _extractPdfText(base64);
         if (stale()) return;
         browserParsed = _parseKnownLenderPdf(text);
+        if (!browserParsed) {
+          // Ford Pro transaction-history export (session 225): a PDF that IS a
+          // full multi-period history — the one PDF shape the bulk path accepts.
+          const trx = _parseFordTrxHistoryPdf(text);
+          if (trx) {
+            browserBulk = trx.periods;
+            _loanUploadBulkAnchorsOnly = true;
+            if (trx.accountSuffix) {
+              const fordLoan = (_allLoanAccounts || []).find(a => String(a.lender || '').toLowerCase().includes('ford')
+                && String(a.lender_account_number || '').endsWith(trx.accountSuffix));
+              if (fordLoan) _liSelectLoanFromDocument(trx.accountSuffix, fordLoan.id);
+            }
+          }
+        }
       } else if (/\.csv$/i.test(file.name)) {
         const text = atob(base64);
         browserBulk = _parsePayPalHistoryCsv(text);
@@ -13579,13 +13667,15 @@ ${noActivityNote}
     // for loan auto-selection.
     const isPdfFile = /\.pdf$/i.test(file.name);
     const bulkOption = document.getElementById('li-kind-bulk-option');
-    if (bulkOption) bulkOption.disabled = isPdfFile;
+    // Session 225: a Ford transaction-history PDF DOES populate browserBulk, so
+    // the PDF lockout only applies when no multi-period read succeeded.
+    if (bulkOption) bulkOption.disabled = isPdfFile && !(browserBulk && browserBulk.length);
     // Carried into whichever branch below ends up setting `note.textContent`, so the
     // announcement survives instead of being silently overwritten by the very next
     // status message (auto-read confirmation, schedule summary, etc.) -- an override
     // that isn't visible anywhere isn't really an announcement.
     let bulkSwitchNote = null;
-    if (isPdfFile && kindSel.value === LI_BULK_KIND) {
+    if (isPdfFile && !(browserBulk && browserBulk.length) && kindSel.value === LI_BULK_KIND) {
       kindSel.value = LI_STATEMENT_KIND;
       _liKindTouchedByUser = false;
       bulkSwitchNote = '"Full transaction history" only applies to certain CSV exports (like PayPal\'s loan history) — switched to "Lender statement" since this file is a PDF.';
@@ -13601,7 +13691,9 @@ ${noActivityNote}
         `<div style="background:var(--gray-50);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--gray-700)">
            <strong>${browserBulk.length} periods</strong> found, ${esc(first.statementDate)} to ${esc(last.statementDate)}.<br>
            Ending principal balance <strong>$${Number(last.principalBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>.
-           Each period is imported separately and each gets its own split to review.
+           ${_loanUploadBulkAnchorsOnly
+             ? 'Files as reconciliation history — nothing is added to your approvals.'
+             : 'Each period is imported separately and each gets its own split to review.'}
          </div>`;
       note.style.color = 'var(--green)';
       note.textContent = `Auto-read: ${browserBulk.length} periods (${first.statementDate} – ${last.statementDate}).`;
@@ -13883,6 +13975,8 @@ ${noActivityNote}
           csv_base64: _loanUploadFile.base64,
           pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
           explicit_split: p.explicitSplit,
+          anchors_only: _loanUploadBulkAnchorsOnly || undefined,
+          balance_basis: _loanUploadBulkAnchorsOnly ? 'principal_only' : undefined,
         });
         if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
         succeeded++;
@@ -13897,7 +13991,9 @@ ${noActivityNote}
       errEl.style.display = '';
     } else {
       closeLoanIntakeModal();
-      showToast(`Imported ${succeeded} statements — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review.`, 'success');
+      showToast(_loanUploadBulkAnchorsOnly
+        ? `Imported ${succeeded} history anchors — reconciliation can now walk this loan from day one. Nothing was added to your approvals.`
+        : `Imported ${succeeded} statements — ${splitCount} split${splitCount === 1 ? '' : 's'} ready for review.`, 'success');
     }
     loadLoans();
   }
