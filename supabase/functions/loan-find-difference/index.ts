@@ -27,6 +27,26 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 //    bank transactions, POSTED manual journals; everything else is ignored.
 //  * Balance walks only run between statements whose balance_basis is
 //    confirmed principal_only — never compare two figures whose bases differ.
+//
+// v4 (session 226, 2026-08-21): CROSS-LOAN MISALLOCATION HUNT. David found the
+// real cause of 4140's biggest gap himself — a $5,000 payment coded to the
+// WRONG Ford loan account (E4-9744 instead of 4140) — and asked that the tool
+// surface exactly this kind of candidate: "I noticed a $5,000 payment to X
+// loan on this day. Could this have been a mistake?" The mechanics: every
+// loan's payments leave the same checking account, so the window pull ALREADY
+// contains every sibling loan's entries — they were simply filtered out before
+// the walk. v4 keeps the unfiltered pull and, for each divergent span, lists
+// live entries coded to OTHER loan accounts inside that span, scored by how
+// well each explains the gap: equals it exactly; equals it once a known lender
+// amount (e.g. the span's un-split interest portion) is set aside — the exact
+// 4140 shape, $5,000 = $4,889.97 gap + $110.03 interest; or merely sits inside
+// the span (worth a look). The mirror case is covered too: when Xero moved
+// MORE than the lender (excess_reduction), this loan's own matching-size
+// payments are flagged as possibly belonging to a different loan. Product-
+// managed stages (Reference WR-STAGE …) are excluded — they are never
+// mistakes. Pure read-side: candidates are QUESTIONS for the bookkeeper, never
+// proposals; the CPA recodes the transaction in Xero, re-runs the analysis,
+// and the span ties or shrinks.
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -183,6 +203,83 @@ function proposalToken(loanId: string, period: string, amount: number, direction
   return h.toString(16)
 }
 
+// v4: the "could this have been a mistake?" list for one divergent span.
+// Pure classification over data already pulled — no Xero calls, no writes.
+// Candidates are QUESTIONS for the bookkeeper, deliberately not proposals.
+function crossLoanCandidatesFor(
+  p: any,
+  siblingPool: any[],
+  ownEntries: any[],
+  otherLoanByCode: Map<string, any>,
+  matchKnown: (gap: number) => { amount: number, what: string } | null,
+  acctMap: Record<string, string>,
+  loanName: string,
+): any[] {
+  const gap = Math.abs(p.diff)
+  const out: any[] = []
+  const rank: Record<string, number> = { explains_exactly: 0, explains_with_known: 1, in_span: 2 }
+
+  if (p.diff > 0) {
+    // Xero moved LESS than the lender: a reduction the lender saw is missing
+    // here — it may be coded to a different loan's account.
+    for (const r of siblingPool) {
+      if (!(r.date > p.from && r.date <= p.to)) continue
+      const otherLines = r.lines.filter((l: any) => otherLoanByCode.has(String(l.c)))
+      if (!otherLines.length) continue
+      const la = otherLoanByCode.get(String(otherLines[0].c))
+      const amt = r.srcType === 'BankTransaction'
+        ? Math.abs(Number(r.total || 0))
+        : r2(Math.abs(otherLines.reduce((s: number, l: any) => s + Number(l.a || 0), 0)))
+      if (amt < TOL) continue
+      const residue = r2(Math.abs(amt - gap))
+      const known = residue < TOL ? null : matchKnown(residue)
+      const confidence = residue < TOL ? 'explains_exactly' : (known ? 'explains_with_known' : 'in_span')
+      const what = r.srcType === 'BankTransaction' ? 'payment' : 'journal'
+      const target = la?.xero_account_name || la?.lender || `account ${otherLines[0].c}`
+      const question = confidence === 'explains_exactly'
+        ? `A ${money(amt)} ${what} on ${r.date} is coded to ${target} — and it equals this span's gap exactly. Could it have been meant for ${loanName}? If so, recode it in Xero and run this again: this span should tie.`
+        : confidence === 'explains_with_known'
+          ? `A ${money(amt)} ${what} on ${r.date} is coded to ${target}. It explains this span's gap once ${known!.what} (${money(residue)}) is set aside. Could it have been meant for ${loanName}? If so, recode it in Xero and run this again — this span should shrink to ${money(residue)} or tie.`
+          : `A ${money(amt)} ${what} on ${r.date} to ${target} sits inside this divergent span — worth confirming it went to the right loan.`
+      out.push({
+        direction: 'maybe_belongs_here', confidence,
+        src_type: r.srcType, id: r.srcId, date: r.date, amount: amt,
+        contact: r.contact || null, ref: r.ref || null, narration: r.narration || null,
+        reconciled: r.reconciled ?? null, already_worked: alreadyWorked(r),
+        coded_to: { account_code: otherLines[0].c ?? null, account_name: acctMap[otherLines[0].c] ?? null, loan_name: la?.xero_account_name || la?.lender || null },
+        explains_after: known ? { what: known.what, amount: r2(residue) } : null,
+        question,
+      })
+    }
+  } else {
+    // Xero moved MORE than the lender: one of THIS loan's entries may belong to
+    // a different loan. Only strong matches are listed — naming every ordinary
+    // payment on the loan's own account would be noise, not help.
+    for (const r of ownEntries) {
+      if (!(r.date > p.from && r.date <= p.to)) continue
+      if (r.srcType !== 'BankTransaction') continue
+      if (r.ref && String(r.ref).startsWith('WR-STAGE')) continue
+      const amt = Math.abs(Number(r.total || 0))
+      if (amt < TOL) continue
+      const residue = r2(Math.abs(amt - gap))
+      const known = residue < TOL ? null : matchKnown(residue)
+      if (residue >= TOL && !known) continue
+      const confidence = residue < TOL ? 'explains_exactly' : 'explains_with_known'
+      out.push({
+        direction: 'maybe_belongs_elsewhere', confidence,
+        src_type: r.srcType, id: r.srcId, date: r.date, amount: amt,
+        contact: r.contact || null, ref: r.ref || null, narration: null,
+        reconciled: r.reconciled ?? null, already_worked: alreadyWorked(r),
+        coded_to: null,
+        explains_after: known ? { what: known.what, amount: r2(residue) } : null,
+        question: `The ${money(amt)} payment on ${r.date}${r.contact ? ` to ${r.contact}` : ''} is coded to this loan, but this span shows Xero reducing the loan by MORE than the lender saw${residue < TOL ? ' — by exactly this amount' : ''}. Could this payment belong to a different loan? Check the payee and the lender account it was actually paid against.`,
+      })
+    }
+  }
+  out.sort((a, b) => (rank[a.confidence] - rank[b.confidence]) || a.date.localeCompare(b.date))
+  return out.slice(0, 5)
+}
+
 function entryView(rec: any, code: string, acctMap: Record<string, string>) {
   return {
     src_type: rec.srcType, id: rec.srcId, date: rec.date, status: rec.status,
@@ -214,6 +311,13 @@ async function handle(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Loan not found, or it has no Xero account code.' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   const code = loan.xero_account_code
+
+  // v4: every other loan's account code, for the cross-loan misallocation hunt.
+  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, lender, lender_account_number, status')
+  const otherLoanByCode = new Map<string, any>()
+  for (const la of allLoans || []) {
+    if (la.id !== loan.id && la.xero_account_code) otherLoanByCode.set(String(la.xero_account_code), la)
+  }
   const today = new Date().toISOString().slice(0, 10)
 
   const [{ data: statements }, { data: splits }, { data: findings }] = await Promise.all([
@@ -269,13 +373,25 @@ async function handle(req: Request): Promise<Response> {
 
   const winFrom = usable[0].statement_date
   const winTo = usable[usable.length - 1].statement_date
+  // v4: keep the WHOLE pull. `entries` (this loan's own history) drives the walk
+  // exactly as before; `siblingPool` (live entries coded to OTHER loan accounts,
+  // excluding product-managed WR-STAGE transactions) feeds the misallocation
+  // hunt. Every loan pays from the same checking account, so no extra Xero
+  // calls are needed — the candidates were in the pull all along.
   let entries: any[]
+  let siblingPool: any[]
   try {
-    entries = (await pullWindow(winFrom, winTo, headers, loan.xero_bank_account_id ?? null)).filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code)))
+    const pulled = await pullWindow(winFrom, winTo, headers, loan.xero_bank_account_id ?? null)
+    entries = pulled.filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code)))
+    siblingPool = pulled.filter(r => isLive(r)
+      && !r.lines.some((l: any) => String(l.c) === String(code))
+      && r.lines.some((l: any) => otherLoanByCode.has(String(l.c)))
+      && !(r.ref && String(r.ref).startsWith('WR-STAGE')))
   } catch (e) {
     return new Response(JSON.stringify({ error: String((e as Error).message || e) }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   entries.sort((a, b) => a.date.localeCompare(b.date))
+  siblingPool.sort((a, b) => a.date.localeCompare(b.date))
 
   // ── The walk: between each pair of consecutive statements, does Xero's net
   // movement on the loan account equal the lender's own balance change? ──
@@ -295,6 +411,9 @@ async function handle(req: Request): Promise<Response> {
     }
     if (divergent) {
       period.entries = inWin.slice(0, 12).map(r => entryView(r, code, acctMap))
+      // v4: the misallocation hunt — entries on OTHER loans inside this span
+      // (or, mirrored, this loan's own entries that may belong elsewhere).
+      period.cross_loan_candidates = crossLoanCandidatesFor(period, siblingPool, entries, otherLoanByCode, matchKnown, acctMap, loan.xero_account_name || 'this loan')
       // Does one single entry explain the whole gap? (Extra/duplicate entry.)
       const solo = inWin.find(r => Math.abs(r2(effect(r, code)) - diff) < TOL)
       if (solo) {
@@ -407,6 +526,11 @@ async function handle(req: Request): Promise<Response> {
     bits.push(`${money(Math.abs(residual))} of the headline difference is OLDER than the earliest reliable statement on file (${winFrom}) — the walk can't see before that date.${k ? ` That amount equals ${k.what} to the cent, which strongly suggests exactly one payment is recorded differently in Xero than the lender applied it, sometime before ${winFrom}.` : ''} ${truncated ? `(History before ${truncated} was also outside this walk's 18-month window.) ` : ''}Uploading earlier lender statements would let the walk pin down the exact month.`)
   }
   if (hunt && !hunt.error) bits.push(`Amount search: Xero holds ${hunt.live_on_this_loan + hunt.live_elsewhere} live transaction${(hunt.live_on_this_loan + hunt.live_elsewhere) === 1 ? '' : 's'} of exactly ${money(hunt.amount)} — ${hunt.live_on_this_loan} coded to this loan, ${hunt.live_elsewhere} coded elsewhere. The list below shows where each one's money went.`)
+  // v4: the cross-loan story, led by the strongest candidate.
+  const allCrossCands = periods.flatMap(p => p.cross_loan_candidates || [])
+  const strongCands = allCrossCands.filter(c => c.confidence !== 'in_span')
+  if (strongCands.length) bits.push(`Possible misallocation: ${strongCands[0].question}`)
+  else if (allCrossCands.length) bits.push(`${allCrossCands.length} entr${allCrossCands.length === 1 ? 'y' : 'ies'} on other loan accounts sit inside the divergent spans — the "Could this be the mistake?" list below names each one. If any is coded to the wrong loan, fix it in Xero and run this again: the affected span should tie or shrink.`)
   if (proposal) bits.push(`One span has a mechanically safe fix: the gap equals the ${proposal.period} interest portion exactly, so the correcting journal below closes it using only the lender's own figures. Nothing posts until you approve.`)
   if (cpaException) bits.push(cpaException.note)
   if (!proposal && divergentPeriods.length && !cpaException) bits.push(`No automatic fix is safe here — the evidence above names the exact span and entries, which is what your CPA needs to correct it in Xero.`)
