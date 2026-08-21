@@ -8381,10 +8381,17 @@
         // recon_finding — full explanation + the one real action when the
         // engine proposed one; otherwise it clears itself on a passing check.
         const f = it.finding;
-        detailHtml = _bkAttnDetailHtml(it) +
+        // Session 225: balance-vs-lender findings get the "Find the difference"
+        // engine — walks lender statements against Xero entries span by span,
+        // names the culprit, and (only in the mechanically safe shape) proposes
+        // the closing journal for approval. Renders inline below the card.
+        const fdiffHtml = (f?.check_key === 'balance_vs_lender' && f?.loan_account_id)
+          ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-btn-${f.id}" onclick="bkFindDifference('${f.id}','${f.loan_account_id}')">🔍 Find the difference</button></div><div id="fdiff-out-${f.id}"></div>`
+          : '';
+        detailHtml = _bkAttnDetailHtml(it) + fdiffHtml +
           ((f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
             ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button></div>`
-            : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">This clears on its own once a reconciliation check confirms it's fixed.</div>`);
+            : (fdiffHtml ? '' : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">This clears on its own once a reconciliation check confirms it's fixed.</div>`));
       }
       items.push({
         key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
@@ -9886,6 +9893,100 @@
     _bkDismissals.delete(key);
     showToast('Restored to the queue.', 'success');
     renderBookkeepingOverview();
+  }
+
+  // ── "Find the difference" (session 225) ───────────────────────────────────
+  // The detective for a balance-vs-lender red card. Calls loan-find-difference
+  // (analyze mode: read-only, writes nothing anywhere), then renders the walk,
+  // the evidence, and — only when the server found the one mechanically safe
+  // shape — an Approve button that posts the correcting journal. The server
+  // re-runs the whole analysis on approval and refuses if anything changed.
+  async function bkFindDifference(findingId, loanId) {
+    const btn = document.getElementById('fdiff-btn-' + findingId);
+    const out = document.getElementById('fdiff-out-' + findingId);
+    if (!out) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Analyzing — walking both histories… (can take a minute)'; }
+    const { ok, data } = await _loanFn('loan-find-difference', { loan_account_id: loanId });
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Find the difference'; }
+    if (!ok || data.error) {
+      out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">${esc(data.error || 'The analysis failed — try again in a moment.')}</div>`;
+      return;
+    }
+    out.innerHTML = _bkFdiffHtml(data, findingId, loanId);
+  }
+
+  function _bkFdiffHtml(data, findingId, loanId) {
+    const parts = [];
+    parts.push(`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;color:var(--gray-700);line-height:1.55">${esc(data.narrative || '')}</div>`);
+    if (data.verdict === 'not_enough_history') return parts.join('');
+    // The walk, span by span
+    if (Array.isArray(data.periods) && data.periods.length) {
+      parts.push(`<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="color:var(--gray-500);text-align:left"><th style="padding:4px 8px;font-weight:600">Statement span</th><th style="padding:4px 8px;font-weight:600">Lender moved</th><th style="padding:4px 8px;font-weight:600">Xero moved</th><th style="padding:4px 8px;font-weight:600">Verdict</th></tr>
+        ${data.periods.map(p => `<tr style="border-top:1px solid var(--gray-100)">
+          <td style="padding:5px 8px;white-space:nowrap">${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))}</td>
+          <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.lender_delta))))}</td>
+          <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.xero_delta))))}</td>
+          <td style="padding:5px 8px;font-weight:600;color:${p.verdict === 'clean' ? '#16a34a' : '#dc2626'}">${p.verdict === 'clean' ? '✓ ties' : `✗ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))}`}</td>
+        </tr>`).join('')}
+      </table></div>`);
+    }
+    // Evidence for divergent spans
+    (data.periods || []).filter(p => p.verdict === 'divergent' && Array.isArray(p.entries)).forEach(p => {
+      parts.push(`<div style="margin-top:8px;font-size:11.5px;font-weight:700;color:var(--gray-500)">What Xero holds for ${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))}:</div>` +
+        p.entries.map(en => `<div style="margin-top:6px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12px">
+          <div style="font-weight:600">${esc(fmtDate(en.date))} — ${esc(en.src_type === 'ManualJournal' ? (en.narration || 'Manual journal') : (en.contact || en.ref || 'Bank transaction'))} ${en.already_worked ? '<span style="color:#16a34a;font-weight:600"> · already split by your bookkeeper</span>' : ''}</div>
+          ${(en.lines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.description || '(no description)')} — ${esc(fmtMoney(Number(l.amount)))} → ${esc(String(l.account_code))}${l.account_name ? ` — ${esc(l.account_name)}` : ''}</div>`).join('')}
+        </div>`).join(''));
+    });
+    // Amount fingerprint hunt
+    const h = data.fingerprint_hunt;
+    if (h && !h.error && Array.isArray(h.matches)) {
+      parts.push(`<div style="margin-top:10px;font-size:11.5px;font-weight:700;color:var(--gray-500)">Every live Xero transaction of exactly ${esc(fmtMoney(Number(h.amount)))} (${esc(h.equals || '')}):</div>` +
+        h.matches.filter(m => m.live).map(m => `<div style="margin-top:6px;padding:8px 10px;background:${m.touches_this_loan ? 'var(--gray-50)' : '#fffbeb'};border:1px solid ${m.touches_this_loan ? 'var(--gray-200)' : '#fde68a'};border-radius:8px;font-size:12px">
+          <div style="font-weight:600">${esc(fmtDate(m.date))} — ${esc(m.contact || m.ref || m.type || 'Transaction')}${m.touches_this_loan ? '' : ' <span style="color:#b45309;font-weight:700">· NOT coded to this loan</span>'}</div>
+          <div style="color:var(--gray-500);margin-top:2px">Money went to: ${esc((m.coded_to || []).join(', ') || '?')}</div>
+        </div>`).join(''));
+    }
+    // CPA exception
+    if (data.cpa_exception) {
+      parts.push(`<div style="margin-top:10px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e">${esc(data.cpa_exception.note || '')}</div>`);
+    }
+    // The safe fix, review-gated
+    if (data.proposal) {
+      const pr = data.proposal;
+      parts.push(`<div style="margin-top:10px;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px">
+        <div style="font-weight:700;color:#166534">Proposed correction — nothing posts until you approve</div>
+        <div style="color:var(--gray-600);margin-top:4px;line-height:1.5">${esc(pr.based_on || '')}</div>
+        <div style="margin-top:8px;font-weight:600">${esc(pr.journal?.Narration || '')} (dated ${esc(fmtDate(pr.journal?.Date))})</div>
+        ${(pr.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} ${Number(l.LineAmount) >= 0 ? 'into' : 'out of'} ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('')}
+        ${data.can_post ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}')">Approve & post correction to Xero</button></div>` : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
+      </div>`);
+    }
+    return parts.join('');
+  }
+
+  async function bkPostFdiffFix(findingId, loanId, token) {
+    const btn = document.getElementById('fdiff-post-' + findingId);
+    if (btn) { btn.disabled = true; btn.textContent = 'Re-checking and posting…'; }
+    const { ok, data } = await _loanFn('loan-find-difference', {
+      loan_account_id: loanId, post_fix: true, proposal_token: token,
+      posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+    });
+    const out = document.getElementById('fdiff-out-' + findingId);
+    if (!ok || data.error) {
+      showToast(data.error || 'Could not post the correction.', 'error');
+      // A 409 ships the fresh analysis so the human reviews what changed.
+      if (data.analysis && out) out.innerHTML = _bkFdiffHtml(data.analysis, findingId, loanId);
+      else if (btn) { btn.disabled = false; btn.textContent = 'Approve & post correction to Xero'; }
+      return;
+    }
+    showToast('Correction posted to Xero.', 'success');
+    if (out) out.innerHTML = `<div style="margin-top:10px;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534">
+      <div style="font-weight:700">✓ Correction posted</div>
+      <div style="margin-top:4px;color:var(--gray-600)">${esc(data.posted_journal?.narration || '')} — journal is in Xero. Run a reconciliation check and this card clears itself once the balances tie.</div>
+      <div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button></div>
+    </div>`;
   }
 
   // The per-row victory: a check draws itself in, the row washes green, then
