@@ -620,48 +620,49 @@ async function handle(req: Request): Promise<Response> {
     const purePairs = pairFirsts.filter(p => p.timing_pair.pure)
     const resPairs = pairFirsts.filter(p => !p.timing_pair.pure)
     const straddleEx = pairFirsts.find(p => p.timing_pair.straddler)?.timing_pair.straddler
-    let s = `${pairFirsts.length * 2} of the ${divergentPeriods.length} flagged spans are just timing, not errors: ${pairFirsts.length === 1 ? 'a payment' : 'payments'} dated a day or two after a statement cutoff land${pairFirsts.length === 1 ? 's' : ''} in the next span, so one span reads short and the next reads long by the same amount`
-    if (straddleEx) s += ` (e.g. the ${money(straddleEx.amount)} payment on ${straddleEx.date})`
+    let s = `${pairFirsts.length * 2} of ${divergentPeriods.length} flagged spans are timing, not errors — a payment dated just after the cutoff lands in the next span`
+    if (straddleEx) s += ` (e.g. ${money(straddleEx.amount)} on ${straddleEx.date})`
     s += purePairs.length === pairFirsts.length
-      ? `. These pairs cancel to $0.00 — nothing to fix.`
-      : `. These pairs cancel${resPairs.length ? ` to within ${resPairs.map(p => `${money(p.timing_pair.net)}${p.timing_pair.residue ? ` (${p.timing_pair.residue.what})` : ''}`).join(' and ')}` : ''} — nothing to recode.`
+      ? `. They cancel to $0.00 — nothing to fix.`
+      : `. They cancel${resPairs.length ? ` to within ${resPairs.map(p => `${money(p.timing_pair.net)}${p.timing_pair.residue ? ` (${p.timing_pair.residue.what})` : ''}`).join(' and ')}` : ''} — nothing to fix.`
     conclusions.push(s)
   }
 
-  // One hypothesis bullet per REAL span (at most two spelled out).
+  // One hypothesis bullet per REAL span (at most two spelled out). v8: half
+  // the words — David: "Reduce by 50%."
   const candDesc = (c: any) => c.direction === 'maybe_belongs_elsewhere'
-    ? `the ${money(c.amount)} payment on ${c.date}${c.contact ? ` to ${c.contact}` : ''} coded to THIS loan actually belongs to a different loan`
-    : `the ${money(c.amount)} ${c.src_type === 'ManualJournal' ? 'journal' : 'payment'} on ${c.date} coded to ${c.coded_to?.loan_name || 'another loan'}${c.same_lender ? ' (same lender)' : ''} was meant for this loan`
+    ? `the ${money(c.amount)} payment (${c.date}) coded here likely belongs to another loan`
+    : `the ${money(c.amount)} ${c.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${c.date}) on ${c.coded_to?.loan_name || 'another loan'}${c.same_lender ? ' — same lender —' : ''} likely belongs here`
   const hypFor = (p: any) => {
     const gap = money(Math.abs(p.diff))
     const cands = p.cross_loan_candidates || []
     const c1 = cands[0]
     if (p.culprit?.kind === 'duplicate_suspected' && p.culprit.entry) {
-      return `The ${p.from} → ${p.to} span is off by ${gap} — most likely the ${money(Math.abs(p.culprit.entry.effect_on_loan))} entry on ${p.culprit.entry.date} is a duplicate of the one beside it. Remove the copy in Xero and run this again.`
+      return `${p.from} → ${p.to} is off by ${gap} — likely a duplicate: the ${money(Math.abs(p.culprit.entry.effect_on_loan))} entry on ${p.culprit.entry.date}. Remove the copy and re-run.`
     }
-    if (!c1) return `The ${p.from} → ${p.to} span is off by ${gap} with no clear candidate — one for your CPA, with the dates pinned in the table below.`
+    if (!c1) return `${p.from} → ${p.to} is off by ${gap} — no clear candidate; one for your CPA (dates in the table).`
     const c2 = cands[1]
     const secondStrong = c2 && (c2.confidence !== 'in_span' || (c2.same_lender && c1.same_lender))
     if (secondStrong) {
-      return `The ${p.from} → ${p.to} span is off by ${gap}. I think I know what may have happened — either ${candDesc(c1)}, or ${candDesc(c2)}. Fix the right one in Xero and run this again: this span should tie or shrink.`
+      return `${p.from} → ${p.to} is off by ${gap} — either ${candDesc(c1)}, or ${candDesc(c2)}. Fix the right one and re-run.`
     }
-    let s = `The ${p.from} → ${p.to} span is off by ${gap} — most likely ${candDesc(c1)}`
-    if (c1.explains_after) s += `; that would close this span to within ${money(c1.explains_after.amount)} (${c1.explains_after.what})`
-    else if (c1.confidence === 'explains_exactly') s += `; that would close this span exactly`
-    s += `. Recode it in Xero and run this again.`
+    let s = `${p.from} → ${p.to} is off by ${gap} — ${candDesc(c1)}. Recode it and re-run`
+    if (c1.explains_after) s += `; the span should close to ~${money(c1.explains_after.amount)}`
+    else if (c1.confidence === 'explains_exactly') s += `; the span should tie`
+    s += `.`
     return s
   }
   for (const p of realDivergent.slice(0, 2)) conclusions.push(hypFor(p))
   if (realDivergent.length > 2) {
     const rest = realDivergent.slice(2)
-    conclusions.push(`${rest.length} more span${rest.length === 1 ? ' diverges' : 's diverge'} (${rest.map(p => `${p.from} → ${p.to}, ${money(Math.abs(p.diff))}`).join('; ')}) — fix the above first and run this again; ${rest.length === 1 ? 'it' : 'they'}'ll get ${rest.length === 1 ? 'its' : 'their'} own read.`)
+    conclusions.push(`${rest.length} more span${rest.length === 1 ? '' : 's'} (${rest.map(p => `${p.from} → ${p.to}, ${money(Math.abs(p.diff))}`).join('; ')}) — fix the above, then re-run.`)
   }
 
   if (residual != null && Math.abs(residual) >= TOL && conclusions.length < 4) {
     const k = matchKnown(residual)
-    conclusions.push(`${money(Math.abs(residual))} of the difference predates the earliest statement on file (${winFrom})${k ? ` — it equals ${k.what} to the cent, so one payment before that date is likely recorded differently than the lender applied it` : ''}. Uploading earlier lender statements would pin down the month.`)
+    conclusions.push(`${money(Math.abs(residual))} predates the earliest statement on file (${winFrom})${k ? ` — equals ${k.what}` : ''}; upload earlier statements to pin it down.`)
   }
-  if (!divergentPeriods.length) conclusions.push(`Every span ties to the cent — within this window (${winFrom} → ${winTo}), Xero and the lender agree completely.`)
+  if (!divergentPeriods.length) conclusions.push(`Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
   const finalConclusions = conclusions.slice(0, 4)
 
   // Narrative for API consumers = intro + the same bullets; the client renders
