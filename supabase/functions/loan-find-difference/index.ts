@@ -47,6 +47,20 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // mistakes. Pure read-side: candidates are QUESTIONS for the bookkeeper, never
 // proposals; the CPA recodes the transaction in Xero, re-runs the analysis,
 // and the span ties or shrinks.
+//
+// v6 (session 226, same evening): CONCLUSIONS FIRST. David, on seeing v5's
+// live output ("The exact opposite of abstraction… The system needs to be
+// smart enough to say 'I think I know what may have happened. Either X or Z.'
+// 3-4 bullet points MAX"): two structural changes. (1) OFFSETTING-PAIR
+// detection — adjacent divergent spans whose diffs cancel (exactly, or to a
+// known lender amount) are a payment straddling a statement cutoff: timing,
+// not error. They collapse to one sentence and get no candidates, no entry
+// dump, and never a correction proposal. On the 4140 run this alone removed
+// 8 of 11 red spans. (2) A `conclusions` array (max 4 bullets): the timing
+// sentence, one confident hypothesis per remaining real span ("either X or
+// Z" when two strong candidates exist), and the pre-window residual. The
+// client renders ONLY the bullets up front; the span table, entries, and
+// candidate cards live behind a "show the full evidence" toggle.
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -432,10 +446,6 @@ async function handle(req: Request): Promise<Response> {
       entry_count: inWin.length,
     }
     if (divergent) {
-      period.entries = inWin.slice(0, 12).map(r => entryView(r, code, acctMap))
-      // v4: the misallocation hunt — entries on OTHER loans inside this span
-      // (or, mirrored, this loan's own entries that may belong elsewhere).
-      period.cross_loan_candidates = crossLoanCandidatesFor(period, siblingPool, entries, otherLoanByCode, matchKnown, acctMap, loan.xero_account_name || 'this loan', loan.lender ?? null)
       // Does one single entry explain the whole gap? (Extra/duplicate entry.)
       const solo = inWin.find(r => Math.abs(r2(effect(r, code)) - diff) < TOL)
       if (solo) {
@@ -450,6 +460,54 @@ async function handle(req: Request): Promise<Response> {
     periods.push(period)
   }
 
+  // ── v6: OFFSETTING-PAIR DETECTION — abstraction before evidence (David,
+  // session 226: "The system needs to be smart enough to say 'I think I know
+  // what may have happened.' 3-4 bullet points MAX."). The 4140 run that
+  // prompted this had ELEVEN red spans, of which EIGHT were four offsetting
+  // pairs: +$1,180.32 then −$1,180.32, and so on — a payment dated a day or
+  // two after the statement cutoff lands in the NEXT span, so one span reads
+  // short and the next reads long by the same amount. That is timing, not an
+  // error: the pair contributes $0.00 to the headline difference and needs no
+  // fix. Pairs whose sum is not zero but equals a known lender amount (e.g.
+  // one period's interest portion) collapse the same way, with the residue
+  // named. Paired spans get NO candidate hunt, NO entry dump, and NO
+  // correction proposal — they get one calm sentence. ──
+  for (let i = 0; i < periods.length; i++) {
+    const a = periods[i]
+    if (a.verdict !== 'divergent' || a.timing_pair) continue
+    const b = periods[i + 1]
+    if (!b || b.verdict !== 'divergent' || b.timing_pair) continue
+    if (a.diff * b.diff >= 0) continue // must offset, not compound
+    const net = r2(a.diff + b.diff)
+    const pure = Math.abs(net) < TOL
+    const known = pure ? null : matchKnown(net)
+    // The residue must be small relative to the offsets themselves — a $5,000
+    // gap "paired" with a $500 gap is not a timing straddle.
+    const residueOk = known && Math.abs(net) < Math.min(Math.abs(a.diff), Math.abs(b.diff)) / 2
+    if (!pure && !residueOk) continue
+    // Best evidence: the straddling entry — dated within a week after the
+    // boundary, of the offset amount. Named when found; the pair collapses
+    // either way (the arithmetic alone is conclusive about the net effect).
+    const bLimit = (() => { const d = new Date(b.from + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 7); return d.toISOString().slice(0, 10) })()
+    const straddler = entries.find(r => r.date > b.from && r.date <= bLimit && Math.abs(Math.abs(r2(effect(r, code))) - Math.abs(a.diff)) < TOL)
+    const pairInfo = {
+      net, pure,
+      residue: known ? { amount: net, what: known.what } : null,
+      straddler: straddler ? { date: straddler.date, amount: r2(Math.abs(effect(straddler, code))), contact: straddler.contact || null } : null,
+    }
+    a.timing_pair = { role: 'first', with: `${b.from} → ${b.to}`, ...pairInfo }
+    b.timing_pair = { role: 'second', with: `${a.from} → ${a.to}`, ...pairInfo }
+  }
+
+  // Evidence and the misallocation hunt only for spans that remain REAL after
+  // pairing — this is what keeps the output at bullets instead of a wall.
+  for (const period of periods) {
+    if (period.verdict !== 'divergent' || period.timing_pair) continue
+    const inWin = entries.filter(r => r.date > period.from && r.date <= period.to)
+    period.entries = inWin.slice(0, 12).map(r => entryView(r, code, acctMap))
+    period.cross_loan_candidates = crossLoanCandidatesFor(period, siblingPool, entries, otherLoanByCode, matchKnown, acctMap, loan.xero_account_name || 'this loan', loan.lender ?? null)
+  }
+
   const totalPeriodDiff = r2(periods.reduce((s, p) => s + p.diff, 0))
   const lastClean = (() => { let d = usable[0].statement_date; for (const p of periods) { if (p.verdict !== 'clean') break; d = p.to } return d })()
   const residual = headline ? r2(headline.difference - totalPeriodDiff) : null
@@ -459,8 +517,9 @@ async function handle(req: Request): Promise<Response> {
   // where each one's money actually went. This is how "one payment's worth"
   // stops being a coincidence and becomes a named transaction. ──
   let hunt: any = null
+  // v6: paired (timing) spans are explained — they never drive the hunt.
   const huntGap = residual != null && Math.abs(residual) >= TOL ? residual
-    : (periods.find(p => p.culprit?.kind === 'missing_reduction' || p.culprit?.kind === 'unexplained')?.diff ?? null)
+    : (periods.find(p => !p.timing_pair && (p.culprit?.kind === 'missing_reduction' || p.culprit?.kind === 'unexplained'))?.diff ?? null)
   const huntKnown = huntGap != null ? matchKnown(huntGap) : null
   if (huntKnown) {
     try {
@@ -492,6 +551,9 @@ async function handle(req: Request): Promise<Response> {
   let cpaException: any = null
   for (const p of periods) {
     if (p.verdict !== 'divergent' || proposal) continue
+    // v6: a paired span is timing, not an allocation error — proposing a
+    // correction journal for it would CREATE a discrepancy, not close one.
+    if (p.timing_pair) continue
     const sp = (splits || []).find(s => s.interest_amount != null && Math.abs(Math.abs(p.diff) - Number(s.interest_amount)) < TOL
       && s.period_label >= p.from.slice(0, 7) && s.period_label <= p.to.slice(0, 7))
     if (!sp) continue
@@ -537,25 +599,67 @@ async function handle(req: Request): Promise<Response> {
     }
   }
 
-  // ── The story, in plain language ──
+  // ── v6: CONCLUSIONS — the whole story in 3-4 bullets, most confident first.
+  // David's brief, verbatim: the system should say "I think I know what may
+  // have happened. Either X or Z." Everything below the bullets is collapsed
+  // evidence, not the message. ──
   const divergentPeriods = periods.filter(p => p.verdict === 'divergent')
-  const bits: string[] = []
-  bits.push(`We walked ${periods.length} statement span${periods.length === 1 ? '' : 's'} (${winFrom} → ${winTo}), comparing the lender's own balances against every live Xero entry on ${loan.xero_account_name}.`)
-  if (!divergentPeriods.length) bits.push(`Every span ties to the cent — within this window, Xero and the lender agree completely.`)
-  else bits.push(`The histories agree until ${lastClean}, then split apart: ${divergentPeriods.map(p => `${p.from} → ${p.to} is off by ${money(Math.abs(p.diff))}`).join('; ')}.`)
-  if (residual != null && Math.abs(residual) >= TOL) {
-    const k = matchKnown(residual)
-    bits.push(`${money(Math.abs(residual))} of the headline difference is OLDER than the earliest reliable statement on file (${winFrom}) — the walk can't see before that date.${k ? ` That amount equals ${k.what} to the cent, which strongly suggests exactly one payment is recorded differently in Xero than the lender applied it, sometime before ${winFrom}.` : ''} ${truncated ? `(History before ${truncated} was also outside this walk's 18-month window.) ` : ''}Uploading earlier lender statements would let the walk pin down the exact month.`)
+  const realDivergent = divergentPeriods.filter(p => !p.timing_pair)
+  const pairFirsts = periods.filter(p => p.timing_pair?.role === 'first')
+  const conclusions: string[] = []
+
+  if (pairFirsts.length) {
+    const purePairs = pairFirsts.filter(p => p.timing_pair.pure)
+    const resPairs = pairFirsts.filter(p => !p.timing_pair.pure)
+    const straddleEx = pairFirsts.find(p => p.timing_pair.straddler)?.timing_pair.straddler
+    let s = `${pairFirsts.length * 2} of the ${divergentPeriods.length} flagged spans are just timing, not errors: ${pairFirsts.length === 1 ? 'a payment' : 'payments'} dated a day or two after a statement cutoff land${pairFirsts.length === 1 ? 's' : ''} in the next span, so one span reads short and the next reads long by the same amount`
+    if (straddleEx) s += ` (e.g. the ${money(straddleEx.amount)} payment on ${straddleEx.date})`
+    s += purePairs.length === pairFirsts.length
+      ? `. These pairs cancel to $0.00 — nothing to fix.`
+      : `. These pairs cancel${resPairs.length ? ` to within ${resPairs.map(p => `${money(p.timing_pair.net)}${p.timing_pair.residue ? ` (${p.timing_pair.residue.what})` : ''}`).join(' and ')}` : ''} — nothing to recode.`
+    conclusions.push(s)
   }
-  if (hunt && !hunt.error) bits.push(`Amount search: Xero holds ${hunt.live_on_this_loan + hunt.live_elsewhere} live transaction${(hunt.live_on_this_loan + hunt.live_elsewhere) === 1 ? '' : 's'} of exactly ${money(hunt.amount)} — ${hunt.live_on_this_loan} coded to this loan, ${hunt.live_elsewhere} coded elsewhere. The list below shows where each one's money went.`)
-  // v4: the cross-loan story, led by the strongest candidate.
-  const allCrossCands = periods.flatMap(p => p.cross_loan_candidates || [])
-  const strongCands = allCrossCands.filter(c => c.confidence !== 'in_span')
-  if (strongCands.length) bits.push(`Possible misallocation: ${strongCands[0].question}`)
-  else if (allCrossCands.length) bits.push(`${allCrossCands.length} entr${allCrossCands.length === 1 ? 'y' : 'ies'} on other loan accounts sit inside the divergent spans — the "Could this be the mistake?" list below names each one. If any is coded to the wrong loan, fix it in Xero and run this again: the affected span should tie or shrink.`)
-  if (proposal) bits.push(`One span has a mechanically safe fix: the gap equals the ${proposal.period} interest portion exactly, so the correcting journal below closes it using only the lender's own figures. Nothing posts until you approve.`)
+
+  // One hypothesis bullet per REAL span (at most two spelled out).
+  const candDesc = (c: any) => c.direction === 'maybe_belongs_elsewhere'
+    ? `the ${money(c.amount)} payment on ${c.date}${c.contact ? ` to ${c.contact}` : ''} coded to THIS loan actually belongs to a different loan`
+    : `the ${money(c.amount)} ${c.src_type === 'ManualJournal' ? 'journal' : 'payment'} on ${c.date} coded to ${c.coded_to?.loan_name || 'another loan'}${c.same_lender ? ' (same lender)' : ''} was meant for this loan`
+  const hypFor = (p: any) => {
+    const gap = money(Math.abs(p.diff))
+    const cands = p.cross_loan_candidates || []
+    const c1 = cands[0]
+    if (p.culprit?.kind === 'duplicate_suspected' && p.culprit.entry) {
+      return `The ${p.from} → ${p.to} span is off by ${gap} — most likely the ${money(Math.abs(p.culprit.entry.effect_on_loan))} entry on ${p.culprit.entry.date} is a duplicate of the one beside it. Remove the copy in Xero and run this again.`
+    }
+    if (!c1) return `The ${p.from} → ${p.to} span is off by ${gap} with no clear candidate — the evidence below names its entries for your CPA.`
+    const c2 = cands[1]
+    const secondStrong = c2 && (c2.confidence !== 'in_span' || (c2.same_lender && c1.same_lender))
+    if (secondStrong) {
+      return `The ${p.from} → ${p.to} span is off by ${gap}. I think I know what may have happened — either ${candDesc(c1)}, or ${candDesc(c2)}. Fix the right one in Xero and run this again: this span should tie or shrink.`
+    }
+    let s = `The ${p.from} → ${p.to} span is off by ${gap} — most likely ${candDesc(c1)}`
+    if (c1.explains_after) s += `; that would close this span to within ${money(c1.explains_after.amount)} (${c1.explains_after.what})`
+    else if (c1.confidence === 'explains_exactly') s += `; that would close this span exactly`
+    s += `. Recode it in Xero and run this again.`
+    return s
+  }
+  for (const p of realDivergent.slice(0, 2)) conclusions.push(hypFor(p))
+  if (realDivergent.length > 2) conclusions.push(`${realDivergent.length - 2} more span${realDivergent.length - 2 === 1 ? '' : 's'} still diverge — their evidence is below, one card each.`)
+
+  if (residual != null && Math.abs(residual) >= TOL && conclusions.length < 4) {
+    const k = matchKnown(residual)
+    conclusions.push(`${money(Math.abs(residual))} of the difference predates the earliest statement on file (${winFrom})${k ? ` — it equals ${k.what} to the cent, so one payment before that date is likely recorded differently than the lender applied it` : ''}. Uploading earlier lender statements would pin down the month.`)
+  }
+  if (!divergentPeriods.length) conclusions.push(`Every span ties to the cent — within this window (${winFrom} → ${winTo}), Xero and the lender agree completely.`)
+  const finalConclusions = conclusions.slice(0, 4)
+
+  // Narrative for API consumers = intro + the same bullets; the client renders
+  // the bullets. The old exhaustive span-listing paragraph is gone on purpose.
+  const bits: string[] = []
+  bits.push(`Walked ${periods.length} statement span${periods.length === 1 ? '' : 's'} (${winFrom} → ${winTo}) on ${loan.xero_account_name}.`)
+  bits.push(...finalConclusions)
+  if (proposal) bits.push(`One span has a mechanically safe fix: the gap equals the ${proposal.period} interest portion exactly — the correcting journal below closes it using only the lender's own figures. Nothing posts until you approve.`)
   if (cpaException) bits.push(cpaException.note)
-  if (!proposal && divergentPeriods.length && !cpaException) bits.push(`No automatic fix is safe here — the evidence above names the exact span and entries, which is what your CPA needs to correct it in Xero.`)
 
   const analysis = {
     ok: true, mode: 'analyze' as string,
@@ -568,6 +672,7 @@ async function handle(req: Request): Promise<Response> {
     fingerprint_hunt: hunt,
     proposal, cpa_exception: cpaException,
     can_post: !!proposal && ['admin', 'manager'].includes(role),
+    conclusions: finalConclusions,
     narrative: bits.join(' '),
   }
 
