@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
+import { ensureUpcomingSplit } from '../_shared/staging-next.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
 // admin/manager may do both. Anything else is rejected outright.
@@ -323,6 +324,14 @@ async function callerRole(req: Request) {
 // fields), and posting it would duplicate the journal. (2) maybeAutoResolveFlag
 // counts 'staged' splits as still-outstanding, so a "waiting on posting" loan flag
 // can no longer auto-resolve while a pre-staged transaction is still unmatched.
+//
+// v43 (session 226, same day): Staging Engine continuation. When the sweep confirms a
+// staged transaction MATCHED (reconciled -> status 'posted'), it now also creates the
+// NEXT period's pending_review split for that loan via ensureUpcomingSplit
+// (_shared/staging-next.ts -- same helper loan-ingest-amortization's post-ingest hook
+// uses), so the CPA's next "ready to stage" card appears the moment the previous
+// payment clears. DB-only write; Xero staging still requires the human Stage click.
+// One active card per loan is enforced inside the helper.
 
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
 const ZERO_TOLERANCE = 0.005 // dollars -- treat anything under half a cent as exactly zero
@@ -732,6 +741,10 @@ async function handleStageSweep(req: Request): Promise<Response> {
       }).eq('id', s.id)
       const flagAutoResolve = await maybeAutoResolveFlag(supa, la)
       row.outcome = 'matched'; row.flag_auto_resolve = flagAutoResolve
+      // v43: the match consumed this loan's card -- put the next period's card up.
+      if (la?.prestage_enabled) {
+        row.next_period = await ensureUpcomingSplit(supa, s.loan_account_id)
+      }
       results.push(row); continue
     }
     // Still live and unmatched: look for trouble.

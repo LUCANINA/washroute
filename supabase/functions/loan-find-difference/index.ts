@@ -660,7 +660,15 @@ async function handle(req: Request): Promise<Response> {
 
   if (residual != null && Math.abs(residual) >= TOL && conclusions.length < 4) {
     const k = matchKnown(residual)
-    conclusions.push(`${money(Math.abs(residual))} predates the earliest statement on file (${winFrom})${k ? ` — equals ${k.what}` : ''}; upload earlier statements to pin it down.`)
+    // v9: statements that exist but were skipped for balance_basis are NOT missing --
+    // telling the user to "upload earlier statements" they already uploaded (the 9744
+    // $182 incident, session 226) sends them hunting for files that change nothing.
+    // Name the real blocker instead.
+    const skippedEarlier = skippedForBasis.filter(s => s.date < winFrom)
+    const tail = skippedEarlier.length
+      ? `${skippedEarlier.length} earlier statement${skippedEarlier.length === 1 ? ' is' : 's are'} on file but unusable (balance basis unmarked) — mark them principal-only to pin it down`
+      : `upload earlier statements to pin it down`
+    conclusions.push(`${money(Math.abs(residual))} predates the earliest usable statement (${winFrom})${k ? ` — equals ${k.what}` : ''}; ${tail}.`)
   }
   if (!divergentPeriods.length) conclusions.push(`Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
   const finalConclusions = conclusions.slice(0, 4)
