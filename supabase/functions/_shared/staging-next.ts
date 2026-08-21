@@ -24,7 +24,10 @@
 //      ROW, period_label 'YYYY-MM-DD' -- a staged transaction must equal exactly one
 //      bank-feed line, and four separate weekly drafts can never match one monthly
 //      aggregate. (Day labels also match how PayPal 2's 33 historical splits were
-//      already labeled.)
+//      already labeled.) Cadence is judged from ALL of the month's payment rows,
+//      not just the future ones -- otherwise the last remaining draft of a weekly
+//      month would masquerade as a monthly period and flip the label convention
+//      mid-month (caught in the session-226 end-of-session review).
 //   3. Splits are created with the same shape loan-generate-schedule-split uses
 //      (source='amortization_schedule') -- downstream stage/post code treats them
 //      identically.
@@ -61,29 +64,37 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
     return { action: 'skipped', reason: 'active_card_exists', period_label: active[0].period_label, split_id: active[0].id }
   }
 
-  // Latest schedule (same "most recent generated date wins" rule as loan-generate-schedule-split).
+  // Latest schedule (same "most recent generated date wins" rule as
+  // loan-generate-schedule-split). nullsFirst:false matters: Postgres puts NULLs
+  // first on a DESC order by default, so a schedule ingested without a generated
+  // date would otherwise beat every properly dated one.
   const { data: schedules, error: schedErr } = await supa
     .from('loan_amortization_schedules')
     .select('id, schedule_generated_date')
     .eq('loan_account_id', loanAccountId)
-    .order('schedule_generated_date', { ascending: false })
+    .order('schedule_generated_date', { ascending: false, nullsFirst: false })
     .limit(1)
   if (schedErr) return { action: 'skipped', reason: 'lookup_failed', detail: schedErr.message }
   if (!schedules?.length) return { action: 'skipped', reason: 'no_schedule' }
 
-  const { data: futureRows, error: rowsErr } = await supa
+  // ALL payment rows -- the full set decides each month's cadence; only the future
+  // ones are stageable.
+  const { data: allRows, error: rowsErr } = await supa
     .from('loan_amortization_rows')
     .select('*')
     .eq('schedule_id', schedules[0].id)
     .eq('row_type', 'payment')
-    .gte('row_date', today)
     .order('row_date', { ascending: true })
   if (rowsErr) return { action: 'skipped', reason: 'lookup_failed', detail: rowsErr.message }
-  if (!futureRows?.length) return { action: 'skipped', reason: 'no_future_payment_rows' }
+  const futureRows = (allRows || []).filter((r: any) => String(r.row_date).slice(0, 10) >= today)
+  if (!futureRows.length) return { action: 'skipped', reason: 'no_future_payment_rows' }
 
-  // Group future payment rows by month, in date order, then split months into
-  // stageable units: one unit per month for monthly cadence, one unit per ROW for
-  // weekly/multi-draft months (see rule 2 in the header).
+  // Month cadence from the FULL row set; stageable units from the future rows.
+  const monthCount = new Map<string, number>()
+  for (const r of allRows) {
+    const m = String(r.row_date).slice(0, 7)
+    monthCount.set(m, (monthCount.get(m) || 0) + 1)
+  }
   const byMonth = new Map<string, any[]>()
   for (const r of futureRows) {
     const label = String(r.row_date).slice(0, 7)
@@ -92,7 +103,7 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
   }
   const units: Array<{ label: string, rows: any[] }> = []
   for (const [monthLabel, rows] of byMonth) {
-    if (rows.length > 1) for (const r of rows) units.push({ label: String(r.row_date).slice(0, 10), rows: [r] })
+    if ((monthCount.get(monthLabel) || 0) > 1) for (const r of rows) units.push({ label: String(r.row_date).slice(0, 10), rows: [r] })
     else units.push({ label: monthLabel, rows })
   }
 
@@ -100,13 +111,16 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
   for (const { label: periodLabel, rows } of units) {
     const { data: existing, error: exErr } = await supa
       .from('loan_splits')
-      .select('id, status')
+      .select('id, status, source')
       .eq('loan_account_id', loanAccountId)
       .eq('period_label', periodLabel)
       .limit(1)
     if (exErr) return { action: 'skipped', reason: 'lookup_failed', detail: exErr.message }
     const prior = existing?.[0]
-    if (prior && prior.status !== 'pending_review') continue // consumed (posted / already_in_xero / ...) -- walk on
+    // Walk past a period that is consumed (posted / already_in_xero / ...) OR that
+    // belongs to another flow: a statement_delta pending_review split must never be
+    // silently converted into a schedule split by this upsert (rule 4).
+    if (prior && (prior.status !== 'pending_review' || prior.source !== 'amortization_schedule')) continue
 
     const principal = Math.round(rows.reduce((s: number, r: any) => s + Number(r.principal || 0), 0) * 100) / 100
     const interest = Math.round(rows.reduce((s: number, r: any) => s + Number(r.interest || 0), 0) * 100) / 100

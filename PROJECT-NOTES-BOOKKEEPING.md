@@ -128,7 +128,7 @@ session — see the session log below for why).
 
 ## Tech Debt — deliberately deferred, with the next step written down
 
-**21. Session 226 — `loan-generate-schedule-split` upsert can clobber staged/posted split state (server-side guard still owed).** Its upsert on (loan_account_id, period_label) always sets status='pending_review' and does NOT clear/preserve posting or stage fields — regenerating an already-posted period used to leave a journal-carrying row one Approve away from a duplicate (now blocked by loan-xero-post v42's hard guard), and regenerating a staged period would orphan a live staged Xero transaction (now blocked client-side in submitLoanScheduleGenerate). The function itself (deployed v11, NOT in git) still accepts the destructive upsert from any direct caller. Next step: add a server-side refusal when the existing row's status is staged/posted/already_in_xero, and commit the function source to the repo while touching it.
+**21. ~~Session 226 — `loan-generate-schedule-split` upsert can clobber staged/posted split state~~ RESOLVED (session 226 end-of-session review, same day).** The server now refuses (hard 409, nothing written) to regenerate any period whose split status isn't pending_review — a staged period names the live staged transaction and says to unstage first; a posted period names the duplicate-posting risk. Deployed v12, byte-verified, and the function source is in git for the first time (v1–v11 were deployed-only). Also picked up the nullsFirst:false latest-schedule fix so a null-dated schedule can never win the "most recent" pick. Covered by qa-staging.mjs g1–g4 (regenerate over staged/posted/already_in_xero → 409 untouched; pending_review refresh and fresh-create still work). The v42 loan-xero-post guard and the client-side refusal remain as defense-in-depth.
 
 Per the Root-Cause Rule: a one-time data fix without its root-cause fix is not done. When the
 root-cause fix can't ship in the same session it goes HERE, with a concrete next step — not into
@@ -1202,6 +1202,20 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 226 close (2026-08-21, night) — END-OF-SESSION REVIEW: three staging-next defects found and fixed before they could bite
+
+David asked for a close-out review of the day's code. Re-reading the deployed sources found three real defects in `_shared/staging-next.ts`, all fixed, QA'd, and redeployed (loan-xero-post **v45**, loan-ingest-amortization **v14**, staging-next md5 f8da98de…, all byte-verified):
+
+1. **Weekly cadence judged from FUTURE rows only** — the one that would have bitten PayPal 2 in ~5 weeks: once only one draft remained in a weekly month (e.g. after Sep 23 posts, only Sep 30 left), that month read as "monthly" and the next card would have been labeled `2026-09` instead of `2026-09-30` — flipping the label convention mid-month and opening a collision surface. Cadence is now decided from ALL of a month's payment rows; only future rows are stageable.
+2. **Cross-flow clobber in the refresh path** — the walk refreshed any pending_review split at the target label regardless of source, so a statement_delta pending_review split would have been silently converted into a schedule split. Now any prior with a different source (or any non-pending status) is walked past, never touched.
+3. **NULL-dated schedule wins "latest"** — Postgres puts NULLs first on DESC, so a schedule ingested without a generated date would beat every dated one. `nullsFirst: false` on the pick (also applied to loan-generate-schedule-split v12).
+
+**Tech Debt #21 closed in the same pass** — see the struck-through entry in the Tech Debt section: `loan-generate-schedule-split` v12 now hard-409s on regenerating a staged/posted/already_in_xero period, and the function is committed to git for the first time.
+
+**qa-staging.mjs is now 41 checks** (u10 last-remaining-weekly-draft label, u11 statement-split untouchability, u12 null-schedule ordering, g1–g4 for the new guard) and the other three suites re-ran green (36 + 33 + 8). Live-state verification: exactly one active card per staging loan, every split's principal+interest ties to its total, each tied to its amortization row — and David staged all four himself during the session, so **four live WR-STAGE transactions now sit in Xero awaiting their bank feed lines** (PayPal 2 8/26 $3,414.71, Dexter 2 8/31 $3,839.38, PCV 9/1 $7,138.10, Verdant 9/10 $4,543.32). The washroute-bookkeeping skill's pre-staging invariant was rewritten to describe the full Staging Engine (helper module, one-card rule, weekly per-row cadence, sweep continuation, the v12 guard) and re-delivered to David as a .skill install card.
+
+**Where to pick up:** the first live proof of the full loop is now PayPal 2's Aug 26 draft (five days out) — sweep after it matches: the split should flip posted and the 9/2 card should auto-appear. Then Dexter 2 (8/31) and PCV (9/1, the original proof target). Task 7 (auto-stage cron + scheduled sweep) unblocks after that evidence. David still needs to `git push` from his terminal, and `_to_delete/` has accumulated several git lock files to clean up.
 
 ### Session 226 cont. 3 (2026-08-21, night) — PAYPAL 2 JOINS STAGING: weekly cadence, and how the loan is actually structured
 
