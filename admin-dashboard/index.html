@@ -3308,6 +3308,7 @@
             .bk-dot.amber { background: #d97706; }
             .bk-dot.red { background: #dc2626; }
             .bk-dot.green { background: #16a34a; }
+            .bk-dot.blue { background: #2563eb; }
             .bk-dot.gray { background: var(--gray-300); }
             .bk-queue-name { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
             .bk-queue-reason { font-size: 12.5px; color: var(--gray-500); margin-top: 2px; line-height: 1.45; }
@@ -8363,6 +8364,10 @@
       let detailHtml = null, onclick = null;
       if (it.kind === 'split_mismatch') {
         onclick = `openLoanReviewModal('${it.split.id}')`;
+      } else if (it.kind === 'stage_flag') {
+        // Session 226: a flagged staged transaction — the review modal shows the
+        // live Xero state plus the check/remove actions.
+        onclick = `openLoanReviewModal('${it.split.id}')`;
       } else if (it.kind === 'loan_flag') {
         const a = it.account;
         detailHtml = _bkAttnDetailHtml(it) +
@@ -8453,12 +8458,35 @@
     const items = [];
     (_allLoanSplits || []).filter(s => s.status === 'pending_review').forEach(s => {
       const name = s.loan_accounts?.xero_account_name || s.loan_accounts?.lender_account_number || 'Loan';
+      // Session 226: a future schedule period on a pre-staging loan doesn't get
+      // posted — it gets STAGED (a pre-split transaction created in Xero ahead of
+      // the payment, so the CPA just clicks Match). Same review modal; it shows
+      // the staging proposal instead of the journal proposal.
+      const stageable = _bkStageEligible(s);
       items.push({
         key: 'appr-split-' + s.id, dot: 'green',
         name: `${name} — ${s.period_label}`,
-        reason: `Split worked out: ${fmtMoney(Number(s.principal_amount))} went to the loan, ${fmtMoney(Number(s.interest_amount))} was interest — ready to post`,
-        action: 'Approve', onclick: `openLoanReviewModal('${s.id}')`,
+        reason: stageable
+          ? `Split known ahead of time: ${fmtMoney(Number(s.principal_amount))} principal, ${fmtMoney(Number(s.interest_amount))} interest — ready to stage in Xero before the payment lands`
+          : `Split worked out: ${fmtMoney(Number(s.principal_amount))} went to the loan, ${fmtMoney(Number(s.interest_amount))} was interest — ready to post`,
+        action: stageable ? 'Stage' : 'Approve', onclick: `openLoanReviewModal('${s.id}')`,
         peek: _bkSplitPeekSpec(s) ? `bkPeekSplitDoc('${s.id}')` : null,
+      });
+    });
+    // Session 226: staged splits stay visible (calm, informational) instead of
+    // vanishing from the queue the moment they're staged — the next state change
+    // comes from Xero (the CPA matching the payment), not from anyone here.
+    (_allLoanSplits || []).filter(s => s.status === 'staged').forEach(s => {
+      const name = s.loan_accounts?.xero_account_name || s.loan_accounts?.lender_account_number || 'Loan';
+      items.push({
+        key: 'staged-split-' + s.id, dot: 'blue',
+        name: `${name} — ${s.period_label}`,
+        reason: s.stage_sweep_flag
+          ? (s.stage_sweep_flag === 'duplicate_suspected'
+            ? 'Staged in Xero, but a look-alike transaction appeared next to it — open to see what to check'
+            : 'Staged in Xero, but the payment is overdue and still unmatched — open to see what to check')
+          : `Staged in Xero — waiting for the payment to land in the bank feed, then it's one Match click for the CPA`,
+        action: 'View', onclick: `openLoanReviewModal('${s.id}')`,
       });
     });
     (_allPayrollImports || []).filter(i => i.status === 'parsed' || i.status === 'reviewed').forEach(imp => {
@@ -12068,6 +12096,24 @@
         title: f.title || 'Untitled finding', explain: _bkOneLine(raw), rawExplain: raw, amount: null, tag: f.check_key || null,
       });
     });
+    // Session 226: a staged pre-split transaction the sweep flagged — either a
+    // suspected duplicate (the CPA clicked Create instead of Match: real money
+    // double-counted until fixed) or a stale stage (the scheduled payment never
+    // arrived). Both need a human decision, so they join the same shared list
+    // every attention surface reads (the one-shared-function rule).
+    (_allLoanSplits || []).filter(s => s.status === 'staged' && s.stage_sweep_flag).forEach(s => {
+      const isDup = s.stage_sweep_flag === 'duplicate_suspected';
+      const raw = isDup
+        ? 'The staged pre-split transaction is still unmatched, but a second transaction of the same amount appeared next to it in Xero — likely a Create instead of a Match on the reconcile screen. Until resolved, this payment may be counted twice.'
+        : 'The scheduled payment date has passed and the staged pre-split transaction is still unmatched — the real payment may have differed from the schedule (rate change, extra payment, skipped month). If it is not coming in this shape, remove the stage.';
+      items.push({
+        key: 'stage-' + s.id, kind: 'stage_flag', severityRank: isDup ? 0 : 1, split: s,
+        title: (s.loan_accounts?.xero_account_name || 'Unknown loan') + ' — ' + s.period_label,
+        explain: _bkOneLine(raw), rawExplain: raw,
+        amount: s.total_amount != null ? Number(s.total_amount) : null,
+        tag: isDup ? 'duplicate?' : 'stale stage',
+      });
+    });
     items.sort((a, b) => a.severityRank - b.severityRank);
     return items;
   }
@@ -12425,6 +12471,7 @@
         : (lastSplit
           ? (lastSplit.status === 'posted' ? `<span class="badge badge-green">posted ${esc(lastSplit.period_label)}</span>`
             : lastSplit.status === 'already_in_xero' ? `<span class="badge badge-gray">handled in Xero ${esc(lastSplit.period_label)}</span>`
+            : lastSplit.status === 'staged' ? `<span class="badge badge-blue" title="A pre-split transaction sits in Xero waiting for the payment to land — the CPA clicks Match on the reconcile screen.">staged in Xero ${esc(lastSplit.period_label)}</span>`
             : `<span class="badge badge-amber">${esc(lastSplit.status)} ${esc(lastSplit.period_label)}</span>`)
           : `<span class="badge badge-gray">no split yet</span>`);
       // History link is separate from the row's own click (which opens the upload
@@ -12549,6 +12596,7 @@
         if (s.status === 'posted') return `<span class="badge badge-green">posted</span>`;
         if (s.status === 'already_in_xero') return `<span class="badge badge-gray" title="A human confirmed this period was already split directly in Xero — WashRoute posted nothing.">handled in Xero</span>`;
         if (s.status === 'needs_attention') return `<span class="badge badge-red">needs attention</span>`;
+        if (s.status === 'staged') return `<span class="badge badge-blue" title="A pre-split transaction sits in Xero waiting for the payment to land — the CPA clicks Match on the reconcile screen.">staged in Xero</span>`;
         return `<span class="badge badge-amber">${esc(s.status)}</span>`;
       };
       const rows = splits.map(s => {
@@ -12917,6 +12965,19 @@ ${noActivityNote}
     const periodVal = document.getElementById('lsg-period').value; // 'YYYY-MM'
     if (!acct || !periodVal) {
       errEl.textContent = 'Pick a period first.';
+      errEl.style.display = '';
+      return;
+    }
+    // Session 226: loan-generate-schedule-split UPSERTS on (loan, period) and resets
+    // status to pending_review — regenerating over a staged or posted period would
+    // clobber that state (and orphan a staged Xero transaction, or re-open a posted
+    // period toward a duplicate journal). Refuse client-side; the server's v42
+    // journal-id guard is the backstop.
+    const existing = (_allLoanSplits || []).find(s => s.loan_account_id === loanId && s.period_label === periodVal);
+    if (existing && ['staged', 'posted', 'already_in_xero'].includes(existing.status)) {
+      errEl.textContent = existing.status === 'staged'
+        ? `${periodVal} is already staged in Xero — remove the stage first if it needs to be redone.`
+        : `${periodVal} is already ${existing.status === 'posted' ? 'posted to Xero' : 'marked handled in Xero'} — regenerating it would risk a duplicate. Use its Split History entry instead.`;
       errEl.style.display = '';
       return;
     }
@@ -14161,7 +14222,186 @@ ${noActivityNote}
     }
   }
 
+  // ===================== Session 226: TIER 1 PRE-STAGING (client) =====================
+  // For the three loans with forward amortization schedules (Verdant / PCV / Dexter,
+  // loan_accounts.prestage_enabled), a FUTURE period's split isn't posted after the
+  // fact — it's STAGED: loan-xero-post v41 creates the bank transaction in Xero,
+  // already split into principal/interest, before the payment happens. When the feed
+  // line lands, the reconcile screen offers it as a Match and the CPA clicks once.
+  // One clean two-line transaction, no journal. Design: DESIGN-LOAN-POSTING-MODEL.md §4.
+
+  // Is this split one that should be staged rather than approved? True only when:
+  // the split is pending review, schedule-sourced with a linked amortization row,
+  // its loan has pre-staging enabled, and the scheduled date is today-or-future
+  // (Pacific). A past-dated period belongs to the normal approve flow.
+  function _bkStageEligible(s) {
+    if (!s || s.status !== 'pending_review' || s.source !== 'amortization_schedule' || !s.amortization_row_id) return false;
+    const acct = (_allLoanAccounts || []).find(a => a.id === s.loan_account_id);
+    if (!acct || !acct.prestage_enabled) return false;
+    const row = (_allLoanAmortRows || []).find(r => r.id === s.amortization_row_id);
+    if (!row || !row.row_date) return false;
+    return String(row.row_date).slice(0, 10) >= today();
+  }
+
+  // The staging proposal view: what will be created in Xero, then one button.
+  async function _bkOpenStageView(splitId) {
+    document.getElementById('modal-loan-review').classList.add('open');
+    const body = document.getElementById('loan-review-body');
+    const footer = document.getElementById('loan-review-footer');
+    body.innerHTML = '<div class="loading"><div class="spinner"></div>Preparing the staging proposal…</div>';
+    footer.innerHTML = '';
+    try {
+      const { ok, data } = await _loanFn('loan-xero-post', { loan_split_id: splitId, stage: true, confirm: false });
+      if (!ok || data.error || data.kind !== 'pre_stage') {
+        // Staging isn't possible right now (e.g. the payment already reached Xero,
+        // or the period just slipped into the past). Say why, and offer the normal
+        // review flow — never silently pick a different mechanism.
+        body.innerHTML = `<div style="font-size:13.5px;color:var(--gray-700);background:var(--amber-light);border-radius:8px;padding:10px 12px">⚠ ${esc(data.error || 'This period can\'t be staged right now.')}</div>
+          <div style="margin-top:10px;font-size:12.5px;color:var(--gray-500)">You can still review it the normal way — matching the payment in Xero and posting the split after the fact.</div>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>
+          <button class="btn btn-primary" onclick="_bkOpenNormalReview('${splitId}')">Review normally</button>`;
+        return;
+      }
+      const p = data.proposed_transaction;
+      const lineHtml = (l) => `<div style="font-size:13px;padding:4px 0">${esc(l.Description)} — <b>$${Number(l.LineAmount).toFixed(2)}</b> → ${esc(String(l.AccountCode))}${l.AccountName ? ` <span style="color:var(--gray-500)">— ${esc(l.AccountName)}</span>` : ''}</div>`;
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">This payment hasn't happened yet — but its split is already known from the amortization schedule. Staging creates the transaction in Xero ahead of time, so when the payment lands in the bank feed, the reconcile screen offers it as a <b>Match</b>: one click, no journal, one clean two-line transaction.</div>
+        <div class="form-section-head">Will be created in Xero</div>
+        <div style="font-size:13px;color:var(--gray-600);margin-bottom:8px">Spend money · ${esc(p.contact)} · dated ${esc(p.date)} · reference <span class="td-mono">${esc(p.reference)}</span></div>
+        <div style="margin-bottom:14px">${(p.lines || []).map(lineHtml).join('')}</div>
+        <div style="font-size:12.5px;color:var(--gray-500)">If the real payment ends up different from the schedule, the staged transaction won't match — the staged-payments check flags it and it can be removed with one click, leaving Xero exactly as before.</div>
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-stage-btn" onclick="confirmStageSplit('${splitId}')">Stage in Xero</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong preparing the staging proposal: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+    }
+  }
+
+  async function confirmStageSplit(splitId) {
+    const btn = document.getElementById('loan-stage-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Staging…'; }
+    try {
+      const { ok, data } = await _loanFn('loan-xero-post', {
+        loan_split_id: splitId,
+        stage: true,
+        confirm: true,
+        posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (!ok || data.error) throw new Error(data.error || 'Staging failed');
+      closeLoanReviewModal();
+      showToast('Staged in Xero — when the payment lands, it\'s one Match click on the reconcile screen.', 'success');
+      loadLoans();
+    } catch (e) {
+      showToast(e.message || 'Staging failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Stage in Xero'; }
+    }
+  }
+
+  // The staged-state view: live Xero status of the staged transaction + the two
+  // human actions (check for a match / remove the stage).
+  async function _bkOpenStagedStatusView(splitId) {
+    document.getElementById('modal-loan-review').classList.add('open');
+    const body = document.getElementById('loan-review-body');
+    const footer = document.getElementById('loan-review-footer');
+    body.innerHTML = '<div class="loading"><div class="spinner"></div>Checking the staged transaction in Xero…</div>';
+    footer.innerHTML = '';
+    try {
+      const { ok, data } = await _loanFn('loan-xero-post', { loan_split_id: splitId, confirm: false });
+      if (!ok || (data.error && !data.kind)) throw new Error(data.error || 'Could not load the staged state.');
+      const t = data.staged_transaction;
+      const s = (_allLoanSplits || []).find(x => x.id === splitId);
+      const flag = data.stage_sweep_flag || s?.stage_sweep_flag;
+      const stateHtml = t
+        ? (t.reconciled
+          ? `<div style="font-size:13.5px;color:var(--gray-800);background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px">✓ The payment landed and was matched in Xero. Run the check below to record it here.</div>`
+          : `<div style="font-size:13.5px;color:var(--gray-700)">⏳ Staged and waiting — the pre-split transaction (dated ${esc(t.date || '')}, $${Number(t.total).toFixed(2)}) sits in Xero, ready to Match when the payment lands in the bank feed.</div>`)
+        : `<div style="font-size:13.5px;color:var(--red)">The staged transaction couldn't be read from Xero just now.</div>`;
+      const flagHtml = flag
+        ? `<div style="margin-top:10px;background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px">⚠ ${flag === 'duplicate_suspected'
+          ? 'A second transaction of the same amount appeared next to the staged one — likely a Create instead of a Match on the reconcile screen. Check in Xero: the duplicate should be removed there and the statement line matched to the staged transaction, or remove the stage here.'
+          : 'The scheduled date has passed and the payment hasn\'t matched. If it isn\'t coming in this shape, remove the stage — Xero goes back to exactly how it was.'}</div>`
+        : '';
+      body.innerHTML = `
+        ${stateHtml}${flagHtml}
+        <div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">Reference <span class="td-mono">${esc(data.stage_reference || s?.stage_reference || '')}</span>${data.staged_at ? ` · staged ${esc(String(data.staged_at).slice(0, 10))}` : ''}${data.stage_sweep_checked_at ? ` · last checked ${esc(String(data.stage_sweep_checked_at).slice(0, 10))}` : ''}</div>
+      `;
+      footer.innerHTML = `
+        <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>
+        <button class="btn btn-ghost" id="loan-sweep-btn" onclick="runStageSweep('${splitId}')">Check staged payments</button>
+        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-ghost" id="loan-unstage-btn" style="color:var(--red)" onclick="unstageSplit('${splitId}')">Remove stage</button>`}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong loading the staged state: ${esc(e?.message || String(e))}</div>`;
+      footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+    }
+  }
+
+  // Runs the server-side sweep across ALL staged splits (reconciled → posted,
+  // duplicate/stale → flagged). Reads Xero; writes only our own records.
+  async function runStageSweep(reopenSplitId) {
+    const btn = document.getElementById('loan-sweep-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      const { ok, data } = await _loanFn('loan-xero-post', { sweep_stages: true });
+      if (!ok || data.error) throw new Error(data.error || 'The check failed.');
+      const matched = data.matched || 0, flagged = data.flagged || 0;
+      showToast(matched
+        ? `${matched} staged payment${matched === 1 ? '' : 's'} matched in Xero — recorded as posted. 🎉`
+        : (flagged ? `No matches yet — ${flagged} staged payment${flagged === 1 ? '' : 's'} flagged for a look.` : 'No matches yet — staged payments are still waiting.'),
+        matched ? 'success' : 'info');
+      await loadLoans();
+      if (reopenSplitId) {
+        const s = (_allLoanSplits || []).find(x => x.id === reopenSplitId);
+        if (s && s.status === 'staged') { _bkOpenStagedStatusView(reopenSplitId); } else { closeLoanReviewModal(); }
+      }
+    } catch (e) {
+      showToast(e.message || 'The check failed.', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Check staged payments'; }
+    }
+  }
+
+  async function unstageSplit(splitId) {
+    // Two-click confirm (no native dialog — codebase convention): the first click
+    // arms the button, the second within 6s actually removes the stage.
+    const btn = document.getElementById('loan-unstage-btn');
+    if (btn && !btn.dataset.armed) {
+      btn.dataset.armed = '1';
+      btn.textContent = 'Click again to remove from Xero';
+      setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = 'Remove stage'; } }, 6000);
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
+    try {
+      const { ok, data } = await _loanFn('loan-xero-post', {
+        loan_split_id: splitId,
+        unstage: true,
+        posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (!ok || data.error) throw new Error(data.error || 'Could not remove the stage.');
+      closeLoanReviewModal();
+      showToast('Stage removed — Xero is back to how it was, and the split is back in your approvals.', 'success');
+      loadLoans();
+    } catch (e) {
+      showToast(e.message || 'Could not remove the stage.', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Remove stage'; }
+    }
+  }
+
+  // Dispatcher: staging-eligible splits get the staging proposal, staged splits get
+  // their live status, everything else gets the normal review flow unchanged.
   async function openLoanReviewModal(splitId) {
+    const s = (_allLoanSplits || []).find(x => x.id === splitId);
+    if (s && s.status === 'staged') return _bkOpenStagedStatusView(splitId);
+    if (s && _bkStageEligible(s)) return _bkOpenStageView(splitId);
+    return _bkOpenNormalReview(splitId);
+  }
+  // ===================== end session 226 pre-staging (client) =====================
+
+  async function _bkOpenNormalReview(splitId) {
     document.getElementById('modal-loan-review').classList.add('open');
     const body = document.getElementById('loan-review-body');
     const footer = document.getElementById('loan-review-footer');

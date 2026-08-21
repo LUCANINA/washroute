@@ -267,9 +267,78 @@ async function callerRole(req: Request) {
 // doc constraint C11. Still no change to accounts, amounts, dates, signs, or any
 // posting logic -- every wording change in this function has been narration-only.
 
+// v41 (session 226, 2026-08-21): TIER 1 PRE-STAGING (DESIGN-LOAN-POSTING-MODEL.md §4).
+// The inversion David asked for on 2026-08-19 ("Park it. Reuse the function for the trx
+// 'pre-split'"): instead of trying to edit a bank transaction that already exists
+// (impossible once reconciled -- C1+C4), CREATE the transaction ourselves, already
+// split into principal/interest from the loan's amortization schedule, BEFORE the
+// payment arrives in the bank feed. When the statement line lands, Xero's reconcile
+// screen offers our transaction as a Match and the CPA clicks once -- one clean
+// two-line transaction, no Manual Journal at all. Only for loans with
+// loan_accounts.prestage_enabled = true (Verdant / PCV / Dexter today -- the three
+// with forward schedules on file).
+//
+// Four new body shapes, all keyed on an existing loan_splits row except the sweep:
+//   { loan_split_id, stage: true, confirm?: bool }  -- preview, then create the
+//     pre-split SPEND transaction in Xero and mark the split status='staged',
+//     posting_method='pre_staged'. Guards: prestage_enabled; schedule-sourced split
+//     with a linked amortization row; row_date today-or-future (Pacific) -- a past
+//     period belongs to the normal review/approve flow; principal+interest must equal
+//     total to the half-cent; interest > 0 (a 100%-principal payment needs no
+//     pre-split -- the feed line is already correctly coded, Tier 3). Never-stage-twice:
+//     refuses if a live Xero transaction already carries this stage's Reference, or if
+//     a live same-amount transaction already sits on the loan's bank account within
+//     +/-STAGE_DUP_WINDOW_DAYS of the payment date (the payment already happened).
+//     The DB backstop is the partial unique index loan_splits_one_stage_per_amort_row.
+//   { loan_split_id, unstage: true }  -- deletes the staged transaction in Xero
+//     (Status DELETED -- proven safe on unreconciled transactions, C2) and returns the
+//     split to pending_review. Refuses if the transaction has meanwhile been reconciled
+//     (that means it MATCHED -- run the sweep instead). This is also the bail-out for
+//     the live proof: if anything looks wrong, one call removes the stage cleanly.
+//   { loan_split_id }  (dry run on a staged split) -- returns kind:'staged' with the
+//     live Xero state of the staged transaction instead of running the normal
+//     candidate search. confirm/mark on a staged split is a 409: the split's next
+//     transition comes from the bank feed (match) or from unstage, never from Approve.
+//   { sweep_stages: true }  -- no loan_split_id. Walks every status='staged' split:
+//     reconciled -> status 'posted' (the match happened; xero_posted_at stamped);
+//     transaction deleted/voided in Xero by hand -> back to 'pending_review';
+//     a second live same-amount transaction near the stage -> stage_sweep_flag
+//     'duplicate_suspected' (the CPA clicked Create instead of Match -- the exact
+//     danger the design doc names); past due + grace with no match ->
+//     stage_sweep_flag 'stale'. The sweep FLAGS stale stages but never deletes them
+//     on its own -- deleting a stage is unstage, a human action, until pre-staging
+//     has earned enough trust to automate that (deliberate v41 scope choice).
+//     Callable by admin/manager, or by pg_cron presenting the service-role key.
+//
+// The staged transaction's Reference is stable and greppable: "WR-STAGE <code> <date>"
+// -- it is how the sweep, the duplicate check, and any human in Xero recognize a
+// product-created stage. The write reuses the v26 discipline: Xero confirmed first,
+// database second, and a DB failure after a successful Xero write is a LOUD error
+// carrying the transaction id, never a silent inconsistency.
+//
+// v42 (session 226, same day): two hardening fixes from the QA pass. (1) A split
+// carrying an xero_manual_journal_id while NOT status='posted' now hard-409s on
+// confirm -- that shape means the row was regenerated over an already-posted period
+// (loan-generate-schedule-split's upsert resets status without clearing the posting
+// fields), and posting it would duplicate the journal. (2) maybeAutoResolveFlag
+// counts 'staged' splits as still-outstanding, so a "waiting on posting" loan flag
+// can no longer auto-resolve while a pre-staged transaction is still unmatched.
+
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
 const ZERO_TOLERANCE = 0.005 // dollars -- treat anything under half a cent as exactly zero
 const DIRECT_SPLIT_WINDOW_DAYS = 2 // v24 -- David's call, tightened from an initial 3
+
+// v41: pre-staging knobs.
+const STAGE_REF_PREFIX = 'WR-STAGE'
+const STAGE_DUP_WINDOW_DAYS = 5   // +/- days around the payment date for "payment already exists" / duplicate checks
+const STAGE_STALE_GRACE_DAYS = 7  // days past the scheduled date before an unmatched stage is flagged stale
+
+// Same Pacific-day convention as the dashboard's balance code: a schedule row is
+// "future" relative to today in America/Los_Angeles, not UTC.
+const pacificToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date())
+
+const stageReferenceFor = (loanAcct: any, rowDate: string) =>
+  `${STAGE_REF_PREFIX} ${loanAcct.xero_account_code} ${rowDate}`
 
 // The single source of truth for "is this Xero bank transaction real?". AUTHORISED
 // is the only status that hits the ledger; DELETED and VOIDED are still returned by
@@ -407,7 +476,10 @@ async function maybeAutoResolveFlag(supa: any, loanAcct: any): Promise<any> {
       .from('loan_splits')
       .select('id', { count: 'exact', head: true })
       .eq('loan_account_id', loanAcct.id)
-      .in('status', ['pending_review', 'needs_attention'])
+      // v42: 'staged' counts as still-outstanding — a pre-staged transaction is not
+      // posted until the payment actually lands and matches, so a "waiting on
+      // posting" flag must not auto-resolve while a stage is still open.
+      .in('status', ['pending_review', 'needs_attention', 'staged'])
     if (countErr) return { attempted: true, resolved: false, error: countErr.message }
     if ((count ?? 0) > 0) return { attempted: true, resolved: false, remaining_pending_splits: count }
     const { error: rpcErr } = await supa.rpc('mark_loan_flag_resolved', {
@@ -557,18 +629,158 @@ async function findDirectSplitCandidate(
   return { candidate: detail, reason: 'ok' }
 }
 
+// v41: live same-amount transactions on the loan's bank account within +/-days of a
+// date. Shared by the stage-time "payment already exists" check and the sweep's
+// duplicate detection -- one implementation so the two checks can never disagree about
+// what counts as a duplicate. AUTHORISED only (isLiveBankTxn); the staged transaction
+// itself is excluded via excludeId.
+async function findSameAmountTxns(
+  headers: Record<string, string>,
+  bankAccountId: string,
+  amount: number,
+  centerDate: Date,
+  days: number,
+  excludeId?: string,
+): Promise<{ ok: boolean; error?: string; matches: any[] }> {
+  const from = new Date(centerDate); from.setDate(from.getDate() - days)
+  const to = new Date(centerDate); to.setDate(to.getDate() + days)
+  const fmt = (d: Date) => `${d.getFullYear()},${d.getMonth() + 1},${d.getDate()}`
+  const whereClause = `Date >= DateTime(${fmt(from)}) && Date <= DateTime(${fmt(to)})`
+  const r = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${encodeURIComponent(whereClause)}&order=Date DESC`, { headers })
+  if (!r.ok) return { ok: false, error: `Xero BankTransactions query failed: ${r.status}`, matches: [] }
+  const j = await r.json().catch(() => null)
+  const matches = (j?.BankTransactions || []).filter((t: any) =>
+    isLiveBankTxn(t) &&
+    t.BankAccount?.AccountID?.toLowerCase() === bankAccountId.toLowerCase() &&
+    Math.abs(Number(t.Total) - amount) < 0.02 &&
+    (!excludeId || t.BankTransactionID !== excludeId))
+  return { ok: true, matches }
+}
+
+// v41: the stage sweep. Walks every status='staged' split and reads what actually
+// happened in Xero since staging. Writes ONLY to our own loan_splits rows -- the one
+// Xero-facing thing it never does is delete a stage (that is unstage, a human action).
+// See the v41 version note at the top for the full outcome table.
+async function handleStageSweep(req: Request): Promise<Response> {
+  const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')
+  const isService = !!bearer && bearer === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!isService) {
+    const role = await callerRole(req)
+    if (!role || !['admin', 'manager'].includes(role)) {
+      return new Response(JSON.stringify({ error: 'Sweeping staged transactions requires an admin or manager account.' }), { status: 403 })
+    }
+  }
+  const supa = admin()
+  const { data: staged, error: stagedErr } = await supa
+    .from('loan_splits')
+    .select('*, loan_accounts(*), amortization_row:loan_amortization_rows(*)')
+    .eq('status', 'staged')
+  if (stagedErr) {
+    return new Response(JSON.stringify({ error: 'Could not load staged splits', details: stagedErr.message }), { status: 500 })
+  }
+  if (!staged?.length) {
+    return new Response(JSON.stringify({ ok: true, checked: 0, results: [] }), { headers: { 'Content-Type': 'application/json' } })
+  }
+  const { headers } = await getXeroAuth()
+  const today = pacificToday()
+  const nowIso = () => new Date().toISOString()
+  const appendNote = (s: any, note: string) => (s.review_notes ? s.review_notes + ' -- ' : '') + note
+  const results: any[] = []
+  for (const s of staged) {
+    const la = s.loan_accounts
+    const txnId = s.matched_xero_bank_transaction_id
+    const row: any = { loan_split_id: s.id, loan: la?.xero_account_name || la?.lender, period: s.period_label }
+    if (!la?.xero_bank_account_id || !txnId) {
+      // A staged split with no transaction id is a record inconsistency, not a Xero
+      // state -- return it to review loudly rather than leaving it invisible.
+      await supa.from('loan_splits').update({
+        status: 'pending_review', posting_method: 'manual_journal',
+        matched_xero_bank_transaction_id: null, stage_sweep_flag: null,
+        stage_sweep_checked_at: nowIso(),
+        review_notes: appendNote(s, `Stage record was missing its Xero transaction id -- returned to review by the sweep on ${today}.`),
+      }).eq('id', s.id)
+      row.outcome = 'record_inconsistent_returned_to_review'
+      results.push(row); continue
+    }
+    const r = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${txnId}`, { headers })
+    const j = await r.json().catch(() => null)
+    const txn = j?.BankTransactions?.[0]
+    if (!r.ok || !txn) {
+      await supa.from('loan_splits').update({ stage_sweep_checked_at: nowIso() }).eq('id', s.id)
+      row.outcome = 'xero_fetch_failed'; row.status = r.status
+      results.push(row); continue
+    }
+    if (txn.Status !== 'AUTHORISED') {
+      // Someone deleted or voided the stage in Xero directly. Respect that -- the
+      // split goes back to the normal review flow.
+      await supa.from('loan_splits').update({
+        status: 'pending_review', posting_method: 'manual_journal',
+        matched_xero_bank_transaction_id: null, stage_reference: null, staged_at: null,
+        stage_sweep_flag: null, stage_sweep_checked_at: nowIso(),
+        review_notes: appendNote(s, `Staged transaction was ${txn.Status} in Xero by hand -- returned to review by the sweep on ${today}.`),
+      }).eq('id', s.id)
+      row.outcome = 'stage_removed_in_xero'
+      results.push(row); continue
+    }
+    if (txn.IsReconciled) {
+      // The payment arrived and a human clicked Match. This is the whole point.
+      await supa.from('loan_splits').update({
+        status: 'posted',
+        xero_posted_at: nowIso(),
+        stage_sweep_flag: null, stage_sweep_checked_at: nowIso(),
+        review_notes: appendNote(s, `Pre-staged transaction matched against the bank feed (confirmed reconciled in Xero, sweep of ${today}).`),
+      }).eq('id', s.id)
+      const flagAutoResolve = await maybeAutoResolveFlag(supa, la)
+      row.outcome = 'matched'; row.flag_auto_resolve = flagAutoResolve
+      results.push(row); continue
+    }
+    // Still live and unmatched: look for trouble.
+    const stageDate = new Date(txn.DateString?.slice(0, 10) || s.amortization_row?.row_date || today)
+    const dup = await findSameAmountTxns(headers, la.xero_bank_account_id, Number(s.total_amount), stageDate, STAGE_DUP_WINDOW_DAYS, txnId)
+    if (dup.ok && dup.matches.length) {
+      const list = dup.matches.map((t: any) => `${t.DateString?.slice(0, 10)} $${Number(t.Total).toFixed(2)} (${t.BankTransactionID})`).join('; ')
+      await supa.from('loan_splits').update({
+        stage_sweep_flag: 'duplicate_suspected', stage_sweep_checked_at: nowIso(),
+      }).eq('id', s.id)
+      row.outcome = 'duplicate_suspected'
+      row.detail = `The pre-staged transaction is still unmatched, but ${dup.matches.length} other live transaction(s) of the same amount sit on this loan account nearby: ${list}. Most likely someone clicked Create instead of Match on the reconcile screen -- if so, the created duplicate should be removed in Xero and the statement line matched to the staged transaction, or the stage removed here.`
+      results.push(row); continue
+    }
+    const rowDate = s.amortization_row?.row_date ? String(s.amortization_row.row_date).slice(0, 10) : txn.DateString?.slice(0, 10)
+    const staleAfter = new Date(rowDate); staleAfter.setDate(staleAfter.getDate() + STAGE_STALE_GRACE_DAYS)
+    const isStale = today > staleAfter.toISOString().slice(0, 10)
+    await supa.from('loan_splits').update({
+      stage_sweep_flag: isStale ? 'stale' : null, stage_sweep_checked_at: nowIso(),
+    }).eq('id', s.id)
+    row.outcome = isStale ? 'stale' : 'waiting'
+    if (isStale) row.detail = `Scheduled for ${rowDate} and still unmatched ${STAGE_STALE_GRACE_DAYS}+ days later. The real payment may have differed from the schedule (rate change, extra payment, skipped month). Check the bank feed; if the payment isn't coming in this shape, remove the stage.`
+    results.push(row)
+  }
+  return new Response(JSON.stringify({
+    ok: true,
+    checked: staged.length,
+    matched: results.filter(x => x.outcome === 'matched').length,
+    flagged: results.filter(x => ['duplicate_suspected', 'stale'].includes(x.outcome)).length,
+    results,
+  }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+}
+
 async function handleRequest(req: Request): Promise<Response> {
   try {
     if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'POST only' }), { status: 405 })
     const body = await req.json().catch(() => ({}))
-    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by, attach_only, mark_already_in_xero } = body
+    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by, attach_only, mark_already_in_xero, stage, unstage, sweep_stages } = body
+
+    // v41: the sweep is the one mode not keyed on a single split -- it has its own
+    // auth (admin/manager, or pg_cron with the service-role key) and returns early.
+    if (sweep_stages) return await handleStageSweep(req)
     if (!loan_split_id) return new Response(JSON.stringify({ error: 'loan_split_id is required' }), { status: 400 })
 
     const role = await callerRole(req)
     if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403 })
     }
-    if ((confirm || revert || attach_only || mark_already_in_xero) && !['admin', 'manager'].includes(role)) {
+    if ((confirm || revert || attach_only || mark_already_in_xero || unstage) && !['admin', 'manager'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Your account has read-only access -- posting to or reverting from Xero requires an admin or manager.' }), { status: 403 })
     }
 
@@ -696,6 +908,18 @@ async function handleRequest(req: Request): Promise<Response> {
     if (split.status === 'posted' && !attach_only) {
       return new Response(JSON.stringify({ error: 'This split is already posted to Xero.', matched_xero_bank_transaction_id: split.matched_xero_bank_transaction_id, xero_manual_journal_id: split.xero_manual_journal_id }), { status: 409 })
     }
+    // v42: LAST LINE OF DEFENSE for the idempotency invariant. The 409 above keys on
+    // status alone, but a split row can end up status='pending_review' while still
+    // carrying a live journal id — e.g. loan-generate-schedule-split's upsert resets
+    // status on regeneration without clearing the posting fields. Confirming a post
+    // for such a row would create a DUPLICATE Xero journal. Refuse loudly; the revert
+    // path (which clears the id) is the sanctioned way to make such a split postable.
+    if (confirm && !attach_only && split.xero_manual_journal_id && split.status !== 'posted') {
+      return new Response(JSON.stringify({
+        error: `This split already carries Xero Manual Journal ${split.xero_manual_journal_id} even though its status is '${split.status}' — posting again would create a duplicate journal. This usually means the split row was regenerated over an already-posted period. Check the journal in Xero; if it should not exist, use revert; if it should, this row needs its status repaired, not a second post.`,
+        xero_manual_journal_id: split.xero_manual_journal_id,
+      }), { status: 409 })
+    }
     // Session 224: 'already_in_xero' is the resolved state of the exception flow --
     // a human looked at the evidence and recorded that the month was handled
     // directly in Xero. Nothing further to do, ever.
@@ -717,6 +941,216 @@ async function handleRequest(req: Request): Promise<Response> {
     const principal = Number(split.principal_amount)
     const interest = Number(split.interest_amount)
     const totalAmt = Number(split.total_amount)
+
+    // ==================== v41: TIER 1 PRE-STAGING LIFECYCLE ====================
+    // Everything stage-related lives in this one block and always returns -- a
+    // staged split must never fall through into the normal candidate-search /
+    // journal-posting flow below (its next transition comes from the bank feed via
+    // the sweep, or from an explicit unstage).
+    if (stage || unstage || split.status === 'staged' || split.status === 'stage_expired') {
+      const { headers: stHeaders } = await getXeroAuth()
+
+      // --- unstage: delete the staged transaction in Xero, return the split to review ---
+      if (unstage) {
+        if (split.status !== 'staged' || !split.matched_xero_bank_transaction_id) {
+          return new Response(JSON.stringify({ error: 'This split is not currently staged -- nothing to remove.' }), { status: 409 })
+        }
+        const dRes = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${split.matched_xero_bank_transaction_id}`, { headers: stHeaders })
+        const dJson = await dRes.json().catch(() => null)
+        const staged = dJson?.BankTransactions?.[0]
+        if (!dRes.ok || !staged) {
+          return new Response(JSON.stringify({ error: `Could not fetch the staged transaction from Xero to remove it (status ${dRes.status}). Nothing was changed.` }), { status: 502 })
+        }
+        if (staged.IsReconciled) {
+          return new Response(JSON.stringify({ error: 'This staged transaction has already been MATCHED against the bank feed in Xero -- it is now a real reconciled payment and must not be deleted. Run the staged-payments check instead; it will mark this split posted.' }), { status: 409 })
+        }
+        if (staged.Status === 'AUTHORISED') {
+          const delRes = await fetch('https://api.xero.com/api.xro/2.0/BankTransactions', {
+            method: 'POST',
+            headers: { ...stHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ BankTransactions: [{ BankTransactionID: split.matched_xero_bank_transaction_id, Status: 'DELETED' }] }),
+          })
+          const delJson = await delRes.json().catch(() => null)
+          if (!delRes.ok || delJson?.Elements?.[0]?.ValidationErrors?.length) {
+            return new Response(JSON.stringify({ error: 'Xero refused to delete the staged transaction -- the split was left staged.', details: delJson }), { status: 502 })
+          }
+        }
+        const { error: unstageErr } = await supa
+          .from('loan_splits')
+          .update({
+            status: 'pending_review',
+            posting_method: 'manual_journal',
+            matched_xero_bank_transaction_id: null,
+            stage_reference: null, staged_at: null,
+            stage_sweep_flag: null, stage_sweep_checked_at: null,
+            review_notes: (split.review_notes ? split.review_notes + ' -- ' : '') + `Pre-staged transaction removed from Xero ${pacificToday()}${posted_by ? ' by ' + posted_by : ''}; split returned to review.`,
+          })
+          .eq('id', loan_split_id)
+        return new Response(JSON.stringify({
+          ok: true,
+          unstaged: true,
+          deleted_bank_transaction_id: split.matched_xero_bank_transaction_id,
+          loan_splits_update_error: unstageErr?.message,
+        }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+      }
+
+      // --- dry run / stray confirm on an already-staged split: report, never repost ---
+      if (split.status === 'staged' && !stage) {
+        let liveState: any = null
+        if (split.matched_xero_bank_transaction_id) {
+          const lr = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${split.matched_xero_bank_transaction_id}`, { headers: stHeaders })
+          const lj = await lr.json().catch(() => null)
+          const lt = lj?.BankTransactions?.[0]
+          if (lt) liveState = { id: lt.BankTransactionID, date: lt.DateString?.slice(0, 10), total: lt.Total, status: lt.Status, reconciled: lt.IsReconciled, reference: lt.Reference }
+        }
+        if (confirm || mark_already_in_xero) {
+          return new Response(JSON.stringify({ error: 'This split is already staged in Xero as a pre-split transaction -- it will complete on its own when the payment is matched on the reconcile screen. Nothing to approve here.', staged_transaction: liveState }), { status: 409 })
+        }
+        return new Response(JSON.stringify({
+          dry_run: true,
+          kind: 'staged',
+          stage_reference: split.stage_reference,
+          staged_at: split.staged_at,
+          stage_sweep_flag: split.stage_sweep_flag,
+          stage_sweep_checked_at: split.stage_sweep_checked_at,
+          staged_transaction: liveState,
+          split,
+          note: liveState?.reconciled
+            ? 'The staged transaction has been matched in Xero -- run the staged-payments check to mark this split posted.'
+            : `Staged and waiting: a pre-split transaction (${split.stage_reference}) sits in Xero ready for the CPA to Match when the payment lands in the bank feed.`,
+        }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+      }
+
+      // --- stage: preview, then create the pre-split SPEND transaction ---
+      if (!loanAcct.prestage_enabled) {
+        return new Response(JSON.stringify({ error: 'Pre-staging is not enabled for this loan.' }), { status: 409 })
+      }
+      if (!(split.source === 'amortization_schedule' && amortRow)) {
+        return new Response(JSON.stringify({ error: 'Only schedule-sourced splits with a linked amortization row can be pre-staged -- the split must come from the loan\'s own amortization schedule.' }), { status: 409 })
+      }
+      if (!['pending_review', 'stage_expired'].includes(split.status)) {
+        return new Response(JSON.stringify({ error: `This split is ${split.status} -- only a pending-review split can be staged.` }), { status: 409 })
+      }
+      if (Math.abs((principal + interest) - totalAmt) >= ZERO_TOLERANCE) {
+        return new Response(JSON.stringify({ error: `Refusing to stage: principal ($${principal.toFixed(2)}) + interest ($${interest.toFixed(2)}) does not equal the total ($${totalAmt.toFixed(2)}).` }), { status: 409 })
+      }
+      if (interest < ZERO_TOLERANCE || principal < ZERO_TOLERANCE || totalAmt < ZERO_TOLERANCE) {
+        return new Response(JSON.stringify({ error: 'Refusing to stage: pre-staging is for blended payments with a real principal AND interest portion. A 100%-principal payment needs no pre-split (the feed line already codes to the loan account), and a zero/negative amount cannot be a SPEND transaction.' }), { status: 409 })
+      }
+      const rowDate = String(amortRow.row_date).slice(0, 10)
+      const today = pacificToday()
+      if (rowDate < today) {
+        return new Response(JSON.stringify({ error: `This period was scheduled for ${rowDate}, which has already passed -- the payment should be in the bank feed by now. Use the normal review/approve flow instead of staging.` }), { status: 409 })
+      }
+      const stageRef = stageReferenceFor(loanAcct, rowDate)
+
+      // Never stage twice, check 1: a live transaction already carrying this Reference.
+      // Also self-heals the "Xero write succeeded but our DB update failed" gap.
+      const refRes = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${encodeURIComponent(`Reference=="${stageRef}"`)}`, { headers: stHeaders })
+      const refJson = await refRes.json().catch(() => null)
+      if (!refRes.ok) {
+        return new Response(JSON.stringify({ error: `Could not check Xero for an existing stage (status ${refRes.status}) -- refusing to stage blind.` }), { status: 502 })
+      }
+      const existingStage = (refJson?.BankTransactions || []).find((t: any) => isLiveBankTxn(t))
+      if (existingStage) {
+        return new Response(JSON.stringify({
+          error: `A live transaction with reference "${stageRef}" already exists in Xero -- this period is already staged. If our records didn't reflect that, they may need repair.`,
+          existing_bank_transaction_id: existingStage.BankTransactionID,
+        }), { status: 409 })
+      }
+      // Never stage twice, check 2: the payment itself (or a hand-created copy)
+      // already sits on the loan's bank account near the scheduled date.
+      const existing = await findSameAmountTxns(stHeaders, loanAcct.xero_bank_account_id, totalAmt, new Date(rowDate), STAGE_DUP_WINDOW_DAYS)
+      if (!existing.ok) {
+        return new Response(JSON.stringify({ error: `Could not check Xero for an existing payment (${existing.error}) -- refusing to stage blind.` }), { status: 502 })
+      }
+      if (existing.matches.length) {
+        return new Response(JSON.stringify({
+          error: `A live transaction of $${totalAmt.toFixed(2)} already exists on this loan's account within ${STAGE_DUP_WINDOW_DAYS} days of ${rowDate} -- the payment appears to already be in Xero, so there is nothing to stage. Use the normal review/approve flow.`,
+          candidates: existing.matches.map((t: any) => ({ id: t.BankTransactionID, date: t.DateString?.slice(0, 10), total: t.Total, reconciled: t.IsReconciled })),
+        }), { status: 409 })
+      }
+
+      const stAcctMap = await fetchXeroAccountsMap(stHeaders)
+      const proposedLines = [
+        { AccountCode: loanAcct.xero_account_code, AccountName: stAcctMap[loanAcct.xero_account_code] ?? null, Description: `${loanAcct.xero_account_name} principal`, LineAmount: principal },
+        { AccountCode: INTEREST_EXPENSE_ACCOUNT_CODE, AccountName: stAcctMap[INTEREST_EXPENSE_ACCOUNT_CODE] ?? null, Description: 'Interest', LineAmount: interest },
+      ]
+      if (!confirm) {
+        return new Response(JSON.stringify({
+          dry_run: true,
+          kind: 'pre_stage',
+          proposed_transaction: {
+            type: 'SPEND',
+            date: rowDate,
+            contact: loanAcct.lender,
+            reference: stageRef,
+            total: totalAmt,
+            lines: proposedLines,
+          },
+          split,
+          note: `This will create a $${totalAmt.toFixed(2)} pre-split transaction in Xero dated ${rowDate}, ready for the CPA to Match (one click) when the real payment lands in the bank feed. Nothing has been written yet.`,
+        }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+      }
+
+      // confirm === true: create the transaction. Xero first, database second (v26
+      // discipline) -- and a DB failure after a successful create is a LOUD error.
+      const createPayload = {
+        BankTransactions: [{
+          Type: 'SPEND',
+          Contact: { Name: loanAcct.lender },
+          BankAccount: { AccountID: loanAcct.xero_bank_account_id },
+          Date: rowDate,
+          Reference: stageRef,
+          LineAmountTypes: 'NoTax',
+          Status: 'AUTHORISED',
+          LineItems: [
+            { Description: proposedLines[0].Description, Quantity: 1, LineAmount: principal, AccountCode: loanAcct.xero_account_code, TaxType: 'NONE' },
+            { Description: 'Interest', Quantity: 1, LineAmount: interest, AccountCode: INTEREST_EXPENSE_ACCOUNT_CODE, TaxType: 'NONE' },
+          ],
+        }],
+      }
+      const createRes = await fetch('https://api.xero.com/api.xro/2.0/BankTransactions', {
+        method: 'PUT',
+        headers: { ...stHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(createPayload),
+      })
+      const createJson = await createRes.json().catch(() => null)
+      const created = createJson?.BankTransactions?.[0]
+      if (!createRes.ok || createJson?.Elements?.[0]?.ValidationErrors?.length || !created?.BankTransactionID) {
+        return new Response(JSON.stringify({ error: 'Xero refused to create the pre-staged transaction -- nothing was staged.', status: createRes.status, details: createJson }), { status: 502 })
+      }
+      const { error: stageDbErr } = await supa
+        .from('loan_splits')
+        .update({
+          status: 'staged',
+          posting_method: 'pre_staged',
+          matched_xero_bank_transaction_id: created.BankTransactionID,
+          stage_reference: stageRef,
+          staged_at: new Date().toISOString(),
+          stage_sweep_flag: null,
+          stage_sweep_checked_at: null,
+          review_notes: (split.review_notes ? split.review_notes + ' -- ' : '') + `Pre-staged in Xero ${today}${posted_by ? ' by ' + posted_by : ''} as ${stageRef}.`,
+        })
+        .eq('id', loan_split_id)
+      if (stageDbErr) {
+        // The Xero transaction EXISTS. Never report this as a clean failure -- name
+        // the transaction so a human (or the Reference check above, next attempt)
+        // can reconcile our records with reality.
+        return new Response(JSON.stringify({
+          error: `The pre-staged transaction WAS created in Xero (${created.BankTransactionID}, reference ${stageRef}), but our own record could not be updated: ${stageDbErr.message}. Do NOT stage again blindly -- the Reference check will refuse, and the record needs repair.`,
+          bank_transaction_id: created.BankTransactionID,
+        }), { status: 500 })
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        kind: 'pre_stage',
+        staged: true,
+        bank_transaction: { id: created.BankTransactionID, date: rowDate, reference: stageRef, total: totalAmt, lines: proposedLines },
+        note: `Staged: a $${totalAmt.toFixed(2)} pre-split transaction now sits in Xero dated ${rowDate}. When the real payment lands in the bank feed, the reconcile screen will offer it as a Match -- one click, no journal. The staged-payments check watches for the match, a duplicate, or a payment that never comes.`,
+      }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+    }
+    // ==================== end v41 pre-staging lifecycle ====================
 
     // --- attach_only: attach the statement to an ALREADY-posted journal (session 222) ---
     //
