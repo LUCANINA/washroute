@@ -10020,6 +10020,7 @@
             <span style="font-weight:700">${esc(fmtDate(c.date))} — ${esc(fmtMoney(Number(c.amount)))}${c.contact ? ' · ' + esc(c.contact) : ''}</span>
             ${c.coded_to ? `<span style="color:var(--gray-500)">coded to ${esc(c.coded_to.loan_name || c.coded_to.account_name || c.coded_to.account_code || '?')}</span>` : ''}
             ${confLabel(c)}
+            ${c.same_lender ? '<span style="color:#b45309;font-weight:700">same lender</span>' : ''}
             ${c.already_worked ? '<span style="color:#b45309;font-weight:600">already split by your bookkeeper — check with her before touching it</span>' : ''}
           </div>
           <div style="color:var(--gray-600);margin-top:4px">${esc(c.question || '')}</div>

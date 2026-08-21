@@ -214,6 +214,7 @@ function crossLoanCandidatesFor(
   matchKnown: (gap: number) => { amount: number, what: string } | null,
   acctMap: Record<string, string>,
   loanName: string,
+  loanLender: string | null,
 ): any[] {
   const gap = Math.abs(p.diff)
   const out: any[] = []
@@ -234,18 +235,34 @@ function crossLoanCandidatesFor(
       const residue = r2(Math.abs(amt - gap))
       const known = residue < TOL ? null : matchKnown(residue)
       const confidence = residue < TOL ? 'explains_exactly' : (known ? 'explains_with_known' : 'in_span')
+      // v4 live-run lesson (4140): ranking inside the "in span" tier is what
+      // decides whether the real mistake survives the 5-candidate cap. Two
+      // strong signals, both from loan_accounts data, not guesses:
+      //  * same_lender — a payment coded to a SIBLING loan of the SAME lender
+      //    is exactly how a misallocation happens (two Ford loans, one wrong
+      //    click). These outrank everything else in the tier.
+      //  * routine_payment — an amount equal to the sibling loan's own
+      //    scheduled monthly payment is almost certainly where it belongs;
+      //    those sink to the bottom instead of crowding the list.
+      // Closeness to the gap breaks remaining ties, then date.
+      const sameLender = !!(loanLender && la?.lender && la.lender === loanLender)
+      const routine = la?.scheduled_monthly_payment != null && Math.abs(amt - Number(la.scheduled_monthly_payment)) < 1.00
+      const closeness = Math.abs(amt - gap) / Math.max(gap, amt, 1)
       const what = r.srcType === 'BankTransaction' ? 'payment' : 'journal'
       const target = la?.xero_account_name || la?.lender || `account ${otherLines[0].c}`
       const question = confidence === 'explains_exactly'
         ? `A ${money(amt)} ${what} on ${r.date} is coded to ${target} — and it equals this span's gap exactly. Could it have been meant for ${loanName}? If so, recode it in Xero and run this again: this span should tie.`
         : confidence === 'explains_with_known'
           ? `A ${money(amt)} ${what} on ${r.date} is coded to ${target}. It explains this span's gap once ${known!.what} (${money(residue)}) is set aside. Could it have been meant for ${loanName}? If so, recode it in Xero and run this again — this span should shrink to ${money(residue)} or tie.`
-          : `A ${money(amt)} ${what} on ${r.date} to ${target} sits inside this divergent span — worth confirming it went to the right loan.`
+          : sameLender
+            ? `A ${money(amt)} ${what} on ${r.date} went to the same lender but is coded to ${target} — two loans from one lender is exactly where a payment lands on the wrong one. Could it have been meant for ${loanName}? If so, recode it in Xero and run this again.`
+            : `A ${money(amt)} ${what} on ${r.date} to ${target} sits inside this divergent span — worth confirming it went to the right loan.`
       out.push({
         direction: 'maybe_belongs_here', confidence,
         src_type: r.srcType, id: r.srcId, date: r.date, amount: amt,
         contact: r.contact || null, ref: r.ref || null, narration: r.narration || null,
         reconciled: r.reconciled ?? null, already_worked: alreadyWorked(r),
+        same_lender: sameLender, routine_payment: routine, _closeness: closeness,
         coded_to: { account_code: otherLines[0].c ?? null, account_name: acctMap[otherLines[0].c] ?? null, loan_name: la?.xero_account_name || la?.lender || null },
         explains_after: known ? { what: known.what, amount: r2(residue) } : null,
         question,
@@ -276,8 +293,13 @@ function crossLoanCandidatesFor(
       })
     }
   }
-  out.sort((a, b) => (rank[a.confidence] - rank[b.confidence]) || a.date.localeCompare(b.date))
-  return out.slice(0, 5)
+  out.sort((a, b) =>
+    (rank[a.confidence] - rank[b.confidence])
+    || ((a.same_lender ? 0 : 1) - (b.same_lender ? 0 : 1))
+    || ((a.routine_payment ? 1 : 0) - (b.routine_payment ? 1 : 0))
+    || ((a._closeness ?? 1) - (b._closeness ?? 1))
+    || a.date.localeCompare(b.date))
+  return out.slice(0, 5).map(({ _closeness, ...c }) => c)
 }
 
 function entryView(rec: any, code: string, acctMap: Record<string, string>) {
@@ -313,7 +335,7 @@ async function handle(req: Request): Promise<Response> {
   const code = loan.xero_account_code
 
   // v4: every other loan's account code, for the cross-loan misallocation hunt.
-  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, lender, lender_account_number, status')
+  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, lender, lender_account_number, status, scheduled_monthly_payment')
   const otherLoanByCode = new Map<string, any>()
   for (const la of allLoans || []) {
     if (la.id !== loan.id && la.xero_account_code) otherLoanByCode.set(String(la.xero_account_code), la)
@@ -413,7 +435,7 @@ async function handle(req: Request): Promise<Response> {
       period.entries = inWin.slice(0, 12).map(r => entryView(r, code, acctMap))
       // v4: the misallocation hunt — entries on OTHER loans inside this span
       // (or, mirrored, this loan's own entries that may belong elsewhere).
-      period.cross_loan_candidates = crossLoanCandidatesFor(period, siblingPool, entries, otherLoanByCode, matchKnown, acctMap, loan.xero_account_name || 'this loan')
+      period.cross_loan_candidates = crossLoanCandidatesFor(period, siblingPool, entries, otherLoanByCode, matchKnown, acctMap, loan.xero_account_name || 'this loan', loan.lender ?? null)
       // Does one single entry explain the whole gap? (Extra/duplicate entry.)
       const solo = inWin.find(r => Math.abs(r2(effect(r, code)) - diff) < TOL)
       if (solo) {
