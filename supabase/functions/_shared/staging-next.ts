@@ -15,13 +15,19 @@
 //      pending_review / staged / needs_attention, do nothing -- the human already has
 //      a card (or a problem) for this loan in front of them. Stacking future months
 //      would turn the Approvals queue into a wall.
-//   2. Otherwise, walk the FUTURE payment months of the latest schedule in order and
-//      create a pending_review split for the first month that doesn't already have a
-//      consumed split (posted / already_in_xero / anything else). Exactly one.
+//   2. Otherwise, walk the FUTURE payment rows of the latest schedule in order and
+//      create a pending_review split for the first period that doesn't already have
+//      a consumed split (posted / already_in_xero / anything else). Exactly one.
+//      Period granularity follows the loan's cadence: a month with ONE payment row
+//      is a monthly period (period_label 'YYYY-MM', the Verdant/Dexter/PCV shape); a
+//      month with SEVERAL payment rows (PayPal 2's weekly drafts) gets one split PER
+//      ROW, period_label 'YYYY-MM-DD' -- a staged transaction must equal exactly one
+//      bank-feed line, and four separate weekly drafts can never match one monthly
+//      aggregate. (Day labels also match how PayPal 2's 33 historical splits were
+//      already labeled.)
 //   3. Splits are created with the same shape loan-generate-schedule-split uses
-//      (source='amortization_schedule', amounts summed across the month's payment
-//      rows, aggregate months flagged in review_notes) -- downstream stage/post code
-//      treats them identically.
+//      (source='amortization_schedule') -- downstream stage/post code treats them
+//      identically.
 //   4. NEVER overwrite a split whose status isn't pending_review (Tech Debt #21 is
 //      loan-generate-schedule-split's blind upsert doing exactly that; this helper is
 //      written not to repeat it). The upsert here only ever lands on a row this same
@@ -75,16 +81,23 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
   if (rowsErr) return { action: 'skipped', reason: 'lookup_failed', detail: rowsErr.message }
   if (!futureRows?.length) return { action: 'skipped', reason: 'no_future_payment_rows' }
 
-  // Group future payment rows by month, in date order.
+  // Group future payment rows by month, in date order, then split months into
+  // stageable units: one unit per month for monthly cadence, one unit per ROW for
+  // weekly/multi-draft months (see rule 2 in the header).
   const byMonth = new Map<string, any[]>()
   for (const r of futureRows) {
     const label = String(r.row_date).slice(0, 7)
     if (!byMonth.has(label)) byMonth.set(label, [])
     byMonth.get(label)!.push(r)
   }
+  const units: Array<{ label: string, rows: any[] }> = []
+  for (const [monthLabel, rows] of byMonth) {
+    if (rows.length > 1) for (const r of rows) units.push({ label: String(r.row_date).slice(0, 10), rows: [r] })
+    else units.push({ label: monthLabel, rows })
+  }
 
-  // Rule 2: first month without a consumed split gets the card.
-  for (const [periodLabel, rows] of byMonth) {
+  // Rule 2: first unit without a consumed split gets the card.
+  for (const { label: periodLabel, rows } of units) {
     const { data: existing, error: exErr } = await supa
       .from('loan_splits')
       .select('id, status')
@@ -98,7 +111,6 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
     const principal = Math.round(rows.reduce((s: number, r: any) => s + Number(r.principal || 0), 0) * 100) / 100
     const interest = Math.round(rows.reduce((s: number, r: any) => s + Number(r.interest || 0), 0) * 100) / 100
     const total = Math.round(rows.reduce((s: number, r: any) => s + Number(r.payment || 0), 0) * 100) / 100
-    const isAggregate = rows.length > 1
 
     const { data: split, error: splitErr } = await supa
       .from('loan_splits')
@@ -113,7 +125,7 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
         interest_amount: interest,
         total_amount: total,
         status: 'pending_review',
-        review_notes: isAggregate ? `Aggregated from ${rows.length} schedule rows in ${periodLabel} (e.g. origination month with multiple partial payments).` : null,
+        review_notes: null,
       }, { onConflict: 'loan_account_id,period_label' })
       .select()
       .single()
