@@ -151,6 +151,55 @@ function effect(rec: any, code: string) {
   return -amt
 }
 
+// ── v19 (session 226, 2026-08-21): CHECKPOINT FROM XERO'S OWN TRIAL BALANCE ──
+// The rolling checkpoint had a poisoning hole, found live: David recoded two
+// 4140 transactions in Xero (the $5,000 Aug-11 payment and the Aug-17 interest
+// split), re-ran the check, and the finding stayed frozen at $6,070.29 across
+// four runs — checkpoint['242'] was carried forward at 16,755.81 forever. The
+// mechanism: cp lived at the window END (prev run's period_to) and the anchor
+// balance walked BACKWARD from it, so an edit to any entry dated at-or-before
+// the anchor changed the true balance but never entered the walk. Nothing ever
+// invalidated the cache; re-running could not recover, and neither could deep
+// mode. changedOld only caught edits dated before the WINDOW, and only added
+// them to the ledger — it never repaired cp.
+//
+// The fix removes the fragile state instead of patching it: every run now asks
+// Xero itself for each loan account's balance at the day before windowFrom
+// (GET /Reports/TrialBalance?date=…, verified live in the capability matrix
+// and already used in production by payroll-check-attention), then walks
+// FORWARD through the freshly pulled window. Any edit, any date, any age is
+// self-healing: in-window edits are re-read every run, and pre-window edits
+// move the Trial Balance figure automatically. The stored rolling checkpoint
+// remains ONLY as a fallback for a failed report fetch (marked untrusted in
+// the run summary so the report says which basis was used).
+//
+// Sign convention: loan accounts are liabilities, so the report's YTD columns
+// give balance = credit − debit (mirrors payroll-check-attention's cells[3]/
+// cells[4] parse, sign flipped for the liability side).
+async function fetchTrialBalances(date: string): Promise<Record<string, number> | null> {
+  try {
+    const { accessToken: token, tenantId } = await getXeroAuth()
+    const r = await fetch(`https://api.xero.com/api.xro/2.0/Reports/TrialBalance?date=${date}`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' },
+    })
+    if (!r.ok) return null
+    const j = await r.json().catch(() => null)
+    if (!j?.Reports?.[0]) return null
+    const out: Record<string, number> = {}
+    for (const section of j.Reports[0].Rows || []) {
+      for (const row of section.Rows || []) {
+        const label = row.Cells?.[0]?.Value || ''
+        const m = label.match(/\((\S+)\)\s*$/)
+        if (!m) continue
+        const d = parseFloat(row.Cells?.[3]?.Value || '0') || 0
+        const c = parseFloat(row.Cells?.[4]?.Value || '0') || 0
+        out[m[1]] = Math.round((c - d) * 100) / 100
+      }
+    }
+    return out
+  } catch { return null }
+}
+
 async function pullXero(fromDate: string, toDate: string, modifiedSince: string | null) {
   const { accessToken: token, tenantId } = await getXeroAuth()
 
@@ -833,6 +882,12 @@ async function handle(req: Request): Promise<Response> {
     // by date — so future-dated entries inform the checks without inflating the balance.
     const pullTo = addDays(today, 60)
 
+    // v19: the checkpoint is Xero's own Trial Balance at the day before the
+    // window opens — primary data, refreshed every run, immune to edits of any
+    // age. The stored rolling checkpoint is only the fallback below.
+    const tbDate = addDays(windowFrom, -1)
+    const tb = await fetchTrialBalances(tbDate)
+
     const { entries, changedOld } = await pullXero(windowFrom, pullTo, prev?.started_at ?? null)
     const relevantChangedOld = changedOld.filter(r => r.lines.some((l: any) => codes.includes(l.c)))
     const allEntries = [...entries, ...relevantChangedOld]
@@ -842,9 +897,12 @@ async function handle(req: Request): Promise<Response> {
     const tieOuts: TieOut[] = []
     for (const loan of active) {
       const code = loan.xero_account_code
-      const cpDate = checkpointDate || windowFrom
-      const cp = checkpoints[code] ?? 0
-      const haveCheckpoint = checkpointDate != null && checkpoints[code] != null
+      // v19: Trial Balance first (a code absent from the report is a genuine
+      // zero balance — Xero omits zero rows); the rolled checkpoint only when
+      // the report fetch failed this run.
+      const cpDate = tb ? tbDate : (checkpointDate || windowFrom)
+      const cp = tb ? (tb[code] ?? 0) : (checkpoints[code] ?? 0)
+      const haveCheckpoint = tb ? true : (checkpointDate != null && checkpoints[code] != null)
       const mine = (statements || []).filter(s => s.loan_account_id === loan.id)
       const stmtAnchors = mine
         .filter(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date <= today)
@@ -932,13 +990,15 @@ async function handle(req: Request): Promise<Response> {
     }
 
     // New checkpoint for the next run.
+    // v19: the stored checkpoint is now only a fallback, but keep it fresh from
+    // whichever basis THIS run trusted, so a future run with a failed Trial
+    // Balance fetch falls back to something recent rather than something stale.
     const newCheckpoint: Record<string, number> = {}
     for (const loan of active) {
       const code = loan.xero_account_code
-      const cpDate = checkpointDate || windowFrom
-      newCheckpoint[code] = checkpoints[code] != null
-        ? balanceAt(code, today, ledger, checkpoints[code], cpDate)
-        : (checkpoints[code] ?? 0)
+      const cpDateForRoll = tb ? tbDate : (checkpointDate || windowFrom)
+      const cpForRoll = tb ? (tb[code] ?? 0) : (checkpoints[code] ?? 0)
+      newCheckpoint[code] = balanceAt(code, today, ledger, cpForRoll, cpDateForRoll)
     }
 
     const counts = {
@@ -969,7 +1029,8 @@ async function handle(req: Request): Promise<Response> {
         checkpoint: newCheckpoint,
         xero_entries_scanned: allEntries.length,
         changed_old_entries: relevantChangedOld.length,
-        checkpoint_trusted: checkpointDate != null,
+        checkpoint_trusted: tb != null || checkpointDate != null,
+        checkpoint_basis: tb ? 'trial_balance' : (checkpointDate != null ? 'rolled_fallback' : 'none'),
       },
       narrative_source: 'template',
       report_path: reportPath,
