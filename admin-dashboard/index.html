@@ -9992,11 +9992,11 @@
       parts.push(`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;color:var(--gray-700);line-height:1.55">${esc(data.narrative || '')}</div>`);
     }
     if (data.verdict === 'not_enough_history') return parts.join('');
-    // Everything below is evidence — collapsed by default (native details/summary).
-    const evidence = [];
-    // The walk, span by span. Offsetting (timing) pairs read as calm gray, not red.
+    // Session 226 v7 (David): the output is the bullets + the span table, FULL
+    // STOP. No entry dumps, no candidate cards, no amount-hunt list — the
+    // candidates power the bullets server-side and never render on their own.
     if (Array.isArray(data.periods) && data.periods.length) {
-      evidence.push(`<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      parts.push(`<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
         <tr style="color:var(--gray-500);text-align:left"><th style="padding:4px 8px;font-weight:600">Statement span</th><th style="padding:4px 8px;font-weight:600">Lender moved</th><th style="padding:4px 8px;font-weight:600">Xero moved</th><th style="padding:4px 8px;font-weight:600">Verdict</th></tr>
         ${data.periods.map(p => `<tr style="border-top:1px solid var(--gray-100)">
           <td style="padding:5px 8px;white-space:nowrap">${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))}</td>
@@ -10008,50 +10008,6 @@
             : `✗ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))}`}</td>
         </tr>`).join('')}
       </table></div>`);
-    }
-    // Evidence for REAL divergent spans (paired/timing spans carry none)
-    (data.periods || []).filter(p => p.verdict === 'divergent' && Array.isArray(p.entries)).forEach(p => {
-      evidence.push(`<div style="margin-top:8px;font-size:11.5px;font-weight:700;color:var(--gray-500)">What Xero holds for ${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))}:</div>` +
-        p.entries.map(en => `<div style="margin-top:6px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12px">
-          <div style="font-weight:600">${esc(fmtDate(en.date))} — ${esc(en.src_type === 'ManualJournal' ? (en.narration || 'Manual journal') : (en.contact || en.ref || 'Bank transaction'))} ${en.already_worked ? '<span style="color:#16a34a;font-weight:600"> · already split by your bookkeeper</span>' : ''}</div>
-          ${(en.lines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.description || '(no description)')} — ${esc(fmtMoney(Number(l.amount)))} → ${esc(String(l.account_code))}${l.account_name ? ` — ${esc(l.account_name)}` : ''}</div>`).join('')}
-        </div>`).join(''));
-    });
-    // Session 226: cross-loan misallocation candidates — the "could this be the
-    // mistake?" list David asked for after finding 4140's $5,000 payment coded
-    // to the wrong Ford loan by hand. Each is a QUESTION with a next step, not
-    // a proposal: the bookkeeper recodes the transaction in Xero, re-runs the
-    // analysis, and the span ties or shrinks.
-    (data.periods || []).filter(p => p.verdict === 'divergent' && Array.isArray(p.cross_loan_candidates) && p.cross_loan_candidates.length).forEach(p => {
-      const confLabel = (c) => c.confidence === 'explains_exactly'
-        ? '<span style="color:#166534;font-weight:700">explains this span exactly</span>'
-        : c.confidence === 'explains_with_known'
-          ? '<span style="color:#166534;font-weight:700">explains most of this span</span>'
-          : '<span style="color:var(--gray-500);font-weight:600">worth a look</span>';
-      evidence.push(`<div style="margin-top:10px;font-size:11.5px;font-weight:700;color:var(--gray-500)">💡 Could this be the mistake? (${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))})</div>` +
-        p.cross_loan_candidates.map(c => `<div style="margin-top:6px;padding:9px 11px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;line-height:1.5">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline">
-            <span style="font-weight:700">${esc(fmtDate(c.date))} — ${esc(fmtMoney(Number(c.amount)))}${c.contact ? ' · ' + esc(c.contact) : ''}</span>
-            ${c.coded_to ? `<span style="color:var(--gray-500)">coded to ${esc(c.coded_to.loan_name || c.coded_to.account_name || c.coded_to.account_code || '?')}</span>` : ''}
-            ${confLabel(c)}
-            ${c.same_lender ? '<span style="color:#b45309;font-weight:700">same lender</span>' : ''}
-            ${c.already_worked ? '<span style="color:#b45309;font-weight:600">already split by your bookkeeper — check with her before touching it</span>' : ''}
-          </div>
-          <div style="color:var(--gray-600);margin-top:4px">${esc(c.question || '')}</div>
-        </div>`).join(''));
-    });
-    // Amount fingerprint hunt
-    const h = data.fingerprint_hunt;
-    if (h && !h.error && Array.isArray(h.matches)) {
-      evidence.push(`<div style="margin-top:10px;font-size:11.5px;font-weight:700;color:var(--gray-500)">Every live Xero transaction of exactly ${esc(fmtMoney(Number(h.amount)))} (${esc(h.equals || '')}):</div>` +
-        h.matches.filter(m => m.live).map(m => `<div style="margin-top:6px;padding:8px 10px;background:${m.touches_this_loan ? 'var(--gray-50)' : '#fffbeb'};border:1px solid ${m.touches_this_loan ? 'var(--gray-200)' : '#fde68a'};border-radius:8px;font-size:12px">
-          <div style="font-weight:600">${esc(fmtDate(m.date))} — ${esc(m.contact || m.ref || m.type || 'Transaction')}${m.touches_this_loan ? '' : ' <span style="color:#b45309;font-weight:700">· NOT coded to this loan</span>'}</div>
-          <div style="color:var(--gray-500);margin-top:2px">Money went to: ${esc((m.coded_to || []).join(', ') || '?')}</div>
-        </div>`).join(''));
-    }
-    // Session 226: all of it folds behind one toggle — the bullets above are the message.
-    if (evidence.length) {
-      parts.push(`<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent)">Show the full evidence — every span, entry, and candidate</summary>${evidence.join('')}</details>`);
     }
     // CPA exception
     if (data.cpa_exception) {

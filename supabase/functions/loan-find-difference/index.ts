@@ -61,6 +61,15 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // Z" when two strong candidates exist), and the pre-window residual. The
 // client renders ONLY the bullets up front; the span table, entries, and
 // candidate cards live behind a "show the full evidence" toggle.
+//
+// v7 (session 226, third pass — David: "Keep whittling down the text to the
+// absolute minimum. Where things go off the rails is everything past those 2
+// sections. Remove it entirely."): the OUTPUT is the bullets plus the span
+// table, full stop. Per-span entry dumps are no longer emitted at all, and
+// the client renders no candidate cards and no amount-hunt list — candidates
+// still power the hypothesis bullets internally, they just never appear as
+// their own wall of cards. The safe-fix proposal and the CPA exception
+// remain (they are actions, not evidence).
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -499,12 +508,11 @@ async function handle(req: Request): Promise<Response> {
     b.timing_pair = { role: 'second', with: `${a.from} → ${a.to}`, ...pairInfo }
   }
 
-  // Evidence and the misallocation hunt only for spans that remain REAL after
-  // pairing — this is what keeps the output at bullets instead of a wall.
+  // The misallocation hunt only for spans that remain REAL after pairing.
+  // v7: no per-span entry dumps are emitted anymore — the candidates feed the
+  // hypothesis bullets and nothing else renders.
   for (const period of periods) {
     if (period.verdict !== 'divergent' || period.timing_pair) continue
-    const inWin = entries.filter(r => r.date > period.from && r.date <= period.to)
-    period.entries = inWin.slice(0, 12).map(r => entryView(r, code, acctMap))
     period.cross_loan_candidates = crossLoanCandidatesFor(period, siblingPool, entries, otherLoanByCode, matchKnown, acctMap, loan.xero_account_name || 'this loan', loan.lender ?? null)
   }
 
@@ -631,7 +639,7 @@ async function handle(req: Request): Promise<Response> {
     if (p.culprit?.kind === 'duplicate_suspected' && p.culprit.entry) {
       return `The ${p.from} → ${p.to} span is off by ${gap} — most likely the ${money(Math.abs(p.culprit.entry.effect_on_loan))} entry on ${p.culprit.entry.date} is a duplicate of the one beside it. Remove the copy in Xero and run this again.`
     }
-    if (!c1) return `The ${p.from} → ${p.to} span is off by ${gap} with no clear candidate — the evidence below names its entries for your CPA.`
+    if (!c1) return `The ${p.from} → ${p.to} span is off by ${gap} with no clear candidate — one for your CPA, with the dates pinned in the table below.`
     const c2 = cands[1]
     const secondStrong = c2 && (c2.confidence !== 'in_span' || (c2.same_lender && c1.same_lender))
     if (secondStrong) {
@@ -644,7 +652,10 @@ async function handle(req: Request): Promise<Response> {
     return s
   }
   for (const p of realDivergent.slice(0, 2)) conclusions.push(hypFor(p))
-  if (realDivergent.length > 2) conclusions.push(`${realDivergent.length - 2} more span${realDivergent.length - 2 === 1 ? '' : 's'} still diverge — their evidence is below, one card each.`)
+  if (realDivergent.length > 2) {
+    const rest = realDivergent.slice(2)
+    conclusions.push(`${rest.length} more span${rest.length === 1 ? ' diverges' : 's diverge'} (${rest.map(p => `${p.from} → ${p.to}, ${money(Math.abs(p.diff))}`).join('; ')}) — fix the above first and run this again; ${rest.length === 1 ? 'it' : 'they'}'ll get ${rest.length === 1 ? 'its' : 'their'} own read.`)
+  }
 
   if (residual != null && Math.abs(residual) >= TOL && conclusions.length < 4) {
     const k = matchKnown(residual)
