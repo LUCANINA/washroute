@@ -9942,7 +9942,7 @@
     const out = document.getElementById('fdiff-out-' + findingId);
     if (!out) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Analyzing — walking both histories… (can take a minute)'; }
-    const { ok, data } = await _loanFn('loan-find-difference', { loan_account_id: loanId });
+    const { ok, data } = await _loanFn('loan-find-difference', { loan_account_id: loanId }, 180000);
     if (btn) { btn.disabled = false; btn.textContent = '🔍 Find the difference'; }
     if (!ok || data.error) {
       out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">${esc(data.error || 'The analysis failed — try again in a moment.')}</div>`;
@@ -10008,7 +10008,7 @@
     const { ok, data } = await _loanFn('loan-find-difference', {
       loan_account_id: loanId, post_fix: true, proposal_token: token,
       posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
-    });
+    }, 180000);
     const out = document.getElementById('fdiff-out-' + findingId);
     if (!ok || data.error) {
       showToast(data.error || 'Could not post the correction.', 'error');
@@ -10090,16 +10090,18 @@
                                      // transaction histories, amortization schedules, correspondence, etc.
   let _loanDocsCurrentLoanId = null;
 
-  async function _loanFn(name, bodyObj) {
+  async function _loanFn(name, bodyObj, timeoutMs) {
     // Bug fix (session 205 cont.): this used to let a network failure/timeout/CORS
     // error propagate as an uncaught exception straight out of the fetch call --
     // any caller that awaited it without its own try/catch (e.g. openLoanReviewModal)
     // would then be stuck forever on its "loading…" state with no visible error.
-    // Now every failure mode -- thrown fetch error, hung request past 25s, or a
-    // non-JSON response -- resolves to a normal {ok:false, data:{error}} result
+    // Now every failure mode -- thrown fetch error, hung request past the timeout,
+    // or a non-JSON response -- resolves to a normal {ok:false, data:{error}} result
     // instead, so callers can always just check `ok`/`data.error` like normal.
+    // Session 225: timeoutMs is overridable — the Find-the-difference walk reads
+    // months of Xero history and legitimately outlives the 25s default.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs || 25000);
     try {
       const { data: { session } = {} } = await db.auth.getSession();
       const jwt = session?.access_token || SUPA_ANON_KEY;

@@ -107,28 +107,51 @@ const normMJ = (x: any) => ({
   lines: (x.JournalLines || []).map((l: any) => ({ d: l.Description, c: l.AccountCode, a: l.LineAmount })),
 })
 
-// Month-sliced window pull, same shape as reconciliation-run's (a single wide
-// where-window can silently truncate; monthly slices never approach the cap).
-async function pullWindow(fromDate: string, toDate: string, headers: Record<string, string>) {
-  const months: Array<[string, string]> = []
-  for (let cur = fromDate.slice(0, 8) + '01'; cur <= toDate;) {
-    const d = new Date(cur + 'T00:00:00Z')
-    const nextMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))
-    const endOfMonth = new Date(nextMonth.getTime() - 86400000).toISOString().slice(0, 10)
-    months.push([cur < fromDate ? fromDate : cur, endOfMonth > toDate ? toDate : endOfMonth])
-    cur = nextMonth.toISOString().slice(0, 10)
-  }
-  if (months.length > 18) throw new Error(`window_too_wide:${months.length}`)
+// Window pull. Two speeds (session 225, after the first live run timed out):
+//
+// FAST PATH — when the loan knows its own bank account, ONE BankTransactions
+// query scoped by BankAccount.AccountID covers the whole window in a handful of
+// pages. This is loan-ingest-statement's v19 lesson applied here: an 18-month
+// org-wide crawl is ~70 pages and ~90 seconds of month slices; the same window
+// scoped to one bank account is a few hundred rows. Manual journals are always
+// pulled org-wide for the window (they carry the split/correction entries and
+// number in the hundreds, not thousands). The 30-page cap still HARD-FAILS on
+// truncation rather than analyzing partial data.
+//
+// SLOW FALLBACK — a loan with no xero_bank_account_id gets the original
+// month-sliced org-wide pull (complete but slow; a single wide unscoped window
+// can silently truncate, monthly slices never approach the cap).
+async function pullWindow(fromDate: string, toDate: string, headers: Record<string, string>, bankAccountId: string | null) {
+  const [fy, fm, fd] = fromDate.split('-').map(Number)
+  const [ty, tm, td] = toDate.split('-').map(Number)
+  const dateClause = `Date>=DateTime(${fy},${fm},${fd})&&Date<=DateTime(${ty},${tm},${td})`
   const bt: any[] = [], mj: any[] = []
-  for (const [mFrom, mTo] of months) {
-    const [ay, am, ad] = mFrom.split('-').map(Number)
-    const [by, bm, bd] = mTo.split('-').map(Number)
-    const w = encodeURIComponent(`Date>=DateTime(${ay},${am},${ad})&&Date<=DateTime(${by},${bm},${bd})`)
-    bt.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions')).map(normBT))
+
+  if (bankAccountId) {
+    const w = encodeURIComponent(`BankAccount.AccountID==Guid("${bankAccountId}")&&${dateClause}`)
+    bt.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', 30)).map(normBT))
     await sleep(300)
-    mj.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${w}&order=Date`, headers, 'ManualJournals')).map(normMJ))
-    await sleep(300)
+  } else {
+    const months: Array<[string, string]> = []
+    for (let cur = fromDate.slice(0, 8) + '01'; cur <= toDate;) {
+      const d = new Date(cur + 'T00:00:00Z')
+      const nextMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))
+      const endOfMonth = new Date(nextMonth.getTime() - 86400000).toISOString().slice(0, 10)
+      months.push([cur < fromDate ? fromDate : cur, endOfMonth > toDate ? toDate : endOfMonth])
+      cur = nextMonth.toISOString().slice(0, 10)
+    }
+    if (months.length > 18) throw new Error(`window_too_wide:${months.length}`)
+    for (const [mFrom, mTo] of months) {
+      const [ay, am, ad] = mFrom.split('-').map(Number)
+      const [by, bm, bd] = mTo.split('-').map(Number)
+      const w = encodeURIComponent(`Date>=DateTime(${ay},${am},${ad})&&Date<=DateTime(${by},${bm},${bd})`)
+      bt.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions')).map(normBT))
+      await sleep(300)
+    }
   }
+
+  mj.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${encodeURIComponent(dateClause)}&order=Date`, headers, 'ManualJournals', 30)).map(normMJ))
+
   const seen = new Set<string>()
   return [...bt, ...mj].filter(r => { if (seen.has(r.srcId)) return false; seen.add(r.srcId); return true })
 }
@@ -248,7 +271,7 @@ async function handle(req: Request): Promise<Response> {
   const winTo = usable[usable.length - 1].statement_date
   let entries: any[]
   try {
-    entries = (await pullWindow(winFrom, winTo, headers)).filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code)))
+    entries = (await pullWindow(winFrom, winTo, headers, loan.xero_bank_account_id ?? null)).filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code)))
   } catch (e) {
     return new Response(JSON.stringify({ error: String((e as Error).message || e) }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
@@ -392,7 +415,8 @@ async function handle(req: Request): Promise<Response> {
     ok: true, mode: 'analyze' as string,
     loan: { id: loan.id, name: loan.xero_account_name, code },
     headline,
-    window: { from: winFrom, to: winTo, anchors_used: usable.length, truncated_before: truncated, skipped_for_basis: skippedForBasis },
+    window: { from: winFrom, to: winTo, anchors_used: usable.length, truncated_before: truncated, skipped_for_basis: skippedForBasis,
+      read_via: loan.xero_bank_account_id ? 'bank transactions scoped to this loan\'s own bank account, plus every manual journal in the window' : 'org-wide month-sliced pull' },
     periods, agree_until: lastClean,
     total_period_diff: totalPeriodDiff, residual_before_window: residual,
     fingerprint_hunt: hunt,
