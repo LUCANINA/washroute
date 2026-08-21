@@ -3308,10 +3308,39 @@
             .bk-dot.amber { background: #d97706; }
             .bk-dot.red { background: #dc2626; }
             .bk-dot.green { background: #16a34a; }
+            .bk-dot.gray { background: var(--gray-300); }
             .bk-queue-name { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
             .bk-queue-reason { font-size: 12.5px; color: var(--gray-500); margin-top: 2px; line-height: 1.45; }
             .bk-review-link { font-size: 12.5px; font-weight: 600; color: var(--accent); white-space: nowrap; padding-top: 1px; }
             .bk-queue-empty { color: var(--gray-400); font-size: 13px; padding: 26px; text-align: center; }
+            /* Session 225: issue hierarchy. Tier 1 ("Fix first") gets weight,
+               tier 3 ("Good to know") gets quiet + a one-click archive. */
+            .bk-tier-head { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 12px 20px 4px; }
+            .bk-tier-head.t1 { color: #dc2626; }
+            .bk-tier-head.t2 { color: #d97706; }
+            .bk-queue-row.bk-t1 { border-left: 3px solid #dc2626; background: #fffbfa; padding-left: 17px; }
+            .bk-queue-row.bk-t1 .bk-queue-name { font-size: 14px; }
+            .bk-queue-row.bk-t3 .bk-queue-name { font-weight: 500; color: var(--gray-600); }
+            .bk-gtk-line { display: flex; align-items: center; gap: 14px; padding: 12px 20px; font-size: 12.5px; color: var(--gray-500); border-top: 1px solid var(--gray-100); }
+            .bk-gtk-toggle { font-weight: 600; cursor: pointer; }
+            .bk-gtk-toggle:hover { color: var(--gray-700); }
+            .bk-gotit-btn { flex: none; font-size: 12px; font-weight: 600; padding: 4px 10px; border: 1px solid var(--gray-200); border-radius: 8px; background: #fff; color: var(--gray-600); cursor: pointer; transition: all .12s; }
+            .bk-gotit-btn:hover { border-color: #16a34a; color: #16a34a; background: #f0fdf4; }
+            /* The victory: a check that draws itself, a green wash, then the row
+               folds away. Confetti is reserved for the moment the queue hits zero. */
+            .bk-row-clearing { background: #ecfdf5 !important; border-left-color: #16a34a !important; pointer-events: none; }
+            .bk-victory-check { flex: none; width: 22px; height: 22px; }
+            .bk-victory-check path { fill: none; stroke: #16a34a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 30; stroke-dashoffset: 30; animation: bkCheckDraw .45s ease-out .05s forwards; }
+            @keyframes bkCheckDraw { to { stroke-dashoffset: 0; } }
+            .bk-row-folding { transition: opacity .28s ease, max-height .3s ease .05s, padding .3s ease .05s; opacity: 0 !important; max-height: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important; overflow: hidden; }
+            .bk-count-bounce { display: inline-block; animation: bkCountBounce .45s ease; }
+            @keyframes bkCountBounce { 0% { transform: scale(1); } 35% { transform: scale(1.18); } 100% { transform: scale(1); } }
+            .bk-confetti-piece { position: absolute; width: 7px; height: 11px; border-radius: 2px; top: -14px; animation: bkConfettiFall 1.5s ease-in forwards; pointer-events: none; }
+            @keyframes bkConfettiFall { 0% { transform: translate(0, 0) rotate(0deg); opacity: 1; } 100% { transform: translate(var(--cf-x), 240px) rotate(var(--cf-r)); opacity: 0; } }
+            .bk-allclear { text-align: center; padding: 34px 20px; }
+            .bk-allclear-badge { width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%; background: #f0fdf4; border: 1.5px solid #bbf7d0; display: flex; align-items: center; justify-content: center; }
+            .bk-allclear-title { font-size: 14.5px; font-weight: 700; color: var(--gray-900); }
+            .bk-allclear-sub { font-size: 12.5px; color: var(--gray-500); margin-top: 3px; }
             /* Session 223 cont. 2: the REELOAD dropzone — one entry point for
                every document. Routes into the existing loan-intake / payroll
                upload modals until the ingestion engine can classify files
@@ -8265,6 +8294,14 @@
   let _bkKpiCapturedAt = null;
   let _bkOverviewSeg = 'issues';
   let _bkOvQueueExpanded = { issues: false, approvals: false };
+  // Session 225 issue hierarchy state: archived good-to-know items (from
+  // bk_issue_dismissals, keyed by the queue item's stable key), the collapsed/
+  // expanded state of the good-to-know section and the archived list, and the
+  // last-seen issue count (for detecting the "queue just hit zero" moment).
+  let _bkDismissals = new Map();
+  let _bkGtkOpen = false;
+  let _bkArchivedOpen = false;
+  let _bkPrevIssueCount = null;
   let _retailReclassPeriod = null;  // e.g. '2026-07' while the monthly retail cash reclass is outstanding
 
   async function loadBookkeepingKpis() {
@@ -8351,6 +8388,12 @@
       }
       items.push({
         key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
+        // Session 225 hierarchy: tier 1 "Fix first" = money is wrong in the
+        // books or posting is blocked; tier 2 "Worth a look" = an anomaly that
+        // doesn't corrupt anything. Loan flags and split mismatches are always
+        // tier 1; reconciliation findings follow their own severity.
+        tier: it.severityRank === 0 ? 1 : 2,
+        amount: it.amount,
         name: it.title, reason: it.explain || 'Needs a decision.',
         action: 'Review', onclick, detailHtml,
         // Evidence next to the question (session 224 cont.): when a stored
@@ -8359,19 +8402,43 @@
         peek: _bkAttnPeekSpec(it) ? `bkPeekAttn('${it.key}')` : null,
       });
     });
+    // Reconciliation "info" findings — real, but explicitly "nothing to do" per
+    // the engine. Session 225: they join the queue as the good-to-know tier
+    // (collapsed, archivable) instead of living only at the bottom of the Loans
+    // card, so the hierarchy has one home.
+    _bkReconInfoFindings().forEach(f => items.push({
+      key: 'recon-' + f.id, dot: 'gray', tier: 3, archive: true,
+      name: f.title || 'For information', reason: _bkOneLine(f.plain_english || ''),
+      detailHtml: f.plain_english ? `<div style="white-space:pre-wrap">${esc(f.plain_english)}</div>` : null,
+    }));
     (_allPayrollNotices || []).forEach(nt => items.push({
-      key: 'pnotice-' + nt.key, dot: nt.severity === 'error' ? 'red' : 'amber',
+      // A non-error payroll notice is by its own copy "a standing note for your
+      // CPA — nothing to click here": good-to-know, archivable. Errors stay tier 1.
+      key: 'pnotice-' + nt.key, dot: nt.severity === 'error' ? 'red' : 'gray',
+      tier: nt.severity === 'error' ? 1 : 3, archive: nt.severity !== 'error',
       name: nt.title || 'Payroll notice', reason: _bkOneLine(nt.detail || ''),
-      action: 'Review',
+      action: nt.severity === 'error' ? 'Review' : null,
       detailHtml: nt.detail ? `<div style="white-space:pre-wrap">${esc(nt.detail)}</div><div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">A standing note for your CPA — nothing to click here.</div>` : null,
     }));
     (_allPayrollImports || []).filter(i => i.attention_flag).forEach(imp => items.push({
       key: 'pflag-' + imp.id, dot: imp.attention_flag === 'unmapped_employees' ? 'red' : 'amber',
+      tier: imp.attention_flag === 'unmapped_employees' ? 1 : 2,
       name: `Payroll ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}`,
       reason: _bkOneLine(imp.attention_summary || ''),
       action: 'Review', onclick: `openPayrollReviewModal('${imp.id}')`,
     }));
-    return items;
+    // Archived good-to-know items leave the queue (restorable from the
+    // Archived list); within a tier, bigger dollar impact floats up.
+    const live = items.filter(i => !_bkDismissals.has(i.key));
+    live.sort((a, b) => (a.tier - b.tier) || ((Number(b.amount) || 0) - (Number(a.amount) || 0)) || String(a.name).localeCompare(String(b.name)));
+    return live;
+  }
+
+  // The archived ("Got it") items, newest first — shown behind the Archived
+  // link in the good-to-know section, each restorable with one click.
+  function _bkArchivedItems() {
+    return Array.from(_bkDismissals.values())
+      .sort((a, b) => (a.dismissed_at || '') < (b.dismissed_at || '') ? 1 : -1);
   }
 
   // APPROVALS: nothing is wrong — computed and waiting on a human to approve.
@@ -8412,7 +8479,8 @@
   function _bkQueueRowHtml(it) {
     const panelId = it.detailHtml ? 'bk-qd-' + String(it.key).replace(/[^a-zA-Z0-9_-]/g, '') : null;
     const click = panelId ? `_bkToggleAttnDetail('${panelId}', null)` : (it.onclick || '');
-    return `<div class="bk-queue-row"${click ? ` onclick="${click}"` : ' style="cursor:default"'}>
+    const tierClass = it.tier === 1 ? ' bk-t1' : it.tier === 3 ? ' bk-t3' : '';
+    return `<div class="bk-queue-row${tierClass}" data-bkkey="${esc(String(it.key))}"${click ? ` onclick="${click}"` : ' style="cursor:default"'}>
       <div class="bk-queue-left" style="flex:1;min-width:0">
         <span class="bk-dot ${it.dot}"></span>
         <div style="min-width:0;flex:1">
@@ -8422,6 +8490,7 @@
         </div>
       </div>
       ${it.peek ? `<button class="btn btn-ghost" style="font-size:12px;padding:3px 8px;flex:none;margin-right:2px" title="Peek at the source document" onclick="event.stopPropagation();${it.peek}">👁</button>` : ''}
+      ${it.archive ? `<button class="bk-gotit-btn" title="Archive this note — it moves to the Archived list, restorable any time" onclick="event.stopPropagation();bkArchiveIssue('${encodeURIComponent(String(it.key))}')">Got it ✓</button>` : ''}
       ${it.action ? `<span class="bk-review-link">${esc(it.action)} →</span>` : ''}
     </div>`;
   }
@@ -9704,21 +9773,159 @@
     if (segA) { segA.textContent = `Approvals (${approvals.length})`; segA.classList.toggle('active', _bkOverviewSeg === 'approvals'); }
     const label = document.getElementById('bk-ov-queue-label');
     if (label) label.textContent = _bkOverviewSeg === 'issues' ? 'Needs your attention' : 'Awaiting your approval';
+    // ── The statusline: name the tiers so the pile already feels sorted ──
+    const t1 = issues.filter(i => i.tier === 1);
+    const t2 = issues.filter(i => i.tier === 2);
+    const t3 = issues.filter(i => i.tier === 3);
     const statusEl = document.getElementById('bk-ov-statusline');
-    if (statusEl) statusEl.textContent = (!issues.length && !approvals.length)
-      ? 'Everything is reconciled — nothing needs you right now.'
-      : `${issues.length} need${issues.length === 1 ? 's' : ''} a decision · ${approvals.length} ready to post`;
+    if (statusEl) {
+      if (!issues.length && !approvals.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
+      else {
+        const parts = [];
+        if (t1.length) parts.push(`${t1.length} to fix first`);
+        if (t2.length) parts.push(`${t2.length} worth a look`);
+        if (t3.length) parts.push(`${t3.length} good to know`);
+        if (!issues.length) parts.push('no issues');
+        if (approvals.length) parts.push(`${approvals.length} ready to post`);
+        const bounce = _bkPrevIssueCount != null && issues.length < _bkPrevIssueCount;
+        statusEl.innerHTML = `<span${bounce ? ' class="bk-count-bounce"' : ''}>${esc(parts.join(' · '))}</span>`;
+      }
+    }
 
-    const items = _bkOverviewSeg === 'issues' ? issues : approvals;
     const CAP = 5;
-    const expanded = _bkOvQueueExpanded[_bkOverviewSeg];
-    const shown = expanded ? items : items.slice(0, CAP);
-    const moreHtml = items.length > CAP
-      ? `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${items.length} ▾`}</span></div>`
-      : '';
-    listEl.innerHTML = shown.length
-      ? shown.map(_bkQueueRowHtml).join('') + moreHtml
-      : `<div class="bk-queue-empty">${_bkOverviewSeg === 'issues' ? 'No issues — nothing needs a decision right now.' : 'Nothing waiting on your approval.'}</div>`;
+    if (_bkOverviewSeg === 'approvals') {
+      const expanded = _bkOvQueueExpanded.approvals;
+      const shown = expanded ? approvals : approvals.slice(0, CAP);
+      const moreHtml = approvals.length > CAP
+        ? `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${approvals.length} ▾`}</span></div>`
+        : '';
+      listEl.innerHTML = shown.length
+        ? shown.map(_bkQueueRowHtml).join('') + moreHtml
+        : `<div class="bk-queue-empty">Nothing waiting on your approval.</div>`;
+    } else {
+      // ── Issues: tiered. "Fix first" cards up top, "Worth a look" rows under
+      // them, "Good to know" collapsed to one quiet line with one-click archive.
+      const archived = _bkArchivedItems();
+      const expanded = _bkOvQueueExpanded.issues;
+      const main = t1.concat(t2);
+      const shown = expanded ? main : main.slice(0, CAP);
+      const shownT1 = shown.filter(i => i.tier === 1);
+      const shownT2 = shown.filter(i => i.tier === 2);
+      const useHeaders = (t1.length && (t2.length || t3.length)) || (t2.length && t3.length);
+      let html = '';
+      if (shownT1.length) html += (useHeaders ? `<div class="bk-tier-head t1">Fix first</div>` : '') + shownT1.map(_bkQueueRowHtml).join('');
+      if (shownT2.length) html += (useHeaders && t1.length ? `<div class="bk-tier-head t2">Worth a look</div>` : '') + shownT2.map(_bkQueueRowHtml).join('');
+      if (main.length > CAP) html += `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${main.length} ▾`}</span></div>`;
+      if (!main.length && !t3.length && !archived.length) {
+        html = `<div class="bk-allclear">
+          <div class="bk-allclear-badge"><svg class="bk-victory-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
+          <div class="bk-allclear-title">All clear</div>
+          <div class="bk-allclear-sub">Every issue is handled — nothing needs a decision right now.</div>
+        </div>`;
+      } else if (!main.length) {
+        html = `<div class="bk-allclear" style="padding:22px 20px">
+          <div class="bk-allclear-badge"><svg class="bk-victory-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
+          <div class="bk-allclear-title">Nothing to fix</div>
+          <div class="bk-allclear-sub">Only good-to-know notes below.</div>
+        </div>`;
+      }
+      if (t3.length || archived.length) {
+        const bits = [];
+        if (t3.length) bits.push(`<span class="bk-gtk-toggle" onclick="_bkToggleGtk()">${t3.length} good-to-know note${t3.length === 1 ? '' : 's'} ${_bkGtkOpen ? '▾' : '▸'}</span>`);
+        if (archived.length) bits.push(`<span class="bk-gtk-toggle" onclick="_bkToggleArchived()">Archived (${archived.length}) ${_bkArchivedOpen ? '▾' : '▸'}</span>`);
+        html += `<div class="bk-gtk-line">${bits.join('<span style="color:var(--gray-300)">·</span>')}</div>`;
+        if (_bkGtkOpen && t3.length) html += t3.map(_bkQueueRowHtml).join('');
+        if (_bkArchivedOpen && archived.length) html += archived.map(d => `<div class="bk-queue-row bk-t3" style="cursor:default">
+          <div class="bk-queue-left" style="flex:1;min-width:0">
+            <span class="bk-dot gray"></span>
+            <div style="min-width:0;flex:1">
+              <div class="bk-queue-name">${esc(d.item_title || d.item_key)}</div>
+              <div class="bk-queue-reason">Archived ${esc(fmtDate(d.dismissed_at))}${d.dismissed_by ? ` by ${esc(d.dismissed_by)}` : ''}</div>
+            </div>
+          </div>
+          <button class="bk-gotit-btn" onclick="bkRestoreIssue('${encodeURIComponent(String(d.item_key))}')">Restore</button>
+        </div>`).join('');
+      }
+      listEl.innerHTML = html;
+    }
+
+    // ── The payoff: the moment the issue queue goes from something to zero,
+    // confetti falls over the queue card. Once — the next render sees 0 → 0.
+    if (_bkPrevIssueCount != null && _bkPrevIssueCount > 0 && issues.length === 0) _bkConfetti(listEl.parentElement || listEl);
+    _bkPrevIssueCount = issues.length;
+  }
+
+  function _bkToggleGtk() { _bkGtkOpen = !_bkGtkOpen; renderBookkeepingOverview(); }
+  function _bkToggleArchived() { _bkArchivedOpen = !_bkArchivedOpen; renderBookkeepingOverview(); }
+
+  // One-click archive for a good-to-know item: play the victory (check draws,
+  // row washes green, folds away), then persist to bk_issue_dismissals so it
+  // stays archived on every device. Restore is one click in the Archived list.
+  async function bkArchiveIssue(encKey) {
+    const key = decodeURIComponent(encKey);
+    const it = _bkIssueQueueItems().find(i => i.key === key);
+    if (!it || !it.archive) return;
+    await _bkCelebrateRow(key);
+    const { error } = await db.from('bk_issue_dismissals').insert({
+      item_key: key, item_title: it.name,
+      dismissed_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+    });
+    if (error && error.code !== '23505') { // 23505 = already archived by someone else — fine
+      showToast(error.message || 'Could not archive — try again.', 'error');
+      renderBookkeepingOverview();
+      return;
+    }
+    _bkDismissals.set(key, { item_key: key, item_title: it.name, dismissed_by: currentUserDisplayName || currentUserRole || 'admin dashboard', dismissed_at: new Date().toISOString() });
+    renderBookkeepingOverview();
+  }
+
+  async function bkRestoreIssue(encKey) {
+    const key = decodeURIComponent(encKey);
+    const { error } = await db.from('bk_issue_dismissals').delete().eq('item_key', key);
+    if (error) { showToast(error.message || 'Could not restore — try again.', 'error'); return; }
+    _bkDismissals.delete(key);
+    showToast('Restored to the queue.', 'success');
+    renderBookkeepingOverview();
+  }
+
+  // The per-row victory: a check draws itself in, the row washes green, then
+  // folds closed. Resolves after ~.75s so callers can re-render behind it.
+  function _bkCelebrateRow(key) {
+    return new Promise(resolve => {
+      const row = document.querySelector(`#bk-ov-queue-list .bk-queue-row[data-bkkey="${(window.CSS && CSS.escape) ? CSS.escape(key) : key}"]`);
+      if (!row) return resolve();
+      row.classList.add('bk-row-clearing');
+      const right = row.querySelector('.bk-gotit-btn, .bk-review-link');
+      const check = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      check.setAttribute('class', 'bk-victory-check');
+      check.setAttribute('viewBox', '0 0 24 24');
+      check.innerHTML = '<path d="M4.5 12.5l5 5L19.5 7"/>';
+      if (right) right.replaceWith(check); else row.appendChild(check);
+      row.style.maxHeight = row.offsetHeight + 'px';
+      setTimeout(() => row.classList.add('bk-row-folding'), 480);
+      setTimeout(resolve, 760);
+    });
+  }
+
+  // Confetti over the queue card — reserved for the queue hitting zero.
+  function _bkConfetti(container) {
+    if (!container) return;
+    const colors = ['#2563eb', '#16a34a', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6'];
+    const prevPos = container.style.position;
+    if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
+    const w = container.offsetWidth || 600;
+    for (let i = 0; i < 44; i++) {
+      const p = document.createElement('div');
+      p.className = 'bk-confetti-piece';
+      p.style.left = Math.round(Math.random() * w) + 'px';
+      p.style.background = colors[i % colors.length];
+      p.style.setProperty('--cf-x', Math.round((Math.random() - 0.5) * 120) + 'px');
+      p.style.setProperty('--cf-r', Math.round((Math.random() - 0.5) * 720) + 'deg');
+      p.style.animationDelay = (Math.random() * 0.25) + 's';
+      container.appendChild(p);
+      setTimeout(() => { p.remove(); }, 1900);
+    }
+    setTimeout(() => { container.style.position = prevPos; }, 2000);
   }
 
 
@@ -11002,12 +11209,14 @@
 
   async function loadReconciliation() {
     try {
-      const [runsRes, findingsRes] = await Promise.all([
+      const [runsRes, findingsRes, dismissRes] = await Promise.all([
         db.from('reconciliation_runs').select('*').order('started_at', { ascending: false }).limit(10),
         db.from('reconciliation_findings').select('*').in('status', ['open', 'resolved']).order('last_seen_at', { ascending: false }),
+        db.from('bk_issue_dismissals').select('*'),
       ]);
       if (runsRes.error) throw runsRes.error;
       if (findingsRes.error) throw findingsRes.error;
+      _bkDismissals = new Map((dismissRes.data || []).map(d => [d.item_key, d]));
       _reconRuns = runsRes.data || [];
       // Severity first, then most-recently-seen -- PostgREST can't order by the
       // severity enum in the order we want ('error' before 'warn' before 'info'),
@@ -11632,6 +11841,7 @@
       });
       if (error) throw error;
       showToast('Marked resolved.', 'success');
+      await _bkCelebrateRow('flag-' + accountId); // the victory moment (session 225)
       loadLoans();
     } catch (e) {
       showToast(e.message || 'Could not mark resolved', 'error');
@@ -11728,7 +11938,9 @@
   // (that's exactly the section-sprawl David asked to cut) -- they render as a small,
   // muted, low-priority list at the bottom of the same card instead of disappearing.
   function _bkReconInfoFindings() {
-    return (_reconFindings || []).filter(f => f.status === 'open' && f.severity === 'info');
+    // Session 225: an info note archived via "Got it" leaves this list too —
+    // one dismissal, everywhere.
+    return (_reconFindings || []).filter(f => f.status === 'open' && f.severity === 'info' && !_bkDismissals.has('recon-' + f.id));
   }
 
   // One shared card renderer, styled after the mockup David liked: a severity dot,
@@ -13932,6 +14144,7 @@ ${noActivityNote}
       if (!ok || data.error) throw new Error(data.error || 'Could not mark this split.');
       closeLoanReviewModal();
       showToast('Marked as handled in Xero — removed from approvals. Nothing was posted.', 'success');
+      await _bkCelebrateRow('appr-split-' + splitId); // the victory moment (session 225)
       loadLoans();
     } catch (e) {
       showToast(e.message || 'Could not mark this split.', 'error');
