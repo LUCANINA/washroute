@@ -34,6 +34,19 @@ type AuthOk =
 type AuthResult = AuthOk | { ok: false; status: number; reason: string };
 
 async function authorize(req: Request, payload: any): Promise<AuthResult> {
+  // Internal caller: pg_cron jobs and SECURITY DEFINER trigger/RPC functions reach
+  // us through net.http_post and cannot present the service-role key (it is not
+  // stored anywhere reachable from SQL — the vault is empty). They send the shared
+  // secret from public.wr_internal_auth, a table with RLS on, no policies and no
+  // anon/authenticated grants, so only a service-role client can read it.
+  // See migration session_227h_internal_call_secret.
+  const internalSecret = req.headers.get('x-wr-internal') || '';
+  if (internalSecret) {
+    const secretClient = createClient(SUPABASE_URL, SUPABASE_SVC_KEY);
+    const { data: iaRow } = await secretClient.from('wr_internal_auth').select('secret').maybeSingle();
+    if (iaRow?.secret && internalSecret === iaRow.secret) return { ok: true, mode: 'staff' };
+  }
+
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
   const m = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };

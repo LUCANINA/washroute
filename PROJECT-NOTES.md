@@ -13,7 +13,77 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: August 19, 2026 — Session 220 — **Reports → Launderers: added click-to-filter KPI tiles, a per-category Performance column, a Retail Attendant tag + exclude toggle, and per-category Most Lbs / Fastest trophies.**
+*Last updated: August 22, 2026 — Session 227 — **Deep bug + vulnerability sweep. Found and closed a systemic authorization hole: the entire RPC layer built in sessions 134–136 to be "the only door" had no lock on it, and `customers`/`orders` could be written directly from a customer's browser console. Every finding below was verified exploitable against production before the fix and verified blocked after.***
+
+David asked for a deep bug and vulnerability sweep of the WashRoute code, to resolve what could safely be resolved, and to update the skills and notes with the results. Four parallel audits (DB/RLS, edge functions, the three customer-facing SPAs, the admin dashboard) plus the Supabase security advisor produced ~45 confirmed findings. David chose "criticals + verify each one live" and "lock down the edge functions + test each caller path."
+
+**The core finding — the doors had no locks.** Sessions 134–136 introduced the architectural mutation RPC pattern: app code shouldn't write important tables directly, it should call a named transactional SECURITY DEFINER RPC. That pattern shipped. What never shipped was authorization on those RPCs. `SECURITY DEFINER` bypasses RLS by design, and `EXECUTE` was granted to `authenticated` — which includes every signed-in customer. Of ~24 mutation RPCs, exactly four checked the caller. So from the browser console, with the public anon key, any customer could run:
+
+- `adjust_customer_credits(<own id>, 10000, 'add', …)` — grant themselves $10,000 of laundry
+- `mark_orders_paid([<own unpaid orders>], 'cash', …)` — clear their own balance
+- `refund_order_credits(<any order>)`, `record_order_intake(<any order>, <any price>)`, `rack_order`, `recall_delivered_order`, `reschedule_order_leg`, `complete_route_stop`, `undo_stop_completion`, `reoptimize_active_routes`, `rollback_order_to_on_hold`, … against **any** row, not just their own
+- `cleanup_orphan_email_auth_users()` — delete auth users
+
+The lock already existed. `enforce_caller_owns_order()` was written in session 148 and installed on four functions. This session added its staff-only sibling `assert_staff()` and installed one or the other on the rest.
+
+**Account takeover + privilege escalation via the phone-login RPCs.** `link_phone_auth_account(p_phone_digits, p_new_profile_id)` was `SECURITY DEFINER`, executable by **anon**, and repointed `customers.profile_id` to whatever profile id the caller supplied — with no check that it was the caller's own. One RPC call with a victim's phone number moved their entire account (orders, credits, saved card) onto an attacker's profile. `link_phone_auth_driver` was worse: it also copies the matched profile's `role` into the new profile, so anyone who knew a manager's or admin's phone number could hand themselves that role. Both are now bound to `auth.uid()` **and** to the caller's own OTP-confirmed phone number in `auth.users`, and revoked from `anon`.
+
+**Bypassing the RPC layer entirely.** `customers` and `orders` carry a plain table-level UPDATE grant to `authenticated`, with RLS of `USING (profile_id = auth.uid())`. So even with the RPCs locked, a customer could skip them: `db.from('customers').update({credits: 99999})`, `.update({pricelist:'Commercial'})`, `.update({subscription_plan_id:'<premium>'})`, `db.from('orders').update({billing_status:'paid'})`, or rewrite `total_amount` to $0.01 after the laundry was delivered. Two BEFORE UPDATE triggers now reject non-staff, non-RPC changes to the money and identity columns and name the offending column in the error. **A column-level GRANT can't solve this** — admin, driver, POS device and customer all authenticate as the single Postgres role `authenticated`, so a GRANT can't tell them apart. Two deliberate carve-outs preserve real customer behaviour: downgrading to Pay-As-You-Go (never upgrading), and editing bags/price while an order is still `scheduled` (never after service).
+
+**Edge functions.** All run `verify_jwt: false` by convention, meaning each must authenticate the caller itself. Several authenticated nobody at all while holding the service-role key plus live Stripe, Twilio and SendGrid credentials:
+
+| function | what anyone on the internet could do |
+|---|---|
+| `charge-order` | POST `{orderId}` and charge that customer's saved card, tip included |
+| `send-email` | Open relay — arbitrary HTML to any address from `info@familylaundry.com`, SPF/DKIM aligned |
+| `draft-reply` | `{"phone":"x,id.not.is.null"}` injected an always-true disjunct into a PostgREST `or=()` filter and dumped every customer's SMS history |
+| `stripe-terminal` | `connection_token`, `create_payment`, `charge_reader`, `cancel_payment`, `cancel_reader_action` were ungated — cancel a live sale, or DoS the store's card reader |
+| `send-order-notification` | `event` flowed unvalidated into the template lookup, so any enabled SMS template could be sent to any order's customer |
+| `notify-on-my-way` | Mutate any stop and text that customer with an attacker-supplied "driver name" |
+| `send-receipt` | Re-send any receipt; the response echoed back the customer's email address |
+| `pause-subscription` | Pause anyone's subscription with `mark_uncollectible` (its two siblings had the ownership check; this one didn't) |
+
+All eight hardened using the `authorize()` pattern already proven in `send-sms` — accept the service-role key, **explicitly reject the anon key**, otherwise validate the JWT and check `profiles.role`. Every call site across the four apps and the two console scripts updated to send a real session token.
+
+**Verification.** Every DB change was tested against live production data inside `DO` blocks that `set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated`, ran the case, and ended with `RAISE EXCEPTION` — which prints the result table and rolls back every write. Coverage across all nine identities (admin, manager, laundry_tech, driver, attendant, pos_device, customer, service_role, anon), plus replays of the three real exploits, plus regression tests of the customer paths that must keep working: saving an address, editing name/phone/prefs/tip, switching to Pay-As-You-Go, rescheduling an order, and a full booking (order insert → `auto_route_order` → 2 route stops → `total_orders` bumped).
+
+**Three of my own mistakes, caught before they shipped** — worth recording, because each is now a rule in the skills:
+
+1. **The transitive-PERFORM audit is not optional, and it must include trigger functions.** I guarded `_refresh_customer_address_cache`, which is `PERFORM`ed by `sync_customer_address_cache` — a trigger on `addresses`, a table customers write themselves. A guarded function reached through a trigger inherits the *end user's* auth context, so this would have blocked every customer from saving an address. Caught by the audit query, reverted in `session_227e`.
+2. **Never build injected SQL containing a regex as an `E''` string.** `E'…''\D''…'` collapsed to `'D'`; the "fix" with doubled backslashes produced `'\\D'`. Both compiled fine and produced a *working but wrong* function. Fixed by using a dollar-quoted literal and asserting the result with `strpos` — note `LIKE` can't be used for that assertion, because `LIKE` eats the very backslash you're checking for.
+3. **`laundry_tech` was missing from two edge-function role sets.** An adversarial pre-deploy review caught `charge-order` and `send-receipt` allowing only `{admin, manager, attendant}`. Every card sale racked by a kanban operator would have failed to charge *and* been stamped `billing_status='failed'` — which fires dunning texts and emails at customers who owe nothing. **Third time this role has been forgotten** (sessions 148, 183, now 227).
+
+**Deliberately NOT deployed — `proposed-migrations/session-227-edge-hardening/`.** Four more functions (`send-scheduled-reminders`, `bookkeeping-kpis`, `health-monitor`, `sync-klaviyo`) are hardened and reviewed but held back, because **every pg_cron HTTP job in this project posts the ANON key** — verified by decoding the bearer in each `cron.job.command`. Deploying them as-is would silently kill customer reminders, KPI snapshots, health alerting and the Klaviyo sync, with no error surfacing anywhere. The README there has both unblock options; the DB-held-shared-secret option is the recommendation because it needs nothing set by hand in the Supabase dashboard. The repo copies were reverted to the live versions so **repo == production** and there is no stale-deploy landmine.
+
+**Migrations applied** (`session_227a` … `session_227g`; consolidated records in `migrations/session_227_rpc_authorization_guards.sql` and `migrations/session_227_protected_column_guards.sql`). Full rollback available — `_archive._backup_defs_session227` holds all 23 original `pg_get_functiondef()` snapshots, and the two column guards are undone by dropping their triggers. Also pinned `search_path` on the 8 functions the Supabase security advisor flagged, and revoked `anon` EXECUTE from every mutation RPC and every trigger-returning SECURITY DEFINER function (~120 advisor warnings cleared; PostgreSQL checks EXECUTE on a trigger function at CREATE TRIGGER time, not at fire time, so this is inert at runtime).
+
+**Commit `2c1f84e`.** Skills updated and reinstalled: `washroute` (new "Authorization Architecture" section + the security follow-up list), `washroute-migration-review` (programmatic function-rewrite rules, guard-placement rule, the `cron.job` check), `washroute-qa` (a four-question authorization checklist).
+
+**⚠️ REGRESSION I CAUSED AND FIXED, same session — the database is a caller too.** Immediately after deploying the eight hardened edge functions I checked `pg_proc` and found what the audit had missed: **five DB functions call those edge functions over `net.http_post` carrying the ANON key**, and every one of them started 401-ing the moment the deploy landed.
+
+| DB function | fires | calls |
+|---|---|---|
+| `flush_notification_queue` | pg_cron, every minute | `send-order-notification` |
+| `sweep_autocharge_ready_orders` | pg_cron, every 5 min | `charge-order` |
+| `advance_order_status` | every status change | `send-order-notification` |
+| `reschedule_order` | every reschedule | `send-order-notification` |
+| `apply_signup_promo_credit` | trigger on first card add | `send-email` |
+
+`flush_notification_queue` is the dangerous one — **every** `picked_up` and `delivered` customer SMS goes through it, and it stamps `sent_at` BEFORE posting, so a 401 permanently burns that notification instead of retrying. That is exactly the session 194 outage shape, recreated by my own change.
+
+**Actual customer impact: none.** Verified against `notification_queue`, `order_events`, `sms_messages` and `net._http_response`: the last queued notification was 17:28:59Z, the first hardened deploy was 17:29:44Z, the single inline `pickup_failed` at 17:29:47Z did send its SMS, no 401 appears in `net._http_response` other than my own deliberate wrong-secret probe, and the autocharge sweep is self-healing (it re-selects the same orders every 5 minutes — backlog confirmed at 0). We got lucky on the window; the mistake was real.
+
+**Fix (migration `session_227h_internal_call_secret`).** The DB cannot present the service-role key — it isn't stored anywhere reachable from SQL and the vault is empty — and putting it inline in `cron.job.command` / `pg_proc.prosrc` would spread the most powerful credential in the project into two more plaintext locations. So: `public.wr_internal_auth`, one row, one 256-bit random secret, RLS on with **no policies and no anon/authenticated grants**, meaning only a `service_role` client can read it. The five DB functions now send it as an `x-wr-internal` header via `public.wr_internal_secret()`; `charge-order`, `send-email` and `send-order-notification` check it first in `authorize()`. Rotate with a single UPDATE — both sides read the row at call time, so no redeploy. Verified live via `net.http_post` + `net._http_response`: correct secret → 404 "Order not found" (auth passed, reached business logic); wrong secret → 401.
+
+⚠️ Be deliberate about adding that header to a new DB caller: **the secret is equivalent to staff authority** on those three endpoints — on `send-email` it resolves to `mode: 'staff'`, i.e. arbitrary-recipient send rights.
+
+**The lesson, now in all three skills:** auditing the callers of an edge function is **three** greps, not one — the repo, `pg_proc.prosrc`, and `cron.job.command`. I wrote the "pg_cron sends the anon key" rule earlier in this same session and still missed the sibling case where the *database functions themselves* are the callers.
+
+**Deployed:** `pause-subscription` v24, `send-receipt` v59, `charge-order` v65, `send-email` v38, `send-order-notification` v58, `notify-on-my-way` v49, `draft-reply` v37. All verified live: unauthenticated and anon-key callers get 401 on every one, CORS preflight still returns 200 on all seven, and the three real DB exploits (self-granted credit, self-marked-paid, phone-link takeover) replay as BLOCKED. `stripe-terminal` is hardened in the repo but **NOT deployed** — it drives the live card reader and wants a person at the register when it goes out.
+
+⚠️ **Not finished — see "Pending" item 0.** The ~200 unescaped `innerHTML` sites across the four apps are documented but not fixed; the sharpest is that **anyone can text the business number and have that text render unescaped into both the admin inbox and the driver app**, each of which holds a staff Supabase session in `localStorage`.*
+
+*Previously: August 19, 2026 — Session 220 — **Reports → Launderers: added click-to-filter KPI tiles, a per-category Performance column, a Retail Attendant tag + exclude toggle, and per-category Most Lbs / Fastest trophies.**
 
 David asked for a series of incremental additions to the Launderer report (Reports → Launderers tab, `admin-dashboard/index.html` only — no DB/migration changes this session):
 

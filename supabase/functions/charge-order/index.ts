@@ -17,6 +17,19 @@ const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
 const CHARGE_ROLES = new Set(['admin', 'manager', 'attendant', 'laundry_tech'])
 
 async function authorize(req: Request): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  // Internal caller: pg_cron jobs and SECURITY DEFINER trigger/RPC functions reach
+  // us through net.http_post and cannot present the service-role key (it is not
+  // stored anywhere reachable from SQL — the vault is empty). They send the shared
+  // secret from public.wr_internal_auth, a table with RLS on, no policies and no
+  // anon/authenticated grants, so only a service-role client can read it.
+  // See migration session_227h_internal_call_secret.
+  const internalSecret = req.headers.get('x-wr-internal') || ''
+  if (internalSecret) {
+    const secretClient = createClient(supabaseUrl, supabaseServiceKey)
+    const { data: iaRow } = await secretClient.from('wr_internal_auth').select('secret').maybeSingle()
+    if (iaRow?.secret && internalSecret === iaRow.secret) return { ok: true }
+  }
+
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || ''
   const m = authHeader.match(/^Bearer\s+(.+)$/i)
   if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' }
