@@ -144,7 +144,9 @@ const DRY_RUN = true;
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': SUPA_ANON_KEY,
+          // Session 137 security: send-email requires a staff JWT. Run this
+          // script from the admin dashboard console while signed in.
+          'Authorization': `Bearer ${await _staffJwt()}`,
         },
         body: JSON.stringify({
           customer_id: c.id,

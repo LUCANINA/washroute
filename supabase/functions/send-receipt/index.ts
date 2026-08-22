@@ -4,10 +4,51 @@ const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY') ?? '';
 const FROM_EMAIL = 'info@familylaundry.com';
 const FROM_NAME  = 'Family Laundry';
 
+const SUPABASE_URL      = Deno.env.get('SUPABASE_URL') ?? '';
+const SUPABASE_SVC_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// ── Authorization ─────────────────────────────────────────────────────────
+// Callers are the admin dashboard and the POS only. Before session 137 this
+// was wide open: anyone with an order UUID could re-send a receipt and read
+// the customer's email address back out of the response.
+// profiles.role values: customer, attendant, driver, manager, admin,
+// pos_device, laundry_tech.
+const RECEIPT_ROLES = new Set(['admin', 'manager', 'attendant', 'pos_device', 'laundry_tech']);
+
+async function authorize(req: Request): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };
+  const jwt = m[1];
+
+  if (jwt === SUPABASE_SVC_KEY) return { ok: true };
+
+  if (jwt === SUPABASE_ANON_KEY) {
+    return { ok: false, status: 401, reason: 'Anon key not accepted; staff login required' };
+  }
+
+  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+  });
+  const { data: { user }, error: userErr } = await userClient.auth.getUser(jwt);
+  if (userErr || !user) return { ok: false, status: 401, reason: 'Invalid or expired session' };
+
+  const adminClient = createClient(SUPABASE_URL, SUPABASE_SVC_KEY);
+  const { data: profile, error: profErr } = await adminClient
+    .from('profiles').select('role').eq('id', user.id).single();
+  if (profErr || !profile) return { ok: false, status: 403, reason: 'Profile not found' };
+  if (!RECEIPT_ROLES.has(profile.role)) {
+    return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to send receipts` };
+  }
+
+  return { ok: true };
+}
 
 function fmt(n: number): string {
   return '$' + Math.abs(Number(n)).toFixed(2);
@@ -314,6 +355,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const auth = await authorize(req);
+    if (!auth.ok) {
+      return new Response(
+        JSON.stringify({ ok: false, error: auth.reason }),
+        { status: auth.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { order_id } = await req.json();
     if (!order_id) throw new Error('order_id is required');
 
@@ -389,7 +438,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, sent_to: toEmail }),
+      JSON.stringify({ ok: true }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

@@ -9,10 +9,32 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const anonKey     = Deno.env.get('SUPABASE_ANON_KEY')!
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+// Copied verbatim from resume-subscription / cancel-subscription so the three
+// sibling endpoints enforce identical ownership rules. Without it anyone could
+// pause any customer's subscription (mark_uncollectible) with just its UUID.
+async function assertOwnership(req: Request, subCustomerId: string): Promise<{ ok: true } | { ok: false, status: number, msg: string }> {
+  const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!tok) return { ok: false, status: 401, msg: 'Unauthorized' };
+  const callerClient = createClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { Authorization: `Bearer ${tok}` } },
+  });
+  const { data: { user: callerUser } } = await callerClient.auth.getUser();
+  if (!callerUser) return { ok: false, status: 401, msg: 'Unauthorized' };
+  const adminClient = createClient(supabaseUrl, supabaseServiceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  const { data: prof } = await adminClient.from('profiles').select('role').eq('id', callerUser.id).single();
+  if (prof?.role === 'admin') return { ok: true };
+  const { data: cust } = await adminClient.from('customers').select('id').eq('profile_id', callerUser.id).maybeSingle();
+  if (!cust) return { ok: false, status: 403, msg: 'Forbidden' };
+  if (cust.id !== subCustomerId) return { ok: false, status: 403, msg: 'Forbidden: not your subscription' };
+  return { ok: true };
 }
 
 Deno.serve(async (req) => {
@@ -32,6 +54,9 @@ Deno.serve(async (req) => {
 
     if (subErr || !sub) throw new Error('Subscription not found')
     if (!sub.stripe_subscription_id) throw new Error('No Stripe subscription ID on record')
+
+    const auth = await assertOwnership(req, sub.customer_id);
+    if (!auth.ok) return new Response(JSON.stringify({ error: auth.msg }), { status: auth.status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
     // Call Stripe to pause the subscription
     await stripe.subscriptions.update(sub.stripe_subscription_id, {

@@ -2,6 +2,9 @@
 // BATCH CHARGE RETRY — Group C customers (have cards on file)
 // Run this from the browser console while on the admin dashboard
 // charge-order v30 must be deployed first (already done)
+// Session 137 security: charge-order now requires a staff JWT — this script
+// reuses the dashboard's _staffJwt() helper, so it must be run from the admin
+// dashboard console while signed in as admin/manager/attendant.
 // ============================================================
 
 (async () => {
@@ -48,7 +51,7 @@
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ orderId: order.id }),
       });
       const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));

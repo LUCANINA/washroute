@@ -9,6 +9,41 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+
+// Roles allowed to charge a customer's saved card. profiles.role values are:
+// customer, attendant, driver, manager, admin, pos_device, laundry_tech.
+// Only staff who handle billing may charge: admin, manager, attendant.
+const CHARGE_ROLES = new Set(['admin', 'manager', 'attendant', 'laundry_tech'])
+
+async function authorize(req: Request): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || ''
+  const m = authHeader.match(/^Bearer\s+(.+)$/i)
+  if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' }
+  const jwt = m[1]
+
+  if (jwt === supabaseServiceKey) return { ok: true }
+
+  if (jwt === supabaseAnonKey) {
+    return { ok: false, status: 401, reason: 'Anon key not accepted; staff login required' }
+  }
+
+  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+  })
+  const { data: { user }, error: userErr } = await userClient.auth.getUser(jwt)
+  if (userErr || !user) return { ok: false, status: 401, reason: 'Invalid or expired session' }
+
+  const adminClient = createClient(supabaseUrl, supabaseServiceKey)
+  const { data: profile, error: profErr } = await adminClient
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (profErr || !profile) return { ok: false, status: 403, reason: 'Profile not found' }
+  if (!CHARGE_ROLES.has(profile.role)) {
+    return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to charge orders` }
+  }
+
+  return { ok: true }
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -62,6 +97,14 @@ const NON_CHARGEABLE_STATUSES = ['scheduled', 'on_hold', 'cancelled', 'skipped',
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
+
+  const auth = await authorize(req)
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.reason }), {
+      status: auth.status,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+    })
+  }
 
   try {
     const db = createClient(supabaseUrl, supabaseServiceKey)

@@ -41,6 +41,49 @@ const CORS = {
   'Content-Type': 'application/json',
 };
 
+// ── Authorization ─────────────────────────────────────────────────────────
+// This endpoint reads any customer's full SMS history and calls Anthropic on
+// the business's account, so it is staff-only. profiles.role values are:
+// customer, attendant, driver, manager, admin, pos_device, laundry_tech.
+// Only the roles that actually work the SMS inbox may draft replies.
+const STAFF_DRAFT_ROLES = new Set(['admin', 'manager', 'attendant']);
+
+// Input validation for anything that gets interpolated into a PostgREST
+// query string. Without these, `phone` could smuggle extra filter clauses
+// (e.g. "x,id.not.is.null") into the or=(...) disjunct below and dump every
+// customer's message history.
+const PHONE_RE = /^\+?[0-9]{10,15}$/;
+const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function authorize(req: Request): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };
+  const jwt = m[1];
+
+  if (jwt === SVC_KEY) return { ok: true };
+
+  if (jwt === ANON_KEY) {
+    return { ok: false, status: 401, reason: 'Anon key not accepted; staff login required' };
+  }
+
+  const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { 'Authorization': `Bearer ${jwt}`, 'apikey': ANON_KEY },
+  });
+  if (!userRes.ok) return { ok: false, status: 401, reason: 'Invalid or expired session' };
+  const user = await userRes.json().catch(() => null);
+  if (!user?.id) return { ok: false, status: 401, reason: 'Invalid or expired session' };
+
+  const profRows = await dbGet(`profiles?id=eq.${encodeURIComponent(user.id)}&select=role&limit=1`);
+  const profile  = Array.isArray(profRows) ? profRows[0] : null;
+  if (!profile) return { ok: false, status: 403, reason: 'Profile not found' };
+  if (!STAFF_DRAFT_ROLES.has(profile.role)) {
+    return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to draft replies` };
+  }
+
+  return { ok: true };
+}
+
 // ── Intent detection ──
 // session 144 accuracy pass 2: order tightened so new_order is checked
 // BEFORE reschedule_request — reschedule patterns kept overshooting onto
@@ -152,7 +195,7 @@ async function fetchVoiceExamples(): Promise<string> {
 async function resolveSkipAction(customerId: string, customerFirstName: string): Promise<any | null> {
   try {
     const rows = await dbGet(
-      `orders?customer_id=eq.${customerId}` +
+      `orders?customer_id=eq.${encodeURIComponent(customerId)}` +
       `&status=eq.scheduled` +
       `&recurring_interval=not.is.null` +
       `&order=pickup_window_start.asc` +
@@ -186,14 +229,14 @@ async function fetchZoneAvailability(customerId: string): Promise<{ summary: str
   try {
     // 1. Most recent zone_id from this customer's orders
     const rows = await dbGet(
-      `orders?customer_id=eq.${customerId}&zone_id=not.is.null&order=created_at.desc&limit=1&select=zone_id`
+      `orders?customer_id=eq.${encodeURIComponent(customerId)}&zone_id=not.is.null&order=created_at.desc&limit=1&select=zone_id`
     );
     const zoneId = Array.isArray(rows) && rows[0]?.zone_id;
     if (!zoneId) return { summary: '(zone not yet established — do not call place_pickup_order until zone is confirmed)', zoneFound: false };
 
     // 2. Active templates for the zone
     const tmpls = await dbGet(
-      `route_templates?zone_id=eq.${zoneId}&is_active=eq.true&order=window_start&select=name,window_start,window_end,arrival_window_hours,schedule_days,turnaround_days,turnaround_hours`
+      `route_templates?zone_id=eq.${encodeURIComponent(zoneId)}&is_active=eq.true&order=window_start&select=name,window_start,window_end,arrival_window_hours,schedule_days,turnaround_days,turnaround_hours`
     );
     if (!Array.isArray(tmpls) || tmpls.length === 0) {
       return { summary: '(no active templates for this customer\'s zone — do not call place_pickup_order or reschedule_order)', zoneFound: true };
@@ -671,11 +714,23 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }), { status: 500, headers: CORS });
     }
 
+    const auth = await authorize(req);
+    if (!auth.ok) {
+      return new Response(JSON.stringify({ error: auth.reason }), { status: auth.status, headers: CORS });
+    }
+
     const adminJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
 
     const { customer_id, phone, current_draft, admin_profile_id } = await req.json();
     if (!customer_id && !phone) {
       return new Response(JSON.stringify({ error: 'customer_id or phone is required' }), { status: 400, headers: CORS });
+    }
+    // Validate BEFORE either value reaches a PostgREST query string.
+    if (customer_id != null && (typeof customer_id !== 'string' || !UUID_RE.test(customer_id))) {
+      return new Response(JSON.stringify({ error: 'customer_id must be a UUID' }), { status: 400, headers: CORS });
+    }
+    if (phone != null && (typeof phone !== 'string' || !PHONE_RE.test(phone))) {
+      return new Response(JSON.stringify({ error: 'phone must match ^\\+?[0-9]{10,15}$' }), { status: 400, headers: CORS });
     }
 
     const isRefineMode = typeof current_draft === 'string' && current_draft.trim().length > 0;
@@ -684,7 +739,7 @@ Deno.serve(async (req: Request) => {
     // ── 1. Customer ──
     let customer: any = null;
     if (customer_id) {
-      const rows = await dbGet(`customers?id=eq.${customer_id}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache&limit=1`);
+      const rows = await dbGet(`customers?id=eq.${encodeURIComponent(customer_id)}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache&limit=1`);
       customer = Array.isArray(rows) ? rows[0] : null;
     }
     const customerFirstName = customer?.first_name_cache?.trim() || '';
@@ -694,8 +749,8 @@ Deno.serve(async (req: Request) => {
 
     // ── 2. Conversation ──
     let msgPath = `sms_messages?order=created_at.desc&limit=20&select=direction,body,created_at`;
-    if (customer_id) msgPath += `&customer_id=eq.${customer_id}`;
-    else             msgPath += `&or=(from_number.eq.${phone},to_number.eq.${phone})`;
+    if (customer_id) msgPath += `&customer_id=eq.${encodeURIComponent(customer_id)}`;
+    else             msgPath += `&or=(from_number.eq.${encodeURIComponent(phone)},to_number.eq.${encodeURIComponent(phone)})`;
     const msgsRaw = await dbGet(msgPath);
     const msgs    = Array.isArray(msgsRaw) ? msgsRaw.reverse() : [];
 
@@ -720,7 +775,7 @@ Deno.serve(async (req: Request) => {
     let orderRows: any[] = [];
     if (customer_id) {
       const ordRows = await dbGet(
-        `orders?customer_id=eq.${customer_id}&order=created_at.desc&select=id,order_number,status,pickup_window_start,pickup_window_end,delivery_window_start,delivery_window_end,total_bags,total_amount,recurring_interval&limit=5`
+        `orders?customer_id=eq.${encodeURIComponent(customer_id)}&order=created_at.desc&select=id,order_number,status,pickup_window_start,pickup_window_end,delivery_window_start,delivery_window_end,total_bags,total_amount,recurring_interval&limit=5`
       );
       orderRows = Array.isArray(ordRows) ? ordRows : [];
       if (orderRows.length > 0) {
@@ -735,7 +790,7 @@ Deno.serve(async (req: Request) => {
     let primaryAddressLine = '';
     if (customer_id) {
       const addrRows = await dbGet(
-        `addresses?customer_id=eq.${customer_id}&order=is_default.desc.nullslast,created_at.desc&limit=1&select=line1,city,state,zip`
+        `addresses?customer_id=eq.${encodeURIComponent(customer_id)}&order=is_default.desc.nullslast,created_at.desc&limit=1&select=line1,city,state,zip`
       );
       const addr = Array.isArray(addrRows) ? addrRows[0] : null;
       if (addr) {

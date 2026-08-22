@@ -5692,9 +5692,12 @@ async function placeOrder() {
   currentCustomer.default_tip_type = _tipType;
 
   // Fire order confirmed SMS (best-effort, don't block)
+  // Session 227 security: send-order-notification now requires a real signed-in
+  // identity (service-role, staff, or the customer who owns the order). The anon
+  // key is rejected, so send this customer's own access token.
   fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_sess.access_token}` },
     body: JSON.stringify({ orderId: order.id, event: 'confirmed' })
   }).catch(() => {});
 
@@ -5748,12 +5751,15 @@ async function placeOrder() {
         Family Laundry · 2609 Foothill Blvd, Oakland CA 94601
       </div>
     </body></html>`;
+    // Session 227 security: send-email no longer accepts an arbitrary to_email
+    // from a customer. We send the signed-in customer's access token plus
+    // order_id; the edge function resolves the recipient from that order's
+    // customer record itself (and verifies the order belongs to this account).
     fetch(`${SUPA_URL}/functions/v1/send-email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_sess.access_token}` },
       body: JSON.stringify({
-        customer_id: currentCustomer.id,
-        to_email:    _emailAddr,
+        order_id:    order.id,
         subject:     `Booking Confirmed — Family Laundry Order #${order.order_number}`,
         body:        _htmlBody
       })

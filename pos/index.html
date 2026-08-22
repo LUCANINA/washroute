@@ -6191,9 +6191,12 @@
     }
     try {
       if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+      // Session 137 security: send-receipt rejects the anon key — send the
+      // signed-in cashier's access token instead (same as callEdge).
+      const { data: { session } } = await db.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/send-receipt`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session?.access_token || ''}` },
         body: JSON.stringify({ order_id: lastPosOrder.id }),
       });
       if (!res.ok) {
@@ -6242,12 +6245,15 @@
   async function sendPosTemplateSms(triggerKey, orderId) {
     try {
       if (!orderId || !triggerKey) return;
+      // Session 137 security: send-order-notification rejects the anon key —
+      // send the signed-in cashier's access token instead (same as callEdge).
+      const { data: { session } } = await db.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/send-order-notification`, {
         method: 'POST',
         headers: {
           'Content-Type':  'application/json',
           apikey:          SUPABASE_ANON_KEY,
-          Authorization:   `Bearer ${SUPABASE_ANON_KEY}`,
+          Authorization:   `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({ orderId, event: triggerKey }),
       });
@@ -6281,9 +6287,11 @@
     }
     try {
       if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+      // Session 137 security: anon key is rejected — send the cashier's JWT.
+      const { data: { session } } = await db.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/send-order-notification`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session?.access_token || ''}` },
         body: JSON.stringify({ orderId: lastPosOrder.id, event: 'walkin_receipt_text' }),
       });
       if (!res.ok) {

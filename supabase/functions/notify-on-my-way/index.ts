@@ -5,8 +5,9 @@ const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')!;
 const TWILIO_AUTH_TOKEN  = Deno.env.get('TWILIO_AUTH_TOKEN')!;
 const TWILIO_FROM        = Deno.env.get('TWILIO_PHONE_NUMBER') || '+15105884102';
 
-const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')!;
-const SUPABASE_SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SVC_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
 const headers = {
   'Authorization': `Bearer ${SUPABASE_SVC_KEY}`,
@@ -52,6 +53,73 @@ function interpolate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '').trim();
 }
 
+// ── Authorization ─────────────────────────────────────────────────────────────
+// This endpoint flips route_stops.status to en_route and texts the customer,
+// so it needs a real identity. profiles.role values are: customer, attendant,
+// driver, manager, admin, pos_device, laundry_tech.
+//   * service-role key      -> allowed (internal callers)
+//   * driver JWT            -> allowed ONLY for a stop on their own route
+//   * admin / manager JWT   -> allowed for any stop
+//   * anything else         -> 401 / 403
+// The driver's display name is taken from the authenticated profile, never
+// from the request body (which used to be interpolated straight into the SMS).
+const NOTIFY_ROLES = new Set(['driver', 'admin', 'manager']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type Caller = {
+  ok: true;
+  role: string;
+  firstName: string;
+  driverId: string | null;   // drivers.id when the caller is a driver
+  isService: boolean;
+};
+type AuthResult = Caller | { ok: false; status: number; reason: string };
+
+async function authorize(req: Request): Promise<AuthResult> {
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };
+  const jwt = m[1];
+
+  if (jwt === SUPABASE_SVC_KEY) {
+    return { ok: true, role: 'service_role', firstName: '', driverId: null, isService: true };
+  }
+
+  if (jwt === SUPABASE_ANON_KEY) {
+    return { ok: false, status: 401, reason: 'Anon key not accepted; driver login required' };
+  }
+
+  const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { 'Authorization': `Bearer ${jwt}`, 'apikey': SUPABASE_ANON_KEY },
+  });
+  if (!userRes.ok) return { ok: false, status: 401, reason: 'Invalid or expired session' };
+  const user = await userRes.json().catch(() => null);
+  if (!user?.id) return { ok: false, status: 401, reason: 'Invalid or expired session' };
+
+  const profRows = await dbGet(`profiles?id=eq.${encodeURIComponent(user.id)}&select=role,first_name&limit=1`);
+  const profile  = Array.isArray(profRows) ? profRows[0] : null;
+  if (!profile) return { ok: false, status: 403, reason: 'Profile not found' };
+  if (!NOTIFY_ROLES.has(profile.role)) {
+    return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to notify customers` };
+  }
+
+  let driverId: string | null = null;
+  if (profile.role === 'driver') {
+    const drvRows = await dbGet(`drivers?profile_id=eq.${encodeURIComponent(user.id)}&select=id&limit=1`);
+    const drv = Array.isArray(drvRows) ? drvRows[0] : null;
+    if (!drv) return { ok: false, status: 403, reason: 'No driver record for this account' };
+    driverId = drv.id;
+  }
+
+  return {
+    ok: true,
+    role: profile.role,
+    firstName: (profile.first_name || '').trim(),
+    driverId,
+    isService: false,
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -70,15 +138,38 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Twilio credentials not configured' }), { status: 500, headers: cors });
     }
 
-    const { stopId, driverName } = await req.json();
+    const auth = await authorize(req);
+    if (!auth.ok) {
+      return new Response(JSON.stringify({ error: auth.reason }), { status: auth.status, headers: cors });
+    }
+
+    // `driverName` is deliberately NOT read from the body any more — it used to
+    // be interpolated straight into the outbound SMS by an unauthenticated caller.
+    const { stopId } = await req.json();
     if (!stopId) return new Response(JSON.stringify({ error: 'stopId required' }), { status: 400, headers: cors });
+    // Validate before stopId reaches any PostgREST path (dbGet / dbPatch below).
+    if (typeof stopId !== 'string' || !UUID_RE.test(stopId)) {
+      return new Response(JSON.stringify({ error: 'stopId must be a UUID' }), { status: 400, headers: cors });
+    }
 
     const stops = await dbGet(
-      `route_stops?id=eq.${stopId}&select=id,stop_type,order_id,status,orders(id,status,customer_id,customers(id,first_name_cache,last_name_cache,phone_cache,sms_notifications_opt_out_at))&limit=1`
+      `route_stops?id=eq.${encodeURIComponent(stopId)}&select=id,stop_type,order_id,status,route_id,routes(id,driver_id),orders(id,status,customer_id,customers(id,first_name_cache,last_name_cache,phone_cache,sms_notifications_opt_out_at))&limit=1`
     );
 
     const stop = Array.isArray(stops) ? stops[0] : null;
     if (!stop) return new Response(JSON.stringify({ error: 'Stop not found' }), { status: 404, headers: cors });
+
+    // A driver may only notify on stops belonging to their own route.
+    // admin/manager and the service role are not scoped.
+    if (auth.role === 'driver') {
+      // PostgREST returns the embedded route as an object for a to-one FK,
+      // but tolerate an array shape so the check never fails open.
+      const rt = Array.isArray(stop.routes) ? stop.routes[0] : stop.routes;
+      const stopDriverId = rt?.driver_id ?? null;
+      if (!stopDriverId || stopDriverId !== auth.driverId) {
+        return new Response(JSON.stringify({ error: 'This stop is not on your route' }), { status: 403, headers: cors });
+      }
+    }
 
     const order    = stop.orders;
     const customer = order?.customers;
@@ -109,8 +200,8 @@ Deno.serve(async (req: Request) => {
       }), { status: 409, headers: cors });
     }
 
-    // driverName is passed as first name only from the driver app
-    const driverFirstName = driverName || 'Your driver';
+    // Display name comes from the authenticated profile, never the request body.
+    const driverFirstName = auth.firstName || 'Your driver';
     const actionWord      = stop.stop_type === 'pickup' ? 'pick up' : 'deliver';
 
     await dbPatch('route_stops', stopId, {

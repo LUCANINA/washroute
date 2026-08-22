@@ -18059,7 +18059,7 @@ ${noActivityNote}
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ orderId: order.id }),
       });
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -19154,7 +19154,7 @@ ${noActivityNote}
     // Send receipt email now that charge succeeded
     fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
       body: JSON.stringify({ order_id: o.id }),
     }).catch(() => {});
     setTimeout(() => loadOrders(currentOrderFilter), 500);
@@ -20211,7 +20211,7 @@ ${oneCopy}
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ order_id: orderId }),
       });
       const data = await res.json();
@@ -20323,7 +20323,7 @@ ${oneCopy}
       if (toEmail) {
         await fetch(`${SUPA_URL}/functions/v1/send-email`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({
             customer_id: customerId,
             to_email: toEmail,
@@ -21270,7 +21270,7 @@ ${oneCopy}
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ orderId }),
       });
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -21280,7 +21280,7 @@ ${oneCopy}
       // Send receipt email now that charge succeeded
       fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ order_id: orderId }),
       }).catch(() => {});
       loadOrders(currentOrderFilter); // Refresh so the order moves out of Issues
@@ -21350,7 +21350,7 @@ ${oneCopy}
         sends.push(
           fetch(`${SUPA_URL}/functions/v1/send-email`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
             body: JSON.stringify({
               customer_id: custId,
               to_email: email,
@@ -21383,7 +21383,7 @@ ${oneCopy}
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ orderId }),
       });
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -21441,7 +21441,7 @@ ${oneCopy}
       if (newStatus === 'ready_for_delivery') {
         fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({ order_id: orderId }),
         }).catch(() => {});
       }
@@ -26726,7 +26726,7 @@ ${oneCopy}
     if (newOrderId) {
       fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ orderId: newOrderId, event: 'confirmed' })
       }).catch(() => {});
     }
@@ -26782,7 +26782,7 @@ ${oneCopy}
       </body></html>`;
       fetch(`${SUPA_URL}/functions/v1/send-email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({
           customer_id: customerId,
           to_email:    _toEmail,
@@ -28478,7 +28478,7 @@ ${oneCopy}
       try {
         const res = await fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({ order_id: id }),
         });
         const data = await res.json().catch(() => ({}));
@@ -28653,7 +28653,7 @@ ${oneCopy}
       for (const orderId of ids) {
         fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({ order_id: orderId }),
         }).catch(e => console.warn('Receipt failed for', orderId, e));
       }
@@ -35414,7 +35414,7 @@ ${oneCopy}
       try {
         const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
           method: 'POST',
-          headers: { 'Content-Type':'application/json', 'apikey': SUPA_ANON_KEY },
+          headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({ orderId: _orderId }),
         });
         const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -35465,7 +35465,7 @@ ${oneCopy}
     if (!isOnAccount && !chargeFailed) {
       fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ order_id: movedId }),
       }).catch(e => console.warn('Auto email receipt failed:', e));
     }
@@ -38476,7 +38476,7 @@ async function _dvIframeLoaded() {
       try {
         const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({
             customer_id: c.id,
             to_email: c.email_cache,
@@ -40534,7 +40534,7 @@ async function _dvIframeLoaded() {
         try {
           const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
             body: JSON.stringify({
               customer_id: c.id,
               to_email: c.email_cache,

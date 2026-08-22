@@ -12,10 +12,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
      list_recent_pos_sales | refund_pos_payment    (added session 139)
 
    verify_jwt is DISABLED to match the rest of the WashRoute edge functions
-   (cloudprnt, send-receipt, charge-order). Refund actions additionally
-   require a valid pos_shift_id of an OPEN shift (ended_at IS NULL) — that's
-   the auth boundary for refunds (matches "anyone signed into POS can
-   refund" decision in session 139).
+   (cloudprnt, send-receipt, charge-order), so this function authenticates
+   its own callers. Session 137 security: EVERY action now requires either
+   a valid pos_shift_id of an OPEN shift (ended_at IS NULL) — the POS's
+   existing auth boundary, matches "anyone signed into POS can refund"
+   from session 139 — or a staff JWT (admin/manager/attendant/pos_device).
+   Previously only the refund/delete actions were gated, which left
+   connection_token, create_payment, charge_reader, cancel_payment,
+   get_payment and cancel_reader_action open to the internet with live
+   Stripe credentials.
    ────────────────────────────────────────────────────────────── */
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
@@ -25,6 +30,7 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseSrv = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const supabaseAnon = Deno.env.get('SUPABASE_ANON_KEY')!
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -99,6 +105,52 @@ async function validateOpenShift(shiftId: string) {
   return { ...data, site_id }
 }
 
+// Staff roles that may drive the terminal without an open POS shift (e.g. an
+// admin debugging a reader from the dashboard). profiles.role values are:
+// customer, attendant, driver, manager, admin, pos_device, laundry_tech.
+const POS_STAFF_ROLES = new Set(['admin', 'manager', 'attendant', 'pos_device'])
+
+// Every action is gated: an open POS shift OR a staff JWT. The refund/delete
+// actions still call validateOpenShift() themselves, so a staff JWT alone
+// never substitutes for an open shift there.
+async function authorizeCaller(req: Request, body: any): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  if (body?.pos_shift_id) {
+    try {
+      await validateOpenShift(body.pos_shift_id)
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, status: 401, reason: e.message }
+    }
+  }
+
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || ''
+  const m = authHeader.match(/^Bearer\s+(.+)$/i)
+  if (!m) return { ok: false, status: 401, reason: 'pos_shift_id (open POS shift) or staff login required' }
+  const jwt = m[1]
+
+  if (jwt === supabaseSrv) return { ok: true }
+
+  if (jwt === supabaseAnon) {
+    return { ok: false, status: 401, reason: 'Anon key not accepted; open POS shift or staff login required' }
+  }
+
+  const userClient = createClient(supabaseUrl, supabaseAnon, {
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+  })
+  const { data: { user }, error: userErr } = await userClient.auth.getUser(jwt)
+  if (userErr || !user) return { ok: false, status: 401, reason: 'Invalid or expired session' }
+
+  const db = createClient(supabaseUrl, supabaseSrv)
+  const { data: profile, error: profErr } = await db
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (profErr || !profile) return { ok: false, status: 403, reason: 'Profile not found' }
+  if (!POS_STAFF_ROLES.has(profile.role)) {
+    return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to use the terminal` }
+  }
+
+  return { ok: true }
+}
+
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -108,6 +160,9 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json()
     const { action } = body
+
+    const auth = await authorizeCaller(req, body)
+    if (!auth.ok) return json({ error: auth.reason }, auth.status)
 
     /* ── 1. Connection token ─────────────────────────────────── */
     if (action === 'connection_token') {

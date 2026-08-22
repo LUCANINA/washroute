@@ -6,6 +6,7 @@ const TWILIO_FROM  = Deno.env.get('TWILIO_PHONE_NUMBER') ?? '';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SVC_KEY      = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const ANON_KEY     = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
 const KLAVIYO_KEY = Deno.env.get('KLAVIYO_API_KEY') ?? '';
 
@@ -22,6 +23,12 @@ async function dbGet(path: string) {
   return r.json();
 }
 
+// Session 137 security: this map is now a CLOSED ALLOW-LIST. Previously the
+// handler did `EVENT_TO_TRIGGER[event] ?? event`, so any caller could name an
+// arbitrary trigger_key and have that template sent to any order's customer.
+// Every event a real caller sends must appear here; anything else is a 400.
+// The identity entries below are the direct trigger_keys that charge-order
+// and the POS legitimately send (they were relying on the old fallthrough).
 const EVENT_TO_TRIGGER: Record<string, string> = {
   confirmed:            'order_confirmed',
   picked_up:            'order_picked_up',
@@ -32,6 +39,13 @@ const EVENT_TO_TRIGGER: Record<string, string> = {
   // Reschedule notifications (session 79, Mar 29 2026)
   schedule_changed:     'schedule_changed',
   delivery_rescheduled: 'delivery_rescheduled',
+  // Billing events — sent by charge-order (service role)
+  payment_received:     'payment_received',
+  payment_failed:       'payment_failed',
+  // Walk-in / POS events — sent by pos/index.html and advance_order_status
+  walkin_order_placed:  'walkin_order_placed',
+  walkin_order_ready:   'walkin_order_ready',
+  walkin_receipt_text:  'walkin_receipt_text',
 };
 
 const EVENT_STOP_TYPE: Record<string, 'pickup' | 'delivery'> = {
@@ -119,6 +133,62 @@ const CORS = {
   'Content-Type': 'application/json',
 };
 
+// ── Authorization ─────────────────────────────────────────────────────────
+// This endpoint texts customers using the business's Twilio account, so it
+// requires a real identity. profiles.role values are: customer, attendant,
+// driver, manager, admin, pos_device, laundry_tech.
+//   * service-role key                    -> allowed (charge-order, cron, RPCs)
+//   * any staff JWT                       -> allowed
+//   * customer JWT                        -> allowed ONLY for their own order
+//   * anon key / no header                -> 401
+// laundry_tech is included deliberately: per session 183, laundry_tech staff
+// work the walk-in POS, and this endpoint can only send a pre-approved
+// template about a specific order — never free-form text (that's send-sms,
+// which still excludes laundry_tech).
+const STAFF_NOTIFY_ROLES = new Set(['admin', 'manager', 'attendant', 'driver', 'pos_device', 'laundry_tech']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function authorize(req: Request, orderId: string): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };
+  const jwt = m[1];
+
+  if (jwt === SVC_KEY) return { ok: true };
+
+  if (jwt === ANON_KEY) {
+    return { ok: false, status: 401, reason: 'Anon key not accepted; sign-in required' };
+  }
+
+  const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { 'Authorization': `Bearer ${jwt}`, 'apikey': ANON_KEY },
+  });
+  if (!userRes.ok) return { ok: false, status: 401, reason: 'Invalid or expired session' };
+  const user = await userRes.json().catch(() => null);
+  if (!user?.id) return { ok: false, status: 401, reason: 'Invalid or expired session' };
+
+  const profRows = await dbGet(`profiles?id=eq.${encodeURIComponent(user.id)}&select=role&limit=1`);
+  const profile  = Array.isArray(profRows) ? profRows[0] : null;
+  if (!profile) return { ok: false, status: 403, reason: 'Profile not found' };
+
+  if (STAFF_NOTIFY_ROLES.has(profile.role)) return { ok: true };
+
+  if (profile.role === 'customer') {
+    // A customer may only trigger notifications for an order they own.
+    const ordRows = await dbGet(`orders?id=eq.${encodeURIComponent(orderId)}&select=customer_id&limit=1`);
+    const ord = Array.isArray(ordRows) ? ordRows[0] : null;
+    if (!ord) return { ok: false, status: 403, reason: 'Order not found' };
+    const custRows = await dbGet(`customers?id=eq.${encodeURIComponent(ord.customer_id)}&select=profile_id&limit=1`);
+    const cust = Array.isArray(custRows) ? custRows[0] : null;
+    if (!cust || cust.profile_id !== user.id) {
+      return { ok: false, status: 403, reason: 'Order does not belong to this account' };
+    }
+    return { ok: true };
+  }
+
+  return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to send notifications` };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
@@ -129,8 +199,24 @@ Deno.serve(async (req: Request) => {
     if (!orderId || !event) {
       return new Response(JSON.stringify({ error: 'orderId and event are required' }), { status: 400, headers: CORS });
     }
+    // Validate before orderId reaches any PostgREST query string.
+    if (typeof orderId !== 'string' || !UUID_RE.test(orderId)) {
+      return new Response(JSON.stringify({ error: 'orderId must be a UUID' }), { status: 400, headers: CORS });
+    }
 
-    const triggerKey = EVENT_TO_TRIGGER[event] ?? event;
+    // Closed allow-list — no `?? event` fallthrough. Without this a caller
+    // could name any enabled template and have it sent to any order.
+    const triggerKey = Object.prototype.hasOwnProperty.call(EVENT_TO_TRIGGER, event)
+      ? EVENT_TO_TRIGGER[event]
+      : null;
+    if (!triggerKey) {
+      return new Response(JSON.stringify({ error: `Unknown event: ${event}` }), { status: 400, headers: CORS });
+    }
+
+    const auth = await authorize(req, orderId);
+    if (!auth.ok) {
+      return new Response(JSON.stringify({ error: auth.reason }), { status: auth.status, headers: CORS });
+    }
 
     // Fetch order FIRST — needed by both the Klaviyo event path and the SMS
     // path. Done before the template check so Klaviyo tracking stays decoupled
@@ -139,7 +225,7 @@ Deno.serve(async (req: Request) => {
     // session 137: include tip_amount + tip_type so {{amount}} matches the
     // actual Stripe-charged total.
     const orders = await dbGet(
-      `orders?id=eq.${orderId}&select=id,order_number,pickup_window_start,pickup_window_end,delivery_window_start,delivery_window_end,status,total_amount,tip_amount,tip_type,total_bags,customer_id,pickup_address_id,delivery_address_id&limit=1`
+      `orders?id=eq.${encodeURIComponent(orderId)}&select=id,order_number,pickup_window_start,pickup_window_end,delivery_window_start,delivery_window_end,status,total_amount,tip_amount,tip_type,total_bags,customer_id,pickup_address_id,delivery_address_id&limit=1`
     );
     const order = Array.isArray(orders) ? orders[0] : null;
     console.log(`[send-order-notification] Order lookup: orderId=${orderId} found=${!!order}`);
@@ -150,7 +236,7 @@ Deno.serve(async (req: Request) => {
 
     // Fetch customer — email_cache added for Klaviyo event tracking
     const customers = await dbGet(
-      `customers?id=eq.${order.customer_id}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache,email_cache,sms_notifications_opt_out_at&limit=1`
+      `customers?id=eq.${encodeURIComponent(order.customer_id)}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache,email_cache,sms_notifications_opt_out_at&limit=1`
     );
     const customer = Array.isArray(customers) ? customers[0] : null;
 
