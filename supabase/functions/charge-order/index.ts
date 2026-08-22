@@ -75,6 +75,27 @@ function notifyCustomer(orderId: string, event: string) {
   }).catch(e => console.warn(`notification ${event} failed:`, e.message));
 }
 
+// ── v49 (session 228): typed failure reasons ─────────────────────────────────
+// Every refusal now carries a machine-readable `code` and a `stamped` flag saying
+// whether THIS function already wrote billing_status='failed' to the order.
+//
+// Why: on 2026-08-22 the session-227 auth hardening started returning 401 to stale
+// browser tabs, and the admin dashboard's catch-all wrote billing_status='failed'
+// on every error it saw. 21 customers with perfectly good cards were recorded as
+// declined (and queued for "update your card" dunning) by requests that never
+// reached Stripe at all. The rule that prevents a repeat: **charge-order is the
+// only writer of a billing failure.** Callers must never stamp one themselves —
+// they key off `code`/`stamped` instead.
+class ChargeRefused extends Error {
+  code: string
+  stamped: boolean
+  constructor(message: string, code: string, stamped = false) {
+    super(message)
+    this.code = code
+    this.stamped = stamped
+  }
+}
+
 // Helper: stamp charge_failed_at on an order so the admin UI shows the correct button
 async function stampChargeFailed(db: any, orderId: string) {
   await db.from('orders').update({
@@ -113,7 +134,7 @@ Deno.serve(async (req) => {
 
   const auth = await authorize(req)
   if (!auth.ok) {
-    return new Response(JSON.stringify({ error: auth.reason }), {
+    return new Response(JSON.stringify({ error: auth.reason, code: 'unauthorized', stamped: false }), {
       status: auth.status,
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
@@ -123,7 +144,7 @@ Deno.serve(async (req) => {
     const db = createClient(supabaseUrl, supabaseServiceKey)
     const { orderId } = await req.json()
 
-    if (!orderId) throw new Error('orderId is required')
+    if (!orderId) throw new ChargeRefused('orderId is required', 'bad_request')
 
     // Load order (v35: include subscription_id for subscription guard)
     const { data: order, error: orderErr } = await db.from('orders')
@@ -131,22 +152,22 @@ Deno.serve(async (req) => {
       .eq('id', orderId)
       .single()
 
-    if (orderErr || !order) throw new Error('Order not found')
-    if (order.stripe_payment_intent_id) throw new Error('Order has already been charged')
+    if (orderErr || !order) throw new ChargeRefused('Order not found', 'order_not_found')
+    if (order.stripe_payment_intent_id) throw new ChargeRefused('Order has already been charged', 'already_paid')
     // v46 (session 175): billing_status guard. The PI check above only protects
     // card-paid orders — cash / credit / subscription-paid orders have NO
     // PaymentIntent, and written_off orders must never be chargeable (the admin
     // Charge button and batch-charge-retry both land here). billing_status is
     // the source of truth for 'settled'.
     if (order.billing_status === 'paid' || order.billing_status === 'written_off') {
-      throw new Error(`Order #${order.order_number} is already settled (${order.billing_status}) — refusing to charge`)
+      throw new ChargeRefused(`Order #${order.order_number} is already settled (${order.billing_status}) — refusing to charge`, 'already_paid')
     }
     // v44 (session 166): allow $0 total — subscriber orders that fully fit
     // under the plan cap with no add-ons / tip / same-day legitimately have
     // total_amount=0. The downstream creditsOnly path marks them paid
     // without a Stripe call. Reject only NULL or negative.
     if (order.total_amount == null || Number(order.total_amount) < 0) {
-      throw new Error('Order has invalid amount')
+      throw new ChargeRefused('Order has invalid amount', 'invalid_amount')
     }
 
     // v44 (session 166): subscription guard REMOVED. In the new pricelist
@@ -158,7 +179,7 @@ Deno.serve(async (req) => {
 
     // v30: Guard — block charging for orders that haven't been picked up or are voided
     if (NON_CHARGEABLE_STATUSES.includes(order.status)) {
-      throw new Error(`Order #${order.order_number} cannot be charged in "${order.status}" status`)
+      throw new ChargeRefused(`Order #${order.order_number} cannot be charged in "${order.status}" status`, 'not_chargeable_status')
     }
 
     // Load customer (v34: also pull credits balance)
@@ -170,7 +191,7 @@ Deno.serve(async (req) => {
     if (custErr || !customer) {
       await stampChargeFailed(db, orderId);
       notifyCustomer(orderId, 'payment_failed');
-      throw new Error('Customer not found')
+      throw new ChargeRefused('Customer not found', 'customer_not_found', true)
     }
 
     // v47 (session 175): on-account customers pay by check/invoice — never charge
@@ -178,7 +199,7 @@ Deno.serve(async (req) => {
     // card" SMS at them. Homebase Shelter Program (#6528) got both when an admin
     // clicked the order-panel Charge button. Clean refusal, no side effects.
     if (customer.billing_type === 'on_account') {
-      throw new Error(`Order #${order.order_number} belongs to an on-account customer — bill via invoice, not card`)
+      throw new ChargeRefused(`Order #${order.order_number} belongs to an on-account customer — bill via invoice, not card`, 'on_account')
     }
 
     // ── v48 (session 176): ATOMIC ANTI-DOUBLE-CHARGE CLAIM ──
@@ -197,9 +218,9 @@ Deno.serve(async (req) => {
       .is('stripe_payment_intent_id', null)
       .or(`charge_in_progress_at.is.null,charge_in_progress_at.lt.${staleCutoff}`)
       .select('id')
-    if (claimErr) throw new Error('Could not acquire charge lock: ' + claimErr.message)
+    if (claimErr) throw new ChargeRefused('Could not acquire charge lock: ' + claimErr.message, 'lock_error')
     if (!claimRows || claimRows.length === 0) {
-      throw new Error(`Order #${order.order_number} already has a charge in progress or completed — refusing to avoid a double charge`)
+      throw new ChargeRefused(`Order #${order.order_number} already has a charge in progress or completed — refusing to avoid a double charge`, 'charge_in_progress')
     }
 
     // v33: charge = pre-tip total + team tip
@@ -229,7 +250,7 @@ Deno.serve(async (req) => {
       if (!customer.stripe_customer_id) {
         await stampChargeFailed(db, orderId);
         notifyCustomer(orderId, 'payment_failed');
-        throw new Error('No Stripe account for this customer')
+        throw new ChargeRefused('No Stripe account for this customer', 'no_stripe_account', true)
       }
 
       // Load all saved cards — default first, then by creation date (newest first)
@@ -243,7 +264,7 @@ Deno.serve(async (req) => {
       if (cardsErr) {
         await stampChargeFailed(db, orderId);
         notifyCustomer(orderId, 'payment_failed');
-        throw new Error('Failed to load cards: ' + cardsErr.message)
+        throw new ChargeRefused('Failed to load cards: ' + cardsErr.message, 'cards_unavailable', true)
       }
 
       // Fall back to legacy flat columns if new table is empty
@@ -256,7 +277,7 @@ Deno.serve(async (req) => {
       if (cardList.length === 0) {
         await stampChargeFailed(db, orderId);
         notifyCustomer(orderId, 'payment_failed')
-        throw new Error('No card on file for this customer')
+        throw new ChargeRefused('No card on file for this customer', 'no_card_on_file', true)
       }
 
       const stripeAmountCents = Math.round(chargeAmount * 100)
@@ -319,7 +340,7 @@ Deno.serve(async (req) => {
         const failMsg = failedCards.length > 1
           ? `All ${failedCards.length} cards on file were declined. Last error: ${lastError?.message}`
           : `Card declined: ${lastError?.message}`
-        throw new Error(failMsg)
+        throw new ChargeRefused(failMsg, 'card_declined', true)
       }
     } else {
       console.log(`Order #${order.order_number} fully covered by credits ($${creditsApplied.toFixed(2)}). Skipping Stripe.`)
@@ -420,7 +441,13 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('charge-order error:', error)
-    return new Response(JSON.stringify({ error: error.message }), {
+    // v49 (session 228): tell the caller WHAT kind of failure this was and whether
+    // the order was already stamped billing_status='failed' here. An untyped error
+    // (a genuine crash) defaults to code 'error' / stamped:false so a caller can
+    // never mistake it for a card decline.
+    const code    = (error as any)?.code    ?? 'error'
+    const stamped = (error as any)?.stamped === true
+    return new Response(JSON.stringify({ error: error.message, code, stamped }), {
       status: 500,
       headers: { ...cors, 'Content-Type': 'application/json' },
     })

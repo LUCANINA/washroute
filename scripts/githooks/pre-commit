@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# WashRoute — auto-bump build-version.txt (session 228)
+#
+# The four SPAs poll /build-version.txt every 5 minutes and on tab focus, and
+# reload when the value changes. That is the ONLY mechanism that gets new code
+# into the laundry station's tablet, the drivers' phones and the POS, all of
+# which keep a tab open for days.
+#
+# On 2026-08-22 the session-227 security hardening shipped without a version
+# bump. The rack station kept running Aug-16 JavaScript, which called the newly
+# hardened charge-order the old (anon-key) way, got 401 on every rack, and 21
+# customers with valid cards were recorded as declined. The version file had
+# last been touched on Aug 16.
+#
+# commit.sh bumped the version, but commits made with plain `git commit` (or by
+# an agent) bypassed it. So the bump now lives in a hook instead of a script
+# someone has to remember to use.
+#
+# Enabled repo-wide via:  git config core.hooksPath scripts/githooks
+set -euo pipefail
+
+# Anything a browser downloads and caches. Add new client surfaces here.
+if git diff --cached --name-only | grep -qE '^(admin-dashboard|customer-app|driver-app|pos)/|^assets/'; then
+  NEW_VER=$(date -u +%Y%m%d%H%M%S)
+  printf '%s\n' "$NEW_VER" > build-version.txt
+  git add build-version.txt
+  echo "pre-commit: client code changed — build-version.txt bumped to $NEW_VER (open tablets will reload)"
+fi

@@ -6481,8 +6481,79 @@
   async function _staffJwt() {
     try {
       const { data: { session } = {} } = await db.auth.getSession();
-      return session?.access_token || SUPA_ANON_KEY;
-    } catch (_) { return SUPA_ANON_KEY; }
+      if (session?.access_token) return session.access_token;
+    } catch (_) { /* fall through to the signed-out path below */ }
+    // Session 228: this used to return SUPA_ANON_KEY here. Every hardened edge
+    // function rejects the anon key, so the fallback did not degrade gracefully —
+    // it guaranteed a 401 that looked like a server error instead of "you are
+    // signed out". Surface it once, loudly, and let the caller abort.
+    _staffAuthLost();
+    return null;
+  }
+
+  // Session 228: one place to tell the operator their staff session is gone.
+  // Throttled so a batch of 20 failing calls produces one message, not twenty.
+  let _staffAuthWarnedAt = 0;
+  function _staffAuthLost(msg) {
+    const now = Date.now();
+    if (now - _staffAuthWarnedAt < 15000) return;
+    _staffAuthWarnedAt = now;
+    try {
+      showToast(msg || 'Your staff session has expired — please sign in again. Nothing was charged.', 'error', 12000);
+    } catch (_) { console.warn('staff session lost'); }
+  }
+
+  // ── The single door for charge-order (session 228) ───────────────────────
+  // Returns a CLASSIFIED outcome so callers can tell a real card decline apart
+  // from an auth or transport failure:
+  //   'charged'      — paid now, or already paid
+  //   'declined'     — the card was actually tried and refused. charge-order has
+  //                    ALREADY written billing_status='failed' server-side.
+  //   'unauthorized' — not signed in as staff. NOTHING was attempted.
+  //   'unreachable'  — network error / crash before Stripe. NOTHING was charged.
+  //   'refused'      — charge-order declined to act (on-account, already settled,
+  //                    wrong status, another charge in flight).
+  //
+  // ⚠️ INVARIANT — do not break this: **charge-order is the only writer of a
+  // billing failure.** No caller may stamp billing_status='failed' itself. On
+  // 2026-08-22 the old catch-all did exactly that, and 21 customers with valid
+  // cards were recorded as declined by requests that never reached Stripe,
+  // because session 227's auth hardening started returning 401 to stale tabs.
+  async function _chargeOrderCall(orderId) {
+    const jwt = await _staffJwt();
+    if (!jwt) {
+      return { outcome: 'unauthorized', error: 'Staff session expired — nothing was charged.' };
+    }
+    let res, result;
+    try {
+      res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify({ orderId }),
+      });
+      result = await res.json().catch(() => ({}));
+    } catch (e) {
+      return { outcome: 'unreachable', error: e.message || 'Could not reach the billing service' };
+    }
+    if (res.status === 401 || res.status === 403) {
+      _staffAuthLost('Not authorized to charge cards — sign in again. Nothing was charged.');
+      return { outcome: 'unauthorized', error: result.error || `HTTP ${res.status}` };
+    }
+    if (res.ok && !result.error) {
+      return { outcome: 'charged', card: result.card || '', result };
+    }
+    const msg  = result.error || `HTTP ${res.status}`;
+    const code = result.code || '';
+    if (code === 'already_paid' || /already been charged|already settled/i.test(msg)) {
+      return { outcome: 'charged', card: '', alreadyPaid: true };
+    }
+    // `stamped` is charge-order telling us it wrote the failure itself — the only
+    // signal that the card was genuinely attempted and refused.
+    if (result.stamped === true) return { outcome: 'declined', error: msg, code };
+    if (code) return { outcome: 'refused', error: msg, code };
+    // No code at all: an old deploy or a crash. Treat as unreachable, NEVER as a
+    // decline — an unknown failure must not brand a customer's card as bad.
+    return { outcome: 'unreachable', error: msg };
   }
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
@@ -18447,8 +18518,10 @@ ${noActivityNote}
   // Returns { outcome, card, error, billTotal } where outcome is one of:
   //   'noop'       — not a transition into ready_for_delivery; nothing to do
   //   'on_account' — invoiced customer; balance grows, no card charged
-  //   'charged'    — card charged successfully (or was already paid)
-  //   'failed'     — charge declined; failure stamped on the order
+  //   'charged'      — card charged successfully (or was already paid)
+  //   'failed'       — card genuinely declined; charge-order stamped the order
+  //   'not_attempted'— signed out / unreachable / refused. Billing untouched, so
+  //                    the autocharge sweep retries. NEVER shown as a decline.
   async function chargeOnReady(order, newStatus) {
     // Only charge on the transition INTO ready_for_delivery.
     if (newStatus !== 'ready_for_delivery' || !order || order.status === 'ready_for_delivery') {
@@ -18458,31 +18531,22 @@ ${noActivityNote}
     if (order.customers?.billing_type === 'on_account') {
       return { outcome: 'on_account', billTotal: _orderTipBreakdown(order).totalWithTip };
     }
-    try {
-      const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-        body: JSON.stringify({ orderId: order.id }),
-      });
-      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
+    const r = await _chargeOrderCall(order.id);
+    if (r.outcome === 'charged') {
       order.billing_status = 'paid';
-      return { outcome: 'charged', card: result.card || '' };
-    } catch (e) {
-      // "already been charged" means it WAS paid — preserve that, don't mark failed.
-      if (e.message && e.message.includes('already been charged')) {
-        order.billing_status = 'paid';
-        return { outcome: 'charged', card: '' };
-      }
-      // Stamp the failure so the order surfaces in Issues + dunning outreach.
-      await db.from('orders').update({
-        billing_status:  'failed',
-        charge_failed_at: new Date().toISOString(),
-        billing_notes:   `Charge failed advancing to ready: ${e.message || 'unknown'}`,
-      }).eq('id', order.id);
-      order.billing_status = 'failed';
-      return { outcome: 'failed', error: e.message };
+      return { outcome: 'charged', card: r.card || '' };
     }
+    if (r.outcome === 'declined') {
+      // charge-order already stamped billing_status='failed' + charge_failed_at.
+      // Session 228: we no longer write it here — see the invariant on
+      // _chargeOrderCall. Just mirror the server's state locally.
+      order.billing_status = 'failed';
+      return { outcome: 'failed', error: r.error };
+    }
+    // 'unauthorized' | 'unreachable' | 'refused': the card was NEVER attempted.
+    // Leave billing_status untouched (it stays NULL) so the every-5-minute
+    // wr-autocharge-ready-sweep picks the order up and charges it properly.
+    return { outcome: 'not_attempted', reason: r.outcome, error: r.error };
   }
 
   async function opSetOrderStatus(newStatus) {
@@ -19535,14 +19599,16 @@ ${noActivityNote}
     if (_ocCust?.billing_type === 'on_account') { showToast('On-account customer — bill via invoice, not card', 'error'); return; }
     const chargeTotal = _orderTipBreakdown(o).totalWithTip;
     if (!confirm(`Charge ${fmtMoney(chargeTotal)} for Order #${o.order_number}?`)) return;
-    const { data: { session } } = await db.auth.getSession();
-    const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || SUPA_ANON_KEY}` },
-      body: JSON.stringify({ orderId: o.id })
-    });
-    const data = await res.json();
-    if (!res.ok) { showToast(data.error || 'Charge failed', 'error'); return; }
+    const _rc = await _chargeOrderCall(o.id);
+    if (_rc.outcome !== 'charged') {
+      showToast(
+        _rc.outcome === 'declined' ? `Card declined: ${_rc.error}`
+        : _rc.outcome === 'unauthorized' ? 'Staff session expired — sign in again. Nothing was charged.'
+        : `Not charged: ${_rc.error}`,
+        'error'
+      );
+      return;
+    }
     // charge-order v33 charges subtotal + tip; log the actual amount so history matches Stripe.
     // charge-order itself sets billing_status='paid', billed_at, and stripe_payment_intent_id —
     // do NOT touch those columns here. (Until session 137 this site explicitly cleared
@@ -21670,15 +21736,14 @@ ${oneCopy}
   async function retryChargeFromIssues(orderId, orderNum, btn) {
     btn.disabled = true; btn.textContent = 'Charging…';
     try {
-      const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-        body: JSON.stringify({ orderId }),
-      });
-      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-      // charge-order v26 sets billing_status='paid' + billed_at + clears charge_failed_at
-      showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`, 'success');
+      const _rc = await _chargeOrderCall(orderId);
+      if (_rc.outcome !== 'charged') {
+        throw new Error(_rc.outcome === 'unauthorized'
+          ? 'Staff session expired — sign in again. Nothing was charged.'
+          : _rc.error);
+      }
+      // charge-order sets billing_status='paid' + billed_at + clears charge_failed_at
+      showToast(`✓ Order #${orderNum} charged — ${_rc.card || ''}`, 'success');
       // Send receipt email now that charge succeeded
       fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
         method: 'POST',
@@ -21783,16 +21848,15 @@ ${oneCopy}
     if (!confirm(`Charge customer for order #${orderNum}?`)) return;
     btn.disabled = true; btn.textContent = 'Charging…';
     try {
-      const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-        body: JSON.stringify({ orderId }),
-      });
-      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
+      const _rc = await _chargeOrderCall(orderId);
+      if (_rc.outcome !== 'charged') {
+        throw new Error(_rc.outcome === 'unauthorized'
+          ? 'Staff session expired — sign in again. Nothing was charged.'
+          : _rc.error);
+      }
       // Update button in place to show charged
       btn.parentElement.innerHTML = '<span style="color:#059669;font-size:12px;font-weight:600">✓ Charged</span>';
-      showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`);
+      showToast(`✓ Order #${orderNum} charged — ${_rc.card || ''}`);
     } catch (e) {
       btn.disabled = false; btn.textContent = '💳 Charge';
       showToast('Charge failed: ' + e.message, 'error');
@@ -29003,13 +29067,12 @@ ${oneCopy}
       const failedOrders = [];
       for (const orderId of ids) {
         try {
-          const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-            body: JSON.stringify({ orderId }),
-          });
-          const result = await res.json();
-          if (!res.ok || result.error) failedOrders.push({ orderId, error: result.error || 'Unknown error' });
+          const _rc = await _chargeOrderCall(orderId);
+          if (_rc.outcome !== 'charged') {
+            failedOrders.push({ orderId, error: _rc.outcome === 'unauthorized'
+              ? 'Staff session expired — nothing was charged'
+              : (_rc.error || 'Unknown error') });
+          }
         } catch (e) {
           failedOrders.push({ orderId, error: e.message });
         }
@@ -35813,34 +35876,31 @@ ${oneCopy}
 
     // Charge the card if the RPC told us to (standard charge OR tip-needs-card).
     if (needsCardCharge) {
-      try {
-        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-          body: JSON.stringify({ orderId: _orderId }),
-        });
-        const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-        if (billingBranch === 'fully_credited_tip_needs_card') {
+      const _rc = await _chargeOrderCall(_orderId);
+      if (_rc.outcome === 'charged') {
+        if (_rc.alreadyPaid) {
+          showToast(`💳 Order #${_orderNum} was already charged — no duplicate charge`, 'info');
+        } else if (billingBranch === 'fully_credited_tip_needs_card') {
           showToast(`💳 Order #${_orderNum} — tip (${fmtMoney(tipDollars)}) charged to card`, 'success');
         } else {
-          showToast(`💳 Order #${_orderNum} charged — ${result.card || ''}`, 'success');
+          showToast(`💳 Order #${_orderNum} charged — ${_rc.card || ''}`, 'success');
         }
-      } catch (e) {
-        // "already been charged" means it WAS paid; preserve that, don't mark failed.
-        if (e.message && e.message.includes('already been charged')) {
-          showToast(`💳 Order #${_orderNum} was already charged — no duplicate charge`, 'info');
-          rackActiveOrder.billing_status = 'paid';
-        } else {
-          showToast(`⚠️ Payment failed: ${e.message} — order racked, charge from Order Details`, 'error');
-          const failNote = billingBranch === 'fully_credited_tip_needs_card'
-            ? `Subtotal covered by credits; tip (${fmtMoney(tipDollars)}) could not be charged`
-            : null;
-          const failPatch = { billing_status: 'failed', charge_failed_at: new Date().toISOString() };
-          if (failNote) failPatch.billing_notes = failNote;
-          await db.from('orders').update(failPatch).eq('id', _orderId);
-          rackActiveOrder.billing_status = 'failed';
-        }
+        rackActiveOrder.billing_status = 'paid';
+      } else if (_rc.outcome === 'declined') {
+        // Real decline. charge-order already stamped the failure server-side —
+        // session 228 removed the duplicate client write (see _chargeOrderCall).
+        showToast(`⚠️ Card declined: ${_rc.error} — order racked, charge from Order Details`, 'error');
+        rackActiveOrder.billing_status = 'failed';
+      } else {
+        // Signed out, unreachable, or refused — the card was NEVER tried. The
+        // order stays unbilled so the autocharge sweep collects it within 5 min.
+        // Racking still succeeded; do not brand the customer's card as bad.
+        showToast(
+          _rc.outcome === 'unauthorized'
+            ? `Order #${_orderNum} racked. Not charged — staff session expired; sign in again.`
+            : `Order #${_orderNum} racked. Not charged yet (${_rc.error}) — it will be charged automatically.`,
+          'error', 10000
+        );
       }
     }
 
