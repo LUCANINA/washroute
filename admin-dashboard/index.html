@@ -11277,7 +11277,7 @@
       // period to generate next without a second round-trip. balance is pulled so
       // the All Loans outstanding-tally (session 205 cont.) can read a schedule-sourced
       // loan's current balance the same way it reads a statement-sourced loan's.
-      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, balance, principal, interest, payment, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id)'),
+      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, balance, principal, interest, payment, rate, loan_amt, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id, balance_basis, amort_type)'),
       // Generic per-loan document attachments (Aug 2026) -- payoff letters, transaction
       // histories, amortization schedules, correspondence, anything worth keeping on file
       // that isn't part of the structured statement/schedule ingestion pipelines above.
@@ -12322,6 +12322,9 @@
     return { byMonth, firstYm: keys[0], curYm: today().slice(0, 7), monthly: maxRun >= 3 };
   }
 
+  // Session 226 close: no longer rendered in the All Loans table (David: "Remove
+  // the blue dots for now"). Kept dormant rather than deleted -- "for now" implies
+  // it may come back, and _bkCoverageData still powers coverage logic elsewhere.
   function _bkCoverageStripHtml(a) {
     const d = _bkCoverageData(a);
     if (!d) return '';
@@ -12449,11 +12452,13 @@
       el.innerHTML = `<div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">All ${closedCount} loan${closedCount !== 1 ? 's are' : ' is'} closed</div><div class="empty-sub">Uncheck "Hide closed loans" above to see ${closedCount === 1 ? 'it' : 'them'}.</div></div>`;
       return;
     }
-    // A single row for one loan. Lender is deliberately not repeated here (session
-    // 205 cont.) -- it's now the group header above, which is a more prominent,
-    // less-redundant way of putting "Lender" ahead of the Xero account than a
-    // repeated text column would be. Account # stays per-row since two loans from
-    // the same lender still need to be told apart at a glance.
+    // Session 226 close (David's redesign): ONE tight flat list, no lender grouping,
+    // no coverage strip (the blue dots -- removed "for now", _bkCoverageStripHtml is
+    // kept dormant), no per-row History/Docs links. The row itself now opens the
+    // loan DETAIL view (openLoanDetailModal): full terms, split history in numbers,
+    // statements, and supporting documents. Upload/generate entry points moved
+    // INSIDE the detail view -- the row click used to be the upload flow.
+    const money2 = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const loanRow = (a) => {
       const lastStmt = _loanStatementsToDate(a.id)[0];   // already-happened only -- see _loanStatementsToDate
       const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === a.id);
@@ -12462,96 +12467,53 @@
         ? `<span class="badge badge-gray">paid off</span>`
         : `<span class="badge badge-green">active</span>`;
       // Automatic loans (Stripe Capital, session 205 cont.) never get a manually
-      // computed loan_splits row -- the repayment is a straight principal paydown
-      // Stripe deducts from each payout before it lands in the bank, already coded
-      // directly to the loan's Xero account by xero-payout-sync with no interest
-      // portion to reallocate. "no split yet" would misleadingly suggest something
-      // is overdue/pending here, so this gets its own badge instead.
+      // computed loan_splits row -- see xero-payout-sync. Their cell says so
+      // instead of implying something is overdue.
       const isAutomaticLoan = a.ingestion_method === 'automatic';
-      const splitBadge = isAutomaticLoan
+      const splitStatusWord = (s) =>
+        s.status === 'posted' ? `<span class="badge badge-green">posted</span>`
+        : s.status === 'already_in_xero' ? `<span class="badge badge-gray">in Xero</span>`
+        : s.status === 'staged' ? `<span class="badge badge-blue" title="A pre-split transaction sits in Xero waiting for the payment to land — the CPA clicks Match on the reconcile screen.">staged</span>`
+        : `<span class="badge badge-amber">${esc(s.status)}</span>`;
+      // David's ask: the ACTUAL last split in numbers, not just a status word.
+      const splitCell = isAutomaticLoan
         ? `<span class="badge badge-gray">auto via Stripe payouts</span>`
         : (lastSplit
-          ? (lastSplit.status === 'posted' ? `<span class="badge badge-green">posted ${esc(lastSplit.period_label)}</span>`
-            : lastSplit.status === 'already_in_xero' ? `<span class="badge badge-gray">handled in Xero ${esc(lastSplit.period_label)}</span>`
-            : lastSplit.status === 'staged' ? `<span class="badge badge-blue" title="A pre-split transaction sits in Xero waiting for the payment to land — the CPA clicks Match on the reconcile screen.">staged in Xero ${esc(lastSplit.period_label)}</span>`
-            : `<span class="badge badge-amber">${esc(lastSplit.status)} ${esc(lastSplit.period_label)}</span>`)
+          ? `<div style="display:flex;align-items:center;gap:8px;white-space:nowrap">
+              ${splitStatusWord(lastSplit)}
+              <span class="td-mono" style="font-size:12px;color:var(--gray-500)">${esc(lastSplit.period_label)}</span>
+              <span class="td-mono" style="font-size:12.5px" title="principal + interest">${money2(lastSplit.principal_amount)} <span style="color:var(--gray-400)">+</span> ${money2(lastSplit.interest_amount)} <span style="color:var(--gray-400)">=</span> <b>${money2(lastSplit.total_amount)}</b></span>
+            </div>`
           : `<span class="badge badge-gray">no split yet</span>`);
-      // History link is separate from the row's own click (which opens the upload
-      // modal) so a CPA — or anyone — can pull up every posted split's actual
-      // numbers without triggering (or being blocked by) the upload flow.
-      const historyLink = splitsForLoan.length
-        ? `<span onclick="event.stopPropagation();openLoanHistoryModal('${a.id}')" style="margin-left:8px;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">History</span>`
-        : '';
-      // Generic document attachment link (Aug 2026) -- always shown (not gated on
-      // having docs yet, unlike History) since it doubles as the entry point for
-      // uploading the first one. Count shown when non-zero so it's obvious at a
-      // glance which loans already have something on file.
-      const docsForLoan = _allLoanDocuments.filter(d => d.loan_account_id === a.id);
-      const docsLink = `<span onclick="event.stopPropagation();openLoanDocumentsModal('${a.id}')" style="margin-left:8px;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">📎 Docs${docsForLoan.length ? ` (${docsForLoan.length})` : ''}</span>`;
-      // Schedule-sourced loans (Dexter, etc.) have no monthly statement to pull --
-      // clicking one of these used to open the generic statement-upload form and ask
-      // for hand-typed numbers David would otherwise have to copy off the schedule
-      // himself (real risk of a typo). There's nothing to upload for these: the whole
-      // loan's numbers are already on file, so the row instead opens a much smaller
-      // "confirm the period, we compute the rest" flow with zero manual entry.
-      // Automatic loans have neither a statement to upload nor a schedule to
-      // generate from -- clicking the row does nothing (no-op) rather than opening
-      // either modal, since there's genuinely no manual input this loan ever needs.
-      const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
-      const rowClick = isAutomaticLoan ? '' : (isScheduleLoan ? `openLoanScheduleGenerateModal('${a.id}')` : `openLoanIntakeModal('${a.id}')`);
       const bal = _loanOutstandingBalance(a);
       const balCell = bal
-        ? `<span title="as of ${esc(bal.asOf)}">$${bal.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
+        ? `<span title="as of ${esc(bal.asOf)}">${money2(bal.amount)}</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
-      return `<tr onclick="${rowClick}" ${isAutomaticLoan ? 'style="cursor:default"' : ''}>
-        <td class="td-name">${esc(a.xero_account_name || '—')}</td>
+      return `<tr onclick="openLoanDetailModal('${a.id}')" style="cursor:pointer">
+        <td class="td-name">${esc(a.xero_account_name || '—')}<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(a.lender || '')}</div></td>
         <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
         <td>${statusBadge}</td>
-        <td class="td-mono">${isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic${lastStmt ? ' (as of ' + esc(lastStmt.statement_date) + ')' : ''}</span>` : (isScheduleLoan ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—') + _bkCoverageStripHtml(a))}</td>
-        <td>${splitBadge}${historyLink}${docsLink}</td>
+        <td class="td-mono">${isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic</span>` : (a.ingestion_method === 'amortization_schedule' ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—'))}</td>
+        <td>${splitCell}</td>
         <td style="text-align:right">${balCell}</td>
       </tr>`;
     };
 
-    // Grouped by lender (session 205 cont., David's request), collapsed by
-    // default -- same toggleOverviewPanel convention as the rest of this page, so
-    // a CPA scanning ~10 loans across 6 lenders opens one lender at a time instead
-    // of reading a single flat table. Alphabetical for predictability.
-    const lenders = [...new Set(visibleAccounts.map(a => a.lender))].sort((x, y) => x.localeCompare(y));
-    const groups = lenders.map((lender, i) => {
-      const loans = visibleAccounts.filter(a => a.lender === lender);
-      const known = loans.map(a => _loanOutstandingBalance(a)).filter(Boolean);
-      const subtotal = known.reduce((sum, b) => sum + b.amount, 0);
-      const subtotalText = known.length
-        ? '$' + subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (known.length < loans.length ? ` (${known.length}/${loans.length})` : '')
-        : '—';
-      const bodyId = `loans-lender-${i}`;
-      return `<div style="border-bottom:1px solid var(--gray-100)">
-        <div style="cursor:pointer;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;background:var(--gray-50)" onclick="toggleOverviewPanel('${bodyId}',this)">
-          <div style="display:flex;align-items:center;gap:10px">
-            <span style="font-weight:600;font-size:13px;color:var(--gray-900)">${esc(lender)}</span>
-            <span style="font-size:11.5px;color:var(--gray-500)">${loans.length} loan${loans.length !== 1 ? 's' : ''}</span>
-          </div>
-          <span style="display:flex;align-items:center;gap:14px">
-            <span style="font-size:13px;font-weight:600;color:var(--gray-700)">${esc(subtotalText)}</span>
-            <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:18px;transition:transform .2s">▸</span></span>
-          </span>
-        </div>
-        <div id="${bodyId}" style="display:none;overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:860px">
-          <!-- Session 223 cont. 5: one shared column grid across every lender
-               group — each group is its own table, and auto layout let the
-               columns drift a different amount per group (David: "Ford align
-               all columns"). Fixed layout + identical colgroup pins them. -->
-          <!-- Session 224 cont.: col 4 widened 13% → 16% (col 5 gives it back)
-               so the 12-cell coverage strip fits without bleeding at 860px. -->
-          <colgroup><col style="width:22%"><col style="width:12%"><col style="width:9%"><col style="width:16%"><col style="width:29%"><col style="width:12%"></colgroup>
-          <thead><tr><th>Xero account</th><th>Account #</th><th>Status</th><th>Last statement</th><th>Last split</th><th style="text-align:right">Outstanding</th></tr></thead>
-          <tbody>${loans.map(loanRow).join('')}</tbody></table>
-        </div>
-      </div>`;
-    }).join('');
-
-    el.innerHTML = groups;
+    // Flat, sorted lender-then-name so same-lender loans stay adjacent without the
+    // old group chrome. One grand-total row replaces the per-lender subtotals.
+    const sorted = visibleAccounts.slice().sort((x, y) =>
+      (x.lender || '').localeCompare(y.lender || '') || (x.xero_account_name || '').localeCompare(y.xero_account_name || ''));
+    const known = sorted.map(a => _loanOutstandingBalance(a)).filter(Boolean);
+    const total = known.reduce((sum, b) => sum + b.amount, 0);
+    el.innerHTML = `<div style="overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:900px">
+      <colgroup><col style="width:22%"><col style="width:12%"><col style="width:8%"><col style="width:12%"><col style="width:34%"><col style="width:12%"></colgroup>
+      <thead><tr><th>Loan</th><th>Account #</th><th>Status</th><th>Last statement</th><th>Last split</th><th style="text-align:right">Outstanding</th></tr></thead>
+      <tbody>${sorted.map(loanRow).join('')}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--gray-200)">
+        <td colspan="5" style="font-size:12.5px;color:var(--gray-500);font-weight:600">Total${known.length < sorted.length ? ` (${known.length} of ${sorted.length} with a balance on file)` : ''}</td>
+        <td style="text-align:right;font-weight:700">${money2(total)}</td>
+      </tr></tfoot>
+    </table></div>`;
   }
 
   // Full posted (and pending/flagged) split history for one loan — lets the CPA
@@ -12580,20 +12542,18 @@
   // with filenames/paths containing special characters.
   let _historyFilePaths = {};
 
-  function openLoanHistoryModal(loanAccountId) {
-    const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
+  // The full split-history table for one loan, as HTML. Extracted (session 226
+  // close) so the loan DETAIL modal below is its one caller today, but the markup
+  // stays reusable.
+  function _loanSplitHistoryTableHtml(loanAccountId) {
     const splits = _allLoanSplits
       .filter(s => s.loan_account_id === loanAccountId)
       .slice()
       .sort((a, b) => (b.period_label || '').localeCompare(a.period_label || ''));
-
-    document.getElementById('loan-history-title').textContent =
-      acct ? `Split History — ${acct.xero_account_name || acct.lender_account_number}` : 'Split History';
-
-    const body = document.getElementById('loan-history-body');
     if (!splits.length) {
-      body.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No splits recorded for this loan yet.</div>`;
-    } else {
+      return `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No splits recorded for this loan yet.</div>`;
+    }
+    {
       const statusBadge = (s) => {
         if (s.status === 'posted') return `<span class="badge badge-green">posted</span>`;
         if (s.status === 'already_in_xero') return `<span class="badge badge-gray" title="A human confirmed this period was already split directly in Xero — WashRoute posted nothing.">handled in Xero</span>`;
@@ -12611,9 +12571,9 @@
         <tr>
           <td class="td-mono">${esc(s.period_label)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${s.source === 'amortization_schedule' ? 'schedule' : 'statement'}</td>
-          <td>$${Number(s.principal_amount).toFixed(2)}</td>
-          <td>$${Number(s.interest_amount).toFixed(2)}</td>
-          <td>$${Number(s.total_amount).toFixed(2)}</td>
+          <td class="td-mono">$${Number(s.principal_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="td-mono">$${Number(s.interest_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="td-mono">$${Number(s.total_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td>${statusBadge(s)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${s.xero_posted_at ? esc(s.xero_posted_at.slice(0, 10)) : '—'}</td>
           <td class="td-mono" style="font-size:11px;color:var(--gray-400)" title="${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id) : ''}">${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id.slice(0, 8)) + '…' : '—'}</td>
@@ -12622,12 +12582,130 @@
         ${s.review_notes ? `<tr><td colspan="9" style="padding:2px 8px 12px;font-size:12px;color:var(--gray-600);background:var(--gray-50)">⚠ ${esc(s.review_notes)}</td></tr>` : ''}
       `;
       }).join('');
-      body.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
         <thead><tr><th>Period</th><th>Source</th><th>Principal</th><th>Interest</th><th>Total</th><th>Status</th><th>Posted</th><th>Journal</th><th>File</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`;
     }
+  }
+
+  // Derive a loan's TERMS from data already on file -- nothing is hand-typed, so
+  // nothing can silently drift from the documents. Sources, in order of authority:
+  // the amortization schedule's own rows (origination, payment count/cadence, level
+  // payment, rate column where the lender prints one, maturity), the initial row's
+  // fee for fee-based lenders (PayPal), and loan_accounts.scheduled_monthly_payment
+  // as fallback. Missing pieces simply don't render -- no guessing.
+  function _loanDerivedTerms(a) {
+    const rows = (_allLoanAmortRows || [])
+      .filter(r => r.loan_amortization_schedules?.loan_account_id === a.id)
+      .slice()
+      .sort((x, y) => (String(x.row_date) < String(y.row_date) ? -1 : 1));
+    const pays = rows.filter(r => r.row_type === 'payment');
+    const init = rows.find(r => r.row_type === 'initial');
+    const t = {};
+    if (init) {
+      t.origination = { date: String(init.row_date).slice(0, 10), amount: init.loan_amt != null ? Number(init.loan_amt) : (init.principal != null ? Number(init.principal) : null) };
+      // Fee-based lenders (PayPal): the initial row carries the whole fixed fee as
+      // its "interest". Only meaningful when there IS no per-row rate.
+      if (init.interest != null && Number(init.interest) > 0) t.totalFee = Number(init.interest);
+    }
+    if (pays.length >= 2) {
+      const gaps = [];
+      for (let i = 1; i < pays.length; i++) gaps.push((new Date(pays[i].row_date) - new Date(pays[i - 1].row_date)) / 86400000);
+      gaps.sort((x, y) => x - y);
+      const med = gaps[Math.floor(gaps.length / 2)];
+      t.cadence = med <= 9 ? 'weekly' : med <= 17 ? 'biweekly' : med <= 45 ? 'monthly' : `every ~${Math.round(med)} days`;
+      t.paymentCount = pays.length;
+      t.firstPayment = String(pays[0].row_date).slice(0, 10);
+      t.maturity = String(pays[pays.length - 1].row_date).slice(0, 10);
+      const amts = pays.map(p => Number(p.payment || 0)).filter(Boolean).sort((x, y) => x - y);
+      if (amts.length) t.scheduledPayment = amts[Math.floor(amts.length / 2)]; // the level payment (median survives a trued-up final row)
+    }
+    const rated = pays.filter(p => p.rate != null && Number(p.rate) > 0);
+    if (rated.length) t.rate = Number(rated[rated.length - 1].rate);
+    if (t.scheduledPayment == null && a.scheduled_monthly_payment != null) { t.scheduledPayment = Number(a.scheduled_monthly_payment); t.cadence = t.cadence || 'monthly'; }
+    const scheds = [...new Map(rows.map(r => [r.loan_amortization_schedules?.storage_path, r.loan_amortization_schedules])).values()].filter(s => s && s.storage_path);
+    t.schedules = scheds.map(s => ({ path: s.storage_path, generated: s.schedule_generated_date, basis: s.balance_basis, type: s.amort_type }));
+    return t;
+  }
+
+  // The loan detail view (session 226 close, David's redesign): clicking a loan row
+  // shows the WHOLE loan -- terms, every split in numbers, statements, supporting
+  // documents (agreements, amortization schedules) -- in one place. Reuses the
+  // modal-loan-history container.
+  function openLoanDetailModal(loanAccountId) {
+    const a = _allLoanAccounts.find(x => x.id === loanAccountId);
+    if (!a) return;
+    const money2 = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    document.getElementById('loan-history-title').textContent = `${a.xero_account_name || a.lender_account_number} — ${a.lender || ''}`;
+    const t = _loanDerivedTerms(a);
+    const bal = _loanOutstandingBalance(a);
+
+    const chips = [];
+    const chip = (label, val, title) => chips.push(`<div style="min-width:120px"><div style="font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--gray-400);font-weight:600">${esc(label)}</div><div style="font-size:13.5px;color:var(--gray-900);margin-top:2px"${title ? ` title="${esc(title)}"` : ''}>${val}</div></div>`);
+    chip('Account #', `<span class="td-mono">#${esc(a.lender_account_number)}</span>`);
+    chip('Status', a.status === 'paid_off' ? 'Paid off' : 'Active');
+    if (bal) chip('Outstanding', `<b>${money2(bal.amount)}</b>`, `as of ${bal.asOf}`);
+    if (t.origination) chip('Originated', `${esc(t.origination.date)}${t.origination.amount != null ? ' · ' + money2(t.origination.amount) : ''}`);
+    if (t.paymentCount) chip('Term', `${t.paymentCount} ${esc(t.cadence || '')} payments`, `${t.firstPayment} → ${t.maturity}`);
+    if (t.scheduledPayment != null) chip('Payment', `${money2(t.scheduledPayment)}${t.cadence === 'weekly' ? '/wk' : t.cadence === 'monthly' ? '/mo' : ''}`);
+    if (t.rate != null) chip('Rate', `${t.rate}%<span style="font-size:11px;color:var(--gray-500)"> (as printed on the schedule)</span>`);
+    else if (t.totalFee != null) chip('Fixed loan fee', `${money2(t.totalFee)}<span style="font-size:11px;color:var(--gray-500)"> (in place of interest)</span>`);
+    if (t.maturity) chip('Final payment', esc(t.maturity));
+
+    // Supporting documents: everything in loan_documents, plus each amortization
+    // schedule's own source file. Same signed-URL viewer as everywhere else.
+    const docs = (_allLoanDocuments || []).filter(d => d.loan_account_id === a.id)
+      .slice().sort((x, y) => (y.created_at || '').localeCompare(x.created_at || ''));
+    const docLine = (label, sub, path) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100)">
+        <div style="min-width:0">
+          <span onclick="viewLoanDocument('${String(path).replace(/'/g, "\\'")}')" style="font-size:13px;color:var(--accent);cursor:pointer;text-decoration:underline">${esc(label)}</span>
+          <div style="font-size:11.5px;color:var(--gray-500);margin-top:1px">${esc(sub)}</div>
+        </div>
+      </div>`;
+    const docItems = [
+      ...docs.map(d => docLine(d.title || LOAN_DOC_TYPE_LABELS[d.doc_type] || 'Document', `${LOAN_DOC_TYPE_LABELS[d.doc_type] || d.doc_type} · ${d.created_at ? d.created_at.slice(0, 10) : ''}${d.notes ? ' · ' + d.notes : ''}`, d.storage_path)),
+      ...(t.schedules || []).map(s => docLine('Amortization schedule' + (s.generated ? ` — ${s.generated}` : ''), `${s.type ? s.type.replace(/_/g, ' ') + ' · ' : ''}balance basis: ${(s.basis || 'unknown').replace(/_/g, ' ')}`, s.path)),
+    ];
+    const docsHtml = docItems.length ? docItems.join('') : `<div style="color:var(--gray-400);font-size:13px;padding:10px 0">No documents on file yet.</div>`;
+
+    // Statements, newest first, scrollable -- weekly lenders can have dozens.
+    const stmts = (_allLoanStatements || []).filter(s => s.loan_account_id === a.id && s.principal_balance != null)
+      .slice().sort((x, y) => (y.statement_date || '').localeCompare(x.statement_date || ''));
+    const stmtsHtml = stmts.length
+      ? `<div style="max-height:220px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
+          <thead><tr><th>Date</th><th style="text-align:right">Balance</th><th>Basis</th><th>Source</th></tr></thead>
+          <tbody>${stmts.map(s => `<tr>
+            <td class="td-mono">${esc(s.statement_date)}</td>
+            <td class="td-mono" style="text-align:right">${money2(s.principal_balance)}</td>
+            <td style="font-size:12px;color:var(--gray-500)">${esc((s.balance_basis || 'unknown').replace(/_/g, ' '))}</td>
+            <td style="font-size:12px;color:var(--gray-500)">${esc((s.source || '').replace(/_/g, ' '))}</td>
+          </tr>`).join('')}</tbody></table></div>`
+      : `<div style="color:var(--gray-400);font-size:13px;padding:10px 0">No statements on file.</div>`;
+
+    // The row click used to BE the upload flow -- those entry points live here now.
+    const canWrite = currentUserRole === 'admin' || currentUserRole === 'manager';
+    const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
+    const isAutomaticLoan = a.ingestion_method === 'automatic';
+    const actions = (canWrite && !isAutomaticLoan)
+      ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 2px">
+          ${isScheduleLoan ? `<button class="btn btn-secondary btn-sm" onclick="closeLoanHistoryModal();openLoanScheduleGenerateModal('${a.id}')">Generate a period split</button>` : ''}
+          <button class="btn btn-secondary btn-sm" onclick="closeLoanHistoryModal();openLoanIntakeModal('${a.id}')">Upload a statement / document</button>
+        </div>`
+      : '';
+
+    const section = (title, inner) => `<div style="margin-top:18px"><div class="form-section-head">${esc(title)}</div>${inner}</div>`;
+    document.getElementById('loan-history-body').innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:14px 28px;padding:4px 0 2px">${chips.join('')}</div>
+      ${actions}
+      ${section(`Split history (${_allLoanSplits.filter(s => s.loan_account_id === a.id).length})`, _loanSplitHistoryTableHtml(a.id))}
+      ${section(`Statements (${stmts.length})`, stmtsHtml)}
+      ${section('Supporting documents', docsHtml)}
+    `;
     document.getElementById('modal-loan-history').classList.add('open');
   }
+  // Back-compat: anything still calling the old history modal gets the full detail.
+  function openLoanHistoryModal(loanAccountId) { openLoanDetailModal(loanAccountId); }
   function closeLoanHistoryModal() {
     document.getElementById('modal-loan-history').classList.remove('open');
   }
