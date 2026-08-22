@@ -8853,7 +8853,14 @@
           item.proposal = `Ford transaction history — all ${item.browserBulk.length} payments (${first.statementDate} to ${last.statementDate}) are already on file for ${_bkLoanLabel(loan)}. Skipped.`;
         } else {
           item.status = 'ready';
-          item.proposal = `Ford transaction history — the loan's full payment record, ${item.browserBulk.length} payments (${first.statementDate} to ${last.statementDate}) → ${_bkLoanLabel(loan)}. Files as reconciliation history — nothing is added to your approvals.`;
+          // Session 229: derived event anchors (a mid-window principal payment,
+          // a payoff to $0.00) are called out — the payoff especially, since a
+          // lender-side $0.00 against a nonzero Xero balance is exactly what
+          // the reconciliation check needs to see.
+          const extras = meta.derivedCount
+            ? ` Includes ${meta.derivedCount} derived event anchor${meta.derivedCount === 1 ? '' : 's'}${meta.paidOff ? ' — the lender shows this loan PAID OFF at $0.00' : ''}.`
+            : '';
+          item.proposal = `Ford transaction history — the loan's full payment record, ${item.browserBulk.length} payments (${first.statementDate} to ${last.statementDate}) → ${_bkLoanLabel(loan)}. Files as reconciliation history — nothing is added to your approvals.${extras}`;
         }
       } else {
         item.status = 'manual';
@@ -10125,6 +10132,31 @@
     out.innerHTML = _bkLenderFdiffHtml(data, slug);
   }
 
+  // Session 229 v12: approve a cross-loan reallocation. The server re-runs the
+  // ENTIRE lender analysis on this call and refuses if the proposal token no
+  // longer matches — so a stale card, a double-click, or an already-posted
+  // journal all come back as a clean refusal, never a duplicate.
+  async function bkPostCrossloan(lender, token, btnEl) {
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Re-checking and posting…'; }
+    const { ok, data } = await _loanFn('loan-find-difference', {
+      lender_analysis: true, lender, post_crossloan: true, proposal_token: token,
+      posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+    }, 240000);
+    const out = document.getElementById('xl-out-' + token);
+    if (!ok || data.error) {
+      showToast(data.error || 'Could not post the reallocation.', 'error');
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Approve & post reallocation to Xero'; }
+      return;
+    }
+    showToast('Reallocation posted to Xero.', 'success');
+    if (btnEl) btnEl.style.display = 'none';
+    if (out) out.innerHTML = `<div style="margin-top:8px;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534">
+      <div style="font-weight:700">✓ Reallocation posted</div>
+      <div style="margin-top:4px;color:var(--gray-600)">${esc(data.posted_journal?.narration || '')} — do NOT also recode the original bank line. Run a reconciliation check and both loans should move.</div>
+      <div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button></div>
+    </div>`;
+  }
+
   function _bkCopyRamona(slug) {
     const t = _bkLenderHandoff[slug];
     if (!t) return;
@@ -10151,6 +10183,7 @@
       check: ['WORTH CHECKING', 'var(--gray-100)', 'var(--gray-600)'],
       cpa_review: ['FOR YOUR BOOKKEEPER', '#fef3c7', '#92400e'],
       approve_journal: ['APPROVE HERE', '#dcfce7', '#166534'],
+      approve_reallocation: ['APPROVE HERE', '#dcfce7', '#166534'],
       upload_history: ['GET LENDER HISTORY', '#fae8ff', '#86198f'],
       rerun: ['THEN RE-RUN', '#dbeafe', '#1e40af'],
     }[k] || ['STEP', 'var(--gray-100)', 'var(--gray-600)']);
@@ -10168,6 +10201,19 @@
         }
         if (s.kind === 'upload_history' && s.loan_account_id) {
           body += `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="openLoanIntakeModal('${s.loan_account_id}')">Upload the history</button></div>`;
+        }
+        // Session 229 v12: a cross-loan reallocation the joint solver confirmed
+        // on both sides — the "click post, settled" shape. Same green-box +
+        // review-gated Approve pattern as the interest fix; the copy carries
+        // the do-exactly-one warning because manually recoding the bank line
+        // is a valid alternative but doing BOTH would double-fix.
+        if (s.kind === 'approve_reallocation' && s.journal) {
+          body += `<div style="margin-top:8px;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px">
+            <div style="font-weight:700;color:#166534">Proposed reallocation — nothing posts until you approve</div>
+            <div style="margin-top:6px;font-weight:600">${esc(s.journal?.Narration || '')} (dated ${esc(fmtDate(s.journal?.Date))})</div>
+            ${(s.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} on ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('')}
+            ${data.can_post && s.token ? `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="xl-post-${esc(s.token)}" data-lender="${esc(data.lender)}" data-token="${esc(s.token)}" onclick="bkPostCrossloan(this.dataset.lender, this.dataset.token, this)">Approve & post reallocation to Xero</button></div><div id="xl-out-${esc(s.token)}"></div>` : `<div style="margin-top:6px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
+          </div>`;
         }
         if (s.kind === 'rerun') {
           body += `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button></div>`;
@@ -13956,7 +14002,64 @@ ${noActivityNote}
     }
     if (periods.length < 2) return null;
     periods.sort((a, b) => a.statementDate.localeCompare(b.statementDate));
-    return { accountSuffix: acct ? acct[1] : null, vinSuffix: vin ? vin[1] : null, periods };
+    // Session 229: DESCRIPTION-ONLY EVENTS. Ford prints principal-affecting
+    // events ("Principal Payment", the payoff "Payment Received - Thank you!")
+    // as description rows with NO amount and NO balance — the money only shows
+    // up as a discontinuity in the surrounding rows' balances. The live case
+    // that forced this: N202-8562 was PAID OFF in May 2026 through two such
+    // rows, and skipping them meant the single most important anchor a loan
+    // can have (the lender saying $0.00) never reached the books. Rules, per
+    // Option B (never invent a number):
+    //  * Between two parsed payment rows, the unexplained principal delta is
+    //    exact arithmetic on the lender's own balances. If EXACTLY ONE
+    //    principal event sits in that window, it gets a derived anchor at its
+    //    own date (4140's 08/10 $5,000 principal payment). Two or more events
+    //    in one window can't be split apart — no intermediate anchor is
+    //    invented; a note says so instead.
+    //  * After the LAST payment row, the header's "Current Principal Balance"
+    //    is the lender's own statement of where the loan stands. Trailing
+    //    events get ONE derived endpoint anchor at the latest event date
+    //    carrying that header balance — for a paid-off loan, the $0.00 payoff.
+    const descRe = /(\d{2}\/\d{2}\/\d{4})\s+(Principal Payment|Payment Received - Thank you!)/g;
+    const events = []; const seenEv = new Set(); let ev;
+    while ((ev = descRe.exec(text))) {
+      const evKey = `${ev[1]}|${ev[2]}`;
+      if (seenEv.has(evKey)) continue;
+      seenEv.add(evKey);
+      events.push({ date: _mdyToIso(ev[1]), desc: ev[2] });
+    }
+    const headerBalM = text.match(/Current\s+Principal\s+Balance\s+\$([\d,]+\.\d{2})/i);
+    const headerBal = headerBalM ? num(headerBalM[1]) : null;
+    const _fr2 = v => Math.round(v * 100) / 100;
+    const derived = []; const derivedNotes = [];
+    if (events.length) {
+      for (let i = 0; i + 1 < periods.length; i++) {
+        const a = periods[i], b = periods[i + 1];
+        const gap = _fr2(a.principalBalance - (b.explicitSplit ? b.explicitSplit.principal : 0) - b.principalBalance);
+        if (Math.abs(gap) < 0.01) continue;
+        const between = events.filter(e => e.date > a.statementDate && e.date < b.statementDate);
+        if (between.length === 1) {
+          derived.push({ statementDate: between[0].date, principalBalance: _fr2(a.principalBalance - gap), derivedEvent: between[0].desc });
+        } else {
+          derivedNotes.push(`$${Math.abs(gap).toFixed(2)} of principal moved between ${a.statementDate} and ${b.statementDate} across ${between.length || 'no listed'} events — no per-event anchor derivable`);
+        }
+      }
+      const lastPay = periods[periods.length - 1];
+      const trailing = events.filter(e => e.date > lastPay.statementDate);
+      if (trailing.length && headerBal != null && Math.abs(headerBal - lastPay.principalBalance) >= 0.01) {
+        const endDate = trailing.map(e => e.date).sort().slice(-1)[0];
+        derived.push({ statementDate: endDate, principalBalance: headerBal, derivedEvent: headerBal === 0 ? 'payoff' : 'trailing principal events' });
+        if (trailing.length > 1) derivedNotes.push(`${trailing.length} events after the last payment row — only the endpoint (${endDate}, $${headerBal.toFixed(2)}) is anchored; the lender doesn't state the split between them`);
+      }
+    }
+    for (const d of derived) {
+      if (!periods.some(p => p.statementDate === d.statementDate)) {
+        periods.push({ statementDate: d.statementDate, principalBalance: d.principalBalance, totalAmountDue: null, derivedEvent: d.derivedEvent });
+      }
+    }
+    periods.sort((a, b) => a.statementDate.localeCompare(b.statementDate));
+    return { accountSuffix: acct ? acct[1] : null, vinSuffix: vin ? vin[1] : null, periods,
+      derivedCount: derived.length, derivedNotes, paidOff: headerBal === 0 };
   }
 
   // Extracts all text from a base64 PDF via pdf.js, page by page. Returns ''

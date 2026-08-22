@@ -97,6 +97,21 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // auto-derives dense principal anchors (loan-ingest-amortization v15), which
 // turns coarse statement spans into per-payment spans on the next run. Every
 // solver decision is console.logged for live diagnosis (no DB writes).
+//
+// v12 (session 229, same night — David: "Feed me everything from the
+// beginning, and I'll propose the manual adjustments. if you agree, click
+// post. That should settle it."): CROSS-LOAN REALLOCATION PROPOSALS. In the
+// strictest shape ONLY — the move closes BOTH loans' spans exactly
+// (two-sided confirmed), exactly one candidate destination (an either/or
+// tie stays a human call), entry untouched by the bookkeeper — the lender
+// mode now proposes a reallocation Manual Journal (debit the destination
+// loan, credit the source; the original bank line is never edited, same law
+// as the interest fix). Deterministic token; { post_crossloan: true,
+// proposal_token } re-runs this entire analysis server-side and refuses on
+// drift — which also makes a double-post self-defeating (after the journal
+// lands, the re-analysis finds nothing to propose). Approving the journal
+// and manually recoding the bank line are ALTERNATIVES; every rendering of
+// the proposal says "do exactly one of the two."
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -901,6 +916,31 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     decisions: trace.slice(0, 80),
   }))
 
+  // v12: the "click post, settled" shape. See the header note — strictest
+  // eligibility only, and the journal moves the ENTRY'S EFFECT (sign-correct
+  // for payments and journals alike): TO gets the effect, FROM gets it back.
+  for (const m of assigned) {
+    if (m.kind !== 'recode' || !m.ev.closesBoth || (m.ev.alternates || []).length || !m.from?.bundle || !m.ev.toBundle) continue
+    const amount = r2(Math.abs(m.ev.eff))
+    if (amount < TOL) continue
+    const fromCode = m.from.bundle.code, toCode = m.ev.toBundle.code
+    m.xl = {
+      kind: 'crossloan_reallocation_journal',
+      amount, entry_id: m.id, entry_date: m.date,
+      from: { loan: m.from.bundle.loan.xero_account_name, code: fromCode },
+      to: { loan: m.ev.toBundle.loan.xero_account_name, code: toCode },
+      journal: {
+        Narration: `Reallocation — ${money(amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} ${m.date} (${fromCode} → ${toCode})`,
+        Date: m.date, Status: 'POSTED',
+        JournalLines: [
+          { LineAmount: r2(-m.ev.eff), AccountCode: toCode, Description: 'Reallocated in', TaxType: 'NONE', AccountName: acctMap[toCode] ?? null },
+          { LineAmount: r2(m.ev.eff), AccountCode: fromCode, Description: 'Reallocated out', TaxType: 'NONE', AccountName: acctMap[fromCode] ?? null },
+        ],
+      },
+      token: proposalToken(m.id, `${fromCode}>${toCode}`, amount, 'xl'),
+    }
+  }
+
   // 4. Safe-fix approvals (the per-loan proposal, unchanged, same token). Only
   //    offered inline for loans NO recode step touches — a recode changes that
   //    loan's history, and the token discipline would (rightly) refuse a stale
@@ -976,13 +1016,17 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     } else {
       why = `In Xero, recode the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} from ${fromName} to ${toName}.${(m.ev.alternates || []).length ? ` It could equally belong to ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')} — the numbers fit both, so check which loan's own statement shows this payment before moving it.` : ''} After the move: ${outcomes}.${riseNote}`
     }
+    if (m.xl) {
+      why = `The numbers close both loans' spans exactly: the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} belongs to ${toName}, not ${fromName}. Approve below to post a reallocation journal (${m.xl.from.code} → ${m.xl.to.code}; the original bank line stays untouched) — OR have your bookkeeper recode the bank line instead. Do exactly ONE of the two. After it: ${outcomes}.${riseNote}`
+    }
     roadmap.push({
-      step: n++, kind: m.kind,
+      step: n++, kind: m.xl ? 'approve_reallocation' : m.kind,
       entry: { type: m.src_type, id: m.id, date: m.date, amount: m.amount, contact: m.contact, ref: m.ref, narration: m.narration },
       move_from: { loan: fromName, account_code: m.from?.bundle ? m.from.bundle.code : (m.from?.account_code ?? null) },
       move_to: toName ? { loan: toName, account_code: m.ev.toBundle.code } : { loan: 'to be determined — check the payee', account_code: null },
       alternate_destinations: (m.ev.alternates || []).map((x: any) => ({ loan: x.loan.xero_account_name, account_code: x.code })),
       confidence: m.ev.closesBoth ? 'confirmed both sides' : m.ev.twoSided ? 'improves both sides' : 'one-sided',
+      ...(m.xl ? { amount: m.xl.amount, journal: m.xl.journal, token: m.xl.token } : {}),
       why,
     })
   }
@@ -1099,6 +1143,9 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       hand.push(`   currently on: ${s.move_from.account_code ? `${s.move_from.account_code} ` : ''}${s.move_from.loan} — the lender never saw it there. Check the bank line's payee / lender account number and recode it to the right loan.`)
     } else if (s.kind === 'upload_history') {
       hand.push(`${s.step}. GET THE LENDER'S HISTORY — download ${s.loan}'s full payment/transaction history from the lender portal (CSV or PDF) and upload it in WashRoute. One file per loan; the engine then matches payment by payment.`)
+    } else if (s.kind === 'approve_reallocation') {
+      hand.push(`${s.step}. DAVID APPROVES IN WASHROUTE — reallocation journal ${money(s.amount)}: ${s.move_from.account_code} ${s.move_from.loan} → ${s.move_to.account_code} ${s.move_to.loan}`)
+      hand.push(`   (or recode the ${s.entry.date} bank line yourself — do exactly ONE of the two, never both)`)
     } else if (s.kind === 'approve_journal') {
       hand.push(`${s.step}. APPROVE IN WASHROUTE — ${s.loan}: prepared ${s.period} interest correction of ${money(s.amount)} (button on the ${lenderName} card; David/admin only)`)
     } else if (s.kind === 'cpa_review') {
@@ -1109,6 +1156,32 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     }
   }
   const handoffText = hand.join('\n')
+
+  // v12: the human approved a reallocation they saw. This entire analysis just
+  // re-ran fresh above; the token must still match EXACTLY or nothing posts.
+  // Once posted, the next re-analysis finds those spans tied and can never
+  // produce this proposal again — that is the double-post protection.
+  if (body.post_crossloan) {
+    const step = roadmap.find((s: any) => s.kind === 'approve_reallocation' && s.token === body.proposal_token)
+    if (!step) {
+      return jres({ error: 'Re-analysis found no matching reallocation to post — the books may have changed since you looked. Run the analysis again and review the fresh roadmap.', conclusions: finalConclusions, roadmap }, 409)
+    }
+    const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ManualJournals: [{ ...step.journal, JournalLines: step.journal.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
+    })
+    const postJson = await postRes.json().catch(() => null)
+    if (!postRes.ok || postJson?.Elements?.[0]?.ValidationErrors?.length) {
+      return jres({ error: 'Xero journal post failed', status: postRes.status, details: postJson }, 502)
+    }
+    const journal = postJson.ManualJournals?.[0]
+    return jres({
+      ok: true, mode: 'post_crossloan',
+      posted_journal: { id: journal?.ManualJournalID, narration: step.journal.Narration, date: step.journal.Date, lines: step.journal.JournalLines },
+      posted_by: body.posted_by || null,
+      note: 'Reallocation posted. Do NOT also recode the original bank line. Run a reconciliation check — both loans should move.',
+    })
+  }
 
   return jres({
     ok: true, mode: 'lender_analysis', lender: lenderName,
@@ -1149,6 +1222,10 @@ async function handle(req: Request): Promise<Response> {
   if (body.lender_analysis) {
     if (post_fix) {
       return new Response(JSON.stringify({ error: 'Post a correction from its own loan card — the lender-level analysis is read-only.' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    // v12: posting a reallocation is a write — admin/manager only, same bar as post_fix.
+    if (body.post_crossloan && !['admin', 'manager'].includes(role)) {
+      return new Response(JSON.stringify({ error: 'Only an admin or manager can post a reallocation. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
     return await handleLender(supa, body, role)
   }
