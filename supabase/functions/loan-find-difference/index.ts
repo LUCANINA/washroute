@@ -82,6 +82,21 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // single re-run. Read-only; safe-fix approvals reuse the per-loan post_fix
 // path and tokens (no new write path). The per-loan analysis is unchanged
 // (analyzeWalk is the same function both modes call).
+//
+// v11 (session 229, same day — the first live run's lesson): HONESTY ABOUT
+// DIRECTION. The live Ford run said "after the fixes: ~$8,103.41 above" with
+// no explanation (David: "how is that a good thing? what am I missing?").
+// Four fixes: (1) a loan whose number RISES because a wrong entry was
+// masking an older gap now says exactly that — in the verdict, the expected
+// labels, and the step copy; (2) a move with no concrete destination is an
+// INVESTIGATE step, never a "recode" nobody can execute; (3) vetoed-but-
+// promising moves (the leads the per-loan cards showed) surface as RULED OUT
+// with the reason instead of silently vanishing; (4) when the gap predates
+// the statements on file, the roadmap asks for the lender's full payment
+// history per loan (one download beats sifting entries) — ingesting it
+// auto-derives dense principal anchors (loan-ingest-amortization v15), which
+// turns coarse statement spans into per-payment spans on the next run. Every
+// solver decision is console.logged for live diagnosis (no DB writes).
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -788,7 +803,11 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   // Recoding moves that whole effect: FROM loses it, TO gains it. Every
   // claimant destination is evaluated; the best-ranked one wins, and an exact
   // tie between claimants is reported as "either X or Z" — never assigned to
-  // both (ONE ENTRY, ONE EXPLANATION).
+  // both (ONE ENTRY, ONE EXPLANATION). v11: a vetoed move comes back as a veto
+  // record instead of null — promising leads the per-loan cards showed (same
+  // lender, or amount-exact) must surface as RULED OUT with the reason, because
+  // a silently vanished hypothesis reads as a bug to the human who saw it on
+  // yesterday's card.
   const evalMove = (mv: any) => {
     let eff = effect(mv.rec, fromCodeOf(mv))
     if (!eff) eff = -Math.abs(mv.amount) // external coding we can't read line-by-line: a payment reduces the liability
@@ -796,13 +815,14 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     const closes = (d: any) => d == null ? null : Math.abs(d.after) < TOL
     const sFrom = mv.from?.bundle ? spanFor(mv.from.bundle, mv.date) : null
     const dFrom = sFrom ? { span: sFrom, bundle: mv.from.bundle, before: sFrom.diff, after: r2(sFrom.diff - eff) } : null
-    if (dFrom && improves(dFrom) === false) return null // veto: never worsen a walked span
+    if (dFrom && improves(dFrom) === false) return { veto: true, side: 'from', eff, dFrom }
     const claimants: any[] = (mv.toClaims && mv.toClaims.length) ? mv.toClaims : [null]
     let best: any = null
+    let claimantVetoed = false
     const rankOne = (toB: any) => {
       const sTo = toB ? spanFor(toB, mv.date) : null
       const dTo = sTo ? { span: sTo, bundle: toB, before: sTo.diff, after: r2(sTo.diff + eff) } : null
-      if (dTo && improves(dTo) === false) return null // veto on the receiving side too
+      if (dTo && improves(dTo) === false) { claimantVetoed = true; return null } // veto on the receiving side too
       if (!dFrom && !dTo) return null
       const twoSided = !!(dFrom && dTo)
       let rank: number
@@ -821,23 +841,48 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       if (!best || r.rank < best.rank) { if (best) alternates.length = 0; best = r }
       else if (best && r.rank === best.rank && r.toBundle && best.toBundle && r.toBundle !== best.toBundle) alternates.push(r.toBundle)
     }
-    if (!best) return null
+    if (!best) return claimantVetoed ? { veto: true, side: 'to', eff } : null
     return { ...best, alternates }
   }
 
   // 3. Greedy assignment, best-explanation first, re-evaluated against the
   //    live simulation at every step. Ranks 0–3 become roadmap steps; rank 4
   //    (same-lender, in-span only) becomes at most one "worth checking" step
-  //    per span, and only when nothing better claimed that span.
+  //    per span, and only when nothing better claimed that span. v11: a move
+  //    with a concrete destination is a RECODE; one whose destination is
+  //    unknown is an INVESTIGATE step ("recode it to… check the payee" is not
+  //    an instruction anyone can execute). Vetoed-but-promising moves are kept
+  //    as ruled_out, and every decision is console.logged so a live run can be
+  //    diagnosed from the function logs — analyze mode still writes nothing.
   const ordered = Array.from(moves.values()).sort((a: any, b: any) => {
     const ea = evalMove(a), eb = evalMove(b)
-    return ((ea?.rank ?? 9) - (eb?.rank ?? 9)) || (Math.abs(b.amount) - Math.abs(a.amount)) || a.date.localeCompare(b.date)
+    return (((ea && !ea.veto) ? ea.rank : 9) - ((eb && !eb.veto) ? eb.rank : 9)) || (Math.abs(b.amount) - Math.abs(a.amount)) || a.date.localeCompare(b.date)
   })
   const assigned: any[] = []
+  const ruledOut: any[] = []
+  const trace: any[] = []
   const usedSpanChecks = new Set<any>()
   for (const mv of ordered) {
     const ev = evalMove(mv)
+    trace.push({ id: mv.id, amt: mv.amount, date: mv.date, conf: mv.confidence, same_lender: mv.same_lender, outcome: !ev ? 'no_span' : ev.veto ? `veto_${ev.side}` : `rank_${ev.rank}` })
     if (!ev) continue
+    if (ev.veto) {
+      // Only surface leads a human plausibly believed in: amount-exact/known
+      // matches, or same-lender JOURNALS (the Ford shape). A sibling's routine
+      // in-span payment getting vetoed is the system working, not news.
+      const promising = mv.confidence !== 'in_span' || (mv.same_lender && mv.src_type === 'ManualJournal')
+      if (promising && ruledOut.length < 3 && !ruledOut.some((r: any) => r.id === mv.id)) {
+        const fromName = mv.from?.bundle ? mv.from.bundle.loan.xero_account_name : (mv.from?.external?.loan_name || `account ${mv.from?.account_code ?? '?'}`)
+        const claimNames = (mv.toClaims || []).map((x: any) => x.loan.xero_account_name)
+        ruledOut.push({
+          id: mv.id, src_type: mv.src_type, date: mv.date, amount: mv.amount, from: fromName, claimed_by: claimNames,
+          reason: ev.side === 'from'
+            ? `moving it off ${fromName} would push ${fromName} further from the lender — it belongs where it is`
+            : `moving it${claimNames.length ? ` to ${claimNames.join(' or ')}` : ''} would push the receiving loan further from the lender, not closer`,
+        })
+      }
+      continue
+    }
     if (ev.rank === 4) {
       const key = ev.dTo?.span || ev.dFrom?.span
       if (!key || usedSpanChecks.has(key) || Math.abs((ev.dTo || ev.dFrom)!.before) < TOL) continue
@@ -846,10 +891,15 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       continue
     }
     if (assigned.length >= 8) break
-    assigned.push({ ...mv, ev, kind: mv.already_worked ? 'cpa_review' : 'recode' })
+    assigned.push({ ...mv, ev, kind: mv.already_worked ? 'cpa_review' : (ev.toBundle ? 'recode' : 'investigate') })
     if (ev.dFrom) ev.dFrom.span.diff = ev.dFrom.after
     if (ev.dTo) ev.dTo.span.diff = ev.dTo.after
   }
+  console.log('[lender-solver]', JSON.stringify({
+    lender: lenderName,
+    spans: walkable.map((b: any) => ({ loan: b.loan.xero_account_name, residual: b.aw.residual, periods: b.aw.periods.map((p: any) => ({ f: p.from, t: p.to, d: p.diff, timing: !!p.timing_pair })) })),
+    decisions: trace.slice(0, 80),
+  }))
 
   // 4. Safe-fix approvals (the per-loan proposal, unchanged, same token). Only
   //    offered inline for loans NO recode step touches — a recode changes that
@@ -867,16 +917,31 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     if (s) s.diff = 0
   }
 
-  // 5. Expected end state per loan, from the simulation.
+  // 5. Expected end state per loan, from the simulation. v11: the label tells
+  //    the TRUTH about direction — a loan whose number RISES because a wrong
+  //    entry was masking an older gap says so, instead of presenting a bigger
+  //    number as if it were the goal (the live-run lesson, David verbatim:
+  //    "How is $8,103.41 above the lender a good thing? what am I missing?" —
+  //    it isn't good; it's the real gap surfacing from under offsetting errors).
   const expected: any[] = []
   for (const b of walkable) {
     const simTotal = r2((sim.get(b.loan.id) || []).reduce((s: number, p: any) => s + p.diff, 0))
     const after = r2(simTotal + (b.aw.residual ?? 0))
+    const before = b.headline?.difference ?? r2(b.aw.total_period_diff + (b.aw.residual ?? 0))
+    const changed = Math.abs(after - before) >= TOL
+    const uncovers = changed && Math.abs(after) > Math.abs(before) + TOL
+    const dirW = after > 0 ? 'above' : 'below'
+    let base: string
+    if (!changed) base = 'unchanged by these steps'
+    else if (Math.abs(after) < TOL) base = 'should tie'
+    else if (uncovers) base = `should RISE to ~${money(after)} ${dirW} the lender`
+    else base = `should come down to ~${money(after)} ${dirW} the lender`
     expected.push({
       loan_account_id: b.loan.id, loan: b.loan.xero_account_name,
-      before: b.headline?.difference ?? r2(b.aw.total_period_diff + (b.aw.residual ?? 0)),
-      after_expected: after,
-      label: Math.abs(after) < TOL ? 'should tie' : `should show ~${money(after)} ${after > 0 ? 'above' : 'below'} the lender`,
+      before, after_expected: after, changed, uncovers,
+      residual: b.aw.residual, win_from: b.aw.win_from,
+      label: uncovers ? `${base} — the removed entries were masking an older gap, see the note` : base,
+      label_base: base,
     })
   }
   const combinedBefore = r2(expected.reduce((s: number, e: any) => s + Number(e.before || 0), 0))
@@ -893,19 +958,32 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   for (const m of assigned) {
     if (m.kind === 'check') continue
     const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || m.from?.external?.account_name || `account ${m.from?.account_code ?? '?'}`)
-    const toName = m.ev.toBundle ? loanShort({ loan: m.ev.toBundle.loan }) : 'the loan it was actually paid against (check the payee)'
+    const toName = m.ev.toBundle ? loanShort({ loan: m.ev.toBundle.loan }) : null
     const what = m.src_type === 'ManualJournal' ? 'journal' : 'payment'
-    const clears = [m.ev.dFrom ? `${fromName} ${spanShort(m.ev.dFrom)}` : null, m.ev.dTo ? `${toName} ${spanShort(m.ev.dTo)}` : null].filter(Boolean)
+    const stateAfter = (d: any) => Math.abs(d.after) < TOL ? 'tied' : `${money(d.after)} off`
+    const outcomes = [
+      m.ev.dFrom ? `${fromName}'s ${spanShort(m.ev.dFrom)} span goes from ${money(m.ev.dFrom.before)} off to ${stateAfter(m.ev.dFrom)}` : null,
+      m.ev.dTo ? `${toName}'s ${spanShort(m.ev.dTo)} span goes from ${money(m.ev.dTo.before)} off to ${stateAfter(m.ev.dTo)}` : null,
+    ].filter(Boolean).join('; ')
+    const fromExp = m.from?.bundle ? expected.find((e: any) => e.loan_account_id === m.from.bundle.loan.id) : null
+    const riseNote = fromExp?.uncovers ? ` Heads-up: ${fromName}'s headline number will RISE when this moves — that's an older gap surfacing, not new damage (see the note above the fix list).` : ''
+    let why: string
+    if (m.kind === 'cpa_review') {
+      why = `The ${money(m.amount)} ${what} on ${m.date} looks misallocated (${fromName} → ${toName || 'another loan'}), but it was already worked by your bookkeeper — per your rule, she decides, nothing is changed for her.`
+    } else if (m.kind === 'investigate') {
+      const known = m.ev.dFrom && m.from?.bundle ? m.from.bundle.matchKnown(m.ev.dFrom.after) : null
+      why = `The ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} is coded to ${fromName}, but ${fromName}'s own lender statements don't account for it — it belongs to a different loan. Check the bank line's payee / lender account number to find which one, then recode it there. After the move: ${outcomes}${known ? ` (the remainder equals ${known.what} — a separate, older item)` : ''}.${riseNote}`
+    } else {
+      why = `In Xero, recode the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} from ${fromName} to ${toName}.${(m.ev.alternates || []).length ? ` It could equally belong to ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')} — the numbers fit both, so check which loan's own statement shows this payment before moving it.` : ''} After the move: ${outcomes}.${riseNote}`
+    }
     roadmap.push({
       step: n++, kind: m.kind,
       entry: { type: m.src_type, id: m.id, date: m.date, amount: m.amount, contact: m.contact, ref: m.ref, narration: m.narration },
       move_from: { loan: fromName, account_code: m.from?.bundle ? m.from.bundle.code : (m.from?.account_code ?? null) },
-      move_to: { loan: toName, account_code: m.ev.toBundle ? m.ev.toBundle.code : null },
+      move_to: toName ? { loan: toName, account_code: m.ev.toBundle.code } : { loan: 'to be determined — check the payee', account_code: null },
       alternate_destinations: (m.ev.alternates || []).map((x: any) => ({ loan: x.loan.xero_account_name, account_code: x.code })),
       confidence: m.ev.closesBoth ? 'confirmed both sides' : m.ev.twoSided ? 'improves both sides' : 'one-sided',
-      why: m.kind === 'cpa_review'
-        ? `The ${money(m.amount)} ${what} on ${m.date} looks misallocated (${fromName} → ${toName}), but it was already worked by your bookkeeper — per your rule, she decides, nothing is changed for her.`
-        : `In Xero, recode the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} from ${fromName} to ${toName}.${(m.ev.alternates || []).length ? ` It could equally belong to ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')} — the numbers fit both, so check which loan's own statement shows this payment before moving it.` : ''} ${m.ev.closesBoth ? `This closes ${clears.join(' AND ')} at once.` : m.ev.twoSided ? `This shrinks ${clears.join(' and ')}.` : `This should close ${clears.join('; ')}.`}`,
+      why,
     })
   }
   for (const m of assigned) {
@@ -935,37 +1013,92 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     if (!b.aw.cpa_exception) continue
     roadmap.push({ step: n++, kind: 'cpa_review', loan: b.loan.xero_account_name, why: b.aw.cpa_exception.note })
   }
-  const expectedLine = expected.map((e: any) => `${e.loan} ${e.label}`).join('; ')
+  // v11: when a loan's real gap predates its statements on file (the masked
+  // case), the single most useful thing a human can provide is the lender's
+  // FULL payment history for that loan — one download per account instead of
+  // sifting entries one by one (David's ask, verbatim). Ingesting it
+  // auto-derives dense principal-only anchors (loan-ingest-amortization v15),
+  // which turns these coarse statement spans into per-payment spans on the
+  // next run — at that point the engine can name individual missing or
+  // misplaced payments instead of inferring from span gaps.
+  for (const e of expected) {
+    if (!e.uncovers && !(e.residual != null && Math.abs(e.residual) >= TOL)) continue
+    roadmap.push({
+      step: n++, kind: 'upload_history', loan_account_id: e.loan_account_id, loan: e.loan,
+      why: `Ask the lender for ${e.loan}'s full payment/transaction history (a CSV or PDF from the portal) and upload it to the loan. ~${money(e.residual ?? e.after_expected)} of its gap predates the statements on file (before ${e.win_from}) — the history fills that blind spot, and on the next run the engine walks payment by payment and names exactly what's missing or misplaced.`,
+    })
+  }
+  const changedExp = expected.filter((e: any) => e.changed)
+  const unchangedExp = expected.filter((e: any) => !e.changed)
+  const expectedLine = [
+    ...changedExp.map((e: any) => `${e.loan} ${e.label_base}`),
+    unchangedExp.length ? `${unchangedExp.map((e: any) => e.loan).join(' and ')} unchanged by these steps` : null,
+  ].filter(Boolean).join('; ')
   roadmap.push({
     step: n++, kind: 'rerun',
     why: `After the steps above, run ONE reconciliation check in WashRoute. Expected: ${expectedLine}.${deferredApprovals.length ? ` ${deferredApprovals.map((b: any) => b.loan.xero_account_name).join(', ')} may then offer a prepared interest correction — approve it from the card.` : ''}`,
   })
 
-  // 7. Conclusions — the whole cross-loan story in ≤5 bullets.
+  // 7. Conclusions — ≤5 bullets, and HONEST about direction (v11). Never claim
+  //    "nothing is missing, it's in the wrong buckets" unless the simulation
+  //    actually closes the books; when fixing things makes a number RISE, lead
+  //    with why (offsetting errors surfacing, not new damage). Ruled-out leads
+  //    are named — a hypothesis the per-loan cards showed must never just
+  //    vanish. Priority order when over five: verdict, masking, top move,
+  //    ruled-out, timing.
+  const uncoverers = expected.filter((e: any) => e.uncovers)
+  const actionable = assigned.filter((m: any) => m.kind === 'recode' || m.kind === 'investigate')
   const conclusions: string[] = []
-  conclusions.push(`Across ${walkable.length} ${lenderName} loans, Xero is a combined ${money(combinedBefore)} ${combinedBefore >= 0 ? 'above' : 'below'} the lender.${recodes.length ? ` ${recodes.length} recode${recodes.length === 1 ? '' : 's'} below ${internalMoved ? `(money in the wrong loan bucket, ${money(internalMoved)} confirmed both sides) ` : ''}explain${recodes.length === 1 ? 's' : ''} most of it — nothing is missing from the books, it's in the wrong buckets.` : ' No cross-loan recode explains it — see the steps below.'}`)
+  let verdict = `Across ${walkable.length} ${lenderName} loans, Xero is a combined ${money(combinedBefore)} ${combinedBefore >= 0 ? 'above' : 'below'} the lender.`
+  if (!actionable.length && !approvals.length) verdict += ` No cross-loan move survives the math — see the steps and per-loan sections below.`
+  else if (Math.abs(combinedAfter) < TOL) verdict += ` The steps below close it — the money is all in the books, just in the wrong buckets.`
+  else if (uncoverers.length) verdict += ` Don't let the small number reassure you: on ${uncoverers.map((e: any) => e.loan).join(' and ')} it's larger errors canceling each other out. Expect the numbers to RISE (to ~${money(combinedAfter)} combined) as the wrong entries come off — the next bullet says why that's progress.`
+  else verdict += ` The steps below explain ${money(r2(Math.abs(combinedBefore) - Math.abs(combinedAfter)))}; ~${money(combinedAfter)} remains (per-loan details below).`
+  conclusions.push(verdict)
+  for (const e of uncoverers.slice(0, 1)) {
+    const inWin = r2(e.after_expected - (e.residual ?? 0))
+    const parts: string[] = []
+    if (e.residual != null && Math.abs(e.residual) >= TOL) parts.push(`~${money(e.residual)} of the lender's movement predates its earliest usable statement (${e.win_from}) and was never matched in Xero`)
+    if (Math.abs(inWin) >= TOL) parts.push(`~${money(inWin)} of in-window entries still don't line up (its span table below)`)
+    conclusions.push(`${e.loan}'s ${money(e.before)} is deceptively small — bigger errors cancel out inside it: ${parts.join(', and ')}. Removing entries that don't belong makes its number rise toward the real gap — that's the books getting more honest, not worse. The lender's full payment history (roadmap step below) is what brings it down.`)
+  }
+  for (const m of actionable.slice(0, uncoverers.length ? 1 : 2)) {
+    const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || `account ${m.from?.account_code ?? '?'}`)
+    const toName = m.ev.toBundle ? loanShort({ loan: m.ev.toBundle.loan }) : null
+    if (m.kind === 'investigate') {
+      conclusions.push(`The ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${m.date}) on ${fromName} doesn't belong there — the lender never saw it. Find its real loan (check the payee) and recode it.`)
+    } else {
+      conclusions.push(`The ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${m.date}) on ${fromName} belongs to ${(m.ev.alternates || []).length ? `either ${toName} or ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')}` : toName}${m.ev.closesBoth ? ' — moving it closes a span on BOTH loans (confirmed both sides)' : m.ev.twoSided ? ' — moving it shrinks both loans’ gaps' : ''}.`)
+    }
+  }
+  if (ruledOut.length) {
+    conclusions.push(`Ruled out: ${ruledOut.map((r: any) => `the ${money(r.amount)} ${r.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${r.date}) on ${r.from}`).join(', ')} — earlier per-loan analyses suspected ${ruledOut.length === 1 ? 'it' : 'these'}, but the cross-loan math says moving ${ruledOut.length === 1 ? 'it' : 'them'} would make things worse, not better. Leave ${ruledOut.length === 1 ? 'it' : 'them'} where ${ruledOut.length === 1 ? 'it is' : 'they are'}.`)
+  }
   const pairSpans = walkable.reduce((s: number, b: any) => s + b.aw.periods.filter((p: any) => p.timing_pair).length, 0)
   if (pairSpans) conclusions.push(`${pairSpans} flagged span${pairSpans === 1 ? ' is' : 's are'} timing, not errors — payments dated just after a statement cutoff. They cancel out; nothing to fix.`)
-  for (const m of assigned.filter((x: any) => x.kind === 'recode').slice(0, 2)) {
-    const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || `account ${m.from?.account_code ?? '?'}`)
-    const toName = m.ev.toBundle ? loanShort({ loan: m.ev.toBundle.loan }) : 'another loan'
-    conclusions.push(`The ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${m.date}) on ${fromName} belongs to ${(m.ev.alternates || []).length ? `either ${toName} or ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')}` : toName}${m.ev.closesBoth ? ' — moving it closes a span on BOTH loans (confirmed both sides)' : m.ev.twoSided ? ' — moving it shrinks both loans’ gaps' : ''}.`)
-  }
-  if (Math.abs(combinedAfter) >= TOL) conclusions.push(`~${money(combinedAfter)} remains after the roadmap — the per-loan details below say where; nothing further is proposable without new statements or a human call.`)
-  else conclusions.push(`After the roadmap and one re-run, every ${lenderName} loan should tie with the lender.`)
+  if (conclusions.length === 1 && Math.abs(combinedAfter) < TOL) conclusions.push(`After the roadmap and one re-run, every ${lenderName} loan should tie with the lender.`)
   const finalConclusions = conclusions.slice(0, 5)
 
   // 8. The plain-text handoff — everything the bookkeeper needs WITHOUT the
-  //    dashboard: one checklist, copy/paste into an email or text.
+  //    dashboard: one checklist, copy/paste into an email or text. v11: carries
+  //    the RISE warning and the do-not-move list so she is never surprised or
+  //    tempted to "fix" a ruled-out entry.
   const hand: string[] = []
   hand.push(`${lenderName} — loan cleanup checklist (${today})`)
   hand.push(`Xero vs lender, combined: ${money(combinedBefore)} ${combinedBefore >= 0 ? 'above' : 'below'} across ${walkable.length} loans.`)
+  if (uncoverers.length) hand.push(`NOTE: expect ${uncoverers.map((e: any) => e.loan).join(' and ')} to RISE after these fixes — wrong entries were masking an older gap. That's the real number surfacing, not new damage.`)
+  if (ruledOut.length) hand.push(`DO NOT MOVE: ${ruledOut.map((r: any) => `${money(r.amount)} ${r.src_type === 'ManualJournal' ? 'journal' : 'payment'} ${r.date} on ${r.from}`).join('; ')} — checked and ruled out (moving them makes things worse).`)
   hand.push('')
   for (const s of roadmap) {
     if (s.kind === 'recode' || s.kind === 'check') {
       hand.push(`${s.step}. ${s.kind === 'recode' ? 'RECODE' : 'CHECK'} — ${money(s.entry.amount)} ${s.entry.type === 'ManualJournal' ? 'manual journal' : 'payment'} dated ${s.entry.date}${s.entry.contact ? ` (${s.entry.contact})` : ''}${s.entry.ref ? `, ref ${s.entry.ref}` : ''}${s.entry.narration ? `, "${s.entry.narration}"` : ''}`)
       hand.push(`   now on: ${s.move_from.account_code ? `${s.move_from.account_code} ` : ''}${s.move_from.loan}  →  move to: ${s.move_to.account_code ? `${s.move_to.account_code} ` : ''}${s.move_to.loan}`)
       if (s.kind === 'check') hand.push(`   (not a confident call — confirm against the lender's statement first)`)
+    } else if (s.kind === 'investigate') {
+      hand.push(`${s.step}. FIND WHERE IT BELONGS — ${money(s.entry.amount)} ${s.entry.type === 'ManualJournal' ? 'manual journal' : 'payment'} dated ${s.entry.date}${s.entry.contact ? ` (${s.entry.contact})` : ''}${s.entry.ref ? `, ref ${s.entry.ref}` : ''}`)
+      hand.push(`   currently on: ${s.move_from.account_code ? `${s.move_from.account_code} ` : ''}${s.move_from.loan} — the lender never saw it there. Check the bank line's payee / lender account number and recode it to the right loan.`)
+    } else if (s.kind === 'upload_history') {
+      hand.push(`${s.step}. GET THE LENDER'S HISTORY — download ${s.loan}'s full payment/transaction history from the lender portal (CSV or PDF) and upload it in WashRoute. One file per loan; the engine then matches payment by payment.`)
     } else if (s.kind === 'approve_journal') {
       hand.push(`${s.step}. APPROVE IN WASHROUTE — ${s.loan}: prepared ${s.period} interest correction of ${money(s.amount)} (button on the ${lenderName} card; David/admin only)`)
     } else if (s.kind === 'cpa_review') {
@@ -982,6 +1115,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     combined: { before: combinedBefore, after_expected: combinedAfter, direction: combinedBefore >= 0 ? 'xero_above_lender' : 'xero_below_lender', explained_two_sided: internalMoved },
     conclusions: finalConclusions,
     roadmap,
+    ruled_out: ruledOut,
     handoff_text: handoffText,
     expected,
     loans: walkable.map((b: any) => ({

@@ -10147,9 +10147,11 @@
     // per-loan card already established.
     const kindChip = (k) => ({
       recode: ['RECODE IN XERO', '#dbeafe', '#1e40af'],
+      investigate: ['FIND WHERE IT BELONGS', '#ede9fe', '#5b21b6'],
       check: ['WORTH CHECKING', 'var(--gray-100)', 'var(--gray-600)'],
       cpa_review: ['FOR YOUR BOOKKEEPER', '#fef3c7', '#92400e'],
       approve_journal: ['APPROVE HERE', '#dcfce7', '#166534'],
+      upload_history: ['GET LENDER HISTORY', '#fae8ff', '#86198f'],
       rerun: ['THEN RE-RUN', '#dbeafe', '#1e40af'],
     }[k] || ['STEP', 'var(--gray-100)', 'var(--gray-600)']);
     if (Array.isArray(data.roadmap) && data.roadmap.length) {
@@ -10163,6 +10165,9 @@
             ${(s.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} ${Number(l.LineAmount) >= 0 ? 'into' : 'out of'} ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('')}
             ${data.can_post && s.finding_id ? `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${s.finding_id}" onclick="bkPostFdiffFix('${s.finding_id}','${s.loan_account_id}','${esc(s.token)}')">Approve & post correction to Xero</button></div><div id="fdiff-out-${s.finding_id}"></div>` : `<div style="margin-top:6px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
           </div>`;
+        }
+        if (s.kind === 'upload_history' && s.loan_account_id) {
+          body += `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="openLoanIntakeModal('${s.loan_account_id}')">Upload the history</button></div>`;
         }
         if (s.kind === 'rerun') {
           body += `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button></div>`;
@@ -10188,10 +10193,19 @@
       parts.push(`<div style="margin-top:10px">${data.loans.map(L => {
         const d = Number(L.headline?.difference);
         const exp = (data.expected || []).find(e => e.loan_account_id === L.id);
+        // Session 229 v11: keep the per-loan detective reachable — folding the
+        // cards must not take away the per-loan analysis. Skip the button only
+        // when this finding already has an inline approve step (its ids would
+        // collide with bkPostFdiffFix's output area).
+        const hasApprove = (data.roadmap || []).some(s => s.kind === 'approve_journal' && s.finding_id && s.finding_id === L.finding_id);
+        const solo = (L.finding_id && !hasApprove)
+          ? `<div style="margin-top:8px"><button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="fdiff-btn-${L.finding_id}" onclick="bkFindDifference('${L.finding_id}','${L.id}')">🔍 Analyze this loan on its own</button></div><div id="fdiff-out-${L.finding_id}"></div>`
+          : '';
         return `<details style="padding:6px 0;border-bottom:1px solid var(--gray-100)">
           <summary style="cursor:pointer;font-size:12.5px;color:var(--gray-700)"><span style="font-weight:600">${esc(L.name)}</span>${isFinite(d) ? ` — ${esc(fmtMoney(Math.abs(d)))} ${d >= 0 ? 'above' : 'below'} the lender` : ''}${exp ? ` · after the fixes: ${esc(exp.label)}` : ''}</summary>
           ${_bkFdiffSpanTable(L.periods || [])}
           ${L.cpa_exception ? `<div style="margin-top:8px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e">${esc(L.cpa_exception.note || '')}</div>` : ''}
+          ${solo}
         </details>`;
       }).join('')}</div>`);
     }
