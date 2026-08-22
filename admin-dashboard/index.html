@@ -12453,6 +12453,39 @@
     return `<span onclick="event.stopPropagation();_loansToggleFilter('${kind}',${escAttrJSArg(value)})" title="Click to ${active ? 'clear' : 'filter by'} this" style="cursor:pointer;${active ? 'outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;' : ''}">${html}</span>`;
   }
 
+  // Session 226+ cont. (David's second follow-up): every header is click-to-sort,
+  // same convention as the Customers table (`.th-sort`/`sort-asc`/`sort-desc` --
+  // see setCustSort/sortCustomers) -- reused as-is rather than inventing a second
+  // sort UI. Default is Lender then Loan name (unchanged grouping); clicking a
+  // header sorts by that column ascending, clicking the SAME header again flips to
+  // descending, clicking a DIFFERENT header switches to that column ascending.
+  // Rows with no value for the active column (no split yet, no balance on file)
+  // always sort to the bottom regardless of direction -- an empty cell floating to
+  // the "top" on a descending click reads as broken, not helpful.
+  let _loansSortCol = 'lender';
+  let _loansSortDir = 'asc';
+  function _loansSetSort(col) {
+    if (_loansSortCol === col) { _loansSortDir = _loansSortDir === 'asc' ? 'desc' : 'asc'; }
+    else { _loansSortCol = col; _loansSortDir = 'asc'; }
+    renderLoansTable();
+  }
+  // The value each column sorts by -- kept in one place so the header click and
+  // the actual comparator can never disagree about what "Split" or "Date" means.
+  function _loansSortValue(r, col) {
+    switch (col) {
+      case 'lender': return (r.a.lender || '').toLowerCase();
+      case 'loan': return (r.a.xero_account_name || '').toLowerCase();
+      case 'account': return (r.a.lender_account_number || '').toLowerCase();
+      case 'status': return r.statusLabel;
+      case 'lastpayment': return r.lastSplit ? Number(r.lastSplit.total_amount) : null;
+      case 'date': return r.lastSplit ? r.lastSplit.period_label : null;
+      case 'split': return r.lastSplit ? Number(r.lastSplit.total_amount) : null;
+      case 'type': return r.type.label;
+      case 'outstanding': return r.bal ? Number(r.bal.amount) : null;
+      default: return null;
+    }
+  }
+
   function renderLoansTable() {
     const el = document.getElementById('loans-table-wrap');
     const badge = document.getElementById('loans-all-badge');
@@ -12501,7 +12534,6 @@
     // Lender/Status/Type filters apply against exactly the values the cells
     // themselves render -- no drift between what's shown and what's filterable.
     const rowData = visibleAccounts.map(a => {
-      const lastStmt = _loanStatementsToDate(a.id)[0];   // already-happened only -- see _loanStatementsToDate
       const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === a.id);
       const lastSplit = splitsForLoan[0];
       // Automatic loans (Stripe Capital, session 205 cont.) never get a manually
@@ -12509,43 +12541,72 @@
       // instead of implying something is overdue.
       const isAutomaticLoan = a.ingestion_method === 'automatic';
       const statusKey = a.status === 'paid_off' ? 'paid_off' : 'active';
+      const statusLabel = statusKey === 'paid_off' ? 'paid off' : 'active';
       const statusBadge = statusKey === 'paid_off' ? `<span class="badge badge-gray">paid off</span>` : `<span class="badge badge-green">active</span>`;
-      return { a, lastStmt, lastSplit, isAutomaticLoan, statusKey, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a) };
+      return { a, lastSplit, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a) };
     });
     const f = _loansTableFilters;
     const filtered = rowData.filter(r =>
       (!f.lender || r.a.lender === f.lender) &&
       (!f.status || r.statusKey === f.status) &&
       (!f.type || r.type.key === f.type));
-    // Flat, sorted lender-then-name so same-lender loans stay adjacent without the
-    // old group chrome. One grand-total row replaces the per-lender subtotals --
-    // and now reflects whatever filter is active, so filtering down to one lender
-    // doubles as an instant subtotal.
-    const sorted = filtered.slice().sort((x, y) =>
-      (x.a.lender || '').localeCompare(y.a.lender || '') || (x.a.xero_account_name || '').localeCompare(y.a.xero_account_name || ''));
+    // Click-to-sort (see _loansSetSort/_loansSortValue above). Rows with no value
+    // for the active column always sort last, in EITHER direction -- flipping to
+    // descending shouldn't shove "no split yet" rows to the top. Lender-then-name
+    // is the permanent tiebreak (and the default sort when nothing's been clicked),
+    // so equal values -- or two automatic loans with no Last payment -- still land
+    // in a stable, predictable order instead of shuffling on every render.
+    const dir = _loansSortDir === 'asc' ? 1 : -1;
+    const tiebreak = (x, y) => (x.a.lender || '').localeCompare(y.a.lender || '') || (x.a.xero_account_name || '').localeCompare(y.a.xero_account_name || '');
+    const sorted = filtered.slice().sort((x, y) => {
+      const av = _loansSortValue(x, _loansSortCol), bv = _loansSortValue(y, _loansSortCol);
+      const aEmpty = av == null || av === '', bEmpty = bv == null || bv === '';
+      if (aEmpty && bEmpty) return tiebreak(x, y);
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (av < bv) return -dir;
+      if (av > bv) return dir;
+      return tiebreak(x, y);
+    });
+    // One grand-total row replaces the old per-lender subtotals -- and reflects
+    // whatever filter is active, so filtering down to one lender doubles as an
+    // instant subtotal.
     const known = sorted.map(r => r.bal).filter(Boolean);
     const total = known.reduce((sum, b) => sum + b.amount, 0);
 
     const loanRow = (r) => {
-      const { a, lastStmt, lastSplit, isAutomaticLoan, statusKey, statusBadge, type, bal } = r;
-      // David's ask: Last split is now JUST the date/period, the numbers moved to
-      // their own Split column, and the status word moved to its own Type column.
-      const lastSplitDateCell = (!isAutomaticLoan && lastSplit)
+      const { a, lastSplit, isAutomaticLoan, statusKey, statusBadge, type, bal } = r;
+      // David's ask: Lender moved to the far left; "Last statement" (the pulled
+      // lender-document date) replaced with "Last payment" (the full amount
+      // actually debited -- reads directly off the same split, no separate
+      // statement lookup needed, and now shows a real number for schedule-sourced
+      // loans that never had a pulled statement to report); "Last split" renamed
+      // to "Date"; "Split" now spells out principal/interest instead of relying on
+      // a hover tooltip nobody could discover.
+      const lastPaymentCell = lastSplit
+        ? `<span class="td-mono" style="font-size:12.5px">${money2(lastSplit.total_amount)}</span>`
+        : (isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic</span>` : `<span style="color:var(--gray-300)">—</span>`);
+      const dateCell = lastSplit
         ? `<span class="td-mono" style="font-size:12.5px">${esc(lastSplit.period_label)}</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
-      const splitCell = (!isAutomaticLoan && lastSplit)
-        ? `<span class="td-mono" style="font-size:12.5px;white-space:nowrap" title="principal + interest">${money2(lastSplit.principal_amount)} <span style="color:var(--gray-400)">+</span> ${money2(lastSplit.interest_amount)} <span style="color:var(--gray-400)">=</span> <b>${money2(lastSplit.total_amount)}</b></span>`
+      const splitCell = lastSplit
+        ? `<div style="font-size:12.5px;white-space:nowrap">
+             <span class="td-mono">${money2(lastSplit.principal_amount)}</span> <span style="color:var(--gray-500)">principal</span>
+             <span style="color:var(--gray-400)"> + </span>
+             <span class="td-mono">${money2(lastSplit.interest_amount)}</span> <span style="color:var(--gray-500)">interest</span>
+           </div>
+           <div style="font-size:12.5px;white-space:nowrap;margin-top:2px"><span style="color:var(--gray-400)">= </span><b class="td-mono">${money2(lastSplit.total_amount)}</b></div>`
         : `<span style="color:var(--gray-300)">—</span>`;
       const balCell = bal
         ? `<span title="as of ${esc(bal.asOf)}">${money2(bal.amount)}</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
       return `<tr onclick="openLoanDetailModal('${a.id}')" style="cursor:pointer">
-        <td class="td-name">${esc(a.xero_account_name || '—')}</td>
         <td>${a.lender ? _loansFilterPill('lender', a.lender, esc(a.lender), f.lender === a.lender) : `<span style="color:var(--gray-300)">—</span>`}</td>
+        <td class="td-name">${esc(a.xero_account_name || '—')}</td>
         <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
         <td>${_loansFilterPill('status', statusKey, statusBadge, f.status === statusKey)}</td>
-        <td class="td-mono">${isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic</span>` : (a.ingestion_method === 'amortization_schedule' ? '<span style="color:var(--gray-300)">n/a — schedule</span>' : (lastStmt ? esc(lastStmt.statement_date) : '—'))}</td>
-        <td>${lastSplitDateCell}</td>
+        <td>${lastPaymentCell}</td>
+        <td>${dateCell}</td>
         <td>${splitCell}</td>
         <td>${_loansFilterPill('type', type.key, type.badge, f.type === type.key)}</td>
         <td style="text-align:right">${balCell}</td>
@@ -12564,9 +12625,25 @@
         </div>`
       : '';
 
-    el.innerHTML = `${filterBarHtml}<div style="overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:1300px">
-      <colgroup><col style="width:11%"><col style="width:13%"><col style="width:8%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:25%"><col style="width:9%"><col style="width:11%"></colgroup>
-      <thead><tr><th>Loan</th><th>Lender</th><th>Account #</th><th>Status</th><th>Last statement</th><th>Last split</th><th>Split</th><th>Type</th><th style="text-align:right">Outstanding</th></tr></thead>
+    // Same click-to-sort header convention as the Customers table's thSort/th-sort
+    // (see _loansSetSort above) -- reused, not reinvented.
+    const thSort = (col, label, alignRight) => {
+      const cls = _loansSortCol === col ? `th-sort ${_loansSortDir === 'asc' ? 'sort-asc' : 'sort-desc'}` : 'th-sort';
+      return `<th class="${cls}"${alignRight ? ' style="text-align:right"' : ''} onclick="_loansSetSort('${col}')">${label}</th>`;
+    };
+    el.innerHTML = `${filterBarHtml}<div style="overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:1400px">
+      <colgroup><col style="width:13%"><col style="width:12%"><col style="width:8%"><col style="width:7%"><col style="width:9%"><col style="width:8%"><col style="width:26%"><col style="width:9%"><col style="width:8%"></colgroup>
+      <thead><tr>
+        ${thSort('lender', 'Lender')}
+        ${thSort('loan', 'Loan')}
+        ${thSort('account', 'Account #')}
+        ${thSort('status', 'Status')}
+        ${thSort('lastpayment', 'Last payment')}
+        ${thSort('date', 'Date')}
+        ${thSort('split', 'Split')}
+        ${thSort('type', 'Type')}
+        ${thSort('outstanding', 'Outstanding', true)}
+      </tr></thead>
       <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
       <tfoot><tr style="border-top:2px solid var(--gray-200)">
         <td colspan="8" style="font-size:12.5px;color:var(--gray-500);font-weight:600">Total${anyFilterActive ? ` (${sorted.length} filtered of ${visibleAccounts.length})` : (known.length < sorted.length ? ` (${known.length} of ${sorted.length} with a balance on file)` : '')}</td>
