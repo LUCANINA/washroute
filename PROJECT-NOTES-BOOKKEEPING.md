@@ -1203,6 +1203,19 @@ to "what is running".
 
 ## Session Log
 
+### ⭐ SESSION 226 — FINAL WRAP (2026-08-22, ~00:45). START HERE NEXT SESSION.
+
+One marathon day, closed clean. What exists now that didn't yesterday morning: **the Staging Engine** (upload a schedule → a "ready to stage" card; a matched payment → the next card; four loans live and David staged all four in Xero himself: PayPal 2 weekly 8/26 $3,414.71, Dexter 2 8/31 $3,839.38, PCV 9/1 $7,138.10, Verdant 9/10 $4,543.32), **conclusions-first fdiff** (v9), **Trial-Balance-based reconciliation checkpoints** (v20, self-healing), **PayPal 2 fully modeled** (52-week contract parsed, remaining splits projected at the 0.475163%/wk fit — confirmed to the penny against the lender portal — plus derived principal-only statements auto-refreshed on every future CSV ingest), the **wrong-line match guards** (v47 + `matched_early_suspect` + preview backlog warning), and the **Loans Manage redesign** (flat list with split numbers; click a loan → terms/history/statements/docs).
+
+Deployed & byte-verified: loan-xero-post **v47**, loan-ingest-amortization **v15**, loan-find-difference **v9**, reconciliation-run **v20**, loan-generate-schedule-split **v12** (first time in git; Tech Debt #21 closed). Two migrations applied (prestage columns + the third sweep-flag value). QA suites at close, all green: qa-staging 53, qa-prestage 36, qa-crossloan 33, qa-recon-cp 8, qa-prestage-ui 17, qa-loans-ui 19 (session-container only — rebuild from these notes if reclaimed).
+
+**Next session, in order:**
+1. David to `git push` (client changes — v47 flag wording, backlog warning, the Loans redesign — render only after push + Vercel deploy) and clear `_to_delete/` (several git lock files accumulated).
+2. Confirm the 8/20 PayPal bank line was NOT matched to the 8/26 stage (unmatch if it was) and got coded normally (3,150.33 P / 264.38 fee). Same treatment for the 8/5 and 8/12 backlog when the next CSV lands.
+3. **8/26: the full-loop proof** — PayPal draft lands, Ramona matches (dates agree!), run the staged-payments check: split → posted AND the 9/2 card should auto-appear. Then Dexter 2 (8/31), PCV (9/1). That evidence unblocks Task 7 (auto-stage cron + scheduled sweep; run washroute-preflight before enabling).
+4. Run a reconciliation check + loan-cross-check (confirmed) sometime: the PayPal basis_conflict finding should auto-resolve (principal statements now on file), and 4140's $415.88 + 9744's $182 + E5-4751's $266.42 are real leads for fdiff with the newly-widened Jan-onward statement runway.
+5. Candidate next build, David-approved direction: contract terms for statement-only loans (Ford) parsed from agreements so the new detail view can show them; authority-ranking for balance sources remains on the shelf.
+
 ### Session 226 close, cont. 2 (2026-08-22) — LOANS MANAGE REDESIGN: one flat list, click a loan for everything
 
 David's spec, verbatim intent: *"Remove the consolidation by lender, just one tight running list of loans. Add column showing the actual Last Split in numbers. Remove history docs. Instead clicking on the loan displays the entire history, with terms (120 months, 6% interest, etc.), including supporting docs like loan agreements and amortization schedules. Remove the blue dots for now."* All client-side (`renderLoansTable` + the repurposed `modal-loan-history`), no server changes.
