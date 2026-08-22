@@ -8361,7 +8361,7 @@
   function _bkIssueQueueItems() {
     const items = [];
     _bkLoanAttentionItems().forEach(it => {
-      let detailHtml = null, onclick = null;
+      let detailHtml = null, onclick = null, bvlGroup = null;
       if (it.kind === 'split_mismatch') {
         onclick = `openLoanReviewModal('${it.split.id}')`;
       } else if (it.kind === 'stage_flag') {
@@ -8393,6 +8393,14 @@
         const fdiffHtml = (f?.check_key === 'balance_vs_lender' && f?.loan_account_id)
           ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-btn-${f.id}" onclick="bkFindDifference('${f.id}','${f.loan_account_id}')">🔍 Find the difference</button></div><div id="fdiff-out-${f.id}"></div>`
           : '';
+        // Session 228: remember which lender this balance-vs-lender finding
+        // belongs to — 2+ findings on ONE lender fold into a single grouped
+        // card below (a misallocation between sibling loans shows on BOTH
+        // sides, so per-loan cards describe one tangle twice).
+        if (f?.check_key === 'balance_vs_lender' && f?.loan_account_id) {
+          const la = (_allLoanAccounts || []).find(a => a.id === f.loan_account_id);
+          if (la?.lender) bvlGroup = { lender: la.lender, finding: f, loanName: la.xero_account_name || la.lender_account_number || 'Loan' };
+        }
         detailHtml = _bkAttnDetailHtml(it) + fdiffHtml +
           ((f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
             ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button></div>`
@@ -8412,8 +8420,42 @@
         // source document resolves for this item, 👁 opens it centered on the
         // disputed figure.
         peek: _bkAttnPeekSpec(it) ? `bkPeekAttn('${it.key}')` : null,
+        _bvl: bvlGroup,
       });
     });
+    // Session 228: LENDER-LEVEL FOLDING. When 2+ loans from one lender carry
+    // open balance-vs-lender findings, they are almost never separate problems
+    // — the day this shipped, three Ford cards each pointed at candidate
+    // entries on their SIBLINGS, two of them claiming the same journals. Fold
+    // them into ONE lender card whose action analyzes all of them together
+    // (loan-find-difference lender_analysis mode) and returns one fix roadmap.
+    // Presentation-level only: the Needs Attention badge still counts each
+    // finding (_bkLoanAttentionItems stays the one source of that number), and
+    // the grouped card says how many it covers.
+    {
+      const byLender = {};
+      items.forEach(i => { if (i._bvl?.lender) (byLender[i._bvl.lender] = byLender[i._bvl.lender] || []).push(i); });
+      Object.entries(byLender).forEach(([lender, group]) => {
+        if (group.length < 2) return;
+        const idx = items.indexOf(group[0]);
+        const total = group.reduce((s, i) => s + Math.abs(Number(i._bvl.finding?.detail?.difference) || 0), 0);
+        const slug = lender.replace(/[^a-zA-Z0-9]+/g, '-');
+        const rows = group.map(i => {
+          const d = Number(i._bvl.finding?.detail?.difference);
+          return `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--gray-100);font-size:12.5px"><span>${esc(i._bvl.loanName)}</span><span style="font-weight:600">${isFinite(d) ? `${fmtMoney(Math.abs(d))} ${d >= 0 ? 'above' : 'below'} the lender` : ''}</span></div>`;
+        }).join('');
+        items.splice(idx, 1, {
+          key: 'bvl-lender-' + slug, dot: 'red', tier: 1, amount: total,
+          name: `${lender} — ${group.length} loans disagree with the lender`,
+          reason: _bkOneLine(`Combined ${fmtMoney(total)} across ${group.length} loans of one lender — likely one tangle, not ${group.length}. Analyze them together for a single fix list.`),
+          action: 'Review',
+          detailHtml: `${rows}
+            <div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-lender-btn-${slug}" data-lender="${esc(lender)}" onclick="bkFindDifferenceLender(this.dataset.lender)">🔍 Find the difference — all ${group.length} loans</button></div>
+            <div id="fdiff-lender-out-${slug}"></div>`,
+        });
+        group.slice(1).forEach(i => { const k = items.indexOf(i); if (k >= 0) items.splice(k, 1); });
+      });
+    }
     // Reconciliation "info" findings — real, but explicitly "nothing to do" per
     // the engine. Session 225: they join the queue as the good-to-know tier
     // (collapsed, archivable) instead of living only at the bottom of the Loans
@@ -9998,18 +10040,7 @@
     // STOP. No entry dumps, no candidate cards, no amount-hunt list — the
     // candidates power the bullets server-side and never render on their own.
     if (Array.isArray(data.periods) && data.periods.length) {
-      parts.push(`<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-        <tr style="color:var(--gray-500);text-align:left"><th style="padding:4px 8px;font-weight:600">Statement span</th><th style="padding:4px 8px;font-weight:600">Lender moved</th><th style="padding:4px 8px;font-weight:600">Xero moved</th><th style="padding:4px 8px;font-weight:600">Verdict</th></tr>
-        ${data.periods.map(p => `<tr style="border-top:1px solid var(--gray-100)">
-          <td style="padding:5px 8px;white-space:nowrap">${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))}</td>
-          <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.lender_delta))))}</td>
-          <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.xero_delta))))}</td>
-          <td style="padding:5px 8px;font-weight:600;color:${p.verdict === 'clean' ? '#16a34a' : (p.timing_pair ? 'var(--gray-500)' : '#dc2626')}">${
-            p.verdict === 'clean' ? '✓ ties'
-            : p.timing_pair ? `↔ offsets ${p.timing_pair.role === 'first' ? 'next' : 'previous'} span — timing, not an error`
-            : `✗ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))}`}</td>
-        </tr>`).join('')}
-      </table></div>`);
+      parts.push(_bkFdiffSpanTable(data.periods));
     }
     // CPA exception
     if (data.cpa_exception) {
@@ -10050,6 +10081,124 @@
       <div style="margin-top:4px;color:var(--gray-600)">${esc(data.posted_journal?.narration || '')} — journal is in Xero. Run a reconciliation check and this card clears itself once the balances tie.</div>
       <div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button></div>
     </div>`;
+  }
+
+  // Shared span table — the per-loan card and the lender-level per-loan
+  // sections render the identical table through this one function.
+  function _bkFdiffSpanTable(periods) {
+    return `<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="color:var(--gray-500);text-align:left"><th style="padding:4px 8px;font-weight:600">Statement span</th><th style="padding:4px 8px;font-weight:600">Lender moved</th><th style="padding:4px 8px;font-weight:600">Xero moved</th><th style="padding:4px 8px;font-weight:600">Verdict</th></tr>
+      ${periods.map(p => `<tr style="border-top:1px solid var(--gray-100)">
+        <td style="padding:5px 8px;white-space:nowrap">${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))}</td>
+        <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.lender_delta))))}</td>
+        <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.xero_delta))))}</td>
+        <td style="padding:5px 8px;font-weight:600;color:${p.verdict === 'clean' ? '#16a34a' : (p.timing_pair ? 'var(--gray-500)' : '#dc2626')}">${
+          p.verdict === 'clean' ? '✓ ties'
+          : p.timing_pair ? `↔ offsets ${p.timing_pair.role === 'first' ? 'next' : 'previous'} span — timing, not an error`
+          : `✗ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))}`}</td>
+      </tr>`).join('')}
+    </table></div>`;
+  }
+
+  // ── Lender-level "Find the difference" (session 228) ──────────────────────
+  // One button on the grouped lender card runs loan-find-difference in
+  // lender_analysis mode: every flagged loan of the lender walked against ONE
+  // shared Xero pull, solved jointly (an entry explains at most one gap; a
+  // recode must shrink the gap on BOTH loans), returning one ≤5-bullet story,
+  // one ordered fix roadmap, a copyable bookkeeper checklist, and the end
+  // state each loan should show after a single re-run. Read-only server-side;
+  // the roadmap's Approve buttons reuse the per-loan bkPostFdiffFix path.
+  const _bkLenderHandoff = {};
+  async function bkFindDifferenceLender(lender) {
+    const slug = String(lender).replace(/[^a-zA-Z0-9]+/g, '-');
+    const btn = document.getElementById('fdiff-lender-btn-' + slug);
+    const out = document.getElementById('fdiff-lender-out-' + slug);
+    if (!out) return;
+    if (btn) { btn.disabled = true; btn.textContent = `Analyzing all ${lender} loans together… (can take a couple of minutes)`; }
+    const { ok, data } = await _loanFn('loan-find-difference', { lender_analysis: true, lender }, 240000);
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Find the difference — all loans'; }
+    if (!ok || data.error) {
+      out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">${esc(data.error || 'The analysis failed — try again in a moment.')}</div>`;
+      return;
+    }
+    _bkLenderHandoff[slug] = data.handoff_text || '';
+    out.innerHTML = _bkLenderFdiffHtml(data, slug);
+  }
+
+  function _bkCopyRamona(slug) {
+    const t = _bkLenderHandoff[slug];
+    if (!t) return;
+    navigator.clipboard.writeText(t).then(
+      () => showToast('Checklist copied — paste it into an email or text to your bookkeeper.', 'success'),
+      () => showToast('Could not copy — your browser blocked clipboard access.', 'error'));
+  }
+
+  function _bkLenderFdiffHtml(data, slug) {
+    const parts = [];
+    // The story first — same discipline as the per-loan card, ≤5 bullets.
+    if (Array.isArray(data.conclusions) && data.conclusions.length) {
+      parts.push(`<div style="margin-top:12px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:var(--gray-800);line-height:1.55">
+        <div style="font-weight:700;margin-bottom:6px">What likely happened — across your ${esc(data.lender)} loans</div>
+        <ul style="margin:0;padding-left:18px">${data.conclusions.map(c => `<li style="margin-top:6px">${esc(c)}</li>`).join('')}</ul>
+      </div>`);
+    }
+    // The roadmap — one numbered list, hairline dividers, no nested boxes
+    // except the two action shapes (approve = green, CPA = amber) that the
+    // per-loan card already established.
+    const kindChip = (k) => ({
+      recode: ['RECODE IN XERO', '#dbeafe', '#1e40af'],
+      check: ['WORTH CHECKING', 'var(--gray-100)', 'var(--gray-600)'],
+      cpa_review: ['FOR YOUR BOOKKEEPER', '#fef3c7', '#92400e'],
+      approve_journal: ['APPROVE HERE', '#dcfce7', '#166534'],
+      rerun: ['THEN RE-RUN', '#dbeafe', '#1e40af'],
+    }[k] || ['STEP', 'var(--gray-100)', 'var(--gray-600)']);
+    if (Array.isArray(data.roadmap) && data.roadmap.length) {
+      const steps = data.roadmap.map(s => {
+        const [label, bg, fg] = kindChip(s.kind);
+        let body = `<div style="font-size:12.5px;color:var(--gray-800);line-height:1.5">${esc(s.why || '')}</div>`;
+        if (s.kind === 'approve_journal') {
+          body += `<div style="margin-top:8px;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px">
+            <div style="color:var(--gray-600);line-height:1.5">${esc(s.based_on || '')}</div>
+            <div style="margin-top:6px;font-weight:600">${esc(s.journal?.Narration || '')} (dated ${esc(fmtDate(s.journal?.Date))})</div>
+            ${(s.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} ${Number(l.LineAmount) >= 0 ? 'into' : 'out of'} ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('')}
+            ${data.can_post && s.finding_id ? `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${s.finding_id}" onclick="bkPostFdiffFix('${s.finding_id}','${s.loan_account_id}','${esc(s.token)}')">Approve & post correction to Xero</button></div><div id="fdiff-out-${s.finding_id}"></div>` : `<div style="margin-top:6px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
+          </div>`;
+        }
+        if (s.kind === 'rerun') {
+          body += `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button></div>`;
+        }
+        return `<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--gray-100)">
+          <div style="flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--gray-100);color:var(--gray-700);font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center">${Number(s.step) || ''}</div>
+          <div style="flex:1;min-width:0">
+            <span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:99px;background:${bg};color:${fg};margin-bottom:4px">${label}</span>
+            ${body}
+          </div>
+        </div>`;
+      }).join('');
+      parts.push(`<div style="margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div style="font-weight:700;font-size:13px">The fix list — in order</div>
+          <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="_bkCopyRamona('${slug}')">📋 Copy checklist for your bookkeeper</button>
+        </div>
+        ${steps}
+      </div>`);
+    }
+    // Per-loan evidence, folded — one <details> per loan, span table inside.
+    if (Array.isArray(data.loans) && data.loans.length) {
+      parts.push(`<div style="margin-top:10px">${data.loans.map(L => {
+        const d = Number(L.headline?.difference);
+        const exp = (data.expected || []).find(e => e.loan_account_id === L.id);
+        return `<details style="padding:6px 0;border-bottom:1px solid var(--gray-100)">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--gray-700)"><span style="font-weight:600">${esc(L.name)}</span>${isFinite(d) ? ` — ${esc(fmtMoney(Math.abs(d)))} ${d >= 0 ? 'above' : 'below'} the lender` : ''}${exp ? ` · after the fixes: ${esc(exp.label)}` : ''}</summary>
+          ${_bkFdiffSpanTable(L.periods || [])}
+          ${L.cpa_exception ? `<div style="margin-top:8px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e">${esc(L.cpa_exception.note || '')}</div>` : ''}
+        </details>`;
+      }).join('')}</div>`);
+    }
+    if (Array.isArray(data.skipped_loans) && data.skipped_loans.length) {
+      parts.push(`<div style="margin-top:8px;font-size:11.5px;color:var(--gray-500)">Not walked: ${data.skipped_loans.map(s => `${esc(s.name)} (${esc(s.reason)})`).join('; ')}.</div>`);
+    }
+    return parts.join('');
   }
 
   // The per-row victory: a check draws itself in, the row washes green, then

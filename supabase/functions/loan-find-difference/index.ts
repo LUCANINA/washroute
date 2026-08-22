@@ -70,6 +70,18 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // still power the hypothesis bullets internally, they just never appear as
 // their own wall of cards. The safe-fix proposal and the CPA exception
 // remain (they are actions, not evidence).
+//
+// v10 (session 228): LENDER-LEVEL ANALYSIS. Three Ford loans each carried a
+// red card; each per-loan run pointed at candidate entries on its SIBLINGS —
+// two of them claiming the very same journals. New mode
+// ({ lender_analysis: true, lender }) walks EVERY flagged loan of one lender
+// against ONE shared Xero pull, then solves them jointly: an entry explains
+// at most one gap, a recode must shrink the gap on BOTH walks, and the
+// output is one ≤5-bullet story + one ordered roadmap + a plain-text
+// bookkeeper handoff + the simulated end state each loan should show after a
+// single re-run. Read-only; safe-fix approvals reuse the per-loan post_fix
+// path and tokens (no new write path). The per-loan analysis is unchanged
+// (analyzeWalk is the same function both modes call).
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -335,108 +347,53 @@ function entryView(rec: any, code: string, acctMap: Record<string, string>) {
   }
 }
 
-async function handle(req: Request): Promise<Response> {
-  const supa = admin()
-  const body = await req.json().catch(() => ({}))
-  const { loan_account_id, post_fix, proposal_token, posted_by } = body
-
-  const role = await callerRole(req)
-  if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
-    return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
-  }
-  if (post_fix && !['admin', 'manager'].includes(role)) {
-    return new Response(JSON.stringify({ error: 'Only an admin or manager can post a correction. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
-  }
-  if (!loan_account_id) {
-    return new Response(JSON.stringify({ error: 'loan_account_id is required.' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
-  }
-
-  const { data: loan } = await supa.from('loan_accounts').select('*').eq('id', loan_account_id).single()
-  if (!loan || !loan.xero_account_code) {
-    return new Response(JSON.stringify({ error: 'Loan not found, or it has no Xero account code.' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } })
-  }
-  const code = loan.xero_account_code
-
-  // v4: every other loan's account code, for the cross-loan misallocation hunt.
-  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, lender, lender_account_number, status, scheduled_monthly_payment')
-  const otherLoanByCode = new Map<string, any>()
-  for (const la of allLoans || []) {
-    if (la.id !== loan.id && la.xero_account_code) otherLoanByCode.set(String(la.xero_account_code), la)
-  }
-  const today = new Date().toISOString().slice(0, 10)
-
-  const [{ data: statements }, { data: splits }, { data: findings }] = await Promise.all([
-    supa.from('loan_statements').select('*').eq('loan_account_id', loan_account_id).lte('statement_date', today).order('statement_date', { ascending: true }),
-    supa.from('loan_splits').select('*').eq('loan_account_id', loan_account_id).order('period_label', { ascending: true }),
-    supa.from('reconciliation_findings').select('*').eq('loan_account_id', loan_account_id).eq('check_key', 'balance_vs_lender').eq('status', 'open').order('last_seen_at', { ascending: false }).limit(1),
-  ])
-  const headline = findings?.[0]?.detail?.difference != null
-    ? { difference: Number(findings[0].detail.difference), as_of: findings[0].detail.anchor_date || null }
-    : null
-
-  // Reliable anchors: principal_only basis only — the walk subtracts balances,
-  // and mixing bases fabricates differences (the PayPal lesson, session 222).
-  const anchors = (statements || []).filter(s => s.balance_basis === 'principal_only' && s.principal_balance != null)
-  const skippedForBasis = (statements || []).filter(s => s.balance_basis !== 'principal_only').map(s => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
-
+// v10: known lender amounts + the matcher, shared by the per-loan analysis and
+// the lender-level analysis (which needs one per loan). Moved verbatim from the
+// per-loan handler — same numbers, same tolerance.
+function prepKnownAmounts(loan: any, splits: any[]) {
   // Known lender amounts — the "fingerprint" set an unexplained gap is tested
   // against. All read from lender-derived data, never invented.
   const knownAmounts: Array<{ amount: number, what: string }> = []
   if (loan.scheduled_monthly_payment) knownAmounts.push({ amount: Number(loan.scheduled_monthly_payment), what: 'the scheduled monthly payment' })
-  for (const sp of splits || []) {
+  for (const sp of splits) {
     if (sp.total_amount != null) knownAmounts.push({ amount: Number(sp.total_amount), what: `the full ${sp.period_label} payment` })
     if (sp.principal_amount != null) knownAmounts.push({ amount: Number(sp.principal_amount), what: `the ${sp.period_label} principal portion` })
     if (sp.interest_amount != null) knownAmounts.push({ amount: Number(sp.interest_amount), what: `the ${sp.period_label} interest portion` })
   }
   const matchKnown = (gap: number) => knownAmounts.find(k => Math.abs(Math.abs(gap) - k.amount) < TOL) || null
+  return { knownAmounts, matchKnown }
+}
 
-  if (anchors.length < 2) {
-    return new Response(JSON.stringify({
-      ok: true, mode: 'analyze', verdict: 'not_enough_history',
-      loan: { id: loan.id, name: loan.xero_account_name, code },
-      headline,
-      anchors_on_file: anchors.length, skipped_for_basis: skippedForBasis,
-      narrative: `The difference engine needs at least two lender statements with a confirmed principal balance to walk the two histories side by side — this loan has ${anchors.length}. Upload more of the lender's statements and run this again.`,
-      proposed_action: { kind: 'upload_earlier_statement', loan_account_id: loan.id },
-    }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } })
-  }
-
-  // Window = the span the anchors cover, capped at 18 months of pull (the
-  // month-sliced fetch's own safety limit). If the history is wider, walk the
-  // most recent 18 months and say exactly what was left out.
+// v10: hoisted from the per-loan handler so the lender-level analysis can trim
+// each loan the same way. Verbatim logic: walk the most recent 18 months of
+// anchors and record what was left out.
+const monthsSpanned = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + (Number(b.slice(5, 7)) - Number(a.slice(5, 7))) + 1
+function trimAnchors(anchors: any[]): { usable: any[], truncated: string | null } {
   let usable = anchors
   let truncated: string | null = null
-  const monthsSpanned = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + (Number(b.slice(5, 7)) - Number(a.slice(5, 7))) + 1
   while (usable.length > 2 && monthsSpanned(usable[0].statement_date, usable[usable.length - 1].statement_date) > 18) {
     truncated = usable[0].statement_date
     usable = usable.slice(1)
   }
+  return { usable, truncated }
+}
 
-  const { accessToken, tenantId } = await getXeroAuth()
-  const headers = { 'Authorization': `Bearer ${accessToken}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
-  const acctMap = await fetchAccountsMap(headers)
-
+// ── v10 (session 228): analyzeWalk — the ENTIRE per-loan analysis (span walk,
+// timing-pair detection, cross-loan candidate hunt, safe-fix proposal, CPA
+// exception, conclusions) extracted into one shared function, because the
+// lender-level analysis must run the exact same math on every sibling loan.
+// The code inside was MOVED from the per-loan handler, not rewritten — per-loan
+// behavior is unchanged. The fingerprint hunt stays in the per-loan handler
+// (it makes its own Xero call; the lender mode's joint solver supersedes it).
+function analyzeWalk(o: {
+  loan: any, code: string, usable: any[], splits: any[], headline: any,
+  entries: any[], siblingPool: any[], otherLoanByCode: Map<string, any>,
+  matchKnown: (gap: number) => { amount: number, what: string } | null,
+  acctMap: Record<string, string>, skippedForBasis: any[],
+}) {
+  const { loan, code, usable, splits, headline, entries, siblingPool, otherLoanByCode, matchKnown, acctMap, skippedForBasis } = o
   const winFrom = usable[0].statement_date
   const winTo = usable[usable.length - 1].statement_date
-  // v4: keep the WHOLE pull. `entries` (this loan's own history) drives the walk
-  // exactly as before; `siblingPool` (live entries coded to OTHER loan accounts,
-  // excluding product-managed WR-STAGE transactions) feeds the misallocation
-  // hunt. Every loan pays from the same checking account, so no extra Xero
-  // calls are needed — the candidates were in the pull all along.
-  let entries: any[]
-  let siblingPool: any[]
-  try {
-    const pulled = await pullWindow(winFrom, winTo, headers, loan.xero_bank_account_id ?? null)
-    entries = pulled.filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code)))
-    siblingPool = pulled.filter(r => isLive(r)
-      && !r.lines.some((l: any) => String(l.c) === String(code))
-      && r.lines.some((l: any) => otherLoanByCode.has(String(l.c)))
-      && !(r.ref && String(r.ref).startsWith('WR-STAGE')))
-  } catch (e) {
-    return new Response(JSON.stringify({ error: String((e as Error).message || e) }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
-  }
-  entries.sort((a, b) => a.date.localeCompare(b.date))
-  siblingPool.sort((a, b) => a.date.localeCompare(b.date))
 
   // ── The walk: between each pair of consecutive statements, does Xero's net
   // movement on the loan account equal the lender's own balance change? ──
@@ -520,35 +477,6 @@ async function handle(req: Request): Promise<Response> {
   const lastClean = (() => { let d = usable[0].statement_date; for (const p of periods) { if (p.verdict !== 'clean') break; d = p.to } return d })()
   const residual = headline ? r2(headline.difference - totalPeriodDiff) : null
 
-  // ── Fingerprint hunt: when a gap equals a known lender amount to the cent,
-  // search ALL of Xero for live transactions of exactly that amount and show
-  // where each one's money actually went. This is how "one payment's worth"
-  // stops being a coincidence and becomes a named transaction. ──
-  let hunt: any = null
-  // v6: paired (timing) spans are explained — they never drive the hunt.
-  const huntGap = residual != null && Math.abs(residual) >= TOL ? residual
-    : (periods.find(p => !p.timing_pair && (p.culprit?.kind === 'missing_reduction' || p.culprit?.kind === 'unexplained'))?.diff ?? null)
-  const huntKnown = huntGap != null ? matchKnown(huntGap) : null
-  if (huntKnown) {
-    try {
-      const w = encodeURIComponent(`Total == ${huntKnown.amount.toFixed(2)}`)
-      const raw = await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', 4)
-      const all = raw.map(normBT)
-      hunt = {
-        amount: huntKnown.amount, equals: huntKnown.what,
-        matches: all.slice(0, 40).map(r => ({
-          id: r.srcId, date: r.date, type: r.type, status: r.status, reconciled: r.reconciled,
-          ref: r.ref, contact: r.contact,
-          touches_this_loan: r.lines.some((l: any) => String(l.c) === String(code)),
-          coded_to: Array.from(new Set(r.lines.map((l: any) => `${l.c} — ${acctMap[l.c] ?? '?'}`))),
-          live: isLive(r),
-        })),
-        live_on_this_loan: all.filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code))).length,
-        live_elsewhere: all.filter(r => isLive(r) && !r.lines.some((l: any) => String(l.c) === String(code))).length,
-      }
-    } catch { hunt = { amount: huntKnown.amount, equals: huntKnown.what, error: 'Xero amount search failed — the rest of the analysis stands.' } }
-  }
-
   // ── Proposal: ONLY the mechanically safe shape — a divergent period whose
   // gap equals that period's interest portion to the cent, where the payment
   // sits in Xero as a single un-split lump the CPA has not touched. That is an
@@ -562,7 +490,7 @@ async function handle(req: Request): Promise<Response> {
     // v6: a paired span is timing, not an allocation error — proposing a
     // correction journal for it would CREATE a discrepancy, not close one.
     if (p.timing_pair) continue
-    const sp = (splits || []).find(s => s.interest_amount != null && Math.abs(Math.abs(p.diff) - Number(s.interest_amount)) < TOL
+    const sp = splits.find(s => s.interest_amount != null && Math.abs(Math.abs(p.diff) - Number(s.interest_amount)) < TOL
       && s.period_label >= p.from.slice(0, 7) && s.period_label <= p.to.slice(0, 7))
     if (!sp) continue
     const inWin = entries.filter(r => r.date > p.from && r.date <= p.to && r.srcType === 'BankTransaction')
@@ -672,6 +600,543 @@ async function handle(req: Request): Promise<Response> {
   }
   if (!divergentPeriods.length) conclusions.push(`Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
   const finalConclusions = conclusions.slice(0, 4)
+
+  return {
+    periods, agree_until: lastClean, total_period_diff: totalPeriodDiff, residual,
+    proposal, cpa_exception: cpaException, conclusions: finalConclusions,
+    divergent_count: divergentPeriods.length, win_from: winFrom, win_to: winTo,
+  }
+}
+
+// ── v10 (session 228): LENDER-LEVEL ANALYSIS — "look across ALL loans, find the
+// culprit once, propose ONE roadmap." Born the day three Ford loans each carried
+// a red card and each per-loan analysis pointed at journals on its SIBLINGS:
+// three silos describing one tangle, two of them claiming the very same
+// candidate journals. The joint rules that fix that:
+//  * ONE ENTRY, ONE EXPLANATION — an entry may be assigned to at most one
+//    loan's gap. Per-loan runs let two loans both claim the same $135.64
+//    journal; the joint solve assigns it once, to the best fit.
+//  * BOTH SIDES MUST IMPROVE — a recode from loan M to loan L is only a
+//    confident step when it shrinks the gap on BOTH walks (money extra on one
+//    side, missing on the other, in matching spans — conservation of money).
+//    A move that would worsen any walked span is rejected outright.
+//  * ZERO-SUM VERDICT FIRST — the first bullet says how much of the combined
+//    gap is money in the wrong bucket (stays in the books) vs. unexplained.
+//  * SIMULATED END STATE — every accepted step is applied arithmetically to
+//    the pulled data, so the last step says what each loan should show after
+//    ONE re-run. No fix/re-run/fix loops across three cards.
+//  * Read-only, like analyze mode. Safe-fix approvals reuse the per-loan
+//    post_fix path and its deterministic tokens — this mode adds NO new write
+//    path to Xero or the DB.
+const jres = (obj: any, status = 200) => new Response(JSON.stringify(obj, null, 2), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+
+async function handleLender(supa: any, body: any, role: string): Promise<Response> {
+  const lenderName = String(body.lender || '').trim()
+  if (!lenderName) return jres({ error: 'lender is required for a lender-level analysis.' }, 400)
+
+  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, xero_bank_account_id, lender, lender_account_number, status, scheduled_monthly_payment')
+  const lenderLoans = (allLoans || []).filter((l: any) => l.lender === lenderName && l.xero_account_code)
+  if (!lenderLoans.length) return jres({ error: `No loans found for lender "${lenderName}".` }, 404)
+
+  const ids = lenderLoans.map((l: any) => l.id)
+  const { data: openFindings } = await supa.from('reconciliation_findings')
+    .select('*').in('loan_account_id', ids)
+    .eq('check_key', 'balance_vs_lender').eq('status', 'open')
+  const flaggedIds = new Set((openFindings || []).map((f: any) => f.loan_account_id))
+  const flagged = lenderLoans.filter((l: any) => flaggedIds.has(l.id))
+    .sort((a: any, b: any) => String(a.xero_account_name || '').localeCompare(String(b.xero_account_name || '')))
+  if (flagged.length < 2) {
+    return jres({ error: `Only ${flagged.length} ${lenderName} loan${flagged.length === 1 ? ' has' : 's have'} an open balance-vs-lender finding — the per-loan "Find the difference" covers that case.` }, 400)
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const bundles: any[] = []
+  for (const loan of flagged) {
+    const [{ data: statements }, { data: splits }] = await Promise.all([
+      supa.from('loan_statements').select('*').eq('loan_account_id', loan.id).lte('statement_date', today).order('statement_date', { ascending: true }),
+      supa.from('loan_splits').select('*').eq('loan_account_id', loan.id).order('period_label', { ascending: true }),
+    ])
+    const finding = (openFindings || []).filter((f: any) => f.loan_account_id === loan.id)
+      .sort((a: any, b: any) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')))[0]
+    const headline = finding?.detail?.difference != null
+      ? { difference: Number(finding.detail.difference), as_of: finding.detail.anchor_date || null } : null
+    const anchors = (statements || []).filter((s: any) => s.balance_basis === 'principal_only' && s.principal_balance != null)
+    const skippedForBasis = (statements || []).filter((s: any) => s.balance_basis !== 'principal_only').map((s: any) => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
+    const { matchKnown } = prepKnownAmounts(loan, splits || [])
+    bundles.push({ loan, code: String(loan.xero_account_code), finding, headline, anchors, skippedForBasis, splits: splits || [], matchKnown })
+  }
+
+  const skippedLoans: any[] = []
+  const walkable: any[] = []
+  for (const b of bundles) {
+    if (b.anchors.length < 2) {
+      skippedLoans.push({ id: b.loan.id, name: b.loan.xero_account_name, reason: `only ${b.anchors.length} usable lender statement${b.anchors.length === 1 ? '' : 's'} on file — needs two to walk` })
+      continue
+    }
+    const t = trimAnchors(b.anchors)
+    b.usable = t.usable; b.truncated = t.truncated
+    walkable.push(b)
+  }
+  if (walkable.length < 2) {
+    return jres({ error: `Fewer than two ${lenderName} loans have enough lender statements to walk — analyze the one that does with the per-loan button.`, skipped_loans: skippedLoans }, 400)
+  }
+
+  // Union window across the walkable loans, floored so the month-sliced
+  // fallback pull can never exceed its own 18-month safety cap. A loan whose
+  // anchors fall entirely before the floor is reported, not silently walked
+  // on partial data (the "never reconcile from partial data" law).
+  let winFrom = walkable.map((b: any) => b.usable[0].statement_date).sort()[0]
+  const winTo = walkable.map((b: any) => b.usable[b.usable.length - 1].statement_date).sort().slice(-1)[0]
+  if (monthsSpanned(winFrom, winTo) > 18) {
+    const ty = Number(winTo.slice(0, 4)), tm = Number(winTo.slice(5, 7))
+    const fm = tm - 17, fy = ty + Math.floor((fm - 1) / 12), fmm = ((fm - 1) % 12 + 12) % 12 + 1
+    winFrom = `${fy}-${String(fmm).padStart(2, '0')}-01`
+    for (let i = walkable.length - 1; i >= 0; i--) {
+      const b = walkable[i]
+      while (b.usable.length > 2 && b.usable[0].statement_date < winFrom) { b.truncated = b.usable[0].statement_date; b.usable = b.usable.slice(1) }
+      if (b.usable[0].statement_date < winFrom) {
+        skippedLoans.push({ id: b.loan.id, name: b.loan.xero_account_name, reason: `its statements fall outside the shared 18-month window (${winFrom} →) — analyze it with the per-loan button` })
+        walkable.splice(i, 1)
+      }
+    }
+    if (walkable.length < 2) return jres({ error: 'After capping the shared window at 18 months, fewer than two loans remain walkable — use the per-loan analysis.', skipped_loans: skippedLoans }, 400)
+    winFrom = walkable.map((b: any) => b.usable[0].statement_date).sort()[0]
+  }
+
+  const { accessToken, tenantId } = await getXeroAuth()
+  const headers = { 'Authorization': `Bearer ${accessToken}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
+  const acctMap = await fetchAccountsMap(headers)
+
+  // ONE pull for every loan. The fast path is only safe when every walkable
+  // loan pays from the same known bank account (true for the whole book today:
+  // one Wells Fargo checking account); otherwise the complete month-sliced
+  // org-wide pull runs once for everyone.
+  const bankIds = Array.from(new Set(walkable.map((b: any) => b.loan.xero_bank_account_id).filter(Boolean)))
+  const oneBank = (bankIds.length === 1 && walkable.every((b: any) => b.loan.xero_bank_account_id)) ? bankIds[0] : null
+  let pulled: any[]
+  try {
+    pulled = await pullWindow(winFrom, winTo, headers, oneBank)
+  } catch (e) {
+    return jres({ error: String((e as Error).message || e) }, 502)
+  }
+  pulled.sort((a, b) => a.date.localeCompare(b.date))
+  const entryById = new Map<string, any>(pulled.map((r: any) => [r.srcId, r]))
+
+  // Per-loan walks — the exact same analyzeWalk the per-loan button runs.
+  for (const b of walkable) {
+    const otherLoanByCode = new Map<string, any>()
+    for (const la of allLoans || []) if (la.id !== b.loan.id && la.xero_account_code) otherLoanByCode.set(String(la.xero_account_code), la)
+    b.otherLoanByCode = otherLoanByCode
+    b.entries = pulled.filter((r: any) => isLive(r) && r.lines.some((l: any) => String(l.c) === b.code))
+    b.siblingPool = pulled.filter((r: any) => isLive(r)
+      && !r.lines.some((l: any) => String(l.c) === b.code)
+      && r.lines.some((l: any) => otherLoanByCode.has(String(l.c)))
+      && !(r.ref && String(r.ref).startsWith('WR-STAGE')))
+    b.aw = analyzeWalk({
+      loan: b.loan, code: b.code, usable: b.usable, splits: b.splits, headline: b.headline,
+      entries: b.entries, siblingPool: b.siblingPool, otherLoanByCode,
+      matchKnown: b.matchKnown, acctMap, skippedForBasis: b.skippedForBasis,
+    })
+  }
+
+  // ── THE JOINT SOLVE ────────────────────────────────────────────────────────
+  // 1. Gather every candidate move (entry E, currently coded to FROM,
+  //    hypothesized to belong to TO) from every loan's span candidates. The
+  //    same physical entry seen from both sides (one loan says "belongs here",
+  //    the sibling says "belongs elsewhere") merges into ONE move — that merge
+  //    IS the two-sided confirmation.
+  const bByCode = new Map<string, any>(walkable.map((b: any) => [b.code, b]))
+  const moves = new Map<string, any>()
+  for (const b of walkable) {
+    for (const p of b.aw.periods) {
+      if (p.verdict !== 'divergent' || p.timing_pair || !p.cross_loan_candidates) continue
+      for (const c of p.cross_loan_candidates) {
+        const rec = entryById.get(c.id)
+        if (!rec) continue
+        const mv = moves.get(c.id) || {
+          id: c.id, src_type: c.src_type, date: c.date, amount: c.amount,
+          ref: c.ref ?? null, contact: c.contact ?? null, narration: c.narration ?? null,
+          already_worked: !!c.already_worked, rec,
+          from: null, to: null, confidence: c.confidence, same_lender: !!c.same_lender,
+        }
+        if (c.direction === 'maybe_belongs_here') {
+          // Several loans may claim the same entry (the exact shape that broke
+          // the per-loan silos): keep EVERY claimant; evalMove picks the best,
+          // and a tie is reported as "either X or Z", never double-assigned.
+          const fromB = c.coded_to?.account_code != null ? bByCode.get(String(c.coded_to.account_code)) : null
+          mv.toClaims = mv.toClaims || []
+          if (!mv.toClaims.some((x: any) => x.loan.id === b.loan.id)) mv.toClaims.push(b)
+          mv.from = (mv.from?.bundle ? mv.from : null) || (fromB ? { bundle: fromB } : { external: c.coded_to || null, account_code: c.coded_to?.account_code ?? null })
+        } else {
+          mv.from = { bundle: b }
+          // destination unknown from this side alone — the siblings'
+          // belongs-here claims (if any) fill mv.toClaims when they merge.
+        }
+        if (c.confidence === 'explains_exactly' || (mv.confidence !== 'explains_exactly' && c.confidence === 'explains_with_known')) mv.confidence = c.confidence
+        moves.set(c.id, mv)
+      }
+    }
+  }
+
+  // 2. Simulated span diffs per loan — greedy assignment mutates these, so a
+  //    second move is never justified by a gap the first move already closed.
+  const sim = new Map<string, any[]>(walkable.map((b: any) => [b.loan.id, b.aw.periods.map((p: any) => ({ ...p }))]))
+  const spanFor = (b: any, date: string) => (sim.get(b.loan.id) || []).find((p: any) => date > p.from && date <= p.to)
+  const fromCodeOf = (mv: any) => mv.from?.bundle ? mv.from.bundle.code : String(mv.from?.account_code ?? '')
+
+  // Signed effect of the entry on a liability balance at its CURRENT coding.
+  // Recoding moves that whole effect: FROM loses it, TO gains it. Every
+  // claimant destination is evaluated; the best-ranked one wins, and an exact
+  // tie between claimants is reported as "either X or Z" — never assigned to
+  // both (ONE ENTRY, ONE EXPLANATION).
+  const evalMove = (mv: any) => {
+    let eff = effect(mv.rec, fromCodeOf(mv))
+    if (!eff) eff = -Math.abs(mv.amount) // external coding we can't read line-by-line: a payment reduces the liability
+    const improves = (d: any) => d == null ? null : Math.abs(d.after) < Math.abs(d.before) - TOL / 2
+    const closes = (d: any) => d == null ? null : Math.abs(d.after) < TOL
+    const sFrom = mv.from?.bundle ? spanFor(mv.from.bundle, mv.date) : null
+    const dFrom = sFrom ? { span: sFrom, bundle: mv.from.bundle, before: sFrom.diff, after: r2(sFrom.diff - eff) } : null
+    if (dFrom && improves(dFrom) === false) return null // veto: never worsen a walked span
+    const claimants: any[] = (mv.toClaims && mv.toClaims.length) ? mv.toClaims : [null]
+    let best: any = null
+    const rankOne = (toB: any) => {
+      const sTo = toB ? spanFor(toB, mv.date) : null
+      const dTo = sTo ? { span: sTo, bundle: toB, before: sTo.diff, after: r2(sTo.diff + eff) } : null
+      if (dTo && improves(dTo) === false) return null // veto on the receiving side too
+      if (!dFrom && !dTo) return null
+      const twoSided = !!(dFrom && dTo)
+      let rank: number
+      if (twoSided && closes(dFrom) && closes(dTo)) rank = 0
+      else if (twoSided) rank = 1
+      else if (closes(dFrom) || closes(dTo)) rank = 2
+      else if (mv.confidence === 'explains_with_known' || mv.confidence === 'explains_exactly') rank = 3
+      else if (mv.same_lender) rank = 4
+      else return null
+      return { eff, dFrom, dTo, toBundle: toB, rank, twoSided, closesBoth: !!(twoSided && closes(dFrom) && closes(dTo)) }
+    }
+    const alternates: any[] = []
+    for (const toB of claimants) {
+      const r = rankOne(toB)
+      if (!r) continue
+      if (!best || r.rank < best.rank) { if (best) alternates.length = 0; best = r }
+      else if (best && r.rank === best.rank && r.toBundle && best.toBundle && r.toBundle !== best.toBundle) alternates.push(r.toBundle)
+    }
+    if (!best) return null
+    return { ...best, alternates }
+  }
+
+  // 3. Greedy assignment, best-explanation first, re-evaluated against the
+  //    live simulation at every step. Ranks 0–3 become roadmap steps; rank 4
+  //    (same-lender, in-span only) becomes at most one "worth checking" step
+  //    per span, and only when nothing better claimed that span.
+  const ordered = Array.from(moves.values()).sort((a: any, b: any) => {
+    const ea = evalMove(a), eb = evalMove(b)
+    return ((ea?.rank ?? 9) - (eb?.rank ?? 9)) || (Math.abs(b.amount) - Math.abs(a.amount)) || a.date.localeCompare(b.date)
+  })
+  const assigned: any[] = []
+  const usedSpanChecks = new Set<any>()
+  for (const mv of ordered) {
+    const ev = evalMove(mv)
+    if (!ev) continue
+    if (ev.rank === 4) {
+      const key = ev.dTo?.span || ev.dFrom?.span
+      if (!key || usedSpanChecks.has(key) || Math.abs((ev.dTo || ev.dFrom)!.before) < TOL) continue
+      usedSpanChecks.add(key)
+      assigned.push({ ...mv, ev, kind: 'check' })
+      continue
+    }
+    if (assigned.length >= 8) break
+    assigned.push({ ...mv, ev, kind: mv.already_worked ? 'cpa_review' : 'recode' })
+    if (ev.dFrom) ev.dFrom.span.diff = ev.dFrom.after
+    if (ev.dTo) ev.dTo.span.diff = ev.dTo.after
+  }
+
+  // 4. Safe-fix approvals (the per-loan proposal, unchanged, same token). Only
+  //    offered inline for loans NO recode step touches — a recode changes that
+  //    loan's history, and the token discipline would (rightly) refuse a stale
+  //    proposal anyway. Touched loans get theirs after the re-run.
+  const touchedLoanIds = new Set(assigned.filter((m: any) => m.kind === 'recode' || m.kind === 'cpa_review')
+    .flatMap((m: any) => [m.from?.bundle?.loan?.id, m.ev?.toBundle?.loan?.id].filter(Boolean)))
+  const approvals: any[] = []
+  const deferredApprovals: any[] = []
+  for (const b of walkable) {
+    if (!b.aw.proposal) continue
+    if (touchedLoanIds.has(b.loan.id)) { deferredApprovals.push(b); continue }
+    approvals.push(b)
+    const s = (sim.get(b.loan.id) || []).find((p: any) => p.from === b.aw.proposal.span.from && p.to === b.aw.proposal.span.to)
+    if (s) s.diff = 0
+  }
+
+  // 5. Expected end state per loan, from the simulation.
+  const expected: any[] = []
+  for (const b of walkable) {
+    const simTotal = r2((sim.get(b.loan.id) || []).reduce((s: number, p: any) => s + p.diff, 0))
+    const after = r2(simTotal + (b.aw.residual ?? 0))
+    expected.push({
+      loan_account_id: b.loan.id, loan: b.loan.xero_account_name,
+      before: b.headline?.difference ?? r2(b.aw.total_period_diff + (b.aw.residual ?? 0)),
+      after_expected: after,
+      label: Math.abs(after) < TOL ? 'should tie' : `should show ~${money(after)} ${after > 0 ? 'above' : 'below'} the lender`,
+    })
+  }
+  const combinedBefore = r2(expected.reduce((s: number, e: any) => s + Number(e.before || 0), 0))
+  const combinedAfter = r2(expected.reduce((s: number, e: any) => s + Number(e.after_expected || 0), 0))
+  const recodes = assigned.filter((m: any) => m.kind === 'recode')
+  const internalMoved = r2(assigned.filter((m: any) => m.ev.twoSided && m.kind !== 'check').reduce((s: number, m: any) => s + Math.abs(m.amount), 0))
+
+  // 6. The roadmap — one numbered list, ordered so no step invalidates a later
+  //    one: recodes → CPA reviews → independent safe-fix approvals → ONE re-run.
+  const loanShort = (b: any) => b?.loan?.xero_account_name || '?'
+  const spanShort = (d: any) => d ? `${d.span.from} → ${d.span.to}` : null
+  const roadmap: any[] = []
+  let n = 1
+  for (const m of assigned) {
+    if (m.kind === 'check') continue
+    const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || m.from?.external?.account_name || `account ${m.from?.account_code ?? '?'}`)
+    const toName = m.ev.toBundle ? loanShort({ loan: m.ev.toBundle.loan }) : 'the loan it was actually paid against (check the payee)'
+    const what = m.src_type === 'ManualJournal' ? 'journal' : 'payment'
+    const clears = [m.ev.dFrom ? `${fromName} ${spanShort(m.ev.dFrom)}` : null, m.ev.dTo ? `${toName} ${spanShort(m.ev.dTo)}` : null].filter(Boolean)
+    roadmap.push({
+      step: n++, kind: m.kind,
+      entry: { type: m.src_type, id: m.id, date: m.date, amount: m.amount, contact: m.contact, ref: m.ref, narration: m.narration },
+      move_from: { loan: fromName, account_code: m.from?.bundle ? m.from.bundle.code : (m.from?.account_code ?? null) },
+      move_to: { loan: toName, account_code: m.ev.toBundle ? m.ev.toBundle.code : null },
+      alternate_destinations: (m.ev.alternates || []).map((x: any) => ({ loan: x.loan.xero_account_name, account_code: x.code })),
+      confidence: m.ev.closesBoth ? 'confirmed both sides' : m.ev.twoSided ? 'improves both sides' : 'one-sided',
+      why: m.kind === 'cpa_review'
+        ? `The ${money(m.amount)} ${what} on ${m.date} looks misallocated (${fromName} → ${toName}), but it was already worked by your bookkeeper — per your rule, she decides, nothing is changed for her.`
+        : `In Xero, recode the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} from ${fromName} to ${toName}.${(m.ev.alternates || []).length ? ` It could equally belong to ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')} — the numbers fit both, so check which loan's own statement shows this payment before moving it.` : ''} ${m.ev.closesBoth ? `This closes ${clears.join(' AND ')} at once.` : m.ev.twoSided ? `This shrinks ${clears.join(' and ')}.` : `This should close ${clears.join('; ')}.`}`,
+    })
+  }
+  for (const m of assigned) {
+    if (m.kind !== 'check') continue
+    const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || `account ${m.from?.account_code ?? '?'}`)
+    const toName = m.ev.toBundle ? loanShort({ loan: m.ev.toBundle.loan }) : '?'
+    roadmap.push({
+      step: n++, kind: 'check',
+      entry: { type: m.src_type, id: m.id, date: m.date, amount: m.amount, contact: m.contact, ref: m.ref, narration: m.narration },
+      move_from: { loan: fromName, account_code: m.from?.bundle ? m.from.bundle.code : (m.from?.account_code ?? null) },
+      move_to: { loan: toName, account_code: m.ev.toBundle ? m.ev.toBundle.code : null },
+      confidence: 'worth checking',
+      why: `Worth a look, not a confident call: the ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} on ${m.date} (coded to ${fromName}) sits inside a still-unexplained span on ${toName} — same lender, so one wrong click is plausible. Confirm against the lender's own statement before moving anything.`,
+    })
+  }
+  for (const b of approvals) {
+    roadmap.push({
+      step: n++, kind: 'approve_journal',
+      loan_account_id: b.loan.id, loan: b.loan.xero_account_name,
+      finding_id: b.finding?.id ?? null,
+      period: b.aw.proposal.period, amount: b.aw.proposal.amount,
+      token: b.aw.proposal.token, based_on: b.aw.proposal.based_on, journal: b.aw.proposal.journal,
+      why: `${b.loan.xero_account_name}: the ${b.aw.proposal.period} gap equals that period's interest to the cent — approve the prepared correction below (nothing posts until you click).`,
+    })
+  }
+  for (const b of walkable) {
+    if (!b.aw.cpa_exception) continue
+    roadmap.push({ step: n++, kind: 'cpa_review', loan: b.loan.xero_account_name, why: b.aw.cpa_exception.note })
+  }
+  const expectedLine = expected.map((e: any) => `${e.loan} ${e.label}`).join('; ')
+  roadmap.push({
+    step: n++, kind: 'rerun',
+    why: `After the steps above, run ONE reconciliation check in WashRoute. Expected: ${expectedLine}.${deferredApprovals.length ? ` ${deferredApprovals.map((b: any) => b.loan.xero_account_name).join(', ')} may then offer a prepared interest correction — approve it from the card.` : ''}`,
+  })
+
+  // 7. Conclusions — the whole cross-loan story in ≤5 bullets.
+  const conclusions: string[] = []
+  conclusions.push(`Across ${walkable.length} ${lenderName} loans, Xero is a combined ${money(combinedBefore)} ${combinedBefore >= 0 ? 'above' : 'below'} the lender.${recodes.length ? ` ${recodes.length} recode${recodes.length === 1 ? '' : 's'} below ${internalMoved ? `(money in the wrong loan bucket, ${money(internalMoved)} confirmed both sides) ` : ''}explain${recodes.length === 1 ? 's' : ''} most of it — nothing is missing from the books, it's in the wrong buckets.` : ' No cross-loan recode explains it — see the steps below.'}`)
+  const pairSpans = walkable.reduce((s: number, b: any) => s + b.aw.periods.filter((p: any) => p.timing_pair).length, 0)
+  if (pairSpans) conclusions.push(`${pairSpans} flagged span${pairSpans === 1 ? ' is' : 's are'} timing, not errors — payments dated just after a statement cutoff. They cancel out; nothing to fix.`)
+  for (const m of assigned.filter((x: any) => x.kind === 'recode').slice(0, 2)) {
+    const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || `account ${m.from?.account_code ?? '?'}`)
+    const toName = m.ev.toBundle ? loanShort({ loan: m.ev.toBundle.loan }) : 'another loan'
+    conclusions.push(`The ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${m.date}) on ${fromName} belongs to ${(m.ev.alternates || []).length ? `either ${toName} or ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')}` : toName}${m.ev.closesBoth ? ' — moving it closes a span on BOTH loans (confirmed both sides)' : m.ev.twoSided ? ' — moving it shrinks both loans’ gaps' : ''}.`)
+  }
+  if (Math.abs(combinedAfter) >= TOL) conclusions.push(`~${money(combinedAfter)} remains after the roadmap — the per-loan details below say where; nothing further is proposable without new statements or a human call.`)
+  else conclusions.push(`After the roadmap and one re-run, every ${lenderName} loan should tie with the lender.`)
+  const finalConclusions = conclusions.slice(0, 5)
+
+  // 8. The plain-text handoff — everything the bookkeeper needs WITHOUT the
+  //    dashboard: one checklist, copy/paste into an email or text.
+  const hand: string[] = []
+  hand.push(`${lenderName} — loan cleanup checklist (${today})`)
+  hand.push(`Xero vs lender, combined: ${money(combinedBefore)} ${combinedBefore >= 0 ? 'above' : 'below'} across ${walkable.length} loans.`)
+  hand.push('')
+  for (const s of roadmap) {
+    if (s.kind === 'recode' || s.kind === 'check') {
+      hand.push(`${s.step}. ${s.kind === 'recode' ? 'RECODE' : 'CHECK'} — ${money(s.entry.amount)} ${s.entry.type === 'ManualJournal' ? 'manual journal' : 'payment'} dated ${s.entry.date}${s.entry.contact ? ` (${s.entry.contact})` : ''}${s.entry.ref ? `, ref ${s.entry.ref}` : ''}${s.entry.narration ? `, "${s.entry.narration}"` : ''}`)
+      hand.push(`   now on: ${s.move_from.account_code ? `${s.move_from.account_code} ` : ''}${s.move_from.loan}  →  move to: ${s.move_to.account_code ? `${s.move_to.account_code} ` : ''}${s.move_to.loan}`)
+      if (s.kind === 'check') hand.push(`   (not a confident call — confirm against the lender's statement first)`)
+    } else if (s.kind === 'approve_journal') {
+      hand.push(`${s.step}. APPROVE IN WASHROUTE — ${s.loan}: prepared ${s.period} interest correction of ${money(s.amount)} (button on the ${lenderName} card; David/admin only)`)
+    } else if (s.kind === 'cpa_review') {
+      hand.push(`${s.step}. CPA CALL — ${s.why}`)
+    } else if (s.kind === 'rerun') {
+      hand.push(`${s.step}. RE-RUN — in WashRoute, run one Reconciliation Check after all steps above.`)
+      hand.push(`   Expected: ${expectedLine}`)
+    }
+  }
+  const handoffText = hand.join('\n')
+
+  return jres({
+    ok: true, mode: 'lender_analysis', lender: lenderName,
+    combined: { before: combinedBefore, after_expected: combinedAfter, direction: combinedBefore >= 0 ? 'xero_above_lender' : 'xero_below_lender', explained_two_sided: internalMoved },
+    conclusions: finalConclusions,
+    roadmap,
+    handoff_text: handoffText,
+    expected,
+    loans: walkable.map((b: any) => ({
+      id: b.loan.id, name: b.loan.xero_account_name, code: b.code,
+      finding_id: b.finding?.id ?? null, headline: b.headline,
+      periods: b.aw.periods, agree_until: b.aw.agree_until,
+      conclusions: b.aw.conclusions, proposal: b.aw.proposal, cpa_exception: b.aw.cpa_exception,
+      truncated_before: b.truncated, skipped_for_basis: b.skippedForBasis,
+    })),
+    skipped_loans: skippedLoans,
+    window: { from: winFrom, to: winTo, read_via: oneBank ? 'one pull: bank transactions scoped to the shared checking account, plus every manual journal in the window' : 'one pull: org-wide month-sliced' },
+    can_post: ['admin', 'manager'].includes(role),
+  })
+}
+
+
+async function handle(req: Request): Promise<Response> {
+  const supa = admin()
+  const body = await req.json().catch(() => ({}))
+  const { loan_account_id, post_fix, proposal_token, posted_by } = body
+
+  const role = await callerRole(req)
+  if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
+    return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+  if (post_fix && !['admin', 'manager'].includes(role)) {
+    return new Response(JSON.stringify({ error: 'Only an admin or manager can post a correction. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+  // v10: lender-level analysis — read-only by construction; corrections are
+  // posted from their own loan card (per-loan post_fix), never from here.
+  if (body.lender_analysis) {
+    if (post_fix) {
+      return new Response(JSON.stringify({ error: 'Post a correction from its own loan card — the lender-level analysis is read-only.' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    return await handleLender(supa, body, role)
+  }
+  if (!loan_account_id) {
+    return new Response(JSON.stringify({ error: 'loan_account_id is required.' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+
+  const { data: loan } = await supa.from('loan_accounts').select('*').eq('id', loan_account_id).single()
+  if (!loan || !loan.xero_account_code) {
+    return new Response(JSON.stringify({ error: 'Loan not found, or it has no Xero account code.' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+  const code = loan.xero_account_code
+
+  // v4: every other loan's account code, for the cross-loan misallocation hunt.
+  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, lender, lender_account_number, status, scheduled_monthly_payment')
+  const otherLoanByCode = new Map<string, any>()
+  for (const la of allLoans || []) {
+    if (la.id !== loan.id && la.xero_account_code) otherLoanByCode.set(String(la.xero_account_code), la)
+  }
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [{ data: statements }, { data: splits }, { data: findings }] = await Promise.all([
+    supa.from('loan_statements').select('*').eq('loan_account_id', loan_account_id).lte('statement_date', today).order('statement_date', { ascending: true }),
+    supa.from('loan_splits').select('*').eq('loan_account_id', loan_account_id).order('period_label', { ascending: true }),
+    supa.from('reconciliation_findings').select('*').eq('loan_account_id', loan_account_id).eq('check_key', 'balance_vs_lender').eq('status', 'open').order('last_seen_at', { ascending: false }).limit(1),
+  ])
+  const headline = findings?.[0]?.detail?.difference != null
+    ? { difference: Number(findings[0].detail.difference), as_of: findings[0].detail.anchor_date || null }
+    : null
+
+  // Reliable anchors: principal_only basis only — the walk subtracts balances,
+  // and mixing bases fabricates differences (the PayPal lesson, session 222).
+  const anchors = (statements || []).filter(s => s.balance_basis === 'principal_only' && s.principal_balance != null)
+  const skippedForBasis = (statements || []).filter(s => s.balance_basis !== 'principal_only').map(s => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
+
+  const { knownAmounts, matchKnown } = prepKnownAmounts(loan, splits || [])
+
+  if (anchors.length < 2) {
+    return new Response(JSON.stringify({
+      ok: true, mode: 'analyze', verdict: 'not_enough_history',
+      loan: { id: loan.id, name: loan.xero_account_name, code },
+      headline,
+      anchors_on_file: anchors.length, skipped_for_basis: skippedForBasis,
+      narrative: `The difference engine needs at least two lender statements with a confirmed principal balance to walk the two histories side by side — this loan has ${anchors.length}. Upload more of the lender's statements and run this again.`,
+      proposed_action: { kind: 'upload_earlier_statement', loan_account_id: loan.id },
+    }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+
+  // Window = the span the anchors cover, capped at 18 months of pull — see
+  // trimAnchors() (hoisted in v10, logic unchanged).
+  const { usable, truncated } = trimAnchors(anchors)
+
+  const { accessToken, tenantId } = await getXeroAuth()
+  const headers = { 'Authorization': `Bearer ${accessToken}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
+  const acctMap = await fetchAccountsMap(headers)
+
+  const winFrom = usable[0].statement_date
+  const winTo = usable[usable.length - 1].statement_date
+  // v4: keep the WHOLE pull. `entries` (this loan's own history) drives the walk
+  // exactly as before; `siblingPool` (live entries coded to OTHER loan accounts,
+  // excluding product-managed WR-STAGE transactions) feeds the misallocation
+  // hunt. Every loan pays from the same checking account, so no extra Xero
+  // calls are needed — the candidates were in the pull all along.
+  let entries: any[]
+  let siblingPool: any[]
+  try {
+    const pulled = await pullWindow(winFrom, winTo, headers, loan.xero_bank_account_id ?? null)
+    entries = pulled.filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code)))
+    siblingPool = pulled.filter(r => isLive(r)
+      && !r.lines.some((l: any) => String(l.c) === String(code))
+      && r.lines.some((l: any) => otherLoanByCode.has(String(l.c)))
+      && !(r.ref && String(r.ref).startsWith('WR-STAGE')))
+  } catch (e) {
+    return new Response(JSON.stringify({ error: String((e as Error).message || e) }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+  entries.sort((a, b) => a.date.localeCompare(b.date))
+  siblingPool.sort((a, b) => a.date.localeCompare(b.date))
+
+  // v10: the whole walk — spans, timing pairs, candidates, proposal,
+  // conclusions — now runs through the shared analyzeWalk() (the lender-level
+  // analysis calls the same function per loan). Behavior here is unchanged.
+  const aw = analyzeWalk({
+    loan, code, usable, splits: splits || [], headline, entries, siblingPool,
+    otherLoanByCode, matchKnown, acctMap, skippedForBasis,
+  })
+  const periods = aw.periods
+  const totalPeriodDiff = aw.total_period_diff
+  const lastClean = aw.agree_until
+  const residual = aw.residual
+  const proposal = aw.proposal
+  const cpaException = aw.cpa_exception
+  const finalConclusions = aw.conclusions
+
+  // ── Fingerprint hunt: when a gap equals a known lender amount to the cent,
+  // search ALL of Xero for live transactions of exactly that amount and show
+  // where each one's money actually went. This is how "one payment's worth"
+  // stops being a coincidence and becomes a named transaction. ──
+  let hunt: any = null
+  // v6: paired (timing) spans are explained — they never drive the hunt.
+  const huntGap = residual != null && Math.abs(residual) >= TOL ? residual
+    : (periods.find(p => !p.timing_pair && (p.culprit?.kind === 'missing_reduction' || p.culprit?.kind === 'unexplained'))?.diff ?? null)
+  const huntKnown = huntGap != null ? matchKnown(huntGap) : null
+  if (huntKnown) {
+    try {
+      const w = encodeURIComponent(`Total == ${huntKnown.amount.toFixed(2)}`)
+      const raw = await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', 4)
+      const all = raw.map(normBT)
+      hunt = {
+        amount: huntKnown.amount, equals: huntKnown.what,
+        matches: all.slice(0, 40).map(r => ({
+          id: r.srcId, date: r.date, type: r.type, status: r.status, reconciled: r.reconciled,
+          ref: r.ref, contact: r.contact,
+          touches_this_loan: r.lines.some((l: any) => String(l.c) === String(code)),
+          coded_to: Array.from(new Set(r.lines.map((l: any) => `${l.c} — ${acctMap[l.c] ?? '?'}`))),
+          live: isLive(r),
+        })),
+        live_on_this_loan: all.filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code))).length,
+        live_elsewhere: all.filter(r => isLive(r) && !r.lines.some((l: any) => String(l.c) === String(code))).length,
+      }
+    } catch { hunt = { amount: huntKnown.amount, equals: huntKnown.what, error: 'Xero amount search failed — the rest of the analysis stands.' } }
+  }
+
 
   // Narrative for API consumers = intro + the same bullets; the client renders
   // the bullets. The old exhaustive span-listing paragraph is gone on purpose.
