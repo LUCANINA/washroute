@@ -86,7 +86,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // land on a staged split orphans a live staged transaction in Xero.
     const { data: priorSplits, error: priorErr } = await supa
       .from('loan_splits')
-      .select('id, status')
+      .select('id, status, source')
       .eq('loan_account_id', loanAcct.id)
       .eq('period_label', period_label)
       .limit(1)
@@ -99,6 +99,22 @@ async function handleRequest(req: Request): Promise<Response> {
         error: `A split for ${period_label} already exists with status '${prior.status}' -- regenerating it would ${prior.status === 'staged' ? 'orphan the live staged transaction in Xero (unstage it first if you really mean to redo this period)' : 'reset a completed period and risk a duplicate posting'}. Nothing was changed.`,
         existing_split_id: prior.id,
         existing_status: prior.status,
+      }), { status: 409 })
+    }
+    // v4 (torture-test blast-radius follow-up, 2026-08-22): the status check above
+    // only refused an already-posted/staged split -- a still-pending_review split
+    // whose source is 'statement_delta' or 'explicit_split' (i.e. a REAL number
+    // already computed from an actual bank statement, just not yet reviewed) passed
+    // right through and would get silently overwritten by a schedule-derived guess.
+    // Same missing-source-check shape as the BUG-0002 fix in loan-ingest-statement's
+    // backward-fill block; same rule staging-next.ts's ensureUpcomingSplit already
+    // uses (rule 4). This function exists for schedule-only lenders, so this should
+    // be rare in practice -- but refuse rather than silently discard real bank data.
+    if (prior && prior.source !== 'amortization_schedule') {
+      return new Response(JSON.stringify({
+        error: `A real, statement-derived split for ${period_label} already exists (source: '${prior.source}', status: pending_review) -- regenerating from the schedule would overwrite real bank data with a schedule projection. Review or clear the existing split first if you really mean to replace it. Nothing was changed.`,
+        existing_split_id: prior.id,
+        existing_source: prior.source,
       }), { status: 409 })
     }
 

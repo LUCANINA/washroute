@@ -623,7 +623,14 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
-    // 3b. Backward-fill (v16). Unchanged from v16 -- see the version note above.
+    // 3b. Backward-fill (v16, v23). v23 (torture-test BUG-0002 fix): the existence
+    // check used to be "does ANY loan_splits row already exist for next period" --
+    // that let a Staging Engine schedule projection (source='amortization_schedule',
+    // still pending_review -- see staging-next.ts's ensureUpcomingSplit) masquerade
+    // as an already-handled period and permanently block the real, statement-backed
+    // number from ever being computed on out-of-order/backfilled ingestion. Mirrors
+    // the same source+status check ensureUpcomingSplit's rule 4 already uses: only a
+    // row that is NOT a still-pending schedule projection counts as "already real."
     let backfilledSplit: any = null
     {
       const { data: nextStmts } = await supa
@@ -638,17 +645,27 @@ async function handleRequest(req: Request): Promise<Response> {
         const nextPeriodLabel = next.statement_date.slice(0, 7)
         const { data: existingForNext } = await supa
           .from('loan_splits')
-          .select('id')
+          .select('id, status, source')
           .eq('loan_account_id', loanAcct.id)
           .eq('period_label', nextPeriodLabel)
           .maybeSingle()
-        if (!existingForNext) {
+        // A schedule-projected placeholder that hasn't been consumed yet is not a
+        // real, statement-backed split -- it must not block the real backfilled
+        // number from being computed. Any other existing row (already statement_delta,
+        // explicit_split, staged, posted, etc.) is real/consumed and still blocks, same
+        // as before.
+        const isUnconsumedProjection = existingForNext
+          && existingForNext.status === 'pending_review'
+          && existingForNext.source === 'amortization_schedule'
+        if (!existingForNext || isUnconsumedProjection) {
           const principalPaid = Math.round((Number(stmt.principal_balance) - Number(next.principal_balance)) * 100) / 100
           const totalDue = Number(next.total_amount_due)
           const interestPaid = Math.round((totalDue - principalPaid) * 100) / 100
 
           let status = 'pending_review'
-          let reviewNotes: string | null = `Backfilled retroactively after the missing ${statement_date} statement was uploaded -- this period's split couldn't be computed before because no earlier statement existed to diff against.`
+          let reviewNotes: string | null = isUnconsumedProjection
+            ? `Backfilled retroactively after the missing ${statement_date} statement was uploaded -- replaces an unconfirmed amortization-schedule projection for this period with a real, statement-backed number.`
+            : `Backfilled retroactively after the missing ${statement_date} statement was uploaded -- this period's split couldn't be computed before because no earlier statement existed to diff against.`
           let amortizationRowId: string | null = null
           const { data: schedules } = await supa
             .from('loan_amortization_schedules')
@@ -682,7 +699,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
           const { data: backfillRow, error: backfillErr } = await supa
             .from('loan_splits')
-            .insert({
+            .upsert({
               loan_account_id: loanAcct.id,
               period_label: nextPeriodLabel,
               prior_statement_id: stmt.id,
@@ -694,7 +711,7 @@ async function handleRequest(req: Request): Promise<Response> {
               total_amount: totalDue,
               status,
               review_notes: reviewNotes,
-            })
+            }, { onConflict: 'loan_account_id,period_label' })
             .select()
             .single()
           if (backfillErr) {
