@@ -64,34 +64,50 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
     return { action: 'skipped', reason: 'active_card_exists', period_label: active[0].period_label, split_id: active[0].id }
   }
 
-  // Latest schedule (same "most recent generated date wins" rule as
-  // loan-generate-schedule-split). nullsFirst:false matters: Postgres puts NULLs
-  // first on a DESC order by default, so a schedule ingested without a generated
-  // date would otherwise beat every properly dated one.
+  // Newest schedule WITH future payment rows (session 226 close). "Latest wins"
+  // alone would kill weekly staging on the next lender-CSV pull: a PayPal-style
+  // actuals-history re-ingest lands as a NEW schedule (new generated date) that
+  // contains ONLY past payments, and if the walk stopped there, no card would
+  // ever appear again -- silently. So: schedules newest-first, use the first one
+  // that still has a stageable future payment row. A schedule the walk skipped is
+  // named in the result detail so the fallback is visible, never silent.
+  // nullsFirst:false matters: Postgres puts NULLs first on a DESC order by
+  // default, so a schedule ingested without a generated date would otherwise beat
+  // every properly dated one.
   const { data: schedules, error: schedErr } = await supa
     .from('loan_amortization_schedules')
     .select('id, schedule_generated_date')
     .eq('loan_account_id', loanAccountId)
     .order('schedule_generated_date', { ascending: false, nullsFirst: false })
-    .limit(1)
   if (schedErr) return { action: 'skipped', reason: 'lookup_failed', detail: schedErr.message }
   if (!schedules?.length) return { action: 'skipped', reason: 'no_schedule' }
 
-  // ALL payment rows -- the full set decides each month's cadence; only the future
-  // ones are stageable.
-  const { data: allRows, error: rowsErr } = await supa
-    .from('loan_amortization_rows')
-    .select('*')
-    .eq('schedule_id', schedules[0].id)
-    .eq('row_type', 'payment')
-    .order('row_date', { ascending: true })
-  if (rowsErr) return { action: 'skipped', reason: 'lookup_failed', detail: rowsErr.message }
-  const futureRows = (allRows || []).filter((r: any) => String(r.row_date).slice(0, 10) >= today)
-  if (!futureRows.length) return { action: 'skipped', reason: 'no_future_payment_rows' }
+  let allRows: any[] | null = null
+  let futureRows: any[] = []
+  let usedSchedule: any = null
+  const skipped: string[] = []
+  for (const sched of schedules) {
+    // ALL payment rows -- the full set decides each month's cadence; only the
+    // future ones are stageable.
+    const { data: rows, error: rowsErr } = await supa
+      .from('loan_amortization_rows')
+      .select('*')
+      .eq('schedule_id', sched.id)
+      .eq('row_type', 'payment')
+      .order('row_date', { ascending: true })
+    if (rowsErr) return { action: 'skipped', reason: 'lookup_failed', detail: rowsErr.message }
+    const future = (rows || []).filter((r: any) => String(r.row_date).slice(0, 10) >= today)
+    if (future.length) { allRows = rows || []; futureRows = future; usedSchedule = sched; break }
+    skipped.push(`gen ${sched.schedule_generated_date ?? 'undated'}`)
+  }
+  if (!usedSchedule) return { action: 'skipped', reason: 'no_future_payment_rows' }
+  const fallbackNote = skipped.length
+    ? `newest schedule${skipped.length > 1 ? 's' : ''} (${skipped.join(', ')}) had no future payment rows; used schedule gen ${usedSchedule.schedule_generated_date ?? 'undated'}`
+    : undefined
 
   // Month cadence from the FULL row set; stageable units from the future rows.
   const monthCount = new Map<string, number>()
-  for (const r of allRows) {
+  for (const r of allRows || []) {
     const m = String(r.row_date).slice(0, 7)
     monthCount.set(m, (monthCount.get(m) || 0) + 1)
   }
@@ -144,7 +160,7 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
       .select()
       .single()
     if (splitErr) return { action: 'skipped', reason: 'lookup_failed', detail: splitErr.message }
-    return { action: prior ? 'refreshed' : 'created', period_label: periodLabel, split_id: split?.id }
+    return { action: prior ? 'refreshed' : 'created', period_label: periodLabel, split_id: split?.id, detail: fallbackNote }
   }
 
   return { action: 'skipped', reason: 'no_future_payment_rows', detail: 'every future payment month already has a consumed split' }

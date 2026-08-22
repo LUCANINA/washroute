@@ -15,6 +15,19 @@ import { ensureUpcomingSplit } from "../_shared/staging-next.ts"
 // in front of the CPA. DB-only; nothing is written to Xero here. A past-only schedule
 // (e.g. PayPal 2's) changes nothing.
 //
+// v15 (session 226 close, same day): derived principal-only statements. When the
+// ingested rows are the lender's ACTUAL payment history (amort_type contains
+// 'actual') with per-row principal splits, an 'initial' row carrying the original
+// principal, and a balance basis that is NOT principal_only (PayPal reports total
+// payback), the exact principal-only balance series is derivable from the lender's
+// own numbers: principal remaining = initial principal − cumulative principal paid.
+// Those balances are upserted into loan_statements (one per PAST payment row,
+// basis principal_only, storage_path = the ingested file) so the ledger has a real
+// principal anchor -- this is what clears loan-cross-check's basis_conflict finding
+// and lets balance_vs_lender actually run for total-payback lenders. Scheduled/
+// projected documents (amort_type without 'actual') never derive statements: their
+// past rows are what SHOULD have happened, not what the lender says DID happen.
+//
 // Body: {
 //   lender_account_number: string,     // matches loan_accounts.lender_account_number
 //   contract_id?: string,
@@ -160,7 +173,41 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'loan_amortization_rows insert failed', details: rowsErr.message, schedule }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
-    // 4. Staging Engine hook (v12): a schedule with future payment rows means this loan
+    // 4. Derived principal-only statements (v15) -- see the version note up top.
+    //    Failures are reported but never fail the ingest.
+    let derivedStatements: any = null
+    try {
+      const isActualHistory = String(amort_type || '').toLowerCase().includes('actual')
+      const initRow = rows.find((r: any) => r.row_type === 'initial' && r.principal != null)
+      const todayPacific = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      if (isActualHistory && balanceBasis !== 'principal_only' && initRow) {
+        const paidRows = rows
+          .filter((r: any) => r.row_type === 'payment' && r.principal != null && String(r.row_date) <= todayPacific)
+          .sort((a: any, b: any) => String(a.row_date).localeCompare(String(b.row_date)))
+        let cum = 0
+        let upserted = 0
+        for (const r of paidRows) {
+          cum = Math.round((cum + Number(r.principal)) * 100) / 100
+          const { error: stmtErr } = await supa.from('loan_statements').upsert({
+            loan_account_id: loanAcct.id,
+            statement_date: r.row_date,
+            principal_balance: Math.round((Number(initRow.principal) - cum) * 100) / 100,
+            balance_basis: 'principal_only',
+            source: 'portal_manual_pull',
+            storage_path: storagePath,
+            pulled_at: new Date().toISOString(),
+            pulled_by: 'derived: initial principal minus the lender file\'s own per-payment principal splits (loan-ingest-amortization v15)',
+          }, { onConflict: 'loan_account_id,statement_date' })
+          if (stmtErr) throw new Error(`loan_statements upsert failed at ${r.row_date}: ${stmtErr.message}`)
+          upserted++
+        }
+        derivedStatements = { upserted, through: paidRows.length ? paidRows[paidRows.length - 1].row_date : null }
+      }
+    } catch (deriveErr) {
+      derivedStatements = { error: String((deriveErr as any)?.message || deriveErr) }
+    }
+
+    // 5. Staging Engine hook (v12): a schedule with future payment rows means this loan
     //    can be pre-staged. Flip prestage_enabled on and put the next period's card in
     //    front of the CPA. Failures here are reported but never fail the ingest -- the
     //    schedule itself landed fine.
@@ -188,7 +235,7 @@ Deno.serve(async (req) => {
       ? 'contract_id and/or schedule_generated_date was null, so this ingest could not match an existing schedule and may have created a duplicate. Supply both to make re-uploads update in place.'
       : null
 
-    return new Response(JSON.stringify({ ok: true, loan_account: loanAcct, schedule, rows_inserted: insertedCount, staging, idempotency_warning: idempotencyWarning }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ ok: true, loan_account: loanAcct, schedule, rows_inserted: insertedCount, staging, derived_statements: derivedStatements, idempotency_warning: idempotencyWarning }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   } catch (err) {
     return new Response(JSON.stringify({ error: String((err as any)?.message || err) }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }

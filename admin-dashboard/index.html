@@ -8484,6 +8484,8 @@
         reason: s.stage_sweep_flag
           ? (s.stage_sweep_flag === 'duplicate_suspected'
             ? 'Staged in Xero, but a look-alike transaction appeared next to it — open to see what to check'
+            : s.stage_sweep_flag === 'matched_early_suspect'
+            ? 'Staged in Xero, but it was matched BEFORE its scheduled date — likely the wrong bank line. Open to see how to fix'
             : 'Staged in Xero, but the payment is overdue and still unmatched — open to see what to check')
           : `Staged in Xero — waiting for the payment to land in the bank feed, then it's one Match click for the CPA`,
         action: 'View', onclick: `openLoanReviewModal('${s.id}')`,
@@ -12100,15 +12102,18 @@
     // every attention surface reads (the one-shared-function rule).
     (_allLoanSplits || []).filter(s => s.status === 'staged' && s.stage_sweep_flag).forEach(s => {
       const isDup = s.stage_sweep_flag === 'duplicate_suspected';
+      const isEarly = s.stage_sweep_flag === 'matched_early_suspect';
       const raw = isDup
         ? 'The staged pre-split transaction is still unmatched, but a second transaction of the same amount appeared next to it in Xero — likely a Create instead of a Match on the reconcile screen. Until resolved, this payment may be counted twice.'
+        : isEarly
+        ? 'The staged pre-split transaction was matched in Xero BEFORE its scheduled payment date — on a loan where every payment is the same amount, that almost certainly means it was matched to an earlier payment\'s bank line. In Xero: unreconcile that line and code it the normal way; the stage then goes back to waiting for its own payment. Nothing was posted.'
         : 'The scheduled payment date has passed and the staged pre-split transaction is still unmatched — the real payment may have differed from the schedule (rate change, extra payment, skipped month). If it is not coming in this shape, remove the stage.';
       items.push({
-        key: 'stage-' + s.id, kind: 'stage_flag', severityRank: isDup ? 0 : 1, split: s,
+        key: 'stage-' + s.id, kind: 'stage_flag', severityRank: (isDup || isEarly) ? 0 : 1, split: s,
         title: (s.loan_accounts?.xero_account_name || 'Unknown loan') + ' — ' + s.period_label,
         explain: _bkOneLine(raw), rawExplain: raw,
         amount: s.total_amount != null ? Number(s.total_amount) : null,
-        tag: isDup ? 'duplicate?' : 'stale stage',
+        tag: isDup ? 'duplicate?' : isEarly ? 'wrong match?' : 'stale stage',
       });
     });
     items.sort((a, b) => a.severityRank - b.severityRank);
@@ -14266,6 +14271,7 @@ ${noActivityNote}
         <div class="form-section-head">Will be created in Xero</div>
         <div style="font-size:13px;color:var(--gray-600);margin-bottom:8px">Spend money · ${esc(p.contact)} · dated ${esc(p.date)} · reference <span class="td-mono">${esc(p.reference)}</span></div>
         <div style="margin-bottom:14px">${(p.lines || []).map(lineHtml).join('')}</div>
+        ${data.backlog_warning ? `<div style="margin-bottom:12px;background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px">⚠ ${esc(data.backlog_warning)}</div>` : ''}
         <div style="font-size:12.5px;color:var(--gray-500)">If the real payment ends up different from the schedule, the staged transaction won't match — the staged-payments check flags it and it can be removed with one click, leaving Xero exactly as before.</div>
       `;
       footer.innerHTML = `
@@ -14320,6 +14326,8 @@ ${noActivityNote}
       const flagHtml = flag
         ? `<div style="margin-top:10px;background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px">⚠ ${flag === 'duplicate_suspected'
           ? 'A second transaction of the same amount appeared next to the staged one — likely a Create instead of a Match on the reconcile screen. Check in Xero: the duplicate should be removed there and the statement line matched to the staged transaction, or remove the stage here.'
+          : flag === 'matched_early_suspect'
+          ? 'This stage was matched in Xero BEFORE its scheduled payment date — almost certainly against an earlier payment\'s bank line (same amount, wrong week). In Xero: unreconcile that statement line and code it the normal way. The stage then goes back to waiting for its own payment; nothing was posted here.'
           : 'The scheduled date has passed and the payment hasn\'t matched. If it isn\'t coming in this shape, remove the stage — Xero goes back to exactly how it was.'}</div>`
         : '';
       body.innerHTML = `

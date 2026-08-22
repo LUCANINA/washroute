@@ -332,6 +332,18 @@ async function callerRole(req: Request) {
 // uses), so the CPA's next "ready to stage" card appears the moment the previous
 // payment clears. DB-only write; Xero staging still requires the human Stage click.
 // One active card per loan is enforced inside the helper.
+//
+// v47 (session 226 close, 2026-08-22): the wrong-line match guard, from a live near
+// miss. Xero's reconcile screen suggested matching the PayPal 2 stage (WR-STAGE 284
+// 2026-08-26) against the 8/20 bank line -- the PREVIOUS week's draft, identical
+// amount. Two defenses: (1) the sweep treats a stage reconciled 2+ days before its
+// scheduled date as 'matched_early_suspect' -- flags it with unmatch-and-recode
+// instructions, never posts it, never creates the next card (UpdatedDateUTC bounds
+// the reconcile time, so this works even when the sweep runs late); (2) the stage
+// preview carries a backlog_warning when earlier scheduled payments from the same
+// schedule have no processed split -- those unreconciled lines are exactly what
+// attracts a wrong suggestion. Steady state (each card created only after the prior
+// match) cannot hit this; the hazard is enabling staging over an unprocessed backlog.
 
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
 const ZERO_TOLERANCE = 0.005 // dollars -- treat anything under half a cent as exactly zero
@@ -341,6 +353,23 @@ const DIRECT_SPLIT_WINDOW_DAYS = 2 // v24 -- David's call, tightened from an ini
 const STAGE_REF_PREFIX = 'WR-STAGE'
 const STAGE_DUP_WINDOW_DAYS = 5   // +/- days around the payment date for "payment already exists" / duplicate checks
 const STAGE_STALE_GRACE_DAYS = 7  // days past the scheduled date before an unmatched stage is flagged stale
+// v47: a match recorded 2+ days BEFORE the scheduled date is treated as suspect.
+// Drafts initiate ON the scheduled date; a statement line can carry the prior
+// day's date, so 1 day early is normal jitter. 2+ days early on a loan whose
+// payments are all the same amount means the stage was almost certainly matched
+// to an EARLIER payment's bank line (caught live on PayPal 2: Xero's reconcile
+// screen suggested matching the 8/26 stage to the 8/20 line -- the 8/19 draft).
+const STAGE_EARLY_MATCH_GRACE_DAYS = 2
+
+// Xero's REST JSON serializes some timestamps as "/Date(1651152000000+0000)/"
+// and others as ISO strings. Accept both; null when unparseable.
+function xeroDateMs(v: any): number | null {
+  if (!v) return null
+  const m = String(v).match(/\/Date\((\d+)/)
+  if (m) return Number(m[1])
+  const t = Date.parse(String(v))
+  return Number.isFinite(t) ? t : null
+}
 
 // Same Pacific-day convention as the dashboard's balance code: a schedule row is
 // "future" relative to today in America/Los_Angeles, not UTC.
@@ -732,6 +761,28 @@ async function handleStageSweep(req: Request): Promise<Response> {
       results.push(row); continue
     }
     if (txn.IsReconciled) {
+      // v47: reconciled BEFORE the scheduled date = probably matched to the WRONG
+      // bank line (see STAGE_EARLY_MATCH_GRACE_DAYS). UpdatedDateUTC bounds the
+      // reconcile time from above: IsReconciled with an update stamp earlier than
+      // the cutoff proves the match happened before the payment was even due.
+      // Flag for a human; NEVER auto-post a suspect match, never create the next
+      // card off it. Self-healing: once the line is unreconciled in Xero and coded
+      // correctly, the next sweep sees an unmatched live stage and clears the flag.
+      const schedDateStr = s.amortization_row?.row_date ? String(s.amortization_row.row_date).slice(0, 10) : null
+      const updatedMs = xeroDateMs(txn.UpdatedDateUTC)
+      const updatedDay = updatedMs != null ? new Date(updatedMs).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) : null
+      if (schedDateStr && updatedDay) {
+        const cut = new Date(schedDateStr + 'T00:00:00Z'); cut.setUTCDate(cut.getUTCDate() - STAGE_EARLY_MATCH_GRACE_DAYS)
+        const earlyCutoff = cut.toISOString().slice(0, 10)
+        if (updatedDay < earlyCutoff) {
+          await supa.from('loan_splits').update({
+            stage_sweep_flag: 'matched_early_suspect', stage_sweep_checked_at: nowIso(),
+          }).eq('id', s.id)
+          row.outcome = 'matched_early_suspect'
+          row.detail = `The staged transaction shows as matched in Xero, but the match was recorded by ${updatedDay} -- before its scheduled payment date (${schedDateStr}). On a loan where every payment is the same amount, that almost certainly means it was matched to an EARLIER payment's bank line. In Xero: unreconcile that statement line and code it the normal way; the staged transaction then goes back to waiting for its own payment. Nothing was posted here and no next period was created.`
+          results.push(row); continue
+        }
+      }
       // The payment arrived and a human clicked Match. This is the whole point.
       await supa.from('loan_splits').update({
         status: 'posted',
@@ -773,7 +824,7 @@ async function handleStageSweep(req: Request): Promise<Response> {
     ok: true,
     checked: staged.length,
     matched: results.filter(x => x.outcome === 'matched').length,
-    flagged: results.filter(x => ['duplicate_suspected', 'stale'].includes(x.outcome)).length,
+    flagged: results.filter(x => ['duplicate_suspected', 'stale', 'matched_early_suspect'].includes(x.outcome)).length,
     results,
   }, null, 2), { headers: { 'Content-Type': 'application/json' } })
 }
@@ -1089,6 +1140,45 @@ async function handleRequest(req: Request): Promise<Response> {
         { AccountCode: loanAcct.xero_account_code, AccountName: stAcctMap[loanAcct.xero_account_code] ?? null, Description: `${loanAcct.xero_account_name} principal`, LineAmount: principal },
         { AccountCode: INTEREST_EXPENSE_ACCOUNT_CODE, AccountName: stAcctMap[INTEREST_EXPENSE_ACCOUNT_CODE] ?? null, Description: 'Interest', LineAmount: interest },
       ]
+
+      // v47: backlog warning. Earlier payments from the same schedule that were never
+      // processed here are the one thing that makes a stage dangerous on a loan with
+      // identical payment amounts: if any of those bank lines is still unreconciled,
+      // Xero's reconcile screen will suggest matching it to THIS staged transaction
+      // (caught live on PayPal 2, 2026-08-21). We can't see Xero's unreconciled queue
+      // through the API, so warn from our own records and let the human decide.
+      let backlogWarning: string | null = null
+      try {
+        const schedId = split.amortization_row?.schedule_id
+        if (schedId) {
+          const { data: priorRows } = await supa
+            .from('loan_amortization_rows')
+            .select('id, row_date')
+            .eq('schedule_id', schedId)
+            .eq('row_type', 'payment')
+            .lt('row_date', rowDate)
+            .lte('row_date', today)
+            .order('row_date', { ascending: false })
+            .limit(12)
+          if (priorRows?.length) {
+            const { data: doneSplits } = await supa
+              .from('loan_splits')
+              .select('amortization_row_id, period_label, status')
+              .eq('loan_account_id', split.loan_account_id)
+              .in('status', ['posted', 'already_in_xero', 'staged'])
+            const done = doneSplits || []
+            const unprocessed = priorRows.filter((r: any) => {
+              const day = String(r.row_date).slice(0, 10)
+              return !done.some((d: any) => d.amortization_row_id === r.id || d.period_label === day || d.period_label === day.slice(0, 7))
+            })
+            if (unprocessed.length) {
+              const dates = unprocessed.map((r: any) => String(r.row_date).slice(0, 10)).reverse().join(', ')
+              backlogWarning = `${unprocessed.length} earlier scheduled payment${unprocessed.length === 1 ? '' : 's'} (${dates}) ${unprocessed.length === 1 ? 'has' : 'have'} no processed split yet. If any of those bank lines is still unreconciled in Xero, the reconcile screen will suggest matching it to this staged transaction -- same amount, wrong week. Match ONLY the line whose date agrees with the staged reference (${stageRef}); code earlier lines the normal way first.`
+            }
+          }
+        }
+      } catch (_) { /* the warning is best-effort; never block staging on it */ }
+
       if (!confirm) {
         return new Response(JSON.stringify({
           dry_run: true,
@@ -1102,6 +1192,7 @@ async function handleRequest(req: Request): Promise<Response> {
             lines: proposedLines,
           },
           split,
+          backlog_warning: backlogWarning,
           note: `This will create a $${totalAmt.toFixed(2)} pre-split transaction in Xero dated ${rowDate}, ready for the CPA to Match (one click) when the real payment lands in the bank feed. Nothing has been written yet.`,
         }, null, 2), { headers: { 'Content-Type': 'application/json' } })
       }
