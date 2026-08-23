@@ -17,7 +17,17 @@ const headers = {
 
 async function dbGet(path: string) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers });
-  return r.json();
+  const body = await r.json();
+  // Session 228: a PostgREST ERROR used to be returned verbatim here. Callers do
+  // `Array.isArray(x) ? x[0] : null`, so an error object became `null`, which the
+  // handler reported to the driver as a clean 404 "Stop not found". That is exactly
+  // how the ambiguous-embed bug below stayed invisible for 7 hours while every
+  // driver's Notify button was dead. Make the failure loud instead of silent.
+  if (!r.ok || (body && !Array.isArray(body) && body.code)) {
+    console.error('dbGet FAILED', path, r.status, JSON.stringify(body));
+    throw new Error(`db query failed (${r.status}): ${body?.message || body?.hint || 'unknown'}`);
+  }
+  return body;
 }
 
 async function dbPatch(table: string, id: string, data: object) {
@@ -153,7 +163,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const stops = await dbGet(
-      `route_stops?id=eq.${encodeURIComponent(stopId)}&select=id,stop_type,order_id,status,route_id,routes(id,driver_id),orders(id,status,customer_id,customers(id,first_name_cache,last_name_cache,phone_cache,sms_notifications_opt_out_at))&limit=1`
+      `route_stops?id=eq.${encodeURIComponent(stopId)}&select=id,stop_type,order_id,status,route_id,driver_id,routes!route_stops_route_id_fkey(id,driver_id,pickup_driver_id,delivery_driver_id),orders(id,status,customer_id,customers(id,first_name_cache,last_name_cache,phone_cache,sms_notifications_opt_out_at))&limit=1`
     );
 
     const stop = Array.isArray(stops) ? stops[0] : null;
@@ -165,8 +175,23 @@ Deno.serve(async (req: Request) => {
       // PostgREST returns the embedded route as an object for a to-one FK,
       // but tolerate an array shape so the check never fails open.
       const rt = Array.isArray(stop.routes) ? stop.routes[0] : stop.routes;
-      const stopDriverId = rt?.driver_id ?? null;
-      if (!stopDriverId || stopDriverId !== auth.driverId) {
+      // Session 228: mirror get_driver_route_stops exactly. The previous check read
+      // ONLY routes.driver_id, which refused three legitimate cases:
+      //   - a stop individually re-assigned to this driver on someone else's route
+      //     (the "Extra Stops" card),
+      //   - a route worked via pickup_driver_id / delivery_driver_id with
+      //     routes.driver_id null (split-driver days),
+      //   - any route whose driver_id is null — `!stopDriverId` refused outright.
+      // A stop's own driver_id is the override; NULL means "inherit the route's driver".
+      const stopOverride = stop.driver_id ?? null;
+      const onMyRoute = rt
+        && (rt.driver_id === auth.driverId
+            || rt.pickup_driver_id === auth.driverId
+            || rt.delivery_driver_id === auth.driverId);
+      const mayNotify = stopOverride
+        ? stopOverride === auth.driverId          // explicitly mine, wherever it sits
+        : !!onMyRoute;                            // inherited: mine if I work this route
+      if (!mayNotify) {
         return new Response(JSON.stringify({ error: 'This stop is not on your route' }), { status: 403, headers: cors });
       }
     }
