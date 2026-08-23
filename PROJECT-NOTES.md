@@ -83,6 +83,15 @@ select=...,routes(id,driver_id),...
 
 ⚠️ **`allCustomers[].addresses` is a cache and goes stale.** Any surface where the user picks an address to COMMIT should read live. Note also that `orders.delivery_address_id = NULL` is meaningful, not missing — it means "same as pickup" — so a `IS NOT NULL` guard on that column is almost always a bug.
 
+**Session 228 part 6 — address autocomplete added to the admin customer panel.** David: "address auto-fill didn't work when adding the new address, even though we have capacity to do so." Correct on both counts. `customer-app` loads Google Maps with `libraries=places` and has had autocomplete for ages; **`admin-dashboard` loaded `libraries=geocoding` only**, so there was no autocomplete service in the admin at all — the field was plain text entry. That is also how Winter Williams' storage-unit ZIP got saved as `9421` instead of `94621`.
+
+One implementation now drives **both** the add form (`cpna-*`) and the per-address edit form (`cpea-*-<id>`), keyed by a `scope` argument (`'new'` or the address id). Picking a suggestion fills street / city / **state** / ZIP and captures the exact `lat`/`lng` Google returned for that place, so the save stores the place's own coordinates instead of re-geocoding a re-typed string. If the street line is edited after picking, the captured coords are **discarded** and the save falls back to `geocodeAddress()` — never store coordinates belonging to a different address (session 130's null/wrong-coord rule). Clearing the add form drops the captured coords too.
+
+Notes for future work here:
+- Escaping uses a local `_wrAddrEsc`, deliberately not the file's `esc` — session 227 found two shadowed `esc` helpers in admin-dashboard that don't escape `<`/`>`, and Google's prediction text is third-party input.
+- The customer-app equivalent (`afSelectSugg`) does **not** populate a state field; the admin form has one, so the admin version reads `administrative_area_level_1` short_name.
+- Still typed by hand elsewhere: the admin intake path (~line 27084) and the batch geocode-fix path (~27392) call `geocodeAddress()` directly with no autocomplete. Worth giving the intake screen the same treatment.
+
 **Lessons banked:**
 
 - **A transport or authorization failure is not a business outcome.** Any catch-all that writes a business outcome from `catch (e)` will eventually record an infrastructure problem as a customer fact. The fix is for the server to say what happened in a machine-readable way, and for exactly one layer to own the write.

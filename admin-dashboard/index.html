@@ -29,7 +29,9 @@
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
   </script>
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
+  <!-- Session 228: +places. The admin loaded geocoding only, so address autofill
+       silently did nothing here while the customer app had it. -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding,places"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { overflow-x: hidden; overflow-y: overlay; }
@@ -1425,6 +1427,19 @@
     .op-status-option:hover { background:var(--gray-50); }
     #op-recur-select { transition: border-color .15s, color .15s; }
     #op-recur-select:focus { outline:none; border-color:var(--accent); }
+    /* Session 228 — address autocomplete dropdown (customer panel add/edit address) */
+    .wr-addr-wrap { position: relative; }
+    .wr-addr-sugg {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 60;
+      background: #fff; border: 1px solid var(--gray-200); border-top: none;
+      border-radius: 0 0 8px 8px; box-shadow: 0 6px 18px rgba(0,0,0,.10);
+      max-height: 232px; overflow-y: auto; display: none;
+    }
+    .wr-addr-sugg-item { padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--gray-50); }
+    .wr-addr-sugg-item:last-child { border-bottom: none; }
+    .wr-addr-sugg-item:hover { background: var(--gray-50); }
+    .wr-addr-sugg-main { font-size: 13px; font-weight: 600; color: var(--gray-800); }
+    .wr-addr-sugg-sub  { font-size: 11.5px; color: var(--gray-400); margin-top: 1px; }
   </style>
 </head>
 <body>
@@ -5682,7 +5697,7 @@
     <div id="cp-add-addr-form" style="display:none;background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:12px;padding:14px 16px;margin-bottom:12px">
       <div class="cp-subhead">New Address</div>
       <div class="cp-field"><input class="cp-input" id="cpna-label" placeholder="Label (e.g. Home, Work)"></div>
-      <div class="cp-field"><input class="cp-input" id="cpna-line1" placeholder="Street address"></div>
+      <div class="cp-field wr-addr-wrap"><input class="cp-input" id="cpna-line1" placeholder="Start typing a street address…" autocomplete="off" oninput="wrAddrInput('new')" onblur="wrAddrHide('new')"><div class="wr-addr-sugg" id="cpna-suggestions"></div></div>
       <div class="cp-field"><input class="cp-input" id="cpna-line2" placeholder="Apt / Unit (optional)"></div>
       <div style="display:grid;grid-template-columns:1fr 70px 80px;gap:8px" class="cp-field">
         <input class="cp-input" id="cpna-city" placeholder="City">
@@ -27799,7 +27814,7 @@ ${oneCopy}
     card.innerHTML = `
       <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;letter-spacing:0">Edit Address</div>
       <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-label-${id}" value="${esc(a.label||'')}" placeholder="Label (e.g. Home, Work)"></div>
-      <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-line1-${id}" value="${esc(a.line1||'')}" placeholder="Street address"></div>
+      <div class="cp-field wr-addr-wrap" style="margin-bottom:8px"><input class="cp-input" id="cpea-line1-${id}" value="${esc(a.line1||'')}" placeholder="Start typing a street address…" autocomplete="off" oninput="wrAddrInput('${id}')" onblur="wrAddrHide('${id}')"><div class="wr-addr-sugg" id="cpea-suggestions-${id}"></div></div>
       <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-line2-${id}" value="${esc(a.line2||'')}" placeholder="Apt / Unit (optional)"></div>
       <div style="display:grid;grid-template-columns:1fr 70px 80px;gap:8px;margin-bottom:8px">
         <input class="cp-input" id="cpea-city-${id}" value="${esc(a.city||'')}" placeholder="City">
@@ -27836,7 +27851,7 @@ ${oneCopy}
     };
     if (!patch.line1) { showToast('Street address is required', 'error'); return; }
     // Geocode the updated address
-    const geo = await geocodeAddress(patch.line1, patch.city, patch.state, patch.zip);
+    const geo = await _wrAddrResolveGeo(id, patch.line1, patch.city, patch.state, patch.zip);
     if (geo) { patch.lat = geo.lat; patch.lng = geo.lng; }
     // If setting as default, clear default on others first
     if (patch.is_default) await db.from('addresses').update({ is_default: false }).eq('customer_id', panelCustomerId);
@@ -27890,7 +27905,136 @@ ${oneCopy}
     const form = document.getElementById('cp-add-addr-form');
     const showing = form.style.display !== 'none';
     form.style.display = showing ? 'none' : 'block';
-    if (!showing) ['cpna-label','cpna-line1','cpna-line2','cpna-city','cpna-state','cpna-zip','cpna-instructions'].forEach(id=>{ document.getElementById(id).value=''; });
+    if (!showing) { ['cpna-label','cpna-line1','cpna-line2','cpna-city','cpna-state','cpna-zip','cpna-instructions'].forEach(id=>{ document.getElementById(id).value=''; }); delete _wrAddrGeo['new']; }
+  }
+
+
+  /* ══ ADDRESS AUTOCOMPLETE (session 228) ═══════════════════════════════════
+     David: "address auto-fill didn't work when adding the new address, even
+     though we have capacity to do so." Correct — the customer app loads the
+     Google Places library, the admin loaded only `geocoding`, so there was no
+     autocomplete service here at all. Hand-typing is also how Winter Williams'
+     storage-unit ZIP was saved as "9421" instead of 94621.
+
+     One implementation drives BOTH the add form and the per-address edit form.
+     scope === 'new' -> the add form's cpna-* ids; anything else is an address
+     id -> the edit form's cpea-*-<id> ids.
+
+     Picking a suggestion fills street/city/state/ZIP AND captures the exact
+     coordinates Google returned, so we store the place's own lat/lng rather
+     than re-geocoding a re-typed string. If the street line is edited after
+     picking, the captured coords are discarded and save falls back to
+     geocodeAddress() — never save coordinates that belong to a different
+     address (the session-130 null//wrong-coord rule). */
+  const _wrAddrGeo   = {};   // scope -> { lat, lng, line1 }
+  const _wrAddrSugg  = {};   // scope -> last predictions array
+  const _wrAddrTimer = {};   // scope -> debounce handle
+  let   _wrAcService = null;
+
+  function _wrAddrIds(scope) {
+    return scope === 'new'
+      ? { line1: 'cpna-line1', city: 'cpna-city', state: 'cpna-state', zip: 'cpna-zip', box: 'cpna-suggestions' }
+      : { line1: `cpea-line1-${scope}`, city: `cpea-city-${scope}`, state: `cpea-state-${scope}`,
+          zip: `cpea-zip-${scope}`, box: `cpea-suggestions-${scope}` };
+  }
+  // Local escaper on purpose: session 227 found two shadowed `esc` helpers in this
+  // file that don't escape < or >. Google's text is third-party — escape it here.
+  function _wrAddrEsc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function wrAddrHide(scope) {
+    // Delay so a click on a suggestion registers before blur tears it down.
+    setTimeout(() => {
+      const box = document.getElementById(_wrAddrIds(scope).box);
+      if (box) box.style.display = 'none';
+    }, 150);
+  }
+
+  function wrAddrInput(scope) {
+    const ids = _wrAddrIds(scope);
+    const q = document.getElementById(ids.line1)?.value.trim() || '';
+    clearTimeout(_wrAddrTimer[scope]);
+    // Typing after a pick invalidates the captured coords.
+    if (_wrAddrGeo[scope] && q !== _wrAddrGeo[scope].line1) delete _wrAddrGeo[scope];
+    const box = document.getElementById(ids.box);
+    if (q.length < 4) { if (box) box.style.display = 'none'; return; }
+    _wrAddrTimer[scope] = setTimeout(() => _wrAddrFetch(scope, q), 380);
+  }
+
+  function _wrAddrFetch(scope, q) {
+    try {
+      if (!_wrAcService) {
+        if (!window.google?.maps?.places?.AutocompleteService) return; // library not up yet
+        _wrAcService = new google.maps.places.AutocompleteService();
+      }
+    } catch (e) { console.warn('[addr] Places unavailable:', e.message); return; }
+
+    _wrAcService.getPlacePredictions(
+      { input: q, componentRestrictions: { country: 'us' }, types: ['address'] },
+      (predictions, status) => {
+        const box = document.getElementById(_wrAddrIds(scope).box);
+        if (!box) return;
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions?.length) {
+          box.style.display = 'none'; return;
+        }
+        _wrAddrSugg[scope] = predictions;
+        box.innerHTML = predictions.map((p, i) => {
+          const main = p.structured_formatting?.main_text || p.description.split(',')[0];
+          const sub  = p.structured_formatting?.secondary_text || '';
+          return `<div class="wr-addr-sugg-item" onmousedown="event.preventDefault()" onclick="wrAddrPick('${scope}',${i})">
+                    <div class="wr-addr-sugg-main">${_wrAddrEsc(main)}</div>
+                    ${sub ? `<div class="wr-addr-sugg-sub">${_wrAddrEsc(sub)}</div>` : ''}
+                  </div>`;
+        }).join('');
+        box.style.display = '';
+      }
+    );
+  }
+
+  function wrAddrPick(scope, idx) {
+    const ids = _wrAddrIds(scope);
+    const prediction = (_wrAddrSugg[scope] || [])[idx];
+    const box = document.getElementById(ids.box);
+    if (box) box.style.display = 'none';
+    if (!prediction) return;
+
+    new google.maps.Geocoder().geocode({ placeId: prediction.place_id }, (results, status) => {
+      if (status !== 'OK' || !results?.[0]) {
+        showToast('Could not resolve that address — fill it in manually', 'error');
+        return;
+      }
+      const r    = results[0];
+      const comp = r.address_components || [];
+      const get  = (t) => comp.find(c => c.types.includes(t))?.long_name  || '';
+      const getS = (t) => comp.find(c => c.types.includes(t))?.short_name || '';
+
+      const line1 = [get('street_number'), get('route')].filter(Boolean).join(' ')
+                    || prediction.description.split(',')[0].trim();
+      const city  = get('locality') || get('sublocality_level_1') || get('administrative_area_level_2') || '';
+      const state = getS('administrative_area_level_1') || '';
+      const zip   = get('postal_code') || '';
+
+      const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+      set(ids.line1, line1); set(ids.city, city); set(ids.state, state); set(ids.zip, zip);
+
+      _wrAddrGeo[scope] = { lat: r.geometry.location.lat(), lng: r.geometry.location.lng(), line1 };
+
+      const el = document.getElementById(ids.line1);
+      if (el) { el.style.borderColor = 'var(--green)'; setTimeout(() => { el.style.borderColor = ''; }, 1600); }
+    });
+  }
+
+  // Coordinates for a save: prefer the picked place's own coords, but only while
+  // the street line still matches what was picked. Otherwise geocode the text.
+  async function _wrAddrResolveGeo(scope, line1, city, state, zip) {
+    const cached = _wrAddrGeo[scope];
+    if (cached && cached.line1 === line1 && cached.lat && cached.lng) {
+      return { lat: cached.lat, lng: cached.lng };
+    }
+    return await geocodeAddress(line1, city, state, zip);
   }
 
   async function saveNewAddress() {
@@ -27899,7 +28043,7 @@ ${oneCopy}
     const city  = document.getElementById('cpna-city').value.trim();
     const state = document.getElementById('cpna-state').value.trim();
     const zip   = document.getElementById('cpna-zip').value.trim();
-    const geo   = await geocodeAddress(line1, city, state, zip);
+    const geo   = await _wrAddrResolveGeo('new', line1, city, state, zip);
     // Block silent null-coord inserts. If the geocoder can't resolve the address,
     // let the user decide whether to save anyway (rare — e.g. new construction
     // not yet on Google) so this doesn't become a quiet "invisible on map" bug.
