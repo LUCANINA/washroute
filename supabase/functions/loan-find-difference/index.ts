@@ -138,6 +138,11 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // say the combined barely moves while naming which loans rise toward the gaps
 // they were hiding and which come down; and the "deceptively small" framing
 // only appears when the net really is small against the gross after-picture.
+//
+// v15 (same night): David — "Almost there. Abbreviate by 30%", now a standing
+// project guideline: keep words at a minimum. Every lender-card template
+// trimmed ~30% — same numbers, same structure, fewer words. Outcome lines are
+// now "$X off → tied" instead of "goes from $X off to tied".
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -1019,7 +1024,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     const uncovers = changed && Math.abs(after) > Math.abs(before) + TOL
     const dirW = after > 0 ? 'above' : 'below'
     let base: string
-    if (!changed) base = 'unchanged by these steps'
+    if (!changed) base = 'unchanged'
     else if (Math.abs(after) < TOL) base = 'should tie'
     else if (uncovers) base = `should RISE to ~${money(after)} ${dirW} the lender`
     else base = `should come down to ~${money(after)} ${dirW} the lender`
@@ -1027,7 +1032,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       loan_account_id: b.loan.id, loan: b.loan.xero_account_name,
       before, after_expected: after, changed, uncovers,
       residual: b.aw.residual, win_from: b.aw.win_from, truncated_before: b.truncated ?? null,
-      label: uncovers ? `${base} — the removed entries were masking an older gap, see the note` : base,
+      label: uncovers ? `${base} — was masking an older gap` : base,
       label_base: base,
     })
   }
@@ -1049,22 +1054,22 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     const what = m.src_type === 'ManualJournal' ? 'journal' : 'payment'
     const stateAfter = (d: any) => Math.abs(d.after) < TOL ? 'tied' : `${money(d.after)} off`
     const outcomes = [
-      m.ev.dFrom ? `${fromName}'s ${spanShort(m.ev.dFrom)} span goes from ${money(m.ev.dFrom.before)} off to ${stateAfter(m.ev.dFrom)}` : null,
-      m.ev.dTo ? `${toName}'s ${spanShort(m.ev.dTo)} span goes from ${money(m.ev.dTo.before)} off to ${stateAfter(m.ev.dTo)}` : null,
+      m.ev.dFrom ? `${fromName} ${spanShort(m.ev.dFrom)}: ${money(m.ev.dFrom.before)} off → ${stateAfter(m.ev.dFrom)}` : null,
+      m.ev.dTo ? `${toName} ${spanShort(m.ev.dTo)}: ${money(m.ev.dTo.before)} off → ${stateAfter(m.ev.dTo)}` : null,
     ].filter(Boolean).join('; ')
     const fromExp = m.from?.bundle ? expected.find((e: any) => e.loan_account_id === m.from.bundle.loan.id) : null
-    const riseNote = fromExp?.uncovers ? ` Heads-up: ${fromName}'s headline number will RISE when this moves — that's an older gap surfacing, not new damage (see the note above the fix list).` : ''
+    const riseNote = fromExp?.uncovers ? ` ${fromName}'s headline will RISE — an older gap surfacing, not new damage.` : ''
     let why: string
     if (m.kind === 'cpa_review') {
-      why = `The ${money(m.amount)} ${what} on ${m.date} looks misallocated (${fromName} → ${toName || 'another loan'}), but it was already worked by your bookkeeper — per your rule, she decides, nothing is changed for her.`
+      why = `The ${money(m.amount)} ${what} on ${m.date} looks misallocated (${fromName} → ${toName || 'another loan'}), but your bookkeeper already worked it — per your rule, she decides.`
     } else if (m.kind === 'investigate') {
       const known = m.ev.dFrom && m.from?.bundle ? m.from.bundle.matchKnown(m.ev.dFrom.after) : null
-      why = `The ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} is coded to ${fromName}, but ${fromName}'s own lender statements don't account for it — it belongs to a different loan. Check the bank line's payee / lender account number to find which one, then recode it there. After the move: ${outcomes}${known ? ` (the remainder equals ${known.what} — a separate, older item)` : ''}.${riseNote}`
+      why = `The ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} is coded to ${fromName}, but its lender statements never saw it — it belongs to another loan. Check the bank line's payee / lender account number, then recode. After: ${outcomes}${known ? ` (remainder equals ${known.what} — an older item)` : ''}.${riseNote}`
     } else {
-      why = `In Xero, recode the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} from ${fromName} to ${toName}.${(m.ev.alternates || []).length ? ` It could equally belong to ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')} — the numbers fit both, so check which loan's own statement shows this payment before moving it.` : ''} After the move: ${outcomes}.${riseNote}`
+      why = `In Xero, recode the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} from ${fromName} to ${toName}.${(m.ev.alternates || []).length ? ` Could equally belong to ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')} — check which loan's statement shows it first.` : ''} After: ${outcomes}.${riseNote}`
     }
     if (m.xl) {
-      why = `The numbers close both loans' spans exactly: the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} belongs to ${toName}, not ${fromName}. Approve below to post a reallocation journal (${m.xl.from.code} → ${m.xl.to.code}; the original bank line stays untouched) — OR have your bookkeeper recode the bank line instead. Do exactly ONE of the two. After it: ${outcomes}.${riseNote}`
+      why = `Closes both loans' spans exactly: the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} belongs to ${toName}, not ${fromName}. Approve below to post a reallocation journal (${m.xl.from.code} → ${m.xl.to.code}) — OR have your bookkeeper recode the bank line. Do exactly ONE. After: ${outcomes}.${riseNote}`
     }
     roadmap.push({
       step: n++, kind: m.xl ? 'approve_reallocation' : m.kind,
@@ -1087,7 +1092,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       move_from: { loan: fromName, account_code: m.from?.bundle ? m.from.bundle.code : (m.from?.account_code ?? null) },
       move_to: { loan: toName, account_code: m.ev.toBundle ? m.ev.toBundle.code : null },
       confidence: 'worth checking',
-      why: `Worth a look, not a confident call: the ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} on ${m.date} (coded to ${fromName}) sits inside a still-unexplained span on ${toName} — same lender, so one wrong click is plausible. Confirm against the lender's own statement before moving anything.`,
+      why: `Worth a look, not a confident call: the ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} on ${m.date} (coded to ${fromName}) sits inside an unexplained span on ${toName} — same lender. Confirm against the lender's statement before moving.`,
     })
   }
   for (const b of approvals) {
@@ -1123,24 +1128,24 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     if (e.truncated_before) {
       roadmap.push({
         step: n++, kind: 'cpa_review', loan: e.loan,
-        why: `${e.loan}: ~${money(e.residual)} of its gap sits before the walk window (${e.win_from}) — its history IS on file earlier; the walk covers the most recent 18 months per pass. Nothing to upload; this remainder needs a deeper multi-window pass when we get to it.`,
+        why: `${e.loan}: ~${money(e.residual)} sits before the walk window (${e.win_from}); history is on file — nothing to upload, needs a deeper pass later.`,
       })
       continue
     }
     roadmap.push({
       step: n++, kind: 'upload_history', loan_account_id: e.loan_account_id, loan: e.loan,
-      why: `Ask the lender for ${e.loan}'s full payment/transaction history (a CSV or PDF from the portal) and upload it to the loan. ~${money(e.residual)} of its gap predates the earliest statement on file (${e.win_from}) — the history fills that blind spot, and on the next run the engine walks payment by payment and names exactly what's missing or misplaced.`,
+      why: `Ask the lender for ${e.loan}'s full payment/transaction history and upload it to the loan. ~${money(e.residual)} of its gap predates the earliest statement on file (${e.win_from}) — the next run then names exactly what's missing or misplaced.`,
     })
   }
   const changedExp = expected.filter((e: any) => e.changed)
   const unchangedExp = expected.filter((e: any) => !e.changed)
   const expectedLine = [
     ...changedExp.map((e: any) => `${e.loan} ${e.label_base}`),
-    unchangedExp.length ? `${unchangedExp.map((e: any) => e.loan).join(' and ')} unchanged by these steps` : null,
+    unchangedExp.length ? `${unchangedExp.map((e: any) => e.loan).join(' and ')} unchanged` : null,
   ].filter(Boolean).join('; ')
   roadmap.push({
     step: n++, kind: 'rerun',
-    why: `After the steps above, run ONE reconciliation check in WashRoute. Expected: ${expectedLine}.${deferredApprovals.length ? ` ${deferredApprovals.map((b: any) => b.loan.xero_account_name).join(', ')} may then offer a prepared interest correction — approve it from the card.` : ''}`,
+    why: `Then run ONE reconciliation check in WashRoute. Expected: ${expectedLine}.${deferredApprovals.length ? ` ${deferredApprovals.map((b: any) => b.loan.xero_account_name).join(', ')} may then offer a prepared interest correction to approve.` : ''}`,
   })
 
   // 7. Conclusions — ≤5 bullets, and HONEST about direction (v11). Never claim
@@ -1167,9 +1172,9 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     const downers = expected.filter((e: any) => e.changed && !e.uncovers && Math.abs(e.after_expected) < Math.abs(e.before) - TOL)
     const deceptive = Math.abs(combinedBefore) + TOL < grossAfter / 2
     if (Math.abs(combinedAfter) > Math.abs(combinedBefore) + TOL) {
-      verdict += `${deceptive ? ` Don't let that number reassure you — on ${riseNames} it's larger errors canceling each other out.` : ''} Expect the combined number to RISE to ~${money(combinedAfter)} as the wrong entries come off — the next bullet says why that's progress.`
+      verdict += `${deceptive ? ` That small number hides larger canceling errors on ${riseNames}.` : ''} Expect the combined to RISE to ~${money(combinedAfter)} as wrong entries come off — progress, not damage.`
     } else {
-      verdict += ` The fixes below mostly move money BETWEEN these loans, so the combined number barely moves — but ${riseNames} ${uncoverers.length === 1 ? 'rises' : 'rise'} toward the real gap${uncoverers.length === 1 ? ' it was' : 's they were'} hiding${downers.length ? ` while ${nameFew(downers.map((e: any) => e.loan))} ${downers.length === 1 ? 'comes' : 'come'} down` : ''}. The next bullet says why that's progress.`
+      verdict += ` The fixes mostly move money BETWEEN loans, so the combined barely moves — ${riseNames} ${uncoverers.length === 1 ? 'rises' : 'rise'} toward the hidden gap${uncoverers.length === 1 ? '' : 's'}${downers.length ? ` while ${nameFew(downers.map((e: any) => e.loan))} ${downers.length === 1 ? 'comes' : 'come'} down` : ''}.`
     }
   }
   else verdict += ` The steps below explain ${money(r2(Math.abs(combinedBefore) - Math.abs(combinedAfter)))}; ~${money(combinedAfter)} remains (per-loan details below).`
@@ -1177,9 +1182,9 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   for (const e of uncoverers.slice(0, 1)) {
     const inWin = r2(e.after_expected - (e.residual ?? 0))
     const parts: string[] = []
-    if (e.residual != null && Math.abs(e.residual) >= TOL) parts.push(e.truncated_before ? `~${money(e.residual)} sits before the 18-month walk window (${e.win_from}) — history is on file earlier, a deeper pass chases it` : `~${money(e.residual)} of the lender's movement predates its earliest statement on file (${e.win_from}) and was never matched in Xero`)
-    if (Math.abs(inWin) >= TOL) parts.push(`~${money(inWin)} of in-window entries still don't line up (its span table below)`)
-    conclusions.push(`${e.loan}'s ${money(e.before)} is deceptively small — bigger errors cancel out inside it: ${parts.join(', and ')}. Removing entries that don't belong makes its number rise toward the real gap — that's the books getting more honest, not worse. ${(e.residual != null && Math.abs(e.residual) >= TOL && !e.truncated_before) ? `The lender's full payment history (roadmap step below) is what brings it down.` : `The fix list and its span table below are where the rest gets chased down.`}`)
+    if (e.residual != null && Math.abs(e.residual) >= TOL) parts.push(e.truncated_before ? `~${money(e.residual)} sits before the walk window (${e.win_from}) — a deeper pass chases it` : `~${money(e.residual)} predates its earliest statement on file (${e.win_from})`)
+    if (Math.abs(inWin) >= TOL) parts.push(`~${money(inWin)} of in-window entries don't line up`)
+    conclusions.push(`${e.loan}'s ${money(e.before)} is deceptively small — bigger errors cancel inside it: ${parts.join(', and ')}. Removing wrong entries makes it rise toward the real gap — more honest, not worse.`)
   }
   for (const m of actionable.slice(0, uncoverers.length ? 1 : 2)) {
     const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || `account ${m.from?.account_code ?? '?'}`)
@@ -1187,14 +1192,14 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     if (m.kind === 'investigate') {
       conclusions.push(`The ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${m.date}) on ${fromName} doesn't belong there — the lender never saw it. Find its real loan (check the payee) and recode it.`)
     } else {
-      conclusions.push(`The ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${m.date}) on ${fromName} belongs to ${(m.ev.alternates || []).length ? `either ${toName} or ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')}` : toName}${m.ev.closesBoth ? ' — moving it closes a span on BOTH loans (confirmed both sides)' : m.ev.twoSided ? ' — moving it shrinks both loans’ gaps' : ''}.`)
+      conclusions.push(`The ${money(m.amount)} ${m.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${m.date}) on ${fromName} belongs to ${(m.ev.alternates || []).length ? `either ${toName} or ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')}` : toName}${m.ev.closesBoth ? ' — moving it closes a span on BOTH loans' : m.ev.twoSided ? ' — moving it shrinks both loans’ gaps' : ''}.`)
     }
   }
   if (ruledOut.length) {
-    conclusions.push(`Ruled out: ${ruledOut.map((r: any) => `the ${money(r.amount)} ${r.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${r.date}) on ${r.from}`).join(', ')} — earlier per-loan analyses suspected ${ruledOut.length === 1 ? 'it' : 'these'}, but the cross-loan math says moving ${ruledOut.length === 1 ? 'it' : 'them'} would make things worse, not better. Leave ${ruledOut.length === 1 ? 'it' : 'them'} where ${ruledOut.length === 1 ? 'it is' : 'they are'}.`)
+    conclusions.push(`Ruled out — leave in place: ${ruledOut.map((r: any) => `the ${money(r.amount)} ${r.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${r.date}) on ${r.from}`).join(', ')}; moving ${ruledOut.length === 1 ? 'it' : 'them'} makes things worse.`)
   }
   const pairSpans = walkable.reduce((s: number, b: any) => s + b.aw.periods.filter((p: any) => p.timing_pair).length, 0)
-  if (pairSpans) conclusions.push(`${pairSpans} flagged span${pairSpans === 1 ? ' is' : 's are'} timing, not errors — payments dated just after a statement cutoff. They cancel out; nothing to fix.`)
+  if (pairSpans) conclusions.push(`${pairSpans} flagged span${pairSpans === 1 ? ' is' : 's are'} timing, not errors — payments dated just after a cutoff. They cancel; nothing to fix.`)
   if (conclusions.length === 1 && Math.abs(combinedAfter) < TOL) conclusions.push(`After the roadmap and one re-run, every ${lenderName} loan should tie with the lender.`)
   const finalConclusions = conclusions.slice(0, 5)
 
@@ -1205,8 +1210,8 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   const hand: string[] = []
   hand.push(`${lenderName} — loan cleanup checklist (${today})`)
   hand.push(`Xero vs lender, combined: ${money(combinedBefore)} ${combinedBefore >= 0 ? 'above' : 'below'} across ${walkable.length} loans.`)
-  if (uncoverers.length) hand.push(`NOTE: expect ${uncoverers.map((e: any) => e.loan).join(' and ')} to RISE after these fixes — wrong entries were masking an older gap. That's the real number surfacing, not new damage.`)
-  if (ruledOut.length) hand.push(`DO NOT MOVE: ${ruledOut.map((r: any) => `${money(r.amount)} ${r.src_type === 'ManualJournal' ? 'journal' : 'payment'} ${r.date} on ${r.from}`).join('; ')} — checked and ruled out (moving them makes things worse).`)
+  if (uncoverers.length) hand.push(`NOTE: expect ${uncoverers.map((e: any) => e.loan).join(' and ')} to RISE after these fixes — an older gap surfacing, not new damage.`)
+  if (ruledOut.length) hand.push(`DO NOT MOVE: ${ruledOut.map((r: any) => `${money(r.amount)} ${r.src_type === 'ManualJournal' ? 'journal' : 'payment'} ${r.date} on ${r.from}`).join('; ')} — ruled out; moving them makes things worse.`)
   hand.push('')
   for (const s of roadmap) {
     if (s.kind === 'recode' || s.kind === 'check') {
@@ -1215,9 +1220,9 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       if (s.kind === 'check') hand.push(`   (not a confident call — confirm against the lender's statement first)`)
     } else if (s.kind === 'investigate') {
       hand.push(`${s.step}. FIND WHERE IT BELONGS — ${money(s.entry.amount)} ${s.entry.type === 'ManualJournal' ? 'manual journal' : 'payment'} dated ${s.entry.date}${s.entry.contact ? ` (${s.entry.contact})` : ''}${s.entry.ref ? `, ref ${s.entry.ref}` : ''}`)
-      hand.push(`   currently on: ${s.move_from.account_code ? `${s.move_from.account_code} ` : ''}${s.move_from.loan} — the lender never saw it there. Check the bank line's payee / lender account number and recode it to the right loan.`)
+      hand.push(`   currently on: ${s.move_from.account_code ? `${s.move_from.account_code} ` : ''}${s.move_from.loan} — the lender never saw it. Check the payee / lender account number, recode to the right loan.`)
     } else if (s.kind === 'upload_history') {
-      hand.push(`${s.step}. GET THE LENDER'S HISTORY — download ${s.loan}'s full payment/transaction history from the lender portal (CSV or PDF) and upload it in WashRoute. One file per loan; the engine then matches payment by payment.`)
+      hand.push(`${s.step}. GET THE LENDER'S HISTORY — download ${s.loan}'s full payment/transaction history from the lender portal and upload it in WashRoute.`)
     } else if (s.kind === 'approve_reallocation') {
       hand.push(`${s.step}. DAVID APPROVES IN WASHROUTE — reallocation journal ${money(s.amount)}: ${s.move_from.account_code} ${s.move_from.loan} → ${s.move_to.account_code} ${s.move_to.loan}`)
       hand.push(`   (or recode the ${s.entry.date} bank line yourself — do exactly ONE of the two, never both)`)

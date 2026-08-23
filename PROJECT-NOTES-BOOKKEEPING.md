@@ -86,6 +86,8 @@ session — see the session log below for why).
 
 **Page background contrast — ONE step, not nested (session 219, Xero-inspired; corrected same session).** `#page-bookkeeping` gets its own light grey background (`var(--gray-100)`, via a negative-margin bleed to the `.content` edges) instead of inheriting the shell's near-white `body { background: var(--gray-50) }`, so a white `.card`'s edge actually reads instead of nearly disappearing. **First attempt used `var(--gray-200)` (darker), a stronger card shadow, AND re-ran the same white-card-on-grey trick a level down — a grey wrapper behind individually-boxed white list items inside the already-white, already-elevated card.** David's own screenshot called it what it was: boxes within boxes within boxes. Corrected to exactly one contrast step, page vs. card — nothing inside a card gets its own background/border/shadow to "float" again. Content inside a card is separated by spacing and a hairline `border-bottom` divider (`var(--gray-100)`), not by nesting another nearly-identical elevated surface. Before adding a background/border/shadow to anything, ask whether it's already inside something that has one — if so, use spacing and dividers instead. Scoped to Bookkeeping only, on purpose — this was a request about this module, not a redesign of the whole app.
 
+**Keep words at a minimum (session 229, David's standing guideline — verbatim: "keep words at a minimum").** Applies to ALL user-facing copy this module generates: card text, roadmap steps, conclusions, handoff checklists, notes, warnings. Say the number, the action, and the consequence — then stop. No restating what an adjacent line already says, no "the next bullet explains why", no narrating mechanics. When a template grows, trim it before shipping (v8 was a 50% cut on the per-loan bullets; v15 a ~30% cut across the lender card). Structure survives trims; filler doesn't. This extends the session-219 card-subtitle rule and the Xero Narration rule from copy ABOUT the books to copy IN them and around them.
+
 **Card subtitle copy (session 219).** Card-sub text under a title should guide an action or flag a real consequence, not restate what the title/structure already say or narrate read-only mechanics ("One row per uploaded pay period.", "The latest statement and payroll period on file."). Cut those. Keep subtitle text that: disambiguates between two similarly-named sections so nobody wonders which one they're in (e.g. "Ready to Post" vs "Needs Attention"), explains a non-obvious interaction affordance (e.g. "click the pencil to edit"), or carries a real number/warning someone needs before an irreversible action (the one-time correction cards' dollar figures, the Department Bucket Rules typo warning). When in doubt: would removing this sentence change what the user does next? If no, remove it.
 
 ---
@@ -1202,6 +1204,16 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 229 cont. 6 (2026-08-23) — "Abbreviate by 30%": the v15 copy trim, and a new standing guideline
+
+**David, on the v14 live card: "Almost there. Abbreviate by 30%" — and separately: "add guideline to project: keep words at a minimum" (now a standing Design convention above).** v15 is a pure copy pass on `loan-find-difference`'s lender-analysis templates: same math, same numbers, same structure, ~30% fewer words. 27 exact-string replacements applied by an assert-guarded Python script (each old string must occur exactly once), never retyped by hand.
+
+**What changed, representative:** outcome lines are now `"X 2026-04-01 → 2026-05-01: $7,554.72 off → $132.81 off"` instead of `"X's ... span goes from $7,554.72 off to $132.81 off"`; "unchanged by these steps" → "unchanged"; every "The next bullet says why that's progress" dropped; riseNote → "X's headline will RISE — an older gap surfacing, not new damage."; masking bullet loses its trailing pep-talk sentence; ruled-out bullet → "Ruled out — leave in place: … ; moving it makes things worse."; upload/handoff/check/cpa lines all tightened. QA-anchored phrases deliberately preserved: "deceptively small", "predates its earliest statement on file (", "full payment/transaction history", "NOTE: expect … to RISE", "GET THE LENDER'S HISTORY", "exactly ONE", "barely moves", "masking", "Ruled out", "DO NOT MOVE".
+
+**QA:** two regexes updated for the new phrasing (T10 outcome format `\$500\.00 off → tied`; T11 rerun grouping `Ford MaskB unchanged`), then the full suite: **90 passed, 0 failed.** Deployed v15 (project umjpbuxrdydwejqtensq), fetched back and byte-verified first pass — md5 `9e0c9c6c0fa4e53dd733965e8b6ad656` (97,443 bytes), `_shared/xero-auth.ts` round-tripped identically (md5 `08f0b02b…`). Server-only change; `admin-dashboard/index.html` untouched.
+
+**Where to pick up:** unchanged from cont. 5 — David: git push (client work from cont. 3/4 still unpushed), then Ramona executes the 242→238 recode + the $281.79 interest re-split, one re-run. The card wording she'll see is now the v15 short form.
 
 ### Session 229 cont. 5 (2026-08-23) — THE DENSE-ANCHOR SHAKEDOWN: lag grace (fdiff v13)
 
