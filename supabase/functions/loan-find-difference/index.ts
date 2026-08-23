@@ -127,6 +127,17 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // fixed: upload_history steps fired for histories already on file (gate is
 // now genuine-missing-data only, never window truncation, never $0), and
 // ruled_out named loans' own scheduled payments (suppressed as noise).
+//
+// v14 (same night, David's catch): the verdict said "Expect the numbers to
+// RISE (to ~$9,668.09 combined)" when the combined figure ALREADY WAS
+// $9,668.09 — because moves BETWEEN flagged loans can't change the combined
+// total at all (one rises, one falls, the sum is invariant), and the template
+// assumed any per-loan rise meant a combined rise. It also called $9,668 "the
+// small number" unconditionally. The verdict now distinguishes: combined
+// actually rising (one-sided moves) keeps the RISE copy; internal-only moves
+// say the combined barely moves while naming which loans rise toward the gaps
+// they were hiding and which come down; and the "deceptively small" framing
+// only appears when the net really is small against the gross after-picture.
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -1142,10 +1153,25 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   const uncoverers = expected.filter((e: any) => e.uncovers)
   const actionable = assigned.filter((m: any) => m.kind === 'recode' || m.kind === 'investigate')
   const conclusions: string[] = []
+  const grossAfter = r2(expected.reduce((s: number, e: any) => s + Math.abs(Number(e.after_expected) || 0), 0))
+  const nameFew = (names: string[]) => names.length <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
   let verdict = `Across ${walkable.length} ${lenderName} loans, Xero is a combined ${money(combinedBefore)} ${combinedBefore >= 0 ? 'above' : 'below'} the lender.`
   if (!actionable.length && !approvals.length) verdict += ` No cross-loan move survives the math — see the steps and per-loan sections below.`
   else if (Math.abs(combinedAfter) < TOL) verdict += ` The steps below close it — the money is all in the books, just in the wrong buckets.`
-  else if (uncoverers.length) verdict += ` Don't let the small number reassure you: on ${uncoverers.map((e: any) => e.loan).join(' and ')} it's larger errors canceling each other out. Expect the numbers to RISE (to ~${money(combinedAfter)} combined) as the wrong entries come off — the next bullet says why that's progress.`
+  else if (uncoverers.length) {
+    // v14: an internal move between flagged loans can't change the combined
+    // total (one rises, one falls) — never promise a combined RISE the
+    // arithmetic doesn't deliver, and only call the net "deceptively small"
+    // when it actually is small against the gross after-picture.
+    const riseNames = nameFew(uncoverers.map((e: any) => e.loan))
+    const downers = expected.filter((e: any) => e.changed && !e.uncovers && Math.abs(e.after_expected) < Math.abs(e.before) - TOL)
+    const deceptive = Math.abs(combinedBefore) + TOL < grossAfter / 2
+    if (Math.abs(combinedAfter) > Math.abs(combinedBefore) + TOL) {
+      verdict += `${deceptive ? ` Don't let that number reassure you — on ${riseNames} it's larger errors canceling each other out.` : ''} Expect the combined number to RISE to ~${money(combinedAfter)} as the wrong entries come off — the next bullet says why that's progress.`
+    } else {
+      verdict += ` The fixes below mostly move money BETWEEN these loans, so the combined number barely moves — but ${riseNames} ${uncoverers.length === 1 ? 'rises' : 'rise'} toward the real gap${uncoverers.length === 1 ? ' it was' : 's they were'} hiding${downers.length ? ` while ${nameFew(downers.map((e: any) => e.loan))} ${downers.length === 1 ? 'comes' : 'come'} down` : ''}. The next bullet says why that's progress.`
+    }
+  }
   else verdict += ` The steps below explain ${money(r2(Math.abs(combinedBefore) - Math.abs(combinedAfter)))}; ~${money(combinedAfter)} remains (per-loan details below).`
   conclusions.push(verdict)
   for (const e of uncoverers.slice(0, 1)) {
