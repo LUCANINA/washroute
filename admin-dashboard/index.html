@@ -18104,6 +18104,12 @@ ${noActivityNote}
       </div>`).join('');
   }
 
+  // Session 228: keep the in-memory customer cache's addresses in step with the DB.
+  function _syncCachedAddresses(customerId, addrs) {
+    const c = allCustomers.find(x => x.id === customerId);
+    if (c) c.addresses = Array.isArray(addrs) ? addrs : [];
+  }
+
   function opRefreshAddresses(o) {
     const cust  = allCustomers.find(c => c.id === opCurrentCustId);
     const addrs = Array.isArray(cust?.addresses) ? cust.addresses : [];
@@ -18264,6 +18270,13 @@ ${noActivityNote}
       const { error } = await db.from('orders').update({ delivery_address_id: null }).eq('id', opCurrentOrderId);
       if (error) { showToast('Failed to clear delivery address', 'error'); return; }
       o.delivery_address_id = null;
+      // Session 228: this used to leave the delivery route_stop pointing at the
+      // now-cleared address, so the driver kept navigating to the old one.
+      // trg_sync_delivery_stop_address (DB) repoints the stop to the effective
+      // address -- COALESCE(delivery_address_id, pickup_address_id) -- on every
+      // write, whichever code path made it. Clear the stale join so the panel
+      // redraws from the id.
+      o.delivery_address = null;
       showToast('Delivery address reset to pickup address ✓', 'success');
     }
   }
@@ -19098,7 +19111,7 @@ ${noActivityNote}
   }
 
   // ── ADDRESS PICKER ──
-  function opToggleAddrPicker(leg) {
+  async function opToggleAddrPicker(leg) {
     if (leg === 'pickup' && opPickupGuard()) return;
     if (leg === 'delivery' && opDeliveredGuard()) return;
     const picker = document.getElementById(`op-${leg}-addr-picker`);
@@ -19109,8 +19122,29 @@ ${noActivityNote}
     btn.classList.toggle('cancel-btn', open);
     if (!open) return;
 
-    const cust    = allCustomers.find(c => c.id === opCurrentCustId);
-    const addrs   = Array.isArray(cust?.addresses) ? cust.addresses : [];
+    // Session 228: read the customer's addresses LIVE, never from allCustomers.
+    // Winter Williams #13172: an address added seconds earlier from the customer
+    // panel did not appear here at all, so the delivery address literally could
+    // not be changed. saveNewAddress/deleteAddress refresh the panel's own list
+    // but never touched allCustomers, and this picker read that stale cache — so
+    // the address existed everywhere except the one place it was needed.
+    // This is the authoritative surface for a change; it does its own read.
+    const cust = allCustomers.find(c => c.id === opCurrentCustId);
+    let addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
+    picker.innerHTML = '<span style="font-size:13px;color:var(--gray-400)">Loading addresses…</span>';
+    try {
+      const { data: fresh, error: addrErr } = await db
+        .from('addresses')
+        .select('id,label,line1,line2,city,state,zip,lat,lng,delivery_instructions,is_default')
+        .eq('customer_id', opCurrentCustId)
+        .order('is_default', { ascending: false });
+      if (addrErr) throw addrErr;
+      addrs = fresh || [];
+      if (cust) cust.addresses = addrs;   // keep the cache honest for other surfaces
+    } catch (e) {
+      console.warn('[opToggleAddrPicker] live address fetch failed, using cache:', e.message);
+    }
+
     const o       = allOrders.find(x => x.id === opCurrentOrderId);
     const curId   = leg === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id;
     const defId   = addrs.find(a => a.is_default)?.id;
@@ -19157,6 +19191,11 @@ ${noActivityNote}
     });
     if (error) { showToast('Failed to save address: ' + error.message, 'error'); return; }
     o[col] = addressId;
+    // Session 228: opRefreshAddresses prefers the joined o.pickup_address /
+    // o.delivery_address object over the id, so leaving the OLD joined object in
+    // place made a successful save look like it had done nothing — the panel
+    // redisplayed the previous address. Drop the stale join; the id now wins.
+    if (leg === 'pickup') o.pickup_address = null; else o.delivery_address = null;
 
     opRefreshAddresses(o);
     document.getElementById(`op-${leg}-addr-picker`).style.display = 'none';
@@ -27889,6 +27928,10 @@ ${oneCopy}
     toggleAddAddrForm();
     const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,lat,lng,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
     renderPanelAddresses(updated?.addresses||[]);
+    // Session 228: push the refresh into allCustomers too. Without this the order
+    // panel's address picker (which read that cache) never saw a newly added
+    // address -- see Winter Williams #13172.
+    _syncCachedAddresses(panelCustomerId, updated?.addresses || []);
   }
 
   async function deleteAddress(addrId) {
@@ -27906,6 +27949,10 @@ ${oneCopy}
     showToast('Address removed', 'success');
     const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,lat,lng,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
     renderPanelAddresses(updated?.addresses||[]);
+    // Session 228: push the refresh into allCustomers too. Without this the order
+    // panel's address picker (which read that cache) never saw a newly added
+    // address -- see Winter Williams #13172.
+    _syncCachedAddresses(panelCustomerId, updated?.addresses || []);
   }
 
   async function saveCustomerContact() {
