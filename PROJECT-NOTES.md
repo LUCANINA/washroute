@@ -55,6 +55,24 @@ They had been hardened and deliberately not shipped, because every pg_cron HTTP 
 
 **Still open:** `ALERT_PHONE` is not set in Supabase Secrets, so `health-monitor` keeps its hardcoded fallback to David's number. Session 227's draft removed it, which would have silently disabled every health alert — that is why it was kept. Set `ALERT_PHONE` in the dashboard, then delete the fallback.
 
+**Session 228 part 3 — two more failures from the same afternoon, both customer-facing.**
+
+**(a) Every driver's "Notify Customer" button returned 404 for seven hours.** Andres reported "Could not update status — check connection" mid-route. `notify-on-my-way` v49 (session 227, deployed 17:44) added a driver-scope check and, to do it, embedded the stop's route:
+
+```
+select=...,routes(id,driver_id),...
+```
+
+`route_stops` has **TWO** foreign keys to `routes` — `route_id` and `moved_from_route_id` — so that embed is ambiguous and PostgREST rejects the entire query with `PGRST201`. `dbGet` returned the error object verbatim; the caller does `Array.isArray(x) ? x[0] : null`, so the error became `null`, and the handler reported it as a tidy 404 **"Stop not found"**. A hard failure wearing a polite 404. Fixed in v50 three ways: name the constraint (`routes!route_stops_route_id_fkey`), make `dbGet` throw and log on a PostgREST error instead of passing it off as data, and correct the scope check itself — it read ONLY `routes.driver_id`, which would have refused an Extra-Stops override, a split-driver route worked via `pickup_driver_id`/`delivery_driver_id`, and any route with a null `driver_id`. It now mirrors `get_driver_route_stops`.
+
+⚠️ **Any PostgREST embed of `routes` from `route_stops` MUST name the constraint.** A bare `routes(...)` is ambiguous and always fails.
+
+**(b) Deliveries were silently withheld from drivers.** The driver app's `isGhostDelivery` hides any delivery whose order is `billing_status='failed'` — a correct rule ("don't send unpaid laundry out") that assumes `failed` means *the card was declined*. On 8/22 it meant *our own auth broke*, so 15 customers' orders vanished from the PM routes with no signal to anyone in a van. Self-healed the moment the charges went through. No code change: the root cause is part 1's invariant — only a genuine decline may write `failed`. Worth knowing the rule exists, and that a withheld delivery is invisible to the driver by design.
+
+**(c) Stale per-stop driver overrides when a route changes hands** (migration `session_228_clear_stale_stop_driver_on_route_reassign`). John took over Randi's route. A stop's `driver_id` is an OVERRIDE (NULL = inherit the route's driver), and `get_driver_route_stops` needs `(rs.driver_id = me OR rs.driver_id IS NULL) AND me IN (r.driver_id, r.pickup_driver_id, r.delivery_driver_id)`. So a stop still stamped with the OUTGOING driver is invisible to **both**: the new driver fails the first clause, the old driver fails the second. Three such stops existed (2 Randy Harrison on Berkeley PM, 1 on Oakland PM); all were already skipped, so nothing was missed — but `reconcile_order_stops` REUSES skipped stops (session 195), which would carry the stale override onto a fresh deliverable order. Snapshot in `_archive._stale_stop_driver_overrides_20260822`. New AFTER UPDATE trigger on `routes` clears an override only when it pointed at a driver who is no longer on the route, so a deliberate Extra-Stops override to an unrelated driver survives — verified both ways in a rolled-back simulation of the actual handover.
+
+**(d) POS walk-in texts silently dropped.** `send-order-notification` 401'd 11 times, including on the two Foothill card sales #13198/#13201 — both customers had phones, neither got a text. The function is fine (`pos_device` is on its allow-list); the POS sends `Bearer ${session?.access_token || ''}`, so a lapsed device session produces an empty bearer → 401 → nothing shown to the cashier. Operational fix is a POS reload. **Open:** walk-in notifications should fire server-side from the DB like delivery status texts do, instead of depending on an iPad's browser session; and the three `|| ''` / `|| SUPA_ANON_KEY` bearer fallbacks in `pos/index.html` are the same footgun removed from the admin dashboard in part 1.
+
 **Lessons banked:**
 
 - **A transport or authorization failure is not a business outcome.** Any catch-all that writes a business outcome from `catch (e)` will eventually record an infrastructure problem as a customer fact. The fix is for the server to say what happened in a machine-readable way, and for exactly one layer to own the write.
