@@ -101,9 +101,6 @@ async function stampChargeFailed(db: any, orderId: string) {
   await db.from('orders').update({
     billing_status: 'failed',
     charge_failed_at: new Date().toISOString(),
-    // v48 (session 176): release the anti-double-charge claim on failure so a
-    // later legitimate retry (e.g. after the customer updates their card) can run.
-    charge_in_progress_at: null,
     updated_at: new Date().toISOString(),
   }).eq('id', orderId);
 }
@@ -202,26 +199,20 @@ Deno.serve(async (req) => {
       throw new ChargeRefused(`Order #${order.order_number} belongs to an on-account customer — bill via invoice, not card`, 'on_account')
     }
 
-    // ── v48 (session 176): ATOMIC ANTI-DOUBLE-CHARGE CLAIM ──
-    // The stripe_payment_intent_id / billing_status guards above are read-check-write:
-    // two sub-second submits both load the order before either writes the PI back, so
-    // both passed and created two PaymentIntents (the credit audit found 4 such double
-    // charges, e.g. Ray Thomas #1054 — two $245.95 charges 1.6s apart). This claim makes
-    // the check atomic: only one concurrent request can flip charge_in_progress_at from
-    // NULL (or a >2-min-stale value) to now(); the loser bails before touching Stripe.
-    // Cleared on success (below) and on every failure (stampChargeFailed).
-    const claimTs = new Date().toISOString()
-    const staleCutoff = new Date(Date.now() - 120000).toISOString()
-    const { data: claimRows, error: claimErr } = await db.from('orders')
-      .update({ charge_in_progress_at: claimTs })
-      .eq('id', orderId)
-      .is('stripe_payment_intent_id', null)
-      .or(`charge_in_progress_at.is.null,charge_in_progress_at.lt.${staleCutoff}`)
-      .select('id')
-    if (claimErr) throw new ChargeRefused('Could not acquire charge lock: ' + claimErr.message, 'lock_error')
-    if (!claimRows || claimRows.length === 0) {
-      throw new ChargeRefused(`Order #${order.order_number} already has a charge in progress or completed — refusing to avoid a double charge`, 'charge_in_progress')
-    }
+    // ── v50 (session 228): charge_in_progress_at claim REMOVED ──
+    // The claim was a PostgREST UPDATE carrying an `or=(charge_in_progress_at...)`
+    // filter. As of 2026-08-22 that request fails 100% of the time with a raw
+    // Postgres 42703 `column orders.charge_in_progress_at does not exist`, even
+    // though the column exists and the identical UPDATE run directly in SQL
+    // succeeds — the data API cannot see it. Session 176/177 hit the same wall and
+    // reached the same conclusion: a function that only touches long-established
+    // columns is immune. Every charge was blocked while this was in the path.
+    //
+    // Double-charge protection now rests on three things, none of which touch the
+    // column: the stripe_payment_intent_id guard, the billing_status guard, and a
+    // DETERMINISTIC Stripe idempotency key (order + card, no timestamp) — so a
+    // duplicate request collapses into the same PaymentIntent at Stripe's end
+    // rather than creating a second one. This is the shape session 177 ran on.
 
     // v33: charge = pre-tip total + team tip
     const preTipAmount = Number(order.total_amount)
@@ -311,11 +302,12 @@ Deno.serve(async (req) => {
               subtotal: preTipAmount.toFixed(2),
             },
           }, {
-            // v48 (session 176): Stripe idempotency key — defense-in-depth behind the
-            // DB claim above. Keyed on order + this claim's timestamp + the card, so a
-            // duplicate request collapses to one charge, while a genuine later retry
-            // (new claim → new claimTs) still gets a fresh key.
-            idempotencyKey: `co_${order.id}_${claimTs}_${card.stripe_payment_method_id}`,
+            // v50 (session 228): DETERMINISTIC idempotency key — order + card, no
+            // timestamp. With the DB claim gone this is the primary double-charge
+            // guard: two concurrent requests for the same order and card produce the
+            // same key, so Stripe returns the one original PaymentIntent instead of
+            // creating a second. Same shape session 177 ran on.
+            idempotencyKey: `co_${order.id}_${card.stripe_payment_method_id}`,
           })
 
           if (pi.status === 'succeeded') {
@@ -355,7 +347,6 @@ Deno.serve(async (req) => {
       billing_status: 'paid',
       billed_at: new Date().toISOString(),
       charge_failed_at: null,
-      charge_in_progress_at: null, // v48 (session 176): release the anti-double-charge claim
       updated_at: new Date().toISOString(),
     }
     if (paymentIntent) {

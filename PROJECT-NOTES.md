@@ -13,7 +13,41 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: August 22, 2026 — Session 227 — **Deep bug + vulnerability sweep. Found and closed a systemic authorization hole: the entire RPC layer built in sessions 134–136 to be "the only door" had no lock on it, and `customers`/`orders` could be written directly from a customer's browser console. Every finding below was verified exploitable against production before the fix and verified blocked after.***
+*Last updated: August 23, 2026 — Session 228 — **Session 227's auth hardening took down card charging for four hours, and every failure was recorded as a customer card decline. 21 orders / $2,899 falsely marked FAILED, none of which ever reached Stripe. Root-caused into four separate defects, all fixed; all 21 collected.***
+
+David: "The Overview page is showing way more card failures than normal. I suspect we introduced an issue when fixing bugs earlier today."
+
+**Symptom.** Overview showed 22 unpaid orders / $3,331.19, 22 of them FAILED. Every failure timestamp was today between 17:44 and 21:55 UTC. Before that, the most recent failure was Aug 4.
+
+**Four defects, in the order they compound:**
+
+1. **The version file wasn't bumped, so stale tabs kept running old code.** `build-version.txt` is the ONLY mechanism that reloads the four SPAs — they poll it every 5 min and on tab focus. Session 227 shipped via plain `git commit` (which bypasses `commit.sh`, the only thing that bumped it), so the file still read `20260816163012`. The laundry station's tablet had a tab open since **Aug 16** and kept posting `apikey: SUPA_ANON_KEY` with no `Authorization` header — the pre-227 calling convention. Session 227's hardened `charge-order` returns 401 to exactly that. Every rack from 17:44 onward: 401.
+
+2. **A 401 was recorded as a card decline.** The admin dashboard's two charge paths (`chargeOnReady`, `saveRacking`) wrapped the fetch in a catch-all that wrote `billing_status='failed'` + `charge_failed_at` on ANY error. It could not tell "we are not signed in" from "the customer's card was refused". So 21 customers with valid cards were marked declined, dropped into the unpaid widget and Issues tab, flipped to "📞 Update card", and queued for dunning outreach. The autocharge sweep then skipped them **forever**, because it only picks up orders with `billing_status IS NULL`. Verified no customer was actually texted: `notifyCustomer` lives inside `charge-order`, which never got past `authorize()`.
+
+3. **`_staffJwt()` fell back to the anon key.** Against hardened edge functions that is not graceful degradation — it guarantees a 401 dressed up as a server error. Every caller looked healthy while being categorically rejected.
+
+4. **`charge_in_progress_at` is invisible to the data API — this was blocking 100% of charges.** Found while verifying the repair: `charge-order`'s anti-double-charge claim is a PostgREST UPDATE carrying `or=(charge_in_progress_at.is.null,charge_in_progress_at.lt.…)`. It now fails **every time** with a raw Postgres 42703 `column orders.charge_in_progress_at does not exist`, while `information_schema` shows the column, direct SQL `UPDATE` succeeds, and 25 consecutive REST `select=charge_in_progress_at` probes return cleanly. First occurrence in `postgres_logs` was ~19:00 today. **This is the session 176/177 wall again**, and the same remedy applied: a function that touches only long-established columns is immune.
+
+**Fixes — all at source:**
+
+- **`charge-order` v49/v50.** Every refusal now carries a machine-readable `code` plus a `stamped` flag saying whether the function itself wrote the failure. **The invariant: `charge-order` is the ONLY writer of a billing failure.** v50 removed the `charge_in_progress_at` claim entirely (all three references — claim, `stampChargeFailed`, success path). Double-charge protection now rests on the `stripe_payment_intent_id` guard, the `billing_status` guard, and a **deterministic** Stripe idempotency key (`co_<orderId>_<pm>`, no timestamp) so a duplicate request collapses into the same PaymentIntent. This is the shape session 177 ran on.
+- **`admin-dashboard`.** All six `charge-order` call sites now go through one door, `_chargeOrderCall()`, which classifies the outcome as `charged / declined / unauthorized / unreachable / refused`. Only `declined` — i.e. server-stamped — is treated as a payment failure. Everything else leaves billing untouched so the order stays unbilled and the sweep collects it. Both client-side `billing_status:'failed'` writes deleted. An unknown/untyped failure is deliberately classified `unreachable`, never `declined`: an unrecognised error must not brand a customer's card as bad.
+- **`_staffJwt()`** returns `null` instead of the anon key, and shows one throttled "your session expired — nothing was charged" message.
+- **`scripts/githooks/pre-commit`** bumps `build-version.txt` automatically whenever `admin-dashboard/`, `customer-app/`, `driver-app/`, `pos/` or `assets/` is staged. Enabled with `git config core.hooksPath scripts/githooks`. `commit.sh` defers to it. **A client-affecting deploy can no longer ship without reloading the tablets** — and plain `git commit` now gets the same protection, which is precisely what failed in 227.
+
+**Repair (migration `session_228_clear_false_charge_failures`).** Snapshotted all 21 into `_archive._false_charge_failures_20260822` (that table IS the rollback script), then cleared `billing_status` / `charge_failed_at` / `billing_notes` using snapshot-then-apply — each row re-verified at write time so anything settled by a human in the meantime would be skipped. Verified beforehand that all 21 had `stripe_payment_intent_id IS NULL` and `billed_at IS NULL`, i.e. no card was ever touched. **Result: 20 of 21 charged cleanly, zero declines, zero duplicate charges** (checked `customer_transactions` for repeat charge rows and distinct PIs). The 21st, #13134, genuinely has no card on file and correctly shows "Request card".
+
+**Lessons banked:**
+
+- **A transport or authorization failure is not a business outcome.** Any catch-all that writes a business outcome from `catch (e)` will eventually record an infrastructure problem as a customer fact. The fix is for the server to say what happened in a machine-readable way, and for exactly one layer to own the write.
+- **`build-version.txt` is part of the deploy contract, not a nicety.** A hardening change that alters a calling convention is only safe once every open tab has reloaded. Anything that depends on a human running the right script will eventually ship without it — put it in a hook.
+- **The failure mode of a security fix is silence.** Session 227 verified each hardened endpoint accepted the right callers. What it could not see was a two-month-old browser tab still speaking the old protocol. When hardening a calling convention, enumerate the *clients*, including the stale ones, not just the code paths.
+- **`charge_in_progress_at` is now a no-go column for PostgREST.** Do not reintroduce a read or write of it from any edge function or app until the data API demonstrably sees it (a REST round-trip through the same client shape, not `information_schema`). This has now cost two separate outages.
+
+---
+
+*Session 227 — August 22, 2026 — **Deep bug + vulnerability sweep. Found and closed a systemic authorization hole: the entire RPC layer built in sessions 134–136 to be "the only door" had no lock on it, and `customers`/`orders` could be written directly from a customer's browser console. Every finding below was verified exploitable against production before the fix and verified blocked after.***
 
 David asked for a deep bug and vulnerability sweep of the WashRoute code, to resolve what could safely be resolved, and to update the skills and notes with the results. Four parallel audits (DB/RLS, edge functions, the three customer-facing SPAs, the admin dashboard) plus the Supabase security advisor produced ~45 confirmed findings. David chose "criticals + verify each one live" and "lock down the edge functions + test each caller path."
 
