@@ -1203,6 +1203,14 @@ to "what is running".
 
 ## Session Log
 
+### Session 229 cont. 4 (2026-08-22, night) — David's live catch: the contradicting loan note, and File-anyway's detour
+
+**The glitch, spotted by David in live use:** dropping a Ford history into the intake modal showed the ORANGE "This file doesn't say which loan it belongs to" advisory directly under a dropdown the browser parser had CORRECTLY auto-selected from the file (****2094 → E6-7410 #63982094). Mechanism: the browser's suffix match runs first and picks the loan; the server classifier (loan-document-intake, which has NO parser for this document kind — the deliberately-skipped intake twin from cont. 3) then reports no exact account match, and `_liApplyServerLoanMatch`'s honest-blindness branch painted its warning OVER the browser's proven result. The advisory was describing the server's blindness, not the file.
+
+**Fix (client-only, `admin-dashboard/index.html`):** new `_liBrowserSuffixMatch` state — set ONLY when the browser's history parser matches the masked suffix to EXACTLY ONE Ford loan, reset on every new file. The server's else-branch now confirms in green ("Matched by the account number ending 2094 printed in the file — exactly one loan matches") when that unique match still agrees with the dropdown; a human who changed the dropdown afterwards still gets the orange advisory (an override is never silently blessed), as does any file with no unique match. Second fix in the same sitting: `bkBatchForce` ("File anyway" on a skipped batch row) only recognized `browserParsed` items, so a fully-parsed transaction history detoured into the manual modal — it now files `browserBulk`+loan items in place (per-period upserts, dedupe-safe). QA: qa-lender-ui.mjs → 31 checks (4 new: green confirmation, honest advisory preserved when no match, override never blessed, File-anyway no-detour).
+
+**Where to pick up:** ships with David's next push. The proper root-cause (a server-side twin of the Ford history parser in loan-document-intake so the second opinion isn't blind) stays deliberate tech debt — the browser parser is authoritative and the contradiction is now impossible either way.
+
 ### Session 229 cont. 3 (2026-08-22, night) — "GET BUILDING": event-anchor parsing + the click-post-settled reallocation (fdiff v12)
 
 **David's directive, verbatim:** *"Get building"* — after confirming the principle he wants: *"the more data you feed the system, the more accurate it becomes"*, with the perfect world being *"Feed me everything from the beginning, and I'll propose the manual adjustments. if you agree, click post. That should settle it."* Two builds, both shipped tonight.
