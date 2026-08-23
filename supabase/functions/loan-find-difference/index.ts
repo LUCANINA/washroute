@@ -112,6 +112,21 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // lands, the re-analysis finds nothing to propose). Approving the journal
 // and manually recoding the bank line are ALTERNATIVES; every rendering of
 // the proposal says "do exactly one of the two."
+//
+// v13 (session 229, the first dense-anchor live run's lesson): LAG GRACE.
+// Lender anchors are dated on the LENDER's posting date; the matching Xero
+// bank line clears 1-4 days later. With sparse monthly statements the gap
+// never mattered — boundaries sat far from payment dates. Dense payment-date
+// anchors put a boundary exactly ON every payment date, so nearly every Xero
+// entry landed one span late: the run manufactured offsetting spans in bulk
+// (30 caught as timing; the misses became fake cross-loan recodes of loans'
+// own routine payments, and the marquee 242→238 payoff match was blocked by
+// ONE day). Every span's ENTRY window now extends LAG_GRACE_DAYS past its
+// anchor dates, clamped so it never crosses the next anchor — valid lender-
+// side because a lender balance only moves on payment dates. Same run also
+// fixed: upload_history steps fired for histories already on file (gate is
+// now genuine-missing-data only, never window truncation, never $0), and
+// ruled_out named loans' own scheduled payments (suppressed as noise).
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -289,7 +304,7 @@ function crossLoanCandidatesFor(
     // Xero moved LESS than the lender: a reduction the lender saw is missing
     // here — it may be coded to a different loan's account.
     for (const r of siblingPool) {
-      if (!(r.date > p.from && r.date <= p.to)) continue
+      if (!(r.date > (p.entry_from || p.from) && r.date <= (p.entry_to || p.to))) continue
       const otherLines = r.lines.filter((l: any) => otherLoanByCode.has(String(l.c)))
       if (!otherLines.length) continue
       const la = otherLoanByCode.get(String(otherLines[0].c))
@@ -338,7 +353,7 @@ function crossLoanCandidatesFor(
     // a different loan. Only strong matches are listed — naming every ordinary
     // payment on the loan's own account would be noise, not help.
     for (const r of ownEntries) {
-      if (!(r.date > p.from && r.date <= p.to)) continue
+      if (!(r.date > (p.entry_from || p.from) && r.date <= (p.entry_to || p.to))) continue
       if (r.srcType !== 'BankTransaction') continue
       if (r.ref && String(r.ref).startsWith('WR-STAGE')) continue
       const amt = Math.abs(Number(r.total || 0))
@@ -397,6 +412,11 @@ function prepKnownAmounts(loan: any, splits: any[]) {
 // v10: hoisted from the per-loan handler so the lender-level analysis can trim
 // each loan the same way. Verbatim logic: walk the most recent 18 months of
 // anchors and record what was left out.
+// v13: see the LAG GRACE header note. 5 days covers every observed Ford
+// bank-posting lag (1-4 days) with margin; the per-boundary clamp keeps
+// weekly-cadence loans (anchors 7 days apart) correct.
+const LAG_GRACE_DAYS = 5
+const addDays = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
 const monthsSpanned = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + (Number(b.slice(5, 7)) - Number(a.slice(5, 7))) + 1
 function trimAnchors(anchors: any[]): { usable: any[], truncated: string | null } {
   let usable = anchors
@@ -427,16 +447,27 @@ function analyzeWalk(o: {
 
   // ── The walk: between each pair of consecutive statements, does Xero's net
   // movement on the loan account equal the lender's own balance change? ──
+  // v13 LAG GRACE: each boundary's ENTRY window edge shifts right by up to
+  // LAG_GRACE_DAYS (never past the next anchor's own date), so a bank line
+  // that cleared days after the lender posted the payment stays in the span
+  // the lender put it in. Lender deltas are untouched — a lender balance only
+  // moves on payment dates, so the shifted edge reads the same balance.
+  const entryBound = usable.map((s: any, i: number) => {
+    const shifted = addDays(s.statement_date, LAG_GRACE_DAYS)
+    const next = usable[i + 1]?.statement_date
+    return next && shifted > next ? next : shifted
+  })
   const periods: any[] = []
   for (let i = 1; i < usable.length; i++) {
     const A = usable[i - 1], B = usable[i]
     const lenderDelta = r2(Number(B.principal_balance) - Number(A.principal_balance))
-    const inWin = entries.filter(r => r.date > A.statement_date && r.date <= B.statement_date)
+    const inWin = entries.filter(r => r.date > entryBound[i - 1] && r.date <= entryBound[i])
     const xeroDelta = r2(inWin.reduce((s, r) => s + effect(r, code), 0))
     const diff = r2(xeroDelta - lenderDelta)
     const divergent = Math.abs(diff) >= TOL
     const period: any = {
       from: A.statement_date, to: B.statement_date,
+      entry_from: entryBound[i - 1], entry_to: entryBound[i],
       lender_delta: lenderDelta, xero_delta: xeroDelta, diff,
       verdict: divergent ? 'divergent' : 'clean',
       entry_count: inWin.length,
@@ -484,8 +515,8 @@ function analyzeWalk(o: {
     // Best evidence: the straddling entry — dated within a week after the
     // boundary, of the offset amount. Named when found; the pair collapses
     // either way (the arithmetic alone is conclusive about the net effect).
-    const bLimit = (() => { const d = new Date(b.from + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 7); return d.toISOString().slice(0, 10) })()
-    const straddler = entries.find(r => r.date > b.from && r.date <= bLimit && Math.abs(Math.abs(r2(effect(r, code))) - Math.abs(a.diff)) < TOL)
+    const bLimit = addDays(b.entry_from || b.from, 7)
+    const straddler = entries.find(r => r.date > (b.entry_from || b.from) && r.date <= bLimit && Math.abs(Math.abs(r2(effect(r, code))) - Math.abs(a.diff)) < TOL)
     const pairInfo = {
       net, pure,
       residue: known ? { amount: net, what: known.what } : null,
@@ -523,7 +554,7 @@ function analyzeWalk(o: {
     const sp = splits.find(s => s.interest_amount != null && Math.abs(Math.abs(p.diff) - Number(s.interest_amount)) < TOL
       && s.period_label >= p.from.slice(0, 7) && s.period_label <= p.to.slice(0, 7))
     if (!sp) continue
-    const inWin = entries.filter(r => r.date > p.from && r.date <= p.to && r.srcType === 'BankTransaction')
+    const inWin = entries.filter(r => r.date > (p.entry_from || p.from) && r.date <= (p.entry_to || p.to) && r.srcType === 'BankTransaction')
     const lumps = inWin.filter(r => sp.total_amount != null && Math.abs((r.total ?? NaN) - Number(sp.total_amount)) < TOL)
     // A span can hold several identical fixed payments — the culprit is the one
     // in the split's own month, not whichever came first (QA scenario C).
@@ -811,7 +842,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   // 2. Simulated span diffs per loan — greedy assignment mutates these, so a
   //    second move is never justified by a gap the first move already closed.
   const sim = new Map<string, any[]>(walkable.map((b: any) => [b.loan.id, b.aw.periods.map((p: any) => ({ ...p }))]))
-  const spanFor = (b: any, date: string) => (sim.get(b.loan.id) || []).find((p: any) => date > p.from && date <= p.to)
+  const spanFor = (b: any, date: string) => (sim.get(b.loan.id) || []).find((p: any) => date > (p.entry_from ?? p.from) && date <= (p.entry_to ?? p.to))
   const fromCodeOf = (mv: any) => mv.from?.bundle ? mv.from.bundle.code : String(mv.from?.account_code ?? '')
 
   // Signed effect of the entry on a liability balance at its CURRENT coding.
@@ -886,7 +917,12 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       // matches, or same-lender JOURNALS (the Ford shape). A sibling's routine
       // in-span payment getting vetoed is the system working, not news.
       const promising = mv.confidence !== 'in_span' || (mv.same_lender && mv.src_type === 'ManualJournal')
-      if (promising && ruledOut.length < 3 && !ruledOut.some((r: any) => r.id === mv.id)) {
+      // v13: a loan's OWN scheduled monthly payment being vetoed from moving
+      // away is the system working, not news — naming it as a "ruled out
+      // suspect" (the live E4 $1,144.55 case) reads as noise. Suppress.
+      const sched = mv.from?.bundle?.loan?.scheduled_monthly_payment
+      const routineSelf = sched != null && Math.abs(mv.amount - Number(sched)) < 1.00
+      if (promising && !routineSelf && ruledOut.length < 3 && !ruledOut.some((r: any) => r.id === mv.id)) {
         const fromName = mv.from?.bundle ? mv.from.bundle.loan.xero_account_name : (mv.from?.external?.loan_name || `account ${mv.from?.account_code ?? '?'}`)
         const claimNames = (mv.toClaims || []).map((x: any) => x.loan.xero_account_name)
         ruledOut.push({
@@ -979,7 +1015,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     expected.push({
       loan_account_id: b.loan.id, loan: b.loan.xero_account_name,
       before, after_expected: after, changed, uncovers,
-      residual: b.aw.residual, win_from: b.aw.win_from,
+      residual: b.aw.residual, win_from: b.aw.win_from, truncated_before: b.truncated ?? null,
       label: uncovers ? `${base} — the removed entries were masking an older gap, see the note` : base,
       label_base: base,
     })
@@ -1066,10 +1102,23 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   // next run — at that point the engine can name individual missing or
   // misplaced payments instead of inferring from span gaps.
   for (const e of expected) {
-    if (!e.uncovers && !(e.residual != null && Math.abs(e.residual) >= TOL)) continue
+    // v13 (the live incident: the roadmap asked for histories David had JUST
+    // uploaded, one step even saying "~$0.00 predates"): this step exists for
+    // GENUINELY MISSING data only. Residual must be real money, and there must
+    // be no earlier statements on file — a residual that sits before the
+    // 18-month walk window while history IS on file is a deep-walk item, not
+    // an upload request; it gets a note, never a button.
+    if (e.residual == null || Math.abs(e.residual) < TOL) continue
+    if (e.truncated_before) {
+      roadmap.push({
+        step: n++, kind: 'cpa_review', loan: e.loan,
+        why: `${e.loan}: ~${money(e.residual)} of its gap sits before the walk window (${e.win_from}) — its history IS on file earlier; the walk covers the most recent 18 months per pass. Nothing to upload; this remainder needs a deeper multi-window pass when we get to it.`,
+      })
+      continue
+    }
     roadmap.push({
       step: n++, kind: 'upload_history', loan_account_id: e.loan_account_id, loan: e.loan,
-      why: `Ask the lender for ${e.loan}'s full payment/transaction history (a CSV or PDF from the portal) and upload it to the loan. ~${money(e.residual ?? e.after_expected)} of its gap predates the statements on file (before ${e.win_from}) — the history fills that blind spot, and on the next run the engine walks payment by payment and names exactly what's missing or misplaced.`,
+      why: `Ask the lender for ${e.loan}'s full payment/transaction history (a CSV or PDF from the portal) and upload it to the loan. ~${money(e.residual)} of its gap predates the earliest statement on file (${e.win_from}) — the history fills that blind spot, and on the next run the engine walks payment by payment and names exactly what's missing or misplaced.`,
     })
   }
   const changedExp = expected.filter((e: any) => e.changed)
@@ -1102,9 +1151,9 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   for (const e of uncoverers.slice(0, 1)) {
     const inWin = r2(e.after_expected - (e.residual ?? 0))
     const parts: string[] = []
-    if (e.residual != null && Math.abs(e.residual) >= TOL) parts.push(`~${money(e.residual)} of the lender's movement predates its earliest usable statement (${e.win_from}) and was never matched in Xero`)
+    if (e.residual != null && Math.abs(e.residual) >= TOL) parts.push(e.truncated_before ? `~${money(e.residual)} sits before the 18-month walk window (${e.win_from}) — history is on file earlier, a deeper pass chases it` : `~${money(e.residual)} of the lender's movement predates its earliest statement on file (${e.win_from}) and was never matched in Xero`)
     if (Math.abs(inWin) >= TOL) parts.push(`~${money(inWin)} of in-window entries still don't line up (its span table below)`)
-    conclusions.push(`${e.loan}'s ${money(e.before)} is deceptively small — bigger errors cancel out inside it: ${parts.join(', and ')}. Removing entries that don't belong makes its number rise toward the real gap — that's the books getting more honest, not worse. The lender's full payment history (roadmap step below) is what brings it down.`)
+    conclusions.push(`${e.loan}'s ${money(e.before)} is deceptively small — bigger errors cancel out inside it: ${parts.join(', and ')}. Removing entries that don't belong makes its number rise toward the real gap — that's the books getting more honest, not worse. ${(e.residual != null && Math.abs(e.residual) >= TOL && !e.truncated_before) ? `The lender's full payment history (roadmap step below) is what brings it down.` : `The fix list and its span table below are where the rest gets chased down.`}`)
   }
   for (const m of actionable.slice(0, uncoverers.length ? 1 : 2)) {
     const fromName = m.from?.bundle ? loanShort(m.from.bundle) : (m.from?.external?.loan_name || `account ${m.from?.account_code ?? '?'}`)
