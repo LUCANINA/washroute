@@ -27989,7 +27989,12 @@ ${oneCopy}
                     ${sub ? `<div class="wr-addr-sugg-sub">${_wrAddrEsc(sub)}</div>` : ''}
                   </div>`;
         }).join('');
-        box.style.display = '';
+        // Session 228: MUST be an explicit 'block'. `display = ''` only clears the
+        // INLINE style, which falls straight back to the stylesheet's
+        // `.wr-addr-sugg { display: none }` — so the list rendered correctly and
+        // stayed invisible. Verified live in the browser: 5 predictions present in
+        // the DOM, computed display 'none'.
+        box.style.display = 'block';
       }
     );
   }
