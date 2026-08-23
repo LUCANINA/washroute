@@ -38,6 +38,23 @@ David: "The Overview page is showing way more card failures than normal. I suspe
 
 **Repair (migration `session_228_clear_false_charge_failures`).** Snapshotted all 21 into `_archive._false_charge_failures_20260822` (that table IS the rollback script), then cleared `billing_status` / `charge_failed_at` / `billing_notes` using snapshot-then-apply — each row re-verified at write time so anything settled by a human in the meantime would be skipped. Verified beforehand that all 21 had `stripe_payment_intent_id IS NULL` and `billed_at IS NULL`, i.e. no card was ever touched. **Result: 20 of 21 charged cleanly, zero declines, zero duplicate charges** (checked `customer_transactions` for repeat charge rows and distinct PIs). The 21st, #13134, genuinely has no card on file and correctly shows "Request card".
 
+**Session 228 part 2 — session 227's four held-back edge functions are now deployed.**
+
+They had been hardened and deliberately not shipped, because every pg_cron HTTP job in this project sends the **anon key**, so requiring the service-role key would have killed each job **silently**. The unblock used the mechanism session 227 had already built for the DB→edge problem: `public.wr_internal_auth` (RLS on, no policies, no anon/authenticated grants — only a service-role client can read it), read via `public.wr_internal_secret()` and sent as the **`x-wr-internal`** header. That is Option B from the hold-back README: no secret in `cron.job.command`, nothing to set by hand in the dashboard.
+
+| function | v | was exposed as | now |
+|---|---|---|---|
+| `bookkeeping-kpis` | 8 | `{"source":"pg_cron","debug_rows":true}` returned the **full Xero P&L** to anyone — the body flag was treated as a credential | anon → 403; staff JWT still works for the dashboard Refresh |
+| `send-scheduled-reminders` | 42 | anyone could POST `{"type":"all"}` and **mass-text every customer** with an upcoming pickup, burning the one-shot `*_sent_at` flags so the real 6pm run then sent nothing | anon → 401 |
+| `sync-klaviyo` | 18 | only guard was the literal `wr-klaviyo-sync-9x2`, **committed to source and in git history** | anon → 403; the leaked literal is accepted nowhere and has been removed from the cron body |
+| `health-monitor` | 16 | `if (MONITOR_SECRET && …)` — **failed OPEN** whenever the secret was unset, which it is | anon → 403, fails closed |
+
+**Deploy ordering — reuse this.** The cron commands got the new header **first, while keeping the old anon bearer**. The un-hardened functions ignored an unknown header, so nothing changed; only then were the hardened versions deployed. There was never a window where a cron could not authenticate, so nothing had to be disabled and no reminder was missed. Afterwards the anon bearer and the leaked literal were stripped from all five commands (jobids 10, 11, 16, 17, 23), which now carry `x-wr-internal` and nothing else.
+
+**Verification without side effects.** `send-scheduled-reminders` is the dangerous one, so every probe used `{"type":"__probe_noop__"}` — an unrecognised type matches no branch, so even a hypothetical fail-open could not have sent an SMS. The internal-secret probe returned `{"ok":true,"sent":{}}`: auth passed, zero messages. The other three were verified by executing each job's **actual stored `cron.job.command`**, not a hand-typed equivalent — a typo in the stored text is exactly the failure this class of change hides.
+
+**Still open:** `ALERT_PHONE` is not set in Supabase Secrets, so `health-monitor` keeps its hardcoded fallback to David's number. Session 227's draft removed it, which would have silently disabled every health alert — that is why it was kept. Set `ALERT_PHONE` in the dashboard, then delete the fallback.
+
 **Lessons banked:**
 
 - **A transport or authorization failure is not a business outcome.** Any catch-all that writes a business outcome from `catch (e)` will eventually record an infrastructure problem as a customer fact. The fix is for the server to say what happened in a machine-readable way, and for exactly one layer to own the write.

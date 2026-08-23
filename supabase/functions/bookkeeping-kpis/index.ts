@@ -120,6 +120,32 @@ async function xeroReport(headers: Record<string, string>, path: string): Promis
   return report
 }
 
+
+// ── Session 228: internal-caller auth (pg_cron / DB functions) ──────────────
+// pg_cron and SECURITY DEFINER DB functions reach edge functions through
+// net.http_post and CANNOT present the service-role key — it is not stored
+// anywhere reachable from SQL and the Supabase vault is empty. Every pg_cron
+// HTTP job in this project sends the ANON key, which is why session 227 held
+// these four functions back: hardening them to require the service-role key
+// would have killed their cron silently.
+//
+// They now send the shared secret from public.wr_internal_auth (RLS on, no
+// policies, no anon/authenticated grants — only a service-role client can read
+// it) as the x-wr-internal header, via public.wr_internal_secret(). Same
+// mechanism charge-order / send-email / send-order-notification already use.
+// See migration session_227h_internal_call_secret.
+async function isInternalCall(req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  try {
+    const c = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+    const { data } = await c.from('wr_internal_auth').select('secret').maybeSingle()
+    return !!data?.secret && provided === data.secret
+  } catch (_) {
+    return false
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   const json = (obj: unknown, status = 200) =>
@@ -127,14 +153,19 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json().catch(() => ({}))
-    const isCron = body?.source === 'pg_cron'
 
-    // Same gate as reconciliation-run: a signed-in admin/manager/cpa, or the
-    // scheduled job. (The cron carries the anon key; 'source' just routes it
-    // to the throttle below — this endpoint is read-only against Xero and
-    // writes nothing but its own snapshot table, so the blast radius of an
-    // unauthorized call is one extra snapshot row.)
-    if (!isCron) {
+    // Session 137 security: the cron path must PROVE it is the cron, exactly
+    // as loan-xero-post's handleStageSweep does. Previously `{"source":
+    // "pg_cron"}` in the request body was enough to skip the role check
+    // entirely — and `{"source":"pg_cron","debug_rows":true}` then returned
+    // the business's full Xero P&L to an unauthenticated caller.
+    // The body flag is no longer a credential; only the service-role bearer is.
+    const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim()
+    const isInternal = await isInternalCall(req)   // session 228: pg_cron's credential
+    const isService = isInternal || (!!bearer && bearer === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))
+    const isCron = isService && body?.source === 'pg_cron'
+
+    if (!isService) {
       const role = await callerRole(req)
       if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
         return json({ ok: false, error: 'Not authorized' }, 403)

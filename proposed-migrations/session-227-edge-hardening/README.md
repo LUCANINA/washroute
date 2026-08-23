@@ -1,38 +1,55 @@
-# Session 227 — edge functions hardened but NOT deployed
+# Session 227 — edge hardening — ✅ RESOLVED IN SESSION 228
 
-These four functions were hardened during the session 227 security sweep and then
-deliberately **held back**, because deploying them as-is would break a live pg_cron
-job or a live alerting path. `supabase/functions/<name>/index.ts` has been restored
-to the version currently running in production, so **repo == production** and there
-is no stale-deploy landmine (cf. PROJECT-NOTES pending item on stripe-webhook).
+**All four functions are deployed and their crons are working. This directory is
+kept for history only; the live source is in `supabase/functions/<name>/index.ts`.**
 
-The blocker in every case is the same: **every pg_cron HTTP job sends the ANON key.**
-Verified 2026-08-22:
+## What blocked them, and how it was unblocked
 
-```sql
-SELECT jobname, command FROM cron.job;   -- decode the Bearer JWT: "role":"anon"
-```
+Session 227 hardened these four and held them back, because every pg_cron HTTP job
+sends the **anon key**, so requiring the service-role key would have killed the job
+**silently** — no error anywhere.
 
-| file | what it fixes | what must happen first |
-|---|---|---|
-| `send-scheduled-reminders.index.ts` | Anyone on the internet can POST `{"type":"all"}` and text every customer with an upcoming pickup — and because each reminder burns its one-shot `*_sent_at` flag, the real 6pm run then sends nothing. | `wr-reminder-evening` (jobid 10) and `wr-reminder-morning` (jobid 11) must send the **service-role key**, not the anon key. |
-| `bookkeeping-kpis.index.ts` | `{"source":"pg_cron","debug_rows":true}` returns the business's full Xero P&L to an unauthenticated caller — the body flag is treated as a credential. | `wr-bookkeeping-kpis` (jobid 23) must send the service-role key. |
-| `health-monitor.index.ts` | The secret check reads `if (MONITOR_SECRET && ...)`, so it fails **open** whenever `HEALTH_MONITOR_SECRET` is unset — which the live cron body (`{"source":"pg_cron"}`, no `secret` field) strongly implies it is. Also removes David's phone number from source. | Set `HEALTH_MONITOR_SECRET` and `ALERT_PHONE` in Supabase Secrets, and add `"secret"` to the `wr-health-monitor` (jobid 17) body. |
-| `sync-klaviyo.index.ts` | The only access control is the literal `'wr-klaviyo-sync-9x2'`, committed to source and in git history — anyone with it can dump the whole customer table to Klaviyo on demand. | Generate a new secret (`openssl rand -hex 24`), set `KLAVIYO_SYNC_SECRET` in Supabase Secrets, and update the `wr-klaviyo-nightly-sync` (jobid 16) body, which currently carries the old literal in plaintext. |
+Session 228 unblocked them with the mechanism session 227 had already built for the
+DB→edge problem: `public.wr_internal_auth` (RLS on, no policies, no anon/authenticated
+grants, so only a service-role client can read it), exposed as
+`public.wr_internal_secret()` and sent as the **`x-wr-internal`** header. This is
+Option B from the original write-up — no secret in `cron.job.command`, and nothing to
+set by hand in the Supabase dashboard.
 
-## Two ways to unblock
+| function | version | cron | status |
+|---|---|---|---|
+| `send-scheduled-reminders` | 42 | jobids 10, 11 | anon → 401. Cron authenticates. |
+| `bookkeeping-kpis` | 8 | jobid 23 | anon → 403 (Xero P&L leak closed). Staff JWT still allowed for the dashboard's Refresh. |
+| `health-monitor` | 16 | jobid 17 | anon → 403; now fails CLOSED (was `if (MONITOR_SECRET && …)`, which failed OPEN with the secret unset). |
+| `sync-klaviyo` | 18 | jobid 16 | anon → 403, and the leaked literal `wr-klaviyo-sync-9x2` is no longer accepted anywhere. |
 
-**Option A — put the service-role key in the cron commands.** Fastest. Requires
-`cron.alter_job` / `cron.schedule` updates for jobids 10, 11, 23 (and 16, 17 for
-the secret-based pair). The service-role key then sits in `cron.job.command` in
-plaintext, readable by anyone with DB admin — acceptable, since that role already
-has everything, but worth knowing.
+All five cron commands now carry **only** `x-wr-internal` — the anon bearer and the
+leaked Klaviyo literal were removed after the deploy was verified.
 
-**Option B (cleaner) — a DB-held shared secret.** Create a table with RLS on and no
-policies and no anon/authenticated grants; `service_role` bypasses RLS, so the edge
-function can read it while no app role can. Each cron body then does
-`jsonb_build_object(..., 'cron_secret', (SELECT value FROM ... ))`, and each function
-compares against the value it reads from the DB. No secret ever lives in
-`cron.job.command`, and nothing has to be set by hand in the Supabase dashboard.
+## How it was verified without side effects
 
-Option B is the cleanest-architectural-path choice and is the recommendation.
+The dangerous one is `send-scheduled-reminders`: a single unauthenticated
+`{"type":"all"}` would mass-text every customer with an upcoming pickup AND burn the
+one-shot `*_sent_at` flags, silencing the real 6pm run. So **every probe used
+`{"type":"__probe_noop__"}`** — an unrecognised type matches no branch, so even a
+hypothetical fail-open could not have sent anything. The internal-secret probe
+returned `{"ok":true,"sent":{}}`: auth passed, zero SMS. The other three were then
+verified by executing each job's **actual stored `cron.job.command`**, not a
+hand-typed equivalent.
+
+## Deploy ordering used (worth reusing)
+
+The cron commands got the new header **first, while keeping the old anon bearer** —
+the un-hardened functions ignored the unknown header, so nothing changed. Only then
+were the hardened versions deployed. At no point was there a window where the cron
+could not authenticate, so nothing had to be disabled and no reminder was missed.
+
+## Still open
+
+- **`ALERT_PHONE` is not set in Supabase Secrets**, so `health-monitor` retains the
+  hardcoded fallback to David's number. Session 227's draft removed it, which would
+  have silently disabled every health alert. Set `ALERT_PHONE` in the dashboard, then
+  delete the fallback at `health-monitor/index.ts` line ~24.
+- `KLAVIYO_SYNC_SECRET` / `HEALTH_MONITOR_SECRET` are still unset. Neither is needed
+  any more — both functions authenticate the cron via `x-wr-internal`. They remain
+  supported for a manual call if you ever set them.

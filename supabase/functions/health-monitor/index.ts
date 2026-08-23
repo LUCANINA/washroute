@@ -18,7 +18,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const ALERT_PHONE = Deno.env.get('ALERT_PHONE') || '+14156085446'  // David's phone, fallback
+// Session 137 security: the on-call number is no longer hardcoded here — it
+// comes from the ALERT_PHONE secret only. If it's unset, sendAlertSms reports
+// 'alert_phone_not_configured' instead of texting a number baked into source.
+const ALERT_PHONE = Deno.env.get('ALERT_PHONE') || '+14156085446'  // fallback: David's phone.
+// Session 228: kept deliberately. The hardened draft dropped it, but ALERT_PHONE is
+// not set in Supabase Secrets, so removing the fallback would silently disable every
+// health alert. Set ALERT_PHONE in the dashboard, then delete this fallback.
+// Session 137 security: this used to fail OPEN — `if (MONITOR_SECRET && ...)`
+// meant an unset secret let anyone run the monitor. Now it fails CLOSED.
 const MONITOR_SECRET = Deno.env.get('HEALTH_MONITOR_SECRET') || ''
 
 const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || ''
@@ -35,6 +43,7 @@ async function sendAlertSms(body: string): Promise<{ ok: boolean; reason?: strin
     return { ok: false, reason: 'twilio_not_configured' }
   }
   const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`
+  if (!ALERT_PHONE) return { ok: false, reason: 'alert_phone_not_configured' }
   let phone = ALERT_PHONE.replace(/[^\d+]/g, '')
   if (phone && !phone.startsWith('+')) phone = '+1' + phone.slice(-10)
   if (!phone || phone.length < 10) return { ok: false, reason: 'invalid_alert_phone' }
@@ -57,12 +66,45 @@ function pacificHour(d: Date): number {
   return parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10)
 }
 
+
+// ── Session 228: internal-caller auth (pg_cron / DB functions) ──────────────
+// pg_cron and SECURITY DEFINER DB functions reach edge functions through
+// net.http_post and CANNOT present the service-role key — it is not stored
+// anywhere reachable from SQL and the Supabase vault is empty. Every pg_cron
+// HTTP job in this project sends the ANON key, which is why session 227 held
+// these four functions back: hardening them to require the service-role key
+// would have killed their cron silently.
+//
+// They now send the shared secret from public.wr_internal_auth (RLS on, no
+// policies, no anon/authenticated grants — only a service-role client can read
+// it) as the x-wr-internal header, via public.wr_internal_secret(). Same
+// mechanism charge-order / send-email / send-order-notification already use.
+// See migration session_227h_internal_call_secret.
+async function isInternalCall(req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  try {
+    const c = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+    const { data } = await c.from('wr_internal_auth').select('secret').maybeSingle()
+    return !!data?.secret && provided === data.secret
+  } catch (_) {
+    return false
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   try {
     const body = await req.json().catch(() => ({}))
-    if (MONITOR_SECRET && body.secret !== MONITOR_SECRET) {
+    // Session 228: the cron authenticates with the x-wr-internal shared secret.
+    // HEALTH_MONITOR_SECRET remains supported for a manual call, but is no longer
+    // required for the cron to work — and this still fails CLOSED for everyone
+    // else (the pre-227 bug was `if (MONITOR_SECRET && ...)`, which failed OPEN
+    // whenever the secret was unset, which it is).
+    const internalOk = await isInternalCall(req)
+    if (!internalOk && !(MONITOR_SECRET && body.secret === MONITOR_SECRET)) {
+      console.warn('health-monitor: rejected caller with no valid internal secret')
       return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 

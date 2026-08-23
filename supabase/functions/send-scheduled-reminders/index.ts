@@ -354,7 +354,54 @@ async function runReviewRequest(): Promise<number> {
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────────────────
+// ── Authorization ─────────────────────────────────────────────────────────
+// Cron-only endpoint: it fans SMS out to every customer with an upcoming
+// pickup and burns the one-shot *_sent_at flags, so a single unauthenticated
+// {"type":"all"} would both mass-text customers AND silence the real 6pm run.
+// The ONLY accepted credential is the service-role key that pg_cron presents.
+// No CORS/OPTIONS handling here on purpose — there is no browser caller.
+function isServiceRole(req: Request): boolean {
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  return m[1] === SUPABASE_SERVICE_KEY && SUPABASE_SERVICE_KEY.length > 0;
+}
+
+
+// ── Session 228: internal-caller auth (pg_cron / DB functions) ──────────────
+// pg_cron and SECURITY DEFINER DB functions reach edge functions through
+// net.http_post and CANNOT present the service-role key — it is not stored
+// anywhere reachable from SQL and the Supabase vault is empty. Every pg_cron
+// HTTP job in this project sends the ANON key, which is why session 227 held
+// these four functions back: hardening them to require the service-role key
+// would have killed their cron silently.
+//
+// They now send the shared secret from public.wr_internal_auth (RLS on, no
+// policies, no anon/authenticated grants — only a service-role client can read
+// it) as the x-wr-internal header, via public.wr_internal_secret(). Same
+// mechanism charge-order / send-email / send-order-notification already use.
+// See migration session_227h_internal_call_secret.
+async function isInternalCall(req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  try {
+    const c = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+    const { data } = await c.from('wr_internal_auth').select('secret').maybeSingle()
+    return !!data?.secret && provided === data.secret
+  } catch (_) {
+    return false
+  }
+}
+
 Deno.serve(async (req: Request) => {
+  if (!isServiceRole(req) && !(await isInternalCall(req))) {
+    console.warn('send-scheduled-reminders: rejected caller without service-role key');
+    return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   let type = 'all';
   if (req.method === 'POST') {
     try {
