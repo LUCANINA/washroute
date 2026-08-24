@@ -1205,6 +1205,22 @@ to "what is running".
 
 ## Session Log
 
+### Session 230 cont. 2 (2026-08-24) — HOW FAR PRE-STAGING GOES: Ford is deterministic, and the lump-payment bug already in the books
+
+David: "how far can we take pre-staging? What would it take to stage loans not following amortization schedules — Fords first. Then solve edge cases like principal payments outside the normal schedule." Analysis only, no code. Written up in **DESIGN-STAGING-EXPANSION.md**.
+
+**The blocker is one missing input, not a missing capability.** `ensureUpcomingSplit` picks the period to stage from future rows on a `loan_amortization_schedules` row; the four active Ford loans have zero schedules. Everything downstream (stage mode, WR-STAGE reference, never-stage-twice guards, sweep) is indifferent to where the numbers came from.
+
+**Ford's interest is exactly predictable — this is the finding.** Fitting one daily rate per loan (balance × rate × days, actual/365) against real statement history reproduces EVERY period to within $0.01: 4140 → 8.29%, E5-4751 → 9.99%, E6-7410 → 8.99%. Clean numbers, so it's Ford's real convention, not curve-fitting. Note `loan_accounts.interest_rate` says 9.000% for all three — wrong for two, by $10–12/period. **A typed-in rate must never feed a posting; store the fitted rate separately.**
+
+**The convention is NOT universal — fit it, don't assume it.** Funding Circle is flat monthly 1.4510% (17.41%/yr), fits to $1.41. Both BayFirst loans fail both models by $85–$110 (their balances on file are `xero_derived`, i.e. our own ledger — self-referential — and SBA rates are often prime-linked). Rapid is a draw line (balance goes UP). So the deriver must try several conventions, pick the best, and REFUSE to enable staging above a residual threshold.
+
+**Ceiling: 9 of 14 active loans** can pre-stage once this ships (4 live + 4 Ford + Funding Circle). Rapid and Stripe Capital should never stage — the amount isn't knowable in advance.
+
+**The edge case is already mis-booked, today.** `statement_delta` assumes exactly one scheduled payment per window: `interest = payment − Δbalance`. An extra principal payment inside the window pushes the excess into interest as a NEGATIVE number, and nothing rejects it. Live: E5-4751 2026-06 interest **−$2,815.54** and E6-7410 2026-06 **−$742.29**, both `already_in_xero`. Plus 4140 took a **$5,000** extra principal payment 2026-07-28 → 2026-08-10 that has no split yet. Fix is three parts: (a) enforce `0 ≤ interest ≤ total` and never post a violation — smallest change, stops recurrence, worth shipping alone; (b) a `principal_only` split source so a lump is its own event on its own bank line; (c) detect-and-propose, never guess the split.
+
+**Where to pick up:** recommended order is in §6 of the design doc — invariant first, then correct the two negative-interest splits + the unsplit $5,000 (Root-Cause Rule: only after the invariant exists), then `loan-derive-schedule`, then lump detection. Nothing was built this pass.
+
 ### Session 230 cont. (2026-08-24) — the loan explanation moves into the tool; Ignore on approvals; one issue list
 
 **David, on the PayPal write-up he'd just read in chat: "a succinct version of this info is what I want to see in the tool itself moving forward."** Plus two live catches while it was being built: approvals had no way to say "not now", and the issue queue's "worth a look" / "good to know" split was noise.
