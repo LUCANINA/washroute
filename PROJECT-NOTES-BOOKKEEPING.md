@@ -94,6 +94,28 @@ session — see the session log below for why).
 
 ## Invariants — the actual reason this module has its own skill
 
+### The books must be locked for this tool to work well (session 230)
+
+The close date is what lets the module tell WORK from HISTORY. Without one it
+raises approvals and findings inside months the CPA has already adjusted and
+settled — unactionable by construction, and a list containing unactionable items
+stops being read, which is how the actionable one gets missed too.
+
+- Effective close date = the LATER of `settings.xero_period_lock_date` (Xero's own,
+  preferred — the CPA already sets it) and `settings.books_closed_through` (manual
+  fallback). **Never the earlier**: a stale manual entry must only ever close MORE,
+  never re-open what Xero locked.
+- This org's Xero carries NO lock date as of session 230, so the manual field is the
+  only signal. A stale manual date is worse than none. Ask about it at month end.
+- A closed period stops generating WORK; it never stops the BALANCE being checked.
+  `balance_vs_lender` is about today, not about a closed month — never silence it
+  on account of a close date.
+- Statements for closed periods are still STORED (evidence every balance check
+  needs); only the split/finding is withheld.
+- Splits that reached Xero (posted / staged / already_in_xero) are never touched.
+
+Operating agreement for humans: `BOOKKEEPING-OPERATING-NOTES.md`.
+
 **Double-entry correctness (`loan_splits`, `payroll_import_employee_lines` → Xero journals):**
 - `loan_splits.principal_amount + interest_amount` must equal `total_amount`, and the split total must tie to the real statement delta or amortization row it was computed from. A `status = 'needs_attention'` row exists specifically because this didn't reconcile automatically — never silently force-post one without a human resolving the mismatch first.
 - Payroll journals split by department per `payroll_departments.wage_account_code`/`tax_account_code`. A misconfigured department mapping doesn't fail loudly — it posts real money to the wrong GL account. Any migration or code touching `payroll_departments` needs the same scrutiny as a schema change to a financial table, not routine config.
