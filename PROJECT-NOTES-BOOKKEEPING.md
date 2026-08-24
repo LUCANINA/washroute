@@ -1205,6 +1205,27 @@ to "what is running".
 
 ## Session Log
 
+### Session 230 cont. 6 (2026-08-24) — THE CLOSE DATE: the line past which the system stops asking for work
+
+David, prompted by Funding Circle's five historic approvals: *"when mistakes are made in the past, as with certain Ford transactions and Rapid, our CPA will make an adjustment in order to close our books. When that happens, and if the numbers pencil out, the system SHOULD work on projecting future splits, not those way past a certain point. Closing is done per month."*
+
+**The concept already exists in Xero, so it is not reinvented here.** Xero's Organisation carries `PeriodLockDate` and `EndOfYearLockDate`, and Ramona already sets one when she closes. Reading hers means the product inherits the CPA's own decision instead of maintaining a parallel truth that drifts — and the day two close dates disagree is the day somebody trusts the wrong one. The manual override in `settings.books_closed_through` exists only for the case where she closes WITHOUT setting a lock date.
+
+**Effective close date = the LATER of the two.** A stale manual entry can therefore only ever close MORE, never re-open something Xero has locked. Backwards, and a forgotten field silently un-closes the books.
+
+**The rule: a closed period stops generating WORK; it never stops the BALANCE being checked.** `balance_vs_lender` is a statement about today, not about a closed month — if the current balance disagrees with the lender you still need to know, even when the cause sits in closed books. What goes away is the fourteen historic chores; what stays is the one live finding.
+
+Built: `_shared/close-date.ts` (effective date + `isPeriodClosed`), `xero-close-date` edge function (reads Xero, caches, owns the manual override, and files open splits inside closed periods on request), enforcement in `loan-ingest-statement` v25 (statement still stored — it is evidence every balance check needs — but no split raised) and `loan-cross-check` v3 (per-period findings skipped; balance checks untouched).
+
+**Three judgement calls worth keeping:**
+- **A month closes only when the close date reaches its END.** Closing through the 15th does not close that month; half its transactions are still open and filing them would bury real work. Unit-tested.
+- **A label with no date in it stays OPEN.** Verdant's `Period 84` cannot be placed, and silently filing something we cannot date would hide work. Callers that can resolve a date (via the amortization row) pass it explicitly.
+- **`closed_period` is TERMINAL in `enforce_split_invariant`** (migration `session_230_books_closed_through`, function snapshotted to `_archive` first, assert-guarded). Without that branch the invariant would flip a historic non-balancing row to needs_attention and reinstate exactly the noise the close date removes. It deliberately does not RAISE either: a historic row that never balanced is precisely what a CPA adjustment resolves.
+
+Splits that have reached Xero (posted / staged / already_in_xero) are never touched by any of this — a close date is not a reason to rewrite a record of something real.
+
+**Where to pick up:** deploy `xero-close-date loan-ingest-statement loan-cross-check`, then run xero-close-date as a DRY RUN first — it reports what Xero has locked and lists every split that would be filed, writing nothing. Funding Circle's five 2025-11→2026-07 approvals are the expected catch. Still unbuilt: the client surface (a "books closed through …" line in Bookkeeping plus the override field), and `closed_period` needs excluding from the approvals list.
+
 ### Session 230 cont. 5 (2026-08-24) — ALL FOUR FORDS LIVE, the guard proven in production, and the $5,000 booked
 
 **All four Ford loans now pre-stage.** Live runs matched the offline harness to the digit every time: 4140 → 8.29000715%, E6-7410 → 8.98999001%, E4-9744 → 9.28999297%, E5-4751 → 9.98999141%, each with worst error $0.01. **Six of fourteen active loans staging** (plus PCV, Verdant, Dexter 2, PayPal 2 = 8). 4140's September card is live in Xero as `WR-STAGE 242 2026-09-17`; the other three sit as pending_review cards. E4-9744's anchor payment came back $1,144.55, NOT the $5,000 its newest statement shows — the recurring-payment safeguard held.

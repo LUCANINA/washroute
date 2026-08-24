@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { rederiveIfDerived, REAL_SOURCES } from "../_shared/derive-schedule.ts"
+import { effectiveCloseDate, isPeriodClosed, closedNote } from "../_shared/close-date.ts"
 
 // Ingests one pulled loan statement (Ford Pro CSV today; other lenders/methods later):
 //   1. stores the raw CSV in the loan-statements bucket (permanent proof record)
@@ -476,6 +477,25 @@ async function handleRequest(req: Request): Promise<Response> {
       .single()
     if (stmtErr) {
       return new Response(JSON.stringify({ error: 'loan_statements upsert failed', details: stmtErr.message }), { status: 500 })
+    }
+
+    // ── THE CLOSE DATE (session 230) ─────────────────────────────────────────
+    // A period the CPA has closed is settled. Creating a split inside it asks for
+    // an approval nobody can act on -- the adjustment has been made and the period
+    // is locked -- so the statement is still stored (it is evidence, and every
+    // balance check depends on it) but no work is raised. Note this deliberately
+    // sits ABOVE every split path, including the anchors-only one: the rule is
+    // about the PERIOD, not about which route the statement arrived by.
+    const closeDate = await effectiveCloseDate(supa)
+    const closedFor = (label: string) => isPeriodClosed(label, closeDate.date)
+    if (closeDate.date && closedFor(statement_date.slice(0, 7))) {
+      return new Response(JSON.stringify({
+        ok: true,
+        statement: { id: stmt.id, statement_date: stmt.statement_date, principal_balance: stmt.principal_balance },
+        closed_period: true,
+        splits_created: [],
+        note: closedNote(closeDate, statement_date.slice(0, 7)),
+      }), { headers: { 'Content-Type': 'application/json' } })
     }
 
     // v22: anchors_only -- the statement row above IS the deliverable. Skip every

@@ -49,6 +49,7 @@
 // never compare across bases silently.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { effectiveCloseDate, isPeriodClosed } from '../_shared/close-date.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -116,6 +117,12 @@ Deno.serve(async (req) => {
     }
 
     const today = todayPacific()
+    // Findings about a closed period are unactionable by construction: the CPA has
+    // already adjusted and locked it. Only the checks that are ABOUT a period are
+    // silenced -- a balance check is about today, not about a closed month, and
+    // stays on. (Session 230.)
+    const closeDate = await effectiveCloseDate(supa)
+    const periodClosed = (d: string) => isPeriodClosed(String(d).slice(0, 7), closeDate.date)
 
     let loanQ = supa.from('loan_accounts')
       .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code, xero_account_name, scheduled_monthly_payment')
@@ -227,6 +234,7 @@ Deno.serve(async (req) => {
       if (sched && realStmts.length && schedRows.length) {
         for (const s of realStmts) {
           if (s.statement_date > today) continue
+          if (periodClosed(s.statement_date)) continue   // closed period -- settled, not work
           if (s.balance_basis === 'unknown' || sched.balance_basis === 'unknown') continue
           if (s.balance_basis !== sched.balance_basis) continue  // Check A owns this
           // nearest schedule row within 5 days either side
@@ -282,6 +290,8 @@ Deno.serve(async (req) => {
           for (let i = 1; i < realStmts.length; i++) {
             const gap = daysBetween(realStmts[i - 1].statement_date, realStmts[i].statement_date)
             if (gap <= median * 1.5) continue
+            // A missing statement inside closed books cannot be chased any more.
+            if (periodClosed(realStmts[i].statement_date)) continue
             const missing = Math.max(1, Math.round(gap / median) - 1)
             findings.push({
               fingerprint: `intake:missing_statement_period:${loan.id}:${realStmts[i - 1].statement_date}`,
