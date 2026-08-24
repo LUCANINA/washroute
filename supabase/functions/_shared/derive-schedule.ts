@@ -25,7 +25,7 @@
 import { ensureUpcomingSplit } from "./staging-next.ts"
 import {
   collapseDuplicateBalances, buildPeriods, classifyPeriods, chooseFit, projectRows, recurringPayment,
-  r2, type Period,
+  solvePaymentAndRate, statedPayment, r2, type Period,
 } from "./rate-fit.ts"
 
 export const REAL_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
@@ -87,7 +87,16 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   }
 
   // ── 2. Periods, and which of them are usable evidence ──────────────────────
-  const allPeriods: Period[] = buildPeriods(stmts, num(loan.scheduled_monthly_payment))
+  // The payment a period is measured against, in order of how much it deserves
+  // trust: what a lender statement STATES, then the figure typed onto the loan.
+  // Session 230: going straight to the typed figure is what made Funding Circle
+  // unfittable -- its statements mostly omit the amount due, the account said
+  // $2,000.00, and the real instalment is $2,033.77. Every period's interest was
+  // therefore out by $33.77 and the gate refused a loan that actually fits to a
+  // cent. A typed number must never quietly stand in for the lender's own.
+  const stated = statedPayment(usable)
+  const fallbackPayment = stated ?? num(loan.scheduled_monthly_payment)
+  const allPeriods: Period[] = buildPeriods(stmts, fallbackPayment)
   if (!allPeriods.length) {
     return { ok: false, reason: 'no_periods', message: 'No usable statement-to-statement periods -- no payment amount is known for any of them.' }
   }
@@ -104,8 +113,29 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   const { best, runnerUp, regime } = chooseFit(clean, minPeriods)
   const passes = best.residual <= maxResidual
 
+  // Independent corroboration: solve the rate AND the payment from balances alone
+  // and see whether the payment we USED is the one the loan's own numbers imply.
+  // On Ford 4140 the solver returns $1,180.32 -- the exact printed instalment --
+  // which is real evidence the model is right. A disagreement is surfaced rather
+  // than absorbed: it means the stated payment, the balances, or the model is wrong,
+  // and a human should decide which.
+  const solved = solvePaymentAndRate(best.model, stmts)
+  const usedPayment = recurringPayment(clean, fallbackPayment)
+  const paymentCheck = solved && usedPayment
+    ? {
+        solved_payment: solved.payment,
+        payment_used: r2(usedPayment),
+        stated_on_a_statement: stated,
+        agrees: Math.abs(solved.payment - usedPayment) <= Math.max(0.05, usedPayment * 0.002),
+        note: Math.abs(solved.payment - usedPayment) <= Math.max(0.05, usedPayment * 0.002)
+          ? `The payment implied by this loan's own balances ($${solved.payment.toFixed(2)}) matches the one used ($${r2(usedPayment).toFixed(2)}).`
+          : `The payment implied by this loan's own balances is $${solved.payment.toFixed(2)}, but the figure used is $${r2(usedPayment).toFixed(2)}. One of them is wrong — check the instalment on a recent statement before trusting this projection.`,
+      }
+    : null
+
   const fit = {
     chosen: best.model, annual_rate_percent: best.annual, periodic_rate: best.periodic,
+    payment_check: paymentCheck,
     periods_fitted: best.periods, worst_error_dollars: r2(best.residual),
     passes_gate: passes, gate_max_residual: maxResidual,
     contract_rate_on_file: num(loan.interest_rate),
@@ -128,7 +158,7 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
 
   // ── 4. Project forward from the last real balance ──────────────────────────
   const last = usable[usable.length - 1] ?? stmts[stmts.length - 1]
-  const payment = recurringPayment(clean, num(loan.scheduled_monthly_payment))!
+  const payment = usedPayment!
   const monthly = medianDays >= 26 && medianDays <= 32
   const maturity: string | null = loan.maturity_date ? String(loan.maturity_date).slice(0, 10) : null
 

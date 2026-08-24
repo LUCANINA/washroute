@@ -156,6 +156,69 @@ export function chooseFit(clean: Period[], minPeriods = 4): {
   return { best: candidates[0].fit, runnerUp: candidates[1].fit, regime: candidates[0].meta }
 }
 
+// SOLVE the rate AND the payment from balances alone, as a cross-check.
+//
+// Every model here is linear in two unknowns. For the flat model each period says
+//     principal_i = P - r * b0_i
+// and for the daily model
+//     principal_i = P - r * (b0_i * days_i)
+// so a least-squares line through (b0, principal) yields BOTH the periodic rate and
+// the level payment, using nothing but balances. Nothing is assumed about what the
+// payment is.
+//
+// Why this matters: session 230 found Funding Circle fitting to $1.63 and the gate
+// refusing it. The rate model was fine -- the PAYMENT was wrong. Its statements
+// mostly omit the amount due, so the fitter fell back to
+// loan_accounts.scheduled_monthly_payment, a human's note reading $2,000.00 when the
+// real instalment is $2,033.77. Same class of error as the contract rate saying
+// 9.000% for a Ford loan charging 8.29%: a typed figure quietly poisoning a
+// measurement. With the right payment the same loan fits to ONE CENT at 17.99%.
+//
+// So this is not used to replace the lender's own stated payment -- it is used to
+// CHECK it. Solved and stated agreeing is meaningful corroboration (on Ford 4140 the
+// solver returns $1,180.32, the exact printed instalment); disagreeing is a signal
+// that one of them is wrong, which a human should see rather than a projection
+// silently absorb.
+export function solvePaymentAndRate(model: RateModel, stmts: StatementLike[]): {
+  rate: number; payment: number; residual: number; points: number
+} | null {
+  const pts: Array<{ x: number; y: number }> = []
+  for (let k = 1; k < stmts.length; k++) {
+    const b0 = Number(stmts[k - 1].principal_balance)
+    const principal = r2(b0 - Number(stmts[k].principal_balance))
+    const days = daysBetween(stmts[k - 1].statement_date, stmts[k].statement_date)
+    if (!Number.isFinite(b0) || b0 <= 0 || !Number.isFinite(principal) || days <= 0) continue
+    pts.push({ x: model === 'daily_actual_365' ? b0 * days : b0, y: principal })
+  }
+  if (pts.length < 3) return null
+  const n = pts.length
+  const sx = pts.reduce((s, p) => s + p.x, 0)
+  const sy = pts.reduce((s, p) => s + p.y, 0)
+  const sxx = pts.reduce((s, p) => s + p.x * p.x, 0)
+  const sxy = pts.reduce((s, p) => s + p.x * p.y, 0)
+  const den = n * sxx - sx * sx
+  if (Math.abs(den) < 1e-9) return null
+  const slope = (n * sxy - sx * sy) / den
+  const payment = (sy - slope * sx) / n
+  const rate = -slope
+  if (!(rate > 0) || !(payment > 0)) return null
+  const residual = Math.max(...pts.map((p) => Math.abs((payment - rate * p.x) - p.y)))
+  return { rate: r8(rate), payment: r2(payment), residual: r2(residual), points: n }
+}
+
+// The payment figure a fit should REST on, in order of how much it deserves trust:
+//   1. what a lender statement actually states (their own number, most recent first)
+//   2. the scheduled payment typed onto the loan account (a human's note)
+// The solver above then checks whichever was used. Session 230: skipping straight to
+// (2) is what made Funding Circle look unfittable.
+export function statedPayment(stmts: StatementLike[]): number | null {
+  for (let k = stmts.length - 1; k >= 0; k--) {
+    const due = num(stmts[k].total_amount_due)
+    if (due !== null && due > 0) return r2(due)
+  }
+  return null
+}
+
 // The recurring payment, taken from EVIDENCE rather than from the newest statement.
 // E4 -9744's most recent statement carries total_amount_due = $5,000 -- a one-off
 // extra principal payment, not the monthly instalment. Anchoring a projection to it
