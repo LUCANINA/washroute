@@ -14939,7 +14939,10 @@ ${noActivityNote}
           anchors_only: _loanUploadBulkAnchorsOnly || undefined,
           balance_basis: _loanUploadBulkAnchorsOnly ? 'principal_only' : undefined,
         });
-        if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
+        // Carry the server's reason through. A bare "Storage upload failed" with the
+        // detail swallowed (session 230) cost a round trip to diagnose something the
+        // server had already explained.
+        if (!ok || data.error) throw new Error([data.error || 'Ingest failed', data.details].filter(Boolean).join(' — '));
         succeeded++;
         splitCount += (data.splits_created?.length ?? (data.split ? 1 : 0));
       } catch (e) {

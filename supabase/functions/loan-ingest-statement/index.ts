@@ -220,6 +220,32 @@ function admin() {
   )
 }
 
+// Storage object keys are not a free-text field. Session 230: David photographed
+// the Ford portal and macOS named it "Screenshot 2026-08-24 at 2.30.19 PM.png";
+// dropped into the path verbatim it produced a key with spaces and repeated dots
+// that Storage refused, and the whole import failed with a bare "Storage upload
+// failed" AFTER the figures had been read and checked -- the most frustrating
+// possible place to stop, since everything hard had already succeeded.
+//
+// Uploads have only ever come from parsers producing tidy names, so this never
+// showed. Now that a human's own file names reach it, the key gets built rather
+// than concatenated: the extension is preserved (it is what contentTypeFor reads),
+// everything else is reduced to letters, digits, dot, dash and underscore, and the
+// length is capped so a long name cannot push the key past Storage's limit.
+function safeObjectName(filename: string): string {
+  const raw = String(filename || 'upload').trim()
+  const lastDot = raw.lastIndexOf('.')
+  const ext = lastDot > 0 ? raw.slice(lastDot + 1).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) : ''
+  const stem = (lastDot > 0 ? raw.slice(0, lastDot) : raw)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')   // spaces and punctuation become dashes
+    .replace(/\.+/g, '.')                // no runs of dots
+    .replace(/-+/g, '-')                 // no runs of dashes
+    .replace(/^[-.]+|[-.]+$/g, '')       // never lead or trail with one
+    .slice(0, 80)
+  const base = stem || 'upload'
+  return ext ? `${base}.${ext}` : base
+}
+
 function contentTypeFor(filename: string) {
   const ext = (filename.split('.').pop() || '').toLowerCase()
   if (ext === 'pdf') return 'application/pdf'
@@ -419,13 +445,13 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     // 1. Upload the raw CSV to storage (permanent proof record)
-    const storagePath = `${loanAcct.id}/${statement_date}-${csv_filename}`
+    const storagePath = `${loanAcct.id}/${statement_date}-${safeObjectName(csv_filename)}`
     const csvBytes = Uint8Array.from(atob(csv_base64), c => c.charCodeAt(0))
     const { error: uploadErr } = await supa.storage
       .from('loan-statements')
       .upload(storagePath, csvBytes, { contentType: contentTypeFor(csv_filename), upsert: true })
     if (uploadErr) {
-      return new Response(JSON.stringify({ error: 'Storage upload failed', details: uploadErr.message }), { status: 500 })
+      return new Response(JSON.stringify({ error: 'Storage upload failed', details: uploadErr.message, attempted_path: storagePath }), { status: 500 })
     }
 
     // 2. Upsert the statement row
