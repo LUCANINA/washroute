@@ -455,13 +455,101 @@ async function handleRequest(req: Request): Promise<Response> {
     // v22: anchors_only -- the statement row above IS the deliverable. Skip every
     // split path (delta, explicit, transactions, backfill) so a bulk history
     // import creates zero approvals.
+    //
+    // v24 (session 230) -- ONE narrow exception, because v22 turned out to have a
+    // permanent side effect nobody intended. Ford statements only ever arrive
+    // through this path, so those four loans stopped getting splits ENTIRELY: 4140
+    // took its regular 2026-08 payment and there was no entry for it anywhere, so
+    // $110.03 of interest sat in the loan account instead of interest expense, and
+    // the same would have happened every month forever.
+    //
+    // The exception is deliberately the narrowest thing that fixes it: a row that
+    // carries the lender's OWN principal AND interest figures, for a period we have
+    // not already accounted for, at or after the newest period already posted.
+    // Everything about v22's original reason survives -- importing a 2022-2026
+    // history still creates zero approvals, because every one of those periods is
+    // older than the newest posted one.
+    //
+    // Four conditions, each earning its place:
+    //   1. explicit principal AND interest, both > 0 -- nothing is inferred here.
+    //      This also excludes a lump-sum row (principal only, no interest), which
+    //      is loan-record-principal-payment's job and is keyed by DATE not month.
+    //   2. no split already exists for that month -- never overwrite, never
+    //      duplicate.
+    //   3. no principal_payment split already recorded on that exact date -- the
+    //      lump David booked by hand this morning must not come back as a second
+    //      entry when the same history is re-uploaded.
+    //   4. the period is not older than the newest posted/already_in_xero period.
+    //      A loan with no posted period at all stays anchors-only: without a
+    //      cutoff there is nothing to stop a full history becoming 45 approvals,
+    //      which is precisely what v22 was written to prevent.
     if (anchors_only) {
+      const exP = explicit_split != null ? Number((explicit_split as any).principal) : NaN
+      const exI = explicit_split != null ? Number((explicit_split as any).interest) : NaN
+      const hasExplicit = Number.isFinite(exP) && Number.isFinite(exI) && exP > 0 && exI > 0
+      const periodLabel = statement_date.slice(0, 7)
+      let anchorSplit: any = null
+      let anchorNote = 'Filed as a reconciliation history anchor -- no split was generated.'
+
+      if (!hasExplicit) {
+        anchorNote = 'Filed as a reconciliation history anchor -- this row carries no lender principal/interest split, so no entry was generated.'
+      } else {
+        const { data: sameMonth } = await supa.from('loan_splits')
+          .select('id, status').eq('loan_account_id', loanAcct.id).eq('period_label', periodLabel).maybeSingle()
+        const { data: sameDay } = await supa.from('loan_splits')
+          .select('id, status').eq('loan_account_id', loanAcct.id).eq('period_label', statement_date).maybeSingle()
+        const { data: doneSplits } = await supa.from('loan_splits')
+          .select('period_label').eq('loan_account_id', loanAcct.id).in('status', ['posted', 'already_in_xero'])
+        const doneMonths = (doneSplits || [])
+          .map((r: any) => String(r.period_label).slice(0, 7))
+          .filter((m: string) => /^\d{4}-\d{2}$/.test(m)).sort()
+        const cutoff = doneMonths.length ? doneMonths[doneMonths.length - 1] : null
+
+        if (sameMonth) {
+          anchorNote = `Filed as a history anchor -- a ${sameMonth.status} entry already exists for ${periodLabel}, so nothing was added.`
+        } else if (sameDay) {
+          anchorNote = `Filed as a history anchor -- an entry dated ${statement_date} already exists (${sameDay.status}), so nothing was added.`
+        } else if (!cutoff) {
+          anchorNote = 'Filed as a history anchor -- this loan has no posted period yet, so the whole history stays anchors-only.'
+        } else if (periodLabel < cutoff) {
+          anchorNote = `Filed as a history anchor -- ${periodLabel} is older than the newest posted period (${cutoff}), so it is history rather than new work.`
+        } else {
+          const p = money(exP), i = money(exI)
+          const t = money(exP + exI)
+          const { data: created, error: createErr } = await supa.from('loan_splits').insert({
+            loan_account_id: loanAcct.id,
+            period_label: periodLabel,
+            current_statement_id: stmt.id,
+            prior_statement_id: null,
+            source: 'explicit_split',
+            principal_amount: p, interest_amount: i, total_amount: t,
+            status: 'pending_review',
+            review_notes: `Taken from the lender's own transaction history for ${statement_date}: principal $${p.toFixed(2)} + interest $${i.toFixed(2)}. Both figures are the lender's, not computed from a balance difference.`,
+          }).select().single()
+          if (createErr) {
+            anchorNote = `Filed as a history anchor, but the entry for ${periodLabel} could not be created: ${createErr.message}`
+          } else {
+            anchorSplit = created
+            anchorNote = `Filed as a history anchor, and the ${periodLabel} payment was entered from the lender's own principal/interest split.`
+          }
+        }
+      }
+
+      // A new real anchor can also move a derived projection -- same reasoning as
+      // the ordinary ingest path below.
+      let rederivedAnchor: any = { skipped: 'not a real lender statement' }
+      if (REAL_SOURCES.includes(String(stmt?.source ?? ''))) {
+        rederivedAnchor = await rederiveIfDerived(supa, loanAcct.id, `new lender statement dated ${stmt.statement_date}`)
+      }
+
       return new Response(JSON.stringify({
         ok: true,
         statement: { id: stmt.id, statement_date: stmt.statement_date, principal_balance: stmt.principal_balance },
         anchors_only: true,
-        splits_created: [],
-        note: 'Filed as a reconciliation history anchor -- no split was generated.',
+        split: anchorSplit,
+        splits_created: anchorSplit ? [anchorSplit] : [],
+        rederived: rederivedAnchor,
+        note: anchorNote,
       }), { headers: { 'Content-Type': 'application/json' } })
     }
 
