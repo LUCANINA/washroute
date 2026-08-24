@@ -13318,6 +13318,14 @@
     if (t.paymentCount) chip('Term', `${t.paymentCount} ${esc(t.cadence || '')} payments`, `${t.firstPayment} → ${t.maturity}`);
     if (t.scheduledPayment != null) chip('Payment', `${money2(t.scheduledPayment)}${t.cadence === 'weekly' ? '/wk' : t.cadence === 'monthly' ? '/mo' : ''}`);
     if (t.rate != null) chip('Rate', `${t.rate}%<span style="font-size:11px;color:var(--gray-500)"> (as printed on the schedule)</span>`);
+    // Session 230: the MEASURED rate, shown next to the typed-in one. loan_accounts
+    // .interest_rate said 9.000% for three Ford loans whose real rates are 8.29%,
+    // 9.99% and 8.99% -- $10-12 a period. Showing both is how a wrong contract note
+    // gets noticed instead of quietly costing money.
+    if (a.fitted_annual_rate != null) {
+      chip('Measured rate', `${Number(a.fitted_annual_rate).toFixed(3)}%<span style="font-size:11px;color:var(--gray-500)"> (from ${a.rate_fit_periods || '?'} statements, worst error ${a.rate_fit_residual != null ? money2(a.rate_fit_residual) : 'n/a'})</span>`,
+        `Measured from this loan's own lender statements${a.interest_rate != null ? `; the rate typed in from the contract is ${Number(a.interest_rate).toFixed(3)}%` : ''}.`);
+    }
     else if (t.totalFee != null) chip('Fixed loan fee', `${money2(t.totalFee)}<span style="font-size:11px;color:var(--gray-500)"> (in place of interest)</span>`);
     if (t.maturity) chip('Final payment', esc(t.maturity));
 
@@ -13334,7 +13342,16 @@
       </div>`;
     const docItems = [
       ...docs.map(d => docLine(d.title || LOAN_DOC_TYPE_LABELS[d.doc_type] || 'Document', `${LOAN_DOC_TYPE_LABELS[d.doc_type] || d.doc_type} · ${d.created_at ? d.created_at.slice(0, 10) : ''}${d.notes ? ' · ' + d.notes : ''}`, d.storage_path)),
-      ...(t.schedules || []).map(s => docLine('Amortization schedule' + (s.generated ? ` — ${s.generated}` : ''), `${s.type ? s.type.replace(/_/g, ' ') + ' · ' : ''}balance basis: ${(s.basis || 'unknown').replace(/_/g, ' ')}`, s.path)),
+      // A DERIVED schedule (session 230) has no file behind it -- it was computed from
+      // this loan's own statements, and its storage_path is a marker, not an object in
+      // the bucket. Rendering it as a link would open a 404 and imply a document that
+      // does not exist.
+      ...(t.schedules || []).map(s => String(s.path || '').startsWith('derived://')
+        ? `<div style="padding:7px 0;border-bottom:1px solid var(--gray-100)">
+             <div style="font-size:13px;color:var(--gray-900)">Derived schedule${s.generated ? ` — ${esc(s.generated)}` : ''}</div>
+             <div style="font-size:11.5px;color:var(--gray-500);margin-top:1px">Computed from this loan's own lender statements — no document to open. ${esc((s.type || '').replace(/_/g, ' '))}</div>
+           </div>`
+        : docLine('Amortization schedule' + (s.generated ? ` — ${s.generated}` : ''), `${s.type ? s.type.replace(/_/g, ' ') + ' · ' : ''}balance basis: ${(s.basis || 'unknown').replace(/_/g, ' ')}`, s.path)),
     ];
     const docsHtml = docItems.length ? docItems.join('') : `<div style="color:var(--gray-400);font-size:13px;padding:10px 0">No documents on file yet.</div>`;
 

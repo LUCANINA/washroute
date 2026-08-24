@@ -41,9 +41,12 @@ between statements, `actual/365`):
 
 | Loan | Fitted rate | Periods tested | Worst error |
 |---|---|---|---|
-| E-Transit Loan - 4140 | 8.29% | 5 | **$0.01** |
-| E-Transit Loan E5-4751 | 9.99% | 6 | **$0.01** |
-| E-Transit Loan E6-7410 | 8.99% | 6 | **$0.01** |
+| E-Transit Loan - 4140 | 8.29% | 11 | **$0.01** |
+| E-Transit Loan E4 -9744 | 9.29% | 9 | **$0.01** |
+| E-Transit Loan E5-4751 | 9.99% | 11 | **$0.01** |
+| E-Transit Loan E6-7410 | 8.99% | 16 | **$0.01** |
+
+*(Built and re-measured in the same session — see "As built" at the end.)*
 
 Two things to notice.
 
@@ -61,7 +64,7 @@ Running the same fit across the other statement-based loans:
 
 | Loan | Best model | Worst error | Verdict |
 |---|---|---|---|
-| Funding Circle | flat monthly, 1.4510%/mo (17.41%/yr) | $1.41 | stageable |
+| Funding Circle | flat monthly, 1.4510%/mo (17.41%/yr) | $1.63 | **fails the $0.05 gate** — see "As built" |
 | BayFirst SBA Loan | neither model | $85.11 | **not** stageable yet |
 | BayFirst SBA 2 | neither model | $109.78 | **not** stageable yet |
 | Rapid Credit Line | n/a — balance goes *up* (draws) | — | never stageable |
@@ -154,7 +157,23 @@ Roughly one focused session for the Fords, with Funding Circle following for fre
 
 The last two are negative interest expense sitting in the ledger right now.
 
-### 4.2 Root cause
+### 4.2 Root cause — TWO causes, not one
+
+Building this revealed that the two live negative-interest splits are **not** extra
+principal payments at all. Both were computed across **non-adjacent statements**:
+E5-4751 diffed 2026-01-23 against 2026-06-22 (150 days) and E6-7410 diffed 2026-03-20
+against 2026-06-19 (91 days), counting five and three months of principal against a
+single month's payment. The statements in between were uploaded later, and nothing
+ever recomputed the period. So there are two distinct failures with one symptom:
+
+1. **A multi-period span** — a backfill ran when the intervening statements were
+   missing, and no recompute happened when they arrived. (Both live cases.)
+2. **A genuine off-schedule principal payment** — 4140's $5,000 on 2026-08-10,
+   E4 -9744's $4,903.21 in May, N202-8562's $5,000 and payoff.
+
+Both break the same identity, and the invariant catches both. They need different
+fixes: (1) wants a recompute when better statements arrive, (2) wants the lump booked
+as its own entry.
 
 `statement_delta` assumes exactly one scheduled payment between two statements:
 
@@ -236,3 +255,50 @@ mismatch for the CPA to clean up, which is the opposite of the point.
 5. Revisit Class D once real BayFirst / EIDL statements are on file.
 
 Steps 1 and 2 are worth doing whether or not steps 3–4 ever ship.
+
+
+---
+
+## 7. As built (session 230, same day)
+
+Everything in §6 steps 1–4 is written, type-checked and committed. What changed
+against the plan above, and why:
+
+**The invariant lives in the DATABASE, not in each edge function.** loan_splits has
+five writers; a rule implemented in each is a rule the sixth skips. It is a
+`BEFORE INSERT OR UPDATE` trigger calling `split_invariant_check()`, plus an RPC call
+to that same function inside loan-xero-post v48 **before** any Xero write — because a
+refusal that happened after the Xero call would strand a real journal with no row to
+record it. One rule, one definition, two enforcement points with different jobs.
+
+**The rule is stated on the total, not on the signs.** Two shapes that look wrong are
+correct and had to keep working: a net-zero **reclassification** (total $0, principal
+= −interest — Rapid's fee rows) and a **draw** (total < 0, all principal — Funding
+Circle's −$46,843.84). Swept across all 687 splits: 681 pass, 4 fail.
+
+**Two live defects corrected** (E5-4751 and E6-7410, 2026-06), recomputed from the
+now-adjacent statements to $778.28/$268.67 and $463.49/$180.01 — both matching the
+lender's own daily accrual to the cent. Snapshotted to `_archive.loan_splits_s230_multiperiod`
+first, and left as `needs_attention` rather than silently re-marked handled, because
+whatever was entered in Xero for those periods still needs checking by a person.
+
+**The fitter is a separate module** (`_shared/rate-fit.ts`) with no Supabase, no
+Deno.env and no network, so it can be replayed offline against every loan's real
+history — which is how three defects were caught before shipping:
+- the projection anchored on the newest statement's `total_amount_due`, which for
+  E4 -9744 is a one-off $5,000, producing a schedule of $5,000 monthly instalments;
+- it anchored on the newest *distinct balance* rather than the newest statement, so a
+  paid-ahead loan projected from three months ago;
+- Ford's twice-monthly portal pulls carry the same balance twice, which invents a
+  zero-payment period and wrecks the fit unless duplicate balances are collapsed.
+
+**Funding Circle does not pass the gate.** Its best fit misses by $1.63, not the
+$1.41 first measured, and the gate is $0.05. The function refuses and says so. The
+earlier claim that it was stageable was wrong: $1.63 is an estimate, and a staged
+transaction wrong by $1.63 is a transaction the CPA has to fix.
+
+**Detection is automatic, booking is not.** loan-cross-check v3 adds
+`off_schedule_principal_payment`, which fires exactly once across all 14 active loans
+today — 4140's $5,000. It deliberately presents *both* readings of the numbers (the
+whole $5,000, or $3,819.68 alongside a regular payment) because only the bank feed
+knows which, and loan-record-principal-payment books whichever a human confirms.

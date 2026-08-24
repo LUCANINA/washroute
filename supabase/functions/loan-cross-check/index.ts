@@ -1,4 +1,9 @@
-// loan-cross-check — v2
+// loan-cross-check — v3
+// v3 (session 230): CHECK D, off_schedule_principal_payment -- detects a balance
+// that fell by more than the scheduled payment explains, and proposes booking the
+// extra as its own entry (loan-record-principal-payment) so the period stops
+// computing negative interest.
+//
 // v2 (session 230): finding titles now name the LOAN, not just the lender. Ford Pro
 // FinSimple finances five vans on five separate loan accounts, so a title reading
 // "Ford Pro FinSimple: a statement period looks missing" told nobody WHICH van's
@@ -113,7 +118,7 @@ Deno.serve(async (req) => {
     const today = todayPacific()
 
     let loanQ = supa.from('loan_accounts')
-      .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code, xero_account_name')
+      .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code, xero_account_name, scheduled_monthly_payment')
     if (onlyLoanId) loanQ = loanQ.eq('id', onlyLoanId)
     const { data: loans } = await loanQ
     if (!loans?.length) {
@@ -122,7 +127,7 @@ Deno.serve(async (req) => {
     const loanIds = loans.map((l: any) => l.id)
 
     const { data: statements } = await supa.from('loan_statements')
-      .select('id, loan_account_id, statement_date, principal_balance, balance_basis, source')
+      .select('id, loan_account_id, statement_date, principal_balance, balance_basis, source, total_amount_due')
       .in('loan_account_id', loanIds)
     const { data: schedules } = await supa.from('loan_amortization_schedules')
       .select('id, loan_account_id, balance_basis, schedule_generated_date')
@@ -303,6 +308,63 @@ Deno.serve(async (req) => {
               },
             })
           }
+        }
+      }
+      // ── CHECK D: off_schedule_principal_payment ────────────────────────────
+      // The balance fell by MORE than the scheduled payment can explain, which means
+      // an extra principal payment landed inside the window. Until session 230 this
+      // was silently absorbed into the period's interest -- as a negative number,
+      // which then posted (E5-4751 and E6-7410, both 2026-06). The split invariant
+      // now refuses to book it; this check is what tells a human WHY and what to do.
+      //
+      // Detection is automatic. The booking is not: only the bank feed (or a person)
+      // knows the DATE the extra payment left the account, and the date decides which
+      // period it belongs to. So this proposes, and loan-record-principal-payment
+      // does the work once someone confirms.
+      if (loan.status === 'active' && realStmts.length >= 2) {
+        for (let i = 1; i < realStmts.length; i++) {
+          const prev = realStmts[i - 1], cur = realStmts[i]
+          if (prev.statement_date > today || cur.statement_date > today) continue
+          const drop = Number((n(prev.principal_balance)! - n(cur.principal_balance)!).toFixed(2))
+          const scheduled = n(cur.total_amount_due) ?? n(loan.scheduled_monthly_payment)
+          if (scheduled == null || scheduled <= 0) continue
+          const extra = Number((drop - scheduled).toFixed(2))
+          // A dollar of slack absorbs rounding; anything real is far larger. And a
+          // window longer than ~1.5 payment cycles is a MISSING STATEMENT, not an
+          // extra payment -- Check C owns that, and double-flagging one gap as two
+          // different problems is how a list stops being believed.
+          const gap = daysBetween(prev.statement_date, cur.statement_date)
+          if (extra <= 1) continue
+          if (gap > 46) continue
+          findings.push({
+            fingerprint: `intake:off_schedule_principal:${loan.id}:${cur.statement_date}`,
+            loan_account_id: loan.id,
+            check_key: 'off_schedule_principal_payment',
+            severity: 'warn',
+            title: `${loanLabel}: an extra principal payment around ${cur.statement_date}`,
+            plain_english:
+              `Between ${prev.statement_date} and ${cur.statement_date} this loan's balance fell ${money(drop)}, `
+              + `but the scheduled payment is only ${money(scheduled)} — ${money(extra)} more principal came off than the regular payment explains. `
+              + `That is almost always a deliberate extra principal payment. It matters because a period's interest is worked out as payment minus principal: `
+              + `with the extra payment folded in, the interest comes out negative, which is impossible and cannot be booked. `
+              + `Two readings fit these numbers and only you can say which is right: either the extra payment was ${money(drop)} `
+              + `and the regular payment fell outside this window, or it was ${money(extra)} alongside a regular payment inside it.`,
+            proposed_action: {
+              kind: 'record_principal_payment',
+              note: `Confirm the date the extra payment left the bank and which amount is right — ${money(drop)} if the regular payment is not in this window, or ${money(extra)} if it is — then record it as its own entry. Whatever is left in the window is recomputed as the ordinary period.`,
+              loan_account_id: loan.id,
+              suggested_amount: extra,
+              alternative_amount: drop,
+              window_from: prev.statement_date,
+              window_to: cur.statement_date,
+              scheduled_payment: scheduled,
+            },
+            detail: {
+              window_from: prev.statement_date, window_to: cur.statement_date, gap_days: gap,
+              balance_fell: drop, scheduled_payment: scheduled, extra_principal: extra,
+              prior_balance: n(prev.principal_balance), current_balance: n(cur.principal_balance),
+            },
+          })
         }
       }
     }
