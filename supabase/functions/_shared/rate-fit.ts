@@ -89,6 +89,40 @@ export function classifyPeriods(periods: Period[]): {
   return { clean, excluded, medianDays }
 }
 
+// THE CURRENT REGIME, not the whole life of the loan.
+//
+// E-Transit 4140's first live run fitted 43 periods back to 2022 and missed by $0.62,
+// against $0.01 on recent history. The reason turned out to be real: its implied
+// daily rate sits at 22.712e-5 for most of the loan, but drops to 22.650e-5 for
+// eleven months (2024-02 to 2024-12) and then returns. The loan genuinely changed
+// rate and changed back. Averaging across that break produces a rate that was never
+// true on any single period.
+//
+// So: start from the newest period and walk backwards while each period's own
+// implied rate stays within `tol` of it. Stop at the break. Within a regime the
+// spread is ~0.005%; the 4140 break is 0.27%, so a 0.1% tolerance separates them
+// with two orders of magnitude to spare in both directions.
+//
+// This uses as much evidence as is CONSISTENT, rather than as much as exists -- and
+// it reports the break, which is how a rate change becomes visible instead of just
+// degrading the fit.
+export function currentRegime(ps: Period[], model: RateModel, tol = 0.001): {
+  regime: Period[]; dropped: number; breakAt: string | null
+} {
+  if (ps.length < 2) return { regime: ps, dropped: 0, breakAt: null }
+  const implied = (p: Period) => (model === 'daily_actual_365' ? p.interest / (p.b0 * p.days) : p.interest / p.b0)
+  const newest = implied(ps[ps.length - 1])
+  if (!Number.isFinite(newest) || newest <= 0) return { regime: ps, dropped: 0, breakAt: null }
+  const regime: Period[] = []
+  let breakAt: string | null = null
+  for (let k = ps.length - 1; k >= 0; k--) {
+    const r = implied(ps[k])
+    if (!Number.isFinite(r) || Math.abs(r - newest) / newest > tol) { breakAt = ps[k].to; break }
+    regime.unshift(ps[k])
+  }
+  return { regime, dropped: ps.length - regime.length, breakAt }
+}
+
 export function fitModel(model: RateModel, ps: Period[]): Fit {
   const rate = ps.reduce((s, p) =>
     s + (model === 'daily_actual_365' ? p.interest / (p.b0 * p.days) : p.interest / p.b0), 0) / ps.length
@@ -106,10 +140,20 @@ export function fitModel(model: RateModel, ps: Period[]): Fit {
 
 // Ford accrues DAILY on the outstanding balance; Funding Circle accrues a FLAT
 // amount per period. Try both, let the loan's own numbers pick.
-export function chooseFit(clean: Period[]): { best: Fit; runnerUp: Fit } {
-  const fits = [fitModel('daily_actual_365', clean), fitModel('flat_per_period', clean)]
-    .sort((a, b) => a.residual - b.residual)
-  return { best: fits[0], runnerUp: fits[1] }
+export function chooseFit(clean: Period[], minPeriods = 4): {
+  best: Fit; runnerUp: Fit; regime: { periods: number; dropped: number; breakAt: string | null }
+} {
+  const models: RateModel[] = ['daily_actual_365', 'flat_per_period']
+  const candidates = models.map((m) => {
+    // Trim to the current regime first, then fit -- but never below the minimum
+    // number of periods a fit is allowed to rest on. If the regime is too short,
+    // fall back to everything and let the residual gate refuse it honestly rather
+    // than manufacture confidence from three data points.
+    const { regime, dropped, breakAt } = currentRegime(clean, m)
+    const use = regime.length >= minPeriods ? regime : clean
+    return { fit: fitModel(m, use), meta: { periods: use.length, dropped: use === clean ? 0 : dropped, breakAt: use === clean ? null : breakAt } }
+  }).sort((a, b) => a.fit.residual - b.fit.residual)
+  return { best: candidates[0].fit, runnerUp: candidates[1].fit, regime: candidates[0].meta }
 }
 
 // The recurring payment, taken from EVIDENCE rather than from the newest statement.

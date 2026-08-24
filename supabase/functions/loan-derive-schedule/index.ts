@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     }
 
     // ── 3. Fit both conventions; the better one wins ─────────────────────────
-    const { best, runnerUp } = chooseFit(clean)
+    const { best, runnerUp, regime } = chooseFit(clean, minPeriods)
     const passes = best.residual <= maxResidual
 
     const fitReport = {
@@ -150,6 +150,13 @@ Deno.serve(async (req) => {
       passes_gate: passes, gate_max_residual: maxResidual,
       contract_rate_on_file: num(loan.interest_rate),
       runner_up: { model: runnerUp.model, worst_error_dollars: r2(runnerUp.residual) },
+      // How much history the fit actually rests on, and where this loan last changed
+      // rate. 4140 changed rate for eleven months in 2024 and changed back; averaging
+      // across that produced a rate that was true in no single period.
+      regime: regime.breakAt
+        ? { periods_used: regime.periods, periods_before_rate_change: regime.dropped,
+            note: `This loan's rate changed around ${regime.breakAt}; only the ${regime.periods} periods since then were used.` }
+        : { periods_used: regime.periods, periods_before_rate_change: 0, note: 'No rate change detected — the whole clean history was used.' },
       per_period: best.errors,
       excluded_periods: excluded,
     }
