@@ -1205,6 +1205,25 @@ to "what is running".
 
 ## Session Log
 
+### Session 230 cont. (2026-08-24) — the loan explanation moves into the tool; Ignore on approvals; one issue list
+
+**David, on the PayPal write-up he'd just read in chat: "a succinct version of this info is what I want to see in the tool itself moving forward."** Plus two live catches while it was being built: approvals had no way to say "not now", and the issue queue's "worth a look" / "good to know" split was noise.
+
+**1. Loan detail panel gains two sections, deliberately produced two different ways.**
+- **How this loan is structured** — STORED (`loan_accounts.structure_note`, migration `session_230_loan_structure_note`, plus `_updated_at`/`_updated_by`). Contract terms and booking treatment; data can't infer them, and they change only on a refinance. Admin/manager edit it inline. Written now for the four staging loans (PayPal 2, PCV, Verdant, Dexter 2); every other loan shows "Not documented yet" with a Write it button.
+- **Where the accounting can be better** — COMPUTED live by `_bkLoanImprovements(loanId)`, never stored. A stored improvement list goes stale silently — the exact failure that opened this session. Four inputs: this loan's open reconciliation/intake findings (not re-derived — one writer), payments already taken with no split computed, posted splits with no Xero journal ID, and a lender anchor older than `DEBT_SCHED_STALE_DAYS`.
+- **Migration ordering respected:** column applied and its data-API visibility PROVEN by REST round-trip (200, columns present) BEFORE the client code that writes it ships. Session 176/177's rule.
+
+**The coverage rule is the part with teeth.** `period_label` is not one shape: PayPal 2 uses exact dates, Verdant 'Period 1'..'Period 84', Dexter 2 the real payment date against month-END schedule rows, PCV/Dexter months. A row counts as covered by `amortization_row_id` (authoritative), exact date, its month, or a date label within **3 days** (< a weekly loan's 7-day spacing, so it can never make one weekly draft cover its neighbour). Label-only matching would have falsely flagged all 77 of Verdant's periods and 28 of Dexter 2's. The window starts at the first period the loan was ever tracked for, so a loan that predates the system isn't "missing" every split back to origination. Verified against live data: PayPal 2 → exactly the 3 known backlog drafts (8/5, 8/12, 8/19); Verdant, Dexter 1, Dexter 2 → zero.
+
+**2. Approvals can be ignored (David: "I need a way to click 'ignore' to make the approval go away").** Every pending approval row — loan split, payroll import, retail reclass — gets an Ignore button using the same `bk_issue_dismissals` store the issue queue uses, so the decision holds on every device. It archives the ROW, never the record: the split stays `pending_review`, nothing financial changes, one click restores it from an **Ignored** line under the approvals list (its own line — an ignored approval is still work waiting, and burying it among archived notes is how it gets forgotten). **Staged splits deliberately get no Ignore**: a staged split has a live transaction sitting in Xero, and hiding the row would hide that.
+
+**3. "Worth a look" and "good to know" merged into one list, every row with Got it.** Tier 3's muted styling dropped (two shades in one list read as a bug), the collapsed good-to-know toggle and `_bkGtkOpen` deleted, status line now reads one combined count. **Tier 1 (Fix first) stays undismissable** — an error anyone can wave away is an error nobody fixes.
+
+**QA:** `qa-loan-improvements.mjs` — the function is LIFTED VERBATIM from index.html at test time (no port drift possible), 19 checks: the PayPal weekly shape, Verdant's row-id coverage, month labels, Dexter's ±2-day drift, a 4-day drift correctly NOT covered, weekly gaps still caught under the tolerance, pre-tracking history ignored, untracked loan silent, hand-posted ratio, stale anchor on/off, findings filtered by loan/status/dismissal and sorted error-first, clean and unknown loans empty. All green; both script blocks parse.
+
+**Where to pick up:** ships with David's push. Then: write structure notes for the remaining loans as their contracts come to hand, and consider whether the improvements list belongs on the Debt Schedule export too.
+
 ### Session 230 (2026-08-24) — the check with no button, and findings that name the loan
 
 **David, on two Needs Attention cards: re-run the check on PayPal 2, and "identify which loan is affected instead of a generic statement" on Ford Pro.** Both traced to the same layer: `loan-cross-check`, the intake cross-validation function, which owns basis_conflict / schedule_vs_statement / missing_statement_period.

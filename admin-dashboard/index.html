@@ -8386,7 +8386,6 @@
   // expanded state of the good-to-know section and the archived list, and the
   // last-seen issue count (for detecting the "queue just hit zero" moment).
   let _bkDismissals = new Map();
-  let _bkGtkOpen = false;
   let _bkArchivedOpen = false;
   let _bkPrevIssueCount = null;
   let _retailReclassPeriod = null;  // e.g. '2026-07' while the monthly retail cash reclass is outstanding
@@ -8570,6 +8569,10 @@
     // Archived good-to-know items leave the queue (restorable from the
     // Archived list); within a tier, bigger dollar impact floats up.
     const live = items.filter(i => !_bkDismissals.has(i.key));
+    // Session 230, David: "worth a look" and "good to know" are ONE section now, and
+    // every row in it gets a Got it. Tier 1 (fix first) deliberately stays
+    // undismissable -- an error anyone can wave away is an error nobody fixes.
+    live.forEach(i => { if (i.tier !== 1) i.archive = true; });
     live.sort((a, b) => (a.tier - b.tier) || ((Number(b.amount) || 0) - (Number(a.amount) || 0)) || String(a.name).localeCompare(String(b.name)));
     return live;
   }
@@ -8599,6 +8602,13 @@
           : `Split worked out: ${fmtMoney(Number(s.principal_amount))} went to the loan, ${fmtMoney(Number(s.interest_amount))} was interest — ready to post`,
         action: stageable ? 'Stage' : 'Approve', onclick: `openLoanReviewModal('${s.id}')`,
         peek: _bkSplitPeekSpec(s) ? `bkPeekSplitDoc('${s.id}')` : null,
+        // Session 230: an approval you don't want to act on now can be set aside.
+        // It archives the ROW, never the split -- the loan_splits record is untouched
+        // and still pending_review, so nothing financial changes and it is one click
+        // to restore. Deliberately NOT offered on staged splits below: a staged split
+        // has a live transaction sitting in Xero, and hiding it would hide that.
+        archive: true, archiveLabel: 'Ignore',
+        archiveTitle: 'Set this aside — the split is unchanged and still waiting; restore it any time from Ignored',
       });
     });
     // Session 226: staged splits stay visible (calm, informational) instead of
@@ -8630,6 +8640,8 @@
           ? `${fmtMoney(wage)} across ${emps} employee${emps === 1 ? '' : 's'} — give the breakdown a quick look`
           : `${fmtMoney(wage)} across ${emps} employee${emps === 1 ? '' : 's'}, reviewed — ready to post to Xero`,
         action: imp.status === 'parsed' ? 'Review' : 'Approve', onclick: `openPayrollReviewModal('${imp.id}')`,
+        archive: true, archiveLabel: 'Ignore',
+        archiveTitle: 'Set this aside — the import is unchanged and still waiting; restore it any time from Ignored',
       });
     });
     if (_retailReclassPeriod) items.push({
@@ -8637,14 +8649,21 @@
       name: `Retail cash reclass — ${_retailReclassPeriod}`,
       reason: 'Monthly tidy-up: moves cash sales for Wash & Fold and Vending into their own accounts — ready to post',
       action: 'Review & post', onclick: 'openRetailCashReclassModal()',
+      archive: true, archiveLabel: 'Ignore',
+      archiveTitle: 'Set this aside — nothing is posted; restore it any time from Ignored',
     });
-    return items;
+    // Ignored rows leave the queue (restorable from the Ignored list) -- same
+    // bk_issue_dismissals store the issue queue uses, so a decision made on one
+    // device holds on every other.
+    return items.filter(i => !_bkDismissals.has(i.key));
   }
 
   function _bkQueueRowHtml(it) {
     const panelId = it.detailHtml ? 'bk-qd-' + String(it.key).replace(/[^a-zA-Z0-9_-]/g, '') : null;
     const click = panelId ? `_bkToggleAttnDetail('${panelId}', null)` : (it.onclick || '');
-    const tierClass = it.tier === 1 ? ' bk-t1' : it.tier === 3 ? ' bk-t3' : '';
+    // Session 230: tier 3 no longer gets its own muted style -- it shares one
+    // section with tier 2 now, and two shades inside one list read as a bug.
+    const tierClass = it.tier === 1 ? ' bk-t1' : '';
     return `<div class="bk-queue-row${tierClass}" data-bkkey="${esc(String(it.key))}"${click ? ` onclick="${click}"` : ' style="cursor:default"'}>
       <div class="bk-queue-left" style="flex:1;min-width:0">
         <span class="bk-dot ${it.dot}"></span>
@@ -8655,7 +8674,7 @@
         </div>
       </div>
       ${it.peek ? `<button class="btn btn-ghost" style="font-size:12px;padding:3px 8px;flex:none;margin-right:2px" title="Peek at the source document" onclick="event.stopPropagation();${it.peek}">👁</button>` : ''}
-      ${it.archive ? `<button class="bk-gotit-btn" title="Archive this note — it moves to the Archived list, restorable any time" onclick="event.stopPropagation();bkArchiveIssue('${encodeURIComponent(String(it.key))}')">Got it ✓</button>` : ''}
+      ${it.archive ? `<button class="bk-gotit-btn" title="${esc(it.archiveTitle || 'Archive this note — it moves to the Archived list, restorable any time')}" onclick="event.stopPropagation();bkArchiveIssue('${encodeURIComponent(String(it.key))}')">${esc(it.archiveLabel || 'Got it ✓')}</button>` : ''}
       ${it.action ? `<span class="bk-review-link">${esc(it.action)} →</span>` : ''}
     </div>`;
   }
@@ -9994,8 +10013,7 @@
       else {
         const parts = [];
         if (t1.length) parts.push(`${t1.length} to fix first`);
-        if (t2.length) parts.push(`${t2.length} worth a look`);
-        if (t3.length) parts.push(`${t3.length} good to know`);
+        if (t2.length + t3.length) parts.push(`${t2.length + t3.length} worth a look`);
         if (!issues.length) parts.push('no issues');
         if (approvals.length) parts.push(`${approvals.length} ready to post`);
         const bounce = _bkPrevIssueCount != null && issues.length < _bkPrevIssueCount;
@@ -10010,43 +10028,55 @@
       const moreHtml = approvals.length > CAP
         ? `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${approvals.length} ▾`}</span></div>`
         : '';
-      listEl.innerHTML = shown.length
+      // Ignored approvals live under their own line here, not in the issue queue's
+      // Archived list -- an ignored approval is still work waiting, and burying it
+      // among archived notes is how it gets forgotten.
+      const ignored = _bkArchivedItems().filter(d => String(d.item_key || '').startsWith('appr-'));
+      let ahtml = shown.length
         ? shown.map(_bkQueueRowHtml).join('') + moreHtml
         : `<div class="bk-queue-empty">Nothing waiting on your approval.</div>`;
+      if (ignored.length) {
+        ahtml += `<div class="bk-gtk-line"><span class="bk-gtk-toggle" onclick="_bkToggleArchived()">Ignored (${ignored.length}) ${_bkArchivedOpen ? '▾' : '▸'}</span></div>`;
+        if (_bkArchivedOpen) ahtml += ignored.map(d => `<div class="bk-queue-row bk-t3" style="cursor:default">
+          <div class="bk-queue-left" style="flex:1;min-width:0">
+            <span class="bk-dot gray"></span>
+            <div style="min-width:0;flex:1">
+              <div class="bk-queue-name">${esc(d.item_title || d.item_key)}</div>
+              <div class="bk-queue-reason">Ignored ${esc(fmtDate(d.dismissed_at))}${d.dismissed_by ? ` by ${esc(d.dismissed_by)}` : ''}</div>
+            </div>
+          </div>
+          <button class="bk-gotit-btn" onclick="bkRestoreIssue('${encodeURIComponent(String(d.item_key))}')">Restore</button>
+        </div>`).join('');
+      }
+      listEl.innerHTML = ahtml;
     } else {
-      // ── Issues: tiered. "Fix first" cards up top, "Worth a look" rows under
-      // them, "Good to know" collapsed to one quiet line with one-click archive.
-      const archived = _bkArchivedItems();
+      // ── Issues: "Fix first" cards up top, everything else in one "Worth a look"
+      // list under them, every row of it archivable with Got it.
+      const archived = _bkArchivedItems().filter(d => !String(d.item_key || '').startsWith('appr-'));
       const expanded = _bkOvQueueExpanded.issues;
-      const main = t1.concat(t2);
+      // Session 230: one list under "Fix first" -- the old tier-2 rows and the
+      // collapsed good-to-know notes are the same section now, in the same order the
+      // sort already gives them, every row with a Got it.
+      const rest = t2.concat(t3);
+      const main = t1.concat(rest);
       const shown = expanded ? main : main.slice(0, CAP);
       const shownT1 = shown.filter(i => i.tier === 1);
-      const shownT2 = shown.filter(i => i.tier === 2);
-      const useHeaders = (t1.length && (t2.length || t3.length)) || (t2.length && t3.length);
+      const shownRest = shown.filter(i => i.tier !== 1);
+      const useHeaders = t1.length && rest.length;
       let html = '';
       if (shownT1.length) html += (useHeaders ? `<div class="bk-tier-head t1">Fix first</div>` : '') + shownT1.map(_bkQueueRowHtml).join('');
-      if (shownT2.length) html += (useHeaders && t1.length ? `<div class="bk-tier-head t2">Worth a look</div>` : '') + shownT2.map(_bkQueueRowHtml).join('');
+      if (shownRest.length) html += (useHeaders ? `<div class="bk-tier-head t2">Worth a look</div>` : '') + shownRest.map(_bkQueueRowHtml).join('');
       if (main.length > CAP) html += `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${main.length} ▾`}</span></div>`;
-      if (!main.length && !t3.length && !archived.length) {
+      if (!main.length && !archived.length) {
         html = `<div class="bk-allclear">
           <div class="bk-allclear-badge"><svg class="bk-victory-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
           <div class="bk-allclear-title">All clear</div>
           <div class="bk-allclear-sub">Every issue is handled — nothing needs a decision right now.</div>
         </div>`;
-      } else if (!main.length) {
-        html = `<div class="bk-allclear" style="padding:22px 20px">
-          <div class="bk-allclear-badge"><svg class="bk-victory-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
-          <div class="bk-allclear-title">Nothing to fix</div>
-          <div class="bk-allclear-sub">Only good-to-know notes below.</div>
-        </div>`;
       }
-      if (t3.length || archived.length) {
-        const bits = [];
-        if (t3.length) bits.push(`<span class="bk-gtk-toggle" onclick="_bkToggleGtk()">${t3.length} good-to-know note${t3.length === 1 ? '' : 's'} ${_bkGtkOpen ? '▾' : '▸'}</span>`);
-        if (archived.length) bits.push(`<span class="bk-gtk-toggle" onclick="_bkToggleArchived()">Archived (${archived.length}) ${_bkArchivedOpen ? '▾' : '▸'}</span>`);
-        html += `<div class="bk-gtk-line">${bits.join('<span style="color:var(--gray-300)">·</span>')}</div>`;
-        if (_bkGtkOpen && t3.length) html += t3.map(_bkQueueRowHtml).join('');
-        if (_bkArchivedOpen && archived.length) html += archived.map(d => `<div class="bk-queue-row bk-t3" style="cursor:default">
+      if (archived.length) {
+        html += `<div class="bk-gtk-line"><span class="bk-gtk-toggle" onclick="_bkToggleArchived()">Archived (${archived.length}) ${_bkArchivedOpen ? '▾' : '▸'}</span></div>`;
+        if (_bkArchivedOpen) html += archived.map(d => `<div class="bk-queue-row bk-t3" style="cursor:default">
           <div class="bk-queue-left" style="flex:1;min-width:0">
             <span class="bk-dot gray"></span>
             <div style="min-width:0;flex:1">
@@ -10066,7 +10096,6 @@
     _bkPrevIssueCount = issues.length;
   }
 
-  function _bkToggleGtk() { _bkGtkOpen = !_bkGtkOpen; renderBookkeepingOverview(); }
   function _bkToggleArchived() { _bkArchivedOpen = !_bkArchivedOpen; renderBookkeepingOverview(); }
 
   // One-click archive for a good-to-know item: play the victory (check draws,
@@ -10074,7 +10103,8 @@
   // stays archived on every device. Restore is one click in the Archived list.
   async function bkArchiveIssue(encKey) {
     const key = decodeURIComponent(encKey);
-    const it = _bkIssueQueueItems().find(i => i.key === key);
+    const it = _bkIssueQueueItems().find(i => i.key === key)
+             || _bkApprovalQueueItems().find(i => i.key === key);
     if (!it || !it.archive) return;
     await _bkCelebrateRow(key);
     const { error } = await db.from('bk_issue_dismissals').insert({
@@ -13110,6 +13140,167 @@
   // shows the WHOLE loan -- terms, every split in numbers, statements, supporting
   // documents (agreements, amortization schedules) -- in one place. Reuses the
   // modal-loan-history container.
+  // ── Loan detail: "How this loan is structured" / "Where the accounting can be better" ──
+  // Session 230, David's ask: the per-loan explanation he had been getting in chat
+  // belongs in the tool. Deliberately split in two, by how each half stays true:
+  //   * STRUCTURE is a stored narrative (loan_accounts.structure_note) — contract
+  //     terms, how the fee is allocated, how it is booked. Data can't infer it, and
+  //     it changes only when the loan is refinanced.
+  //   * IMPROVEMENTS are computed live, never stored. A stored improvement list goes
+  //     stale silently — which is exactly the failure that opened this session (a
+  //     PayPal card describing a problem fixed four days earlier).
+
+  // The ONE place a loan's "what should be better here" list is computed. Any other
+  // surface that wants this number or list must call this, not re-derive it.
+  function _bkLoanImprovements(loanId) {
+    const a = (_allLoanAccounts || []).find(x => x.id === loanId);
+    if (!a) return [];
+    const out = [];
+    const m2 = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const todayIso = today();
+
+    // 1. Whatever the reconciliation engine and the intake cross-check already found
+    // for this loan. Not re-derived here -- one writer, one list.
+    (_reconFindings || [])
+      .filter(f => f.loan_account_id === loanId && f.status === 'open' && !_bkDismissals.has('recon-' + f.id))
+      .forEach(f => out.push({ sev: f.severity || 'info', label: f.title || 'Finding', detail: _bkOneLine(f.plain_english || '', 150) }));
+
+    // 2. Payments the lender has already taken that have no split computed. Their
+    // interest/fee portion is still sitting in the loan account instead of expense.
+    // Scoped to periods AFTER the first split on file -- a loan that predates the
+    // system is not "missing" every split back to origination.
+    // Coverage is decided THREE ways, in this order, because period_label is not one
+    // shape across loans: Verdant's 85 splits are labelled 'Period 1'..'Period 84',
+    // Dexter 2 mixes dates and months, PayPal 2 uses exact dates. The authoritative
+    // link is amortization_row_id (set on every schedule-generated split); the label
+    // shapes are the fallback for older splits that predate it. Matching on labels
+    // alone would flag all 77 of Verdant's historical periods as missing.
+    const splits = (_allLoanSplits || []).filter(s => s.loan_account_id === loanId);
+    const labels = new Set(splits.map(s => String(s.period_label || '')));
+    const rowIds = new Set(splits.map(s => s.amortization_row_id).filter(Boolean));
+    // ...and a fourth: a date label within LABEL_DRIFT_DAYS of the row. Dexter Loan 2
+    // labels its 60 splits by the real PAYMENT date (2023-10-02) while its schedule
+    // rows are month-ENDS (2023-09-30) -- an exact match calls 28 covered periods
+    // missing. 3 days is deliberately smaller than a weekly loan's 7-day spacing, so
+    // it can never make one weekly draft cover its neighbour.
+    const LABEL_DRIFT_DAYS = 3;
+    const labelDays = [...labels].filter(l => /^\d{4}-\d{2}-\d{2}$/.test(l)).map(l => Date.parse(l + 'T00:00:00Z'));
+    const nearLabel = (d) => {
+      const t0 = Date.parse(d + 'T00:00:00Z');
+      return labelDays.some(t => Math.abs(t - t0) <= LABEL_DRIFT_DAYS * 86400000);
+    };
+    const payRows = (_allLoanAmortRows || [])
+      .filter(r => r.loan_amortization_schedules?.loan_account_id === loanId && r.row_type === 'payment'
+                && String(r.row_date).slice(0, 10) <= todayIso)
+      .map(r => ({ d: String(r.row_date).slice(0, 10), covered: rowIds.has(r.id) }))
+      .map(x => ({ ...x, covered: x.covered || labels.has(x.d) || labels.has(x.d.slice(0, 7)) || nearLabel(x.d) }))
+      .sort((x, y) => (x.d < y.d ? -1 : 1));
+    // Window starts at the first period this loan was ever tracked for -- a loan that
+    // predates the system is not "missing" every split back to origination.
+    const firstCovered = (payRows.find(x => x.covered) || {}).d;
+    if (firstCovered) {
+      const uncovered = payRows.filter(x => !x.covered && x.d >= firstCovered).map(x => x.d);
+      if (uncovered.length) {
+        out.push({
+          sev: 'warn',
+          label: `${uncovered.length} payment${uncovered.length === 1 ? '' : 's'} with no split computed`,
+          detail: `Since ${uncovered[0]}. That interest is still sitting in the loan account instead of interest expense.`,
+        });
+      }
+    }
+
+    // 3. Hand-posted history. Not fixable retroactively, but it is the reason a loan
+    // needed correcting by hand, so it belongs on this list once.
+    const posted = splits.filter(s => s.status === 'posted');
+    const handPosted = posted.filter(s => !s.xero_manual_journal_id);
+    if (posted.length && handPosted.length) {
+      out.push({
+        sev: 'info',
+        label: `${handPosted.length} of ${posted.length} posted splits were entered by hand`,
+        detail: 'No Xero journal ID on file for them. Nothing to undo — but it is why this loan needed correcting manually.',
+      });
+    }
+
+    // 4. Nobody has pulled a lender figure lately, so every check below is running on
+    // an old anchor. Same threshold the Debt Schedule uses.
+    const stmts = _loanStatementsToDate(loanId).filter(x => x.principal_balance != null)
+      .slice().sort((x, y) => (y.statement_date || '').localeCompare(x.statement_date || ''));
+    if (a.status === 'active' && stmts.length) {
+      const age = Math.round((new Date(todayIso) - new Date(stmts[0].statement_date)) / 86400000);
+      if (age > DEBT_SCHED_STALE_DAYS) {
+        out.push({
+          sev: 'warn',
+          label: `Newest lender figure is ${age} days old`,
+          detail: `${m2(stmts[0].principal_balance)} as of ${stmts[0].statement_date}. Pull a fresh statement or transaction history.`,
+        });
+      }
+    }
+
+    const rank = { error: 0, warn: 1, info: 2 };
+    return out.sort((x, y) => (rank[x.sev] ?? 9) - (rank[y.sev] ?? 9));
+  }
+
+  function _bkLoanImprovementsHtml(loanId) {
+    const items = _bkLoanImprovements(loanId);
+    if (!items.length) return `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">Nothing outstanding.</div>`;
+    const dot = { error: 'var(--red)', warn: 'var(--amber)', info: 'var(--gray-400)' };
+    return items.map(i => `
+      <div style="display:flex;gap:9px;padding:8px 0;border-bottom:1px solid var(--gray-100)">
+        <div style="width:7px;height:7px;border-radius:50%;background:${dot[i.sev] || 'var(--gray-400)'};margin-top:6px;flex:none"></div>
+        <div style="min-width:0">
+          <div style="font-size:13.5px;color:var(--gray-900);font-weight:600">${esc(i.label)}</div>
+          ${i.detail ? `<div style="font-size:12.5px;color:var(--gray-500);margin-top:1px">${esc(i.detail)}</div>` : ''}
+        </div>
+      </div>`).join('');
+  }
+
+  function _bkStructureNoteHtml(a) {
+    const canWrite = currentUserRole === 'admin' || currentUserRole === 'manager';
+    const editBtn = canWrite
+      ? `<button class="btn btn-secondary btn-sm" onclick="_bkEditStructureNote('${a.id}')" style="margin-top:8px">${a.structure_note ? 'Edit' : 'Write it'}</button>`
+      : '';
+    if (!a.structure_note) {
+      return `<div id="bk-structure-body"><div style="color:var(--gray-400);font-size:13px;padding:8px 0">Not documented yet.</div>${editBtn}</div>`;
+    }
+    const paras = String(a.structure_note).split(/\n\s*\n/).filter(Boolean)
+      .map(t => `<p style="margin:0 0 8px;font-size:13.5px;line-height:1.55;color:var(--gray-800)">${esc(t).replace(/\n/g, '<br>')}</p>`).join('');
+    const stamp = a.structure_note_updated_at
+      ? `<div style="font-size:11.5px;color:var(--gray-400);margin-top:2px">Last updated ${esc(String(a.structure_note_updated_at).slice(0, 10))}${a.structure_note_updated_by ? ' · ' + esc(a.structure_note_updated_by) : ''}</div>`
+      : '';
+    return `<div id="bk-structure-body"><div style="padding:8px 0 0">${paras}</div>${stamp}${editBtn}</div>`;
+  }
+
+  function _bkEditStructureNote(loanId) {
+    const a = (_allLoanAccounts || []).find(x => x.id === loanId);
+    const box = document.getElementById('bk-structure-body');
+    if (!a || !box) return;
+    box.innerHTML = `
+      <textarea id="bk-structure-input" class="form-control" rows="9" style="width:100%;font-size:13px;line-height:1.5;margin-top:8px" placeholder="How this loan is actually structured: principal vs fee, cadence, how it is booked.">${esc(a.structure_note || '')}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-primary btn-sm" onclick="_bkSaveStructureNote('${loanId}')">Save</button>
+        <button class="btn btn-secondary btn-sm" onclick="openLoanDetailModal('${loanId}')">Cancel</button>
+      </div>`;
+    document.getElementById('bk-structure-input').focus();
+  }
+
+  async function _bkSaveStructureNote(loanId) {
+    const el = document.getElementById('bk-structure-input');
+    if (!el) return;
+    const text = el.value.trim();
+    const payload = {
+      structure_note: text || null,
+      structure_note_updated_at: new Date().toISOString(),
+      structure_note_updated_by: currentUserDisplayName || currentUserFirstName || currentUserRole || 'admin',
+    };
+    const { error } = await db.from('loan_accounts').update(payload).eq('id', loanId);
+    if (error) { showToast('Could not save: ' + error.message, 'error'); return; }
+    // Keep the in-memory copy in step so the panel repaints correctly without a reload.
+    const a = (_allLoanAccounts || []).find(x => x.id === loanId);
+    if (a) Object.assign(a, payload);
+    showToast('Saved', 'success');
+    openLoanDetailModal(loanId);
+  }
+
   function openLoanDetailModal(loanAccountId) {
     const a = _allLoanAccounts.find(x => x.id === loanAccountId);
     if (!a) return;
@@ -13176,6 +13367,8 @@
     document.getElementById('loan-history-body').innerHTML = `
       <div style="display:flex;flex-wrap:wrap;gap:14px 28px;padding:4px 0 2px">${chips.join('')}</div>
       ${actions}
+      ${section('How this loan is structured', _bkStructureNoteHtml(a))}
+      ${section('Where the accounting can be better', _bkLoanImprovementsHtml(a.id))}
       ${section(`Split history (${_allLoanSplits.filter(s => s.loan_account_id === a.id).length})`, _loanSplitHistoryTableHtml(a.id))}
       ${section(`Statements (${stmts.length})`, stmtsHtml)}
       ${section('Supporting documents', docsHtml)}
