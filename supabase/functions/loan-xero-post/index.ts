@@ -1006,6 +1006,54 @@ async function handleRequest(req: Request): Promise<Response> {
     const interest = Number(split.interest_amount)
     const totalAmt = Number(split.total_amount)
 
+    // ── v48 (session 230): THE POSTING BOUNDARY FOR THE SPLIT INVARIANT ──────
+    // Nothing arithmetically impossible reaches Xero from here -- not by approve,
+    // not by stage, not by mark-already-in-xero, and not by preview either (a
+    // preview of an impossible number is an invitation to click Approve).
+    //
+    // The rule itself lives in ONE place, the database function
+    // split_invariant_check() (migration session_230_split_invariant), which the
+    // BEFORE INSERT/UPDATE trigger on loan_splits also uses. This is a CALL to that
+    // definition, never a second copy of it -- two implementations of one rule is
+    // how this module has drifted before.
+    //
+    // Why the check must ALSO be here, and this early: the trigger REFUSES to
+    // record an impossible split as posted/staged. If the refusal happened after
+    // the Xero write, we would create a real journal in Xero and then fail to
+    // record it -- an orphan. Checking before any Xero call is what makes the
+    // trigger's guarantee safe rather than dangerous.
+    //
+    // Live at the time of writing: two Ford splits carrying negative interest
+    // (E5-4751 and E6-7410, both 2026-06). Either would have posted on request.
+    {
+      const { data: invRes, error: invErr } = await supa.rpc('split_invariant_check', {
+        p_principal: split.principal_amount,
+        p_interest: split.interest_amount,
+        p_total: split.total_amount,
+      })
+      // A failed RPC is not a licence to post -- if the invariant cannot be
+      // evaluated, nothing is written to Xero.
+      if (invErr) {
+        return new Response(JSON.stringify({
+          error: `Could not check this split before booking it: ${invErr.message}`,
+          reason: 'split_invariant_unavailable',
+        }), { status: 503 })
+      }
+      if (invRes && invRes.ok === false) {
+        return new Response(JSON.stringify({
+          error: `This split can't be booked: ${invRes.note}`,
+          reason: 'split_invariant_violation',
+          code: invRes.code,
+          split: {
+            period_label: split.period_label,
+            principal_amount: split.principal_amount,
+            interest_amount: split.interest_amount,
+            total_amount: split.total_amount,
+          },
+        }), { status: 409 })
+      }
+    }
+
     // ==================== v41: TIER 1 PRE-STAGING LIFECYCLE ====================
     // Everything stage-related lives in this one block and always returns -- a
     // staged split must never fall through into the normal candidate-search /
