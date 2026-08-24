@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { rederiveIfDerived } from "../_shared/derive-schedule.ts"
 
-// loan-record-principal-payment — v1 (session 230)
+// loan-record-principal-payment — v2 (window fix: the "before" statement is strictly before the payment date) (session 230)
 // =============================================================================
 // Books an OFF-SCHEDULE principal payment as its own entry, and repairs the
 // scheduled period it was hiding inside.
@@ -84,7 +84,13 @@ Deno.serve(async (req) => {
     const { data: before } = await supa.from('loan_statements')
       .select('id, statement_date, principal_balance, total_amount_due')
       .eq('loan_account_id', loanId).in('source', REAL).not('principal_balance', 'is', null)
-      .lte('statement_date', payDate).order('statement_date', { ascending: false }).limit(1)
+      // STRICTLY before. A lender statement dated the same day as the payment
+      // already reflects it -- Ford's 2026-08-10 pull was taken after the $5,000
+      // left the bank. Using <= here picked that same row as both ends of the
+      // window, so the balance "fell $0.00 between 2026-08-10 and 2026-08-10" and
+      // the function refused a payment that had plainly happened. The window is
+      // (last statement before the payment, first statement on-or-after it).
+      .lt('statement_date', payDate).order('statement_date', { ascending: false }).limit(1)
     const { data: after } = await supa.from('loan_statements')
       .select('id, statement_date, principal_balance, total_amount_due')
       .eq('loan_account_id', loanId).in('source', REAL).not('principal_balance', 'is', null)
