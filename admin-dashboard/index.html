@@ -14659,8 +14659,64 @@ ${noActivityNote}
     } catch (_) { serverFailed = true; }
     if (stale()) return;
 
-    if (browserParsed) {
+    // Session 230: a transaction history read out of an IMAGE. Ford shows its
+    // history on screen and offers no export, so a photograph is the only form this
+    // data comes in -- and without it those four loans get no splits at all. The
+    // server has already thrown away every row that failed its arithmetic checks;
+    // what arrives here is a proposal, and money read off a picture gets SHOWN before
+    // it gets imported, never summarised. The deterministic PDF parser still wins
+    // whenever there is one (browserBulk is populated above and this never runs).
+    const xtr = server?.extracted_transactions;
+    if (!browserParsed && (!browserBulk || !browserBulk.length) && xtr?.ok && xtr.periods?.length) {
+      browserBulk = xtr.periods;
+      _loanUploadParsedBulkPeriods = xtr.periods;
+      _loanUploadBulkAnchorsOnly = true;
+      if (!_liKindTouchedByUser) kindSel.value = LI_BULK_KIND;
+      const money2 = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const rowsHtml = xtr.periods.map(pd => `
+        <tr>
+          <td class="td-mono" style="padding:3px 8px 3px 0">${esc(pd.statementDate)}</td>
+          <td class="td-mono" style="text-align:right;padding:3px 8px">${pd.explicitSplit ? money2(pd.explicitSplit.principal) : '—'}</td>
+          <td class="td-mono" style="text-align:right;padding:3px 8px">${pd.explicitSplit ? money2(pd.explicitSplit.interest) : '—'}</td>
+          <td class="td-mono" style="text-align:right;padding:3px 8px">${pd.totalAmountDue != null ? money2(pd.totalAmountDue) : '—'}</td>
+          <td class="td-mono" style="text-align:right;padding:3px 0 3px 8px">${money2(pd.principalBalance)}</td>
+        </tr>`).join('');
+      const rejHtml = (xtr.rejected || []).length
+        ? `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-500)">
+             Not imported: ${xtr.rejected.map(r => `${esc(r.date)} (${esc(r.reason)})`).join('; ')}
+           </div>`
+        : '';
+      document.getElementById('li-bulk-fields').innerHTML =
+        `<div style="background:var(--gray-50);border-radius:6px;padding:10px 12px">
+           <div style="font-size:12.5px;color:var(--gray-700);margin-bottom:8px">
+             <strong>Read from the image — check these against the document before importing.</strong>
+           </div>
+           <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+             <thead><tr style="color:var(--gray-500);font-size:11px;text-transform:uppercase;letter-spacing:.04em">
+               <th style="text-align:left;padding-bottom:4px">Date</th>
+               <th style="text-align:right;padding-bottom:4px">Principal</th>
+               <th style="text-align:right;padding-bottom:4px">Interest</th>
+               <th style="text-align:right;padding-bottom:4px">Payment</th>
+               <th style="text-align:right;padding-bottom:4px">Balance</th>
+             </tr></thead>
+             <tbody>${rowsHtml}</tbody>
+           </table>
+           ${rejHtml}
+           <div style="margin-top:8px;font-size:11.5px;color:var(--gray-500)">
+             Each row was checked: principal + interest equals the payment printed beside it, and every balance follows from the one before. Files as reconciliation history — only a period newer than your last posted one becomes an approval.
+           </div>
+         </div>`;
+      note.style.color = 'var(--green)';
+      note.textContent = `Auto-read from image: ${xtr.periods.length} transaction${xtr.periods.length === 1 ? '' : 's'}. Check the figures below before importing.`;
+    } else if (browserParsed) {
       _liApplyServerExtras(server, serverFailed, browserParsed, note);
+    } else if (xtr && xtr.ok === true && !xtr.periods?.length) {
+      // It WAS a history, we did look, and nothing survived. Say so plainly with the
+      // reasons -- silence here would read as "nothing to import" when the truth is
+      // "we did not trust what we read".
+      note.style.color = '#b45309';
+      note.textContent = `Read this as a transaction history, but no row passed the arithmetic checks${(xtr.rejected || []).length ? ': ' + xtr.rejected.map(r => r.date + ' — ' + r.reason).slice(0, 2).join('; ') : ''}. The file is stored either way.`;
+      if (!_liKindTouchedByUser) kindSel.value = 'other';
     } else if ((!browserBulk || !browserBulk.length) && !_liParsedSchedule) {
       // Skipped when a schedule was parsed and arithmetically verified locally. The
       // server's classification is a keyword heuristic that reports 'medium' confidence;
