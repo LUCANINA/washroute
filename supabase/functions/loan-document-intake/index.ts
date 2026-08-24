@@ -527,6 +527,7 @@ export interface ExtractedRow {
   interest: number | null
   payment: number | null
   balance: number | null
+  kind?: string
 }
 
 async function extractTransactionsWithAi(
@@ -565,6 +566,11 @@ async function extractTransactionsWithAi(
               interest: { type: 'number', description: 'The interest portion printed on this row. Omit if not printed.' },
               payment: { type: 'number', description: 'The payment / transaction amount printed on this row. Omit if not printed.' },
               balance: { type: 'number', description: 'The principal balance printed on this row. Omit if not printed.' },
+              kind: {
+                type: 'string',
+                enum: ['payment', 'principal', 'interest', 'fee', 'other'],
+                description: "What this row represents, judged from its own label. Many portals break ONE payment into several rows sharing a date -- e.g. 'PRINCIPAL PAYMENT SPLIT OUT', 'INTEREST PAYMENT SPLIT OUT' and the payment itself. Label each row for what it says it is; do not combine them yourself.",
+              },
             },
             required: ['date'],
           },
@@ -607,9 +613,13 @@ async function extractTransactionsWithAi(
     if (!call) return { rows: [], error: 'model returned no tool_use block' }
     const raw = Array.isArray(call.input?.rows) ? call.input.rows : []
     const n = (v: any) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 100) / 100)
+    const KINDS = ['payment', 'principal', 'interest', 'fee', 'other']
     const rows: ExtractedRow[] = raw.slice(0, MAX_EXTRACTED_ROWS)
       .filter((r: any) => typeof r?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date))
-      .map((r: any) => ({ date: r.date, principal: n(r.principal), interest: n(r.interest), payment: n(r.payment), balance: n(r.balance) }))
+      .map((r: any) => ({
+        date: r.date, principal: n(r.principal), interest: n(r.interest), payment: n(r.payment), balance: n(r.balance),
+        kind: KINDS.includes(r.kind) ? r.kind : 'other',
+      }))
     return { rows, error: null }
   } catch (e) {
     return { rows: [], error: String((e as any)?.message ?? e) }
@@ -627,7 +637,45 @@ function validateExtractedRows(rows: ExtractedRow[], todayIso: string): {
 } {
   const periods: any[] = []
   const rejected: Array<{ date: string; reason: string }> = []
-  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date))
+
+  // ONE PAYMENT MAY ARRIVE AS SEVERAL ROWS. BayFirst's portal prints each payment
+  // as three lines sharing a date -- 'PRINCIPAL PAYMENT SPLIT OUT',
+  // 'INTEREST PAYMENT SPLIT OUT', and the payment itself -- each carrying its own
+  // running balance. Read row-by-row that is three transactions, none of which has
+  // both halves of a split, and the whole upload yields nothing (which is exactly
+  // what happened first time).
+  //
+  // So rows are grouped by date and recombined here rather than by the model: the
+  // model is asked only to LABEL each row for what it says it is, and the
+  // arithmetic below still has to agree afterwards. The balance taken for the group
+  // is the LOWEST one printed on that date -- the running balance after every part
+  // of the payment has been applied, which is the only one that is the period's
+  // closing balance.
+  const grouped = new Map<string, ExtractedRow[]>()
+  for (const r of rows) {
+    if (!grouped.has(r.date)) grouped.set(r.date, [])
+    grouped.get(r.date)!.push(r)
+  }
+  const merged: ExtractedRow[] = []
+  for (const [date, rs] of grouped) {
+    if (rs.length === 1) { merged.push(rs[0]); continue }
+    const sum = (k: string, f: (r: ExtractedRow) => number | null) =>
+      rs.filter((r) => r.kind === k).reduce((s, r) => s + (f(r) ?? 0), 0) || null
+    const principal = sum('principal', (r) => r.principal ?? r.payment)
+      ?? rs.map((r) => r.principal).find((v) => v !== null) ?? null
+    const interest = sum('interest', (r) => r.interest ?? r.payment)
+      ?? rs.map((r) => r.interest).find((v) => v !== null) ?? null
+    const paymentRow = rs.find((r) => r.kind === 'payment')
+    const payment = paymentRow?.payment ?? paymentRow?.principal
+      ?? (principal !== null && interest !== null ? Math.round((principal + interest) * 100) / 100 : null)
+    const balances = rs.map((r) => r.balance).filter((b): b is number => b !== null)
+    merged.push({
+      date, principal, interest, payment,
+      balance: balances.length ? Math.min(...balances) : null,
+      kind: 'payment',
+    })
+  }
+  const sorted = merged.sort((a, b) => a.date.localeCompare(b.date))
   const horizon = new Date(new Date(todayIso).getTime() + 31 * 86400000).toISOString().slice(0, 10)
 
   let prev: { date: string; balance: number } | null = null
@@ -1051,7 +1099,16 @@ Deno.serve(async (req) => {
     // screen. Everything here is a proposal: it is returned to the caller, shown to
     // a human, and imported through the ordinary anchors_only path.
     let extractedTransactions: any = null
-    if (kind === 'transaction_history' && wantsVision) {
+    // Which KINDS can carry transaction rows. Session 230: David photographed the
+    // BayFirst portal and it classified as 'balance_screenshot' -- correctly, it IS
+    // a balance screen -- so extraction never ran and nothing happened. The
+    // classifier is answering "what is this document", which is not the same
+    // question as "does this document contain transactions". A statement page and a
+    // balance screen both routinely list them. Extraction is safe to attempt on any
+    // of these because it validates arithmetically and returns nothing when there is
+    // nothing to find; the cost of trying and failing is one model call.
+    const MAY_CARRY_TRANSACTIONS = ['transaction_history', 'balance_screenshot', 'lender_statement']
+    if (MAY_CARRY_TRANSACTIONS.includes(kind) && wantsVision) {
       const ex = await extractTransactionsWithAi(
         isImage ? { imageB64: base64, imageMediaType: imageMediaType! } : { pdfB64: base64 },
       )

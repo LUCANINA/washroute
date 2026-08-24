@@ -12850,7 +12850,7 @@
       case 'account': return (r.a.lender_account_number || '').toLowerCase();
       case 'status': return r.statusLabel;
       case 'lastpayment': return r.lastSplit ? Number(r.lastSplit.total_amount) : null;
-      case 'date': return r.lastSplit ? r.lastSplit.period_label : null;
+      case 'date': return r.lastSplit ? _splitDateKey(r.lastSplit) : null;
       case 'split': return r.lastSplit ? Number(r.lastSplit.total_amount) : null;
       case 'type': return r.type.label;
       case 'outstanding': return r.bal ? Number(r.bal.amount) : null;
@@ -12906,7 +12906,7 @@
     // Lender/Status/Type filters apply against exactly the values the cells
     // themselves render -- no drift between what's shown and what's filterable.
     const rowData = visibleAccounts.map(a => {
-      const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === a.id);
+      const splitsForLoan = _splitsNewestFirst(a.id);
       const lastSplit = splitsForLoan[0];
       // Automatic loans (Stripe Capital, session 205 cont.) never get a manually
       // computed loan_splits row -- see xero-payout-sync. Their cells say so
@@ -13050,14 +13050,51 @@
   // with filenames/paths containing special characters.
   let _historyFilePaths = {};
 
+  // WHEN a split belongs to, as a sortable key — the one place that question is
+  // answered (session 230).
+  //
+  // period_label is not a date and never was: 'YYYY-MM' for monthly lenders,
+  // 'YYYY-MM-DD' for weekly ones, and 'Period 1'..'Period 84' for Verdant. Sorted
+  // as plain text, "P" beats "2", so Verdant's `Period 84` outranked its staged
+  // `2026-09` card and the Manage table showed that loan as "posted" while a live
+  // pre-split transaction sat in Xero waiting to be matched. On a nine-loan board
+  // where eight rows were honest, that one was not.
+  //
+  // A month sorts at the END of itself ('YYYY-MM-31'): the period covers the whole
+  // month, so it should not lose to a payment dated the 3rd of the same month.
+  // A label with no date in it falls back to the amortization row it was built
+  // from, then to whatever timestamp the split actually earned — staged, posted,
+  // computed. Only a split with none of those returns '' and sorts last, which is
+  // the honest answer for a row we genuinely cannot place in time.
+  function _splitDateKey(sp) {
+    const label = String(sp?.period_label || '');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
+    if (/^\d{4}-\d{2}$/.test(label)) return label + '-31';
+    const row = sp?.amortization_row_id
+      ? (_allLoanAmortRows || []).find(r => r.id === sp.amortization_row_id)
+      : null;
+    if (row?.row_date) return String(row.row_date).slice(0, 10);
+    const stamp = sp?.staged_at || sp?.xero_posted_at || sp?.computed_at;
+    return stamp ? String(stamp).slice(0, 10) : '';
+  }
+  // Newest first, by the key above. Ties keep period_label order so a loan with two
+  // splits on one date renders deterministically rather than shuffling per reload.
+  function _splitsNewestFirst(loanAccountId) {
+    return (_allLoanSplits || [])
+      .filter(s => s.loan_account_id === loanAccountId)
+      .slice()
+      .sort((a, b) => {
+        const ka = _splitDateKey(a), kb = _splitDateKey(b);
+        if (ka !== kb) return kb.localeCompare(ka);
+        return String(b.period_label || '').localeCompare(String(a.period_label || ''));
+      });
+  }
+
   // The full split-history table for one loan, as HTML. Extracted (session 226
   // close) so the loan DETAIL modal below is its one caller today, but the markup
   // stays reusable.
   function _loanSplitHistoryTableHtml(loanAccountId) {
-    const splits = _allLoanSplits
-      .filter(s => s.loan_account_id === loanAccountId)
-      .slice()
-      .sort((a, b) => (b.period_label || '').localeCompare(a.period_label || ''));
+    const splits = _splitsNewestFirst(loanAccountId);
     if (!splits.length) {
       return `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No splits recorded for this loan yet.</div>`;
     }
@@ -13696,10 +13733,16 @@ ${noActivityNote}
   // earliest 'payment' row on its schedule. Either way the user only ever confirms a
   // month -- never types a dollar amount.
   function _nextSchedulePeriod(loanAccountId) {
-    const splitsForLoan = _allLoanSplits.filter(s => s.loan_account_id === loanAccountId);
+    const splitsForLoan = _splitsNewestFirst(loanAccountId);
     if (splitsForLoan.length) {
-      const latest = splitsForLoan.map(s => s.period_label).sort().pop();
+      // From the newest split's DATE, not its label: 'Period 84'.split('-') gave
+      // [NaN, NaN] and this modal opened offering to generate period "NaN-NaN".
+      const latest = _splitDateKey(splitsForLoan[0]).slice(0, 7);
       const [y, m] = latest.split('-').map(Number);
+      if (!Number.isFinite(y) || !Number.isFinite(m)) {
+        const rows0 = _allLoanAmortRows.filter(r => r.loan_amortization_schedules?.loan_account_id === loanAccountId && r.row_type === 'payment' && r.row_date);
+        return rows0.length ? rows0.map(r => r.row_date).sort().pop().slice(0, 7) : new Date().toISOString().slice(0, 7);
+      }
       const ny = m === 12 ? y + 1 : y;
       const nm = m === 12 ? 1 : m + 1;
       return `${ny}-${String(nm).padStart(2, '0')}`;
