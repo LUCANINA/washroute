@@ -11788,6 +11788,32 @@
   // Kicks off a new incremental check. The edge function does its own role check
   // (admin/manager/cpa) off the caller's JWT, so this must send the real session
   // token -- the anon key alone would come back unauthorized.
+  // The intake cross-check (loan-cross-check) owns the findings the reconciliation
+  // ENGINE does not: basis_conflict, schedule_vs_statement, missing_statement_period.
+  // Session 230: it had no caller anywhere in the UI, so its findings could be raised
+  // but never refreshed or cleared -- PayPal 2's basis_conflict sat open for four days
+  // after the underlying problem was fixed, because nothing was left to notice. It now
+  // runs alongside the engine on this one button, so both halves of the Needs Attention
+  // list are as fresh as each other. It is NOT rate-limited and does not touch Xero;
+  // its own resolve sweep is scoped to source='intake' and the loans it examined, so it
+  // can never clear an engine finding. A 403 just means a cpa-role user (read-only for
+  // writes) clicked the button -- not an error worth a red toast.
+  async function _runIntakeCrossCheck(token) {
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/loan-cross-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (res.status === 403) return { skipped: true };
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.ok === false) return { failed: json.error || `HTTP ${res.status}` };
+      return { written: json.written ?? 0, resolved: json.resolved ?? 0 };
+    } catch (e) {
+      return { failed: e?.message || 'unknown error' };
+    }
+  }
+
   async function runReconciliationCheck() {
     const btn = document.getElementById('recon-run-btn');
     const origLabel = btn ? btn.textContent : '';
@@ -11801,17 +11827,29 @@
         body: JSON.stringify({ mode: 'incremental', run_by: currentUserDisplayName || currentUserFirstName || 'Admin' }),
       });
       const json = await res.json().catch(() => ({}));
-      if (res.status === 429) {
-        showToast(json.error || 'A check was run in the last 10 minutes — try again shortly.', 'error');
+      // The engine is rate-limited to one run per 10 minutes; the intake check is not.
+      // So a 429 (or an engine error) must NOT skip the intake half -- otherwise a
+      // second click inside the window silently refreshes nothing at all.
+      const engineRateLimited = res.status === 429;
+      const engineFailed = !engineRateLimited && (!res.ok || json.ok === false);
+      const intake = await _runIntakeCrossCheck(session.access_token);
+      await loadReconciliation();
+      const cleared = intake.resolved ?? 0;
+      const clearedMsg = cleared ? `, ${cleared} cleared` : '';
+      if (engineRateLimited) {
+        showToast(`Intake checks refreshed${clearedMsg}. Reconciliation itself ran in the last 10 minutes — try again shortly.`, 'error');
         return;
       }
-      if (!res.ok || json.ok === false) {
+      if (engineFailed) {
         showToast('Check failed: ' + (json.error || `HTTP ${res.status}`), 'error');
         return;
       }
       const n = json.findings_new ?? 0;
-      showToast(`Check complete — ${n} new finding${n === 1 ? '' : 's'}`, 'success');
-      await loadReconciliation();
+      if (intake.failed) {
+        showToast(`Check complete — ${n} new finding${n === 1 ? '' : 's'}. Intake checks failed: ${intake.failed}`, 'error');
+        return;
+      }
+      showToast(`Check complete — ${n} new finding${n === 1 ? '' : 's'}${clearedMsg}`, 'success');
     } catch (e) {
       showToast('Check failed: ' + (e.message || 'unknown error'), 'error');
     } finally {

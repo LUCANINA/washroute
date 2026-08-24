@@ -1,4 +1,12 @@
-// loan-cross-check — v1
+// loan-cross-check — v2
+// v2 (session 230): finding titles now name the LOAN, not just the lender. Ford Pro
+// FinSimple finances five vans on five separate loan accounts, so a title reading
+// "Ford Pro FinSimple: a statement period looks missing" told nobody WHICH van's
+// statement to go find. Titles use `xero_account_name` (the same label
+// reconciliation-run's findings use, e.g. "E-Transit Loan - 4140"), falling back to
+// the lender only when a loan has no Xero account name on file. One label helper,
+// used by all three checks -- a per-check string would drift.
+
 // =============================================================================
 // Session 221, build step 5. The cross-validation layer David actually asked for:
 // "If two pieces of information are available, say an amortization doc + an actual
@@ -105,7 +113,7 @@ Deno.serve(async (req) => {
     const today = todayPacific()
 
     let loanQ = supa.from('loan_accounts')
-      .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code')
+      .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code, xero_account_name')
     if (onlyLoanId) loanQ = loanQ.eq('id', onlyLoanId)
     const { data: loans } = await loanQ
     if (!loans?.length) {
@@ -129,6 +137,10 @@ Deno.serve(async (req) => {
     const findings: Finding[] = []
 
     for (const loan of loans) {
+      // What a human calls this loan. Lender alone is ambiguous whenever one lender
+      // holds several accounts (Ford Pro: five vans), which is exactly when a finding
+      // is hardest to act on.
+      const loanLabel = (loan.xero_account_name || '').trim() || loan.lender
       const stmts = (statements ?? [])
         .filter((s: any) => s.loan_account_id === loan.id && s.principal_balance != null)
       const realStmts = stmts
@@ -171,7 +183,7 @@ Deno.serve(async (req) => {
           loan_account_id: loan.id,
           check_key: 'basis_conflict',
           severity: 'error',
-          title: `${loan.lender}: balance is measured differently from the ledger`,
+          title: `${loanLabel}: balance is measured differently from the ledger`,
           plain_english:
             `The most recent balance on file for this loan comes from its ${anchor.kind} dated ${anchor.date}, `
             + `and that figure is a ${anchor.basis.replace(/_/g, ' ')} amount (${money(anchor.balance)}). `
@@ -226,7 +238,7 @@ Deno.serve(async (req) => {
             loan_account_id: loan.id,
             check_key: 'schedule_vs_statement',
             severity: Math.abs(diff) >= 50 ? 'warn' : 'info',
-            title: `${loan.lender}: statement and schedule disagree on ${s.statement_date}`,
+            title: `${loanLabel}: statement and schedule disagree on ${s.statement_date}`,
             plain_english:
               `The lender's statement dated ${s.statement_date} says the balance is ${money(n(s.principal_balance)!)}, `
               + `but the amortization schedule for ${best.row_date} projects ${money(n(best.balance)!)} — `
@@ -271,7 +283,7 @@ Deno.serve(async (req) => {
               loan_account_id: loan.id,
               check_key: 'missing_statement_period',
               severity: 'warn',
-              title: `${loan.lender}: a statement period looks missing`,
+              title: `${loanLabel}: a statement period looks missing`,
               plain_english:
                 `Statements for this loan normally arrive about every ${median} days, but there is a ${gap}-day gap `
                 + `between ${realStmts[i - 1].statement_date} and ${realStmts[i].statement_date} — roughly `

@@ -1205,6 +1205,18 @@ to "what is running".
 
 ## Session Log
 
+### Session 230 (2026-08-24) — the check with no button, and findings that name the loan
+
+**David, on two Needs Attention cards: re-run the check on PayPal 2, and "identify which loan is affected instead of a generic statement" on Ford Pro.** Both traced to the same layer: `loan-cross-check`, the intake cross-validation function, which owns basis_conflict / schedule_vs_statement / missing_statement_period.
+
+**1. It had no caller in the UI.** Nothing in `admin-dashboard/index.html` ever invoked it — it only ran when a session called it by hand, so its findings could be raised but never refreshed or cleared. PayPal 2's basis_conflict sat open from 8/18 even though session 226 close fixed the cause on 8/22. Fixed: `runReconciliationCheck()` now also calls `loan-cross-check` (`confirm:true`) via new `_runIntakeCrossCheck()`, then reloads. The intake half runs even when the engine returns 429 (engine is rate-limited to 10 min; intake is not) — otherwise a second click inside the window would refresh nothing. A 403 (cpa role, read-only for writes) is a silent skip, not a red toast; an intake failure is reported alongside the engine's result, never instead of it. Toast now reports cleared count.
+
+**2. Titles named the lender, not the loan.** Ford Pro FinSimple holds five van loans, so "Ford Pro FinSimple: a statement period looks missing" pointed at nothing. `loan-cross-check` v2 uses one `loanLabel` helper — `xero_account_name` (the engine's own label, e.g. "E-Transit Loan - 4140") falling back to `lender` — across all three checks; `xero_account_name` added to the loan select. The affected loan is **E-Transit Loan - 4140** (b1008b4a), gap 2026-04-27 → 2026-06-27. Deployed v3 (verify_jwt false unchanged); deploy payload md5-verified against the repo file (`ed219706387b0fbda9cddee16ae5c741`) BEFORE deploying, deployed bundle fetched back and reviewed. Existing rows are not pinned, so both titles refresh on the next run.
+
+**3. PayPal 2's basis_conflict re-run offline (SQL replication of all three checks, live data).** Newest past-dated anchor is now the 2026-08-05 portal statement at $58,775.97, `principal_only` — Check A no longer fires. Check B skips (schedule is total_payback, statements principal_only — basis mismatch is Check A's business). Check C skips (weekly rhythm, median 7 days < the 20-day gate). So the finding is stale and clears on the first confirmed run through the new button.
+
+**Where to pick up:** David pushes (client change ships with the push; the function is already live), then clicks Run Reconciliation Check — expect PayPal 2's basis_conflict to clear and the Ford card to retitle to E-Transit Loan - 4140. Still open on PayPal 2 and untouched here: the `unexplained_ledger_adjustment` warn (4 hand-posted corrections, $18,922.10 since 4/24) and the 8/5, 8/12, 8/19 draft backlog with no splits — the structural fix is direct-split/staging on every weekly draft so no month-end correction is needed. 21 of 33 posted splits carry no `xero_manual_journal_id` (hand-posted era), which is why the ledger needed hand-correcting at all.
+
 ### Session 229 cont. 6 (2026-08-23) — "Abbreviate by 30%": the v15 copy trim, and a new standing guideline
 
 **David, on the v14 live card: "Almost there. Abbreviate by 30%" — and separately: "add guideline to project: keep words at a minimum" (now a standing Design convention above).** v15 is a pure copy pass on `loan-find-difference`'s lender-analysis templates: same math, same numbers, same structure, ~30% fewer words. 27 exact-string replacements applied by an assert-guarded Python script (each old string must occur exactly once), never retyped by hand.
