@@ -1143,6 +1143,58 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!['pending_review', 'stage_expired'].includes(split.status)) {
         return new Response(JSON.stringify({ error: `This split is ${split.status} -- only a pending-review split can be staged.` }), { status: 409 })
       }
+
+      // ── STALENESS GUARD (session 230) ────────────────────────────────────
+      // A DERIVED schedule is a projection from one balance on one date. When a
+      // newer lender statement exists, that anchor is out of date and every future
+      // row is wrong -- most obviously after an extra principal payment, where the
+      // projection keeps charging interest on a balance that no longer exists.
+      //
+      // The dangerous part is that such a row is not IMPOSSIBLE, merely wrong:
+      // principal + interest still equals the payment, so the split invariant and
+      // every arithmetic check below pass happily. It would stage, match and post
+      // in silence. This is the one check that catches it, and it deliberately
+      // fails CLOSED -- refusing to stage costs a click; staging a wrong split
+      // costs a correcting journal and a conversation with the CPA.
+      //
+      // Scoped to derived schedules only. A lender-issued amortization document
+      // (PCV, Verdant, Dexter 2, PayPal 2) is not invalidated by a statement
+      // arriving -- it IS the lender's own figures. Only our projections go stale.
+      if (String(split.stage_sweep_flag ?? '') === 'stale_projection') {
+        return new Response(JSON.stringify({
+          error: 'This period was flagged stale after its schedule was re-derived. Re-generate the split from the current schedule before staging it.',
+          review_notes: split.review_notes,
+        }), { status: 409 })
+      }
+      {
+        const { data: guardSched } = await supa.from('loan_amortization_schedules')
+          .select('id, amort_type, schedule_generated_date, anchor_statement_date')
+          .eq('id', amortRow.schedule_id).maybeSingle()
+        if (guardSched && String(guardSched.amort_type ?? '').startsWith('derived_')) {
+          const { data: newestStmts } = await supa.from('loan_statements')
+            .select('statement_date')
+            .eq('loan_account_id', loanAcct.id)
+            .in('source', ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'])
+            .not('principal_balance', 'is', null)
+            .lte('statement_date', pacificToday())
+            .order('statement_date', { ascending: false })
+            .limit(1)
+          const newestStmt = newestStmts?.[0]?.statement_date ? String(newestStmts[0].statement_date).slice(0, 10) : null
+          // Prefer the recorded anchor; fall back to the generation date for
+          // schedules derived before anchor_statement_date existed.
+          const anchor = guardSched.anchor_statement_date
+            ? String(guardSched.anchor_statement_date).slice(0, 10)
+            : (guardSched.schedule_generated_date ? String(guardSched.schedule_generated_date).slice(0, 10) : null)
+          if (newestStmt && anchor && anchor < newestStmt) {
+            return new Response(JSON.stringify({
+              error: `Refusing to stage: this card comes from a projection anchored to the ${anchor} balance, but a lender statement dated ${newestStmt} has arrived since. The projection is out of date -- re-derive this loan's schedule first, then stage the fresh card.`,
+              projection_anchor_date: anchor,
+              newest_statement_date: newestStmt,
+              fix: 'Run loan-derive-schedule for this loan with confirm:true. Re-deriving also flags anything already staged whose numbers moved.',
+            }), { status: 409 })
+          }
+        }
+      }
       if (Math.abs((principal + interest) - totalAmt) >= ZERO_TOLERANCE) {
         return new Response(JSON.stringify({ error: `Refusing to stage: principal ($${principal.toFixed(2)}) + interest ($${interest.toFixed(2)}) does not equal the total ($${totalAmt.toFixed(2)}).` }), { status: 409 })
       }

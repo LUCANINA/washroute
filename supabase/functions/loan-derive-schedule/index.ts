@@ -1,12 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
-import { ensureUpcomingSplit } from "../_shared/staging-next.ts"
-import {
-  collapseDuplicateBalances, buildPeriods, classifyPeriods, chooseFit, projectRows, recurringPayment,
-  r2, daysBetween, type Period, type Fit,
-} from "../_shared/rate-fit.ts"
+import { deriveSchedule, num } from "../_shared/derive-schedule.ts"
 
-// loan-derive-schedule — v1 (session 230)
+// loan-derive-schedule — v2 (session 230)
+// v2: the projection itself moved to _shared/derive-schedule.ts, because two other
+// callers need it (loan-record-principal-payment when a lump lands,
+// loan-ingest-statement when a new anchor arrives) and neither can HTTP-call this
+// function -- they have no user JWT. This file is now only the HTTP door: auth,
+// find the loan, call the shared routine, return what it said.
 // =============================================================================
 // Lets a loan with NO lender-issued amortization schedule take part in pre-staging,
 // by DERIVING one from the loan's own statement history.
@@ -55,14 +56,6 @@ const cors = {
   'Content-Type': 'application/json',
 }
 
-const REAL_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
-const MAX_PROJECTED_PERIODS = 240
-const num = (v: any): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
-
-function todayPacific(): string {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).toISOString().slice(0, 10)
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   try {
@@ -82,9 +75,6 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}))
     const confirm = body.confirm === true
-    const enableStaging = body.enable_staging === true
-    const maxResidual = num(body.max_residual) ?? 0.05
-    const minPeriods = num(body.min_periods) ?? 4
     // Reading is advisory; writing is admin/manager, same contract as every other
     // function in this module.
     if (confirm && !['admin', 'manager'].includes(role)) {
@@ -98,163 +88,17 @@ Deno.serve(async (req) => {
     const { data: loans } = await q
     const loan = loans?.[0]
     if (!loan) return new Response(JSON.stringify({ error: 'No matching loan account.' }), { status: 404, headers: cors })
-    if (loan.status !== 'active') {
-      return new Response(JSON.stringify({ error: `This loan is ${loan.status} -- there is nothing left to project.` }), { status: 409, headers: cors })
-    }
 
-    const today = todayPacific()
-
-    // ── 1. Real statements only ──────────────────────────────────────────────
-    // xero_derived rows are OUR OWN ledger. Fitting a lender's rate to our ledger
-    // would be self-referential: it would "confirm" whatever we already booked,
-    // including any error. Only what the lender itself said counts as evidence.
-    const { data: rawStmts } = await supa.from('loan_statements')
-      .select('id, statement_date, principal_balance, total_amount_due, source, balance_basis')
-      .eq('loan_account_id', loan.id)
-      .in('source', REAL_SOURCES)
-      .not('principal_balance', 'is', null)
-      .lte('statement_date', today)
-      .order('statement_date', { ascending: true })
-    const stmts = collapseDuplicateBalances((rawStmts || []).filter((s: any) => s.balance_basis !== 'total_payback'))
-    if (stmts.length < minPeriods + 1) {
-      return new Response(JSON.stringify({
-        ok: false, reason: 'not_enough_statements',
-        message: `This loan has ${stmts.length} distinct lender balances on file; at least ${minPeriods + 1} are needed to measure a rate. Upload more statements or a transaction history.`,
-        statements_on_file: stmts.length,
-      }), { headers: cors })
-    }
-
-    // ── 2. Periods, and which of them are usable evidence ────────────────────
-    // The arithmetic lives in _shared/rate-fit.ts so it can be replayed offline
-    // against every loan's real history -- see tests/rate-fit-harness.ts.
-    const allPeriods: Period[] = buildPeriods(stmts, num(loan.scheduled_monthly_payment))
-    if (!allPeriods.length) {
-      return new Response(JSON.stringify({ ok: false, reason: 'no_periods', message: 'No usable statement-to-statement periods -- no payment amount is known for any of them.' }), { headers: cors })
-    }
-    const { clean, excluded, medianDays } = classifyPeriods(allPeriods)
-    if (clean.length < minPeriods) {
-      return new Response(JSON.stringify({
-        ok: false, reason: 'not_enough_clean_periods',
-        message: `Only ${clean.length} of ${allPeriods.length} periods are ordinary payment periods; ${minPeriods} are needed. The rest are listed below -- usually a missing statement or an extra principal payment.`,
-        clean_periods: clean.length, excluded,
-      }), { headers: cors })
-    }
-
-    // ── 3. Fit both conventions; the better one wins ─────────────────────────
-    const { best, runnerUp, regime } = chooseFit(clean, minPeriods)
-    const passes = best.residual <= maxResidual
-
-    const fitReport = {
-      chosen: best.model, annual_rate_percent: best.annual, periodic_rate: best.periodic,
-      periods_fitted: best.periods, worst_error_dollars: r2(best.residual),
-      passes_gate: passes, gate_max_residual: maxResidual,
-      contract_rate_on_file: num(loan.interest_rate),
-      runner_up: { model: runnerUp.model, worst_error_dollars: r2(runnerUp.residual) },
-      // How much history the fit actually rests on, and where this loan last changed
-      // rate. 4140 changed rate for eleven months in 2024 and changed back; averaging
-      // across that produced a rate that was true in no single period.
-      regime: regime.breakAt
-        ? { periods_used: regime.periods, periods_before_rate_change: regime.dropped,
-            note: `This loan's rate changed around ${regime.breakAt}; only the ${regime.periods} periods since then were used.` }
-        : { periods_used: regime.periods, periods_before_rate_change: 0, note: 'No rate change detected — the whole clean history was used.' },
-      per_period: best.errors,
-      excluded_periods: excluded,
-    }
-
-    if (!passes) {
-      return new Response(JSON.stringify({
-        ok: false, reason: 'fit_not_good_enough',
-        message: `The best fit for this loan is ${best.model.replace(/_/g, ' ')} at ${best.annual.toFixed(3)}%, but it misses the lender's own figures by as much as $${r2(best.residual).toFixed(2)}. That is an estimate, not a measurement, so no schedule was derived. A staged transaction wrong by that much is worse than none.`,
-        fit: fitReport,
-      }), { headers: cors })
-    }
-
-    // ── 4. Project forward from the last real balance ────────────────────────
-    // The ANCHOR is the newest real statement, not the newest DISTINCT balance:
-    // collapseDuplicateBalances exists to keep the fit honest, but E4 -9744's balance
-    // has not moved since May (it is paid ahead), so anchoring on the collapsed
-    // series would project from three months ago and emit past-dated rows.
-    const lastRaw = (rawStmts || []).filter((s: any) => s.balance_basis !== 'total_payback')
-    const last = lastRaw[lastRaw.length - 1] ?? stmts[stmts.length - 1]
-    // NOT the newest statement's total due -- that figure can be a one-off (E4 -9744's
-    // newest statement says $5,000, which was an extra principal payment, and
-    // projecting from it produced a schedule of $5,000 monthly instalments).
-    const payment = recurringPayment(clean, num(loan.scheduled_monthly_payment))!
-    const monthly = medianDays >= 26 && medianDays <= 32
-    const maturity: string | null = loan.maturity_date ? String(loan.maturity_date).slice(0, 10) : null
-
-    const projected = projectRows({
-      anchorDate: last.statement_date, anchorBalance: Number(last.principal_balance),
-      payment, fit: best, medianDays, maturity, maxPeriods: MAX_PROJECTED_PERIODS,
+    const result = await deriveSchedule(supa, loan, {
+      confirm,
+      enableStaging: body.enable_staging === true,
+      maxResidual: num(body.max_residual) ?? undefined,
+      minPeriods: num(body.min_periods) ?? undefined,
+      actor: `loan-derive-schedule (${userData.user.email ?? role})`,
+      reason: typeof body.reason === 'string' ? body.reason : undefined,
     })
-    // If the projection runs into the maturity date with real money still owed, the
-    // maturity on file is probably wrong. Say so rather than quietly truncating: a
-    // schedule that stops early stops producing staging cards, silently.
-    const endsShort = projected.length && Number(projected[projected.length - 1].balance) > 1
-      ? { stopped_at: projected[projected.length - 1].row_date, balance_remaining: projected[projected.length - 1].balance,
-          note: `The projection reached this loan's maturity date on file (${maturity}) with ${projected[projected.length - 1].balance.toFixed(2)} still outstanding, so the maturity date is probably wrong. Staging still works; the schedule just runs out early.` }
-      : null
-    const futureRows = projected.filter((r) => r.row_date >= today)
-
-    if (!confirm) {
-      return new Response(JSON.stringify({
-        ok: true, dry_run: true, wrote_nothing: true,
-        loan: { id: loan.id, name: loan.xero_account_name, lender: loan.lender },
-        fit: fitReport,
-        anchor: { statement_date: last.statement_date, balance: Number(last.principal_balance), payment },
-        cadence: monthly ? 'monthly' : `every ~${medianDays} days`,
-        projected_periods: projected.length, future_periods: futureRows.length, ends_short: endsShort,
-        first_future_rows: futureRows.slice(0, 3),
-      }), { headers: cors })
-    }
-
-    // ── 5. Write ─────────────────────────────────────────────────────────────
-    // A new schedule row every time, never an edit of an old one: staging-next
-    // already picks the newest schedule that still has future rows, and a derived
-    // schedule is only ever as good as the statement it was anchored to. Keeping
-    // the old ones makes every re-derivation auditable, and means no row that a
-    // split already points at is ever deleted.
-    const storagePath = `derived://loan-derive-schedule/${loan.id}/${today}`
-    const { data: sched, error: schedErr } = await supa.from('loan_amortization_schedules').insert({
-      loan_account_id: loan.id,
-      amort_type: `derived_${best.model}`,
-      schedule_generated_date: today,
-      storage_path: storagePath,
-      source: 'derived_from_statements',
-      uploaded_by: `loan-derive-schedule (${userData.user.email ?? role})`,
-      balance_basis: 'principal_only',
-    }).select('id').single()
-    if (schedErr || !sched) {
-      return new Response(JSON.stringify({ error: 'Could not create the derived schedule', details: schedErr?.message }), { status: 500, headers: cors })
-    }
-    const { error: rowsErr } = await supa.from('loan_amortization_rows')
-      .insert(projected.map((r) => ({ ...r, schedule_id: sched.id })))
-    if (rowsErr) {
-      return new Response(JSON.stringify({ error: 'Could not write the projected rows', details: rowsErr.message, schedule_id: sched.id }), { status: 500, headers: cors })
-    }
-
-    const acctPatch: Record<string, any> = {
-      rate_model: best.model,
-      fitted_periodic_rate: best.periodic,
-      fitted_annual_rate: best.annual,
-      rate_fit_residual: r2(best.residual),
-      rate_fit_periods: best.periods,
-      rate_fit_at: new Date().toISOString(),
-    }
-    if (enableStaging) acctPatch.prestage_enabled = true
-    await supa.from('loan_accounts').update(acctPatch).eq('id', loan.id)
-
-    // The card itself is created by the ONE function that decides which period
-    // stages next -- never by a second copy of that rule living here.
-    let staging: any = { skipped: 'enable_staging not requested' }
-    if (enableStaging) staging = await ensureUpcomingSplit(supa, loan.id)
-
-    return new Response(JSON.stringify({
-      ok: true, dry_run: false,
-      loan: { id: loan.id, name: loan.xero_account_name },
-      schedule_id: sched.id, rows_written: projected.length, future_rows: futureRows.length, ends_short: endsShort,
-      fit: fitReport, prestage_enabled: enableStaging, staging,
-    }), { headers: cors })
+    const status = result.ok === false && result.reason === 'loan_not_active' ? 409 : 200
+    return new Response(JSON.stringify(result), { status, headers: cors })
   } catch (e) {
     return new Response(JSON.stringify({ error: String((e as any)?.message ?? e), wrote_nothing: true }), { status: 500, headers: cors })
   }

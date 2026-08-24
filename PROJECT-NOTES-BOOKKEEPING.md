@@ -1205,6 +1205,22 @@ to "what is running".
 
 ## Session Log
 
+### Session 230 cont. 4 (2026-08-24) — CLOSING THE LOOP: a projection that goes stale now fails loudly
+
+David asked the right question of the new Ford staging: *"does the system know to correct after a principal payment?"* It corrected the PERIOD (invariant → detection → `loan-record-principal-payment`) but not the PROJECTION. A derived schedule is anchored to one balance on one date; a lump makes every future row wrong. **And that error is not impossible, merely wrong** — principal + interest still equals the payment, so the split invariant and every arithmetic check in `loan-xero-post` pass happily. It would have staged and posted in silence. Three fixes, built together:
+
+**1. Staleness guard (`loan-xero-post`, stage branch).** Refuses to stage a card from a `derived_%` schedule whose anchor predates the newest real lender statement, and refuses any split flagged `stage_sweep_flag='stale_projection'`. Fails CLOSED by design: refusing costs a click, staging a wrong split costs a correcting journal and a conversation with the CPA. **Scoped to derived schedules only** — a lender-issued amortization document (PCV, Verdant, Dexter 2, PayPal 2) is not invalidated by a statement arriving; it IS the lender's figures. Only our projections go stale.
+
+**2. `_shared/derive-schedule.ts`.** The projection moved out of `loan-derive-schedule` (now v2, a thin HTTP door) because two other callers need it and neither can HTTP-call it — they have no user JWT. `rederiveIfDerived()` is a no-op unless the loan already carries a derived schedule, never turns a loan into a projected one on its own, and can never fail its caller: recording a payment / storing a statement is the primary job and has already succeeded. A failed re-derivation leaves the projection stale, and the guard then refuses to stage from it — the safe direction to fail in. It also compares every already-STAGED split against the fresh projection and flags the ones whose numbers moved (`stale_projection` + a plain-English note) rather than editing a live Xero transaction behind the CPA's back.
+
+**3. Auto re-derive at both anchor-moving events** — `loan-record-principal-payment` (a lump) and `loan-ingest-statement` (a new real statement, which may also carry a rate change; only a re-fit notices).
+
+**Migration `session_230_schedule_anchor_statement_date`:** `loan_amortization_schedules.anchor_statement_date`. Generation date was a proxy that fails on same-day ordering — derive at 10am, ingest a statement dated today at 2pm, and `generated == newest` sees nothing stale while the projection genuinely is. Storing the anchor makes it exact. Nullable (lender schedules have no anchor); 4140's existing derived schedule backfilled to 2026-08-17. Data-API visibility proven by REST round-trip BEFORE the dependent code ships (session 176/177 rule).
+
+Verified: `deno check` clean on all four functions; the offline harness still passes all four Fords at $0.01 and still refuses Funding Circle ($1.63) and Rapid.
+
+**Where to pick up:** deploy `loan-xero-post loan-derive-schedule loan-record-principal-payment loan-ingest-statement`, then the three remaining Fords (61797019, 63204751, 63982094). Still open: 4140's maturity date (2027-01-01 on file; the projection says 2027-06-17 with a $451.03 final payment), and the $5,000 August lump on 4140 is still unbooked.
+
 ### Session 230 cont. 3 (2026-08-24) — ALL FOUR STEPS BUILT: the invariant in the DB, two defects corrected, Ford derivable, lumps bookable
 
 David: "do all 4." Everything below is written, type-checked (`deno check`, all green) and committed. **Nothing is deployed yet except the DB migrations — see "deploy" at the end.**

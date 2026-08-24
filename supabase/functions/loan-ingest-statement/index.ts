@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { rederiveIfDerived, REAL_SOURCES } from "../_shared/derive-schedule.ts"
 
 // Ingests one pulled loan statement (Ford Pro CSV today; other lenders/methods later):
 //   1. stores the raw CSV in the loan-statements bucket (permanent proof record)
@@ -909,10 +910,23 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
+    // ── Re-derive, because a new anchor supersedes the projection ──────────
+    // A derived schedule is only ever as good as the statement it was anchored
+    // to. A newer lender balance is strictly better evidence -- it may also carry
+    // a rate change (4140 changed rate for eleven months in 2024 and changed
+    // back), which only a re-fit will notice. No-op on lender-issued schedules,
+    // and it can never fail this request: storing the statement is the primary
+    // job and has already succeeded.
+    let rederived: any = { skipped: 'not a real lender statement' }
+    if (REAL_SOURCES.includes(String(stmt?.source ?? ''))) {
+      rederived = await rederiveIfDerived(supa, loanAcct.id, `new lender statement dated ${stmt.statement_date}`)
+    }
+
     return new Response(JSON.stringify({
       ok: true,
       loan_account: loanAcct,
       statement: stmt,
+      rederived,
       split,
       schedule_comparison: scheduleComparison,
       splits_created: splitsCreated,

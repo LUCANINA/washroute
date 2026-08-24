@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { rederiveIfDerived } from "../_shared/derive-schedule.ts"
 
 // loan-record-principal-payment — v1 (session 230)
 // =============================================================================
@@ -168,7 +169,8 @@ Deno.serve(async (req) => {
     // Xero side to it, not something to rewrite underneath.
     let scheduledSplit: any = plan.scheduled_period
     if (lumpOnlyWindow) {
-      return new Response(JSON.stringify({ ok: true, dry_run: false, loan: loan.xero_account_name, plan, lump_split: lumpRow, scheduled_split: scheduledSplit }), { headers: cors })
+      const rederived = await rederiveIfDerived(supa, loanId, `extra principal payment of ${money(amount)} on ${payDate}`)
+      return new Response(JSON.stringify({ ok: true, dry_run: false, loan: loan.xero_account_name, plan, lump_split: lumpRow, scheduled_split: scheduledSplit, rederived }), { headers: cors })
     }
     const { data: prior } = await supa.from('loan_splits')
       .select('id, status').eq('loan_account_id', loanId).eq('period_label', periodLabel).maybeSingle()
@@ -191,7 +193,16 @@ Deno.serve(async (req) => {
       scheduledSplit = fixed
     }
 
-    return new Response(JSON.stringify({ ok: true, dry_run: false, loan: loan.xero_account_name, plan, lump_split: lumpRow, scheduled_split: scheduledSplit }), { headers: cors })
+    // ── Re-derive, because the projection just went stale ──────────────────
+    // A lump changes every future row of a DERIVED schedule: each one was
+    // projecting interest on a balance that no longer exists. rederiveIfDerived is
+    // a no-op on a loan carrying a lender-issued schedule, and it can never fail
+    // this request -- recording the payment is the primary job and has already
+    // succeeded. If the re-derivation fails, the projection stays stale and the
+    // staging guard refuses to stage from it, which is the safe direction.
+    const rederived = await rederiveIfDerived(supa, loanId, `extra principal payment of ${money(amount)} on ${payDate}`)
+
+    return new Response(JSON.stringify({ ok: true, dry_run: false, loan: loan.xero_account_name, plan, lump_split: lumpRow, scheduled_split: scheduledSplit, rederived }), { headers: cors })
   } catch (e) {
     return new Response(JSON.stringify({ error: String((e as any)?.message ?? e), wrote_nothing: true }), { status: 500, headers: cors })
   }
