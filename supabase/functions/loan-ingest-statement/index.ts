@@ -208,6 +208,11 @@ const AMOUNT_TOLERANCE = 0.02   // dollars -- for exact-dollar Xero matching
 const INTEREST_ACCOUNT_CODE = '800'
 const DIRECT_SPLIT_PAIR_WINDOW_DAYS = 2 // v20 -- same window as loan-xero-post's own +/-2-day match
 const money = (n: number) => Math.round(n * 100) / 100
+// Explicit T00:00:00Z on both sides -- a bare 'YYYY-MM-DD' is parsed as UTC but a
+// date-time without a zone is parsed as LOCAL, and mixing the two is an off-by-one
+// day that silently moves a payment into the wrong month.
+const daysBetween = (a: string, b: string) =>
+  Math.round((Date.parse(String(b).slice(0, 10) + 'T00:00:00Z') - Date.parse(String(a).slice(0, 10) + 'T00:00:00Z')) / 86400000)
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -752,6 +757,60 @@ async function handleRequest(req: Request): Promise<Response> {
         let status = 'pending_review'
         let reviewNotes: string | null = null
         let amortizationRowId: string | null = null
+
+        // ── TWO STATEMENTS IN ONE MONTH (session 231) ─────────────────────────
+        // period_label is the statement's MONTH, so every statement in a month
+        // writes the same key and the last one uploaded wins. That is not a corner
+        // case: Ford's portal is pulled twice a month (rate-fit.ts says so in as
+        // many words), and all four Ford loans use month labels with 5-8 months
+        // carrying multiple statements each.
+        //
+        // The failure is arrival order, not arithmetic. Upload 08-22 then the older
+        // 08-10 and `prior` for the second run is JULY's statement, so the balance
+        // has not moved between them: principalPaid = 0, and interestPaid becomes
+        // the WHOLE payment. On a $1,180.32 Ford payment that books $0.00 principal
+        // and $1,180.32 interest over the correct $1,070.29 / $110.03 -- interest
+        // overstated by $1,070.29. The split invariant still holds (0 + 1180.32 =
+        // 1180.32), so nothing downstream objects, and it sits one Approve click
+        // from Xero. Upload the same two files in the other order and the result is
+        // right. Nothing but sequence separates them.
+        //
+        // Two things are wrong and each is worth refusing on its own:
+        //
+        //   (a) A period where the balance did not fall, or fell by more than the
+        //       payment, is not an ordinary payment period. It may be legitimate
+        //       (interest-only, a fee-only month) but it is never something to book
+        //       unreviewed.
+        //   (b) Overwriting a split that was computed from a WIDER window with one
+        //       computed from a narrower or empty one is always a downgrade.
+        //
+        // Both become needs_attention rather than a silent clean overwrite. The
+        // number is still recorded -- a human sees what was computed and why it is
+        // suspect, instead of the queue quietly holding a wrong figure.
+        const priorGap = daysBetween(prior.statement_date, stmt.statement_date)
+        if (principalPaid <= 0) {
+          status = 'needs_attention'
+          reviewNotes = `The balance did not fall between ${prior.statement_date} and ${stmt.statement_date} (both $${Number(stmt.principal_balance).toFixed(2)}${principalPaid < 0 ? ', it rose' : ''}), but a payment of $${totalDue.toFixed(2)} is stated -- so this computes as $${principalPaid.toFixed(2)} principal and $${(interestPaid ?? 0).toFixed(2)} interest, i.e. effectively all interest. `
+            + `That is usually a second statement pulled in the same month rather than a real period: the payment falls outside this ${priorGap}-day window. `
+            + `Check whether another statement for ${periodLabel} covers the actual payment before approving this.`
+        } else {
+          const { data: sameMonthExisting } = await supa
+            .from('loan_splits')
+            .select('id, status, prior_statement_id, current_statement_id')
+            .eq('loan_account_id', loanAcct.id)
+            .eq('period_label', periodLabel)
+            .maybeSingle()
+          if (sameMonthExisting?.prior_statement_id && sameMonthExisting.prior_statement_id !== prior.id) {
+            const { data: oldPrior } = await supa.from('loan_statements')
+              .select('statement_date').eq('id', sameMonthExisting.prior_statement_id).maybeSingle()
+            if (oldPrior?.statement_date && oldPrior.statement_date < prior.statement_date) {
+              status = 'needs_attention'
+              reviewNotes = `A split for ${periodLabel} already existed, computed from ${oldPrior.statement_date} to its own statement -- a wider window than this one (${prior.statement_date} to ${stmt.statement_date}). `
+                + `This is a second statement pulled in the same month, so the two disagree about what ${periodLabel} means. `
+                + `The figures here are $${principalPaid.toFixed(2)} principal / $${(interestPaid ?? 0).toFixed(2)} interest; check them against the full month's balance movement before approving.`
+            }
+          }
+        }
 
         const { data: schedules } = await supa
           .from('loan_amortization_schedules')
