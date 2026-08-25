@@ -247,6 +247,16 @@ export function projectRows(opts: {
   // Monthly loans keep their day-of-month: a fixed 30-day step drifts off the due
   // date by nearly a week within a year, and a staged transaction dated wrongly is
   // a staged transaction the CPA has to fix.
+  //
+  // The day-of-month is carried from the ANCHOR, not from the previous projected
+  // row (session 231). Reading it from the previous row makes the clamp permanent:
+  // BayFirst SBA 2 anchored on the 31st and produced Aug 31 -> Sep 30 -> Oct 30 ->
+  // Nov 30 -> ... -> Feb 28 -> the 28th for the rest of the loan. Every short month
+  // ratcheted the due date down and no long month ever gave the day back, which is
+  // the exact drift this block exists to prevent -- just arriving by a different
+  // route than a fixed 30-day step. Clamping against each month independently means
+  // February borrows the day and March returns it.
+  const anchorDom = new Date(Date.parse(anchorDate + 'T00:00:00Z')).getUTCDate()
   const monthly = medianDays >= 26 && medianDays <= 32
   const rows: ProjectedRow[] = []
   let bal = anchorBalance
@@ -255,10 +265,9 @@ export function projectRows(opts: {
     const prevDate = date
     if (monthly) {
       const d = new Date(Date.parse(prevDate + 'T00:00:00Z'))
-      const dom = d.getUTCDate()
       d.setUTCMonth(d.getUTCMonth() + 1, 1)
       const lastDom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
-      d.setUTCDate(Math.min(dom, lastDom))
+      d.setUTCDate(Math.min(anchorDom, lastDom))
       date = d.toISOString().slice(0, 10)
     } else {
       date = addDays(prevDate, medianDays)
