@@ -233,6 +233,68 @@ export function recurringPayment(clean: Period[], scheduled: number | null): num
   return scheduled
 }
 
+// THE DAY THE LOAN ACTUALLY PAYS, measured -- not the day we happened to look.
+//
+// Session 231. projectRows took its day-of-month from the ANCHOR statement's date,
+// but an anchor date is a PULL date, not a payment date. Ford's portal is pulled
+// twice a month (see collapseDuplicateBalances above); when the later pull shows an
+// unchanged balance it still became the anchor, and the whole projection inherited
+// that pull's day.
+//
+// Measured against real data, 3 of 7 derived loans were being projected onto the
+// wrong day:
+//
+//   E-Transit E4-9744   pays the 9th (40 payments)   projected the 20th
+//   BayFirst SBA 2      pays the 2nd (5 payments)    projected the 31st
+//   Funding Circle      pays the 1st (8 payments)    projected the 3rd
+//
+// Not cosmetic. The stage sweep flags any match reconciled more than
+// STAGE_EARLY_MATCH_GRACE_DAYS before the scheduled date, so E4-9744's real
+// 9th-of-the-month payment against a row dated the 20th trips matched_early_suspect
+// every period, forever -- never posting, never creating the next card, and never
+// self-healing because the projection keeps regenerating the same wrong date.
+// BayFirst SBA 2's is worse in kind: a stage dated Aug 31 for a payment that lands
+// Sep 2 books the September payment into August.
+//
+// The right signal is already in hand. A clean period is one where the balance
+// actually FELL by a sensible amount, so its closing date is a date the loan really
+// paid. The median of those closing days is the loan's demonstrated payment day, and
+// it uses exactly the evidence the rate fit already rests on. Median, not mode or
+// mean: it ignores the odd early/late posting without being dragged by it.
+export function paymentDayOfMonth(clean: Period[]): number | null {
+  if (!clean.length) return null
+  const days = clean
+    .map((p) => new Date(Date.parse(p.to + 'T00:00:00Z')).getUTCDate())
+    .sort((a, b) => a - b)
+  return days[Math.floor(days.length / 2)]
+}
+
+// The first projected payment: the earliest date after the anchor whose day-of-month
+// is the loan's payment day (clamped into short months), AND which is far enough past
+// the anchor to be a genuinely different period.
+//
+// Both halves are load-bearing. Stepping a whole month from the anchor is wrong when
+// the anchor is a mid-cycle pull -- E4-9744 anchored 2026-07-20 with a payment day of
+// 9 owes its next payment on 08-09, not 08-20. But taking the next matching day
+// blindly is wrong in the other direction: BayFirst SBA 2 anchors on 2026-07-31, a
+// pull that ALREADY reflects that cycle's payment, and its payment day is the 2nd --
+// so 2026-08-02 would project a payment two days after one just made, double-counting
+// the cycle.
+//
+// The minimum gap is half the loan's own period. Anything closer than that to the
+// anchor is the payment the anchor already shows, not the next one.
+function nextPaymentOnOrAfter(anchorDate: string, dom: number, minGapDays: number): string {
+  const a = new Date(Date.parse(anchorDate + 'T00:00:00Z'))
+  for (let bump = 0; bump < 4; bump++) {
+    const d = new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + bump, 1))
+    const lastDom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+    d.setUTCDate(Math.min(dom, lastDom))
+    const iso = d.toISOString().slice(0, 10)
+    if (daysBetween(anchorDate, iso) >= minGapDays) return iso
+  }
+  return addDays(anchorDate, 30)
+}
+
 export interface ProjectedRow {
   row_date: string; row_type: 'payment'; payment: number; interest: number
   principal: number; balance: number; source_label: string; addl_info: string
@@ -241,8 +303,12 @@ export interface ProjectedRow {
 export function projectRows(opts: {
   anchorDate: string; anchorBalance: number; payment: number; fit: Fit
   medianDays: number; maturity?: string | null; maxPeriods?: number
+  /** The loan's measured payment day-of-month (paymentDayOfMonth). Falls back to
+   *  the anchor's own day only when there is no clean period to measure from. */
+  paymentDom?: number | null
 }): ProjectedRow[] {
   const { anchorDate, anchorBalance, payment, fit, medianDays, maturity } = opts
+  const paymentDom = opts.paymentDom ?? null
   const maxPeriods = opts.maxPeriods ?? 240
   // Monthly loans keep their day-of-month: a fixed 30-day step drifts off the due
   // date by nearly a week within a year, and a staged transaction dated wrongly is
@@ -256,7 +322,10 @@ export function projectRows(opts: {
   // the exact drift this block exists to prevent -- just arriving by a different
   // route than a fixed 30-day step. Clamping against each month independently means
   // February borrows the day and March returns it.
+  // The MEASURED payment day wins over the anchor's own day-of-month; the anchor
+  // date is only where the projection starts from.
   const anchorDom = new Date(Date.parse(anchorDate + 'T00:00:00Z')).getUTCDate()
+  const dom = paymentDom ?? anchorDom
   const monthly = medianDays >= 26 && medianDays <= 32
   const rows: ProjectedRow[] = []
   let bal = anchorBalance
@@ -264,11 +333,15 @@ export function projectRows(opts: {
   for (let k = 0; k < maxPeriods && bal > 0.005; k++) {
     const prevDate = date
     if (monthly) {
-      const d = new Date(Date.parse(prevDate + 'T00:00:00Z'))
-      d.setUTCMonth(d.getUTCMonth() + 1, 1)
-      const lastDom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
-      d.setUTCDate(Math.min(anchorDom, lastDom))
-      date = d.toISOString().slice(0, 10)
+      if (k === 0) {
+        date = nextPaymentOnOrAfter(anchorDate, dom, Math.max(1, Math.round(medianDays / 2)))
+      } else {
+        const d = new Date(Date.parse(prevDate + 'T00:00:00Z'))
+        d.setUTCMonth(d.getUTCMonth() + 1, 1)
+        const lastDom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+        d.setUTCDate(Math.min(dom, lastDom))
+        date = d.toISOString().slice(0, 10)
+      }
     } else {
       date = addDays(prevDate, medianDays)
     }

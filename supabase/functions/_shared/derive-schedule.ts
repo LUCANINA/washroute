@@ -25,7 +25,7 @@
 import { ensureUpcomingSplit } from "./staging-next.ts"
 import {
   collapseDuplicateBalances, buildPeriods, classifyPeriods, chooseFit, projectRows, recurringPayment,
-  solvePaymentAndRate, statedPayment, r2, type Period,
+  solvePaymentAndRate, statedPayment, paymentDayOfMonth, r2, type Period,
 } from "./rate-fit.ts"
 
 export const REAL_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
@@ -162,9 +162,21 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   const monthly = medianDays >= 26 && medianDays <= 32
   const maturity: string | null = loan.maturity_date ? String(loan.maturity_date).slice(0, 10) : null
 
+  // The day the loan DEMONSTRABLY pays, measured from the clean periods, rather than
+  // the day of whichever pull happened to be newest (session 231). See
+  // paymentDayOfMonth in rate-fit.ts for what this was doing wrong and to whom.
+  const payDom = monthly ? paymentDayOfMonth(clean) : null
+  const anchorDom = Number(String(last.statement_date).slice(8, 10))
+  const domDivergence = payDom != null && payDom !== anchorDom
+    ? { measured_payment_day: payDom, anchor_day: anchorDom,
+        note: `This loan's own history says it pays on day ${payDom} of the month (median across ${clean.length} clean periods), but its newest statement is dated the ${anchorDom}. `
+          + `The projection now follows day ${payDom}. Before this was measured, the projection inherited the anchor's day -- which on a portal pulled more than once a month is a pull date, not a payment date.` }
+    : null
+
   const projected = projectRows({
     anchorDate: last.statement_date, anchorBalance: Number(last.principal_balance),
     payment, fit: best, medianDays, maturity, maxPeriods: MAX_PROJECTED_PERIODS,
+    paymentDom: payDom,
   })
   const endsShort = projected.length && Number(projected[projected.length - 1].balance) > 1
     ? { stopped_at: projected[projected.length - 1].row_date, balance_remaining: projected[projected.length - 1].balance,
@@ -178,6 +190,7 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
       ok: true, dry_run: true, wrote_nothing: true,
       loan: { id: loan.id, name: loan.xero_account_name, lender: loan.lender },
       fit, anchor, cadence: monthly ? 'monthly' : `every ~${medianDays} days`,
+      payment_day_of_month: payDom, payment_day_divergence: domDivergence,
       projected_periods: projected.length, future_periods: futureRows.length, ends_short: endsShort,
       first_future_rows: futureRows.slice(0, 3),
     }
@@ -318,6 +331,7 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
     loan: { id: loan.id, name: loan.xero_account_name },
     schedule_id: sched.id, rows_written: projected.length, future_rows: futureRows.length,
     ends_short: endsShort, fit, anchor, prestage_enabled: enableStaging, staging,
+    payment_day_of_month: payDom, payment_day_divergence: domDivergence,
     stale_staged: staleStaged,
   }
 }
