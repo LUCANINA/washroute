@@ -1,0 +1,32 @@
+-- Session 231 (2026-08-25). Applied to production via apply_migration.
+--
+-- A split may not be recorded as posted/already_in_xero for a payment that has not
+-- happened yet.
+--
+-- WHY: Verdant Capital carried 70 splits marked 'posted' for every remaining period of
+-- the loan, out to 2032-06-10, all written in one batch on 2026-08-08. They hid the
+-- real staged card behind "Period 84" on the Loans page for weeks. (They only became
+-- visible once splits were sorted by DATE instead of by label text -- sorted as text,
+-- "Period 84" simply won.)
+--
+-- WHY IN THE DATABASE: no edge function can produce them. Every posted-split write in
+-- the codebase is a single-row UPDATE ... eq('id', ...) that always sets
+-- xero_posted_at, and these had none. They came from an ad-hoc SQL insert. The app
+-- cannot defend against writes that bypass the app, so the database is the only layer
+-- where this could have been caught.
+--
+-- TOLERANCE: 7 days, not 0. A payment scheduled for the 1st often drafts on the 31st,
+-- and blocking a legitimate early post to prevent a fake one would be a bad trade. The
+-- failure being guarded against was SIX YEARS out; a week of slack costs no detection.
+--
+-- Mirrors the pre-existing v_introduced pattern so an unrelated UPDATE to a row that is
+-- already non-conforming is never blocked -- only newly introduced state is refused.
+--
+-- Rollback: _archive.enforce_split_invariant_def_20260825 holds the prior
+-- pg_get_functiondef(); execute its `def` column to restore.
+--
+-- Verified after apply (4/4):
+--   posted dated 2032-06-10  -> REFUSED
+--   posted dated 2026-07-10  -> accepted   (normal posting unaffected)
+--   STAGED dated 2026-10-10  -> accepted   (pre-staging unaffected)
+--   posted dated 16 days out -> REFUSED    (grace window holds)
