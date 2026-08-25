@@ -695,6 +695,34 @@ async function findSameAmountTxns(
   return { ok: true, matches }
 }
 
+// ── XERO SUCCEEDED, OUR DATABASE DID NOT (session 231) ───────────────────────
+// The staging branch has always got this right: if the Xero write lands and the
+// loan_splits update then fails, it returns a LOUD 500 naming the created object,
+// because the money is real and our record of it is not.
+//
+// The four JOURNAL branches did the opposite -- HTTP 200, `ok: true`, and the
+// failure tucked into `loan_splits_update_error`, a key the dashboard does not
+// read (it checks `!ok || data.error`). So the operator saw "Posted to Xero", the
+// split stayed in the Approvals queue looking undone, and clicking Approve again
+// posted a SECOND identical journal: the v42 duplicate guard keys on
+// xero_manual_journal_id, which is exactly the field the failed write never set.
+// Interest expense and the loan credit both double, in a live ledger, with nothing
+// distinguishing the pair.
+//
+// PROJECT-NOTES-BOOKKEEPING records "the 8 duplicate Rapid journals in session
+// 218". This is a mechanism that produces precisely that.
+//
+// One shape for every branch: name the object, say plainly that Xero is ahead of
+// our records, and tell the human not to retry blindly.
+function xeroAheadOfUs(what: string, id: string | null | undefined, dbErr: string, advice: string) {
+  return new Response(JSON.stringify({
+    error: `The ${what} WAS written to Xero${id ? ` (${id})` : ''}, but our own record could not be updated: ${dbErr}. Xero is now ahead of our records. Do NOT retry blindly -- ${advice}`,
+    xero_write_succeeded: true,
+    xero_object_id: id ?? null,
+    db_error: dbErr,
+  }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+}
+
 // v41: the stage sweep. Walks every status='staged' split and reads what actually
 // happened in Xero since staging. Writes ONLY to our own loan_splits rows -- the one
 // Xero-facing thing it never does is delete a stage (that is unstage, a human action).
@@ -1001,11 +1029,14 @@ async function handleRequest(req: Request): Promise<Response> {
             review_notes: (split.review_notes ? split.review_notes + ' -- ' : '') + `Direct split reverted ${new Date().toISOString().slice(0, 10)}${posted_by ? ' by ' + posted_by : ''}; original bank-transaction line items restored.`,
           })
           .eq('id', loan_split_id)
+        if (revertErr1) {
+          return xeroAheadOfUs('restoration of the original bank-transaction line items', current.BankTransactionID, revertErr1.message,
+            'Xero is back to its pre-split state but this split still reads posted. Repair the record; reverting again will find nothing to restore.')
+        }
         return new Response(JSON.stringify({
           ok: true,
           reverted: 'direct_split',
           bank_transaction: { id: current.BankTransactionID, restored_lines: withAccountNames(restoreJson?.BankTransactions?.[0]?.LineItems, acctMapRevert) },
-          loan_splits_update_error: revertErr1?.message,
         }, null, 2), { headers: { 'Content-Type': 'application/json' } })
       }
 
@@ -1035,11 +1066,14 @@ async function handleRequest(req: Request): Promise<Response> {
           review_notes: (split.review_notes ? split.review_notes + ' -- ' : '') + `Reverted ${new Date().toISOString().slice(0, 10)}${posted_by ? ' by ' + posted_by : ''}${voidResult.voided ? '; Manual Journal voided' : '; no journal existed to void'}.`,
         })
         .eq('id', loan_split_id)
+      if (revertErr2) {
+        return xeroAheadOfUs('void of the manual journal', (voidResult as any)?.id ?? split.xero_manual_journal_id, revertErr2.message,
+          'the journal is VOIDED in Xero but this split still reads posted, pointing at a dead journal id. Reverting again will fail (Xero refuses to void twice) and this row can only be repaired by hand.')
+      }
       return new Response(JSON.stringify({
         ok: true,
         reverted: 'manual_journal',
         manual_journal: voidResult,
-        loan_splits_update_error: revertErr2?.message,
       }, null, 2), { headers: { 'Content-Type': 'application/json' } })
     }
 
@@ -1184,11 +1218,14 @@ async function handleRequest(req: Request): Promise<Response> {
             review_notes: (split.review_notes ? split.review_notes + ' -- ' : '') + `Pre-staged transaction removed from Xero ${pacificToday()}${posted_by ? ' by ' + posted_by : ''}; split returned to review.`,
           })
           .eq('id', loan_split_id)
+        if (unstageErr) {
+          return xeroAheadOfUs('deletion of the staged transaction', split.matched_xero_bank_transaction_id, unstageErr.message,
+            'the staged transaction is gone from Xero but this split still reads staged, pointing at a transaction that no longer exists. The nightly sweep will see it deleted and return the split to review on its own; if it does not, repair the record.')
+        }
         return new Response(JSON.stringify({
           ok: true,
           unstaged: true,
           deleted_bank_transaction_id: split.matched_xero_bank_transaction_id,
-          loan_splits_update_error: unstageErr?.message,
         }, null, 2), { headers: { 'Content-Type': 'application/json' } })
       }
 
@@ -1517,8 +1554,10 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response(JSON.stringify({
         ok: true,
         no_journal_needed: true,
-        note: '$0.00 interest -- nothing was posted to Xero, this split is just marked reconciled.',
-        loan_splits_update_error: updateErr?.message,
+        note: updateErr
+          ? `$0.00 interest -- nothing was posted to Xero. WARNING: this split could NOT be marked reconciled (${updateErr.message}); it is still pending review. Nothing in Xero needs undoing.`
+          : '$0.00 interest -- nothing was posted to Xero, this split is just marked reconciled.',
+        db_update_failed: !!updateErr,
         flag_auto_resolve: flagAutoResolve1,
       }, null, 2), { headers: { 'Content-Type': 'application/json' } })
     }
@@ -1586,13 +1625,16 @@ async function handleRequest(req: Request): Promise<Response> {
           status: 'posted',
         })
         .eq('id', loan_split_id)
+      if (updateErr) {
+        return xeroAheadOfUs('reclassification journal', journal?.ManualJournalID, updateErr.message,
+          'this split still reads pending_review with no journal id, so Approving it again would post a SECOND identical journal. Repair the record, or void the journal in Xero, before retrying.')
+      }
       const flagAutoResolve2 = await maybeAutoResolveFlag(supa, loanAcct)
       return new Response(JSON.stringify({
         ok: true,
         original_bank_transaction: null,
         manual_journal: { id: journal?.ManualJournalID, lines: withAccountNames(journal?.JournalLines, acctMap) },
         attachment: reclassAttachment,
-        loan_splits_update_error: updateErr?.message,
         flag_auto_resolve: flagAutoResolve2,
       }, null, 2), { headers: { 'Content-Type': 'application/json' } })
     }
@@ -1742,13 +1784,16 @@ async function handleRequest(req: Request): Promise<Response> {
                 status: 'posted',
               })
               .eq('id', loan_split_id)
+            if (dsUpdateErr) {
+              return xeroAheadOfUs('in-place split of the bank transaction', dsResult.candidate.BankTransactionID, dsUpdateErr.message,
+                'the transaction in Xero now carries two correct line items but this split still reads pending_review. Approving again would try to work the same payment twice. Repair the record before retrying.')
+            }
             const flagAutoResolveDS = await maybeAutoResolveFlag(supa, loanAcct)
             return new Response(JSON.stringify({
               ok: true,
               kind: 'direct_split',
               bank_transaction: { id: dsResult.candidate.BankTransactionID, note: 'split in place -- original line items snapshotted for revert' },
               new_lines: withAccountNames(updJson?.BankTransactions?.[0]?.LineItems, acctMap),
-              loan_splits_update_error: dsUpdateErr?.message,
               flag_auto_resolve: flagAutoResolveDS,
             }, null, 2), { headers: { 'Content-Type': 'application/json' } })
           }
@@ -2138,6 +2183,10 @@ async function handleRequest(req: Request): Promise<Response> {
         status: 'posted',
       })
       .eq('id', loan_split_id)
+    if (updateErr) {
+      return xeroAheadOfUs('interest reallocation journal', journal?.ManualJournalID, updateErr.message,
+        'this split still reads pending_review with no journal id, so Approving it again would post a SECOND identical journal and double the interest. Repair the record, or void the journal in Xero, before retrying.')
+    }
 
     const flagAutoResolve3 = await maybeAutoResolveFlag(supa, loanAcct)
     return new Response(JSON.stringify({
@@ -2147,7 +2196,6 @@ async function handleRequest(req: Request): Promise<Response> {
       direct_split_skipped: directSplitSkipped,
       manual_journal: { id: journal?.ManualJournalID, lines: withAccountNames(journal?.JournalLines, acctMap) },
       attachment: attachmentResult,
-      loan_splits_update_error: updateErr?.message,
       flag_auto_resolve: flagAutoResolve3,
     }, null, 2), { headers: { 'Content-Type': 'application/json' } })
   } catch (err) {
