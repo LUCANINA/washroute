@@ -1,6 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
+// INTEREST_CODE, money and the Finding shape live beside the double-correction check
+// so that check can be unit-tested without booting the whole function. See
+// double-reallocation.test.ts -- the ±40-day pairing bug it guards against produced 33
+// false 'corrected twice' findings in one run, and nothing here could have caught it.
+import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './double-reallocation.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -36,7 +41,6 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 //     through loan-xero-post.
 // ────────────────────────────────────────────────────────────────────────
 
-const INTEREST_CODE = '800'
 const STALE_ANCHOR_DAYS = 45
 // How far either side of a lumped payment we'll look for its reallocation journal.
 // Month-end corrections for an early-month payment can be ~30 days out.
@@ -66,7 +70,6 @@ const cors = {
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-const money = (n: number) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
 const addDays = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000)
@@ -266,11 +269,6 @@ async function pullXero(fromDate: string, toDate: string, modifiedSince: string 
 // Each returns findings. A finding is a plain object; the runner handles storage,
 // fingerprint dedup and new/open/resolved bookkeeping.
 
-type Finding = {
-  fingerprint: string; check_key: string; severity: 'info' | 'warn' | 'error'
-  loan_account_id: string | null; title: string; plain_english: string
-  detail: any; proposed_action?: any
-}
 
 function buildLedger(entries: any[], codes: string[]) {
   const byCode: Record<string, any[]> = {}
@@ -561,80 +559,6 @@ function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
 // 07-28 on file; nothing before the 04-17 payment). The fix: distinguish that specific,
 // actionable case from the general "we just haven't gotten to it yet" case, and name
 // what's missing and what to do about it.
-// ── The double-correction check (session 232) ───────────────────────────────
-// checkLumpedPayments below answers "was this payment ever split?" and stops the moment
-// it sees an interest line — a payment split at source is assumed finished. That is the
-// blind spot that cost $1,023.20.
-//
-// Funding Circle 2026-07-20: the bank transaction WAS split at source ($1,010.57 to the
-// loan, $1,023.20 to interest) on 2026-08-11. It was ALSO carrying manual journal #52216
-// from 2026-08-05 moving another $1,008.06 of interest out of the same loan account. Two
-// people corrected the same payment six days apart, neither able to see the other's work
-// — nothing on a bank transaction says a journal has already reallocated it. Net effect:
-// $2.51 against the loan and $2,031.26 to interest, on a $2,033.77 payment.
-//
-// checkLumpedPayments never looked, because `hasInterestLine` was true and it moved on.
-// So this is the mirror of that check, using the same pairing rule and window: a payment
-// that is split at source AND carries a reallocation journal is a real, silent
-// misstatement, and it is an error rather than a warning because both halves look
-// individually correct to anyone reviewing them.
-function checkDoubleReallocation(loan: any, ledger: any): Finding[] {
-  const code = loan.xero_account_code
-  const rows = ledger[code] || []
-  const out: Finding[] = []
-  if (loan.ingestion_method === 'automatic') return []
-
-  for (const r of rows) {
-    if (r.srcType !== 'BankTransaction') continue
-    if (!String(r.type || '').startsWith('SPEND')) continue
-
-    // Only payments already split at source can be double-corrected.
-    const atSourceInterest = r.lines
-      .filter((l: any) => l.c === INTEREST_CODE)
-      .reduce((t: number, l: any) => t + Number(l.a || 0), 0)
-    if (!(atSourceInterest > 0)) continue
-
-    // Same pairing rule checkLumpedPayments uses, deliberately — if the two ever
-    // disagree about what "a reallocation journal for this payment" means, one of them
-    // is wrong, and they should be wrong together rather than silently apart.
-    const journals = rows.filter((j: any) => j.srcType === 'ManualJournal'
-      && Math.abs(daysBetween(r.date, j.date)) <= REALLOC_WINDOW_DAYS
-      && j.lines.some((l: any) => l.c === INTEREST_CODE && Number(l.a) > 0)
-      && j.lines.some((l: any) => l.c === code && Number(l.a) < 0))
-    if (!journals.length) continue
-
-    const journalInterest = journals.reduce((t: number, j: any) => t
-      + j.lines.filter((l: any) => l.c === INTEREST_CODE).reduce((u: number, l: any) => u + Number(l.a || 0), 0), 0)
-    const principalLeft = Math.round((Math.abs(Number(r.total || 0)) - atSourceInterest - journalInterest) * 100) / 100
-    const total = Math.abs(Number(r.total || 0))
-
-    out.push({
-      fingerprint: `double_reallocation:${code}:${r.srcId}`,
-      check_key: 'double_reallocation',
-      severity: 'error',
-      loan_account_id: loan.id,
-      title: `${loan.xero_account_name} — ${r.date} payment of ${money(total)} was corrected twice`,
-      plain_english:
-        `This payment is already split on the bank transaction itself (${money(atSourceInterest)} to interest), `
-        + `and ${journals.length === 1 ? 'a manual journal moves' : `${journals.length} manual journals move`} `
-        + `a further ${money(journalInterest)} of the same payment to interest. `
-        + `That counts the interest twice: only ${money(principalLeft)} of a ${money(total)} payment ends up against the loan, `
-        + `and interest expense is overstated by ${money(journalInterest)}. `
-        + `Each half looks correct on its own, which is why this goes unnoticed — the transaction says nothing about the journal. `
-        + `Decide which correction to keep: void the journal, or re-code the transaction to a single line.`,
-      detail: {
-        code, date: r.date, bank_transaction_id: r.srcId, total,
-        interest_at_source: atSourceInterest,
-        interest_from_journals: Math.round(journalInterest * 100) / 100,
-        principal_remaining: principalLeft,
-        journals: journals.map((j: any) => ({ id: j.srcId, date: j.date })),
-        window_days: REALLOC_WINDOW_DAYS,
-      },
-    })
-  }
-  return out
-}
-
 function checkLumpedPayments(loan: any, ledger: any, today: string, statements: any[]): Finding[] {
   const code = loan.xero_account_code
   const rows = ledger[code] || []
@@ -1119,7 +1043,7 @@ async function handle(req: Request): Promise<Response> {
         findings.push(...checkDerivedDrift(loan, ledger, cp, cpDate, derived, windowFrom))
       }
       findings.push(...checkLumpedPayments(loan, ledger, today, mine))
-      findings.push(...checkDoubleReallocation(loan, ledger))
+      findings.push(...checkDoubleReallocation(loan, ledger, mySplits))
       findings.push(...checkFutureDatedStatements(loan, mine, today))
       findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor))
       findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), mySplits))

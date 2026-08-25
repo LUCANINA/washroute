@@ -267,6 +267,51 @@ If you want that closed, it needs a check that starts from the lender's expected
 schedule and asks "where did this month's money go", rather than starting from the loan
 account's own rows.
 
+### PROXIMITY IS NOT OWNERSHIP (session 233) — the 33 false findings
+
+Session 232 shipped `checkDoubleReallocation` to catch the Funding Circle failure above.
+On its first real run it produced **33 findings and every one was false.** The pairing
+rule was "any reallocation journal within ±40 days of this payment", mirrored from
+`checkLumpedPayments`. On a loan that pays monthly, ±40 days reaches into the months
+either side — so every correctly-handled payment was blamed for its *neighbour's*
+journal. BayFirst SBA 2's journal of 2026-07-03, whose own narration reads
+*"2026-07-02 reallocation"*, was cited against both the June 3 and the August 3 payments.
+
+Two things should have stopped it before it reached David's screen:
+
+- **The arithmetic was impossible.** Several findings reported a NEGATIVE principal
+  remainder — −$586.24 on BayFirst SBA 2, −$3,562.28 on Paypal 2. A payment cannot have
+  less than nothing left after its interest. *If a check can emit a number that cannot
+  exist, it is not finished.* Assert the impossible cases and fail loudly.
+- **A date window cannot answer "which payment does this journal belong to."** It is a
+  guess dressed as evidence. And the app never had to guess: when it posts a
+  reallocation it writes both ends of the link onto the split —
+  `matched_xero_bank_transaction_id` and `xero_manual_journal_id`.
+
+So, without exception:
+
+- **Pair a journal to a payment by the recorded link, never by date.** The check now
+  reads `loan_splits` and reports nothing about a journal it cannot prove ownership of.
+  Silence on a human's hand-written journal is the correct behaviour: a false *"interest
+  is overstated by $1,300"* costs more than a missed one, because it teaches the reader
+  to skim the FIX FIRST list — and the FIX FIRST list only works if everything on it is
+  real.
+- **Both halves existing is not a double count — the TOP-UP looks identical from
+  outside.** Rapid Credit Line 2026-03-31: $742.60 of interest on the transaction plus a
+  $480.00 journal, and the period's real interest is $1,222.60, exactly the sum. The
+  journal *completed* the split. The test is not "at source AND journalled" but "at
+  source plus journalled EXCEEDS what this period actually owes."
+- **A check that cannot be run against a fixture cannot be trusted.** The logic now lives
+  in `supabase/functions/reconciliation-run/double-reallocation.ts` with
+  `double-reallocation.test.ts` beside it (`deno test`), carrying all four cases: the
+  neighbour, the top-up, the genuine Funding Circle double, and the split collision.
+  Nothing in this module could have caught the ±40-day bug before; now something can.
+
+**New sibling check: `split_collision`.** Found while fixing the above — E-Transit 4140's
+`2026-05` and `2026-06` splits are both recorded against the *same* 2026-05-18 bank
+transaction, so two journals landed on one $1,180.32 payment while the June payment went
+uncorrected. One payment cannot settle two periods; that is now an error in its own right.
+
 ### A guard is only as good as the branch it sits on (session 231)
 
 Six separate bugs in one night, all the same shape: the correct check EXISTED, one
@@ -1409,6 +1454,45 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 233 (2026-08-25, evening) — the check that cried wolf 33 times
+
+David re-ran reconciliation after the E5-4751 / E6-7410 fixes. E6-7410's $172.86 closed as
+predicted — and the issue count went from 6 to **36**, the FIX FIRST list swamped by 33
+`double_reallocation` errors from the check shipped hours earlier. He stepped out with
+*"Investigate, test, clean up at source, etc..."*
+
+**All 33 were false.** See the PROXIMITY IS NOT OWNERSHIP invariant for the rule; the
+evidence trail, in order, because the order matters:
+
+1. Read the stored `detail` on all 33 findings. The same journal id appeared against two
+   different payments on nine loans — BayFirst SBA 2's 2026-07-03 journal cited for both
+   June 3 and August 3. One journal cannot be two payments' second correction.
+2. Read the journals themselves out of Xero (`xero-read`, `manual_journals`). Every one
+   names its own period or payment date in its narration, and in every case it was a
+   *different* payment than the one flagged.
+3. Read the app's own `loan_splits` link table — 27 splits carry both a
+   `matched_xero_bank_transaction_id` and an `xero_manual_journal_id`. Fetched all 27
+   transactions from Xero by id: **25 have zero interest at source.** Corrected exactly
+   once, correctly. The remaining two (Rapid 2026-03-31, Dexter 2 2025-04-30) are
+   top-ups where at-source + journal equals the period's interest to the cent.
+
+**Fixed at source**, not suppressed: the check now pairs via the recorded link, applies the
+top-up test, and is unit-tested. The 33 stale findings resolve themselves on the next run —
+the engine's sweep closes any fingerprint it no longer re-finds.
+
+**Genuinely open, found along the way:** E-Transit 4140 books its `2026-05` and `2026-06`
+splits against the same 2026-05-18 payment (new `split_collision` check). 4140 is also one
+of the three Ford loans still disagreeing with the lender, by $415.88 — likely the same
+root cause.
+
+> **What this cost and why.** The check was written, reviewed, committed and deployed in a
+> single sitting against zero fixtures, on the strength of "it mirrors the pairing rule
+> `checkLumpedPayments` already uses". Mirroring a rule is not evidence that the rule fits
+> the new question. `checkLumpedPayments` asks *"is there any journal near this payment"* —
+> a loose window is safe there, because a nearby journal only ever SILENCES a finding. The
+> mirror asks *"is THIS journal this payment's"*, where the same looseness manufactures
+> findings. Same window, opposite consequence.
 
 ### Session 232 (2026-08-25, morning) — VOID: a period that never existed, and the wrong-branch bug for the third time in one day
 
