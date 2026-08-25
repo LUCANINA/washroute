@@ -355,7 +355,7 @@ interface TieOut {
   detail: Record<string, unknown>
 }
 
-function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, anchors: any[], windowFrom: string, haveCheckpoint: boolean): TieOut {
+function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, anchors: any[], windowFrom: string, haveCheckpoint: boolean, today: string): TieOut {
   const base: TieOut = {
     loan_account_id: loan.id,
     status: 'not_comparable',
@@ -395,16 +395,63 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
   // Is there a POSTED entry dated after the anchor that would close the gap? A month-end
   // correction for an early-month payment looks like a mismatch on the anchor date but is
   // already handled.
-  const laterOnLoan = (ledger[code] || []).filter((r: any) => r.date > anchor.statement_date)
+  //
+  // ── SESSION 231: THIS TEST WAS TOO NARROW, IN TWO WAYS ──────────────────────
+  // It reported four false exceptions out of ten findings, and the balance sheet
+  // disproved every one of them:
+  //
+  //   N202-8562      $8,588.48  paid off; later entries net EXACTLY -8,588.48
+  //   Aquarecycle    $1,286.28  paid off; later entries net EXACTLY -1,286.28
+  //   BayFirst SBA   $  971.56  Xero today 114,289.33 = lender 114,289.33
+  //   BayFirst SBA 2 $  858.66  Xero today 135,901.60 = lender 135,901.60
+  //
+  // Two independent bugs, and a gap had to hit only one of them to be reported:
+  //
+  // 1. srcType === 'ManualJournal' ONLY. The two ways to book a split are a manual
+  //    journal and splitting the bank transaction itself, and the second is the
+  //    cleaner one -- it keeps the split attached to the payment instead of parked
+  //    in a separate journal. David booked BayFirst that way, deliberately, after
+  //    declining the suggested journal. A loan payoff is likewise usually a bank
+  //    payment, not a journal. Insisting on the journal form marked correct books
+  //    wrong and would have taught people to ignore this list.
+  //
+  // 2. .some() -- ONE entry had to match the whole gap alone. Two entries of
+  //    -971.56 and -1,046.56 close a 971.56 gap and then some, but neither equals
+  //    it, so .some() saw nothing. The gap is closed by the SUM.
+  //
+  // Both are replaced by the honest question: do the entries dated after the anchor
+  // account for the difference? laterNet is already computed for the detail payload;
+  // it was the answer all along and was being reported rather than used.
+  //
+  // Sign: diff is (xero - lender), so a POSITIVE diff (Xero reads high) needs
+  // NEGATIVE later entries. They cancel when diff + laterNet is ~0.
+  //
+  // Tolerance is 2 cents matched exactly, as before. Deliberately not widened into
+  // a band: this decides whether a real discrepancy is shown to a human at all, and
+  // a loose threshold here hides money. Over-cancelling (the later entries move MORE
+  // than the gap, because a following period also posted) is reported separately
+  // rather than silently swallowed -- it is not evidence of a problem, but it is not
+  // proof of tying either, and the balance sheet is the place to settle it.
+  //
+  // ── AND NOT FUTURE-DATED (the same session, caught before shipping) ─────────
+  // A STAGED transaction is a real, dated entry sitting in Xero for a payment that
+  // has not happened yet. Counting it here made the first version of this fix
+  // overshoot in the opposite direction: BayFirst SBA Loan's later entries netted
+  // -2,018.12 against a 971.56 gap, because -971.56 was August (real) and -1,046.56
+  // was the September card staged an hour earlier. The gap would have flipped to
+  // "$1,046.56 BELOW the lender" -- a brand-new false alarm, wearing the fix as a
+  // disguise. Xero's own balance sheet excludes future-dated entries; so must this.
+  const laterOnLoan = (ledger[code] || []).filter((r: any) =>
+    r.date > anchor.statement_date && r.date <= today)
   const laterNet = laterOnLoan.reduce((sum: number, r: any) => sum + effect(r, code), 0)
-  const closesIt = laterOnLoan.some((r: any) =>
-    r.srcType === 'ManualJournal' && Math.abs(effect(r, code) + diff) < 0.02)
+  const residualAfterLater = Math.round((diff + laterNet) * 100) / 100
+  const closesIt = laterOnLoan.length > 0 && Math.abs(residualAfterLater) < 0.02
   const ties = Math.abs(diff) < 0.02
 
   return {
     ...base,
     status: ties ? 'tied' : (closesIt ? 'explained' : 'exception'),
-    reason_code: ties ? null : (closesIt ? 'later_journal_closes_gap' : null),
+    reason_code: ties ? null : (closesIt ? 'later_entries_close_gap' : null),
     as_of: anchor.statement_date,
     xero_balance: xeroAtAnchor,
     lender_balance: Number(anchor.principal_balance),
@@ -413,7 +460,16 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
     anchor_source: anchor.source,
     statement_id: anchor.statement_id ?? null,
     storage_path: anchor.storage_path ?? null,
-    detail: { code, entries_after_anchor: laterOnLoan.length, net_after_anchor: Math.round(laterNet * 100) / 100 },
+    detail: {
+      code,
+      entries_after_anchor: laterOnLoan.length,
+      net_after_anchor: Math.round(laterNet * 100) / 100,
+      // What is STILL unexplained once the later entries are counted. This is the
+      // number a human should act on; `difference` is measured on the anchor date
+      // and is a snapshot, not a verdict.
+      residual_after_later: residualAfterLater,
+      later_entry_types: Array.from(new Set(laterOnLoan.map((r: any) => String(r.srcType)))),
+    },
   }
 }
 
@@ -427,19 +483,73 @@ function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
   const closesIt = tie.status === 'explained'
   const lender = tie.lender_balance as number
   const xeroAtAnchor = tie.xero_balance as number
+  const d = tie.detail as any
+  const laterCount = Number(d.entries_after_anchor ?? 0)
+  const laterNet = Number(d.net_after_anchor ?? 0)
+  const residual = Number(d.residual_after_later ?? diff)
+
+  // The HEADLINE number is what is still unexplained after the later entries, not the
+  // anchor-date difference (session 231). Reporting the anchor-date figure overstated
+  // four of ten findings and, in the two paid-off loans, invented ~$9,900 of debt that
+  // the balance sheet does not carry. `difference` stays in the detail as the raw
+  // measurement; the title and severity now follow the number a human should act on.
+  //
+  // Severity ladder: under 2 cents is a tie and never reaches here; under a dollar is
+  // rounding and is INFO, not an error worth a red dot.
+  const headline = closesIt ? diff : residual
+
+  // ── IS THERE ACTUALLY A LENDER FIGURE HERE? (session 231) ───────────────────
+  // Verdant and PCV have no lender statement on file at all, so their anchor is our
+  // OWN projected amortization schedule. "Xero is $1,835.75 below the lender" is then
+  // simply untrue -- the lender has said nothing. It is Xero disagreeing with a
+  // projection, which is worth knowing and is not the same claim. Saying it the loose
+  // way is how a list stops being believed: the one figure a reader cannot check is
+  // stated with the most confidence.
+  const REAL_LENDER_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
+  const fromLender = REAL_LENDER_SOURCES.includes(String(tie.anchor_source ?? ''))
+  const against = fromLender ? 'the lender' : 'its projected schedule'
+
+  const sev: Finding['severity'] = closesIt ? 'info'
+    : (Math.abs(residual) < 1 ? 'info' : (fromLender ? 'error' : 'info'))
+
+  // Reading a payment's own split off the bank transaction is the cleaner of the two
+  // ways to book one, so say so plainly rather than steering people to journals.
+  const howBooked = laterCount === 0 ? '' :
+    (Array.isArray(d.later_entry_types) && d.later_entry_types.length
+      ? ` (${d.later_entry_types.join(', ')})` : '')
 
   return [{
     fingerprint: `balance_vs_lender:${code}:${tie.as_of}`,
     check_key: 'balance_vs_lender',
-    severity: closesIt ? 'info' : 'error',
+    severity: sev,
     loan_account_id: loan.id,
     title: closesIt
-      ? `${loan.xero_account_name} — ties once a later-dated correction takes effect`
-      : `${loan.xero_account_name} — Xero is ${money(Math.abs(diff))} ${diff < 0 ? 'below' : 'above'} the lender`,
+      ? `${loan.xero_account_name} — already accounted for by later entries`
+      : `${loan.xero_account_name} — Xero is ${money(Math.abs(headline))} ${headline < 0 ? 'below' : 'above'} ${against}`,
     plain_english: closesIt
-      ? `On ${tie.as_of} the lender says ${money(lender)} and Xero says ${money(xeroAtAnchor)}. A correcting journal dated after that statement already covers the ${money(Math.abs(diff))} difference, so nothing is wrong — the two only line up from that journal's date onward. Dating the journal at the payment instead would make them agree continuously.`
-      : `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${tie.as_of}. The lender's own statement for that date says ${money(lender)} — a difference of ${money(Math.abs(diff))}. Something is either missing from Xero or recorded twice.`,
-    detail: { code, anchor_date: tie.as_of, anchor_source: tie.anchor_source, lender_balance: lender, xero_balance: xeroAtAnchor, difference: diff, entries_after_anchor: (tie.detail as any).entries_after_anchor, net_after_anchor: (tie.detail as any).net_after_anchor },
+      ? `On ${tie.as_of} ${fromLender ? 'the lender says' : 'the projected schedule says'} ${money(lender)} and Xero says ${money(xeroAtAnchor)}, a gap of ${money(Math.abs(diff))}. `
+        + `${laterCount} entr${laterCount === 1 ? 'y' : 'ies'} dated after that statement${howBooked} move the balance by ${money(Math.abs(laterNet))}, which accounts for it exactly. `
+        + `Nothing is wrong and nothing needs doing. The two figures only differ because the lender's statement is dated the day the payment left your account, while Xero records it the day it cleared — so they line up from that entry's date onward rather than on the statement date itself.`
+      : `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${tie.as_of}, against ${money(lender)} `
+        + (fromLender
+            ? `on the lender's own statement for that date. `
+            : `on our own projected amortization schedule for that date — this loan has no lender statement on file, so nothing here has been confirmed BY the lender. `)
+        + (laterCount
+            ? `${laterCount} later entr${laterCount === 1 ? 'y' : 'ies'}${howBooked} move it by ${money(Math.abs(laterNet))}, which leaves ${money(Math.abs(residual))} still unexplained. `
+            : `No entries are dated after that statement, so the whole ${money(Math.abs(diff))} is unexplained. `)
+        + (fromLender
+            ? `That remainder is either missing from Xero or recorded twice.`
+            : `Getting a real statement from this lender is what would turn this into a checkable figure.`),
+    detail: {
+      code, anchor_date: tie.as_of, anchor_source: tie.anchor_source,
+      lender_balance: lender, xero_balance: xeroAtAnchor,
+      difference: diff,
+      entries_after_anchor: laterCount,
+      net_after_anchor: laterNet,
+      still_unexplained: residual,
+      later_entry_types: d.later_entry_types ?? [],
+      compared_against: fromLender ? 'lender_statement' : 'projected_schedule',
+    },
   }]
 }
 
@@ -920,7 +1030,7 @@ async function handle(req: Request): Promise<Response> {
 
       // Always produce a verdict, even when it is "could not compare" -- that is the whole
       // point of the tie-out. checkBalanceVsLender then derives its finding from it.
-      const tie = computeTieOut(loan, ledger, cp, cpDate, anchors, windowFrom, haveCheckpoint)
+      const tie = computeTieOut(loan, ledger, cp, cpDate, anchors, windowFrom, haveCheckpoint, today)
       tieOuts.push(tie)
       findings.push(...checkBalanceVsLender(loan, tie))
 
