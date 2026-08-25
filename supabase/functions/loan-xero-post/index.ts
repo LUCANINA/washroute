@@ -2170,6 +2170,48 @@ async function handleRequest(req: Request): Promise<Response> {
       }), { status: candidates.length > 1 ? 409 : 404 })
     }
 
+    // ── IS ANOTHER SPLIT ALREADY POSTED AGAINST THIS PAYMENT? (session 231) ───
+    // The multi-candidate walk builds a usedBy map from matched_xero_bank_transaction_id
+    // and refuses a transaction another period already claimed. The OPERATOR-PICK and
+    // SOLE-CANDIDATE paths never consulted it -- they test only the transaction's LINE
+    // ITEMS (`pickedWorked` / `soleWorked`).
+    //
+    // That test is structurally incapable of catching a prior manual-journal post,
+    // because a reallocation journal deliberately never touches the bank line: the
+    // whole design is "leave the transaction alone, move the interest in a separate
+    // journal". So after posting, the payment still shows ONE line and no interest
+    // code -- indistinguishable from untouched. matched_xero_bank_transaction_id is
+    // the only evidence that exists, and two of the three paths did not look at it.
+    //
+    // Two splits resolving to one payment is not exotic: a monthly statement_delta
+    // label and a day-labelled split for the same money, a regenerated period, or an
+    // operator picking the same transaction twice. Result would be two journals
+    // against one payment -- interest expense and the loan credit both doubled.
+    //
+    // Checked HERE, where every path has converged on `candidate`, rather than
+    // patched into each branch: one check that cannot be forgotten by the next
+    // branch someone adds.
+    {
+      const { data: claimants } = await supa
+        .from('loan_splits')
+        .select('id, period_label, status, xero_manual_journal_id')
+        .eq('loan_account_id', loanAcct.id)
+        .eq('matched_xero_bank_transaction_id', candidate.BankTransactionID)
+        .neq('id', loan_split_id)
+        .limit(5)
+      const claimant = (claimants || [])[0]
+      if (claimant) {
+        return new Response(JSON.stringify({
+          reason: 'already_handled_in_xero',
+          error: `The ${candidate.DateString?.slice(0, 10)} payment of $${Number(candidate.Total).toFixed(2)} is already recorded against this loan's ${claimant.period_label} split (currently ${claimant.status}). Posting ${split.period_label} against the same payment would move the interest twice. `
+            + `A reallocation journal leaves no mark on the bank transaction itself, which is why its coding still looks untouched. `
+            + `If ${claimant.period_label} is the one that is wrong, revert it first; if this really is a second, separate payment, it needs its own bank transaction in Xero.`,
+          conflicting_split: { id: claimant.id, period_label: claimant.period_label, status: claimant.status, has_journal: !!claimant.xero_manual_journal_id },
+          bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total },
+        }), { status: 409 })
+      }
+    }
+
     // --- Build the reallocation journal plan ---
     const journalPayload = {
       ManualJournals: [{
