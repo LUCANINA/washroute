@@ -80,3 +80,28 @@ get one live finding instead of fourteen historic chores.
 
 Step 1 is the only one that needs a human to remember something. Everything after
 it follows.
+
+---
+
+## The Staged tab (session 231)
+
+**Approvals** is decisions you owe. **Staged** is work already finished — a pre-split
+transaction is sitting in Xero waiting on the bank feed, not on you. It has no count
+badge on purpose: a number in a tab reads as a to-do list, and these need nothing done.
+
+Before this split, Approvals read "12" when eleven of the twelve were staged. A count
+that overstates by 11x stops being read.
+
+A staged transaction that goes wrong appears in **Issues** as well, in amber at the top
+of Staged. That redundancy is deliberate — the alarm should not depend on you opening
+the register.
+
+**What watches them:** pg_cron `wr-loan-stage-sweep`, daily at 9am Pacific. Each night it
+posts anything that matched, returns anything deleted in Xero to review, and flags a
+suspected duplicate or a payment that never came. You only hear from it when something
+needs you.
+
+**Month-end, still the most valuable thing you can do:** ask Ramona to set Xero's lock
+date when she closes. Xero currently carries none, so `books_closed_through` in Bookkeeping
+is the only close signal that exists — and until session 231 it did not stop a single
+Xero write.

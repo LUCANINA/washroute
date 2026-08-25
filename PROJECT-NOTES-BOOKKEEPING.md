@@ -1,5 +1,60 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+> ## ⏭️ START HERE — first thing, session 232 (left by session 231, 2026-08-25 overnight)
+>
+> Two jobs, in this order. Neither is done.
+>
+> ### 1. DEPLOY. Nothing from session 231 is live.
+> Fourteen commits are pushed to git but the edge functions were never redeployed.
+> Every fix below is currently inert.
+>
+> ```
+> cd ~/Projects/WashRoute && npx supabase@latest functions deploy \
+>   loan-xero-post loan-ingest-statement loan-derive-schedule \
+>   loan-record-principal-payment loan-ingest-amortization \
+>   loan-generate-schedule-split reconciliation-run \
+>   --project-ref umjpbuxrdydwejqtensq
+> ```
+>
+> ### 2. SUPERVISED RE-DERIVE of three loans. Do NOT do this unattended.
+>
+> Their projections are dated on the wrong day of the month. Fixed in code
+> (`c692d19`) but **not applied** — re-deriving changes dates on transactions that
+> are LIVE in Xero right now.
+>
+> | Loan | Acct # | Pays | Was projected | Live stage |
+> |---|---|---|---|---|
+> | E-Transit E4-9744 | 61797019 | **9th** | 20th | 2026-09 |
+> | BayFirst SBA 2 | 6917479106 | **2nd** | 31st | 2026-08 (**due Aug 31 — most urgent**) |
+> | Funding Circle | 50340172506 | **1st** | 3rd | 2026-09 |
+>
+> Sequence, per loan, with David watching:
+> 1. Dry-run the derive (no `confirm`) and read `payment_day_divergence`.
+> 2. David **unstages** the live card (deletes the staged transaction in Xero).
+> 3. Re-derive with `confirm:true`.
+> 4. David re-stages; confirm the new card's date matches the "Pays" column.
+>
+> The `stale_projection` guard will flag these three the moment the schedule moves —
+> that is correct behaviour, not a fault. Do not force past it.
+>
+> **Four loans are already right and must not move:** 4140 (17th), E5-4751 (12th),
+> E6-7410 (9th), BayFirst SBA Loan (5th). The control case matters — a fix that
+> quietly re-dates a correct loan is worse than the bug.
+>
+> ### Also check on waking
+> - **PayPal 2's stage was due 2026-08-26** — the first time the full
+>   stage → match → post loop ran unattended (cron `wr-loan-stage-sweep`, 16:00 UTC).
+>   If the Staged tab no longer shows PayPal 2 and an October card appeared, the loop
+>   works. If it shows `matched_early_suspect`, the day-of-month bug bit there too.
+> - **E-Transit 4140 has two posted splits against one bank transaction**
+>   (2026-05 journal `7ce60981`, 2026-06 journal `12ef542c`, both vs txn `2f10db32`).
+>   Amounts differ so it is not one payment doubled, but both journals take their date
+>   from that single transaction, so at least one is dated in the wrong month.
+>   **Ramona's call — do not "fix" posted journals from here.**
+> - **Rapid Credit Line** raises `derivable_not_derived` every run. It is a draw line
+>   and structurally unstageable. Suppress the finding once; it stays suppressed.
+
+
 ## Why this file exists (session 217)
 
 David asked for the Bookkeeping module (Loans, Payroll, Reconciliation — the
@@ -115,6 +170,47 @@ stops being read, which is how the actionable one gets missed too.
 - Splits that reached Xero (posted / staged / already_in_xero) are never touched.
 
 Operating agreement for humans: `BOOKKEEPING-OPERATING-NOTES.md`.
+
+### The close date binds WRITES, not just proposals (session 231)
+
+Session 230 enforced the close date on every surface that PROPOSES work and none
+that DOES it. `loan-xero-post` did not import `_shared/close-date.ts` at all;
+`loan-find-difference` still does not. Any future code that writes to Xero must
+call `effectiveCloseDate()` / `isPeriodClosed()` before the write — this org's Xero
+carries no lock date of its own, so nothing else will refuse it. Previews stay
+allowed and carry `closed_period_warning`; only writes 409.
+
+### A guard is only as good as the branch it sits on (session 231)
+
+Six separate bugs in one night, all the same shape: the correct check EXISTED, one
+branch away from the path that needed it. The staleness check was in the stage
+branch but not the sweep's auto-post. The gap-explaining check accepted only one of
+two legitimate transaction types. `usedByPeriod` was consulted on the multi-candidate
+path and not the single-candidate one. The "Xero succeeded, DB failed" handling was
+right in the staging branch and wrong in all six others.
+
+**When adding a guard, grep for every other branch that reaches the same write, and
+put it where all of them converge rather than on the one you were looking at.** When
+reviewing, ask "does the dangerous path actually run through this check?" rather than
+"does this check exist?".
+
+### stage_sweep_flag has two owners (session 231)
+
+The sweep sets `stale` / `duplicate_suspected` / `matched_early_suspect` from live
+Xero state. `derive-schedule` sets **`stale_projection`**, meaning something the sweep
+cannot see: the staged allocation has been superseded. **The sweep must never clear
+`stale_projection`** — it did, on its ordinary nightly pass, which silently defeated
+the guard that reads it. Only re-generating the split clears it. If a third writer is
+ever added, split the column rather than sharing it further.
+
+### A projection's day-of-month is measured, never inherited (session 231)
+
+An anchor statement's date is a PULL date. Portals get pulled more than once a month,
+and a pull showing an unchanged balance can still become the anchor. The payment day
+comes from `paymentDayOfMonth(clean)` — the median closing day of periods where the
+balance actually FELL. Getting this wrong is not cosmetic: a stage dated later than
+the real payment trips `matched_early_suspect` every period forever, and a stage dated
+in the wrong month books the payment into the wrong period, which no invariant catches.
 
 **Double-entry correctness (`loan_splits`, `payroll_import_employee_lines` → Xero journals):**
 - `loan_splits.principal_amount + interest_amount` must equal `total_amount`, and the split total must tie to the real statement delta or amortization row it was computed from. A `status = 'needs_attention'` row exists specifically because this didn't reconcile automatically — never silently force-post one without a human resolving the mismatch first.
@@ -1226,6 +1322,103 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 231 (2026-08-25, overnight) — 11 of 14 loans pre-staging, the sweep on a schedule, and an adversarial test round that found the guards were on the wrong side of the boundary
+
+**The pattern of the night, stated once because it recurred six times:** almost every
+bug found was a guard that ALREADY EXISTED, sitting one branch away from the path
+that needed it. Not missing logic — correct logic in the wrong place. Worth checking
+for explicitly in future work.
+
+**Loans enabled (now 11 of 14 pre-staging).** BayFirst SBA Loan fitted 10.4999952%
+daily/365, residual **$0.00** across 4 periods. BayFirst SBA 2 fitted **11.5000%**,
+residual $0.00 across 5 — and is the ONLY loan so far whose typed contract rate was
+correct. Six of seven derived rates on file were wrong.
+
+**Fixes shipped (14 commits, `63bc514` → `c692d19`):**
+- `reconciliation-run`: a gap already closed by later entries is no longer reported.
+  `closesIt` required `srcType === 'ManualJournal'` and used `.some()` — so a split
+  bank transaction (the CLEANER way to book, which David deliberately uses) could
+  never clear a gap, and a gap closed by the SUM of two entries never matched one
+  alone. Four of ten findings were false. Also: never count FUTURE-dated entries
+  (a staged transaction is a real dated row for a payment that has not happened) —
+  caught before shipping, it would have flipped the error to the other direction.
+- `reconciliation-run`: `explained` now yields no finding at all (`tied` already did).
+  And a gap measured against our OWN projected schedule is not reported as
+  "below the lender" — the lender has said nothing. `stale_anchor` owns that, and now
+  measures age from real lender documents only (a derived schedule wrote a row dated
+  today on every re-derive, so all 11 pre-staging loans were permanently "fresh" and
+  that check could never have fired).
+- **DB guard** (`session_231_refuse_future_dated_posted_split`): a split cannot be
+  `posted`/`already_in_xero` for a payment dated more than 7 days out. Verdant carried
+  **70** such rows out to 2032-06-10, hand-inserted, hiding the real staged card behind
+  "Period 84". Archived to `_archive._loan_phantom_future_posted_20260825` and deleted.
+  7-day tolerance, not 0: a payment due the 1st often drafts the 31st.
+- `loan-xero-post`: **the sweep must not clear a flag it did not set.**
+  `stage_sweep_flag: isStale ? 'stale' : null` wiped `stale_projection` on every
+  ordinary nightly pass — so the guard added hours earlier read a field the sweep
+  erased the night before, and scheduling the cron made that certain rather than
+  occasional. Preserved at all four write sites via `keepFlag()`.
+- `loan-xero-post`: **never `ok:true` when Xero succeeded and the DB write failed.**
+  Six branches returned HTTP 200 with the failure in `loan_splits_update_error`, a key
+  the dashboard does not read. Operator sees "Posted", split stays in the queue, they
+  click again — and v42's duplicate guard keys on the exact field the failed write
+  never set. This is a mechanism that produces "the 8 duplicate Rapid journals in
+  session 218". Now `xeroAheadOfUs()`, matching what the staging branch always did.
+- `loan-xero-post`: **refuse to write into a closed period.** The rule was enforced on
+  every surface that PROPOSES work and none that DOES it — this file never imported
+  `_shared/close-date.ts`. This org's Xero has no lock date, so `books_closed_through`
+  was the only signal and had no effect on any write. Books close through 2026-06-30
+  and a 2026-07 split is pending right now.
+- `loan-xero-post`: refuse a second split against a payment another period already
+  claims. The multi-candidate path checked `matched_xero_bank_transaction_id`; the
+  operator-pick and sole-candidate paths tested only LINE ITEMS — and a reallocation
+  journal deliberately leaves no mark on the bank line, so that test is structurally
+  blind to a prior post. **Already happened: 4140, see START HERE above.**
+- `loan-ingest-statement`: a re-ingested statement no longer clobbers booked work
+  (`staged`/`posted`/`already_in_xero`/`closed_period` refuse; `pending_review` and
+  `needs_attention` still refine, which is the point of re-uploading a correction).
+- `loan-ingest-statement`: two statements in one month no longer overwrite each other.
+  `period_label` is the statement's MONTH, so arrival order decided the number — upload
+  the later pull first and `principalPaid` computes as 0 with the whole payment as
+  interest, and it passes every invariant. Ford is pulled twice a month; all four Fords
+  use month labels.
+- `rate-fit` / `derive-schedule`: **project onto the day the loan actually pays.**
+  See START HERE — this is the unfinished one.
+- Also: idempotent re-derive (a re-derivation reproducing the existing projection writes
+  nothing); `staging-next` breaks the same-day schedule tie on `created_at`; the
+  day-of-month ratchet fix (anchor's day, not the previous clamped row); new
+  `derivable_not_derived` cross-check finding; Staged got its own dashboard tab.
+
+**New infrastructure:**
+- pg_cron **`wr-loan-stage-sweep`**, daily `0 16 * * *` (9am Pacific). Two things that
+  would each have made it fail silently: it authenticates with `x-wr-internal`
+  (`handleStageSweep` accepted only the service-role key, and every cron here posts the
+  ANON key — it would have 403'd nightly, invisibly), and `timeout_milliseconds :=
+  120000` (pg_net defaults to 5000; the sweep makes one Xero call per stage and takes
+  ~7s — the first test "failed" while having fully succeeded). Verified: HTTP 200,
+  `{checked:11, matched:0, flagged:0}`.
+
+**Data audit — clean.** 629 splits, 21 invariants, **0 real violations**. The
+Widespread-Issue Rule earned its keep twice: 60 flagged rows collapsed to 2 (58 were
+legitimate zero-total reclass entries), and a phantom-split criterion based on
+`xero_posted_at IS NULL` would have deleted most of the table (only 103 of 657 posted
+splits carry that timestamp — null is normal).
+
+**Verified correct, do not re-litigate:** journal direction (debit 800 Interest
+Expense, credit the loan liability) in every branch; account code 800 used everywhere;
+rounding exact per row with a final-period true-up, no drift over 240 periods; the
+pre-staging path itself (reviewers called it the most carefully guarded code here).
+
+**Known and NOT fixed:**
+- A **reconciled** stale stage has no automatic exit. Xero refuses line-item edits on a
+  reconciled transaction, so the remedy is a correcting journal for the delta between
+  the staged allocation and the current schedule. `unstage` and the sweep now both
+  explain this instead of pointing at each other.
+- `loan-find-difference` also writes to Xero and also never consults the close date.
+- Every date helper in `loan-xero-post` mixing UTC parsing with local getters is correct
+  **only because the Deno runtime is TZ=UTC**. Unstated invariant, not a bug today.
+
 
 ### Session 230 cont. 6 (2026-08-24) — THE CLOSE DATE: the line past which the system stops asking for work
 
