@@ -74,11 +74,19 @@ export async function ensureUpcomingSplit(supa: any, loanAccountId: string): Pro
   // nullsFirst:false matters: Postgres puts NULLs first on a DESC order by
   // default, so a schedule ingested without a generated date would otherwise beat
   // every properly dated one.
+  //
+  // created_at breaks the tie (session 231). schedule_generated_date is a DATE, so
+  // two schedules derived on the same day sort equal and the winner is whatever
+  // order Postgres happened to return -- not a hypothetical: derive a projection at
+  // 10am, ingest a statement at 2pm, re-derive, and two same-day schedules with
+  // DIFFERENT anchors are tied. "Latest wins" has to mean latest, so fall through to
+  // the write timestamp, which is unambiguous.
   const { data: schedules, error: schedErr } = await supa
     .from('loan_amortization_schedules')
-    .select('id, schedule_generated_date')
+    .select('id, schedule_generated_date, created_at')
     .eq('loan_account_id', loanAccountId)
     .order('schedule_generated_date', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false, nullsFirst: false })
   if (schedErr) return { action: 'skipped', reason: 'lookup_failed', detail: schedErr.message }
   if (!schedules?.length) return { action: 'skipped', reason: 'no_schedule' }
 

@@ -187,9 +187,70 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   // A new schedule row every time, never an edit of an old one: staging-next
   // picks the newest schedule that still has future rows, keeping every
   // re-derivation auditable and never deleting a row a split already points at.
+  //
+  // ── EXCEPT WHEN THE NEW SCHEDULE SAYS THE SAME THING (session 231) ─────────
+  // "Append, never edit" is right for a re-derivation that MOVED. It is wrong for
+  // one that did not. Running this twice on BayFirst SBA (2026-08-24) wrote two
+  // 76-row schedules with the same anchor and identical numbers -- harmless that
+  // day only because they agreed. They are indistinguishable to staging-next,
+  // which orders by schedule_generated_date: two schedules generated on the same
+  // day are a TIE, and which one wins is arbitrary. Two agreeing schedules make
+  // that harmless; a genuine same-day re-derive after a new statement would make
+  // it a coin flip over which projection stages.
+  //
+  // So a re-derivation that reproduces an existing projection EXACTLY -- same
+  // anchor, same model, same rows to the cent -- writes nothing and returns the
+  // schedule already on file. Nothing is lost: there is nothing to record. The
+  // audit trail only grows when the answer actually changes.
+  const amortType = `derived_${best.model}`
+  const { data: sameAnchor } = await supa.from('loan_amortization_schedules')
+    .select('id')
+    .eq('loan_account_id', loan.id)
+    .eq('amort_type', amortType)
+    .eq('anchor_statement_date', last.statement_date)
+  for (const cand of sameAnchor || []) {
+    const { data: candRows } = await supa.from('loan_amortization_rows')
+      .select('row_date, payment, interest, principal, balance')
+      .eq('schedule_id', cand.id)
+      .eq('row_type', 'payment')
+      .order('row_date', { ascending: true })
+    if ((candRows?.length ?? 0) !== projected.length) continue
+    const same = projected.every((p: any, i: number) => {
+      const c: any = candRows![i]
+      return String(c.row_date).slice(0, 10) === p.row_date
+        && Math.abs(Number(c.payment) - p.payment) < 0.005
+        && Math.abs(Number(c.interest) - p.interest) < 0.005
+        && Math.abs(Number(c.principal) - p.principal) < 0.005
+        && Math.abs(Number(c.balance) - p.balance) < 0.005
+    })
+    if (!same) continue
+    // Identical. The account's fit fields and the staging card are still brought
+    // up to date -- those are cheap, idempotent, and the caller may be asking for
+    // staging to be enabled on a run where the projection happened not to move.
+    const patch: Record<string, any> = {
+      rate_model: best.model,
+      fitted_periodic_rate: best.periodic,
+      fitted_annual_rate: best.annual,
+      rate_fit_residual: r2(best.residual),
+      rate_fit_periods: best.periods,
+      rate_fit_at: new Date().toISOString(),
+    }
+    if (enableStaging) patch.prestage_enabled = true
+    await supa.from('loan_accounts').update(patch).eq('id', loan.id)
+    return {
+      ok: true, dry_run: false, unchanged: true, wrote_no_schedule: true,
+      loan: { id: loan.id, name: loan.xero_account_name },
+      schedule_id: cand.id, rows_written: 0, future_rows: futureRows.length,
+      ends_short: endsShort, fit, anchor, prestage_enabled: enableStaging,
+      staging: enableStaging ? await ensureUpcomingSplit(supa, loan.id) : { skipped: 'staging not requested' },
+      stale_staged: [],
+      note: `This re-derivation reproduces the schedule already on file (anchor ${last.statement_date}, ${projected.length} rows, identical to the cent), so nothing was written. A duplicate schedule would be a tie for staging-next to break arbitrarily.`,
+    }
+  }
+
   const { data: sched, error: schedErr } = await supa.from('loan_amortization_schedules').insert({
     loan_account_id: loan.id,
-    amort_type: `derived_${best.model}`,
+    amort_type: amortType,
     schedule_generated_date: today,
     // WHICH statement this projection rests on. The staleness guard compares this
     // against the newest real statement, so a projection is stale exactly when

@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
     const periodClosed = (d: string) => isPeriodClosed(String(d).slice(0, 7), closeDate.date)
 
     let loanQ = supa.from('loan_accounts')
-      .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code, xero_account_name, scheduled_monthly_payment')
+      .select('id, lender, lender_account_number, status, ingestion_method, xero_account_code, xero_account_name, scheduled_monthly_payment, prestage_enabled')
     if (onlyLoanId) loanQ = loanQ.eq('id', onlyLoanId)
     const { data: loans } = await loanQ
     if (!loans?.length) {
@@ -137,7 +137,7 @@ Deno.serve(async (req) => {
       .select('id, loan_account_id, statement_date, principal_balance, balance_basis, source, total_amount_due')
       .in('loan_account_id', loanIds)
     const { data: schedules } = await supa.from('loan_amortization_schedules')
-      .select('id, loan_account_id, balance_basis, schedule_generated_date')
+      .select('id, loan_account_id, balance_basis, schedule_generated_date, amort_type')
       .in('loan_account_id', loanIds)
     const schedIds = (schedules ?? []).map((s: any) => s.id)
     const { data: rows } = schedIds.length
@@ -373,6 +373,79 @@ Deno.serve(async (req) => {
               window_from: prev.statement_date, window_to: cur.statement_date, gap_days: gap,
               balance_fell: drop, scheduled_payment: scheduled, extra_principal: extra,
               prior_balance: n(prev.principal_balance), current_balance: n(cur.principal_balance),
+            },
+          })
+        }
+      }
+
+      // ── CHECK E: derivable_not_derived ─────────────────────────────────────
+      // A loan becomes pre-stageable the moment it has enough real lender balances
+      // to measure a rate against -- and until session 231 NOTHING NOTICED. BayFirst
+      // SBA crossed that line on an upload, sat there silently, and was only found
+      // because David said "the system did not stage a transaction in future". The
+      // absence of a card is invisible by construction: there is nothing on screen
+      // to be wrong. So this check exists to make a silence audible.
+      //
+      // The threshold is the fitter's own: distinct balances, since the fitter
+      // collapses repeated ones (Ford's portal is pulled twice a month at the same
+      // balance), and minPeriods + 1 = 5 because four periods need five balances.
+      // Deliberately NOT re-run here -- this proposes, deriveSchedule measures, and
+      // the residual gate is what decides whether it is really fittable. Telling a
+      // human "this MIGHT now be derivable, go look" is honest; asserting a rate
+      // this function never fitted would not be.
+      //
+      // Loans that are structurally unstageable (Rapid's draw line, Stripe Capital's
+      // percent-of-sales) will trip this and should be SUPPRESSED once -- the upsert
+      // below preserves status='suppressed' across re-runs, so saying "not this one"
+      // sticks. That is the right shape: the system keeps noticing, the human
+      // decides once.
+      if (loan.status === 'active' && !loan.prestage_enabled) {
+        const distinct: number[] = []
+        for (const st of realStmts) {
+          const b = n(st.principal_balance)!
+          if (distinct.length && Math.abs(distinct[distinct.length - 1] - b) < 0.005) continue
+          distinct.push(b)
+        }
+        // A schedule with rows still ahead of today means this loan already has the
+        // input staging needs; why it is not enabled is a different question from
+        // this one, and answering it here would double-flag.
+        const hasFutureRows = (rows ?? []).some((r: any) =>
+          r.row_type === 'payment'
+          && (schedules ?? []).some((sc: any) => sc.id === r.schedule_id && sc.loan_account_id === loan.id)
+          && String(r.row_date).slice(0, 10) >= today)
+        if (distinct.length >= 5 && !hasFutureRows) {
+          const first = realStmts[0], last = realStmts[realStmts.length - 1]
+          findings.push({
+            fingerprint: `intake:derivable_not_derived:${loan.id}`,
+            loan_account_id: loan.id,
+            check_key: 'derivable_not_derived',
+            severity: 'info',
+            title: `${loanLabel}: enough lender balances to project a schedule, but none exists`,
+            plain_english:
+              `This loan now has ${distinct.length} distinct balances straight from the lender, running `
+              + `${first.statement_date} to ${last.statement_date}. That is enough to measure what rate it is actually `
+              + `charging and project the remaining payments from it, which is what lets a period be staged for approval `
+              + `ahead of the bank feed. Right now it has no schedule with any future payments on it, so nothing can stage `
+              + `and each payment has to be split by hand after the fact. `
+              + `Deriving it is a measurement, not a guess: the projection is only kept if it reproduces every one of this `
+              + `loan's own past periods to within five cents, and it is discarded outright if it does not. `
+              + `If this loan cannot follow a schedule by its nature — a draw line, or a payment set as a percentage of sales — `
+              + `suppress this finding and it will stay suppressed.`,
+            proposed_action: {
+              kind: 'derive_schedule',
+              note: `Run the derived-schedule fit for this loan as a dry run and look at the worst error before enabling anything.`,
+              loan_account_id: loan.id,
+              lender_account_number: loan.lender_account_number,
+              distinct_balances: distinct.length,
+            },
+            detail: {
+              distinct_real_balances: distinct.length,
+              real_statements: realStmts.length,
+              earliest: first.statement_date,
+              latest: last.statement_date,
+              has_schedule: !!sched,
+              has_future_rows: hasFutureRows,
+              prestage_enabled: !!loan.prestage_enabled,
             },
           })
         }
