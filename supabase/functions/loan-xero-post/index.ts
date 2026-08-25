@@ -749,6 +749,24 @@ async function handleStageSweep(req: Request): Promise<Response> {
   const results: any[] = []
   for (const s of staged) {
     const la = s.loan_accounts
+    // ── THE SWEEP MUST NOT CLEAR A FLAG IT DID NOT SET (session 231) ──────────
+    // stage_sweep_flag has TWO owners. The sweep sets 'stale', 'duplicate_suspected'
+    // and 'matched_early_suspect' from what it observes in Xero. But re-deriving a
+    // schedule sets 'stale_projection' (derive-schedule.ts) to mean something the
+    // sweep cannot see at all: the staged principal/interest allocation has been
+    // superseded by better evidence.
+    //
+    // Every write below used to assign the field outright, so the ordinary
+    // once-a-night "still waiting, nothing wrong" pass wrote null over it. The guard
+    // added earlier this session -- refuse to auto-post a split flagged
+    // stale_projection -- reads a field the sweep erased the night before. It would
+    // have protected nothing, and putting the sweep on a cron is what made that
+    // certain rather than occasional.
+    //
+    // So: stale_projection is preserved by every sweep write. Only re-generating the
+    // split clears it, which is the one action that actually resolves it.
+    const projectionStale = String(s.stage_sweep_flag ?? '') === 'stale_projection'
+    const keepFlag = (own: string | null) => (projectionStale ? 'stale_projection' : own)
     const txnId = s.matched_xero_bank_transaction_id
     const row: any = { loan_split_id: s.id, loan: la?.xero_account_name || la?.lender, period: s.period_label }
     if (!la?.xero_bank_account_id || !txnId) {
@@ -807,7 +825,7 @@ async function handleStageSweep(req: Request): Promise<Response> {
       if (String(s.stage_sweep_flag ?? '') === 'stale_projection') {
         await supa.from('loan_splits').update({
           stage_sweep_checked_at: nowIso(),
-          review_notes: appendNote(s, `Matched in Xero on ${today}, but NOT posted: this period was flagged stale after its schedule was re-derived, so the staged principal/interest split is superseded. Unstage, re-generate from the current schedule, and re-stage. (The payment total is unchanged, which is why the bank feed matched it anyway.)`),
+          review_notes: appendNote(s, `Matched in Xero on ${today}, but NOT posted: this period was flagged stale after its schedule was re-derived, so the staged principal/interest split is superseded. The payment TOTAL is unchanged -- which is why the bank feed matched it -- but the principal/interest allocation on it is wrong. NEEDS A HUMAN: the transaction is reconciled, so Xero will not allow its line items to be edited and it must NOT be deleted (it is real, matched money). The fix is a small correcting journal moving the difference between the staged allocation and the current schedule's. Unstage will refuse this split, correctly, for the same reason.`),
         }).eq('id', s.id)
         row.outcome = 'stale_projection_matched_not_posted'
         results.push(row); continue
@@ -827,7 +845,7 @@ async function handleStageSweep(req: Request): Promise<Response> {
         const earlyCutoff = cut.toISOString().slice(0, 10)
         if (updatedDay < earlyCutoff) {
           await supa.from('loan_splits').update({
-            stage_sweep_flag: 'matched_early_suspect', stage_sweep_checked_at: nowIso(),
+            stage_sweep_flag: keepFlag('matched_early_suspect'), stage_sweep_checked_at: nowIso(),
           }).eq('id', s.id)
           row.outcome = 'matched_early_suspect'
           row.detail = `The staged transaction shows as matched in Xero, but the match was recorded by ${updatedDay} -- before its scheduled payment date (${schedDateStr}). On a loan where every payment is the same amount, that almost certainly means it was matched to an EARLIER payment's bank line. In Xero: unreconcile that statement line and code it the normal way; the staged transaction then goes back to waiting for its own payment. Nothing was posted here and no next period was created.`
@@ -854,18 +872,26 @@ async function handleStageSweep(req: Request): Promise<Response> {
     const dup = await findSameAmountTxns(headers, la.xero_bank_account_id, Number(s.total_amount), stageDate, STAGE_DUP_WINDOW_DAYS, txnId)
     if (dup.ok && dup.matches.length) {
       const list = dup.matches.map((t: any) => `${t.DateString?.slice(0, 10)} $${Number(t.Total).toFixed(2)} (${t.BankTransactionID})`).join('; ')
+      const dupDetail = `The pre-staged transaction is still unmatched, but ${dup.matches.length} other live transaction(s) of the same amount sit on this loan account nearby: ${list}. Most likely someone clicked Create instead of Match on the reconcile screen -- if so, the created duplicate should be removed in Xero and the statement line matched to the staged transaction, or the stage removed here.`
+      // Session 231: PERSIST the evidence, don't just return it. Every other flagged
+      // outcome here appends to review_notes; this one wrote the flag alone and put
+      // the transaction ids only in the HTTP response -- which, for the nightly
+      // pg_cron run, nobody reads. The flag is then cleared when the stage matches,
+      // so a genuine double payment could be detected and forgotten in one night,
+      // with the duplicate still sitting in Xero overstating the loan.
       await supa.from('loan_splits').update({
-        stage_sweep_flag: 'duplicate_suspected', stage_sweep_checked_at: nowIso(),
+        stage_sweep_flag: keepFlag('duplicate_suspected'), stage_sweep_checked_at: nowIso(),
+        review_notes: appendNote(s, `Sweep of ${today}: ${dupDetail}`),
       }).eq('id', s.id)
       row.outcome = 'duplicate_suspected'
-      row.detail = `The pre-staged transaction is still unmatched, but ${dup.matches.length} other live transaction(s) of the same amount sit on this loan account nearby: ${list}. Most likely someone clicked Create instead of Match on the reconcile screen -- if so, the created duplicate should be removed in Xero and the statement line matched to the staged transaction, or the stage removed here.`
+      row.detail = dupDetail
       results.push(row); continue
     }
     const rowDate = s.amortization_row?.row_date ? String(s.amortization_row.row_date).slice(0, 10) : txn.DateString?.slice(0, 10)
     const staleAfter = new Date(rowDate); staleAfter.setDate(staleAfter.getDate() + STAGE_STALE_GRACE_DAYS)
     const isStale = today > staleAfter.toISOString().slice(0, 10)
     await supa.from('loan_splits').update({
-      stage_sweep_flag: isStale ? 'stale' : null, stage_sweep_checked_at: nowIso(),
+      stage_sweep_flag: keepFlag(isStale ? 'stale' : null), stage_sweep_checked_at: nowIso(),
     }).eq('id', s.id)
     row.outcome = isStale ? 'stale' : 'waiting'
     if (isStale) row.detail = `Scheduled for ${rowDate} and still unmatched ${STAGE_STALE_GRACE_DAYS}+ days later. The real payment may have differed from the schedule (rate change, extra payment, skipped month). Check the bank feed; if the payment isn't coming in this shape, remove the stage.`
@@ -1125,7 +1151,16 @@ async function handleRequest(req: Request): Promise<Response> {
           return new Response(JSON.stringify({ error: `Could not fetch the staged transaction from Xero to remove it (status ${dRes.status}). Nothing was changed.` }), { status: 502 })
         }
         if (staged.IsReconciled) {
-          return new Response(JSON.stringify({ error: 'This staged transaction has already been MATCHED against the bank feed in Xero -- it is now a real reconciled payment and must not be deleted. Run the staged-payments check instead; it will mark this split posted.' }), { status: 409 })
+          return new Response(JSON.stringify({
+            // Session 231: this used to say "run the staged-payments check; it will
+            // mark this split posted" unconditionally. Since the sweep now refuses to
+            // post a split flagged stale_projection, that advice sent a human round a
+            // closed loop -- unstage pointed at the sweep, the sweep pointed back.
+            error: String(split.stage_sweep_flag ?? '') === 'stale_projection'
+              ? 'This staged transaction has already been MATCHED in Xero, so it is real reconciled money and must not be deleted -- but its principal/interest allocation was superseded when the schedule was re-derived, so the staged-payments check will not post it either. Neither automatic route can resolve this one. It needs a correcting journal for the difference between the staged allocation and the current schedule; the split carries both figures in its review notes.'
+              : 'This staged transaction has already been MATCHED against the bank feed in Xero -- it is now a real reconciled payment and must not be deleted. Run the staged-payments check instead; it will mark this split posted.',
+            stage_sweep_flag: split.stage_sweep_flag ?? null,
+          }), { status: 409 })
         }
         if (staged.Status === 'AUTHORISED') {
           const delRes = await fetch('https://api.xero.com/api.xro/2.0/BankTransactions', {
