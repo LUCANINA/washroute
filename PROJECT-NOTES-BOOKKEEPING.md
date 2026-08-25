@@ -205,6 +205,48 @@ call `effectiveCloseDate()` / `isPeriodClosed()` before the write — this org's
 carries no lock date of its own, so nothing else will refuse it. Previews stay
 allowed and carry `closed_period_warning`; only writes 409.
 
+### A TRANSACTION IS NEVER THE WHOLE ANSWER (session 232) — read the journals too
+
+**This is the one that got both answers wrong in a single day, in opposite directions.**
+
+| | The transaction alone said | The truth |
+|---|---|---|
+| Funding Circle 2026-07-20 | correctly split at source — fine | a journal was ALSO reallocating it. $1,023.20 of interest counted twice |
+| Verdant 2025-07-10 | coded 100% to Income Tax Expense — broken | a journal dated 2025-08-31 had already recoded it. Nothing wrong |
+
+Reading only the bank transaction produced a false negative in one case and a false
+positive in the other. **A transaction plus every posted journal that later touches its
+accounts is the unit of truth; either half alone is a coin flip.**
+
+So, without exception:
+
+- **Never conclude anything about a payment from its bank transaction alone.** Not "it's
+  correctly coded", not "it's miscoded". Both require the journals.
+- **Never raise a historical miscoding as a finding until you have looked for its
+  correction.** Ramona fixes things at month end. A transaction coded wrong in July and
+  recoded on 31 August is not an open issue, and reporting it as one burns her time and
+  our credibility. Search a window forward, not just the transaction's own date.
+- **The correction usually does not touch the transaction.** It is a separate journal,
+  often with a different contact and a month-end date, and nothing on the transaction
+  says it exists. The Verdant one still shows "IRS" as its contact to this day.
+
+**The product must do this by default, not by discipline.** `xero-read`'s
+**`payment_picture`** mode is the sanctioned way to ask about any payment: one call
+returns the transaction, every posted journal in a forward window touching its accounts,
+the net effect per account, and warnings for the two shapes that have actually bitten —
+*corrected twice* and *never corrected*. Reach for `bank_transactions` only when you
+genuinely want the raw record and have a reason not to want the picture.
+
+```sql
+body := jsonb_build_object('mode','payment_picture','date','2026-07-20','amount',2033.77)
+-- or: ('mode','payment_picture','id','<BankTransactionID>','window_days',180)
+```
+
+**Where this still needs building:** `reconciliation-run` compares our splits to Xero
+transactions and does not net journals in the same way. Until it does, its findings carry
+the same coin-flip risk, and a reconciliation finding about a single transaction should be
+confirmed with `payment_picture` before it is believed. That is the open item.
+
 ### A guard is only as good as the branch it sits on (session 231)
 
 Six separate bugs in one night, all the same shape: the correct check EXISTED, one

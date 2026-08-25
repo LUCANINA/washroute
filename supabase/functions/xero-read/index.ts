@@ -27,7 +27,8 @@ import { getXeroAuth, getGrantedScopes } from "../_shared/xero-auth.ts"
 // admin/manager.
 //
 // BODY
-//   { mode: 'bank_transactions' | 'manual_journals' | 'invoices' | 'accounts'
+//   { mode: 'payment_picture'   <-- START HERE for any question about a payment
+//         | 'bank_transactions' | 'manual_journals' | 'invoices' | 'accounts'
 //         | 'contacts' | 'whoami',
 //     id?: string,              // fetch exactly one by Xero id
 //     date?: string,            // 'YYYY-MM-DD' — that day only
@@ -36,7 +37,25 @@ import { getXeroAuth, getGrantedScopes } from "../_shared/xero-auth.ts"
 //     contains?: string,        // substring of reference / narration / name
 //     where?: string,           // raw Xero where clause, escape hatch. Still GET-only.
 //     page?: number,
-//     full?: boolean }          // return Xero's untrimmed objects
+//     full?: boolean,           // return Xero's untrimmed objects
+//     window_days?: number }     // payment_picture: how far forward to look (default 120)
+//
+// ── WHY payment_picture EXISTS: A TRANSACTION IS NEVER THE WHOLE ANSWER ──────
+// Session 232 got this wrong twice in one day, in both directions.
+//
+//   Funding Circle 2026-07-20: the bank transaction looked correctly split at source.
+//   It was ALSO carrying a manual journal doing the same correction again -- $1,023.20
+//   of interest counted twice. Reading the transaction alone said "fine".
+//
+//   Verdant 2025-07-10: the bank transaction was coded entirely to Income Tax Expense
+//   and looked like a $4,543.32 misclassification. A journal dated 2025-08-31 had
+//   already recoded it. Reading the transaction alone said "broken".
+//
+// A transaction plus its later journals is the unit of truth; either half on its own
+// is a coin flip. So the product should not make the double check something a careful
+// person remembers to do -- it should be the default way to ask about a payment.
+// That is this mode: one call, both halves, netted per account, with the two dangerous
+// shapes (corrected twice / never corrected) named in `warnings`.
 // =============================================================================
 
 const cors = {
@@ -199,6 +218,139 @@ function buildWhere(mode: string, b: any): string | null {
   return parts.length ? parts.join(' AND ') : null
 }
 
+
+// ── payment_picture ─────────────────────────────────────────────────────────
+// The transaction AND every journal that touches its accounts afterwards, netted.
+// See the header block for why this is the default way to ask about a payment.
+
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+const xdate = (s: string) => {
+  const [y, m, day] = s.split('-').map((n: string) => parseInt(n, 10))
+  return `DateTime(${y},${m},${day})`
+}
+
+async function xeroGet(path: string, headers: Record<string, string>) {
+  const res = await fetch(`${XERO}/${path}`, { method: 'GET', headers })
+  const text = await res.text()
+  if (!res.ok) throw new Error(`Xero read failed (${res.status}) on /${path.split('?')[0]}: ${text.slice(0, 400)}`)
+  return JSON.parse(text)
+}
+
+async function paymentPicture(b: any): Promise<Response> {
+  const windowDays = typeof b.window_days === 'number' ? Math.min(Math.max(b.window_days, 1), 730) : 120
+  const { headers } = await getXeroAuth()
+
+  // 1. the transaction
+  let txns: any[]
+  if (typeof b.id === 'string' && b.id) {
+    txns = (await xeroGet(`BankTransactions/${encodeURIComponent(b.id)}`, headers)).BankTransactions ?? []
+  } else {
+    if (typeof b.date !== 'string' || typeof b.amount !== 'number') {
+      return new Response(JSON.stringify({
+        error: 'payment_picture needs either an `id`, or a `date` ("YYYY-MM-DD") and an `amount`.',
+      }), { status: 400, headers: cors })
+    }
+    const next = new Date(b.date + 'T00:00:00Z')
+    next.setUTCDate(next.getUTCDate() + 1)
+    const where = `Date >= ${xdate(b.date)} AND Date < ${xdate(next.toISOString().slice(0, 10))} AND Total == ${b.amount}`
+    txns = (await xeroGet(`BankTransactions?where=${encodeURIComponent(where)}`, headers)).BankTransactions ?? []
+  }
+  if (!txns.length) {
+    return new Response(JSON.stringify({ ok: true, mode: 'payment_picture', found: false, note: 'No bank transaction matched.' }), { headers: cors })
+  }
+  if (txns.length > 1) {
+    return new Response(JSON.stringify({
+      ok: true, mode: 'payment_picture', found: false,
+      note: `${txns.length} transactions match that date and amount -- call again with one of these ids.`,
+      candidates: txns.map(trimBankTransaction),
+    }), { headers: cors })
+  }
+
+  // A transaction fetched by id carries its lines; one from a list search may not.
+  let txn = txns[0]
+  if (!(txn.LineItems || []).length && txn.BankTransactionID) {
+    const one = (await xeroGet(`BankTransactions/${txn.BankTransactionID}`, headers)).BankTransactions ?? []
+    if (one.length) txn = one[0]
+  }
+  const t = trimBankTransaction(txn)
+  const codes = new Set((t.lines || []).map((l: any) => String(l.account)).filter((c: string) => c && c !== 'null'))
+
+  // 2. journals in the window that touch any of those accounts
+  const from = String(t.date)
+  const toDate = new Date(from + 'T00:00:00Z')
+  toDate.setUTCDate(toDate.getUTCDate() + windowDays)
+  const to = toDate.toISOString().slice(0, 10)
+  const jWhere = `Date >= ${xdate(from)} AND Date <= ${xdate(to)}`
+  const journals = (await xeroGet(`ManualJournals?where=${encodeURIComponent(jWhere)}`, headers)).ManualJournals ?? []
+
+  const touching = journals
+    .map(trimManualJournal)
+    .filter((j: any) => (j.lines || []).some((l: any) => codes.has(String(l.account))))
+  const posted = touching.filter((j: any) => j.status === 'POSTED')
+  const notPosted = touching.filter((j: any) => j.status !== 'POSTED')
+
+  // 3. net it out, per account
+  const net: Record<string, { from_transaction: number; from_journals: number }> = {}
+  for (const l of t.lines || []) {
+    const c = String(l.account)
+    net[c] = net[c] || { from_transaction: 0, from_journals: 0 }
+    net[c].from_transaction = r2(net[c].from_transaction + Number(l.amount || 0))
+  }
+  for (const j of posted) {
+    for (const l of j.lines || []) {
+      const c = String(l.account)
+      if (!codes.has(c)) continue
+      net[c] = net[c] || { from_transaction: 0, from_journals: 0 }
+      net[c].from_journals = r2(net[c].from_journals + Number(l.amount || 0))
+    }
+  }
+
+  // account names, so the answer is readable without a second lookup
+  let names: Record<string, string> = {}
+  try {
+    const codeList = Object.keys(net)
+    if (codeList.length) {
+      const w = codeList.map((c) => `Code=="${c}"`).join(' OR ')
+      const accts = (await xeroGet(`Accounts?where=${encodeURIComponent(w)}`, headers)).Accounts ?? []
+      names = Object.fromEntries(accts.map((a: any) => [String(a.Code), a.Name]))
+    }
+  } catch (_) { /* names are a nicety, never a reason to fail the answer */ }
+
+  // 4. the two shapes that have actually bitten
+  const warnings: string[] = []
+  if (posted.length === 0) {
+    warnings.push('No posted journal touches this transaction. Its own coding is the whole story -- if that coding is wrong, nothing later fixes it.')
+  }
+  if (posted.length > 1) {
+    warnings.push(`${posted.length} posted journals touch this transaction's accounts. Check they are not correcting the same thing twice.`)
+  }
+  for (const [code, v] of Object.entries(net)) {
+    if (v.from_transaction !== 0 && v.from_journals !== 0
+        && Math.sign(v.from_transaction) !== Math.sign(v.from_journals)
+        && Math.abs(v.from_journals) > Math.abs(v.from_transaction) * 0.5) {
+      warnings.push(`Account ${code}${names[code] ? ' (' + names[code] + ')' : ''} is moved ${v.from_transaction} by the transaction and ${v.from_journals} by journal, leaving ${r2(v.from_transaction + v.from_journals)}. A payment split at source AND reallocated by journal is the double-correction shape -- confirm it is deliberate.`)
+    }
+  }
+  if (notPosted.length) {
+    warnings.push(`${notPosted.length} journal(s) touching these accounts are not POSTED (voided or draft) and were excluded from the net.`)
+  }
+
+  return new Response(JSON.stringify({
+    ok: true, mode: 'payment_picture', found: true,
+    transaction: t,
+    window: { from, to, days: windowDays },
+    posted_journals: posted,
+    excluded_journals: notPosted,
+    net_by_account: Object.entries(net).map(([code, v]) => ({
+      account: code, name: names[code] ?? null,
+      from_transaction: v.from_transaction, from_journals: v.from_journals,
+      net: r2(v.from_transaction + v.from_journals),
+    })),
+    warnings,
+  }, null, 2), { headers: cors })
+}
+
 async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') {
@@ -224,11 +376,13 @@ async function handle(req: Request): Promise<Response> {
     }, null, 2), { headers: cors })
   }
 
+  if (mode === 'payment_picture') return await paymentPicture(b)
+
   const endpoint = ENDPOINTS[mode]
   if (!endpoint) {
     return new Response(JSON.stringify({
       error: `Unknown mode "${mode || '(none)'}".`,
-      modes: [...Object.keys(ENDPOINTS), 'whoami'],
+      modes: ['payment_picture', ...Object.keys(ENDPOINTS), 'whoami'],
     }), { status: 400, headers: cors })
   }
 
