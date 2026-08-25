@@ -242,10 +242,30 @@ body := jsonb_build_object('mode','payment_picture','date','2026-07-20','amount'
 -- or: ('mode','payment_picture','id','<BankTransactionID>','window_days',180)
 ```
 
-**Where this still needs building:** `reconciliation-run` compares our splits to Xero
-transactions and does not net journals in the same way. Until it does, its findings carry
-the same coin-flip risk, and a reconciliation finding about a single transaction should be
-confirmed with `payment_picture` before it is believed. That is the open item.
+**Correction to what this note first said.** It claimed `reconciliation-run` does not net
+journals. That was wrong, and asserted without reading the code — the same sin the rule is
+about. In fact `balance_vs_lender` rebuilds every balance from BankTransactions **and**
+ManualJournals (`later_entry_types` names which), and `checkLumpedPayments` already looks
+for a pairing reallocation journal within `REALLOC_WINDOW_DAYS` before flagging a payment
+as unsplit. Read the code before writing an invariant about it.
+
+**The real gap was the mirror image, and it is now closed.** `checkLumpedPayments` stops
+the moment it sees an interest line — a payment split at source was assumed finished and
+its journals were never examined. That is precisely the shape that cost $1,023.20:
+Funding Circle 2026-07-20 was split at source on 11 Aug AND carried journal #52216 from
+5 Aug doing the same job. Session 232 added **`checkDoubleReallocation`**, the mirror of
+the lumped-payment check, using the same pairing rule and window deliberately — if the two
+ever disagree about what "a reallocation journal for this payment" means, they should be
+wrong together rather than silently apart. Severity `error`, because both halves look
+individually correct to anyone reviewing them.
+
+**What is still genuinely uncovered:** a payment coded entirely to an *unrelated* account
+never appears in the loan's ledger rows at all, so no per-transaction check can see it —
+Verdant's 2025-07-10 payment sat in Income Tax Expense and no per-loan check could have
+noticed. Only `balance_vs_lender` catches that shape, and only until someone recodes it.
+If you want that closed, it needs a check that starts from the lender's expected payment
+schedule and asks "where did this month's money go", rather than starting from the loan
+account's own rows.
 
 ### A guard is only as good as the branch it sits on (session 231)
 
