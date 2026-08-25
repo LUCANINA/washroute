@@ -91,7 +91,17 @@ async function callerRole(req: Request): Promise<string | null> {
 // Xero's objects are enormous and most of each one is nulls. A caller reading these
 // through a conversation pays for every byte, so trim to what anyone actually asks
 // about: what it is, when, how much, and how it was coded. `full: true` opts out.
-const d = (s: unknown) => (typeof s === 'string' ? s.slice(0, 10) : s ?? null)
+// Xero returns dates in TWO shapes and the difference is not documented per-endpoint:
+// BankTransactions carry a friendly DateString ("2026-07-20T00:00:00"), ManualJournals
+// carry only the .NET form "/Date(1756598400000+0000)/". Slicing ten characters off the
+// second one yields "/Date(1756" -- a string that looks like data, sorts like data, and
+// is not a date. Caught in session 232 while checking a 2025 journal; parse both.
+function d(v: unknown): string | null {
+  if (typeof v !== 'string' || !v) return null
+  const dotnet = v.match(/^\/Date\((-?\d+)/)
+  if (dotnet) return new Date(Number(dotnet[1])).toISOString().slice(0, 10)
+  return v.slice(0, 10)
+}
 
 function trimBankTransaction(t: any) {
   return {
