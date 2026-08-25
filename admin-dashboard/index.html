@@ -15261,7 +15261,7 @@ ${noActivityNote}
         // review flow — never silently pick a different mechanism.
         body.innerHTML = `<div style="font-size:13.5px;color:var(--gray-700);background:var(--amber-light);border-radius:8px;padding:10px 12px">⚠ ${esc(data.error || 'This period can\'t be staged right now.')}</div>
           <div style="margin-top:10px;font-size:12.5px;color:var(--gray-500)">You can still review it the normal way — matching the payment in Xero and posting the split after the fact.</div>`;
-        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>
+        footer.innerHTML = `${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>
           <button class="btn btn-primary" onclick="_bkOpenNormalReview('${splitId}')">Review normally</button>`;
         return;
       }
@@ -15281,7 +15281,7 @@ ${noActivityNote}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong preparing the staging proposal: ${esc(e?.message || String(e))}</div>`;
-      footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+      footer.innerHTML = `${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
     }
   }
 
@@ -15374,9 +15374,18 @@ ${noActivityNote}
     // Two-click confirm (no native dialog — codebase convention): the first click
     // arms the button, the second within 6s actually removes the stage.
     const btn = document.getElementById('loan-unstage-btn');
+    // Session 232: the armed label MUST name what it is about to delete. It used to
+    // read "Click again to remove from Xero" -- true, but it never said of what, and
+    // David removed PayPal 2's stage believing he was removing BayFirst SBA 2's. Two
+    // loans whose names both end in "2", one destructive button, nothing on screen to
+    // tell them apart. The toast had the same gap, so nothing ever contradicted him.
+    const _uS = (_allLoanSplits || []).find(x => x.id === splitId);
+    const _uA = _uS && (_allLoanAccounts || []).find(a => a.id === _uS.loan_account_id);
+    const _uName = (_uA && (_uA.xero_account_name || _uA.lender)) || 'this loan';
+    const _uWhat = _uS && _uS.stage_reference ? _uS.stage_reference : (_uS ? _uS.period_label : '');
     if (btn && !btn.dataset.armed) {
       btn.dataset.armed = '1';
-      btn.textContent = 'Click again to remove from Xero';
+      btn.textContent = 'Click again to delete ' + _uWhat + ' (' + _uName + ') from Xero';
       setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = 'Remove stage'; } }, 6000);
       return;
     }
@@ -15389,13 +15398,92 @@ ${noActivityNote}
       });
       if (!ok || data.error) throw new Error(data.error || 'Could not remove the stage.');
       closeLoanReviewModal();
-      showToast('Stage removed — Xero is back to how it was, and the split is back in your approvals.', 'success');
+      showToast(_uWhat + ' (' + _uName + ') removed from Xero — the split is back in your approvals.', 'success');
       loadLoans();
     } catch (e) {
       showToast(e.message || 'Could not remove the stage.', 'error');
       if (btn) { btn.disabled = false; btn.textContent = 'Remove stage'; }
     }
   }
+
+  // ===================== session 232: voiding a phantom period =====================
+  // A card for a period that turned out never to have existed. BayFirst SBA 2 carried
+  // one for 2026-08 whose payment had actually cleared on 2026-08-03 and was already
+  // coded in Xero -- an artifact of a projection dated on the wrong day of the month.
+  //
+  // Removing its stage was not enough. A pending_review split on a pre-staging loan is,
+  // as far as this app is concerned, work waiting to be staged, so the app offered it
+  // straight back; and staging-next's rule 1 (one active card per loan) meant it also
+  // BLOCKED the correct September card from ever appearing. There was no way to say
+  // "this period is finished, stop asking".
+  //
+  // Void is never offered on a split that reached Xero. The database refuses those
+  // independently (enforce_split_invariant + void_loan_split) -- this is the screen
+  // agreeing with the guard, not the guard itself.
+  function _bkVoidable(s) {
+    return !!s
+      && (s.status === 'pending_review' || s.status === 'needs_attention')
+      && !s.xero_manual_journal_id
+      && !s.stage_reference;
+  }
+
+  function _bkVoidBtnHtml(splitId) {
+    if (currentUserRole === 'cpa') return '';
+    const s = (_allLoanSplits || []).find(x => x.id === splitId);
+    if (!_bkVoidable(s)) return '';
+    return `<button class="btn btn-ghost" id="loan-void-btn" style="color:var(--red)" onclick="promptVoidSplit('${splitId}')">Void this card</button>`;
+  }
+
+  // Reason first, then confirm. A year from now the note is the only thing that will
+  // explain why a period simply stopped existing, so the RPC requires one and so does
+  // this. Inline field rather than prompt() -- no native dialogs, same as everywhere.
+  function promptVoidSplit(splitId) {
+    const s = (_allLoanSplits || []).find(x => x.id === splitId);
+    const footer = document.getElementById('loan-review-footer');
+    if (!footer || !s) return;
+    const acct = (_allLoanAccounts || []).find(a => a.id === s.loan_account_id);
+    const name = (acct && (acct.xero_account_name || acct.lender)) || 'this loan';
+    footer.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;width:100%">
+        <input id="loan-void-reason" type="text" class="form-input" style="flex:1"
+               placeholder="Why is this period being voided? (required)"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();confirmVoidSplit('${splitId}');}">
+        <button class="btn btn-ghost" onclick="openLoanReviewModal('${splitId}')">Cancel</button>
+        <button class="btn btn-primary" id="loan-void-confirm" style="background:var(--red);border-color:var(--red)"
+                onclick="confirmVoidSplit('${splitId}')">Void ${esc(s.period_label)} — ${esc(name)}</button>
+      </div>`;
+    const inp = document.getElementById('loan-void-reason');
+    if (inp) inp.focus();
+  }
+
+  async function confirmVoidSplit(splitId) {
+    const inp = document.getElementById('loan-void-reason');
+    const reason = ((inp && inp.value) || '').trim();
+    if (!reason) {
+      showToast('Give a reason — a voided card has to say why.', 'error');
+      if (inp) inp.focus();
+      return;
+    }
+    const btn = document.getElementById('loan-void-confirm');
+    const label = btn ? btn.textContent : 'Void';
+    if (btn) { btn.disabled = true; btn.textContent = 'Voiding…'; }
+    try {
+      const { error } = await db.rpc('void_loan_split', {
+        p_split_id: splitId,
+        p_voided: true,
+        p_reason: reason,
+        p_actor: currentUserDisplayName || currentUserRole || 'admin dashboard',
+      });
+      if (error) throw new Error(error.message || 'Could not void this card.');
+      closeLoanReviewModal();
+      showToast('Card voided — it will not be offered again, and the reason is on its record.', 'success');
+      loadLoans();
+    } catch (e) {
+      showToast(e.message || 'Could not void this card.', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
+  }
+  // =================== end session 232 voiding a phantom period ===================
 
   // Dispatcher: staging-eligible splits get the staging proposal, staged splits get
   // their live status, everything else gets the normal review flow unchanged.
@@ -15453,7 +15541,7 @@ ${noActivityNote}
           // the resolution. The button writes NOTHING to Xero -- the server
           // re-verifies the already-handled state and only moves OUR split row
           // out of the approvals queue, keeping the evidence in its notes.
-          footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>${(canPost && data.can_mark) ? `<button class="btn btn-primary" id="loan-mark-handled-btn" onclick="markSplitAlreadyInXero('${splitId}')">✓ Handled in Xero — remove from approvals</button>` : ''}`;
+          footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>${_bkVoidBtnHtml(splitId)}${(canPost && data.can_mark) ? `<button class="btn btn-primary" id="loan-mark-handled-btn" onclick="markSplitAlreadyInXero('${splitId}')">✓ Handled in Xero — remove from approvals</button>` : ''}`;
           return;
         }
         body.innerHTML = `<div style="color:${waiting ? 'var(--gray-600)' : 'var(--red)'};font-size:13.5px">${
@@ -15499,7 +15587,7 @@ ${noActivityNote}
               ${dist ? `<div style="font-size:11.5px;margin-top:3px">${dist}</div>` : ''}
             </div>`;
           }).join(''); })()}</div>` : ''}`;
-        footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+        footer.innerHTML = `${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>${_bkVoidBtnHtml(splitId)}`;
         return;
       }
 
@@ -15566,7 +15654,7 @@ ${noActivityNote}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong loading this review: ${esc(e?.message || String(e))}</div>`;
-      footer.innerHTML = `<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
+      footer.innerHTML = `${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>`;
     }
   }
   function closeLoanReviewModal() {
