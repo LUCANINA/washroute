@@ -784,6 +784,34 @@ async function handleStageSweep(req: Request): Promise<Response> {
       results.push(row); continue
     }
     if (txn.IsReconciled) {
+      // ── A STALE STAGE MUST NOT AUTO-POST (session 231) ──────────────────────
+      // The stale_projection guard lives in the STAGE branch, which has already
+      // run by the time we get here. Nothing re-checked it, so a split staged
+      // BEFORE a new statement moved its numbers could be matched and posted with
+      // the superseded split.
+      //
+      // And it would be, reliably: only the principal/interest ALLOCATION drifts
+      // when a projection is re-derived -- the payment TOTAL is unchanged, which is
+      // what Xero matches the bank line on. So the feed reconciles happily and the
+      // wrong allocation posts. The amount looking right is precisely why nothing
+      // downstream catches it.
+      //
+      // Latent while the sweep only ran when a human clicked refresh; load-bearing
+      // the moment it runs nightly on a schedule. Fails CLOSED, same reasoning as
+      // the stage-branch guard: leaving a matched transaction unposted for a day
+      // costs a click, posting a wrong split costs a correcting journal and a
+      // conversation with the CPA.
+      //
+      // Self-healing: re-generating the split from the current schedule clears the
+      // flag, and the next sweep posts it normally.
+      if (String(s.stage_sweep_flag ?? '') === 'stale_projection') {
+        await supa.from('loan_splits').update({
+          stage_sweep_checked_at: nowIso(),
+          review_notes: appendNote(s, `Matched in Xero on ${today}, but NOT posted: this period was flagged stale after its schedule was re-derived, so the staged principal/interest split is superseded. Unstage, re-generate from the current schedule, and re-stage. (The payment total is unchanged, which is why the bank feed matched it anyway.)`),
+        }).eq('id', s.id)
+        row.outcome = 'stale_projection_matched_not_posted'
+        results.push(row); continue
+      }
       // v47: reconciled BEFORE the scheduled date = probably matched to the WRONG
       // bank line (see STAGE_EARLY_MATCH_GRACE_DAYS). UpdatedDateUTC bounds the
       // reconcile time from above: IsReconciled with an update stamp earlier than
@@ -847,7 +875,7 @@ async function handleStageSweep(req: Request): Promise<Response> {
     ok: true,
     checked: staged.length,
     matched: results.filter(x => x.outcome === 'matched').length,
-    flagged: results.filter(x => ['duplicate_suspected', 'stale', 'matched_early_suspect'].includes(x.outcome)).length,
+    flagged: results.filter(x => ['duplicate_suspected', 'stale', 'matched_early_suspect', 'stale_projection_matched_not_posted'].includes(x.outcome)).length,
     results,
   }, null, 2), { headers: { 'Content-Type': 'application/json' } })
 }
