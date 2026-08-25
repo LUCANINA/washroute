@@ -1,59 +1,51 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 232 (left by session 231, 2026-08-25 overnight)
+> ## ⏭️ START HERE — first thing, session 233 (left by session 232, 2026-08-25 morning)
 >
-> Two jobs, in this order. Neither is done.
+> Session 231's work IS deployed now (7 functions, all versions bumped, both migrations
+> confirmed applied). BayFirst SBA 2 is fully resolved. Two jobs remain, neither urgent.
 >
-> ### 1. DEPLOY. Nothing from session 231 is live.
-> Fourteen commits are pushed to git but the edge functions were never redeployed.
-> Every fix below is currently inert.
+> ### 1. Two loans still project onto the wrong day. SUPERVISED, same four steps.
 >
-> ```
-> cd ~/Projects/WashRoute && npx supabase@latest functions deploy \
->   loan-xero-post loan-ingest-statement loan-derive-schedule \
->   loan-record-principal-payment loan-ingest-amortization \
->   loan-generate-schedule-split reconciliation-run \
->   --project-ref umjpbuxrdydwejqtensq
-> ```
->
-> ### 2. SUPERVISED RE-DERIVE of three loans. Do NOT do this unattended.
->
-> Their projections are dated on the wrong day of the month. Fixed in code
-> (`c692d19`) but **not applied** — re-deriving changes dates on transactions that
-> are LIVE in Xero right now.
->
-> | Loan | Acct # | Pays | Was projected | Live stage |
+> | Loan | Acct # | Pays | Projected | Stage due |
 > |---|---|---|---|---|
-> | E-Transit E4-9744 | 61797019 | **9th** | 20th | 2026-09 |
-> | BayFirst SBA 2 | 6917479106 | **2nd** | 31st | 2026-08 (**due Aug 31 — most urgent**) |
-> | Funding Circle | 50340172506 | **1st** | 3rd | 2026-09 |
+> | E-Transit E4-9744 | 61797019 | **9th** | 20th | 2026-09-20 |
+> | Funding Circle | 50340172506 | **1st** | 3rd | 2026-09-03 |
 >
-> Sequence, per loan, with David watching:
-> 1. Dry-run the derive (no `confirm`) and read `payment_day_divergence`.
-> 2. David **unstages** the live card (deletes the staged transaction in Xero).
-> 3. Re-derive with `confirm:true`.
-> 4. David re-stages; confirm the new card's date matches the "Pays" column.
+> The sequence that worked on BayFirst, with David driving the browser (the derive
+> function needs his JWT — it cannot be called from the sandbox):
+> 1. Dry-run `loan-derive-schedule` (no `confirm`), read `payment_day_divergence`.
+> 2. David **Remove stage** on the live card.
+> 3. If the old period turns out to be already-paid-and-booked, **Void** it (below) —
+>    do NOT just remove the stage, or the app hands the same card straight back.
+> 4. Re-derive with `confirm:true, enable_staging:true`; David stages the new card.
 >
-> The `stale_projection` guard will flag these three the moment the schedule moves —
-> that is correct behaviour, not a fault. Do not force past it.
+> **Do Funding Circle's anomaly first** (§2) — its `2026-07` split sits at
+> `pending_review` while carrying a real `xero_manual_journal_id`. Understand that
+> before re-deriving it.
 >
-> **Four loans are already right and must not move:** 4140 (17th), E5-4751 (12th),
-> E6-7410 (9th), BayFirst SBA Loan (5th). The control case matters — a fix that
-> quietly re-dates a correct loan is worse than the bug.
+> ### 2. Two splits whose status disagrees with reality — cause UNKNOWN
+> - **Funding Circle `2026-07`** — `pending_review`, but has a Xero journal id.
+> - **BayFirst SBA 2 `2026-07-02`** — `posted`, but its own note says the reallocation
+>   journal was "not yet posted, awaiting go-ahead".
+>
+> Something writes to Xero (or records a journal id) without finishing its own
+> bookkeeping. Both are now protected — void refuses any split carrying a journal id —
+> but the path that creates them has not been found. **This is the most valuable open
+> thread in the module**: a status that lies is how someone acts on the wrong thing.
 >
 > ### Also check on waking
-> - **PayPal 2's stage was due 2026-08-26** — the first time the full
->   stage → match → post loop ran unattended (cron `wr-loan-stage-sweep`, 16:00 UTC).
->   If the Staged tab no longer shows PayPal 2 and an October card appeared, the loop
->   works. If it shows `matched_early_suspect`, the day-of-month bug bit there too.
-> - **E-Transit 4140 has two posted splits against one bank transaction**
+> - **PayPal 2's stage was due 2026-08-26.** It was accidentally unstaged and re-staged
+>   on 8/25 (see the session log), so 8/26 is the first unattended run of the full
+>   stage → match → post loop via cron `wr-loan-stage-sweep` (16:00 UTC). If the Staged
+>   tab no longer shows PayPal 2 and an October card appeared, the loop works.
+> - **E-Transit 4140 still has two posted splits against one bank transaction**
 >   (2026-05 journal `7ce60981`, 2026-06 journal `12ef542c`, both vs txn `2f10db32`).
->   Amounts differ so it is not one payment doubled, but both journals take their date
->   from that single transaction, so at least one is dated in the wrong month.
->   **Ramona's call — do not "fix" posted journals from here.**
-> - **Rapid Credit Line** raises `derivable_not_derived` every run. It is a draw line
->   and structurally unstageable. Suppress the finding once; it stays suppressed.
-
+>   Ramona's call — do not "fix" posted journals from here.
+> - **Rapid Credit Line** raises `derivable_not_derived` every run. Draw line,
+>   structurally unstageable. Suppress the finding once; it stays suppressed.
+> - **BayFirst SBA 2's maturity date (2034-01-01) is probably wrong** — the projection
+>   reaches Dec 2033 with $25,651 still outstanding. Nothing posts from it.
 
 ## Why this file exists (session 217)
 
@@ -1322,6 +1314,99 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 232 (2026-08-25, morning) — VOID: a period that never existed, and the wrong-branch bug for the third time in one day
+
+**Deploy first.** Session 231's fourteen commits were pushed but never deployed — the
+functions had last been built at 18:35 UTC on 8/24, every commit landed after. All seven
+redeployed by David from his own terminal (`loan-xero-post` v55→56, `loan-ingest-statement`
+33→34, `reconciliation-run` 26→27, `loan-derive-schedule` 7→8, `loan-record-principal-payment`
+6→7, `loan-ingest-amortization` 16→17, `loan-generate-schedule-split` 14→15). Both session-231
+migrations were already applied.
+
+> **Deploying from the sandbox is not worth the risk.** The MCP route means re-typing each
+> function's source into the API call — 148,000 characters for `loan-xero-post` alone — and a
+> single dropped character deploys silently. The CLI uploads the bytes on disk. On posting code,
+> always hand David the command.
+
+#### BayFirst SBA 2 — not a mis-dated stage, a stage for a payment already booked
+
+The session-231 note listed it as "projected on the 31st, pays the 2nd". True, but the
+consequence was worse than a wrong date. Its live stage was period `2026-08` dated Aug 31 —
+and August's payment had **already cleared on Aug 3** and been coded in Xero by Ramona
+($858.66 principal / $1,249.58 interest, reconciled). The stage was pre-staging a payment
+that had happened three weeks earlier.
+
+**How the day-of-month reading was confirmed, beyond the median.** Payments landed Apr 2,
+May 1, Jun 2, Jul 2, Jul 31 — days 2, 1, 2, 2, 31, which looks like drift. It isn't: **every
+apparent exception is a weekend.** May 2 was a Saturday, Aug 2 a Sunday. The Xero transaction
+proved the direction — the Aug payment posted **Aug 3, the Monday**, i.e. the NEXT business
+day, not the previous. Sep 2 is a Wednesday, so `2026-09-02` stands. Worth repeating the
+method: when a measured payment day looks noisy, check the weekday before doubting the day.
+
+**Also: this loan's statements come in pairs, and the month-end one is a different animal.**
+Pairs a few days apart carry the SAME balance (04-02/04-03, 06-02/06-03, 07-02/07-19) — the
+drop is always on the first of the pair. But the 2025 month-end readings are *higher* than the
+following month's (2025-09-30 = 144,297.38 vs 2025-10-03 = 142,128.93), which is a payoff-style
+balance, not principal. Do not read a month-end row as a payment.
+
+#### The real problem: there was no way to say "this period is finished"
+
+Removing the stage was not enough. A `pending_review` split on a pre-staging loan IS, to this
+app, work waiting to be staged — so the app offered it straight back — and `ensureUpcomingSplit`
+rule 1 (one active card per loan) meant it also **blocked the correct September card from ever
+appearing**. David removed and re-staged the same phantom **three times** before we had a state
+that could retire it. None of it was user error; the screen offered exactly one button.
+
+**`voided` — new terminal status** (migration `session_232_void_loan_split`):
+- Three nullable audit columns: `voided_at`, `voided_by`, `void_reason`.
+- Terminal in `enforce_split_invariant`, returning early **beside `closed_period`**. This
+  placement is load-bearing: the invariant's tail rewrites a failing split's status to
+  `needs_attention`, which would have quietly resurrected a voided card.
+- RPC `void_loan_split(p_split_id, p_voided, p_reason, p_actor)` — the only sanctioned way,
+  mirroring `mark_loan_flag_resolved`. `p_voided` is REQUIRED, no default. Reason and actor
+  are both required. Reversible (`p_voided => false` returns it to `pending_review`).
+- **Voiding retires that period label for that loan** — `UNIQUE (loan_account_id, period_label)`
+  means no second card for the same period can be created afterwards. That is exactly why it is
+  reversible; do not "fix" a wrongly-voided period by creating a new card.
+- Writes restricted to admin/manager. **Ramona (cpa) cannot void** — flagged to David as his
+  call, not settled.
+
+> **The guard checks status AND `xero_manual_journal_id`, not status alone.** The first draft
+> refused to void based on status only, which looks complete. Funding Circle's `2026-07` split
+> sits at `pending_review` while carrying a real journal id — a status-only guard would have let
+> void retire the record of a live journal. Enforced twice, in the RPC and in the trigger,
+> because the trigger is the only thing a raw UPDATE cannot route around. Verified against the
+> live DB inside a self-rolling-back transaction: posted refused, journal-carrying refused,
+> ordinary pending card voided, and a voided card with deliberately broken sums stayed voided.
+
+#### The wrong-branch bug, third occurrence in one day — and it was mine
+
+Session 231's closing lesson was *"a guard is only as good as the branch it sits on"*, written
+at 04:00. At ~08:20 I added the Void button by grepping the loan review modal's footers for
+their **Close** button. Eight matched. Two didn't — they end in **Cancel** — and one of those
+two is the staging proposal, *the exact screen David was looking at*. So he removed the stage,
+was handed the staging proposal with no way to retire the card, and staged it a third time.
+
+**The fix that matters is not the two extra footers, it is how coverage was established.** Now
+verified mechanically: all ten footers in the three modal functions are accounted for — eight
+carry the button, and the two in the staged-status view deliberately do not (the only correct
+first step there is Remove stage). **Grep by what a branch DOES, never by what it spells.**
+
+#### The other human-factors bug: a destructive button that never said what it would destroy
+
+"Remove stage" armed with *"Click again to remove from Xero"* — true, and it never said of
+what. David removed **PayPal 2's** stage believing he was removing BayFirst SBA 2's. Two loans
+whose names both end in "2", one destructive button, and a success toast that named neither, so
+nothing on screen ever contradicted him. Now: *"Click again to delete WR-STAGE 251 2026-08-31
+(BayFirst SBA 2) from Xero"*, and the toast names it too. **A button that deletes something in
+the CPA's books must name the thing.** PayPal 2 was re-staged the same morning; no loss.
+
+#### Outcome
+`2026-08` voided ("period finished"), re-derived onto day 2 (88 future rows, fit unchanged at
+11.49999% / $0.00 worst error, `stale_staged: []`), `2026-09` created and staged as
+**`WR-STAGE 251 2026-09-02`**, $695.24 principal / $1,413.01 interest. Commits `bb3da0c`
+(void) and `9d68bfc` (the missed branches).
 
 ### Session 231 (2026-08-25, overnight) — 11 of 14 loans pre-staging, the sweep on a schedule, and an adversarial test round that found the guards were on the wrong side of the boundary
 
