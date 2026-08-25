@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { ensureUpcomingSplit } from '../_shared/staging-next.ts'
+import { effectiveCloseDate, isPeriodClosed } from '../_shared/close-date.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
 // admin/manager may do both. Anything else is rejected outright.
@@ -968,6 +969,49 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: 'loan_accounts row is missing xero_account_id or xero_bank_account_id' }), { status: 400 })
     }
 
+    // ── NOTHING WRITES INTO A CLOSED PERIOD (session 231) ─────────────────────
+    // The close-date rule existed and was enforced on the READ side --
+    // loan-ingest-statement stops creating splits there, loan-cross-check stops
+    // raising findings about them, xero-close-date files the ones already open.
+    // The two functions that actually WRITE TO XERO, this one and
+    // loan-find-difference, never imported the module at all. So every guard
+    // pointed at the surfaces that only propose work, and none at the surface that
+    // moves money.
+    //
+    // Not theoretical here: this org's Xero carries NO lock date (settings
+    // .xero_period_lock_date is null), so Xero itself refuses nothing. The manual
+    // books_closed_through field is the only close signal that exists, and until
+    // now it had no effect on a single Xero write.
+    //
+    // Reachable within weeks rather than someday: books are closed through
+    // 2026-06-30 and a 2026-07 split is sitting in pending_review right now. The
+    // moment the CPA closes July, Approving it posts a journal into books she has
+    // already closed and issued statements from.
+    //
+    // Applies to every WRITE (confirm / stage / revert / mark-already-in-xero) and
+    // deliberately NOT to a dry-run preview: showing a human what WOULD happen in a
+    // closed period is useful, doing it is not. A preview carries the warning
+    // instead, so the refusal is never a surprise at the moment of clicking.
+    const wantsWrite = confirm === true || stage === true || revert === true
+      || unstage === true || mark_already_in_xero === true || attach_only === true
+    const cd = await effectiveCloseDate(supa)
+    let closedPeriodWarning: string | null = null
+    if (cd.date) {
+      const resolvedDate = split.amortization_row?.row_date
+        ? String(split.amortization_row.row_date).slice(0, 10) : null
+      if (isPeriodClosed(String(split.period_label), cd.date, resolvedDate)) {
+        const who = cd.source === 'manual' ? 'the close date set in Bookkeeping' : "Xero's lock date"
+        const msg = `${split.period_label} falls inside books closed through ${cd.date} (${who}). `
+          + `Writing to Xero here would change a period the CPA has already closed and reported on, `
+          + `and this organisation's Xero has no lock date of its own to refuse it. `
+          + `If this genuinely needs correcting, it belongs in the current open period as a prior-period adjustment the CPA is told about -- not as a journal dated inside the closed month.`
+        if (wantsWrite) {
+          return new Response(JSON.stringify({ error: msg, closed_period: true, close_date: cd.date, close_date_source: cd.source }), { status: 409 })
+        }
+        closedPeriodWarning = msg
+      }
+    }
+
     // v26: REVERT. Handled first and separately from everything below -- it operates
     // on an already-posted split, branching purely on posting_method, and needs none
     // of the interest/total-shape logic that governs a fresh proposal.
@@ -1243,6 +1287,7 @@ async function handleRequest(req: Request): Promise<Response> {
         }
         return new Response(JSON.stringify({
           dry_run: true,
+          closed_period_warning: closedPeriodWarning,
           kind: 'staged',
           stage_reference: split.stage_reference,
           staged_at: split.staged_at,
@@ -1405,6 +1450,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!confirm) {
         return new Response(JSON.stringify({
           dry_run: true,
+          closed_period_warning: closedPeriodWarning,
           kind: 'pre_stage',
           proposed_transaction: {
             type: 'SPEND',
@@ -1532,6 +1578,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!confirm) {
         return new Response(JSON.stringify({
           dry_run: true,
+          closed_period_warning: closedPeriodWarning,
           source: split.source,
           matched_bank_transaction: null,
           proposed_journal: null,
@@ -1591,6 +1638,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!confirm) {
         return new Response(JSON.stringify({
           dry_run: true,
+          closed_period_warning: closedPeriodWarning,
           source: split.source,
           matched_bank_transaction: null,
           proposed_journal: { ...journalPayload.ManualJournals[0], JournalLines: withAccountNames(journalPayload.ManualJournals[0].JournalLines, acctMap) },
@@ -1730,6 +1778,7 @@ async function handleRequest(req: Request): Promise<Response> {
           if (!confirm) {
             return new Response(JSON.stringify({
               dry_run: true,
+              closed_period_warning: closedPeriodWarning,
               source: split.source,
               kind: 'direct_split',
               matched_bank_transaction: {
@@ -2137,6 +2186,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!confirm) {
       return new Response(JSON.stringify({
         dry_run: true,
+        closed_period_warning: closedPeriodWarning,
         source: split.source,
         matched_bank_transaction: { id: candidate.BankTransactionID, date: candidate.DateString, total: candidate.Total, status: candidate.Status, current_lines: withAccountNames(candidate.LineItems, acctMap), reconciled: candidate.IsReconciled },
         ignored_deleted_or_voided: suppressedNonLive,
