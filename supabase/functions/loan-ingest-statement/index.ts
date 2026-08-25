@@ -609,6 +609,55 @@ async function handleRequest(req: Request): Promise<Response> {
       .limit(1)
     const prior = priorStmts?.[0]
 
+    // ── A REAL STATEMENT MAY REFINE A PROJECTION, NEVER CLOBBER BOOKED WORK ──
+    // Session 231. The two split upserts below key on (loan_account_id, period_label)
+    // and set status='pending_review' outright. Every OTHER writer to that key checks
+    // first -- loan-generate-schedule-split hard-409s (Tech Debt #21, closed v3/v4),
+    // staging-next walks past (rule 4, written "not to repeat it"),
+    // loan-record-principal-payment refuses anything but an unposted row. These two
+    // never got it, and the backfill path a few hundred lines down already encodes the
+    // right nuance with isUnconsumedProjection.
+    //
+    // Two ways it bites:
+    //
+    //   STAGED  -- a live WR-STAGE transaction is sitting in Xero. The upsert resets
+    //   the row to pending_review while leaving matched_xero_bank_transaction_id,
+    //   stage_reference and staged_at intact. The sweep selects .eq('status','staged'),
+    //   so it never looks at that row again: the transaction stays in Xero, gets
+    //   matched, and nothing ever marks it posted. The loan silently stops producing
+    //   staging cards. Nothing in the codebase reconciles that.
+    //
+    //   POSTED  -- status resets to pending_review but xero_manual_journal_id survives.
+    //   Approve then 409s ("use revert"), and revert 409s ("not posted -- nothing to
+    //   revert"). Both guards work exactly as designed and together form a trap that
+    //   only manual SQL escapes.
+    //
+    // The rule is NOT "never touch an existing split". A real lender statement is
+    // better evidence than a projection and SHOULD refine it -- pending_review and
+    // needs_attention stay freely updatable. It is booked or in-flight work that is
+    // off limits. Skipping is reported, never silent: the statement itself still
+    // records normally, and the response names the period and why it was left alone.
+    const SPLIT_BOOKED_STATUSES = ['staged', 'posted', 'already_in_xero', 'closed_period']
+    const splitsSkippedBooked: any[] = []
+    async function bookedSplitBlocking(loanAccountId: string, periodLabel: string) {
+      const { data: rows } = await supa
+        .from('loan_splits')
+        .select('id, status, source, period_label, xero_manual_journal_id, matched_xero_bank_transaction_id')
+        .eq('loan_account_id', loanAccountId)
+        .eq('period_label', periodLabel)
+        .in('status', SPLIT_BOOKED_STATUSES)
+        .limit(1)
+      const row = (rows || [])[0]
+      if (!row) return null
+      splitsSkippedBooked.push({
+        period_label: periodLabel, split_id: row.id, status: row.status, source: row.source,
+        why: row.status === 'staged'
+          ? `A pre-split transaction for ${periodLabel} is live in Xero. Overwriting this split would orphan it -- the sweep only watches rows still marked staged, so it would never be marked posted when the payment matches. Unstage it first if this statement should replace it.`
+          : `${periodLabel} is already ${row.status} in Xero. Overwriting it would reset the record while leaving the Xero entry in place, which puts the split in a state neither Approve nor Revert can resolve. Revert it first if this statement should replace it.`,
+      })
+      return row
+    }
+
     let split = null
     let scheduleComparison = null
 
@@ -669,7 +718,8 @@ async function handleRequest(req: Request): Promise<Response> {
         }
       }
 
-      const { data: splitRow, error: splitErr } = await supa
+      const blocked1 = await bookedSplitBlocking(loanAcct.id, periodLabel)
+      const { data: splitRow, error: splitErr } = blocked1 ? { data: null, error: null } : await supa
         .from('loan_splits')
         .upsert({
           loan_account_id: loanAcct.id,
@@ -734,7 +784,8 @@ async function handleRequest(req: Request): Promise<Response> {
           }
         }
 
-        const { data: splitRow, error: splitErr } = await supa
+        const blocked2 = await bookedSplitBlocking(loanAcct.id, periodLabel)
+        const { data: splitRow, error: splitErr } = blocked2 ? { data: null, error: null } : await supa
           .from('loan_splits')
           .upsert({
             loan_account_id: loanAcct.id,
@@ -1065,6 +1116,7 @@ async function handleRequest(req: Request): Promise<Response> {
       schedule_comparison: scheduleComparison,
       splits_created: splitsCreated,
       splits_skipped_existing: skippedExisting,
+      splits_skipped_already_booked: splitsSkippedBooked.length ? splitsSkippedBooked : undefined,
       splits_skipped_already_in_xero: skippedAlreadyInXero,
       xero_check_error: xeroCheckError,
       direct_split_pairs: directSplitPairs,
