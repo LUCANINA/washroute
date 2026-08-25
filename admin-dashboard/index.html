@@ -15276,7 +15276,7 @@ ${noActivityNote}
         <div style="font-size:12.5px;color:var(--gray-500)">If the real payment ends up different from the schedule, the staged transaction won't match — the staged-payments check flags it and it can be removed with one click, leaving Xero exactly as before.</div>
       `;
       footer.innerHTML = `
-        <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
+        ${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
         ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-stage-btn" onclick="confirmStageSplit('${splitId}')">Stage in Xero</button>`}
       `;
     } catch (e) {
@@ -15617,7 +15617,7 @@ ${noActivityNote}
           ${data.note ? `<div style="background:var(--amber-light);color:#92400e;font-size:12.5px;padding:10px 12px;border-radius:8px;margin-bottom:4px">⚠ ${esc(data.note)}</div>` : ''}
         `;
         footer.innerHTML = `
-          <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
+          ${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
           ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Split in Xero</button>`}
         `;
         return;
@@ -15649,7 +15649,7 @@ ${noActivityNote}
       `;
       footer.innerHTML = `
         ${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}
-        <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
+        ${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
         ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Post to Xero</button>`}
       `;
     } catch (e) {
