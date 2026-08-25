@@ -1,68 +1,84 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 233 (left by session 232, 2026-08-25 morning)
+> ## ⏭️ START HERE — first thing, session 233 (left by session 232, 2026-08-25)
 >
-> Session 231's work IS deployed now (7 functions, all versions bumped, both migrations
-> confirmed applied). BayFirst SBA 2 is fully resolved. Two jobs remain, neither urgent.
+> **YOU CAN READ XERO NOW.** `xero-read` is deployed (v1, `--no-verify-jwt`, commit `61b69fa`).
+> Read-only by construction — one fetch, hard-coded GET, fixed endpoint table, no write
+> branch exists. Call it from SQL via pg_net; it accepts the `x-wr-internal` secret:
 >
-> ### 1. Two loans still project onto the wrong day. SUPERVISED, same four steps.
+> ```sql
+> select net.http_post(
+>   url := 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/xero-read',
+>   headers := jsonb_build_object('x-wr-internal', public.wr_internal_secret(),
+>     'Content-Type','application/json','apikey', <anon>, 'Authorization','Bearer '||<anon>),
+>   body := jsonb_build_object('mode','bank_transactions','date','2026-07-20')
+> ) as request_id;
+> -- then: select status_code, content from net._http_response where id = <request_id>;
+> ```
+> The anon key is inline in `public.sweep_autocharge_ready_orders` if you need it.
+> Modes: `bank_transactions`, `manual_journals`, `invoices`, `accounts`, `contacts`, `whoami`.
+> Filters: `id`, `date`, `from`/`to`, `amount`, `contains`, raw `where`, `page`, `full`.
 >
-> | Loan | Acct # | Pays | Projected | Stage due |
-> |---|---|---|---|---|
-> | E-Transit E4-9744 | 61797019 | **9th** | 20th | 2026-09-20 |
-> | Funding Circle | 50340172506 | **1st** | 3rd | 2026-09-03 |
+> **Learned using it:** list queries return NO line items — fetch by `id` for lines.
+> `Total == 1144.55` works; `Contact.Name.Contains(...)` is rejected by Xero on
+> BankTransactions (400). Ford has **eleven** contact records ("Ford", "Ford Credit",
+> "Ford financial"…), so filter by AMOUNT, never by contact name.
 >
-> The sequence that worked on BayFirst, with David driving the browser (the derive
-> function needs his JWT — it cannot be called from the sandbox):
-> 1. Dry-run `loan-derive-schedule` (no `confirm`), read `payment_day_divergence`.
-> 2. David **Remove stage** on the live card.
-> 3. If the old period turns out to be already-paid-and-booked, **Void** it (below) —
->    do NOT just remove the stage, or the app hands the same card straight back.
-> 4. Re-derive with `confirm:true, enable_staging:true`; David stages the new card.
+> ### Open work, none of it urgent
 >
-> **Do Funding Circle's anomaly first** (§2) — its `2026-07` split sits at
-> `pending_review` while carrying a real `xero_manual_journal_id`. Understand that
-> before re-deriving it.
+> **1. Funding Circle re-derive** — pays the 1st, projected the 3rd; `2026-09` is staged live
+> as `WR-STAGE 253 2026-09-03`. Same four steps as BayFirst. **But read §3 first.**
 >
-> ### 2. Funding Circle: SOLVED, and it opened a real misstatement (now fixed)
-> The `2026-07` split's stuck status was the **statement re-ingest bug session 231 fixed**
-> (`06a46a9`) — posted split, status reset to pending_review by the pre-fix upsert, journal
-> id left behind. It was the only casualty module-wide; repaired.
+> **2. Verdant Capital — 14 splits `posted` with NO posting evidence**, $27,438.70 of interest
+> between them: no journal id, no posted_at, no posted_by. Every other loan's backfilled
+> history at least carries a "who recorded this" stamp. One continuous amortization run
+> labelled in two conventions mid-sequence (`Period 1`…`Period 6`, then `2026-01-10`…
+> `2026-07-10`, then `Period 14`). **Now answerable with xero-read** — that is the job it
+> was built for.
 >
-> Chasing it found something bigger: the **2026-07-20 payment had been corrected twice** —
-> our journal #52216 (5 Aug) AND Ramona splitting the transaction at source (11 Aug).
-> Interest Expense and the loan balance were each overstated **$1,023.20**. Journal #52216
-> voided in Xero by David 2026-08-25. Full write-up published for Ramona:
+> **3. Funding Circle's real problems are with Ramona.** Memo published:
 > https://claude.ai/code/artifact/868af85d-4f8f-4a6f-8892-70c39edae26a
+> - 2026-06-18 coded $995.65/$1038.12; the 1 July lender statement says $1025.71/$1008.06.
+> - 2026-07-20's true split is not knowable until the September statement (the 3 Aug
+>   statement shows NO principal movement).
+> - **A 2026-08-18 payment of $2,033.77 exists in Xero with no card on our side** (found
+>   with xero-read; not yet investigated).
+> - 2026-04-20 still 100% to principal, no paired journal.
 >
-> **Still open for Ramona** (do not act on these from here):
-> - 2026-06-18 payment coded $995.65/$1038.12; the 1 July lender statement says
->   **$1025.71/$1008.06** — out by $30.06.
-> - 2026-07-20's true split is **not knowable yet** — the 3 Aug statement shows NO
->   principal movement (66215.03 unchanged), so FC hadn't applied it. September statement.
-> - 2026-04-20 still 100% to principal with no paired journal (flagged since early Aug).
+> **4. E-Transit E4-9744 — DONE, and the answer was "don't stage at all".** Not a mis-dated
+> stage: the loan is **paid ahead**. Ford Credit's 08/20/2026 statement says "Payment Due
+> 09/09/2026 — $0.00" and "Your account is paid ahead". Stage removed, card Ignored. Three
+> facts on the card: the due date is the **9th** (lender confirms the measured day),
+> **"your payment amount has changed"** so $1,144.55 is stale, and payoff $16,657.33 vs
+> principal $16,223.75 means **~$433.58 of finance charges have accrued unbooked** and grow
+> monthly. Ford applies payments to finance charges FIRST, so the first resumed payment will
+> be mostly interest — re-derive from a fresh statement, never restart the old schedule.
+> **Still to do: upload that 08/20 statement** (newest on file is 20 July).
 >
-> **BayFirst SBA 2 `2026-07-02` is still unexplained** — `posted`, but its own note says the
-> reallocation journal was "not yet posted, awaiting go-ahead". Different shape from the
-> Funding Circle one (no journal id at all). Worth the same treatment.
+> **5. Two $5,000 events on sibling Ford loans, unexamined.** E4-9744's ~$4,903 prepayment
+> dated 2026-05-27, and a $5,000 split against 4140 dated 2026-08-10 posted 2026-08-24.
+> Probably two genuine prepayments; worth one look, not a shrug.
 >
-> ⚠️ **Only lender statements dated the 1st are real documents.** Funding Circle's 06-18 /
-> 05-18 / 04-20 rows are `source='xero_derived'` — our own reading of Xero, so they agree
-> with it by construction and can NEVER be used to check it. Check `source` before trusting
-> any balance.
+> **6. BayFirst SBA 2 `2026-07-02`** — its note says "not yet posted, awaiting go-ahead" but
+> it WAS posted 2026-08-05. Stale note, not a misstatement. Closed as nothing.
+>
+> ### Tech debt raised today
+> - **`markSplitAlreadyInXero` is one-way.** No un-mark in the UI, so a mistaken "already
+>   handled" marking can only be undone by direct SQL. That was the one step today that
+>   bypassed a sanctioned RPC. Build the un-mark.
+> - The auto-stage cron (Task 7) stays parked.
 >
 > ### Also check on waking
-> - **PayPal 2's stage was due 2026-08-26.** It was accidentally unstaged and re-staged
->   on 8/25 (see the session log), so 8/26 is the first unattended run of the full
->   stage → match → post loop via cron `wr-loan-stage-sweep` (16:00 UTC). If the Staged
->   tab no longer shows PayPal 2 and an October card appeared, the loop works.
-> - **E-Transit 4140 still has two posted splits against one bank transaction**
->   (2026-05 journal `7ce60981`, 2026-06 journal `12ef542c`, both vs txn `2f10db32`).
->   Ramona's call — do not "fix" posted journals from here.
-> - **Rapid Credit Line** raises `derivable_not_derived` every run. Draw line,
->   structurally unstageable. Suppress the finding once; it stays suppressed.
-> - **BayFirst SBA 2's maturity date (2034-01-01) is probably wrong** — the projection
->   reaches Dec 2033 with $25,651 still outstanding. Nothing posts from it.
+> - **PayPal 2's stage was due 2026-08-26** — first unattended run of the full
+>   stage → match → post loop (cron `wr-loan-stage-sweep`, 16:00 UTC). If the Staged tab no
+>   longer shows PayPal 2 and an October card appeared, the loop works.
+> - **E-Transit 4140 has two posted splits against one bank transaction** (2026-05 journal
+>   `7ce60981`, 2026-06 journal `12ef542c`, both vs txn `2f10db32`). Ramona's call.
+> - **Rapid Credit Line** raises `derivable_not_derived` every run — draw line, structurally
+>   unstageable. Suppress once.
+> - ⚠️ **Only statements with a PDF are lender documents.** Rows with
+>   `source='xero_derived'` are our own reading of Xero and agree with it by construction —
+>   they can NEVER be used to check it. Check `source` before trusting a balance.
 
 ## Why this file exists (session 217)
 
@@ -1466,6 +1482,54 @@ existed. Build the un-mark.
 edge-function secrets and every Xero-reading function is `verify_jwt: true`. Every lookup
 today went through David clicking in Xero. A small read-only "show me this transaction /
 journal" edge function would have removed an hour of back-and-forth. Proposed, not built.
+
+#### xero-read: the sandbox can see the ledger now
+
+Every Xero-reading function in the module is `verify_jwt:true`, so a sandbox session was
+blind to Xero — able to query our own database in seconds and unable to see the thing that
+database is supposed to mirror. Today that cost an hour of David opening transactions and
+screenshotting them, and produced one wrong recommendation. **Reading is not the dangerous
+half of this integration; being unable to read is.**
+
+`xero-read` v1 (`61b69fa`) is read-only *by construction*: one `fetch()`, hard-coded
+`method:'GET'`, path assembled from a fixed `ENDPOINTS` table so no caller-supplied string
+can become the URL. There is no write branch to reach. Accepts `x-wr-internal` alongside an
+admin/manager/cpa JWT so pg_net can call it. Results are trimmed; `full:true` opts out.
+
+It paid for itself in five minutes — see the E-Transit finding below, which no amount of
+reasoning about our own records would have produced.
+
+#### E-Transit E4-9744: not a mis-dated stage — a loan that should not have been staged
+
+The session-231 note listed it as "pays the 9th, projected the 20th". The dry run agreed
+(day 9, 40 clean periods, fit 9.29%, worst error $0.01). But its split history stopped at
+`2026-05` and jumped straight to a staged `2026-09` — three months with no card.
+
+One xero-read query settled it. Between 2026-05-20 and today the three sibling Ford loans
+paid every month ($643.50 on the 9th/10th, $1,046.95 on the 12th/13th, $1,180.32 on the
+17th) and **$1,144.55 does not appear at all.** The lender statements explain it: on
+2026-05-27 the balance fell 21,126.96 → 16,223.75 (~$4,903 against a stated $5,000 due) and
+every statement since reports `total_amount_due 0.00`.
+
+Ford Credit's 08/20/2026 statement confirms it in as many words: *"Payment Due 09/09/2026 —
+$0.00"*, *"Your account is paid ahead"*. Stage removed, card Ignored rather than voided.
+
+> **Void is not the tool for "may not be owed".** Void means the period turned out not to
+> exist; here September might still happen. Ignore sets the card aside without touching the
+> split. Void was built three hours earlier and it would have been easy to reach for it —
+> the milder tool was the correct one.
+
+Three things that statement gave us that our own records could not:
+- **The due date is the 9th** — the lender independently confirming the measured day.
+- **"Your payment amount has changed"** — $1,144.55 is stale. Never restage on it.
+- **Payoff $16,657.33 vs principal $16,223.75**: ~$433.58 of finance charges accrued and
+  growing, booked nowhere. Ford applies payments to finance charges FIRST, so a resumed
+  payment will be mostly interest, not the ~$120 the schedule predicted.
+
+**Three loans today, three different answers, none of them the one in the notes.** BayFirst
+was a duplicate of an already-booked payment; Funding Circle was a double reallocation;
+E-Transit shouldn't have been staged at all. The common thread is that the module's records
+were describing a ledger nobody had actually looked at.
 
 #### Outcome
 `2026-08` voided ("period finished"), re-derived onto day 2 (88 future rows, fit unchanged at
