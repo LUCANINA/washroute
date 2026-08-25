@@ -699,10 +699,33 @@ async function findSameAmountTxns(
 // happened in Xero since staging. Writes ONLY to our own loan_splits rows -- the one
 // Xero-facing thing it never does is delete a stage (that is unstage, a human action).
 // See the v41 version note at the top for the full outcome table.
+// The shared secret pg_cron presents. Every scheduled HTTP job in this project posts
+// the ANON key in its Authorization header, never the service-role key -- the database
+// has no way to hold that key safely, and putting it in cron.job.command would expose
+// it to anyone who can read the table. So an internally-called function authenticates
+// on x-wr-internal instead (migration session_227h_internal_call_secret; the same
+// mechanism charge-order / send-email / bookkeeping-kpis already use).
+//
+// This mattered here: handleStageSweep accepted ONLY the service-role key or an
+// admin/manager JWT, so the obvious cron -- posting the anon key like every other job
+// -- would have been refused 403 with nothing surfacing anywhere. That is the session
+// 227 failure exactly: customer SMS broke silently for the same reason.
+async function isInternalCall(req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  try {
+    const c = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+    const { data } = await c.from('wr_internal_auth').select('secret').maybeSingle()
+    return !!data?.secret && provided === data.secret
+  } catch (_) {
+    return false
+  }
+}
+
 async function handleStageSweep(req: Request): Promise<Response> {
   const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')
   const isService = !!bearer && bearer === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  if (!isService) {
+  if (!isService && !(await isInternalCall(req))) {
     const role = await callerRole(req)
     if (!role || !['admin', 'manager'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Sweeping staged transactions requires an admin or manager account.' }), { status: 403 })
