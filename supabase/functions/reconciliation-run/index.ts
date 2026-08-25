@@ -478,68 +478,67 @@ function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
   // still do. The un-checkable case is now VISIBLE in the tie-out instead of silent.
   if (tie.status === 'tied' || tie.status === 'not_comparable') return []
 
+  // ── 'EXPLAINED' IS NOT A FINDING (session 231) ──────────────────────────────
+  // David, looking at four of these on his board: "we know (or should know) the
+  // reason for the gaps. No need to display non issues."
+  //
+  // He is right, and the previous line proves it: 'tied' already returns nothing.
+  // 'explained' means the entries dated after the anchor account for the gap to the
+  // cent -- the books are correct and there is no action. Printing that is printing
+  // "nothing is wrong" as an item in a list of things that are wrong, which is how a
+  // list of five becomes a list nobody reads. The tie-out row still records it, so it
+  // stays inspectable; it just does not take a human's attention.
+  if (tie.status === 'explained') return []
+
+  // ── AND NEITHER IS A DISAGREEMENT WITH OUR OWN PROJECTION ───────────────────
+  // When no lender statement exists, the anchor is our own projected schedule row.
+  // "Xero is $1,198.54 above its projected schedule" is Xero disagreeing with our
+  // arithmetic, not with a fact, and the number moves every time the projection is
+  // re-derived. The REAL problem there is that no lender document exists to check
+  // against -- and checkStaleAnchor owns exactly that, says it in one actionable
+  // sentence, and does not attach a spurious dollar figure to it.
+  const REAL = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
+  if (!REAL.includes(String(tie.anchor_source ?? ''))) return []
+
   const code = loan.xero_account_code
   const diff = tie.difference as number
-  const closesIt = tie.status === 'explained'
   const lender = tie.lender_balance as number
   const xeroAtAnchor = tie.xero_balance as number
   const d = tie.detail as any
   const laterCount = Number(d.entries_after_anchor ?? 0)
   const laterNet = Number(d.net_after_anchor ?? 0)
-  const residual = Number(d.residual_after_later ?? diff)
 
-  // The HEADLINE number is what is still unexplained after the later entries, not the
-  // anchor-date difference (session 231). Reporting the anchor-date figure overstated
-  // four of ten findings and, in the two paid-off loans, invented ~$9,900 of debt that
-  // the balance sheet does not carry. `difference` stays in the detail as the raw
-  // measurement; the title and severity now follow the number a human should act on.
+  // The HEADLINE number is what is STILL unexplained once the later entries are
+  // counted, not the anchor-date difference (session 231). Reporting the anchor-date
+  // figure overstated four of ten findings and, on the two paid-off loans, described
+  // ~$9,900 of debt the balance sheet does not carry. `difference` stays in the detail
+  // as the raw measurement; everything a human reads follows the residual.
   //
-  // Severity ladder: under 2 cents is a tie and never reaches here; under a dollar is
-  // rounding and is INFO, not an error worth a red dot.
-  const headline = closesIt ? diff : residual
+  // Anything reaching here is a genuine exception: a tie, a gap the later entries
+  // close, and a comparison against our own projection have all already returned
+  // above. Under a dollar is rounding and gets info rather than a red dot.
+  const residual = Number(d.residual_after_later ?? diff)
+  const sev: Finding['severity'] = Math.abs(residual) < 1 ? 'info' : 'error'
 
-  // ── IS THERE ACTUALLY A LENDER FIGURE HERE? (session 231) ───────────────────
-  // Verdant and PCV have no lender statement on file at all, so their anchor is our
-  // OWN projected amortization schedule. "Xero is $1,835.75 below the lender" is then
-  // simply untrue -- the lender has said nothing. It is Xero disagreeing with a
-  // projection, which is worth knowing and is not the same claim. Saying it the loose
-  // way is how a list stops being believed: the one figure a reader cannot check is
-  // stated with the most confidence.
-  const REAL_LENDER_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
-  const fromLender = REAL_LENDER_SOURCES.includes(String(tie.anchor_source ?? ''))
-  const against = fromLender ? 'the lender' : 'its projected schedule'
-
-  const sev: Finding['severity'] = closesIt ? 'info'
-    : (Math.abs(residual) < 1 ? 'info' : (fromLender ? 'error' : 'info'))
-
-  // Reading a payment's own split off the bank transaction is the cleaner of the two
-  // ways to book one, so say so plainly rather than steering people to journals.
-  const howBooked = laterCount === 0 ? '' :
-    (Array.isArray(d.later_entry_types) && d.later_entry_types.length
-      ? ` (${d.later_entry_types.join(', ')})` : '')
+  // Name HOW the later entries were booked. Splitting the bank transaction is the
+  // cleaner of the two ways to record a payment split, and this check used to refuse
+  // to recognise it, so it is worth showing rather than hiding.
+  const howBooked = laterCount && Array.isArray(d.later_entry_types) && d.later_entry_types.length
+    ? ` (${d.later_entry_types.join(', ')})` : ''
 
   return [{
     fingerprint: `balance_vs_lender:${code}:${tie.as_of}`,
     check_key: 'balance_vs_lender',
     severity: sev,
     loan_account_id: loan.id,
-    title: closesIt
-      ? `${loan.xero_account_name} — already accounted for by later entries`
-      : `${loan.xero_account_name} — Xero is ${money(Math.abs(headline))} ${headline < 0 ? 'below' : 'above'} ${against}`,
-    plain_english: closesIt
-      ? `On ${tie.as_of} ${fromLender ? 'the lender says' : 'the projected schedule says'} ${money(lender)} and Xero says ${money(xeroAtAnchor)}, a gap of ${money(Math.abs(diff))}. `
-        + `${laterCount} entr${laterCount === 1 ? 'y' : 'ies'} dated after that statement${howBooked} move the balance by ${money(Math.abs(laterNet))}, which accounts for it exactly. `
-        + `Nothing is wrong and nothing needs doing. The two figures only differ because the lender's statement is dated the day the payment left your account, while Xero records it the day it cleared — so they line up from that entry's date onward rather than on the statement date itself.`
-      : `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${tie.as_of}, against ${money(lender)} `
-        + (fromLender
-            ? `on the lender's own statement for that date. `
-            : `on our own projected amortization schedule for that date — this loan has no lender statement on file, so nothing here has been confirmed BY the lender. `)
-        + (laterCount
-            ? `${laterCount} later entr${laterCount === 1 ? 'y' : 'ies'}${howBooked} move it by ${money(Math.abs(laterNet))}, which leaves ${money(Math.abs(residual))} still unexplained. `
-            : `No entries are dated after that statement, so the whole ${money(Math.abs(diff))} is unexplained. `)
-        + (fromLender
-            ? `That remainder is either missing from Xero or recorded twice.`
-            : `Getting a real statement from this lender is what would turn this into a checkable figure.`),
+    title: `${loan.xero_account_name} — Xero is ${money(Math.abs(residual))} ${residual < 0 ? 'below' : 'above'} the lender`,
+    plain_english:
+      `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${tie.as_of}, `
+      + `against ${money(lender)} on the lender's own statement for that date. `
+      + (laterCount
+          ? `${laterCount} entr${laterCount === 1 ? 'y' : 'ies'} dated after that statement${howBooked} move it by ${money(Math.abs(laterNet))}, leaving ${money(Math.abs(residual))} unexplained. `
+          : `Nothing is dated after that statement, so the whole ${money(Math.abs(diff))} is unexplained. `)
+      + `That remainder is either missing from Xero or recorded twice.`,
     detail: {
       code, anchor_date: tie.as_of, anchor_source: tie.anchor_source,
       lender_balance: lender, xero_balance: xeroAtAnchor,
@@ -548,7 +547,6 @@ function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
       net_after_anchor: laterNet,
       still_unexplained: residual,
       later_entry_types: d.later_entry_types ?? [],
-      compared_against: fromLender ? 'lender_statement' : 'projected_schedule',
     },
   }]
 }
@@ -652,10 +650,18 @@ function checkStaleAnchor(loan: any, anchors: any[], today: string, futureOnlyAn
   // chase — its balance is a live Xero snapshot by design. Asking for a document
   // that will never exist is not a finding.
   if (loan.ingestion_method === 'automatic') return []
-  const anchor = anchors[0]
+  // Age is measured from the newest LENDER document, never from a projected schedule
+  // row (session 231). A derived schedule regenerates a row dated today every time it
+  // is re-derived, so counting one as an anchor would keep all eleven pre-staging
+  // loans permanently "fresh" and this check could never fire for any of them --
+  // precisely when it matters most, since a projection with no recent statement behind
+  // it is the thing most in need of an independent figure. This check now carries the
+  // whole job of saying "nothing has confirmed this loan lately", because
+  // checkBalanceVsLender no longer reports gaps against a projection.
+  const REAL = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
+  const anchor = anchors.find((a: any) => REAL.includes(String(a.source ?? '')))
   const age = anchor ? daysBetween(anchor.statement_date, today) : null
   if (anchor && age !== null && age <= STALE_ANCHOR_DAYS) return []
-  const isSchedule = anchor?.source === 'amortization_schedule'
   return [{
     fingerprint: `stale_anchor:${loan.xero_account_code}`,
     check_key: 'stale_anchor',
@@ -667,10 +673,10 @@ function checkStaleAnchor(loan: any, anchors: any[], today: string, futureOnlyAn
         ? `${loan.xero_account_name} — the only lender document on file is dated in the future`
         : `${loan.xero_account_name} — no lender document on file`,
     plain_english: anchor
-      ? `The most recent ${isSchedule ? 'amortization schedule row' : 'statement'} from this lender is dated ${anchor.statement_date}, ${age} days ago. Everything since is our own arithmetic with nothing independent to check it against. A current document is what turns this loan from "probably right" into "verified".`
+      ? `The most recent statement from this lender is dated ${anchor.statement_date}, ${age} days ago. Everything since is our own arithmetic with nothing independent to check it against. A current document is what turns this loan from "probably right" into "verified".`
       : futureOnlyAnchor
         ? `Every lender document on file for this loan is dated ahead of today, so none of them can confirm what the balance is now. A current statement would fix that.`
-        : `There is no lender statement, portal pull or amortization schedule on file for this loan, so its balance has never been checked against anything outside Xero.`,
+        : `No statement or portal pull from this lender is on file, so this loan's balance has never been checked against anything outside Xero. A projected schedule is not a substitute — it is our own arithmetic, so comparing the books to it cannot catch an error in the books.`,
     detail: { code: loan.xero_account_code, latest_anchor: anchor?.statement_date ?? null, anchor_source: anchor?.source ?? null, age_days: age, future_only: futureOnlyAnchor },
   }]
 }
