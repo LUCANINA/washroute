@@ -24,15 +24,32 @@
 > `pending_review` while carrying a real `xero_manual_journal_id`. Understand that
 > before re-deriving it.
 >
-> ### 2. Two splits whose status disagrees with reality — cause UNKNOWN
-> - **Funding Circle `2026-07`** — `pending_review`, but has a Xero journal id.
-> - **BayFirst SBA 2 `2026-07-02`** — `posted`, but its own note says the reallocation
->   journal was "not yet posted, awaiting go-ahead".
+> ### 2. Funding Circle: SOLVED, and it opened a real misstatement (now fixed)
+> The `2026-07` split's stuck status was the **statement re-ingest bug session 231 fixed**
+> (`06a46a9`) — posted split, status reset to pending_review by the pre-fix upsert, journal
+> id left behind. It was the only casualty module-wide; repaired.
 >
-> Something writes to Xero (or records a journal id) without finishing its own
-> bookkeeping. Both are now protected — void refuses any split carrying a journal id —
-> but the path that creates them has not been found. **This is the most valuable open
-> thread in the module**: a status that lies is how someone acts on the wrong thing.
+> Chasing it found something bigger: the **2026-07-20 payment had been corrected twice** —
+> our journal #52216 (5 Aug) AND Ramona splitting the transaction at source (11 Aug).
+> Interest Expense and the loan balance were each overstated **$1,023.20**. Journal #52216
+> voided in Xero by David 2026-08-25. Full write-up published for Ramona:
+> https://claude.ai/code/artifact/868af85d-4f8f-4a6f-8892-70c39edae26a
+>
+> **Still open for Ramona** (do not act on these from here):
+> - 2026-06-18 payment coded $995.65/$1038.12; the 1 July lender statement says
+>   **$1025.71/$1008.06** — out by $30.06.
+> - 2026-07-20's true split is **not knowable yet** — the 3 Aug statement shows NO
+>   principal movement (66215.03 unchanged), so FC hadn't applied it. September statement.
+> - 2026-04-20 still 100% to principal with no paired journal (flagged since early Aug).
+>
+> **BayFirst SBA 2 `2026-07-02` is still unexplained** — `posted`, but its own note says the
+> reallocation journal was "not yet posted, awaiting go-ahead". Different shape from the
+> Funding Circle one (no journal id at all). Worth the same treatment.
+>
+> ⚠️ **Only lender statements dated the 1st are real documents.** Funding Circle's 06-18 /
+> 05-18 / 04-20 rows are `source='xero_derived'` — our own reading of Xero, so they agree
+> with it by construction and can NEVER be used to check it. Check `source` before trusting
+> any balance.
 >
 > ### Also check on waking
 > - **PayPal 2's stage was due 2026-08-26.** It was accidentally unstaged and re-staged
@@ -1401,6 +1418,54 @@ whose names both end in "2", one destructive button, and a success toast that na
 nothing on screen ever contradicted him. Now: *"Click again to delete WR-STAGE 251 2026-08-31
 (BayFirst SBA 2) from Xero"*, and the toast names it too. **A button that deletes something in
 the CPA's books must name the thing.** PayPal 2 was re-staged the same morning; no loss.
+
+#### Funding Circle: the stuck card, and the $1,023.20 it was hiding
+
+The `2026-07` split sat at `pending_review` while carrying `xero_manual_journal_id`. Cause
+established, and it is **session 231's own re-ingest bug**: the post on 5 Aug wrote all five
+fields atomically (journal id, posted_at, posted_by, matched txn, status='posted'), then a
+later statement re-ingest under the pre-`06a46a9` upsert reset status and overwrote
+review_notes while leaving the Xero fields intact. The upsert doesn't write `computed_at`,
+which is why the row still looked untouched since 5 Aug. Session 231's own comment predicted
+this exact state ("Approve then 409s, revert 409s... a trap only manual SQL escapes").
+**Module-wide sweep found exactly one casualty.** Repaired to `posted` after verifying the
+journal live in Xero.
+
+**Then the narration gave the real problem away.** Journal #52216 said the 2026-07-20 payment
+"was posted in full to the loan account" — but that transaction had ALSO been split at source
+by Ramona on 2026-08-11 ($1010.57/$1023.20). Two corrections on one payment:
+
+| | 253 Loan | 800 Interest |
+|---|---|---|
+| Bank transaction (Ramona, 11 Aug) | 1,010.57 | 1,023.20 |
+| Journal #52216 (us, 5 Aug) | (1,008.06) | 1,008.06 |
+| **Net** | **2.51** | **2,031.26** |
+
+$2.51 against a $2,033.77 payment. **Interest Expense and the Funding Circle balance each
+overstated by $1,023.20.** David voided #52216 in Xero.
+
+> **The near-miss worth remembering.** I recommended re-coding the transaction to
+> $1025.71/$1008.06 "the lender's own figures" — and was wrong. Those figures are the
+> 2026-06-01 → 2026-07-01 balance drop, i.e. they describe the **2026-06-18** payment. I took
+> a card *labelled* `2026-07` for a payment *made* in July. Caught it before David acted, but
+> only because I went back to check which statements were real documents. **A period label is
+> not a payment date** — on this loan the statement dated the 1st describes the payment made
+> the previous month. Same class as the BayFirst mislabelling earlier the same day.
+
+The `2026-08` card was a duplicate — the 2026-08-03 statement shows principal_balance
+identical to 2026-07-01, so no principal moved, and the card merely restated `2026-07`'s
+figures. Voided. It had to be un-marked from `already_in_xero` first: the new trigger
+correctly REFUSES a direct already_in_xero → voided transition, which is the guard working.
+
+**TECH DEBT (new):** `markSplitAlreadyInXero` is one-way — there is no un-mark action in the
+dashboard, so a mistaken "already handled" marking can only be undone by direct SQL. That is
+the one step in today's work that bypassed a sanctioned RPC, and only because no path
+existed. Build the un-mark.
+
+**Also worth knowing:** no Xero access exists from a sandbox session — the credentials live in
+edge-function secrets and every Xero-reading function is `verify_jwt: true`. Every lookup
+today went through David clicking in Xero. A small read-only "show me this transaction /
+journal" edge function would have removed an hour of back-and-forth. Proposed, not built.
 
 #### Outcome
 `2026-08` voided ("period finished"), re-derived onto day 2 (88 future rows, fit unchanged at
