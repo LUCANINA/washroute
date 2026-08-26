@@ -33,6 +33,21 @@ David: two receipts for Rae Maxwell-Ross, one emailed at $21.00 and one texted a
 
 **Verified:** production v59 was byte-identical to the repo before patching (no drift). Logic re-run offline against seven cases — #11775 and #12899 real data, an unknown future type, a genuinely-missing charge, a `discount` order, an intake-credit order, and a pct-tip order — all reconcile. No live send was made: `send-receipt` emails `customers.email_cache` only, so there is no way to test-send to David without mailing a customer.
 
+**Corrected receipts sent (session 229 part 2).** David: "send a corrected receipt with a note." `send-receipt` v61 gained an optional `prior_total` request field — when present it renders an amber "A correction to your receipt" banner naming both the figure the original email displayed and the amount actually charged, and switches the subject to "Corrected receipt — Order #N". The corrected figure in the banner is the same value the receipt below it prints, so the banner can never contradict its own itemization.
+
+v61 also accepts the `x-wr-internal` header (`public.wr_internal_auth`), like charge-order / send-email / send-order-notification. This was necessary, not incidental: the DB can present neither the service-role key nor a staff JWT, so there was no way to drive a server-side batch. Scope is bounded — the function can only email the address already on the order's customer record — but it IS staff-equivalent authority on this endpoint, so treat it accordingly.
+
+**Result: 83 corrected receipts to 43 customers, covering $7,709.72. All HTTP 200, zero failures, zero duplicates.** Sent via `net.http_post` in three chunks, each verified against `net._http_response` before the next fired.
+
+**30 deliberately not sent:**
+- **25 with a gap under $20** — David's call ("ignore small gaps"). Three were under $3; a "correction" email over $2.75 alarms more than it informs. $304.56 total.
+- **3 with no email on file** — all Jennifer Kirchhofer, $446 combined. ⚠️ **Open item: she has no `email_cache` at all, so she has never received a receipt of any kind.** Worth chasing.
+- **2 written off** — Lachar Burns #6896, #6977. Sending a receipt for money deliberately written off would be wrong.
+
+**Work list + audit trail: `_archive._session_229_corrected_receipts`** (migration `session_229_corrected_receipts_worklist`) — one row per affected order with `prior_total`, `correct_total`, `eligible`, `skip_reason`, `request_id`, `sent_at`, `result`. Every dispatch was gated on `sent_at IS NULL`, so the run is idempotent and re-runnable; nobody can be double-emailed. Drop the table whenever the dust settles.
+
+**Method note worth reusing:** the run was rehearsed by extracting `buildEmailHtml` from the deployed source and rendering it under `node --experimental-strip-types` against #11775's real row, producing the exact email as a local HTML file for David to eyeball — *before* anything was sent. Then one canary (Rae, the customer who surfaced the bug) went out and was confirmed 200 before the other 82. Do this for any customer-facing template change; it costs two minutes and there is no undo on an email.
+
 **Lesson banked — allow-lists on money are a silent-loss bug waiting to happen.** An allow-list of *display* types is really a deny-list of *charges*, and the deny half is invisible at code-review time. Any renderer that both filters line items and derives a total from what survived the filter must either enumerate what it excludes (short, auditable) or reconcile against an authoritative column. Applies to every receipt/invoice/statement surface, and to `_serviceLabelForOrder`-style parsers too.
 
 ---
