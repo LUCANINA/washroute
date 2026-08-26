@@ -13,7 +13,31 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: August 23, 2026 — Session 228 — **Session 227's auth hardening took down card charging for four hours, and every failure was recorded as a customer card decline. 21 orders / $2,899 falsely marked FAILED, none of which ever reached Stripe. Root-caused into four separate defects, all fixed; all 21 collected.***
+*Last updated: August 26, 2026 — Session 229 — **Emailed receipts silently dropped every subscription weight-overage charge. 113 orders since June 15, $8,571 hidden — customers were emailed a receipt lower than the amount that hit their card. Root-caused into `send-receipt`'s allow-list; fixed, deployed as v60.***
+
+David: two receipts for Rae Maxwell-Ross, one emailed at $21.00 and one texted at $34.75 — "investigate and fix root cause."
+
+**They were two different orders, and the SMS was the honest one.** #12899 (texted $34.75) was correct. #11775 (emailed $21.00) had actually charged $144.75 — `customer_transactions` confirms the charge. The emailed receipt was missing a `$123.75` subscription-overage line entirely.
+
+**Root cause.** `supabase/functions/send-receipt/index.ts` filtered line items through an **allow-list**, `DISPLAY_TYPES = {base, overage, addon_service, pref_service, delivery_fee, same_day_surcharge}`. Any type not in that set was dropped from the rendered rows *and* from `subtotal`, which is what `grandTotal` is built from — so an unlisted charge type didn't just fail to print, it vanished from the total. `lb_overage` — the subscription weight-overage line appended by the `apply_subscription_usage_fn` trigger at `ready_for_delivery`, live since ~June 2026 — was never added to the list. Nobody noticed because the receipt still looked internally consistent: lines summed to the total it printed.
+
+**Blast radius:** 113 orders between 2026-06-15 and 2026-08-25, $8,571.05 understated. Worst: Amy Cummings #10580 — card charged $585.00, receipt said $90.00. **~60 of them were fully-overage orders that emailed a "Total Paid: $0.00"** while charging up to $242. Customer list written to `session-229-understated-receipts.csv` (repo root, deliberately NOT committed — contains customer emails). No outreach sent; David is deciding.
+
+**Only the email lied.** Admin `printInvoice` and the POS receipt filter by `amount !== 0` rather than by type, so both rendered `lb_overage` correctly all along. That asymmetry is why this survived two months of David reading admin invoices daily.
+
+**Three fixes, all in `send-receipt` (deployed v60, commit `974a85f`):**
+
+1. **Allow-list → deny-list.** `NON_LINE_TYPES = {discount, credit, tax}` — those three are rendered elsewhere on the receipt; *everything else* renders as a charge row. A line-item type introduced next year can no longer disappear by omission. This is the actual root-cause fix: the old shape failed closed on money, which is the wrong direction to fail.
+2. **Under-report backstop.** If the rendered lines sum to less than `orders.total_amount`, the function `console.error`s with the order number and the gap, and renders an "Additional charges" catch-all row so the receipt still reconciles to the real charge. The opposite direction (rendered > total_amount) is normal when credit was applied at intake — `total_amount` is net of it there — so that case only `console.warn`s. **Check Edge Function logs for `[send-receipt] RECONCILE` — any hit means a line-item type is missing a label.**
+3. **Percentage tips.** Were computed off the *rendered* line sum; now off `orders.total_amount`, matching `charge-order`'s `computeTipDollars`. On an affected order the tip was understated too.
+
+**Verified:** production v59 was byte-identical to the repo before patching (no drift). Logic re-run offline against seven cases — #11775 and #12899 real data, an unknown future type, a genuinely-missing charge, a `discount` order, an intake-credit order, and a pct-tip order — all reconcile. No live send was made: `send-receipt` emails `customers.email_cache` only, so there is no way to test-send to David without mailing a customer.
+
+**Lesson banked — allow-lists on money are a silent-loss bug waiting to happen.** An allow-list of *display* types is really a deny-list of *charges*, and the deny half is invisible at code-review time. Any renderer that both filters line items and derives a total from what survived the filter must either enumerate what it excludes (short, auditable) or reconcile against an authoritative column. Applies to every receipt/invoice/statement surface, and to `_serviceLabelForOrder`-style parsers too.
+
+---
+
+*Previously: August 23, 2026 — Session 228 — **Session 227's auth hardening took down card charging for four hours, and every failure was recorded as a customer card decline. 21 orders / $2,899 falsely marked FAILED, none of which ever reached Stripe. Root-caused into four separate defects, all fixed; all 21 collected.***
 
 David: "The Overview page is showing way more card failures than normal. I suspect we introduced an issue when fixing bugs earlier today."
 
