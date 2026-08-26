@@ -2,35 +2,40 @@
 
 > ## ⏭️ START HERE — first thing, session 241 (left by session 240, 2026-08-26)
 >
-> ### 1. 🔴 THREE WAYS TO PUT A DUPLICATE JOURNAL IN XERO — fix before anything else
+> ### 1. ✅ THE THREE DUPLICATE-JOURNAL PATHS ARE CLOSED — committed, NOT deployed
 >
-> Found by the session-240 audit. All three are in code with **no source in git**, which is
-> exactly why they survived every prior review. **Step one is `supabase functions download`
-> for the payroll + payout family and a commit — no behaviour change, and it turns three
-> invisible CRITICALs into ordinary reviewable code.**
+> Fixed in `3fa94e8`, after `ac4dc59` vendored the four missing sources in. **Deploy these
+> four before anything else** (the fixes only exist in git so far):
 >
-> 1. **Re-uploading a posted payroll CSV double-posts, deterministically.** `payroll-ingest`'s
->    regular/reimbursement `replace` branch resets a **posted** import to `parsed` and leaves
->    `xero_manual_journal_id` set; the client offers "Re-parse and overwrite it" on any 409
->    without reading status; `payroll-xero-post` gates on `status` alone and **never reads
->    `xero_manual_journal_id`**. Copy the guard from `loan-xero-post/index.ts:1140` (v42),
->    which exists for precisely this shape.
-> 2. **`payroll-xero-post` returns `ok:true` after a failed DB write** — the error goes into
->    `payroll_imports_update_error`, which the UI never reads. Row still `reviewed`, operator
->    clicks again, second journal. Live row: `08ea6dc8`, pay date 2026-08-21, ~$20.5k. Copy
->    `xeroAheadOfUs()` from `loan-xero-post/index.ts:721`.
-> 3. **`xero-payout-sync` + `xero-payout-watchdog`.** `:414` never checks the update error, so
->    an isolate kill after the POST strands `pending` with a live BankTransaction. The watchdog
->    then asserts "MISSING from Xero" **without asking Xero** and recommends `force=true`,
->    which bypasses the only idempotency check. A full day's revenue, posted twice. Add a
->    `Reference == "Stripe payout <id>"` pre-check (the payload already carries the key, and
->    `loan-xero-post:1383` does exactly this), check the `:414` error, and rewrite the
->    watchdog's copy to "state unknown — check Xero first".
+> ```
+> for f in payroll-ingest payroll-xero-post xero-payout-sync xero-payout-watchdog; do
+>   npx supabase@latest functions deploy $f --project-ref umjpbuxrdydwejqtensq
+> done
+> ```
+> `loan-find-difference` also changed (its duplicate check now refuses instead of falling
+> through when Xero is unreachable) — deploy it too. `admin-dashboard` is pushed on commit.
 >
-> Everything else the audit found is in the session-240 log below, prioritised. The next most
-> valuable after these three: `bookedBy()` reading 509 of 588 posted splits as "never booked",
-> and Verdant's `Period 14` hiding $2,707.61 of principal from every published figure.
+> Every fix copies a guard that already existed and was proven in `loan-xero-post`:
+> the `xero_manual_journal_id` check (v42), `xeroAheadOfUs()`, and the Reference pre-check with
+> its **"refusing to stage blind"** posture. That last posture is the one to carry forward:
+> **a failed lookup is not evidence of absence.**
 >
+> What each was, in one line, so nobody re-litigates it:
+> 1. `payroll-ingest`'s regular/reimbursement replace branch reset a POSTED period to `parsed`
+>    and kept the journal id — the adjustment branch beside it had always refused. Client fixed
+>    too: it offered "Re-parse and overwrite it" on any 409 without reading the status.
+> 2. `payroll-xero-post` gated on status alone. Guarded now at the initial read AND the fresh
+>    re-read before the write — a guard on one branch of two has a race in front of it.
+> 3. `payroll-xero-post` returned `ok:true` after a failed DB write. Now a 500 naming both halves.
+> 4. `xero-payout-sync`'s post-write update never checked its error, stranding rows on `pending`
+>    beside a live BankTransaction — which the watchdog then read as "MISSING from Xero" without
+>    asking Xero, recommending `force=true`, the one flag that bypassed the only check. It now
+>    asks Xero before every post **including under force** (force may override our bookkeeping,
+>    never Xero itself) and self-heals the stranded row. Watchdog now says STATE UNKNOWN.
+>
+> **Still to verify after deploying:** live row `08ea6dc8` (pay date 2026-08-21, ~$20.5k) was
+> flagged by the audit as having hit path 3. Check in Xero whether it has ONE journal or two
+> before touching it.
 >
 > ### 2. TWO UNGUARDED PATHS THAT WRITE MONEY — the deferred half of session 239
 >
