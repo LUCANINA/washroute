@@ -3323,6 +3323,7 @@
                                   font-weight: 700; color: var(--gray-900); font-size: 12px; }
             .lcb-table tfoot td.lcb-n { text-align: right; font-variant-numeric: tabular-nums;
                                         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+            .lcb-excluded td { background: #fbfcfd; color: var(--gray-500); font-weight: 600; }
             .lcb-foot { padding: 10px 14px; font-size: 11.5px; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
 
             .cv-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
@@ -8591,8 +8592,12 @@
   function _bkUpdateNavBadge() {
     const badge = document.getElementById('badge-bookkeeping');
     if (!badge) return;
-    const n = (_allLoanSplits || []).filter(s => s.status === 'pending_review').length +
-              (_allPayrollImports || []).filter(i => i.status === 'parsed').length;
+    // Session 240: this counted pending_review splits + parsed imports, while
+    // _bkApprovalQueueItems() subtracts dismissals and also counts 'reviewed'
+    // imports. Live today: sidebar said 2, the Approvals tab said 1 and listed
+    // the other two under "Ignored". One shared function, per the module's own
+    // rule — the badge now asks the queue what is in it.
+    const n = _bkApprovalQueueItems().length;
     badge.textContent = n;
     badge.style.display = n ? '' : 'none';
   }
@@ -8978,13 +8983,13 @@
     const zone = document.getElementById('bk-dropzone');
     if (zone) zone.classList.remove('drag');
     const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-    if (files.length) bkStartBatch(files);
+    if (files.length) { bkAdoptBatchCard(); bkStartBatch(files); }
   }
 
   function bkBatchFilesChosen(e) {
     const files = Array.from((e.target && e.target.files) || []);
     e.target.value = '';
-    if (files.length) bkStartBatch(files);
+    if (files.length) { bkAdoptBatchCard(); bkStartBatch(files); }
   }
 
   async function bkStartBatch(files) {
@@ -10906,7 +10911,7 @@
   }
 
   async function loadPayroll() {
-    const [{ data: imports }, { data: lines }, { data: departments }, { data: employees }, { data: notices }] = await Promise.all([
+    const _pres = await Promise.all([
       db.from('payroll_imports').select('*').order('pay_period_end', { ascending: false }),
       db.from('payroll_import_employee_lines').select('id,import_id,raw_full_name,department_key,matched_employee_id,wage_amount,er_tax_amount,er_health_amount,er_401k_amount,paycheck_tips_amount,line_type'),
       db.from('payroll_departments').select('*').order('sort_order'),
@@ -10914,6 +10919,15 @@
       // Standing payroll issues that aren't tied to one pay period (session 207).
       db.from('payroll_notices').select('*').eq('active', true),
     ]);
+    const _perr = _bkFirstError(_pres);
+    if (_perr) {
+      console.error('loadPayroll failed:', _perr.message || _perr);
+      showToast('Could not reach payroll — the figures on screen may be out of date.', 'error');
+      _bkPayrollLoaded = false;
+      return;
+    }
+    const [{ data: imports }, { data: lines }, { data: departments }, { data: employees }, { data: notices }] = _pres;
+    _bkPayrollLoaded = true;
     _allPayrollImports = imports || [];
     _allPayrollNotices = notices || [];
     _allPayrollLines = lines || [];
@@ -11975,8 +11989,24 @@
     closePayrollReviewModal();
   }
 
+  // Session 240: both loaders discarded `.error` and rendered `|| []`, so an RLS
+  // denial, an expired session or a dropped connection painted "Active loans 0",
+  // "$0.00 outstanding" and "All clear — every issue is handled". On a
+  // bookkeeping tool a total load failure was indistinguishable from a closed,
+  // reconciled month. `loadReconciliation()` already did this properly; these
+  // two never did. On failure they now keep whatever was last on screen rather
+  // than blanking it — stale is recoverable, confidently-wrong is not.
+  let _bkLoansLoaded = false;
+  let _bkPayrollLoaded = false;
+  function _bkDataReady() { return _bkLoansLoaded && _bkPayrollLoaded; }
+
+  function _bkFirstError(results) {
+    for (const r of results) if (r && r.error) return r.error;
+    return null;
+  }
+
   async function loadLoans() {
-    const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }] = await Promise.all([
+    const _res = await Promise.all([
       db.from('loan_accounts').select('*').order('lender_account_number'),
       db.from('loan_statements').select('*').order('statement_date', { ascending: false }),
       db.from('loan_splits').select('*, loan_accounts(lender_account_number,xero_account_name,lender)').order('period_label', { ascending: false }),
@@ -11992,6 +12022,15 @@
       // that isn't part of the structured statement/schedule ingestion pipelines above.
       db.from('loan_documents').select('*').order('created_at', { ascending: false }),
     ]);
+    const _err = _bkFirstError(_res);
+    if (_err) {
+      console.error('loadLoans failed:', _err.message || _err);
+      showToast('Could not reach your books — the figures on screen may be out of date.', 'error');
+      _bkLoansLoaded = false;
+      return;                       // keep the last good data rather than blanking it
+    }
+    const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }] = _res;
+    _bkLoansLoaded = true;
     _allLoanAccounts   = accounts || [];
     _allLoanStatements = statements || [];
     _allLoanSplits     = splits || [];
@@ -12242,6 +12281,10 @@
       ]);
       if (runsRes.error) throw runsRes.error;
       if (findingsRes.error) throw findingsRes.error;
+      // Session 240: this one was unchecked. A failed read left an empty map,
+      // which floods every archived note back into the queue and un-hides
+      // deliberately-ignored approvals — silently.
+      if (dismissRes.error) throw dismissRes.error;
       _bkDismissals = new Map((dismissRes.data || []).map(d => [d.item_key, d]));
       _reconRuns = runsRes.data || [];
       // Session 236: tie-outs for the newest COMPLETED run only. A run still in
@@ -12832,11 +12875,21 @@
   // right. What differs is only WHERE the result renders: there is exactly ONE
   // #bk-batch-card node, and it gets relocated into whichever tab started the
   // batch. One node, two homes, no duplicate ids, one renderer.
-  function cvAdoptBatchCard() {
+  // Session 240: this moved the single #bk-batch-card node into Client View and
+  // NOTHING ever moved it back, so one drop here left the Overview dropzone
+  // permanently dead — files classified invisibly inside a display:none tab and
+  // "File all" was unreachable until a reload. Both zones now claim the card.
+  function _bkMoveBatchCardTo(slotId, fallbackAfterId) {
     const card = document.getElementById('bk-batch-card');
-    const slot = document.getElementById('cv-batch-slot');
-    if (card && slot && card.parentElement !== slot) slot.appendChild(card);
+    if (!card) return;
+    const slot = document.getElementById(slotId) ||
+                 (fallbackAfterId ? document.getElementById(fallbackAfterId) : null);
+    if (!slot) return;
+    if (slotId === 'cv-batch-slot') { if (card.parentElement !== slot) slot.appendChild(card); }
+    else if (slot.nextSibling !== card) slot.parentNode.insertBefore(card, slot.nextSibling);
   }
+  function cvAdoptBatchCard()  { _bkMoveBatchCardTo('cv-batch-slot'); }
+  function bkAdoptBatchCard()  { _bkMoveBatchCardTo('__overview__', 'bk-dropzone'); }
 
   function cvHandleDrop(e) {
     e.preventDefault();
@@ -12880,7 +12933,14 @@
     let group = '';
     for (const tr of table.querySelectorAll('tbody tr')) {
       const tds = [...tr.children];
-      if (tds.length === 1) { group = cell(tds[0]); continue; }          // group heading
+      if (tds.length === 1) {
+        group = cell(tds[0]);
+        // Same rule as the PDF: our filing backlog is not a heading on a
+        // document about someone else's credit exposure.
+        const g = DEBT_SCHED_GROUPS.find(x => x.label === group);
+        if (g && g.exportLabel) group = g.exportLabel;
+        continue;
+      }
       rows.push([group].concat(tds.map(cell)));
     }
     for (const tr of table.querySelectorAll('tfoot tr')) {
@@ -12953,7 +13013,10 @@
     { key: 'long_term', label: 'Long-term loans' },
     { key: 'vehicle',   label: 'Vehicle loans' },
     { key: 'other',     label: 'Other loans / credit lines' },
-    { key: null,        label: 'Uncategorized — needs review' },
+    // exportLabel is what a LENDER sees. "Uncategorized — needs review" is our
+    // own filing backlog and has no business on a document about their credit
+    // exposure — the same leak session 238 removed the ⚠ markers for.
+    { key: null,        label: 'Uncategorized — needs review', exportLabel: 'Other obligations' },
   ];
 
   function _debtScheduleRows() {
@@ -13176,7 +13239,7 @@
         <td style="padding:5px 8px;font-size:13.5px">${esc({UCC:'UCC lien',vehicle:'Vehicle title',none:'Unsecured'}[e.a.security_type] || e.a.security_type || '—')}</td>
       </tr>`).join('');
       return `
-        <tr><td colspan="9" style="padding:12px 8px 3px;font-weight:700;font-size:14px;border-top:1.5px solid #111">${esc(group.label)}</td></tr>
+        <tr><td colspan="9" style="padding:12px 8px 3px;font-weight:700;font-size:14px;border-top:1.5px solid #111">${esc(group.exportLabel || group.label)}</td></tr>
         ${rowsHtml}
         <tr style="background:#f9fafb;font-weight:700">
           <td colspan="2" style="padding:5px 8px;font-size:13.5px">Subtotal</td>
@@ -13317,9 +13380,27 @@
   // unlike the recurring-payment measurement, which excludes them. A
   // rollforward asks how much the balance actually moved, and a $5,000 lump
   // moved it. Excluding it would make the loan fail to tie by exactly $5,000.
+  //
+  // 'staged' is EXCLUDED here and counted as unposted instead. A staged split
+  // is a transaction sitting in Xero waiting for a bank line — money that has
+  // NOT moved. Counting it as principal paid deducts it from the opening
+  // balance AND reports it as booked, which is wrong twice. Caught by audit
+  // before it fired: on the August close, PayPal 2's staged 2026-08-26 split
+  // would have rendered a −$44.70 variance out of thin air, and Dexter 2 would
+  // have printed a closing balance for a payment that had not happened.
+  const CLOSE_EXCLUDED_STATUSES = ['voided', 'staged'];
+
   function _monthSplits(loanId, monthLabel) {
     return (_allLoanSplits || []).filter(sp =>
+      sp.loan_account_id === loanId && !CLOSE_EXCLUDED_STATUSES.includes(sp.status) &&
+      (sp.period_label || '').slice(0, 7) === monthLabel);
+  }
+
+  // Everything in the month that has not reached the books, whatever the reason.
+  function _monthUnpostedSplits(loanId, monthLabel) {
+    return (_allLoanSplits || []).filter(sp =>
       sp.loan_account_id === loanId && sp.status !== 'voided' &&
+      ['pending_review', 'needs_attention', 'staged'].includes(sp.status) &&
       (sp.period_label || '').slice(0, 7) === monthLabel);
   }
 
@@ -13335,11 +13416,22 @@
       const principal = splits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
       const interest  = splits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
       const computed  = opening ? opening.amount - principal : null;
-      // Only a comparison against a real lender document counts as a check.
-      const variance  = (computed != null && perLender) ? computed - perLender.amount : null;
+
+      // The closing anchor must be a document that COVERS the month. Without
+      // this, a late lender means the same statement row answers both ends:
+      // computed − perLender collapses to −(month's principal), or to exactly
+      // $0.00 when the month had no payment — rendered as a green tie against a
+      // document that predates the period entirely. Verified before it shipped:
+      // BayFirst SBA 2's August close resolved both anchors to the same
+      // 2026-07-31 row and would have printed "$0.00 ✓" on the one screen whose
+      // job is to say "ready for your accountant".
+      const coversMonth = !!perLender && perLender.asOf > priorEnd;
+      const variance  = (computed != null && coversMonth) ? computed - perLender.amount : null;
+
       const automatic = a.ingestion_method === 'automatic';
-      const unposted  = splits.filter(sp => sp.status === 'pending_review' || sp.status === 'needs_attention');
-      return { a, opening, perLender, splits, principal, interest, computed, variance, automatic, unposted };
+      const unposted  = _monthUnpostedSplits(a.id, monthLabel);
+      return { a, opening, perLender, splits, principal, interest, computed, variance,
+               automatic, unposted, coversMonth };
     });
 
     const checkable = rows.filter(r => r.variance != null);
@@ -13348,15 +13440,37 @@
       checkable,
       ties:      checkable.filter(r => Math.abs(r.variance) < 0.005),
       off:       checkable.filter(r => Math.abs(r.variance) >= 0.005),
-      noEvidence: rows.filter(r => !r.perLender && !r.automatic),
+      noEvidence: rows.filter(r => !r.coversMonth && !r.automatic),
       unpostedRows: rows.filter(r => r.unposted.length),
+      // ── EVERY FOOTER FIGURE OVER THE SAME POPULATION ────────────────────
+      // The first version summed opening/principal/computed over ALL rows and
+      // perLender/variance over the checkable ones. Two consequences, both
+      // caught by audit rather than by me:
+      //   * Opening − Principal did not equal Computed. Off by exactly
+      //     $9,296.75 — Stripe Capital's July principal, on a loan with no
+      //     opening balance, so it landed in one column and not the other.
+      //   * Computed − Per Lender printed $1,300,305.58 of apparent gap
+      //     directly beside a Variance of $0.00.
+      // A rollforward subtotal is only meaningful across rows that roll
+      // forward. Everything else gets its own line rather than being folded in.
+      //
+      // Variance is ABSOLUTE, never signed. Session 236 fixed exactly this in
+      // the table below ("makes real work look like a rounding error") and this
+      // band, added three sessions later, did the signed thing anyway. With one
+      // loan +$415.88 and another −$415.88 the signed total reads $0.00.
       totals: {
-        opening:   rows.reduce((n, r) => n + (r.opening ? r.opening.amount : 0), 0),
-        principal: rows.reduce((n, r) => n + r.principal, 0),
-        interest:  rows.reduce((n, r) => n + r.interest, 0),
-        computed:  rows.reduce((n, r) => n + (r.computed != null ? r.computed : 0), 0),
+        opening:   checkable.reduce((n, r) => n + r.opening.amount, 0),
+        principal: checkable.reduce((n, r) => n + r.principal, 0),
+        interest:  checkable.reduce((n, r) => n + r.interest, 0),
+        computed:  checkable.reduce((n, r) => n + r.computed, 0),
         perLender: checkable.reduce((n, r) => n + r.perLender.amount, 0),
-        variance:  checkable.reduce((n, r) => n + r.variance, 0),
+        variance:  checkable.reduce((n, r) => n + Math.abs(r.variance), 0),
+      },
+      // The rows a rollforward subtotal cannot speak for, shown separately.
+      excluded: {
+        count:     rows.length - checkable.length,
+        principal: rows.filter(r => r.variance == null).reduce((n, r) => n + r.principal, 0),
+        interest:  rows.filter(r => r.variance == null).reduce((n, r) => n + r.interest, 0),
       },
     };
   }
@@ -13383,7 +13497,7 @@
       ? { bad: true, text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding` }
       : { bad: false, text: `all ${cov.expected.length} statements in` });
     gates.push(rf.off.length
-      ? { bad: true, text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off by ${money(Math.abs(rf.totals.variance))}` }
+      ? { bad: true, text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off — ${money(rf.totals.variance)} to resolve` }
       : { bad: false, text: `${rf.ties.length} loan${rf.ties.length === 1 ? '' : 's'} tie exactly` });
     gates.push(rf.unpostedRows.length
       ? { bad: true, text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}` }
@@ -13427,10 +13541,10 @@
       <div class="lcb-head">
         <h3>Closing ${esc(name)}</h3>
         <span class="lcb-why">Opening balance minus principal paid must equal what the lender says.</span>
-        <span class="lcb-right">${esc(_cvMonthName(today().slice(0, 7)))} is still open — see Current position below</span>
+        <span class="lcb-right">${esc(_cvMonthName(today().slice(0, 7)))} is still open — see All Loans below for where things stand today</span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}">
-        <span class="lcb-lead">${blocked ? esc(name) + ' is not ready to close.' : esc(name) + ' is ready for your accountant.'}</span>
+        <span class="lcb-lead">For ${esc(name)}: ${blocked ? 'not ready to close.' : 'ready for your accountant.'}</span>
         ${gates.map(chip).join('')}
       </div>
       <div class="card" style="overflow:hidden">
@@ -13445,16 +13559,25 @@
               <th class="lcb-n">VARIANCE</th><th>IN XERO</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
-            <tfoot><tr>
-              <td colspan="2">Total</td>
-              <td class="lcb-n">${money(rf.totals.opening)}</td>
-              <td class="lcb-n">${money(rf.totals.principal)}</td>
-              <td class="lcb-n">${money(rf.totals.interest)}</td>
-              <td class="lcb-n">${money(rf.totals.computed)}</td>
-              <td class="lcb-n">${money(rf.totals.perLender)}</td>
-              <td class="lcb-n">${Math.abs(rf.totals.variance) < 0.005 ? '<span class="lcb-tie">$0.00</span>' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
-              <td></td>
-            </tr></tfoot>
+            <tfoot>
+              <tr>
+                <td colspan="2">Total — ${rf.checkable.length} checkable</td>
+                <td class="lcb-n">${money(rf.totals.opening)}</td>
+                <td class="lcb-n">${money(rf.totals.principal)}</td>
+                <td class="lcb-n">${money(rf.totals.interest)}</td>
+                <td class="lcb-n">${money(rf.totals.computed)}</td>
+                <td class="lcb-n">${money(rf.totals.perLender)}</td>
+                <td class="lcb-n">${rf.totals.variance < 0.005 ? '<span class="lcb-tie">$0.00</span>' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
+                <td></td>
+              </tr>
+              ${rf.excluded.count ? `<tr class="lcb-excluded">
+                <td colspan="2">Not checkable — ${rf.excluded.count} loan${rf.excluded.count === 1 ? '' : 's'} without a ${esc(name)} statement</td>
+                <td class="lcb-n">—</td>
+                <td class="lcb-n">${money(rf.excluded.principal)}</td>
+                <td class="lcb-n">${money(rf.excluded.interest)}</td>
+                <td class="lcb-n">—</td><td class="lcb-n">—</td><td class="lcb-n">—</td><td></td>
+              </tr>` : ''}
+            </tfoot>
           </table>
         </div>
         <div class="lcb-foot">Variance covers the ${rf.checkable.length} loan${rf.checkable.length === 1 ? '' : 's'} with a lender statement for ${esc(name)}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} have none and cannot be checked` : ''}. Extra principal payments are included — a rollforward measures how far the balance actually moved.</div>
@@ -13511,7 +13634,7 @@
     // computing "last month"). periodMonth() normalizes either shape down to its
     // first 7 characters so both group and compare consistently.
     const periodMonth = (label) => (label || '').slice(0, 7);
-    // Session 223 TZ fix: was `new Date().toISOString().slice(0,7)` — the banned
+    // Session 223 TZ fix: was `today().slice(0,7)` — the banned
     // pattern; after 4-5pm PT on a month's last day, UTC has already rolled to
     // next month, shifting "last month"/"YTD" a month forward.
     const thisMonthLabel = today().slice(0, 7);
@@ -13526,8 +13649,15 @@
       return acc;
     }, { principal: 0, interest: 0 });
 
-    const lastMonth = sumSplits(_allLoanSplits.filter(s => periodMonth(s.period_label) === lastMonthLabel));
-    const ytd = sumSplits(_allLoanSplits.filter(s => periodMonth(s.period_label).startsWith(yearPrefix) && periodMonth(s.period_label) <= thisMonthLabel));
+    // Session 240: these two filtered on period only, so VOIDED splits counted
+    // as money paid — $4,142.02 of it today (Funding Circle $2,033.77 + BayFirst
+    // SBA 2 $2,108.25, both voided 2026-08). Every split consumer written since
+    // session 232 excludes voided; these two predate the rule. From 1 Sep the
+    // tile would have claimed $4,142.02 of payments that the close band directly
+    // above it says never happened.
+    const _live = (s2) => s2.status !== 'voided';
+    const lastMonth = sumSplits(_allLoanSplits.filter(s2 => _live(s2) && periodMonth(s2.period_label) === lastMonthLabel));
+    const ytd = sumSplits(_allLoanSplits.filter(s2 => _live(s2) && periodMonth(s2.period_label).startsWith(yearPrefix) && periodMonth(s2.period_label) <= thisMonthLabel));
 
     const money = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -14738,7 +14868,7 @@
   function openLoanPaymentReportModal() {
     document.getElementById('lpr-error').style.display = 'none';
     const monthInput = document.getElementById('lpr-month-input');
-    if (!monthInput.value) monthInput.value = new Date().toISOString().slice(0, 7);
+    if (!monthInput.value) monthInput.value = today().slice(0, 7);   // Pacific — UTC rolls after 5pm PT
     const yearInput = document.getElementById('lpr-year-input');
     if (!yearInput.value) yearInput.value = String(new Date().getFullYear());
     _lprSetMode('month');
@@ -14888,7 +15018,7 @@
   </div>
   <div style="text-align:right">
     <div style="font-size:16px;font-weight:700">${esc(periodTitle)}</div>
-    <div style="font-size:11px;color:#d1d5db;margin-top:3px">Generated ${new Date().toISOString().slice(0, 10)}</div>
+    <div style="font-size:11px;color:#d1d5db;margin-top:3px">Generated ${today()}</div>
   </div>
 </div>
 
@@ -15037,7 +15167,7 @@ ${noActivityNote}
       const [y, m] = latest.split('-').map(Number);
       if (!Number.isFinite(y) || !Number.isFinite(m)) {
         const rows0 = _allLoanAmortRows.filter(r => r.loan_amortization_schedules?.loan_account_id === loanAccountId && r.row_type === 'payment' && r.row_date);
-        return rows0.length ? rows0.map(r => r.row_date).sort().pop().slice(0, 7) : new Date().toISOString().slice(0, 7);
+        return rows0.length ? rows0.map(r => r.row_date).sort().pop().slice(0, 7) : today().slice(0, 7);
       }
       const ny = m === 12 ? y + 1 : y;
       const nm = m === 12 ? 1 : m + 1;
@@ -15045,7 +15175,7 @@ ${noActivityNote}
     }
     const rows = _allLoanAmortRows.filter(r => r.loan_amortization_schedules?.loan_account_id === loanAccountId && r.row_type === 'payment' && r.row_date);
     if (rows.length) return rows.map(r => r.row_date).sort()[0].slice(0, 7);
-    return new Date().toISOString().slice(0, 7);
+    return today().slice(0, 7);
   }
 
   function openLoanScheduleGenerateModal(loanAccountId) {
