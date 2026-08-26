@@ -17,12 +17,18 @@
 >
 > If any is off, **adjust the model, never the fixture.**
 >
-> ### 2. The Loans page is now a variance sheet — push it if you have not
+> ### 2. The Loans page is already live — look at it
 >
-> Vercel deploys on push. Principal / Interest / Xero / Statement / Variance columns, a
-> close-readiness strip, and totals. Reads `loan_tie_outs`, not findings — see the log entry for
-> why that distinction is load-bearing (PCV and Verdant would otherwise show green while carrying
-> the two largest deviations on the page).
+> Pushed and deployed (`58324e3` confirmed on origin/main at the close of session 236, so Vercel
+> has it). Principal / Interest / Xero / Statement / Variance columns, a close-readiness strip,
+> and totals. Reads `loan_tie_outs`, not findings — see the log entry for why that distinction is
+> load-bearing (PCV and Verdant would otherwise show green while carrying the two largest
+> deviations on the page).
+>
+> **Open it first thing and sanity-check it against real eyes** — it was verified by simulating
+> the render against the live tie-out rows (all five states, Xero − Statement = Variance on all 13
+> comparable loans), but nobody has actually LOOKED at the rendered table yet. Expect: 5 red, 3
+> grey "explained", 3 green, 2 amber "no statement", 1 n/a, and $1,877.36 to resolve.
 >
 > ### 3. Waiting on the accountant — three Ford journals, all dated 2026-08-31
 >
