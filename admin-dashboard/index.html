@@ -9805,9 +9805,9 @@
   }
 
   function _bkLoanLatestDocSpec(loanAccountId, extraAmounts) {
-    const stmt = (_allLoanStatements || [])
-      .filter(s => s.loan_account_id === loanAccountId && s.storage_path)
-      .sort((a, b) => (String(a.statement_date) < String(b.statement_date) ? 1 : -1))[0];
+    // Session 239: was the only latest-pick in the client with NEITHER a source
+    // filter nor a today rule — a future-dated projection with a storage_path won.
+    const stmt = _loanStatementsToDate(loanAccountId).find(s => s.storage_path);
     if (!stmt) return null;
     const loan = (_allLoanAccounts || []).find(a => a.id === loanAccountId);
     return {
@@ -11970,6 +11970,17 @@
   // "latest" pick, or a live loan reads as paid off. Returns newest-first
   // (the source array is already sorted desc by statement_date), today-or-earlier
   // only, optionally narrowed to one loan account.
+  // The three sources that are EVIDENCE — a document the lender issued. Every
+  // other source ('xero_derived', 'amortization_schedule', 'xero_balance_snapshot')
+  // is our own arithmetic wearing a statement's clothes.
+  //
+  // Session 239: this list existed NINE times across the codebase — twice in
+  // this file alone. The client copy is now this one constant; the server's
+  // canonical copy is REAL_SOURCES in supabase/functions/_shared/derive-schedule.ts.
+  // The client cannot import from _shared/, so exactly two copies are
+  // unavoidable — but there should be two, not nine.
+  const _VARIANCE_REAL_ANCHORS = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'];
+
   function _loanStatementsToDate(accountId) {
     const todayIso = today();   // Pacific YYYY-MM-DD via BIZ_TZ -- never
                                 // toISOString(), which rolls over after 5pm PT.
@@ -11987,10 +11998,63 @@
     // mis-dated upload can't park a wrong balance forever. Mirrors the
     // engine's REAL_ANCHOR_SOURCES concept (reconciliation-run).
     const graceIso = addDaysPacific(todayIso, 31);
-    const REAL_DOC_SOURCES = ['lender_statement', 'portal_manual_pull', 'email_pdf_upload'];
-    return (_allLoanStatements || []).filter(s =>
+    const rows = (_allLoanStatements || []).filter(s =>
       (accountId == null || s.loan_account_id === accountId) &&
-      (s.statement_date <= todayIso || (REAL_DOC_SOURCES.includes(s.source) && s.statement_date <= graceIso)));
+      (s.statement_date <= todayIso || (_VARIANCE_REAL_ANCHORS.includes(s.source) && s.statement_date <= graceIso)));
+    return accountId == null ? rows : _rankByAuthority(rows);
+  }
+
+  // ── AUTHORITY RANKING (session 239) ──────────────────────────────────────
+  // Tech Debt #3, open since session 221, with two live sightings.
+  //
+  // Callers of _loanStatementsToDate take [0] or .find() off the front and
+  // treat it as "the current balance". Until now the front was simply the
+  // newest DATE, with no regard for where the number came from — so a figure
+  // WE computed outranked a document the LENDER issued purely by being newer:
+  //   * Stripe Capital — a bad xero_balance_snapshot became displayed truth.
+  //   * PCV — its tie-out anchored to our own amortization projection dated
+  //     2026-08-04 over a real portal statement dated 2026-08-01. Three days,
+  //     and a loan holding genuine evidence rendered as "unverified, no
+  //     statement" while carrying one of the three largest deviations shown.
+  //
+  // WHY NOT SIMPLY AUTHORITY-FIRST. Because a two-year-old lender statement is
+  // not a better answer for "what is owed today" than last week's snapshot.
+  // Pure authority-first trades a fresh wrong number for a stale one. So the
+  // rule is authority-first WITHIN A TOLERANCE, and it states in one sentence:
+  //
+  //   a lender document wins over our own arithmetic unless it is more than
+  //   ANCHOR_AUTHORITY_GRACE_DAYS staler than the newest row we hold.
+  //
+  // PCV's 3-day gap is comfortably inside it; a 2024 relic against a 2026
+  // snapshot is not, and the snapshot still wins — correctly, because the
+  // honest answer there is "recent but unverified", which is exactly what the
+  // Variance column already says.
+  //
+  // 45 days is one monthly statement cycle plus slack. It equals
+  // DEBT_SCHED_STALE_DAYS by coincidence of meaning, not by dependence — that
+  // constant answers "is this balance stale", this one answers "is this
+  // document too old to outrank a newer computed one". Kept separate on
+  // purpose so tuning one never silently moves the other.
+  const ANCHOR_AUTHORITY_GRACE_DAYS = 45;
+
+  function _daysBetweenIso(aIso, bIso) {
+    return Math.round((new Date(aIso + 'T00:00:00') - new Date(bIso + 'T00:00:00')) / 86400000);
+  }
+
+  // Real lender evidence first (newest of it at the head) when it is current
+  // enough, then everything else newest-first. Never drops a row — callers that
+  // want the whole list still get it, only the ORDER changes.
+  function _rankByAuthority(rows) {
+    if (!rows || rows.length < 2) return rows || [];
+    const byDate = rows.slice().sort((x, y) =>
+      (y.statement_date || '').localeCompare(x.statement_date || ''));
+    const newestIso = byDate[0].statement_date;
+    const isReal = (r) => _VARIANCE_REAL_ANCHORS.includes(String(r.source || ''));
+    const current = byDate.filter(r =>
+      isReal(r) && _daysBetweenIso(newestIso, r.statement_date) <= ANCHOR_AUTHORITY_GRACE_DAYS);
+    if (!current.length) return byDate;              // nothing authoritative and current
+    const rest = byDate.filter(r => !current.includes(r));
+    return current.concat(rest);
   }
 
   // Outstanding balance per loan, sourced from data loadLoans() already pulled --
@@ -12016,15 +12080,38 @@
     const todayIso = today();   // Pacific YYYY-MM-DD -- NOT toISOString(), which
                                 // rolls to tomorrow after 5pm PT and would let a
                                 // next-day projected row count as outstanding.
-    const lastStmt = _loanStatementsToDate(a.id)   // newest-first, already-happened only
+    // Session 239: the list arrives AUTHORITY-RANKED, so [0] is now the best
+    // available answer rather than merely the newest one. Returns `source` and
+    // `authoritative` so a surface can say where a number came from instead of
+    // presenting every balance with equal confidence.
+    const lastStmt = _loanStatementsToDate(a.id)
       .find(s => s.principal_balance != null);
-    if (lastStmt) return { amount: Number(lastStmt.principal_balance), asOf: lastStmt.statement_date };
+    if (lastStmt) return {
+      amount: Number(lastStmt.principal_balance), asOf: lastStmt.statement_date,
+      source: lastStmt.source || null,
+      authoritative: _VARIANCE_REAL_ANCHORS.includes(String(lastStmt.source || '')),
+    };
     const rows = _allLoanAmortRows
       .filter(r => r.loan_amortization_schedules?.loan_account_id === a.id && r.balance != null && r.row_date <= todayIso)
       .sort((x, y) => (x.row_date < y.row_date ? 1 : -1));
-    if (rows.length) return { amount: Number(rows[0].balance), asOf: rows[0].row_date };
+    if (rows.length) return {
+      amount: Number(rows[0].balance), asOf: rows[0].row_date,
+      source: 'amortization_schedule', authoritative: false,
+    };
     return null;
   }
+
+  // Plain-English name for where a balance came from. Used wherever a figure
+  // needs to say how much weight it carries.
+  const _ANCHOR_SOURCE_LABEL = {
+    lender_statement: 'lender statement',
+    portal_manual_pull: 'lender portal',
+    email_pdf_upload: 'lender statement (emailed)',
+    amortization_schedule: 'amortization schedule',
+    xero_derived: 'our ledger',
+    xero_balance_snapshot: 'Xero balance sweep',
+  };
+  function _anchorSourceLabel(src) { return _ANCHOR_SOURCE_LABEL[src] || src || 'unknown'; }
 
   // ── VARIANCE: what the CPA actually closes on (session 236) ───────────────
   // David, after talking to his CPA: "the key word around every monthly close is
@@ -12061,7 +12148,8 @@
   //                 either. The fix is to upload a statement.
   //   n/a           not_comparable: Stripe Capital is a live Xero snapshot with
   //                 no statement, so there is nothing to deviate FROM.
-  const _VARIANCE_REAL_ANCHORS = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'];
+  // (_VARIANCE_REAL_ANCHORS is declared above _loanStatementsToDate, which is
+  //  the first thing that needs it.)
 
   function _loanVariance(a) {
     if (!_loanTieOutRunId) return { state: 'unchecked', reason: 'no reconciliation check has finished yet — run one to find out' };
@@ -12861,7 +12949,14 @@
     // OURSELVES about our own collection process, and they read as defects in
     // the loan to anybody outside. The gap they described is surfaced properly
     // instead, on the statement checklist at the top of this same tab.
-    const balCell = (e) => (e.bal ? money(e.bal.amount) : '—');
+    const balCell = (e) => {
+      if (!e.bal) return '—';
+      if (e.bal.authoritative) return money(e.bal.amount);
+      // Not from a lender document. No ink on the page — a title only, so the
+      // printed and exported sheet is unchanged — but never let US mistake our
+      // own arithmetic for the lender's figure.
+      return `<span title="From our ${esc(_anchorSourceLabel(e.bal.source))}, not a lender document">${money(e.bal.amount)}</span>`;
+    };
 
     // ONE rate, measured. See _loanMeasuredRate — a rate somebody typed was
     // wrong on five of the fourteen loans here, and this sheet leaves the
@@ -14194,7 +14289,13 @@
 
     // 4. Nobody has pulled a lender figure lately, so every check below is running on
     // an old anchor. Same threshold the Debt Schedule uses.
-    const stmts = _loanStatementsToDate(loanId).filter(x => x.principal_balance != null)
+    // Session 239: "newest LENDER figure" must mean exactly that. This used to
+    // sort every source by date and call the winner a lender figure, so the
+    // client told you the lender figure was 3 days old on the same loan where
+    // reconciliation-run's checkStaleAnchor (correctly source-filtered) said no
+    // lender document was on file at all. Two surfaces, opposite answers.
+    const stmts = _loanStatementsToDate(loanId)
+      .filter(x => x.principal_balance != null && _VARIANCE_REAL_ANCHORS.includes(String(x.source || '')))
       .slice().sort((x, y) => (y.statement_date || '').localeCompare(x.statement_date || ''));
     if (a.status === 'active' && stmts.length) {
       const age = Math.round((new Date(todayIso) - new Date(stmts[0].statement_date)) / 86400000);
@@ -14294,7 +14395,7 @@
     // 9.99% and 8.99% -- $10-12 a period. Showing both is how a wrong contract note
     // gets noticed instead of quietly costing money.
     if (a.fitted_annual_rate != null) {
-      chip('Measured rate', `${Number(a.fitted_annual_rate).toFixed(3)}%<span style="font-size:11px;color:var(--gray-500)"> (from ${a.rate_fit_periods || '?'} statements, worst error ${a.rate_fit_residual != null ? money2(a.rate_fit_residual) : 'n/a'})</span>`,
+      chip('Measured rate', `${Number(a.fitted_annual_rate).toFixed(3)}%<span style="font-size:11px;color:var(--gray-500)"> (from ${a.rate_fit_periods || '?'} rows of lender evidence, worst error ${a.rate_fit_residual != null ? money2(a.rate_fit_residual) : 'n/a'})</span>`,
         `Measured from this loan's own lender statements${a.interest_rate != null ? `; the rate typed in from the contract is ${Number(a.interest_rate).toFixed(3)}%` : ''}.`);
     }
     else if (t.totalFee != null) chip('Fixed loan fee', `${money2(t.totalFee)}<span style="font-size:11px;color:var(--gray-500)"> (in place of interest)</span>`);

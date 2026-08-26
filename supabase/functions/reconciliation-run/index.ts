@@ -49,6 +49,32 @@ const REALLOC_WINDOW_DAYS = 40
 // we derived from Xero ourselves. Only these can anchor a reconciliation — comparing
 // Xero against a number we computed from Xero proves nothing.
 const REAL_ANCHOR_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
+
+
+// One monthly statement cycle plus slack. A lender document older than this
+// against the newest row we hold has stopped being the better answer for
+// "what is owed today", and the honest reading becomes "recent but
+// unverified" -- which is exactly what the Variance column already says.
+const ANCHOR_AUTHORITY_GRACE_DAYS = 45
+
+function daysBetweenIso(aIso: string, bIso: string): number {
+  return Math.round((Date.parse(aIso + 'T00:00:00Z') - Date.parse(bIso + 'T00:00:00Z')) / 86400000)
+}
+
+// Real lender evidence first (newest of it at the head) when it is current
+// enough, then everything else newest-first. Never drops a row -- only the
+// ORDER changes, so callers reading the whole list are unaffected.
+// Input must already be sorted newest-first.
+function rankAnchorsByAuthority<T extends { statement_date: string; source?: string | null }>(byDate: T[]): T[] {
+  if (byDate.length < 2) return byDate
+  const newestIso = byDate[0].statement_date
+  const current = byDate.filter(r =>
+    REAL_ANCHOR_SOURCES.includes(String(r.source ?? '')) &&
+    daysBetweenIso(newestIso, r.statement_date) <= ANCHOR_AUTHORITY_GRACE_DAYS)
+  if (!current.length) return byDate
+  const currentSet = new Set(current)
+  return [...current, ...byDate.filter(r => !currentSet.has(r))]
+}
 // A statement row is "derived" if it is NOT a lender document and NOT a schedule
 // projection -- i.e. a balance we computed from Xero ourselves and stored. Deliberately
 // defined as the complement of the known-good sources rather than as an allowlist:
@@ -1026,8 +1052,30 @@ async function handle(req: Request): Promise<Response> {
       const schedAnchors = (amortRows || [])
         .filter((r: any) => r.loan_amortization_schedules?.loan_account_id === loan.id && r.row_date <= today)
         .map((r: any) => ({ statement_date: r.row_date, principal_balance: r.balance, source: 'amortization_schedule', balance_basis: r.loan_amortization_schedules?.balance_basis ?? null }))
-      // Newest first, so anchors[0] is the most recent document of either kind.
-      const anchors = [...stmtAnchors, ...schedAnchors].sort((a, b) => b.statement_date.localeCompare(a.statement_date))
+      // ── AUTHORITY RANKING (session 239) ──────────────────────────────────
+      // Was: sort the merged list by DATE alone. Both halves are individually
+      // filtered, but the RANKING was not — so an amortization projection
+      // outranked a lender document purely by being newer.
+      //
+      // Live cost: PCV holds a real portal statement dated 2026-08-01 and a
+      // projected schedule row dated 2026-08-04. Three days, and the tie-out
+      // anchored to OUR OWN ARITHMETIC — so anchor_source came back
+      // 'amortization_schedule', _loanVariance() correctly downgraded the
+      // exception to 'unverified', and the Loans page told David to "upload a
+      // statement to make this a real check" about a loan holding sixteen of
+      // them. One of the three largest deviations on the page was an artifact
+      // of this sort.
+      //
+      // The rule, and why it is not simply authority-first: a two-year-old
+      // lender document is not a better answer for "what is owed today" than
+      // last week's schedule row. So authority wins WITHIN A TOLERANCE —
+      // a lender document outranks our own arithmetic unless it is more than
+      // ANCHOR_AUTHORITY_GRACE_DAYS staler than the newest row we hold.
+      // Mirrors _rankByAuthority() in admin-dashboard/index.html; the two
+      // copies exist because the client cannot import from _shared/.
+      const merged = [...stmtAnchors, ...schedAnchors]
+        .sort((a, b) => b.statement_date.localeCompare(a.statement_date))
+      const anchors = rankAnchorsByAuthority(merged)
       const futureOnlyAnchor = !anchors.length && mine.some(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date > today)
       const derived = mine.filter(s => isDerivedSource(s.source) && s.statement_date <= today)
       const mySplits = (splits || []).filter(s => s.loan_account_id === loan.id)
