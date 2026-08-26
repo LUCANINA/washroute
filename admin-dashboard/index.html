@@ -3939,7 +3939,7 @@
                 </span>
               </div>
               <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
-              <div class="cv-method">Balances are the most recent figure from each lender. Rates are measured from payment history against lender balances rather than taken from a note on file. Monthly payment is the recurring obligation — the median of the last six months of scheduled payments, with one-off principal paydowns excluded.</div>
+              <div class="cv-method" id="debtsched-method"></div>
             </div>
           </div>
 
@@ -12787,8 +12787,22 @@
     }
     const lenderMoved = open.amount - close.amount;
     const delta = recorded - lenderMoved;
+    // The two directions are NOT the same finding and must not share a switch.
+    //
+    //   over  — we recorded MORE principal than the lender's balance moved.
+    //           Something is on file twice. Every figure derived from it is
+    //           inflated, and it must not be published.
+    //   under — we recorded LESS. Almost always incomplete history: E-Transit
+    //           E5 was onboarded in January and cannot account for the previous
+    //           July. Excluding it would make an understated total MORE
+    //           understated, which is the opposite of the repair.
+    //
+    // Treating both as "unreconciled" dropped $15,099 of genuine obligation out
+    // of "Committed each month" — trading an overstatement for a bigger
+    // understatement and calling it a fix.
     return {
       checkable: true, ok: Math.abs(delta) <= RECON_TOLERANCE,
+      over: delta > RECON_TOLERANCE, under: delta < -RECON_TOLERANCE,
       recorded, lenderMoved, delta, rows,
       openAsOf: open.asOf, closeAsOf: close.asOf,
     };
@@ -12806,7 +12820,7 @@
     return (_allLoanAccounts || [])
       .filter(a => a.status === 'active')
       .map(a => ({ a, recon: _loanWindowRecon(a) }))
-      .filter(x => x.recon.checkable && !x.recon.ok);
+      .filter(x => x.recon.checkable && x.recon.over);
   }
 
   function _loanRecurringPayment(loanAccountId) {
@@ -12819,7 +12833,7 @@
     // understates the coverage ratio a bank underwrites against. A dash the
     // reader can question beats a number they cannot.
     const recon = acct ? _loanWindowRecon(acct) : { checkable: false };
-    if (recon.checkable && !recon.ok) return null;
+    if (recon.checkable && recon.over) return null;
     const months = new Map();
     const cutoff = _cvMonthsBack(CV_PAYMENT_WINDOW_MONTHS);
     const lastComplete = _cvLastMonth();
@@ -13012,10 +13026,12 @@
     // one number on this page a bank underwrites against. An inflated
     // denominator makes coverage look WORSE than it is, and a pessimistic wrong
     // number is the kind nobody thinks to question.
-    const unreconciled = new Set(
-      active.filter(a => { const r = _loanPrincipalReconciliation(a, _cvMonthsBack(CV_TRAILING_MONTHS), _cvLastMonth());
-                           return r.checkable && !r.ok; })
-            .map(a => a.id));
+    // Measured over the SIX-month window, not this tile's twelve. A loan
+    // onboarded part-way through the year fails a twelve-month test for having
+    // no history rather than for having bad history, and that is not what this
+    // exclusion is for. Duplication shows up in every window; short history
+    // only in the long one.
+    const unreconciled = new Set(_loansFailingReconciliation().map(x => x.a.id));
     let interest = 0, principal = 0;
     const byMonth = new Map();
     for (const sp of (_allLoanSplits || [])) {
@@ -13034,12 +13050,28 @@
     // Recurring commitment: the measured payment per loan. A loan with too
     // little history contributes nothing rather than a typed guess — the tile
     // says how many were countable so an understated total is never silent.
-    let committed = 0, counted = 0;
+    // TWO different readers, two different rules.
+    //
+    // The Debt Schedule's payment column leaves the building, so it publishes a
+    // measured figure or a dash — never an estimate dressed as a measurement.
+    // This tile is for the OWNER, and the question it answers is "what do I owe
+    // every month". Dropping EIDL's $4,500 and Stripe Capital's $13,000 because
+    // neither has enough history to measure leaves him $15,099 short of his own
+    // obligation, which is a worse answer than an approximate one that says it
+    // is approximate.
+    //
+    // So: measured where we can, the figure on the loan record where we cannot,
+    // and the tile says how the total is made up. The recorded figures are
+    // visibly rounded (BayFirst 2 says $2,200 against a real $2,108.25), which
+    // is exactly why they are labelled and never published.
+    let committed = 0, counted = 0, fromRecord = 0;
     for (const a of active) {
       const pmt = _loanRecurringPayment(a.id);
-      if (pmt != null) { committed += pmt; counted++; }
+      if (pmt != null) { committed += pmt; counted++; continue; }
+      const typed = Number(a.scheduled_monthly_payment || 0);
+      if (typed > 0) { committed += typed; fromRecord++; }
     }
-    return { active, owed, interest, principal, committed, counted, byMonth,
+    return { active, owed, interest, principal, committed, counted, fromRecord, byMonth,
              unreconciled: [...unreconciled] };
   }
 
@@ -13102,7 +13134,7 @@
            'Paid down against the balances above' + exclNote, 'var(--green)') +
       tile('Committed each month', money(t.committed),
            (cover ? `Covered ${cover.toFixed(1)}× by operating income` : '') +
-           (t.counted < t.active.length ? `${cover ? ' · ' : ''}${t.counted} of ${t.active.length} loans have enough history to measure` : '')) +
+           (t.fromRecord ? `${cover ? ' · ' : ''}${t.counted} measured from payment history, ${t.fromRecord} from the figure on the loan record` : '')) +
       `</div>`;
 
     renderClientDebtChart(t.byMonth);
@@ -13244,8 +13276,7 @@
     }
     rows.push([]);
     rows.push([`${_cvOrgName()} — Debt Schedule as of ${_cvTodayLong()}`]);
-    rows.push(['Rates are measured from payment history. Monthly payment is the recurring obligation: ' +
-               'the median of the last six months, with one-off principal paydowns excluded.']);
+    rows.push([_debtSchedFootnote]);
 
     const csv = rows.map(r => r.map(c => q(String(c == null ? '' : c))).join(',')).join('\r\n');
     const name = `debt-schedule-${today()}.csv`;
@@ -13319,6 +13350,40 @@
     return _allLoanAccounts.filter(a => a.status === 'active' && a.include_in_debt_schedule !== false);
   }
 
+  // ── What this sheet can honestly claim about itself ──────────────────────
+  //
+  // The footnote used to be a constant: "Balances are the most recent figure
+  // from each lender. Rates are measured from payment history..." Three of the
+  // fourteen balances are not from a lender at all (two are our own reading of
+  // Xero, one is our own amortization projection) and four of the rates are the
+  // figure typed on the note. The document that goes to lenders was asserting
+  // provenance it did not have — and, per David's instruction, it carries no
+  // per-row caveats to qualify it, so the footnote is the ONLY place that can
+  // be honest. Silence was being read as evidence.
+  //
+  // The fix is not to add ink to the rows. It is to say only what is true.
+  // Built from what actually rendered, so the sheet and its footnote cannot
+  // drift apart.
+  let _debtSchedFootnote = '';
+  function _debtScheduleFootnote(enriched) {
+    const withBal   = enriched.filter(e => e.bal);
+    const allLender = withBal.length && withBal.every(e => e.bal.authoritative);
+    const withRate  = enriched.filter(e => e.rate && e.rate.pct != null);
+    const allFitted = withRate.length && withRate.every(e => e.rate.measured);
+    const anyNoPmt  = enriched.some(e => e.pmt == null);
+
+    const parts = [];
+    parts.push(allLender
+      ? 'Balances are the most recent figure from each lender.'
+      : 'Balances are the most recent figure on file for each facility — for most, the lender’s own statement or portal; for the remainder, the borrower’s ledger.');
+    parts.push(allFitted
+      ? 'Rates are measured from payment history against lender balances rather than taken from a note on file.'
+      : 'Rates are measured from payment history against lender balances where there is enough history to measure one; the remainder are the rate stated on the note.');
+    parts.push('Monthly payment is the recurring obligation — the median of the last six months of scheduled payments, with one-off principal paydowns excluded.'
+      + (anyNoPmt ? ' Facilities without enough consistent history to measure one are shown without a figure rather than an estimate.' : ''));
+    return parts.join(' ');
+  }
+
   function renderDebtSchedule() {
     const summaryEl = document.getElementById('debtsched-summary');
     const wrapEl = document.getElementById('debtsched-table-wrap');
@@ -13350,6 +13415,11 @@
     asOfEl.textContent = `As of ${_cvTodayLong()} · ${rows.length} active facilities · ${money(enriched.reduce((s2, e) => s2 + (e.bal?.amount || 0), 0))} outstanding`;
     const docTitleEl = document.getElementById('debtsched-doc-title');
     if (docTitleEl) docTitleEl.textContent = `${_cvOrgName()} — Debt Schedule`;
+    const methodEl = document.getElementById('debtsched-method');
+    if (methodEl) methodEl.textContent = _debtScheduleFootnote(enriched);
+    // Cached so the PDF and CSV exports quote exactly what the reader saw,
+    // rather than each re-deriving it and the three drifting apart.
+    _debtSchedFootnote = _debtScheduleFootnote(enriched);
 
     // Session 238: no ⚠ markers here any more. This table is now a document the
     // client sends to lenders and vendors; "stale" and "no data" are notes to
@@ -13599,7 +13669,7 @@
     <td></td><td></td>
   </tr></tfoot>
 </table>
-<div style="margin-top:16px;font-size:12.5px;color:#9ca3af">Balances are the most recent figure from each lender. Rates are measured from payment history against lender balances rather than taken from a note on file. Monthly payment is the recurring obligation &mdash; the median of the last six months of scheduled payments, with one-off principal paydowns excluded.</div>
+<div style="margin-top:16px;font-size:12.5px;color:#9ca3af">${esc(_debtSchedFootnote)}</div>
 </body></html>`;
 
     const w = window.open('', '_blank');
