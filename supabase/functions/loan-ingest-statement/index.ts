@@ -443,7 +443,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
     const { data: loanAcct, error: loanErr } = await supa
       .from('loan_accounts')
-      .select('id, xero_account_id, xero_account_code, xero_bank_account_id, status, direct_split_enabled')
+      .select('id, xero_account_id, xero_account_code, xero_bank_account_id, status, direct_split_enabled, interest_arrives_as_fee')
       .eq('lender_account_number', lender_account_number)
       .single()
     if (loanErr || !loanAcct) {
@@ -1067,23 +1067,59 @@ async function handleRequest(req: Request): Promise<Response> {
       // A tie or no in-window candidate leaves everything unpaired, falling through
       // to the original separate-row behavior below. direct_split_enabled = false
       // (every loan except Rapid as of this version) skips this block entirely.
-      const claimedPaymentDates = new Set<string>()
-      const pairedFeeDates = new Set<string>()
+      // Keyed by IDENTITY, not by date. Sets of date strings cannot tell two
+      // events on one day apart, and Rapid charges draw fees -- a $4,000 draw
+      // fee landing on the same day as the weekly fee meant the second one
+      // matched pairedFeeDates.has(f.date), was treated as already consumed,
+      // and was DROPPED: $4,000 of interest expense that never reached the
+      // books, silently. No pair of same-day events exists in Rapid's history
+      // today, so this has not fired; it was reachable and it lost money when
+      // it did. Found by testing the arithmetic against the real statement
+      // rather than by reading the block.
+      const claimedPayments = new Set<any>()
+      const pairedFees = new Set<any>()
       const pairs: { fee: any, payment: any }[] = []
-      if (loanAcct.direct_split_enabled) {
+      // v21 (session 241, David): "learn how to ingest Rapid once and for all.
+      // The interest is shown as a fee. To calculate the principal, deduct the
+      // interest/fee portion from the PAYMENT."
+      //
+      // That is exactly what the block below has computed since v20 --
+      // principal = payment - fee, interest = fee -- and it has never run for
+      // Rapid, because it was gated on direct_split_enabled, which is FALSE on
+      // Rapid Credit Line. Machinery written for this lender, tested against
+      // this lender's real PDF, switched off for this lender. Every statement
+      // since has landed as two rows: a payment booked entirely to principal
+      // and a separate net-zero reclass.
+      //
+      // The gate was the wrong question. direct_split_enabled is a decision
+      // about how we POST to Xero. Whether a fee and a payment are one economic
+      // event is a fact about how the LENDER works, and it is true whatever we
+      // do downstream. Rapid capitalises the weekly fee into the balance and
+      // then takes the full payment against it -- visible in its own portal
+      // figures, which go UP by the fee and DOWN by the payment:
+      //
+      //     2026-07-07  61,962.76   <- payment day
+      //     2026-07-13  62,516.85   <- +554.09, the fee capitalised
+      //     2026-07-14  60,447.96   <- -2,068.89, the payment
+      //
+      //     net for the week = 2,068.89 - 554.09 = 1,514.80, to the cent.
+      //
+      // So the two are separated by their own flag now, and the pairing runs on
+      // the fact rather than on the posting preference.
+      if (loanAcct.direct_split_enabled || loanAcct.interest_arrives_as_fee) {
         const sortedFees = genuinelyNewFees.slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
         for (const f of sortedFees) {
           const feeTime = new Date(f.date + 'T00:00:00Z').getTime()
           const inWindow = paymentCandidates
-            .filter((p: any) => !claimedPaymentDates.has(p.date))
+            .filter((p: any) => !claimedPayments.has(p))
             .map((p: any) => ({ p, dist: Math.abs(new Date(p.date + 'T00:00:00Z').getTime() - feeTime) }))
             .filter((x: any) => x.dist <= DIRECT_SPLIT_PAIR_WINDOW_DAYS * 86400000)
             .sort((a: any, b: any) => a.dist - b.dist)
           if (!inWindow.length) continue // no candidate in window -- unpaired, falls through
           if (inWindow.length > 1 && inWindow[0].dist === inWindow[1].dist) continue // ambiguous tie -- unpaired
           const chosen = inWindow[0].p
-          claimedPaymentDates.add(chosen.date)
-          pairedFeeDates.add(f.date)
+          claimedPayments.add(chosen)
+          pairedFees.add(f)
           pairs.push({ fee: f, payment: chosen })
         }
       }
@@ -1097,7 +1133,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
       const rows: any[] = []
       for (const p of paymentCandidates) {
-        if (claimedPaymentDates.has(p.date)) continue // consumed by a direct-split pair below
+        if (claimedPayments.has(p)) continue // consumed by a pair below
         rows.push({
           loan_account_id: loanAcct.id,
           period_label: p.date,
@@ -1111,7 +1147,7 @@ async function handleRequest(req: Request): Promise<Response> {
         })
       }
       for (const f of genuinelyNewFees) {
-        if (pairedFeeDates.has(f.date)) continue // consumed by a direct-split pair below
+        if (pairedFees.has(f)) continue // consumed by a pair below
         rows.push({
           loan_account_id: loanAcct.id,
           period_label: f.date,
@@ -1134,7 +1170,7 @@ async function handleRequest(req: Request): Promise<Response> {
           interest_amount: money(Number(pr.fee.amount)),
           total_amount: money(Number(pr.payment.amount)),
           status: 'pending_review',
-          review_notes: `Auto-generated, combined for Direct Transaction Split -- fee dated ${pr.fee.date} ($${money(Number(pr.fee.amount)).toFixed(2)}) paired with the payment dated ${pr.payment.date} ($${money(Number(pr.payment.amount)).toFixed(2)}), within the +/-${DIRECT_SPLIT_PAIR_WINDOW_DAYS}-day window.`,
+          review_notes: `Auto-generated, one row per payment: this lender bills its interest as a fee, so principal is the payment less the fee. Fee dated ${pr.fee.date} ($${money(Number(pr.fee.amount)).toFixed(2)}) paired with the payment dated ${pr.payment.date} ($${money(Number(pr.payment.amount)).toFixed(2)}), within the +/-${DIRECT_SPLIT_PAIR_WINDOW_DAYS}-day window. Principal $${money(Number(pr.payment.amount) - Number(pr.fee.amount)).toFixed(2)} = payment $${money(Number(pr.payment.amount)).toFixed(2)} - fee $${money(Number(pr.fee.amount)).toFixed(2)}.`,
         })
       }
 
