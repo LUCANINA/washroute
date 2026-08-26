@@ -52,7 +52,15 @@ import { getXeroAuth, getGrantedScopes } from "../_shared/xero-auth.ts"
 //   already recoded it. Reading the transaction alone said "broken".
 //
 // A transaction plus its later journals is the unit of truth; either half on its own
-// is a coin flip. So the product should not make the double check something a careful
+// is a coin flip.
+//
+// SESSION 241: for its whole life this mode saw the transaction half only. Xero's
+// ManualJournals LIST endpoint returns no JournalLines, so the account filter had
+// nothing to match and "No posted journal touches this transaction" came back for
+// every payment, always. Both examples below were reported correctly at the time
+// only because a human read the journals by hand. Journals are now fetched by id,
+// and the response carries `journal_search` so a caller can tell "nothing
+// corrected this" apart from "we did not manage to look". So the product should not make the double check something a careful
 // person remembers to do -- it should be the default way to ask about a payment.
 // That is this mode: one call, both halves, netted per account, with the two dangerous
 // shapes (corrected twice / never corrected) named in `warnings`.
@@ -237,6 +245,49 @@ async function xeroGet(path: string, headers: Record<string, string>) {
   return JSON.parse(text)
 }
 
+// ── Journals, WITH their lines ───────────────────────────────────────────────
+//
+// Xero's ManualJournals LIST endpoint does not return JournalLines. Every
+// journal it hands back carries `lines: []`, so any filter of the shape
+//
+//     journals.filter(j => j.lines.some(l => codes.has(l.account)))
+//
+// is structurally incapable of matching anything, and payment_picture reported
+// "No posted journal touches this transaction" for EVERY payment ever passed to
+// it. The mode exists specifically to catch a payment split at source AND
+// reallocated by journal -- and it could not see a journal at all.
+//
+// Found session 241, by asking Xero for two journals BY ID that the same
+// function had just declared did not exist. The file already knew the rule
+// twenty lines above ("A transaction fetched by id carries its lines; one from
+// a list search may not") and applied it to bank transactions only.
+//
+// Lines come back only when a journal is fetched by id, so that is what this
+// does. Bounded, because Xero rate-limits at 60/min: a cap that is announced
+// rather than silent, and read failures that are counted rather than swallowed.
+// A journal we could not read is NOT a journal that does not touch the account.
+const JOURNAL_FETCH_CAP = 150
+const JOURNAL_FETCH_CONCURRENCY = 6
+
+async function fetchJournalsWithLines(ids: string[], headers: Record<string, string>) {
+  const journals: any[] = []
+  let unreadable = 0
+  for (let i = 0; i < ids.length; i += JOURNAL_FETCH_CONCURRENCY) {
+    const chunk = ids.slice(i, i + JOURNAL_FETCH_CONCURRENCY)
+    const settled = await Promise.all(chunk.map(async (id) => {
+      try {
+        const r = await xeroGet(`ManualJournals/${encodeURIComponent(id)}`, headers)
+        return (r.ManualJournals ?? [])[0] ?? null
+      } catch (_) { return undefined }   // undefined = could not read, null = not found
+    }))
+    for (const j of settled) {
+      if (j === undefined) unreadable++
+      else if (j) journals.push(j)
+    }
+  }
+  return { journals, unreadable }
+}
+
 async function paymentPicture(b: any): Promise<Response> {
   const windowDays = typeof b.window_days === 'number' ? Math.min(Math.max(b.window_days, 1), 730) : 120
   const { headers } = await getXeroAuth()
@@ -282,13 +333,22 @@ async function paymentPicture(b: any): Promise<Response> {
   toDate.setUTCDate(toDate.getUTCDate() + windowDays)
   const to = toDate.toISOString().slice(0, 10)
   const jWhere = `Date >= ${xdate(from)} AND Date <= ${xdate(to)}`
-  const journals = (await xeroGet(`ManualJournals?where=${encodeURIComponent(jWhere)}`, headers)).ManualJournals ?? []
+  const listed = (await xeroGet(`ManualJournals?where=${encodeURIComponent(jWhere)}`, headers)).ManualJournals ?? []
+  // The list gives ids and dates; it does NOT give lines. See fetchJournalsWithLines.
+  const capped = listed.length > JOURNAL_FETCH_CAP
+  const ids = listed.slice(0, JOURNAL_FETCH_CAP)
+    .map((j: any) => String(j.ManualJournalID || ''))
+    .filter(Boolean)
+  const { journals, unreadable } = await fetchJournalsWithLines(ids, headers)
 
   const touching = journals
     .map(trimManualJournal)
     .filter((j: any) => (j.lines || []).some((l: any) => codes.has(String(l.account))))
   const posted = touching.filter((j: any) => j.status === 'POSTED')
   const notPosted = touching.filter((j: any) => j.status !== 'POSTED')
+  // True only when the search was actually complete. Everything that reports an
+  // absence below has to consult this first.
+  const searchComplete = !capped && unreadable === 0
 
   // 3. net it out, per account
   const net: Record<string, { from_transaction: number; from_journals: number }> = {}
@@ -319,8 +379,16 @@ async function paymentPicture(b: any): Promise<Response> {
 
   // 4. the two shapes that have actually bitten
   const warnings: string[] = []
-  if (posted.length === 0) {
+  if (capped) {
+    warnings.push(`${listed.length} journals fall in this window and only the first ${JOURNAL_FETCH_CAP} were read. Narrow window_days -- anything below is about that subset, not the whole window.`)
+  }
+  if (unreadable) {
+    warnings.push(`${unreadable} journal(s) in this window could not be read from Xero, so this picture may be incomplete. A failed lookup is not evidence of absence -- re-run before concluding anything from it.`)
+  }
+  if (posted.length === 0 && searchComplete) {
     warnings.push('No posted journal touches this transaction. Its own coding is the whole story -- if that coding is wrong, nothing later fixes it.')
+  } else if (posted.length === 0) {
+    warnings.push('No posted journal was found touching this transaction, but the search above was incomplete -- do NOT read this as "nothing corrected it".')
   }
   if (posted.length > 1) {
     warnings.push(`${posted.length} posted journals touch this transaction's accounts. Check they are not correcting the same thing twice.`)
@@ -340,6 +408,8 @@ async function paymentPicture(b: any): Promise<Response> {
     ok: true, mode: 'payment_picture', found: true,
     transaction: t,
     window: { from, to, days: windowDays },
+    // So a caller can tell "nothing corrected this" from "we did not manage to look".
+    journal_search: { listed: listed.length, read: journals.length, unreadable, capped, complete: searchComplete },
     posted_journals: posted,
     excluded_journals: notPosted,
     net_by_account: Object.entries(net).map(([code, v]) => ({
