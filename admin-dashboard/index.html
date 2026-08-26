@@ -6909,6 +6909,40 @@
       : Math.round(tip * 100) / 100;
     return Math.round((sub + tipDol) * 100) / 100;
   }
+
+  // ── What counts as "money outstanding" (session 230) ────────────────────────
+  // The authoritative definition lives in the DB view public.v_outstanding_orders,
+  // and anything rendering a list or a dollar total should READ THAT VIEW.
+  //
+  // These two exist only for filtering the already-loaded `allOrders` cache in the
+  // Orders tab, where a second network round-trip per keystroke isn't worth it.
+  // They mirror the view's WHERE clause exactly. If you change one, change both —
+  // the whole point of session 230 is that these surfaces can never disagree again.
+  //
+  // The bug that caused this: every surface hard-coded its own status list, and
+  // `delivery_failed` was in none of them, so order #11089 — charged, DECLINED,
+  // then marked delivery_failed — was real money owed that appeared in the Issues
+  // tab and nowhere on Overview.
+  const SETTLED_BILLING_STATUSES = ['paid', 'refunded', 'written_off'];
+  // "The laundry was actually washed" — the order reached ready_for_delivery or beyond.
+  const POST_WASH_STATUSES = ['ready_for_delivery', 'out_for_delivery', 'delivered', 'delivery_failed'];
+  // A declined charge is money owed NO MATTER what status the order sits in.
+  //
+  // The settled check comes FIRST and wins. `charge_failed_at` is a historical stamp
+  // that is not always cleared when a later attempt succeeds — as of session 230 there
+  // are 3 `paid` and 5 `written_off` orders still carrying one from an old decline.
+  // Without this guard those resurface forever as fake open problems. The DB view
+  // applies exactly the same precedence, which is why they don't appear there either.
+  const hasFailedCharge = (o) => {
+    if (!o) return false;
+    if (SETTLED_BILLING_STATUSES.includes(o.billing_status || '')) return false;
+    return (o.billing_status === 'failed') || !!o.charge_failed_at;
+  };
+  const isOutstandingOrder = (o) => {
+    if (!o) return false;
+    if (SETTLED_BILLING_STATUSES.includes(o.billing_status || '')) return false;
+    return hasFailedCharge(o) || POST_WASH_STATUSES.includes(o.status);
+  };
   // Date-only strings ('2026-02-26') are UTC midnight by default, which shows as the previous
   // day in Pacific time. Appending T00:00:00 forces local-midnight parsing instead.
   // Both fmtDate and fmtTime respect BIZ_TZ (loaded from settings table).
@@ -17564,12 +17598,15 @@ ${noActivityNote}
         db.from('route_stops').select('id, stop_type, status, route_id, order_id, orders!inner(order_number, pickup_window_start, delivery_window_start, customers(first_name_cache, last_name_cache)), routes!route_stops_route_id_fkey!inner(run_date)')
           .in('status', ['pending', 'en_route']),
 
-        // 3. Unpaid delivered orders (P0) — pull tip fields too so the
-        // "$X across N orders" summary reflects what was actually billed.
-        db.from('orders').select('id, order_number, status, total_amount, tip_amount, tip_type, billing_status, stripe_payment_intent_id, customers(first_name_cache, last_name_cache)')
-          .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
-          .is('archived_at', null)   // archived = deliberately handled/hidden, not actionable unpaid
-          .gt('total_amount', 0),
+        // 3. Outstanding orders (P0) — session 230: read the single source of truth
+        // (public.v_outstanding_orders) instead of re-deriving "unpaid" here. The old
+        // inline version hard-coded three statuses, so a DECLINED charge on a
+        // delivery_failed order was invisible to the audit; it also treated
+        // `refunded` as unpaid, and lumped invoiced on-account customers in with
+        // genuine card debt. counts_as_due already excludes archived + stalled work.
+        db.from('v_outstanding_orders')
+          .select('order_number, status, bucket, amount_due, first_name_cache, last_name_cache')
+          .eq('counts_as_due', true),
 
         // 4. Stop/order desync (P1)
         db.from('route_stops').select('id, stop_type, status, orders!inner(order_number, status, customers(first_name_cache, last_name_cache))')
@@ -17630,18 +17667,26 @@ ${noActivityNote}
         results.push({ severity: 'ok', icon: '✅', label: 'Wrong-date stops', count: 0 });
       }
 
-      // ── Process Check 3: Unpaid Delivered ──
-      // Session 156: 'paid' covers card + cash + credit + check; same
-      // taxonomy as session 154 pt 4 on kanbans + session 156 _payStatusIcon.
-      // Old filter '!PI || status!=paid' false-flagged cash retail sales
-      // (no PI exists for cash) that reached delivered status.
-      const unpaid = (c3.data || []).filter(o => o.billing_status !== 'paid' && o.billing_status !== 'written_off');
-      if (unpaid.length > 0) {
-        const total = unpaid.reduce((s, o) => s + orderChargedTotal(o), 0);
-        results.push({ severity: 'P0', icon: '🔴', label: 'Unpaid delivered orders', count: unpaid.length,
-          details: `$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })} across ${unpaid.length} orders` });
+      // ── Process Check 3: Outstanding Orders ──
+      // Split by who can actually collect it: card customers are chaseable today
+      // (retry the charge / request a card), on-account customers are settled by
+      // recording an account payment and shouldn't red-flag the daily audit.
+      const outstanding = c3.data || [];
+      const chaseable   = outstanding.filter(o => o.bucket === 'card_declined' || o.bucket === 'awaiting_payment');
+      const onAcctDebt  = outstanding.filter(o => o.bucket === 'on_account');
+      const _money = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      if (chaseable.length > 0) {
+        const total    = chaseable.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+        const declined = chaseable.filter(o => o.bucket === 'card_declined').length;
+        results.push({ severity: 'P0', icon: '🔴', label: 'Unpaid orders (card customers)', count: chaseable.length,
+          details: `${_money(total)} across ${chaseable.length} order${chaseable.length !== 1 ? 's' : ''}${declined ? ` · ${declined} card declined` : ''}` });
       } else {
-        results.push({ severity: 'ok', icon: '✅', label: 'Unpaid delivered orders', count: 0 });
+        results.push({ severity: 'ok', icon: '✅', label: 'Unpaid orders (card customers)', count: 0 });
+      }
+      if (onAcctDebt.length > 0) {
+        const total = onAcctDebt.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+        results.push({ severity: 'P2', icon: '📋', label: 'On-account balance outstanding', count: onAcctDebt.length,
+          details: `${_money(total)} invoiced, awaiting account payment` });
       }
 
       // ── Process Check 4: Stop/Order Desync ──
@@ -18031,58 +18076,85 @@ ${noActivityNote}
     }).join('');
   }
 
-  // ── Unpaid Orders (ready for delivery, out for delivery, or delivered — not yet paid) ──
+  // ── Unpaid Orders — the single view of money outstanding ──
+  // Reads public.v_outstanding_orders (session 230). Do NOT re-implement the
+  // "what counts as unpaid" rule here. Before session 230 this widget hard-coded
+  // three statuses (delivered / ready_for_delivery / out_for_delivery) while the
+  // Issues tab, the customer-panel balance and the audit each hard-coded their own
+  // list. Order #11089 — charged, DECLINED, then marked delivery_failed — was real
+  // money owed that showed up in Issues and nowhere on Overview. The definition now
+  // lives in the view's WHERE clause so these surfaces cannot disagree again.
+  // Read the view's COMMENT before changing anything about what appears here.
+  const UNPAID_GROUPS = [
+    { key: 'card_declined',    title: 'Card declined',
+      note: 'A charge was attempted and the card came back declined. Chase these first.' },
+    { key: 'awaiting_payment', title: 'Awaiting payment',
+      note: 'Washed but not charged yet — usually clears on the next autocharge sweep.' },
+    { key: 'on_account',       title: 'On account',
+      note: 'Invoiced customers. Settled by recording an account payment, never by retrying a card.' },
+  ];
+
   async function loadUnpaidOrders() {
     const el = document.getElementById('unpaid-orders-body');
     const subEl = document.getElementById('unpaid-count-sub');
     if (!el) return;
 
-    const { data: rawData, error } = await db.from('orders')
-      .select('id, order_number, status, billing_status, charge_failed_at, total_amount, tip_amount, tip_type, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
-      .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
-      // NULL-safe "not paid/refunded/written_off" — PostgREST .not('col','in',...) drops NULL rows
-      // (SQL NULL NOT IN (...) is NULL, not TRUE), so we need an explicit null branch.
-      // written_off = intentionally uncollectible (e.g. customer deceased) — not outstanding.
-      .or('billing_status.is.null,billing_status.not.in.(paid,refunded,written_off)')
-      // Archived orders are deliberately hidden from Overview (history preserved,
-      // restorable from the Archived tab) — keep them off the unpaid worklist.
-      .is('archived_at', null)
-      .order('created_at', { ascending: false });
+    const { data: rows, error } = await db.from('v_outstanding_orders')
+      .select('id, order_number, status, billing_status, charge_failed_at, has_failed_charge, total_amount, tip_amount, tip_type, amount_due, created_at, bucket, counts_as_due, is_archived, archived_reason, on_account_card_error, age_days, customer_id, first_name_cache, last_name_cache, phone_cache, billing_type')
+      .order('age_days', { ascending: false });
 
-    if (error || !rawData) {
+    if (error || !rows) {
       el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load unpaid orders.</div>';
+      if (subEl) subEl.textContent = 'Could not load';
       return;
     }
-    // Exclude on_account customers — they are billed through invoicing, not Stripe
-    const data = rawData.filter(o => o.customers?.billing_type !== 'on_account');
+
+    // Re-shape the view's flat columns into the nested `customers` object the shared
+    // action-button helpers already expect, so _deliveredActionBtn stays ONE
+    // implementation used by both this widget and the Issues tab.
+    const data = rows.map(r => ({
+      ...r,
+      customers: {
+        id: r.customer_id,
+        first_name_cache: r.first_name_cache,
+        last_name_cache: r.last_name_cache,
+        phone_cache: r.phone_cache,
+        billing_type: r.billing_type,
+      },
+    }));
+
     if (!data.length) {
       if (subEl) subEl.textContent = 'All clear';
+      const badgeEmpty = document.getElementById('unpaid-count-badge');
+      if (badgeEmpty) badgeEmpty.style.display = 'none';
       el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid orders</div>';
       return;
     }
 
-    // Always ensure payment methods are loaded for this tab's specific customers.
-    // Do NOT guard with !_custWithCard.size — the Set may have been partially populated
-    // by a prior tab load (e.g. Orders) and miss customers who only appear here.
-    // Batched to avoid exceeding PostgREST URL length limits with many customer IDs
-    const custIds = [...new Set(data.map(o => o.customers?.id).filter(Boolean))];
-    if (custIds.length) {
-      const pmRows = await batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds);
+    // counts_as_due is the view's single rule for "this is real money owed":
+    // it already excludes stale work-in-progress and deliberately-archived orders.
+    // Never sum amount_due without it.
+    const due      = data.filter(o => o.counts_as_due);
+    const archived = data.filter(o => o.is_archived);
+    const stuck    = data.filter(o => o.bucket === 'stuck_in_process' && !o.is_archived);
+
+    // Card lookups are only meaningful for card-paying customers — on-account
+    // customers are invoiced, so skip them and keep the query small.
+    const cardCustIds = [...new Set(
+      due.filter(o => o.bucket === 'card_declined' || o.bucket === 'awaiting_payment')
+         .map(o => o.customer_id).filter(Boolean)
+    )];
+    if (cardCustIds.length) {
+      const pmRows = await batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', cardCustIds);
       pmRows.forEach(r => {
         _custWithCard.add(r.customer_id);
         const prev = _custCardAddedAt.get(r.customer_id);
         if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
       });
-    }
-    // Always ensure card-request history is loaded for this tab's specific customers.
-    // Do NOT guard with !_cardRequestSent.size — the Map may have been partially
-    // populated by a prior tab load (e.g. Orders → Issues rebuilds from scratch
-    // with just that tab's customers) and miss customers who only appear here.
-    // Accumulate (don't reset) so state built up across tabs stays intact.
-    if (custIds.length) {
+      // Accumulate (don't reset) so card-request history built up on other tabs stays intact.
       const [smsRows, emailRows] = await Promise.all([
-        batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
-        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
+        batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', cardCustIds, q => q.like('body', '%app.familylaundry.com%')),
+        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', cardCustIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
       ]);
       [...smsRows, ...emailRows].forEach(r => {
         const prev = _cardRequestSent.get(r.customer_id);
@@ -18090,34 +18162,169 @@ ${noActivityNote}
       });
     }
 
-    const totalOwed = data.reduce((s, o) => s + orderChargedTotal(o), 0);
-    const failedCount = data.filter(o => o.billing_status === 'failed').length;
-    const parts = [`${data.length} order${data.length !== 1 ? 's' : ''}`, fmtMoney(totalOwed) + ' outstanding'];
-    if (failedCount) parts.push(`${failedCount} failed`);
+    // Header summary — lead with what a human can actually act on today.
+    // On-account balance is ordinary receivables for invoiced commercial customers
+    // (Kidango, Kasa, City of Oakland — ~300 open orders at any time). Folding those
+    // into the headline count would bury the handful of declined cards that need
+    // chasing, which is the opposite of the point of this widget.
+    const chaseable      = due.filter(o => o.bucket === 'card_declined' || o.bucket === 'awaiting_payment');
+    const onAcct         = due.filter(o => o.bucket === 'on_account');
+    const chaseableTotal = chaseable.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+    const onAcctTotal    = onAcct.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+    const declinedCount  = chaseable.filter(o => o.bucket === 'card_declined').length;
+
+    const parts = chaseable.length
+      ? [`${chaseable.length} to chase`, fmtMoney(chaseableTotal)]
+      : ['Nothing to chase'];
+    if (declinedCount) parts.push(`${declinedCount} card declined`);
+    if (onAcct.length) parts.push(`${fmtMoney(onAcctTotal)} on account`);
+    if (stuck.length)  parts.push(`${stuck.length} stalled`);
     if (subEl) subEl.textContent = parts.join(' · ');
     const unpaidBadge = document.getElementById('unpaid-count-badge');
-    if (unpaidBadge) { unpaidBadge.textContent = `${data.length} orders · ${fmtMoney(totalOwed)}`; unpaidBadge.style.display = ''; }
+    if (unpaidBadge) {
+      unpaidBadge.textContent = `${chaseable.length} order${chaseable.length !== 1 ? 's' : ''} · ${fmtMoney(chaseableTotal)}`;
+      unpaidBadge.style.display = chaseable.length ? '' : 'none';
+    }
 
-    el.innerHTML = `<table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Billing</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead><tbody>
-      ${data.map(o => {
-        const cust = o.customers;
-        const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
-        const billingBadge = o.billing_status === 'failed'
-          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#991b1b">FAILED</span>'
-          : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e">UNPAID</span>';
-        const action = _deliveredActionBtn(o);
-        const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
-        return `<tr ${clickable}>
-          <td class="td-mono">#${o.order_number}</td>
-          <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
-          <td class="td-name">${esc(name)}</td>
-          <td>${statusBadge(o.status)}</td>
-          <td>${billingBadge}</td>
-          <td style="text-align:right;font-weight:600">${fmtMoney(orderChargedTotal(o))}</td>
-          <td style="text-align:right">${action}</td>
-        </tr>`;
-      }).join('')}
-    </tbody></table>`;
+    el.innerHTML = UNPAID_GROUPS.map(g => {
+      const list = due.filter(o => o.bucket === g.key);
+      if (!list.length) return '';
+      const subtotal = list.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+      // On-account is receivables, not a worklist — roll it up per customer and keep
+      // it collapsed so it can't drown the orders that need action today.
+      return g.key === 'on_account'
+        ? _unpaidOnAccountHtml(g, list, subtotal)
+        : _unpaidGroupHtml(g, list, subtotal);
+    }).join('')
+    + _unpaidAsideHtml(stuck, archived);
+  }
+
+  // One group: a labelled header strip + its table.
+  function _unpaidGroupHtml(g, list, subtotal) {
+    return `<div style="border-top:1px solid var(--gray-100)">
+      <div style="display:flex;align-items:baseline;gap:10px;padding:14px 24px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--gray-900)">${esc(g.title)}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--gray-600)">${list.length} · ${fmtMoney(subtotal)}</div>
+      </div>
+      <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">${esc(g.note)}</div>
+      <table><thead><tr>
+        <th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Billing</th>
+        <th style="text-align:right">Amount</th><th style="text-align:right">Action</th>
+      </tr></thead><tbody>
+        ${list.map(o => _unpaidRowHtml(o)).join('')}
+      </tbody></table>
+    </div>`;
+  }
+
+  function _unpaidRowHtml(o) {
+    const cust = `${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown';
+    const isOnAcct = o.bucket === 'on_account';
+    const billingBadge = o.has_failed_charge || o.billing_status === 'failed'
+      ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#991b1b">FAILED</span>'
+      : isOnAcct
+        ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#e0e7ff;color:#3730a3">INVOICED</span>'
+        : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e">UNPAID</span>';
+    // An on-account customer should never have been card-charged at all — surface
+    // the mis-stamp so it can be cleaned up, but offer no card action for it.
+    const acctNote = o.on_account_card_error
+      ? '<div style="font-size:10.5px;color:#92400e;margin-top:2px">⚠ card was attempted on an invoiced account</div>'
+      : '';
+    const action = isOnAcct
+      ? '<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">Bill by invoice</span>'
+      : _deliveredActionBtn(o);
+    const ageTag = Number(o.age_days) >= 30
+      ? `<span style="font-size:10.5px;color:#991b1b;font-weight:600;margin-left:6px">${o.age_days}d</span>` : '';
+    return `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
+      <td class="td-mono">#${o.order_number}</td>
+      <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}${ageTag}</td>
+      <td class="td-name">${esc(cust)}${acctNote}</td>
+      <td>${statusBadge(o.status)}</td>
+      <td>${billingBadge}</td>
+      <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
+      <td style="text-align:right">${action}</td>
+    </tr>`;
+  }
+
+  // On-account balance, rolled up per customer. This is ordinary accounts-receivable
+  // for invoiced customers: it belongs on Overview so the picture of money owed is
+  // honest, but it is settled by recording an account payment in Reports → On Account,
+  // never by retrying a card — so no card actions are offered here.
+  function _unpaidOnAccountHtml(g, list, subtotal) {
+    const byCust = new Map();
+    list.forEach(o => {
+      const key = o.customer_id || 'unknown';
+      const cur = byCust.get(key) || {
+        name: `${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown',
+        n: 0, amount: 0, oldest: 0, cardError: 0,
+      };
+      cur.n      += 1;
+      cur.amount += Number(o.amount_due || 0);
+      cur.oldest  = Math.max(cur.oldest, Number(o.age_days || 0));
+      if (o.on_account_card_error) cur.cardError += 1;
+      byCust.set(key, cur);
+    });
+    const rows = [...byCust.values()].sort((a, b) => b.amount - a.amount);
+    const cardErrors = list.filter(o => o.on_account_card_error).length;
+    return `<details style="border-top:1px solid var(--gray-100)">
+      <summary style="padding:14px 24px;cursor:pointer">
+        <span style="font-size:13px;font-weight:700;color:var(--gray-900)">${esc(g.title)}</span>
+        <span style="font-size:12px;font-weight:600;color:var(--gray-600);margin-left:10px">${rows.length} customer${rows.length !== 1 ? 's' : ''} · ${list.length} order${list.length !== 1 ? 's' : ''} · ${fmtMoney(subtotal)}</span>
+        ${cardErrors ? `<span style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border-radius:8px;padding:2px 7px;margin-left:8px">⚠ ${cardErrors} card-charged in error</span>` : ''}
+      </summary>
+      <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">${esc(g.note)} Record payments in Reports → On Account.</div>
+      <table><thead><tr><th>Customer</th><th style="text-align:right">Orders</th><th style="text-align:right">Oldest</th><th style="text-align:right">Outstanding</th></tr></thead><tbody>
+        ${rows.map(r => `<tr>
+          <td class="td-name">${esc(r.name)}${r.cardError ? '<div style="font-size:10.5px;color:#92400e;margin-top:2px">⚠ a card was attempted on this invoiced account</div>' : ''}</td>
+          <td style="text-align:right;color:var(--gray-600)">${r.n}</td>
+          <td style="text-align:right;font-weight:${r.oldest >= 60 ? '600' : '400'};color:${r.oldest >= 60 ? '#991b1b' : 'var(--gray-600)'}">${r.oldest}d</td>
+          <td style="text-align:right;font-weight:600">${fmtMoney(r.amount)}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </details>`;
+  }
+
+  // Quiet sub-lines. Neither counts toward the outstanding total — stalled orders
+  // are an operations warning, and archived orders were deliberately set aside —
+  // but both stay one click away so nothing is silently invisible.
+  function _unpaidAsideHtml(stuck, archived) {
+    let html = '';
+    if (stuck.length) {
+      const t = stuck.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+      html += `<details style="border-top:1px solid var(--gray-100)">
+        <summary style="padding:12px 24px;cursor:pointer;font-size:12.5px;color:#92400e;font-weight:600">
+          ⏳ ${stuck.length} order${stuck.length !== 1 ? 's' : ''} stalled in process 7+ days · ${fmtMoney(t)} not yet billable
+        </summary>
+        <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">Not debt — these haven't reached ready-for-delivery, so no charge has been attempted. Listed because they've stopped moving.</div>
+        <table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th style="text-align:right">Value</th></tr></thead><tbody>
+          ${stuck.map(o => `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
+            <td class="td-mono">#${o.order_number}</td>
+            <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)} <span style="color:#92400e;font-weight:600">${o.age_days}d</span></td>
+            <td class="td-name">${esc(`${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown')}</td>
+            <td>${statusBadge(o.status)}</td>
+            <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
+          </tr>`).join('')}
+        </tbody></table>
+      </details>`;
+    }
+    if (archived.length) {
+      const t = archived.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+      html += `<details style="border-top:1px solid var(--gray-100)">
+        <summary style="padding:12px 24px;cursor:pointer;font-size:12.5px;color:var(--gray-600);font-weight:600">
+          🗄 ${archived.length} archived unpaid order${archived.length !== 1 ? 's' : ''} · ${fmtMoney(t)} excluded from the total
+        </summary>
+        <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">Archived means someone deliberately set these aside. Still collectible — restore from the Archived tab to act on one.</div>
+        <table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead><tbody>
+          ${archived.map(o => `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
+            <td class="td-mono">#${o.order_number}</td>
+            <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
+            <td class="td-name">${esc(`${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown')}${o.archived_reason ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:2px">${esc(o.archived_reason)}</div>` : ''}</td>
+            <td>${statusBadge(o.status)}</td>
+            <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
+          </tr>`).join('')}
+        </tbody></table>
+      </details>`;
+    }
+    return html;
   }
 
   // ── Requires Rescheduling (mirrors Issues tab "Reschedule →" subset) ──
@@ -19082,8 +19289,13 @@ ${noActivityNote}
     if (o.status === 'skipped' && o.cancelled_by === 'customer') return false;
     if (o.status === 'skipped' && o.recurring_interval) return false;
     if (o.status === 'pickup_failed' && o.recurring_interval) return false;
-    const chargeableStatuses = ['ready_for_delivery','out_for_delivery','delivered'];
-    if (o.billing_status === 'failed' && chargeableStatuses.includes(o.status) && o.customers?.billing_type !== 'on_account') return true;
+    // Session 230: a declined card is an issue in ANY status, not just the three
+    // chargeable ones. `delivery_failed` used to fall outside this test — the order
+    // still surfaced (delivery_failed is an issue status anyway) but a declined
+    // charge on, say, an on_hold order would have been missed entirely.
+    // on_account customers are billed by invoice, so a failed card stamp on them is
+    // a data error, not a collections issue — it shows in Overview's On account group.
+    if (hasFailedCharge(o) && o.customers?.billing_type !== 'on_account') return true;
     return ORDER_FILTER_GROUPS.issues.includes(o.status);
   }
 
@@ -19173,7 +19385,7 @@ ${noActivityNote}
       scheduled:  activeOnly.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: activeOnly.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      activeOnly.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     activeOnly.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
+      issues:     activeOnly.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; if (hasFailedCharge(o) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return activeOnly.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
       archived:   sourceFiltered.filter(o => o.archived_at).length,
     };
@@ -29565,25 +29777,28 @@ ${oneCopy}
     // Reset credit adjust form
     hideCreditAdjust();
 
-    // Balance — unpaid orders at ready_for_delivery or later (includes recurring)
-    // NULL-safe: PostgREST .not('col','in',...) silently drops NULL rows (SQL semantics),
-    // so orders with billing_status IS NULL (e.g. charge-order never fired) wouldn't
-    // appear in the balance. Use .or() to include them explicitly.
+    // Balance — reads the same source of truth as Overview's Unpaid Orders widget
+    // (session 230: public.v_outstanding_orders). This used to hard-code the three
+    // chargeable statuses, so a customer whose only debt was a DECLINED charge on a
+    // delivery_failed order showed a $0 balance. counts_as_due is the view's own rule
+    // for real debt — it already drops stalled in-process work and archived orders,
+    // so never sum amount_due without it.
     const { data: balOrders } = await db
-      .from('orders')
-      .select('total_amount, tip_amount, tip_type, billing_status')
+      .from('v_outstanding_orders')
+      .select('amount_due, bucket, counts_as_due')
       .eq('customer_id', customerId)
-      .in('status', ['ready_for_delivery', 'out_for_delivery', 'delivered'])
-      .or('billing_status.is.null,billing_status.not.in.(paid,refunded,written_off)');
-    const balance = (balOrders || []).reduce((s, o) => s + orderChargedTotal(o), 0);
+      .eq('counts_as_due', true);
+    const balRows = balOrders || [];
+    const balance = balRows.reduce((s, o) => s + Number(o.amount_due || 0), 0);
     const balDisplay = document.getElementById('cpb-balance-display');
     const balDetail  = document.getElementById('cpb-balance-detail');
     balDisplay.textContent = fmtMoney(balance);
     balDisplay.style.color = balance > 0 ? 'var(--red)' : 'var(--gray-400)';
     if (balDetail) {
-      const count = (balOrders || []).length;
+      const count = balRows.length;
+      const declined = balRows.filter(o => o.bucket === 'card_declined').length;
       balDetail.textContent = balance > 0
-        ? `${count} unpaid order${count !== 1 ? 's' : ''} · ready for delivery or delivered`
+        ? `${count} unpaid order${count !== 1 ? 's' : ''}${declined ? ` · ${declined} card declined` : ''}`
         : 'No outstanding balance';
     }
 
