@@ -397,6 +397,48 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
   }
 
   const { accessToken: token, tenantId } = await getXeroAuth()
+
+  // ── SESSION 241: ASK XERO BEFORE POSTING. ALWAYS, INCLUDING UNDER force ──
+  // The only idempotency check used to be `existing?.status === 'posted'` at the
+  // top of this function -- our own row -- and `force=true` skipped it entirely.
+  // Meanwhile the watchdog, on finding a row stranded on 'pending', declared the
+  // payout "MISSING from Xero" WITHOUT asking Xero, and recommended force=true.
+  // Those two facts compose into a full day's revenue posted twice, and the
+  // stranding is real: the update at the end of this function never checked its
+  // own error, so an isolate killed after the POST leaves 'pending' beside a live
+  // BankTransaction.
+  //
+  // The idempotency key already exists -- buildPlan stamps every payout with
+  // `Reference: Stripe payout <id>` -- so one GET settles it. force may override
+  // OUR bookkeeping; it may never override what is actually in Xero.
+  //
+  // A failed lookup REFUSES, matching loan-xero-post's "refusing to stage blind":
+  // not being able to see is not evidence of absence.
+  const payoutRef = `Stripe payout ${payout.id}`
+  const xeroHeaders = { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json', 'Content-Type': 'application/json' }
+  let refJson: any = null
+  try {
+    const refRes = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${encodeURIComponent(`Reference=="${payoutRef}"`)}`, { headers: xeroHeaders })
+    if (!refRes.ok) throw new Error(`status ${refRes.status}`)
+    refJson = await refRes.json()
+  } catch (e) {
+    const msg = `Could not check Xero for an existing "${payoutRef}" before posting (${String((e as Error)?.message || e)}) -- refusing to post blind.`
+    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: msg }).eq('id', syncRow.id)
+    console.error(`[xero-payout-sync] ${payout.id} ${msg}`)
+    return { posted: false, blocked_reason: msg }
+  }
+  const alreadyInXero = (refJson?.BankTransactions || []).find((t: any) =>
+    String(t?.Status || '').toUpperCase() !== 'DELETED' && String(t?.Status || '').toUpperCase() !== 'VOIDED')
+  if (alreadyInXero) {
+    const id = alreadyInXero.BankTransactionID
+    const msg = `Xero already holds a live transaction with reference "${payoutRef}" (${id}). This payout IS posted -- our row just did not say so. Nothing was posted a second time; the row has been repaired instead.`
+    await supabase.from('xero_payout_syncs').update({
+      status: 'posted', xero_bank_transaction_id: id, synced_at: new Date().toISOString(), error_message: msg,
+    }).eq('id', syncRow.id)
+    console.log(`[xero-payout-sync] ${payout.id} self-healed -> ${id}`)
+    return { posted: false, skipped: true, reason: 'already in Xero', xero_bank_transaction_id: id, self_healed: true }
+  }
+
   const postRes = await fetch('https://api.xero.com/api.xro/2.0/BankTransactions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json', 'Content-Type': 'application/json' },
@@ -411,10 +453,23 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
   }
 
   const createdTxnId = postJson?.BankTransactions?.[0]?.BankTransactionID
-  await supabase.from('xero_payout_syncs').update({
+  // Session 241: this update's error was never read. When it failed (or the
+  // isolate died right here) the row stayed 'pending' next to a live Xero
+  // transaction -- which is exactly the state the watchdog then misread as
+  // "MISSING from Xero". The pre-check above now makes that state recoverable,
+  // but it still has to be SAID rather than swallowed.
+  const { error: postedUpdErr } = await supabase.from('xero_payout_syncs').update({
     status: 'posted', xero_bank_transaction_id: createdTxnId, synced_at: new Date().toISOString(),
     category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents },
   }).eq('id', syncRow.id)
+  if (postedUpdErr) {
+    console.error(`[xero-payout-sync] ${payout.id} XERO AHEAD OF US: posted ${createdTxnId} but row update failed: ${postedUpdErr.message}`)
+    return {
+      posted: true, xero_bank_transaction_id: createdTxnId, line_items: plan.lineItems, total: plan.total,
+      xero_write_succeeded: true, db_error: postedUpdErr.message,
+      warning: `The payout WAS posted to Xero (${createdTxnId}) but our row could not be updated: ${postedUpdErr.message}. Xero is ahead of our records. Do NOT re-run with force -- the pre-check will now find it and repair the row.`,
+    }
+  }
   console.log(`[xero-payout-sync] ${payout.id} posted -> ${createdTxnId}`)
 
   if (plan.loanPaydown) {

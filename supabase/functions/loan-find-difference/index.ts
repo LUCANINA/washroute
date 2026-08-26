@@ -866,16 +866,32 @@ const jres = (obj: any, status = 200) => new Response(JSON.stringify(obj, null, 
 // check. Xero itself is the ledger: a POSTED manual journal with the same
 // narration on the same date IS this correction, already made. One GET before
 // the write, and the answer is a loud explicit error -- never a second journal.
+// Returns the duplicate if one exists, null if we positively confirmed there is
+// none, and THROWS if we could not find out.
+//
+// Session 240 correction: this used to `return null` when the lookup failed —
+// "Xero unreachable: fall through to the post rather than block a legitimate
+// correction". That is backwards, and `loan-xero-post` has had the right answer
+// since the staging work: when its own Reference pre-check fails it returns 502
+// and says **"refusing to stage blind"**. A failed lookup is not evidence of
+// absence. The scenario the check exists for is precisely a transient GET
+// failure followed by a POST that succeeds — which is how you get the second
+// journal. Refusing costs a retry; falling through costs a duplicate in the
+// customer's books, and this module's whole contract is that that never happens.
 async function alreadyPostedInXero(narration: string, date: string, headers: Record<string, string>): Promise<any | null> {
+  const [y, m, d] = String(date).slice(0, 10).split('-').map(Number)
+  const w = encodeURIComponent(`Date==DateTime(${y},${m},${d})&&Status=="POSTED"`)
+  let res: Response
   try {
-    const [y, m, d] = String(date).slice(0, 10).split('-').map(Number)
-    const w = encodeURIComponent(`Date==DateTime(${y},${m},${d})&&Status=="POSTED"`)
-    const res = await fetch(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${w}`, { headers })
-    if (!res.ok) return null // Xero unreachable: fall through to the post rather than block a legitimate correction
-    const json = await res.json().catch(() => null)
-    const hit = (json?.ManualJournals || []).find((j: any) => String(j?.Narration || '').trim() === String(narration).trim())
-    return hit ? { id: hit.ManualJournalID, narration: hit.Narration, date: normDate(hit.DateString, hit.Date) } : null
-  } catch { return null }
+    res = await fetch(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${w}`, { headers })
+  } catch (e) {
+    throw new Error(`Could not reach Xero to check whether this correction is already posted (${String((e as Error)?.message || e)}) — refusing to post blind.`)
+  }
+  if (!res.ok) throw new Error(`Could not check Xero for an existing copy of this correction (status ${res.status}) — refusing to post blind.`)
+  const json = await res.json().catch(() => null)
+  if (!json) throw new Error('Xero returned an unreadable response to the duplicate check — refusing to post blind.')
+  const hit = (json?.ManualJournals || []).find((j: any) => String(j?.Narration || '').trim() === String(narration).trim())
+  return hit ? { id: hit.ManualJournalID, narration: hit.Narration, date: normDate(hit.DateString, hit.Date) } : null
 }
 
 const duplicateJournalError = (hit: any) =>
@@ -1459,7 +1475,9 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
         error: `That journal is dated ${step.journal.Date}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted. Re-run the analysis — the correction will re-date itself to ${pw.postingDate}.`,
       }, 409)
     }
-    const dupX = await alreadyPostedInXero(step.journal.Narration, step.journal.Date, headers)
+    let dupX: any = null
+    try { dupX = await alreadyPostedInXero(step.journal.Narration, step.journal.Date, headers) }
+    catch (e) { return jres({ error: String((e as Error).message) }, 502) }
     if (dupX) return jres({ error: duplicateJournalError(dupX), already_posted: dupX }, 409)
     const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
@@ -1689,7 +1707,11 @@ async function handle(req: Request): Promise<Response> {
     if (isProtectedDate(prepared.Date, pw.closeDate, today)) {
       return new Response(JSON.stringify({ error: `That correction is dated ${prepared.Date}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
-    const dupE = await alreadyPostedInXero(prepared.Narration, prepared.Date, headers)
+    let dupE: any = null
+    try { dupE = await alreadyPostedInXero(prepared.Narration, prepared.Date, headers) }
+    catch (e) {
+      return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
     if (dupE) {
       return new Response(JSON.stringify({ error: duplicateJournalError(dupE), already_posted: dupE }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
@@ -1731,7 +1753,11 @@ async function handle(req: Request): Promise<Response> {
       analysis,
     }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
-  const dupF = await alreadyPostedInXero(proposal.journal.Narration, proposal.journal.Date, headers)
+  let dupF: any = null
+  try { dupF = await alreadyPostedInXero(proposal.journal.Narration, proposal.journal.Date, headers) }
+  catch (e) {
+    return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
   if (dupF) {
     return new Response(JSON.stringify({ error: duplicateJournalError(dupF), already_posted: dupF, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
   }

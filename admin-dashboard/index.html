@@ -11406,8 +11406,22 @@
       replace: !!replace,
       ...( _payrollUploadIsAdjustment ? { import_type: 'adjustment' } : {} ),
     });
-    if (!ok && data.existing_import && !replace) {
+    // Session 241: only offer the overwrite when overwriting is actually safe.
+    // This used to show "Re-parse and overwrite it" on ANY 409 carrying an
+    // existing_import, without reading its status — and for a period already
+    // posted to Xero that was a one-click path to a duplicate journal (the
+    // server reset the row to 'parsed' while leaving the journal id in place).
+    // The server refuses that now; the button must stop offering it too, or the
+    // user just gets a dead end with no idea why.
+    const alreadyInXero = !!data.existing_import
+      && (data.existing_import.status === 'posted' || !!data.existing_import.xero_manual_journal_id);
+    if (!ok && data.existing_import && !replace && !alreadyInXero) {
       statusEl.innerHTML = `<span style="color:var(--amber-dark, #92400e)">${esc(data.error)}</span><br><button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="submitPayrollUpload(true)">Re-parse and overwrite it</button>`;
+      submitBtn.disabled = false;
+      return;
+    }
+    if (!ok && alreadyInXero) {
+      statusEl.innerHTML = `<span style="color:var(--red)">${esc(data.error)}</span>`;
       submitBtn.disabled = false;
       return;
     }

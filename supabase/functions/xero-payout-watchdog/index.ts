@@ -66,12 +66,28 @@ async function handleRequest(req: Request): Promise<Response> {
 
   const marked: any[] = []
   for (const row of stuck || []) {
+    // ── SESSION 241: STATE UNKNOWN IS NOT THE SAME AS MISSING ───────────────
+    // This message used to assert "Nothing was posted -- this payout is currently
+    // MISSING from Xero" WITHOUT ASKING XERO, and then recommend force=true,
+    // which was the one flag that bypassed the only idempotency check there was.
+    // A row strands on 'pending' precisely when xero-payout-sync died AFTER the
+    // POST, so "still pending" is entirely consistent with the payout being
+    // posted -- and following this advice put a full day's revenue in twice.
+    //
+    // The watchdog's job is to convert a silent disappearance into a visible
+    // failure. It can do that honestly without claiming to know something it
+    // never checked. (xero-payout-sync now pre-checks the Reference itself and
+    // self-heals this exact row, so a re-run is safe -- but the copy must not
+    // depend on the reader knowing that.)
     const msg = 'Stuck: xero-payout-sync claimed this payout at ' + row.created_at +
-      ' but never finished posting it to Xero (still "pending" ' + staleMinutes +
-      '+ minutes later). The background task almost certainly threw or was terminated mid-classification. ' +
-      'Nothing was posted -- this payout is currently MISSING from Xero. ' +
-      'To recover: re-send the payout.paid webhook for ' + row.stripe_payout_id +
-      ' from the Stripe dashboard, or re-run xero-payout-sync with payout_id=' + row.stripe_payout_id + '&force=true. ' +
+      ' but never recorded an outcome (still "pending" ' + staleMinutes +
+      '+ minutes later). The background task threw or was terminated mid-flight. ' +
+      'STATE UNKNOWN -- this payout may or may not have reached Xero, because the ' +
+      'row also strands this way when the post SUCCEEDED and the row update did not. ' +
+      'CHECK XERO FIRST: search bank transactions for reference "Stripe payout ' +
+      row.stripe_payout_id + '". If it is there, this row just needs repairing to ' +
+      "'posted' with that transaction id. If it is genuinely absent, re-send the " +
+      'payout.paid webhook for ' + row.stripe_payout_id + ' from the Stripe dashboard. ' +
       'Flagged automatically by xero-payout-watchdog.'
     const { error: updErr } = await supa
       .from('xero_payout_syncs')
@@ -104,7 +120,11 @@ async function handleRequest(req: Request): Promise<Response> {
     newly_marked_failed: marked.length,
     marked,
     outstanding_count: (outstanding || []).length,
-    outstanding_total_missing_from_xero: Math.round(totalMissing * 100) / 100,
+    // Renamed from `outstanding_total_missing_from_xero` (session 241): these rows
+    // are NOT KNOWN to be missing -- nothing here asked Xero. Naming a number
+    // "missing from Xero" is the same unproven claim as the message above, and it
+    // is the field a human reads first.
+    outstanding_total_unconfirmed_in_xero: Math.round(totalMissing * 100) / 100,
     outstanding: (outstanding || []).map((r: any) => ({
       stripe_payout_id: r.stripe_payout_id,
       amount: r.payout_amount,

@@ -481,6 +481,32 @@ async function handleRequest(req: Request): Promise<Response> {
         existing_import: existing,
       }), { status: 409 })
     } else if (existing) {
+      // ── SESSION 241: A POSTED PERIOD IS NOT REPLACEABLE ────────────────────
+      // The adjustment branch above has refused this since it was written. This
+      // branch never did, and the combination is a deterministic double-post:
+      // re-uploading a POSTED regular payroll with replace:true reset the row to
+      // 'parsed' while LEAVING xero_manual_journal_id pointing at the journal
+      // that is still sitting in Xero. payroll-xero-post then gates on status
+      // alone, sees 'reviewed', and posts a second journal for the same period.
+      // The client made it a one-click path: it offers "Re-parse and overwrite
+      // it" on any 409 without reading the status it was handed.
+      //
+      // Same shape, same answer as loan-xero-post's v42 guard: a row carrying a
+      // journal id is evidence about XERO, and no local status change may quietly
+      // outrank it.
+      if (existing.status === 'posted' || existing.xero_manual_journal_id) {
+        const kind = importType === 'reimbursement_only' ? 'reimbursement-only payroll' : 'payroll period'
+        return new Response(JSON.stringify({
+          error: `This ${kind} (${payPeriodStart} to ${payPeriodEnd}) has already been posted to Xero`
+            + `${existing.xero_manual_journal_id ? ` (journal ${existing.xero_manual_journal_id})` : ''}`
+            + `${existing.status !== 'posted' ? `, even though its status reads "${existing.status}"` : ''}`
+            + `. Re-parsing it would leave that journal in Xero while this row went back to unposted, and posting again `
+            + `would duplicate it. Void the journal in Xero first, or send this to Claude to void and repost it properly.`,
+          existing_import: existing,
+          xero_manual_journal_id: existing.xero_manual_journal_id ?? null,
+        }), { status: 409 })
+      }
+
       // regular/reimbursement_only: unchanged full-replace behavior --
       // exactly one row per period, so a full replace has always been the
       // correct semantics here (unlike adjustment, which can have several

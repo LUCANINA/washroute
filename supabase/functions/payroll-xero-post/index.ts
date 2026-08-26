@@ -169,6 +169,23 @@ async function handleRequest(req: Request): Promise<Response> {
     const { data: imp, error: impErr } = await supa.from('payroll_imports').select('*').eq('id', import_id).single()
     if (impErr || !imp) return new Response(JSON.stringify({ error: 'payroll_imports row not found', details: impErr?.message }), { status: 404 })
     if (imp.status === 'posted') return new Response(JSON.stringify({ error: 'This payroll period is already posted to Xero.', xero_manual_journal_id: imp.xero_manual_journal_id }), { status: 409 })
+    // ── SESSION 241: STATUS ALONE IS NOT ENOUGH ─────────────────────────────
+    // A row can carry a journal id while its status says otherwise. That is not
+    // hypothetical: payroll-ingest's replace branch used to reset a POSTED period
+    // to 'parsed' and leave the id in place, and any row created that way is
+    // still out there. Posting on status alone puts a second journal in Xero for
+    // a period that already has one.
+    //
+    // Copied from loan-xero-post (v42), which has refused exactly this shape for
+    // months: the id is evidence about Xero, and a local status may not outrank
+    // it. Repair the row or void the journal -- never resolve it by posting again.
+    if (imp.xero_manual_journal_id) {
+      return new Response(JSON.stringify({
+        error: `This payroll period already carries Xero Manual Journal ${imp.xero_manual_journal_id} even though its status is '${imp.status}' -- posting again would create a duplicate journal. This usually means a posted period was re-uploaded. Check the journal in Xero; if it should not exist, void it there; if it should, this row needs its status repaired, not a second post.`,
+        xero_manual_journal_id: imp.xero_manual_journal_id,
+        status: imp.status,
+      }), { status: 409 })
+    }
     if (imp.status === 'void') return new Response(JSON.stringify({ error: 'This payroll period is marked void and cannot be posted.' }), { status: 409 })
     if (imp.status !== 'reviewed') return new Response(JSON.stringify({ error: 'This payroll period must be marked Reviewed (with every employee mapped to a department) before it can be posted to Xero.' }), { status: 400 })
 
@@ -311,9 +328,18 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: `Blocked: posting would take an account negative (${parts.join('; ')}). Usually this period's bank drafts or tax remittances haven't cleared yet.` }), { status: 409 })
     }
 
-    const { data: freshImp } = await supa.from('payroll_imports').select('status').eq('id', import_id).single()
+    const { data: freshImp } = await supa.from('payroll_imports').select('status, xero_manual_journal_id').eq('id', import_id).single()
     if (freshImp?.status !== 'reviewed') {
       return new Response(JSON.stringify({ error: `This payroll period's status changed to "${freshImp?.status}" since you opened this review -- refresh and try again.` }), { status: 409 })
+    }
+    // Re-check the id here too, not just at the top: this is the last read before
+    // the write, and a guard that only sits on the earlier branch is a guard with
+    // a race in front of it.
+    if (freshImp?.xero_manual_journal_id) {
+      return new Response(JSON.stringify({
+        error: `This payroll period picked up Xero Manual Journal ${freshImp.xero_manual_journal_id} since you opened this review -- it may already have been posted by someone else. Nothing was posted. Refresh and check Xero.`,
+        xero_manual_journal_id: freshImp.xero_manual_journal_id,
+      }), { status: 409 })
     }
 
     const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', { method: 'POST', headers: xeroHeaders, body: JSON.stringify(journalPayload) })
@@ -330,12 +356,30 @@ async function handleRequest(req: Request): Promise<Response> {
       xero_posted_by: posted_by ?? null,
     }).eq('id', import_id)
 
+    // ── SESSION 241: XERO IS AHEAD OF US -- SAY SO, LOUDLY ──────────────────
+    // This used to return ok:true and tuck the failure into
+    // `payroll_imports_update_error`, a field the UI never reads. So the journal
+    // landed in Xero, the row stayed 'reviewed', the operator saw success, and
+    // the next click posted a SECOND journal for the same period. Live example
+    // found by the session-240 audit: import 08ea6dc8, pay date 2026-08-21,
+    // ~$20.5k.
+    //
+    // Same answer as loan-xero-post's xeroAheadOfUs(): a write that half
+    // succeeded is a 500 that names both halves. Never a success.
+    if (updateErr) {
+      return new Response(JSON.stringify({
+        error: `The payroll journal WAS posted to Xero (${journal?.ManualJournalID ?? 'id unknown'}), but our own record could not be updated: ${updateErr.message}. Xero is now ahead of our records. Do NOT retry -- posting again would duplicate the journal. Set this period's status to 'posted' and record the journal id, or void the journal in Xero.`,
+        xero_write_succeeded: true,
+        xero_manual_journal_id: journal?.ManualJournalID ?? null,
+        db_error: updateErr.message,
+      }, null, 2), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    }
+
     return new Response(JSON.stringify({
       ok: true,
       manual_journal: { id: journal?.ManualJournalID, lines: journal?.JournalLines },
       direct_wages_balance_before_posting: avail170,
       direct_payroll_taxes_balance_before_posting: avail171,
-      payroll_imports_update_error: updateErr?.message,
     }, null, 2), { headers: { 'Content-Type': 'application/json' } })
   } catch (err) {
     return new Response(JSON.stringify({ error: String((err as any)?.message || err) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
