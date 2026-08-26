@@ -1,16 +1,37 @@
 import { assertEquals, assert } from 'jsr:@std/assert@1'
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 
-// The live case this was built from: E-Transit 4140, 2026-06-17.
-// Payment $1,180.32 coded $764.44 to the loan and $415.88 to Interest Expense.
-// $415.88 = April 147.43 + May 135.64 + June 132.81 — all three already
-// reallocated by journals. The loan fell $631.63 instead of $1,047.51.
+// ─────────────────────────────────────────────────────────────────────────────
+// EVERY NUMBER BELOW IS READ OFF A LIVE WALK, not off PROJECT-NOTES.
+//
+// Session 236 ran `loan-find-difference` against E-Transit 4140 through the real
+// dashboard (loan b1008b4a…, account 242) and read the result. The previous
+// version of this file was written from the notes' prose instead, and asserted a
+// span gap of $415.88 that the walk shows has never existed — so it passed while
+// the feature it was testing never fired on the case it was built for.
+//
+// What the live walk actually says:
+//
+//   headline / total_period_diff .......... 415.88
+//   span 2026-05-28 → 2026-06-17 .......... diff +283.07   (entry win 06-02 → 06-22)
+//   pair 2026-04-27 → 2026-05-28 .......... residue +132.81 ("the 2026-06 interest portion")
+//   pair 2025-10-17 → 2025-12-17 .......... nets −0.01, pure
+//
+//   payment 2026-06-17 (0d297c29), total 1180.32, coded 242=764.44 / 800=415.88
+//   splits: 2026-04 int 147.43 jnl 31ad48e9 · 2026-05 int 135.64 jnl 7ce60981
+//           2026-06 int 132.81 jnl 12ef542c (dated 2026-05-18 — OUTSIDE the June span)
+//
+//   415.88 = 147.43 + 135.64 + 132.81
+//   283.07 = 147.43 + 135.64          ← foreign months only; this is the span's gap
+//   132.81 = June's own, doubled by a journal dated into a different span
+// ─────────────────────────────────────────────────────────────────────────────
 const FORD_4140 = {
   loanCode: '242',
   interestCode: '800',
   loanName: 'Ford E-Transit 4140',
   paymentPeriod: '2026-06',
-  gap: 415.88,
+  gap: 283.07,              // the LIVE span gap, not the headline
+  ownJournalInSpan: false,  // 12ef542c is dated 2026-05-18
   postingDate: '2026-08-31',
   postingWhy: 'books are closed through 2026-06-30 and July is being closed',
   lines: [
@@ -18,25 +39,63 @@ const FORD_4140 = {
     { c: '800', a: 415.88, d: 'Interest' },
   ],
   splits: [
-    { period_label: '2026-03', interest_amount: 151.20, xero_manual_journal_id: 'aaaaaaaa-1', status: 'posted' },
+    { period_label: '2026-03', interest_amount: 139.79, xero_manual_journal_id: null, status: 'already_in_xero' },
     { period_label: '2026-04', interest_amount: 147.43, xero_manual_journal_id: '31ad48e9-0000', status: 'posted' },
     { period_label: '2026-05', interest_amount: 135.64, xero_manual_journal_id: '7ce60981-0000', status: 'posted' },
     { period_label: '2026-06', interest_amount: 132.81, xero_manual_journal_id: '12ef542c-0000', status: 'posted' },
   ],
 }
 
-Deno.test('4140: decomposes $415.88 into the three months that were already reallocated', () => {
+Deno.test('4140 LIVE: a $283.07 span gap decomposes into April + May, and the correction is $415.88', () => {
   const d = diagnoseWorkedEntry(FORD_4140)!
   assertEquals(d.shape, 'duplicated_reallocation')
   assertEquals(d.at_source, 415.88)
   assertEquals(d.owed, 132.81)
+  // The gap is the FOREIGN months only...
+  assertEquals(r2(147.43 + 135.64), Math.abs(FORD_4140.gap))
+  // ...but the correction includes June's own duplicate, which lands elsewhere.
   assertEquals(d.duplicated, 415.88)
   assertEquals(d.components!.map((c) => c.period), ['2026-04', '2026-05', '2026-06'])
   assert(d.components!.every((c) => c.already_booked))
-  assert(d.components!.every((c) => c.booked_by === 'our_journal'))
 })
 
-Deno.test('4140: proposes a balanced entry, debit the loan, dated into the open period', () => {
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+Deno.test('4140 LIVE: the note says the correction reaches beyond this span', () => {
+  const d = diagnoseWorkedEntry(FORD_4140)!
+  assert(/surfaces in a different span/.test(d.note))
+  assert(/\$132\.81/.test(d.note))
+})
+
+Deno.test('the own month is only a duplicate when a JOURNAL doubled it', () => {
+  // June marked already_in_xero instead: that IS this payment's own split, not a
+  // second booking. Only April + May are duplicates, and the gap still ties.
+  const d = diagnoseWorkedEntry({
+    ...FORD_4140,
+    splits: FORD_4140.splits.map((s) =>
+      s.period_label === '2026-06' ? { ...s, status: 'already_in_xero', xero_manual_journal_id: null } : s),
+  })!
+  assertEquals(d.duplicated, 283.07)
+  assertEquals(d.entry!.amount, 283.07)
+})
+
+Deno.test('an own-month duplicate whose journal IS in this span shows up in the gap', () => {
+  // The mirror of 4140: same doubling, but the journal is dated inside the span,
+  // so the walk sees 283.07 + 132.81 and the tie test must expect all of it.
+  const d = diagnoseWorkedEntry({ ...FORD_4140, gap: 415.88, ownJournalInSpan: true })!
+  assertEquals(d.entry!.amount, 415.88)
+  assert(!/surfaces in a different span/.test(d.note))
+})
+
+Deno.test('the same case with ownJournalInSpan mis-set does NOT propose', () => {
+  // Guard against the caller getting the flag wrong: 4140's real gap is 283.07,
+  // so claiming the journal is in-span makes the expectation 415.88 and it refuses.
+  const d = diagnoseWorkedEntry({ ...FORD_4140, ownJournalInSpan: true })!
+  assertEquals(d.entry, null)
+  assert(/Something else is moving here too/.test(d.note))
+})
+
+Deno.test('4140 LIVE: proposes a balanced entry, debit the loan, dated into the open period', () => {
   const e = diagnoseWorkedEntry(FORD_4140)!.entry!
   assertEquals(e.amount, 415.88)
   assertEquals(e.direction, 'interest_back_to_loan')
@@ -56,7 +115,7 @@ Deno.test('4140: proposes a balanced entry, debit the loan, dated into the open 
 })
 
 Deno.test('the mirror: Xero below the lender reverses the direction', () => {
-  const e = diagnoseWorkedEntry({ ...FORD_4140, gap: -415.88 })!.entry!
+  const e = diagnoseWorkedEntry({ ...FORD_4140, gap: -283.07 })!.entry!
   assertEquals(e.direction, 'interest_out_of_loan')
   assertEquals(e.JournalLines.find((l) => l.AccountCode === '242')!.LineAmount, -415.88)
   assertEquals(e.JournalLines.find((l) => l.AccountCode === '800')!.LineAmount, 415.88)
@@ -96,9 +155,12 @@ Deno.test('already_in_xero counts as booked even with no journal id', () => {
     splits: FORD_4140.splits.map((s) => ({ ...s, status: 'already_in_xero', xero_manual_journal_id: null })),
   })!
   assertEquals(d.shape, 'duplicated_reallocation')
-  assertEquals(d.duplicated, 415.88)
   assert(d.components!.every((c) => c.booked_by === 'at_source'))
-  assertEquals(d.entry!.amount, 415.88)
+  // April + May are duplicates: booked at source in their own months, and on this
+  // payment again. June is NOT — `already_in_xero` on the payment's own month means
+  // THIS split, the one being looked at, and a thing is not a duplicate of itself.
+  assertEquals(d.duplicated, 283.07)
+  assertEquals(d.entry!.amount, 283.07)
   assert(/handled directly in Xero/.test(d.note))
 })
 
@@ -113,29 +175,29 @@ Deno.test('the two routes mix freely within one split', () => {
   assertEquals(d.entry!.amount, 415.88)
 })
 
-// ── session 235: PARTLY DUPLICATED — the case this session was for ─────────
-
-// April was never booked (pending_review, no journal). May and June were.
-// Her split covers all three; only May + June are duplicates. The span's gap is
-// $268.45 — the duplicated part alone — which is how we know April's share is
-// not in question here.
+// ── PARTLY DUPLICATED, re-derived on session 236's model ──────────────────
+// April never booked (pending_review, no journal). It is still a FOREIGN month, so
+// its interest is still wrongly on this payment and still in the span's gap — the
+// gap is unchanged at 283.07. What changes is what may be reversed: May (booked)
+// and June (doubled by journal), but never April, whose only correction is her
+// split. Reversing April would re-break April.
 const PARTIAL = {
   ...FORD_4140,
-  gap: 268.45,
   splits: FORD_4140.splits.map((s) =>
     s.period_label === '2026-04'
       ? { ...s, status: 'pending_review', xero_manual_journal_id: null }
       : s),
 }
 
-Deno.test('partly duplicated: reverses only the months that were already booked', () => {
+Deno.test('partly duplicated: reverses May + June, never April', () => {
   const d = diagnoseWorkedEntry(PARTIAL)!
   assertEquals(d.shape, 'partly_duplicated')
   assertEquals(d.at_source, 415.88)
   assertEquals(d.duplicated, 268.45) // 135.64 + 132.81
   assertEquals(d.entry!.amount, 268.45)
   assertEquals(d.entry!.JournalLines.reduce((s, l) => s + l.LineAmount, 0), 0)
-  assertEquals(d.entry!.JournalLines.find((l) => l.AccountCode === '242')!.LineAmount, 268.45)
+  assert(/2026-05, 2026-06/.test(d.entry!.Narration))
+  assert(!/2026-04/.test(d.entry!.Narration))
 })
 
 Deno.test('partly duplicated: names the carry-over and says why it stays', () => {
@@ -143,28 +205,16 @@ Deno.test('partly duplicated: names the carry-over and says why it stays', () =>
   assertEquals(d.carry_over, { amount: 147.43, months: ['2026-04'] })
   assert(/never been booked at all/.test(d.note))
   assert(/re-break/.test(d.note))
-  // The narration must name only the months actually being reversed.
-  assert(/2026-05, 2026-06/.test(d.entry!.Narration))
-  assert(!/2026-04/.test(d.entry!.Narration))
 })
 
-Deno.test('partly duplicated that does NOT tie to the gap proposes nothing', () => {
-  // Gap is the whole $415.88, so the never-booked month IS in this span too —
-  // reversing $268.45 alone would leave the loan out by $147.43.
-  const d = diagnoseWorkedEntry({ ...PARTIAL, gap: 415.88 })!
-  assertEquals(d.shape, 'partly_duplicated')
+Deno.test('a gap that disagrees with the decomposition proposes nothing', () => {
+  const d = diagnoseWorkedEntry({ ...FORD_4140, gap: 900.00 })!
   assertEquals(d.entry, null)
-  assert(/would leave the loan out by \$147\.43/.test(d.note))
+  assert(/Something else is moving here too/.test(d.note))
 })
 
 Deno.test('a fully-duplicated diagnosis carries no carry-over', () => {
   assertEquals(diagnoseWorkedEntry(FORD_4140)!.carry_over, null)
-})
-
-Deno.test('duplication that does not equal the span gap proposes nothing', () => {
-  const d = diagnoseWorkedEntry({ ...FORD_4140, gap: 900.00 })!
-  assertEquals(d.entry, null)
-  assert(/something else is moving here too/.test(d.note))
 })
 
 Deno.test('an at-source figure that is not a run of consecutive months is undecomposable', () => {
@@ -178,9 +228,13 @@ Deno.test('no interest line at all is a different shape of hand-edit — not our
   assertEquals(diagnoseWorkedEntry({ ...FORD_4140, lines: [{ c: '242', a: 1180.32 }] }), null)
 })
 
-Deno.test('a single month that was already reallocated still works', () => {
-  const d = diagnoseWorkedEntry({ ...FORD_4140, lines: [{ c: '800', a: 132.81 }], gap: 132.81 })!
-  assertEquals(d.shape, 'duplicated_reallocation')
+Deno.test('a lone own-month duplicate is invisible unless its journal is in this span', () => {
+  const one = { ...FORD_4140, lines: [{ c: '800', a: 132.81 }], gap: 132.81 }
+  // Journal dated elsewhere: no foreign months, so this span should be off by $0 —
+  // the 132.81 the walk sees must be something else. Refuse.
+  assertEquals(diagnoseWorkedEntry(one)!.entry, null)
+  // Journal inside this span: now the gap is exactly the duplicate. Propose.
+  const d = diagnoseWorkedEntry({ ...one, ownJournalInSpan: true })!
   assertEquals(d.components!.map((c) => c.period), ['2026-06'])
   assertEquals(d.entry!.amount, 132.81)
 })

@@ -578,6 +578,62 @@ function analyzeWalk(o: {
     // v6: a paired span is timing, not an allocation error — proposing a
     // correction journal for it would CREATE a discrepancy, not close one.
     if (p.timing_pair) continue
+
+    // ── SESSION 236: FIND THE PAYMENT, NOT A ONE-MONTH GAP ──────────────────
+    // The gate below this looks for a split whose interest equals the span's gap
+    // to the cent, and everything — including the accountant-exception path —
+    // hung off that. The first live 4140 run showed why it never fired: that
+    // span's gap is $283.07, which is April $147.43 + May $135.64, a RUN of
+    // months and not any single one. So the branch was never entered and the
+    // cross-loan hunt filled the silence with a false lead (recode a sibling
+    // loan's correctly-coded payment).
+    //
+    // `diagnoseWorkedEntry` already decomposes a run of months. It just has to be
+    // ASKED. So this block locates an already-worked payment in the span by
+    // matching it to its own split's TOTAL — no assumption about the gap's shape —
+    // and lets the diagnosis decide whether it understands what it is looking at.
+    if (!cpaException) {
+      const spanEntries = entries.filter(r => r.date > (p.entry_from || p.from) && r.date <= (p.entry_to || p.to) && r.srcType === 'BankTransaction')
+      for (const rec of spanEntries) {
+        if (!alreadyWorked(rec)) continue
+        const per = splits.filter(s => s.total_amount != null && Math.abs(Number(s.total_amount) - (rec.total ?? NaN)) < TOL)
+        // Prefer an exact dated period (weekly loans), else the payment's month.
+        const spx = per.find(s => String(s.period_label) === rec.date)
+          || per.find(s => String(s.period_label).slice(0, 7) === rec.date.slice(0, 7))
+        if (!spx) continue
+        // Where did the journal that ALSO booked this month land? A correction
+        // sits in the span its DATE puts it in, not the span of the period it
+        // corrects — 4140's `12ef542c` carries June and is dated 2026-05-18.
+        const ownJnlId = String(spx.xero_manual_journal_id || '').toLowerCase()
+        const ownJournalInSpan = !!ownJnlId && entries.some(r => r.srcType === 'ManualJournal'
+          && String(r.srcId || '').toLowerCase() === ownJnlId
+          && r.date > (p.entry_from || p.from) && r.date <= (p.entry_to || p.to))
+        const diagnosis = diagnoseWorkedEntry({
+          lines: rec.lines, loanCode: code, interestCode: INTEREST_EXPENSE_ACCOUNT_CODE,
+          splits, paymentPeriod: String(spx.period_label), gap: p.diff,
+          postingDate, postingWhy, loanName: loan.xero_account_name || 'this loan',
+          tol: TOL, ownJournalInSpan,
+        })
+        if (!diagnosis) continue
+        cpaException = {
+          period: { from: p.from, to: p.to }, split_period: String(spx.period_label),
+          entry: entryView(rec, code, acctMap),
+          diagnosis,
+          proposed_entry: diagnosis.entry ?? null,
+          token: diagnosis.entry
+            ? proposalToken(loan.id, `exception:${spx.period_label}`, diagnosis.entry.amount, diagnosis.entry.direction, diagnosis.entry.Date)
+            : null,
+          note: diagnosis.note,
+        }
+        break
+      }
+    }
+    // One span, one answer. If the block above diagnosed THIS span, do not also
+    // let the single-month path raise a proposal for it — two corrections for one
+    // gap is how a span gets fixed twice. (Session 231: put the guard where the
+    // branches converge, not on one of them.)
+    if (cpaException && cpaException.period && cpaException.period.from === p.from) continue
+
     const sp = splits.find(s => s.interest_amount != null && Math.abs(Math.abs(p.diff) - Number(s.interest_amount)) < TOL
       && s.period_label >= p.from.slice(0, 7) && s.period_label <= p.to.slice(0, 7))
     if (!sp) continue
@@ -588,6 +644,10 @@ function analyzeWalk(o: {
     const lump = lumps.find(r => r.date.slice(0, 7) === sp.period_label) || lumps[0]
     if (!lump) continue
     if (alreadyWorked(lump)) {
+      // Session 236: the block at the top of this loop already diagnosed any
+      // already-worked payment in this span, whatever the gap's shape. This is
+      // now only the fallback for when it declined to say anything.
+      if (cpaException) continue
       // ── session 234: DEFERENCE HAS TO CARRY A DIAGNOSIS ──────────────────
       // We still never touch her entry. But "she decides" with no working is
       // a flag, not an answer, and the 4140 case proved the engine already

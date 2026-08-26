@@ -2,40 +2,40 @@
 
 > ## ⏭️ START HERE — first thing, session 237 (left by session 236, 2026-08-26)
 >
-> ### 1. THE DIAGNOSIS DOES NOT FIRE ON 4140. Read session 236 in the log first.
+> ### 1. DEPLOY, then RE-VERIFY. The fix is committed and untested live.
 >
-> Sessions 234–235 are deployed (`loan-find-difference` v19, `loan-xero-post` v61,
-> `reconciliation-run` v32) and were run live for the first time in session 236.
-> **`cpa_exception` came back null.** The $415.88 is the loan-level headline, not one span's
-> gap — the walk splits it into +283.07 on the June span (April + May interest sitting on the
-> June payment) and +132.81 as a timing-pair residue (June's own interest, double-booked, and
-> landing in the previous pair because journal `12ef542c` is dated 2026-05-18).
+> ```
+> npx supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq
+> ```
+> Session 236 found that the diagnosis never fired on 4140 (the $415.88 is the loan-level
+> headline, not one span's gap) and reworked the gate to find the PAYMENT rather than a
+> one-month gap. 20 fixtures pass — **and fixtures are exactly what fooled us last time.**
 >
-> The exception branch is gated on a span gap equal to ONE month's interest, so it is never
-> entered. The tie test in `diagnoseWorkedEntry` encodes the same wrong assumption, and the
-> fixture that "proves" the 4140 case was written from this file's prose rather than a walk —
-> it asserts a span that does not exist. **Self-confirming.** Full detail and the real walk
-> table: session 236 in the log.
+> After deploying, re-run the live walk (§6) on 4140 and confirm ALL THREE:
+> 1. `cpa_exception` is non-null.
+> 2. `cpa_exception.proposed_entry` is **$415.88**, debit 242 / credit 800, dated **2026-08-31**.
+> 3. The cross-loan suggestion naming E6-7410 / E5-4751 is **gone** from `conclusions`.
 >
-> ### 2. ⚠️ LIVE AND WRONG — do not act on the engine's 4140 advice
+> If any is off, the model is still wrong. **Adjust the model, never the fixture.**
 >
-> With no diagnosis to offer, the cross-loan hunt fills the gap and recommends recoding
-> **E6-7410's $643.50 (2026-06-09)** or **E5-4751's $1,046.95 (2026-06-12)** onto 4140. Both
-> are those loans' own June payments, correctly coded. Following either would break a correct
-> payment and would not close the gap. Fixing item 1 removes the false lead as a side effect,
-> because the cross-loan hunt only runs when nothing better explains a span.
+> ### 2. ⚠️ Until it is deployed and verified — do not act on the 4140 advice
 >
-> ### 3. The redesign
+> The live engine currently recommends recoding **E6-7410's $643.50 (2026-06-09)** or
+> **E5-4751's $1,046.95 (2026-06-12)** onto 4140. Both are those loans' own June payments,
+> correctly coded (4751's is split at source 332=778.28 / 800=268.67). Following either would
+> break a correct payment and would not close the gap. The cross-loan hunt only runs when
+> nothing better explains a span, so check 3 above is what proves this is gone.
 >
-> The engine can already turn 283.07 into "April $147.43 + May $135.64" —
-> `diagnoseWorkedEntry` does exactly that decomposition — it is simply never asked, because
-> the gate in front of it looks for a single month. Rework the gate around the run-of-months
-> decomposition. Two rules to carry in:
+> ### 3. After that: `undecomposable`
 >
-> - **A period's correction can be split across spans by the DATE of the journal that made
->   it.** Never assume one gap has one cause. `12ef542c` proves it.
-> - **Build the fixture from a live walk, not from this file.** That is how session 234's
->   fixture passed while describing a span that never existed.
+> Her at-source figure is not a consecutive run of months at all, so the engine cannot say what
+> the extra covers. Two rules session 236 paid for — carry them in:
+>
+> - **A period's correction lands in the span its journal's DATE puts it in**, not the span of
+>   the period it corrects. `12ef542c` carries 2026-06 and is dated 2026-05-18. Never assume
+>   one gap has one cause.
+> - **Build the fixture from a live walk, not from this file.** Session 234's fixture passed
+>   while asserting a span that never existed.
 >
 > ### 4. Waiting on the accountant: 4140's $415.88 — the correction itself is UNCHANGED
 >
@@ -253,6 +253,14 @@ guards are the point:
 
 Consumers must test `entry`, not `shape` — a confident `duplicated_reallocation` can still
 carry `entry: null` when it does not fully account for the gap.
+
+**Session 236 added the rule that makes all of the above actually reach a real case:** a
+correction lands in the span its JOURNAL'S DATE puts it in, not the span of the period it
+corrects. So the payment's OWN month is never in its own span's gap unless the doubling journal
+happens to be dated there (`ownJournalInSpan`), and FOREIGN months always are. The correction
+is therefore NOT always equal to the span's gap — on 4140 the gap is $283.07 and the correction
+is $415.88. Any version of this that assumes one gap has one cause will silently never fire,
+which is exactly what shipped in session 234 and passed its own fixtures for two days.
 
 ### DEFERENCE IS NOT THE ONLY THING THE CLOSE DATE BINDS (session 234)
 
@@ -1654,6 +1662,61 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 236 cont. (2026-08-26) — the gate reworked around the payment, and the fixture rebuilt from a walk
+
+Fixed what the live run exposed. Not deployed yet.
+
+**The gate.** It looked for a split whose `interest_amount` equalled the span's gap, and the
+whole accountant-exception path hung off that. 4140's gap is $283.07 — April $147.43 + May
+$135.64, a RUN of months — so it never matched and the branch was never entered.
+`diagnoseWorkedEntry` has always been able to decompose a run; it was simply never asked. The
+gate now **finds the payment instead of the gap**: any already-worked bank transaction in the
+span, matched to its own split by TOTAL, with no assumption about the gap's shape. The
+single-month path is untouched and still owns the un-worked-lump proposal.
+
+**The model, re-derived from the walk.** Components now divide by whether they are the
+payment's OWN month:
+
+- **FOREIGN** months have no business on this payment at all, so all of their interest lands
+  in this span's gap, booked elsewhere or not.
+- **OWN** month interest BELONGS on this payment, so it is never in the gap. It is a duplicate
+  only if a separate JOURNAL also booked it — and it then surfaces wherever that journal is
+  DATED, which may be a different span entirely.
+
+Hence `expectedGap = foreignSum + (ownDuplicated && ownJournalInSpan ? owed : 0)`, with
+`ownJournalInSpan` passed in by the caller, which is the only party that knows. And hence the
+correction is NOT always the span's gap: on 4140 the gap is $283.07 and the correction is
+$415.88, because June's duplicate is real but sits two spans earlier. The note says so in as
+many words rather than leaving the reader to wonder why the numbers differ.
+
+**An asymmetry worth keeping in mind:** `already_in_xero` on a FOREIGN month means it was
+booked in its own month (a duplicate). On the payment's OWN month it means *this very split* —
+the booking being examined — so it is not a duplicate of itself. Only `our_journal` doubles the
+own month.
+
+**Verified against production, not against this file.** Every fixture number is now read off
+the live walk, and the inputs were re-checked at source:
+
+| | | |
+|---|---|---|
+| `31ad48e9` | dated **2026-04-17** | 800=147.43 / 242=−147.43, narration names 2026-04 |
+| `7ce60981` | dated **2026-05-18** | 800=135.64 / 242=−135.64, names 2026-05 |
+| `12ef542c` | dated **2026-05-18** | 800=132.81 / 242=−132.81, **names 2026-06** |
+
+That last row is the whole lesson: a journal carrying June, dated in May. April's, by contrast,
+is dated in its own month, which is why April's span walks clean.
+
+**Also fixed:** one span could previously produce both an exception and a single-month
+proposal. Guarded — one span, one answer.
+
+20 fixtures on the diagnosis, 37 across the module, all green.
+
+**Where to pick up. THE FIXTURES ARE NOT THE PROOF.** Deploy `loan-find-difference`, re-run
+the live walk on 4140 (method in START HERE §6) and confirm three things: `cpa_exception` is
+non-null; its `proposed_entry` is $415.88 debit 242 / credit 800 dated 2026-08-31; and the
+false cross-loan suggestion naming E6-7410 / E5-4751 is GONE from `conclusions`. If any of
+those is off, the model is still wrong — do not adjust the fixture to match, adjust the model.
 
 ### Session 236 (2026-08-26) — the first live run: the diagnosis does not fire on the case it was built for
 

@@ -144,6 +144,17 @@ export function diagnoseWorkedEntry(o: {
   tol?: number
   /** How many months back a catch-up allocation may plausibly reach. */
   maxLookback?: number
+  /**
+   * Session 236: does the journal that ALSO booked the payment's OWN month fall
+   * inside this span's entry window? The caller knows; we cannot.
+   *
+   * This matters because a correction lands in the span its DATE puts it in, not
+   * the span of the period it corrects. On 4140, journal `12ef542c` carries June's
+   * interest but is dated 2026-05-18, so it sits in the PREVIOUS pair and June's
+   * duplicate is nowhere in June's own gap. Assuming otherwise is what made the
+   * first version of this file never fire on the case it was written for.
+   */
+  ownJournalInSpan?: boolean
 }): WorkedEntryDiagnosis | null {
   const TOL = o.tol ?? 0.02
   const maxLookback = o.maxLookback ?? 12
@@ -205,7 +216,41 @@ export function diagnoseWorkedEntry(o: {
     }
   }
 
-  const already = components.filter((c) => c.already_booked)
+  // ── SESSION 236: what the span's gap is actually made of ─────────────────
+  //
+  // The first version of this file assumed her whole at-source interest figure
+  // showed up as this span's gap. The live 4140 run proved otherwise, and the
+  // decomposition below is read straight off that walk:
+  //
+  //   payment 2026-06-17, coded 242=764.44 / 800=415.88, should be 1047.51/132.81
+  //   415.88  =  Apr 147.43  +  May 135.64  +  Jun 132.81
+  //   span 2026-05-28 -> 2026-06-17 gap  =  +283.07  =  Apr + May  ONLY
+  //   Jun's 132.81 surfaces two spans earlier, as a timing-pair residue, because
+  //   the journal that double-booked it (12ef542c) is dated 2026-05-18
+  //
+  // So the months divide into two kinds with different meanings:
+  //
+  //   FOREIGN  months other than the payment's own. Their interest has no business
+  //            on this payment at all, so ALL of it lands in this span's gap --
+  //            whether or not it was ever booked elsewhere.
+  //   OWN      the payment's own month. Its interest BELONGS on this payment, so it
+  //            is not in the gap. It is only a duplicate if a separate JOURNAL also
+  //            booked it -- and then it shows up wherever that journal is dated.
+  //
+  // Note the asymmetry on the own month: `already_in_xero` there means she split
+  // THIS payment, which is the booking we are looking at, not a second one. Only
+  // `our_journal` makes the own month a duplicate.
+  const ownComp = components.find((c) => c.period === String(o.paymentPeriod)) ?? null
+  const foreign = components.filter((c) => c !== ownComp)
+  const foreignSum = r2(foreign.reduce((s, c) => s + c.interest, 0))
+  const ownDuplicated = !!ownComp && ownComp.booked_by === 'our_journal'
+
+  // Reversible = foreign months that were already booked (their interest is on this
+  // payment AND booked in their own month) + the own month when a journal doubled it.
+  // A foreign month that was NEVER booked is a legitimate catch-up: her allocation is
+  // the only correction it ever got, and reversing it would re-break that month.
+  const foreignBooked = foreign.filter((c) => c.already_booked)
+  const already = [...foreignBooked, ...(ownDuplicated ? [ownComp!] : [])]
   const duplicated = r2(already.reduce((s, c) => s + c.interest, 0))
   const monthList = components.map((c) => `${c.period} ${money(c.interest)}`).join(' + ')
 
@@ -215,9 +260,9 @@ export function diagnoseWorkedEntry(o: {
       shape: 'no_duplication',
       duplicated: 0,
       note: `Your accountant's ${money(atSource)} interest split covers ${components.length} month${components.length === 1 ? '' : 's'} `
-        + `(${monthList}). None of them was booked before — no reallocation journal on our side, and none marked as `
-        + `handled directly in Xero — so her entry is the only correction these months have had. Nothing is `
-        + `double-counted and there is nothing to propose.`,
+        + `(${monthList}). None of it was booked anywhere else — no reallocation journal on our side, and nothing `
+        + `marked as handled directly in Xero — so her entry is the only correction these months have had. `
+        + `Nothing is double-counted and there is nothing to propose.`,
     }
   }
 
@@ -225,44 +270,32 @@ export function diagnoseWorkedEntry(o: {
     ? `${c.period} by journal ${shortId(c.journal_id)}`
     : `${c.period} handled directly in Xero`
   const journalList = already.map(describe).join(', ')
-  const notBooked = components.filter((c) => !c.already_booked)
-  const carryOver = r2(atSource - duplicated)
-  const partial = duplicated < atSource - TOL
+  const notBooked = foreign.filter((c) => !c.already_booked)
+  const carryOver = r2(foreignSum - r2(foreignBooked.reduce((s, c) => s + c.interest, 0)))
+  const partial = notBooked.length > 0
 
-  // 4. The safety belt. The proposed entry has to close the span's gap to the
-  //    cent. If the arithmetic of "what was corrected twice" does not equal
-  //    what the walk actually observes, something else is also going on and the
-  //    engine has no business proposing a journal — it reports and stops.
-  const tiesToGap = Math.abs(Math.abs(o.gap) - duplicated) < TOL
+  // ── THE SAFETY BELT ───────────────────────────────────────────────────────
+  // What we expect this span's gap to be, from the decomposition above: every
+  // foreign month, plus the own month ONLY when its doubling journal is dated
+  // inside this span. If the walk disagrees, something else is moving here too and
+  // the engine has no business proposing an entry it cannot fully account for.
+  const expectedGap = r2(foreignSum + (ownDuplicated && o.ownJournalInSpan ? (ownComp?.interest ?? 0) : 0))
+  const tiesToGap = Math.abs(Math.abs(o.gap) - expectedGap) < TOL
   if (!tiesToGap) {
     return {
       ...base,
       shape: partial ? 'partly_duplicated' : 'duplicated_reallocation',
       duplicated,
       note: `Your accountant's ${money(atSource)} interest split covers ${monthList}. `
-        + `${money(duplicated)} of that was already booked once before (${journalList}) — counted twice. `
-        + `That does not equal this span's ${money(o.gap)} gap, so something else is moving here too, and reversing `
-        + `${money(duplicated)} on its own would leave the loan out by ${money(r2(Math.abs(o.gap) - duplicated))}. `
-        + `The engine will not propose an entry it cannot fully account for — this one is hers.`,
+        + `${money(foreignSum)} of that belongs to other months, so this span should be off by `
+        + `${money(expectedGap)} — the walk says ${money(o.gap)}. Something else is moving here too, `
+        + `and the engine will not propose an entry it cannot fully account for. This one is hers.`,
     }
   }
 
-  // 5. Reverse exactly the duplicated amount -- NOT her whole split.
-  //
-  //    Session 235: this is what makes `partly_duplicated` answerable. When some
-  //    of the months she covered were already booked and some were not, the two
-  //    halves genuinely need different treatment, and the safety belt above is
-  //    what decides whether we understand the split well enough to act: the gap
-  //    the walk actually observes must equal the DUPLICATED part alone. When it
-  //    does, the months that were never booked are not in this span's gap at all
-  //    -- her allocation for them is a legitimate catch-up correcting the month
-  //    it names, and reversing it would re-break that month. So we reverse the
-  //    duplicate, leave the catch-up alone, and say so in as many words.
-  //
-  //    Direction from the gap's sign, the same convention the walk uses
-  //    everywhere: gap > 0 means Xero's balance sits ABOVE the lender's, so the
-  //    loan account comes down (debit) and Interest Expense gives the duplicate
-  //    back (credit).
+  // ── The entry. Reverse exactly what was booked twice -- which is NOT always
+  //    what this span's gap is. On 4140 the gap is $283.07 and the correction is
+  //    $415.88, because June's duplicate is real but sits in a different span. ──
   const amount = duplicated
   const direction: 'interest_back_to_loan' | 'interest_out_of_loan' =
     o.gap > 0 ? 'interest_back_to_loan' : 'interest_out_of_loan'
@@ -272,6 +305,7 @@ export function diagnoseWorkedEntry(o: {
     { LineAmount: r2(-sign * amount), AccountCode: o.interestCode, Description: `Interest already booked (${already.map((c) => c.period).join(', ')})`, TaxType: 'NONE' as const },
   ]
 
+  const beyondSpan = r2(amount - expectedGap)
   return {
     shape: partial ? 'partly_duplicated' : 'duplicated_reallocation',
     at_source: atSource,
@@ -290,15 +324,17 @@ export function diagnoseWorkedEntry(o: {
       JournalLines,
     },
     note: `Your accountant split this payment herself, putting ${money(atSource)} on Interest Expense — that is `
-      + `${monthList}. `
+      + `${monthList}, against ${money(owed)} that this period actually owes. `
+      + `${money(duplicated)} of it was already booked once before (${journalList}), so that much is counted twice. `
       + (partial
-        ? `${money(duplicated)} of that was already booked once before (${journalList}), so it is counted twice. `
-          + `The other ${money(carryOver)} (${notBooked.map((c) => c.period).join(', ')}) had never been booked at all — `
-          + `her split is the only correction ${notBooked.length === 1 ? 'that month has' : 'those months have'} had, so it stays. `
-          + `Reversing it would re-break the ${notBooked.length === 1 ? 'month' : 'months'} it just fixed. `
-          + `This span's ${money(o.gap)} gap matches the duplicated part exactly, which is how we know the rest is not in question. `
-        : `All ${already.length} of those months had ALREADY been booked once (${journalList}), `
-          + `so the same interest is booked twice and the loan sits ${money(o.gap)} ${o.gap > 0 ? 'above' : 'below'} the lender. `)
+        ? `The other ${money(carryOver)} (${notBooked.map((c) => c.period).join(', ')}) had never been booked at all — `
+          + `her split is the only correction ${notBooked.length === 1 ? 'that month has' : 'those months have'} had, so it stays; `
+          + `reversing it would re-break the ${notBooked.length === 1 ? 'month' : 'months'} it just fixed. `
+        : '')
+      + (Math.abs(beyondSpan) >= TOL
+        ? `Note this span is only off by ${money(o.gap)}: ${money(beyondSpan)} of the correction answers a duplicate `
+          + `that surfaces in a different span, because the journal that made it is dated outside this one. `
+        : '')
       + `Her entry stays exactly as it is; the correction is a separate journal for ${money(amount)}, dated ${o.postingDate} `
       + `(${o.postingWhy}). Nothing posts until it is approved.`,
   }
