@@ -73,20 +73,28 @@
 > any code.
 >
 >
-> ### 4. DEPLOY, then re-verify. Three fixes are committed and untested live.
+> ### 4. ✅ DONE — deployed and verified live (2026-08-26, end of session 240)
 >
-> ```
-> npx supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq
-> ```
-> Live-run the lender-level Ford walk (§6) and confirm ALL FOUR:
-> 1. **4140** proposes **$415.88** (unchanged — it was already right).
-> 2. **E5-4751** proposes **$266.42**, NOT $548.21. That loan is only $266.42 above its lender;
->    $548.21 would push it $281.79 below. This is the overshoot session 236 caught.
-> 3. **E4-9744** proposes **$181.99** (it was blocked by a 2-cent walk drift).
-> 4. The roadmap no longer contains `check` steps telling anyone to recode E6-7410's or
->    E5-4751's own June payments onto another loan.
+> `loan-find-difference` is deployed and all four checks from the session-236 handoff PASS,
+> confirmed by a live lender-level Ford walk, not by the deploy message:
 >
-> If any is off, **adjust the model, never the fixture.**
+> | loan | variance | proposes | |
+> |---|---|---|---|
+> | 4140 | $415.88 | **$415.88** | matches to the cent |
+> | E4-9744 | $182.00 | **$181.99** | 1¢ — the schedule's exact figure, not the walk's |
+> | E5-4751 | $266.42 | **$266.42** | was $548.21; carry_over correctly holds 2026-04 $281.79 |
+>
+> All three dated **2026-08-31**, and `roadmap` now contains **zero** cross-loan `check`/`recode`
+> steps — the false advice naming E6-7410's and E5-4751's own June payments is gone.
+>
+> **Every proposal now equals its loan's actual variance exactly.** Nothing further to verify
+> here; the three journals themselves are §5, waiting on the accountant.
+>
+> Deploy note for next time: the Supabase CLI's keychain prompt asks for the **Mac login
+> password**, not the Supabase one. If the keychain is out of sync, bypass it with a personal
+> access token from supabase.com/dashboard/account/tokens on a SINGLE line —
+> `SUPABASE_ACCESS_TOKEN=sbp_… npx supabase@latest functions deploy <fn> --project-ref umjpbuxrdydwejqtensq`
+> (`export` on its own line then the command also works; pasting both as one line does not).
 >
 > ### 5. Waiting on the accountant — three Ford journals, all dated 2026-08-31
 >
