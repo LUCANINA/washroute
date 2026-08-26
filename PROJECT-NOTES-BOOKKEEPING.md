@@ -1,84 +1,109 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 233 (left by session 232, 2026-08-25)
+> ## ⏭️ START HERE — first thing, session 234 (left by session 233, 2026-08-25)
 >
-> **YOU CAN READ XERO NOW.** `xero-read` is deployed (v1, `--no-verify-jwt`, commit `61b69fa`).
-> Read-only by construction — one fetch, hard-coded GET, fixed endpoint table, no write
-> branch exists. Call it from SQL via pg_net; it accepts the `x-wr-internal` secret:
+> ### 1. DEPLOY. Three functions are committed and NOT deployed.
 >
-> ```sql
-> select net.http_post(
->   url := 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/xero-read',
->   headers := jsonb_build_object('x-wr-internal', public.wr_internal_secret(),
->     'Content-Type','application/json','apikey', <anon>, 'Authorization','Bearer '||<anon>),
->   body := jsonb_build_object('mode','bank_transactions','date','2026-07-20')
-> ) as request_id;
-> -- then: select status_code, content from net._http_response where id = <request_id>;
 > ```
-> The anon key is inline in `public.sweep_autocharge_ready_orders` if you need it.
-> Modes: `bank_transactions`, `manual_journals`, `invoices`, `accounts`, `contacts`, `whoami`.
-> Filters: `id`, `date`, `from`/`to`, `amount`, `contains`, raw `where`, `page`, `full`.
+> npx supabase@latest functions deploy loan-xero-post        --project-ref umjpbuxrdydwejqtensq
+> npx supabase@latest functions deploy loan-find-difference  --project-ref umjpbuxrdydwejqtensq
+> ```
+> `reconciliation-run` was deployed mid-session (`split_collision` is live on screen).
+> The dashboard also changed — `build-version.txt` is bumped, open tablets will reload.
+> Never deploy from the sandbox: re-typing 148KB of posting code risks silent corruption.
 >
-> **Learned using it:** list queries return NO line items — fetch by `id` for lines.
-> `Total == 1144.55` works; `Contact.Name.Contains(...)` is rejected by Xero on
-> BankTransactions (400). Ford has **eleven** contact records ("Ford", "Ford Credit",
-> "Ford financial"…), so filter by AMOUNT, never by contact name.
+> ### 2. What session 233 fixed, all three tested
 >
-> ### Open work, none of it urgent
+> Run the fixtures before touching any of it (**deno is NOT on the device VM** — run these
+> in the cloud sandbox, or install deno locally):
+> `deno test supabase/functions/reconciliation-run/double-reallocation.test.ts`
+> `deno test supabase/functions/loan-xero-post/pick-candidate.test.ts`
+> `deno test supabase/functions/_shared/close-date.test.ts`
 >
-> **1. Funding Circle re-derive** — pays the 1st, projected the 3rd; `2026-09` is staged live
-> as `WR-STAGE 253 2026-09-03`. Same four steps as BayFirst. **But read §3 first.**
+> - **`checkDoubleReallocation` was rewritten.** Its first real run produced 33 findings and
+>   every one was false — a ±40-day window blaming each payment for its neighbour's journal.
+>   Now pairs via the `loan_splits` link. See the PROXIMITY IS NOT OWNERSHIP invariant.
+> - **`loan-xero-post` no longer picks by elimination.** "Only one candidate left open" is
+>   what put 4140's June interest on its May payment. See "ONLY ONE LEFT" IS NOT EVIDENCE.
+> - **`postingDateFor()` added to `_shared/close-date.ts`** — three kinds of month (closed,
+>   being closed, open) and where a correction is allowed to land. **NOT YET WIRED INTO ANY
+>   CALLER.** That is job 3.
 >
-> **2. Verdant Capital — 14 splits `posted` with NO posting evidence**, $27,438.70 of interest
-> between them: no journal id, no posted_at, no posted_by. Every other loan's backfilled
-> history at least carries a "who recorded this" stamp. One continuous amortization run
-> labelled in two conventions mid-sequence (`Period 1`…`Period 6`, then `2026-01-10`…
-> `2026-07-10`, then `Period 14`). **Now answerable with xero-read** — that is the job it
-> was built for.
+> ### 3. THE OPEN BUILD: deference has to carry a diagnosis
 >
-> **3. Funding Circle's real problems are with Ramona.** Memo published:
-> https://claude.ai/code/artifact/868af85d-4f8f-4a6f-8892-70c39edae26a
-> - 2026-06-18 coded $995.65/$1038.12; the 1 July lender statement says $1025.71/$1008.06.
-> - 2026-07-20's true split is not knowable until the September statement (the 3 Aug
->   statement shows NO principal movement).
-> - **A 2026-08-18 payment of $2,033.77 exists in Xero with no card on our side** (found
->   with xero-read; not yet investigated).
-> - 2026-04-20 still 100% to principal, no paired journal.
+> David's rule (session 233): *"everything that has to be shared with our CPA needs to be
+> done through the tool we're building — that's the only way this thing can scale"*, and
+> *"the accountant work takes precedence over finding every possible mistake."*
+> Read the **THE ACCOUNTANT IS THE OTHER USER** invariant before starting.
 >
-> **4. E-Transit E4-9744 — DONE, and the answer was "don't stage at all".** Not a mis-dated
-> stage: the loan is **paid ahead**. Ford Credit's 08/20/2026 statement says "Payment Due
-> 09/09/2026 — $0.00" and "Your account is paid ahead". Stage removed, card Ignored. Three
-> facts on the card: the due date is the **9th** (lender confirms the measured day),
-> **"your payment amount has changed"** so $1,144.55 is stale, and payoff $16,657.33 vs
-> principal $16,223.75 means **~$433.58 of finance charges have accrued unbooked** and grow
-> monthly. Ford applies payments to finance charges FIRST, so the first resumed payment will
-> be mostly interest — re-derive from a fresh statement, never restart the old schedule.
-> **Still to do: upload that 08/20 statement** (newest on file is 20 July).
+> `loan-find-difference` answers an entry it may not touch with *"your accountant already
+> worked it — she decides"* and nothing more (the `cpa_exception` note, ~line 583). In the
+> 4140 case it held every input needed to say: *the $415.88 is April $147.43 + May $135.64 +
+> June $132.81, all three already reallocated by journals `31ad48e9` / `7ce60981` /
+> `12ef542c`; here is the balanced entry, dated into your open period.* **A human worked
+> that out by hand — so for the next customer it does not happen at all.**
 >
-> **5. Two $5,000 events on sibling Ford loans, unexamined.** E4-9744's ~$4,903 prepayment
-> dated 2026-05-27, and a $5,000 split against 4140 dated 2026-08-10 posted 2026-08-24.
-> Probably two genuine prepayments; worth one look, not a shrug.
+> Build: the exception computes the over-allocation against what the period owes, names the
+> journals that already did the work, and emits a proposed entry dated with
+> `postingDateFor()`. Same review-before-write contract as everything else.
 >
-> **6. BayFirst SBA 2 `2026-07-02`** — its note says "not yet posted, awaiting go-ahead" but
-> it WAS posted 2026-08-05. Stale note, not a misstatement. Closed as nothing.
+> ### 4. Waiting on the accountant: 4140's $415.88
 >
-> ### Tech debt raised today
-> - **`markSplitAlreadyInXero` is one-way.** No un-mark in the UI, so a mistaken "already
->   handled" marking can only be undone by direct SQL. That was the one step today that
->   bypassed a sanctioned RPC. Build the un-mark.
-> - The auto-stage cron (Task 7) stays parked.
+> The 2026-06-17 payment is coded $764.44 / $415.88 and journal `12ef542c` moves another
+> $132.81 — the loan fell $631.63 instead of $1,047.51. **Do NOT recode it**: June is closed
+> and July is being closed. The correction is a journal dated **2026-08-31**, debit 242
+> $415.88 / credit 800 $415.88, landing 242 on $10,685.52 and matching Ford to the cent.
+> Verified: the 06-27 → 08-17 walk already ties on both sides, so this is the whole gap.
+> Once it posts, `balance_vs_lender` self-resolves (`status: 'explained'`) — no September
+> statement needed. **Then re-point the `2026-06` split from `2f10db32` to `0d297c29`** and
+> re-run; that clears `split_collision`. Doing it BEFORE the journal posts would raise a
+> true-looking double-correction finding for something already fixed.
 >
-> ### Also check on waking
-> - **PayPal 2's stage was due 2026-08-26** — first unattended run of the full
->   stage → match → post loop (cron `wr-loan-stage-sweep`, 16:00 UTC). If the Staged tab no
->   longer shows PayPal 2 and an October card appeared, the loop works.
-> - **E-Transit 4140 has two posted splits against one bank transaction** (2026-05 journal
->   `7ce60981`, 2026-06 journal `12ef542c`, both vs txn `2f10db32`). Ramona's call.
-> - **Rapid Credit Line** raises `derivable_not_derived` every run — draw line, structurally
->   unstageable. Suppress once.
-> - ⚠️ **Only statements with a PDF are lender documents.** Rows with
->   `source='xero_derived'` are our own reading of Xero and agree with it by construction —
->   they can NEVER be used to check it. Check `source` before trusting a balance.
+> ### 5. Terminology is a product rule now
+>
+> The product says **"your accountant"** — never a person's name, never "bookkeeper". Swept
+> from the code in `5c854e6`. Audit fields (`xero_posted_by`, `dismissed_by`) keep real
+> values; they are evidence, not copy. Note `Pre-Staged Loan Payments — Ramona.pdf` is still
+> sitting untracked in the repo root — it is the hand-written-handoff pattern this rule
+> replaces.
+>
+> ### 6. Reading Xero — easier than the old note said
+>
+> `xero-read` is deployed and has **`payment_picture`**, the mode to reach for first: one
+> call returns the transaction, the journals touching its accounts, `net_by_account`, and
+> warnings for *corrected twice* / *never corrected*. From the sandbox, plain curl beats
+> pg_net:
+>
+> ```bash
+> curl -s -X POST https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/xero-read \
+>   -H 'content-type: application/json' -H "x-wr-internal: $(secret from wr_internal_auth)" \
+>   -d '{"mode":"payment_picture","id":"<BankTransactionID>"}'
+> ```
+> **Corrections to the old note:** ManualJournals list responses omit `JournalLines` too —
+> BOTH endpoints need a fetch by `id` for lines. Trimmed line keys are `account`/`amount`
+> (the reconciliation ledger's are `c`/`a`; do not mix them up). `Total == 1144.55` works;
+> `Contact.Name.Contains(...)` is rejected on BankTransactions (400), and Ford has eleven
+> contact records — filter by AMOUNT, never contact name.
+>
+> ### 7. Still open, none urgent
+>
+> - **Funding Circle re-derive** — pays the 1st, projected the 3rd; `2026-09` staged live as
+>   `WR-STAGE 253 2026-09-03`. Four steps, same as BayFirst. Its real problems are for the
+>   accountant: 2026-06-18 coded $995.65/$1,038.12 vs the lender's $1,025.71/$1,008.06;
+>   2026-07-20 unknowable until the September statement; a **2026-08-18 payment of $2,033.77
+>   with no card on our side**; 2026-04-20 still 100% principal.
+> - **Verdant — 14 splits `posted` with no posting evidence**, $27,438.70 of interest: no
+>   journal id, no posted_at, no posted_by. Now answerable with `payment_picture`.
+> - **E4-9744 is paid ahead and correct** — nothing owed, the 2026-09 card is deliberately
+>   Ignored (in `bk_issue_dismissals`, restorable). Still to do: upload the **08/20/2026
+>   statement**. ~$433.58 of finance charges have accrued unbooked and grow monthly; Ford
+>   applies payments to charges FIRST, so re-derive from a fresh statement when payments
+>   resume — never restart the old schedule, and $1,144.55 is stale.
+> - **Statement-intake dedupe** keys on balance + a 14-day window, not date + `file_sha256`.
+>   Suspected of skipping real statements; NOT reproduced — get the specific files first.
+> - **Set Xero's period lock date.** It is null, which is why a June transaction was
+>   editable on 14 July with nothing objecting. This is the fix that generalises.
+> - `markSplitAlreadyInXero` is still one-way — no un-mark path in the UI.
 
 ## Why this file exists (session 217)
 
