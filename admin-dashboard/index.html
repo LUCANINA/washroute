@@ -3278,6 +3278,12 @@
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
             <button class="section-tab" id="bkvt-client" onclick="switchBookkeepingView('client')">Client View</button>
           </div>
+          <!-- Every Bookkeeping surface hangs off four independent loaders. When
+               one of them fails, the pane it feeds does not go blank — it goes
+               CONFIDENT, rendering "not checked" or a zero as though that were
+               the answer. This banner is the one place that says a read failed,
+               and it persists (a 3-second toast fires while the user is looking
+               at another tab and is simply never seen). -->
           <!-- Session 213: Debt Schedule and Reconciliation folded into Loans (below) as a
                toggle + section rather than separate top-level tabs -- David's tab-consolidation
                request. Their render functions (renderDebtSchedule/loadReconciliation) are
@@ -3465,6 +3471,7 @@
                no separate queries, so this can never drift out of sync with the
                numbers shown on the Loans/Payroll tabs themselves. -->
           <div id="bk-view-overview">
+            <div class="bk-load-banner"></div>
             <!-- Session 223 redesign, after bookswell/design/mockup-cpa-view-v4.html:
                  the Overview's tiles are about the BUSINESS (real Xero KPIs), and
                  the queue is about the WORK (one list, Issues/Approvals toggle).
@@ -3588,6 +3595,7 @@
 
           <!-- Loans (session 205; toggle + Reconciliation section added session 213) -->
           <div id="bk-view-loans" style="display:none">
+            <div class="bk-load-banner"></div>
           <div id="loans-subview-manage">
 
           <!-- ── THE CLOSE BAND (session 239) ────────────────────────────────
@@ -3640,6 +3648,7 @@
 
           <!-- Payroll (session 206) -->
           <div id="bk-view-payroll" style="display:none">
+            <div class="bk-load-banner"></div>
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="payroll-summary" style="margin-bottom:20px"></div>
 
@@ -3813,6 +3822,7 @@
                     why its rate and payment columns are MEASURED, never typed
                     (see _loanMeasuredRate / _loanRecurringPayment). -->
           <div id="bk-view-client" style="display:none">
+            <div class="bk-load-banner"></div>
 
             <!-- Session 238 cont.: three sub-tabs, because the tab was carrying
                  three different jobs at three different tempos. DASHBOARD is the
@@ -3830,6 +3840,7 @@
             </div>
 
             <div id="cv-subview-dashboard">
+              <div class="bk-load-banner"></div>
 
             <!-- 1 ── what's still needed for last month -->
             <div class="cv-sec">
@@ -3858,6 +3869,7 @@
             </div><!-- /cv-subview-dashboard -->
 
             <div id="cv-subview-kpis" style="display:none">
+              <div class="bk-load-banner"></div>
 
             <!-- 2 ── where the business stands -->
             <div class="cv-sec">
@@ -3874,6 +3886,7 @@
             </div><!-- /cv-subview-kpis -->
 
             <div id="cv-subview-debt" style="display:none">
+              <div class="bk-load-banner"></div>
 
             <!-- 3 ── what the debt is costing -->
             <div class="cv-sec">
@@ -8593,7 +8606,27 @@
   // Session 231's rule, applied: when a guard needs a new branch, put it where
   // the branches converge rather than at seven call sites. Adding a surface to
   // Bookkeeping now means editing THIS function and nothing else.
+  // Which reads failed, and what the operator loses because of it. Keyed so a
+  // retry can clear one without clearing the others.
+  const _bkLoadErrors = new Map();
+  function _bkNoteLoadError(key, what) { _bkLoadErrors.set(key, what); _bkRenderLoadBanner(); }
+  function _bkClearLoadError(key) { if (_bkLoadErrors.delete(key)) _bkRenderLoadBanner(); }
+
+  function _bkRenderLoadBanner() {
+    const slots = [...document.querySelectorAll('.bk-load-banner')];
+    if (!slots.length) return;
+    if (!_bkLoadErrors.size) { slots.forEach(el => { el.innerHTML = ''; }); return; }
+    const items = [..._bkLoadErrors.values()];
+    const html = `<div style="margin-bottom:14px;padding:11px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e;line-height:1.6">
+      <strong>Some of your books could not be read.</strong> What is on screen may be incomplete — do not close a period on it.
+      <ul style="margin:6px 0 0;padding-left:18px">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>
+      <div style="margin-top:8px"><span onclick="location.reload()" style="cursor:pointer;text-decoration:underline">Reload and try again</span></div>
+    </div>`;
+    slots.forEach(el => { el.innerHTML = html; });
+  }
+
   function _bkRefreshVisibleBookkeeping() {
+    _bkRenderLoadBanner();
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
     if (_bookkeepingActiveTab === 'client') {
       renderBookkeepingOverview();   // still the renderer for the KPI tiles
@@ -8666,9 +8699,15 @@
   let _retailReclassPeriod = null;  // e.g. '2026-07' while the monthly retail cash reclass is outstanding
 
   async function loadBookkeepingKpis() {
-    const { data } = await db.from('bookkeeping_kpi_snapshots')
+    const { data, error } = await db.from('bookkeeping_kpi_snapshots')
       .select('captured_at, payload').is('error', null)
       .order('captured_at', { ascending: false }).limit(1);
+    // This read was entirely unchecked. On failure the KPI tiles render their
+    // em-dash empty state, which is indistinguishable from "no snapshot has
+    // ever been taken" — so the operator is told to hit Refresh rather than
+    // told the read failed.
+    if (error) _bkNoteLoadError('kpis', 'The Xero KPI snapshot could not be read, so the figures at the top of this section are missing rather than zero.');
+    else _bkClearLoadError('kpis');
     if (data && data[0]) { _bkKpiSnapshot = data[0].payload; _bkKpiCapturedAt = data[0].captured_at; }
     _bkRefreshVisibleBookkeeping();
   }
@@ -10321,7 +10360,11 @@
     const t3 = issues.filter(i => i.tier === 3);
     const statusEl = document.getElementById('bk-ov-statusline');
     if (statusEl) {
-      if (!issues.length && !approvals.length && !staged.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
+      // The same rule as the queue below it: "everything is reconciled" is a
+      // claim about the books, and it is only true if we managed to read them.
+      // This is the second all-clear on the page and it needed the same gate.
+      if (!_bkDataReady()) statusEl.textContent = "Still reading your books — this is not an all-clear yet.";
+      else if (!issues.length && !approvals.length && !staged.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
       else {
         const parts = [];
         if (t1.length) parts.push(`${t1.length} to fix first`);
@@ -10396,10 +10439,23 @@
       if (shownRest.length) html += (useHeaders ? `<div class="bk-tier-head t2">Worth a look</div>` : '') + shownRest.map(_bkQueueRowHtml).join('');
       if (main.length > CAP) html += `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${main.length} ▾`}</span></div>`;
       if (!main.length && !archived.length) {
-        html = `<div class="bk-allclear">
+        // An empty queue means "nothing needs a decision" ONLY if we actually
+        // read the books. On a cold boot — first visit, expired token, RLS
+        // denial, dropped connection — every array is empty, the queue is
+        // empty, and this used to render a green tick over no data at all.
+        // The tiles above already handle it correctly (em-dashes when the
+        // payload is missing); this branch did not. _bkDataReady() was written
+        // last session for exactly this and then never called from anywhere:
+        // one definition, zero call sites. Here is the call site.
+        html = _bkDataReady()
+          ? `<div class="bk-allclear">
           <div class="bk-allclear-badge"><svg class="bk-victory-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
           <div class="bk-allclear-title">All clear</div>
           <div class="bk-allclear-sub">Every issue is handled — nothing needs a decision right now.</div>
+        </div>`
+          : `<div class="bk-allclear">
+          <div class="bk-allclear-title">Still reading your books</div>
+          <div class="bk-allclear-sub">We haven't been able to load everything yet — this is not an all-clear.</div>
         </div>`;
       }
       if (archived.length) {
@@ -10866,7 +10922,26 @@
                                      // transaction histories, amortization schedules, correspondence, etc.
   let _loanDocsCurrentLoanId = null;
 
-  async function _loanFn(name, bodyObj, timeoutMs) {
+  // A TIMEOUT ON A WRITE IS NOT A FAILURE — IT IS AN UNKNOWN.
+  //
+  // AbortController.abort() closes OUR socket. It does not stop the edge
+  // function, which carries on: POST /ManualJournals, attach the statement,
+  // update loan_splits. The confirm path makes four to six sequential Xero
+  // round-trips including a file upload, against an API that rate-limits at
+  // 60/min, so outliving 25 seconds is ordinary rather than exotic.
+  //
+  // This used to tell the operator "Try again in a moment" and then re-enable
+  // the Approve button. A second click while the first invocation is still
+  // running reads status 'pending_review' and xero_manual_journal_id NULL —
+  // because the first request has not written it yet — so every duplicate
+  // guard passes and a SECOND journal posts. The app was instructing the user
+  // into the one outcome this whole module exists to prevent.
+  //
+  // Writes now say the opposite, and the caller must not re-enable on it.
+  const WRITE_TIMEOUT_MSG = 'We lost the connection while Xero was still working. Your entry may or may not have posted — do NOT retry. Reload this page and check the status of this item first.';
+  const READ_TIMEOUT_MSG  = 'Timed out waiting for a response — Xero may be slow to respond right now. Try again in a moment.';
+
+  async function _loanFn(name, bodyObj, timeoutMs, opts) {
     // Bug fix (session 205 cont.): this used to let a network failure/timeout/CORS
     // error propagate as an uncaught exception straight out of the fetch call --
     // any caller that awaited it without its own try/catch (e.g. openLoanReviewModal)
@@ -10891,7 +10966,13 @@
       return { ok: res.ok, status: res.status, data: result };
     } catch (e) {
       const timedOut = e && e.name === 'AbortError';
-      return { ok: false, status: 0, data: { error: timedOut ? 'Timed out waiting for a response — Xero may be slow to respond right now. Try again in a moment.' : (e?.message || 'Network error — could not reach the server.') } };
+      const isWrite = !!(opts && opts.write) || !!(bodyObj && bodyObj.confirm === true);
+      return { ok: false, status: 0, data: {
+        error: timedOut ? (isWrite ? WRITE_TIMEOUT_MSG : READ_TIMEOUT_MSG)
+                        : (e?.message || 'Network error — could not reach the server.'),
+        // The caller uses this to decide whether re-offering the button is safe.
+        outcome_unknown: timedOut && isWrite,
+      } };
     } finally {
       clearTimeout(timeoutId);
     }
@@ -10939,7 +11020,12 @@
       return { ok: res.ok, status: res.status, data: result };
     } catch (e) {
       const timedOut = e && e.name === 'AbortError';
-      return { ok: false, status: 0, data: { error: timedOut ? 'Timed out waiting for a response. Try again in a moment.' : (e?.message || 'Network error — could not reach the server.') } };
+      const isWrite = !!(bodyObj && bodyObj.confirm === true);
+      return { ok: false, status: 0, data: {
+        error: timedOut ? (isWrite ? WRITE_TIMEOUT_MSG : READ_TIMEOUT_MSG)
+                        : (e?.message || 'Network error — could not reach the server.'),
+        outcome_unknown: timedOut && isWrite,
+      } };
     } finally {
       clearTimeout(timeoutId);
     }
@@ -12049,6 +12135,20 @@
   let _bkPayrollLoaded = false;
   function _bkDataReady() { return _bkLoansLoaded && _bkPayrollLoaded; }
 
+  // PostgREST's db-max-rows. Asking for exactly this many is what makes a
+  // truncation detectable: a full page back means there may be more we never
+  // saw, and every balance derived from the table is then suspect. Silence is
+  // the failure mode being closed here — the API returns 200 with a short body.
+  const PGRST_MAX_ROWS = 1000;
+  let _bkRowCapHit = [];
+  function _bkCheckRowCap(label, rows) {
+    if (Array.isArray(rows) && rows.length >= PGRST_MAX_ROWS && !_bkRowCapHit.includes(label)) {
+      _bkRowCapHit.push(label);
+      console.warn(`[bookkeeping] ${label} came back at the ${PGRST_MAX_ROWS}-row cap — figures derived from it may be incomplete.`);
+    }
+    return rows;
+  }
+
   function _bkFirstError(results) {
     for (const r of results) if (r && r.error) return r.error;
     return null;
@@ -12065,7 +12165,16 @@
       // period to generate next without a second round-trip. balance is pulled so
       // the All Loans outstanding-tally (session 205 cont.) can read a schedule-sourced
       // loan's current balance the same way it reads a statement-sourced loan's.
-      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, balance, principal, interest, payment, rate, loan_amt, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id, balance_basis, amort_type)'),
+      // ORDER BY is not cosmetic here. PostgREST truncates at db-max-rows (1000)
+      // and returns HTTP 200 with a partial body and NO error — nothing
+      // downstream can tell. This table is at 926 rows; one more schedule the
+      // size of Verdant's (85 rows) crosses it. Unordered, the rows that
+      // survive truncation are arbitrary, so _loanOutstandingBalance and
+      // _loanBalanceAsOf would silently start resolving a different, older row
+      // for whichever loans happened to land past the cut. Newest-first at
+      // least means the rows we lose are the ones we care about least — and
+      // _bkCheckRowCap below turns the silence into a visible error.
+      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, balance, principal, interest, payment, rate, loan_amt, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id, balance_basis, amort_type)').order('row_date', { ascending: false }).limit(PGRST_MAX_ROWS),
       // Generic per-loan document attachments (Aug 2026) -- payoff letters, transaction
       // histories, amortization schedules, correspondence, anything worth keeping on file
       // that isn't part of the structured statement/schedule ingestion pipelines above.
@@ -12075,10 +12184,15 @@
     if (_err) {
       console.error('loadLoans failed:', _err.message || _err);
       showToast('Could not reach your books — the figures on screen may be out of date.', 'error');
+      _bkNoteLoadError('loans', 'Your loan accounts, statements and splits could not be read. Anything on screen is the last copy we had, not today\u2019s position.');
       _bkLoansLoaded = false;
       return;                       // keep the last good data rather than blanking it
     }
+    _bkClearLoadError('loans');
     const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }] = _res;
+    _bkCheckRowCap('loan_amortization_rows', amortRows);
+    _bkCheckRowCap('loan_statements', statements);
+    _bkCheckRowCap('loan_splits', splits);
     _bkLoansLoaded = true;
     _allLoanAccounts   = accounts || [];
     _allLoanStatements = statements || [];
@@ -12348,7 +12462,15 @@
         // A tie-out read failure must not take the whole Bookkeeping page down —
         // the Variance column falls back to "not checked", which is honest.
         _loanTieOuts = tieRes.error ? [] : (tieRes.data || []);
-        if (tieRes.error) console.error('loan_tie_outs read failed (page continues):', tieRes.error.message);
+        if (tieRes.error) {
+          console.error('loan_tie_outs read failed (page continues):', tieRes.error.message);
+          // Falling back to "not checked" is honest about each ROW and silent
+          // about the CAUSE. A whole column quietly relabelling itself reads as
+          // "the check has not run yet" rather than "the check failed", and the
+          // difference matters when $7,212.88 of real variance is what got
+          // relabelled.
+          _bkNoteLoadError('tie_outs', 'The loan tie-out results could not be read. Every loan shows "not checked" — that is this failure, not a clean bill of health.');
+        } else _bkClearLoadError('tie_outs');
       } else {
         _loanTieOuts = [];
       }
@@ -12361,12 +12483,20 @@
         if (sa !== sb) return sa - sb;
         return (a.last_seen_at || '') < (b.last_seen_at || '') ? 1 : -1;
       });
+      // The badge counts _bkApprovalQueueItems(), which subtracts _bkDismissals
+      // — and _bkDismissals is read HERE. It was refreshed at the tail of
+      // loadLoans and loadPayroll but not this one, so whenever reconciliation
+      // finished last the sidebar kept a count taken before we knew what had
+      // been ignored: sidebar 3, Approvals tab 1. Every loader that feeds the
+      // badge has to poke it; this was the third one.
+      _bkUpdateNavBadge();
     } catch (e) {
       _reconRuns = [];
       _reconFindings = [];
       _loanTieOuts = [];
       _loanTieOutRunId = null;
       showToast('Could not load reconciliation data: ' + (e.message || 'unknown error'), 'error');
+      _bkNoteLoadError('reconciliation', 'The reconciliation results could not be read, so the Variance column and the issue queue are not showing what has actually been checked.');
     }
     renderReconciliation();
     // Session 214: reconciliation findings now render as part of Loans' unified
@@ -12600,7 +12730,96 @@
   // close-date rule that a label carrying no date stays open.
   const CV_MONTH_RE = /^\d{4}-\d{2}$/;
 
+  // ── Does what we recorded agree with what the lender's own balances moved? ──
+  //
+  // The control a CPA actually applies, run per loan across the whole
+  // measurement window rather than only over last month:
+  //
+  //     lender's opening balance  −  lender's closing balance
+  //         must equal
+  //     the principal we recorded in between
+  //
+  // Run over a SPAN, not a single month, on purpose. A lender's draft date
+  // drifts across a month boundary — BayFirst went 6/03, then 7/02, then 7/31 —
+  // and a single-month test reads that drift as an $837.12 error in one month
+  // and an equal, opposite one in the next. Over a span the drift cancels. A
+  // payment recorded TWICE does not cancel, which is the whole point.
+  //
+  // THIS IS THE CHECK THAT TOLD FUNDING CIRCLE AND BAYFIRST APART when nothing
+  // structural could. Both had two split rows in one month with matching
+  // totals — one month-labelled ('2026-07'), one day-labelled ('2026-07-02') —
+  // written by different processes, indistinguishable by shape. Two separate
+  // audits proposed deduplicating on that shape. The lender's own balances say
+  // BayFirst genuinely paid twice in July (137,568.21 → 135,901.60 = 1,666.61,
+  // exactly what we recorded) and Funding Circle did not (67,240.74 →
+  // 66,215.03 = 1,025.71 against 2,006.22 recorded, every month for eight
+  // months). Deduplicating on shape would have been right about one loan and
+  // wrong about the other, and "wrong" here means a $2,108 hole punched into a
+  // close the CPA is about to sign.
+  //
+  // The rule that falls out of that: never infer from shape what a document
+  // can be asked directly.
+  const RECON_TOLERANCE = 1.00;          // rounding only — a duplicate is never this small
+  const CV_MIN_MONTHS_TO_MEASURE = 3;    // a median of one month is not a measurement
+
+  function _loanPrincipalReconciliation(a, fromMonth, toMonth) {
+    if (!a) return { checkable: false, reason: 'no such loan' };
+    const open  = _loanBalanceAsOf(a, _priorMonthEnd(fromMonth),  { realOnly: true });
+    const close = _loanBalanceAsOf(a, _lastDayOfMonth(toMonth),   { realOnly: true });
+    // realOnly on BOTH sides deliberately. An opening taken from our own
+    // arithmetic would make this circular — we would be checking the ledger
+    // against itself and calling the agreement evidence.
+    if (!open || !close) {
+      return { checkable: false, reason: 'no lender balances bracket this window' };
+    }
+    if (open.asOf >= close.asOf) {
+      return { checkable: false, reason: 'only one lender balance in this window' };
+    }
+    let recorded = 0, rows = 0;
+    for (const sp of (_allLoanSplits || [])) {
+      if (sp.loan_account_id !== a.id) continue;
+      if (CLOSE_EXCLUDED_STATUSES.includes(sp.status)) continue;
+      const m = (sp.period_label || '').slice(0, 7);
+      if (!CV_MONTH_RE.test(m)) continue;
+      if (m < fromMonth || m > toMonth) continue;
+      recorded += Number(sp.principal_amount || 0);
+      rows++;
+    }
+    const lenderMoved = open.amount - close.amount;
+    const delta = recorded - lenderMoved;
+    return {
+      checkable: true, ok: Math.abs(delta) <= RECON_TOLERANCE,
+      recorded, lenderMoved, delta, rows,
+      openAsOf: open.asOf, closeAsOf: close.asOf,
+    };
+  }
+
+  // The same question, asked about the window the payment column measures.
+  function _loanWindowRecon(a) {
+    return _loanPrincipalReconciliation(a, _cvMonthsBack(CV_PAYMENT_WINDOW_MONTHS), _cvLastMonth());
+  }
+
+  // Every active loan whose records do not agree with its lender's balances.
+  // One list, so the tiles, the schedule and the export can never disagree
+  // about which loans are trustworthy.
+  function _loansFailingReconciliation() {
+    return (_allLoanAccounts || [])
+      .filter(a => a.status === 'active')
+      .map(a => ({ a, recon: _loanWindowRecon(a) }))
+      .filter(x => x.recon.checkable && !x.recon.ok);
+  }
+
   function _loanRecurringPayment(loanAccountId) {
+    const acct = (_allLoanAccounts || []).find(x => x.id === loanAccountId);
+    // A window whose principal does not agree with the lender's own balances is
+    // not a window a payment can be measured from. Funding Circle's read
+    // $4,067.54 — exactly twice its real $2,033.77 — because the same payment
+    // sits on file twice. That figure was printing on the schedule this
+    // business sends to lenders, where it overstates the obligation and
+    // understates the coverage ratio a bank underwrites against. A dash the
+    // reader can question beats a number they cannot.
+    const recon = acct ? _loanWindowRecon(acct) : { checkable: false };
+    if (recon.checkable && !recon.ok) return null;
     const months = new Map();
     const cutoff = _cvMonthsBack(CV_PAYMENT_WINDOW_MONTHS);
     const lastComplete = _cvLastMonth();
@@ -12616,7 +12835,14 @@
       months.set(m, (months.get(m) || 0) + Number(sp.total_amount || 0));
     }
     const vals = [...months.values()].sort((a, b) => a - b);
-    if (!vals.length) return null;
+    // A median needs something to be in the middle OF. One month of a daily
+    // percentage-of-sales holdback (Stripe Capital) or one month of a loan we
+    // have just onboarded (EIDL) is not a recurring obligation, and printing it
+    // as one on a lender's copy is a claim we cannot support. The tile below
+    // already says how many loans were countable, so an understated total is
+    // disclosed rather than silent — but that caveat only ever fired if this
+    // returned null, and before this it never did.
+    if (vals.length < CV_MIN_MONTHS_TO_MEASURE) return null;
     const mid = Math.floor(vals.length / 2);
     return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
   }
@@ -12778,11 +13004,24 @@
     // the incoherence session 222 removed from the Loans summary — every number
     // in this section describes the same fourteen facilities.
     const activeIds = new Set(active.map(a => a.id));
+    // A loan whose recorded principal does not agree with its lender's own
+    // balances over this window contributes nothing to these totals. Funding
+    // Circle alone was adding $8,537.40 of principal and $9,841.00 of interest
+    // that never happened — enough to move the effective-rate tile from 5.7% to
+    // 6.1% and to inflate the denominator of the coverage ratio, which is the
+    // one number on this page a bank underwrites against. An inflated
+    // denominator makes coverage look WORSE than it is, and a pessimistic wrong
+    // number is the kind nobody thinks to question.
+    const unreconciled = new Set(
+      active.filter(a => { const r = _loanPrincipalReconciliation(a, _cvMonthsBack(CV_TRAILING_MONTHS), _cvLastMonth());
+                           return r.checkable && !r.ok; })
+            .map(a => a.id));
     let interest = 0, principal = 0;
     const byMonth = new Map();
     for (const sp of (_allLoanSplits || [])) {
       if (sp.status === 'voided') continue;
       if (!activeIds.has(sp.loan_account_id)) continue;
+      if (unreconciled.has(sp.loan_account_id)) continue;
       const m = (sp.period_label || '').slice(0, 7);
       if (!CV_MONTH_RE.test(m) || m < cutoff || m > lastComplete) continue;
       const i = Number(sp.interest_amount || 0), pr = Number(sp.principal_amount || 0);
@@ -12800,7 +13039,8 @@
       const pmt = _loanRecurringPayment(a.id);
       if (pmt != null) { committed += pmt; counted++; }
     }
-    return { active, owed, interest, principal, committed, counted, byMonth };
+    return { active, owed, interest, principal, committed, counted, byMonth,
+             unreconciled: [...unreconciled] };
   }
 
   // Debt service coverage: operating income against the recurring obligation.
@@ -12841,6 +13081,13 @@
       ${sub ? `<div class="bk-tile-delta flat">${esc(sub)}</div>` : ''}</div>`;
 
     const cover = _cvCoverage(t.committed);
+    // A loan left out of these totals is said so, on the tiles it was left out
+    // of. Session 240's lesson, applied: an understated figure that looks whole
+    // is worse than a figure that admits its gap, because nobody investigates
+    // the first one.
+    const exclNote = t.unreconciled.length
+      ? ` · ${t.unreconciled.length} loan${t.unreconciled.length === 1 ? '' : 's'} left out — records don't agree with the lender`
+      : '';
     // Effective cost: what the borrowing actually cost over the trailing year,
     // against the average balance across it. Measured, like everything else on
     // this page — never a weighted average of rates somebody typed.
@@ -12850,9 +13097,9 @@
     el.innerHTML = `<div class="bk-tiles">` +
       tile('Total owed', money(t.owed), `Across ${t.active.length} active loan${t.active.length === 1 ? '' : 's'}`) +
       tile('Interest paid, last 12 months', money(t.interest),
-           effective != null ? `≈ ${effective.toFixed(1)}% effective — interest over average balance` : '') +
+           (effective != null ? `≈ ${effective.toFixed(1)}% effective — interest over average balance` : '') + exclNote) +
       tile('Principal retired, last 12 months', money(t.principal),
-           'Paid down against the balances above', 'var(--green)') +
+           'Paid down against the balances above' + exclNote, 'var(--green)') +
       tile('Committed each month', money(t.committed),
            (cover ? `Covered ${cover.toFixed(1)}× by operating income` : '') +
            (t.counted < t.active.length ? `${cover ? ' · ' : ''}${t.counted} of ${t.active.length} loans have enough history to measure` : '')) +
@@ -13528,13 +13775,36 @@
   function renderLoansCloseBand() {
     const el = document.getElementById('loans-close-band');
     if (!el) return;
-    if (!(_allLoanAccounts || []).length) { el.innerHTML = ''; return; }
+    // Erasing the band is indistinguishable from "no loans exist". Say which.
+    // Gate on _bkLoansLoaded, NOT _bkDataReady() — a rollforward is built from
+    // loans alone, and blanking it because the unrelated payroll loader has not
+    // come back yet would hide a correct close position behind someone else's
+    // failure. Gate each surface on the data that surface actually reads.
+    if (!_bkLoansLoaded || !(_allLoanAccounts || []).length) {
+      el.innerHTML = _bkLoansLoaded ? '' :
+        `<div class="bk-allclear"><div class="bk-allclear-title">Still reading your books</div>
+         <div class="bk-allclear-sub">The close position will appear once your loans have loaded.</div></div>`;
+      return;
+    }
 
     const month = _cvLastMonth();
     const rf = _loanCloseRollforward(month);
     const name = _cvMonthName(month);
-    const money = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const short = (iso) => { if (!iso) return ''; const [, m, d] = iso.split('-'); return `${Number(m)}/${Number(d)}`; };
+    // Sign in front of the dollar, same rule as the Loans table's money2 —
+    // Dexter 2 was rendering "$-3,326.23" in the close band's variance column.
+    const money = (n) => n == null ? '—'
+      : (Number(n) < 0 ? '−' : '') + '$' + Math.abs(Number(n)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Show the year whenever it is not the year of the month being closed.
+    // Without this, an opening balance anchored to 2024-03-31 rendered as
+    // "3/31" in a column headed 6/30 — a two-year-old figure that read as a
+    // few weeks old. The year is four characters and it is the difference
+    // between a number the CPA can trust and one she cannot.
+    const bandYear = month.slice(0, 4);
+    const short = (iso) => {
+      if (!iso) return '';
+      const [y, m, d] = iso.split('-');
+      return y === bandYear ? `${Number(m)}/${Number(d)}` : `${Number(m)}/${Number(d)}/${y.slice(2)}`;
+    };
 
     const cov = _bkStatementCoverage(month);
     const unpostedTotal = rf.unpostedRows.reduce((n, r) =>
@@ -14284,7 +14554,13 @@
     // loan DETAIL view (openLoanDetailModal): full terms, split history in numbers,
     // statements, and supporting documents. Upload/generate entry points moved
     // INSIDE the detail view -- the row click used to be the upload flow.
-    const money2 = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // The minus goes in FRONT of the dollar sign, and money2 owns it. Callers
+    // used to prepend their own '−' to a value this function had already
+    // rendered as "$-1,008.06", so the Variance column published "−$-1,008.06"
+    // — live, on the Loans page, for months. Four read-only audit lanes walked
+    // this code and none of them saw it; it took rendering the DOM.
+    const money2 = (v) => (Number(v) < 0 ? '−' : '') + '$' +
+      Math.abs(Number(v)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     // One place decides the Type value+label+badge for a loan, whether it comes from
     // a real split or the loan's own ingestion method -- so the Type column and its
     // click-filter always agree on what a loan "is."
@@ -14295,14 +14571,39 @@
       if (lastSplit.status === 'already_in_xero') return { key: 'in_xero', label: 'in Xero', badge: `<span class="badge badge-gray">in Xero</span>` };
       if (lastSplit.status === 'staged') return { key: 'staged', label: 'staged', badge: `<span class="badge badge-blue" title="A pre-split transaction sits in Xero waiting for the payment to land — the CPA clicks Match on the reconcile screen.">staged</span>` };
       if (lastSplit.status === 'needs_attention') return { key: 'needs_attention', label: 'needs attention', badge: `<span class="badge badge-red">needs attention</span>` };
-      return { key: lastSplit.status, label: lastSplit.status, badge: `<span class="badge badge-amber">${esc(lastSplit.status)}</span>` };
+      // Anything else gets a human label. The fallback used to print the raw
+      // column value, so the Loans page showed a business owner the words
+      // "pending_review" and "closed_period" as if they meant something.
+      const SPLIT_STATUS_LABEL = {
+        pending_review: 'awaiting your review',
+        closed_period:  'in a closed month',
+        needs_attention: 'needs attention',
+      };
+      const label = SPLIT_STATUS_LABEL[lastSplit.status] || String(lastSplit.status || '').replace(/_/g, ' ');
+      return { key: lastSplit.status, label, badge: `<span class="badge badge-amber">${esc(label)}</span>` };
     };
     // One row-data object per loan, computed before filtering/sorting, so the
     // Lender/Status/Type filters apply against exactly the values the cells
     // themselves render -- no drift between what's shown and what's filterable.
     const rowData = visibleAccounts.map(a => {
       const splitsForLoan = _splitsNewestFirst(a.id);
-      const lastSplit = splitsForLoan[0];
+      // TWO different questions, and they had one answer between them.
+      //
+      //   "Last payment"  — money that has actually left the bank.
+      //   "Type"          — what state this loan's bookkeeping is in.
+      //
+      // Reading both off splitsForLoan[0] meant the Last payment column showed
+      // a STAGED 2026-09 projection on ten of fourteen loans (money that has
+      // not moved, in a month that has not happened) and, on Dexter 2, a VOIDED
+      // split dated 2099-01. A voided row is a row we decided was wrong; a
+      // staged row is a transaction waiting in Xero for a bank line. Neither is
+      // a payment, and both were being printed as the most recent one.
+      const lastSplit = splitsForLoan.find(sp =>
+        sp.status !== 'voided' && sp.status !== 'staged' &&
+        String(sp.period_label || '').slice(0, 7) <= today().slice(0, 7)) || null;
+      // The Type badge still reads the newest live split whatever its state —
+      // "staged" and "needs attention" are exactly what that column is for.
+      const newestLive = splitsForLoan.find(sp => sp.status !== 'voided') || null;
       // Automatic loans (Stripe Capital, session 205 cont.) never get a manually
       // computed loan_splits row -- see xero-payout-sync. Their cells say so
       // instead of implying something is overdue.
@@ -14310,7 +14611,14 @@
       const statusKey = a.status === 'paid_off' ? 'paid_off' : 'active';
       const statusLabel = statusKey === 'paid_off' ? 'paid off' : 'active';
       const statusBadge = statusKey === 'paid_off' ? `<span class="badge badge-gray">paid off</span>` : `<span class="badge badge-green">active</span>`;
-      return { a, lastSplit, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a), v: _loanVariance(a) };
+      // Type describes the SAME split as the money columns beside it. Pointing
+      // it at the newest split instead made one table row carry two different
+      // payments' worth of facts — "$2,108.24 · 2026-07 · staged", where the
+      // money is July's real payment and the badge belongs to a September
+      // projection. One row, one payment. Anything newer and still in flight is
+      // called out separately below.
+      const inFlight = newestLive && newestLive !== lastSplit ? newestLive : null;
+      return { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a), v: _loanVariance(a) };
     });
     const f = _loansTableFilters;
     const filtered = rowData.filter(r =>
@@ -14375,7 +14683,7 @@
         </div>`;
 
     const loanRow = (r) => {
-      const { a, lastSplit, isAutomaticLoan, statusKey, statusBadge, type, bal, v } = r;
+      const { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusBadge, type, bal, v } = r;
       // David's ask: Lender moved to the far left; "Last statement" (the pulled
       // lender-document date) replaced with "Last payment" (the full amount
       // actually debited -- reads directly off the same split, no separate
@@ -14414,12 +14722,12 @@
       let varianceCell;
       if (v.state === 'variance') {
         const dir = v.difference > 0 ? 'Xero is ABOVE the lender' : 'Xero is BELOW the lender';
-        varianceCell = `<span class="td-mono" style="font-size:12.5px;font-weight:700;color:#dc2626" title="${dir} as of ${esc(v.asOf || '')} — this one blocks the close">${v.difference < 0 ? '−' : '+'}${money2(v.difference)}</span>`;
+        varianceCell = `<span class="td-mono" style="font-size:12.5px;font-weight:700;color:#dc2626" title="${dir} as of ${esc(v.asOf || '')} — this one blocks the close">${v.difference > 0 ? '+' : ''}${money2(v.difference)}</span>`;
       } else if (v.state === 'ties') {
         varianceCell = `<span class="td-mono" style="font-size:12.5px;color:#166534" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">$0.00 ✓</span>`;
       } else if (v.state === 'explained') {
         // Not red, and deliberately so: the books are right, the gap is timing.
-        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:var(--gray-500)" title="${esc(v.reason || '')} — nothing to fix">${v.difference < 0 ? '−' : '+'}${money2(v.difference)} <span style="font-size:11px">explained</span></span>`;
+        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:var(--gray-500)" title="${esc(v.reason || '')} — nothing to fix">${v.difference > 0 ? '+' : ''}${money2(v.difference)} <span style="font-size:11px">explained</span></span>`;
       } else if (v.state === 'unverified') {
         varianceCell = `<span style="font-size:11.5px;color:#92400e" title="${esc(v.reason || '')}">no statement — ${money2(v.difference)} vs our projection</span>`;
       } else if (v.state === 'na') {
@@ -14436,7 +14744,8 @@
         <td>${dateCell}</td>
         <td style="text-align:right">${principalCell}</td>
         <td style="text-align:right">${interestCell}</td>
-        <td>${_loansFilterPill('type', type.key, type.badge, f.type === type.key)}</td>
+        <td>${_loansFilterPill('type', type.key, type.badge, f.type === type.key)}${
+          inFlight ? `<span class="badge badge-blue" style="margin-left:5px" title="A newer entry for ${esc(inFlight.period_label)} is on file (${esc(String(inFlight.status).replace(/_/g, ' '))}) but the money has not moved yet, so it is not counted in the figures on this row.">+1 upcoming</span>` : ''}</td>
         <td style="text-align:right">${xeroCell}</td>
         <td style="text-align:right">${balCell}</td>
         <td style="text-align:right">${varianceCell}</td>
@@ -17101,6 +17410,30 @@ ${noActivityNote}
     }
   }
 
+  // The modal an operator gets when we do not know whether Xero has the entry.
+  // Deliberately: no Approve, no auto-dismiss, and the only actions available
+  // cannot post anything. A business owner with no accounting training should
+  // not have to infer any of this from a red flash that disappears in three
+  // seconds over a button that still says "Approve & Post to Xero".
+  function _loanShowUnknownOutcome(message, manualJournalId) {
+    const body = document.getElementById('loan-review-body');
+    const foot = document.getElementById('loan-review-footer');
+    if (!body) { showToast(message || 'Outcome unknown — check Xero before retrying.', 'error'); return; }
+    body.innerHTML = `
+      <div style="padding:18px 20px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px">
+        <div style="font-weight:700;font-size:14.5px;color:#9a3412;margin-bottom:8px">Check Xero before doing anything else</div>
+        <div style="font-size:13px;color:var(--gray-800);line-height:1.6">${esc(message || '')}</div>
+        ${manualJournalId ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:10px">Journal in Xero: <code>${esc(manualJournalId)}</code></div>` : ''}
+        <div style="font-size:12.5px;color:var(--gray-600);margin-top:12px">
+          Posting again could put the same entry in your books twice. Reload this page and look at this item's status first.
+        </div>
+      </div>`;
+    if (foot) {
+      foot.innerHTML = `<button class="btn" onclick="location.reload()">Reload and check</button>
+                        <button class="btn btn-secondary" onclick="closeLoanReviewModal()">Close</button>`;
+    }
+  }
+
   async function approveAndPostSplit(splitId, bankTransactionId) {
     const btn = document.getElementById('loan-approve-btn');
     // v26 (session 220): remember whatever the button actually said (it now varies --
@@ -17116,6 +17449,20 @@ ${noActivityNote}
         bank_transaction_id: bankTransactionId || undefined,
         posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
       });
+      // An unknown outcome is not a failure to retry. See WRITE_TIMEOUT_MSG:
+      // the isolate is very likely still posting, and the button is the loaded
+      // gun. Take over the modal with something that cannot be dismissed by
+      // reflex and offers no way to fire again.
+      if (data && data.outcome_unknown) { _loanShowUnknownOutcome(data.error); return; }
+      // Xero accepted the journal but our own write failed. The server names
+      // both halves (xeroAheadOfUs); a 3-second toast the user cannot finish
+      // reading, over a button still labelled "Approve & Post to Xero", is how
+      // that becomes two journals.
+      if (data && (data.xero_ahead_of_us || data.xero_write_succeeded)) {
+        _loanShowUnknownOutcome(data.error || 'Xero accepted this entry but we could not record it here.',
+                                data.xero_manual_journal_id || null);
+        return;
+      }
       if (!ok || data.error) throw new Error(data.error || 'Posting failed');
       closeLoanReviewModal();
       // v26: distinguish an actual direct split from loan-xero-post's silent
