@@ -10,7 +10,7 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-wr-internal',
 };
 
 // ── Authorization ─────────────────────────────────────────────────────────
@@ -21,7 +21,27 @@ const corsHeaders = {
 // pos_device, laundry_tech.
 const RECEIPT_ROLES = new Set(['admin', 'manager', 'attendant', 'pos_device', 'laundry_tech']);
 
+// Session 229: the DB can present neither the service-role key nor a staff JWT,
+// so a server-side batch job (the corrected-receipt run) authenticates with the
+// shared internal secret in `public.wr_internal_auth`, exactly as charge-order /
+// send-email / send-order-notification already do. Scope is bounded: this
+// function can only email the address already on the order's customer record.
+async function isInternalCaller(req: Request): Promise<boolean> {
+  const hdr = req.headers.get('x-wr-internal') || '';
+  if (!hdr) return false;
+  try {
+    const admin = createClient(SUPABASE_URL, SUPABASE_SVC_KEY);
+    const { data } = await admin.from('wr_internal_auth').select('secret').limit(1).single();
+    const expected = (data as any)?.secret ?? '';
+    return expected.length > 0 && hdr === expected;
+  } catch (_e) {
+    return false;
+  }
+}
+
 async function authorize(req: Request): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  if (await isInternalCaller(req)) return { ok: true };
+
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
   const m = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };
@@ -91,7 +111,7 @@ function dedupeLineItems(items: any[]): any[] {
   });
 }
 
-function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): string {
+function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, priorTotal: number | null = null): string {
   const firstName = customer.first_name_cache ?? customer.email_cache?.split('@')[0] ?? 'there';
 
   // Normalize two possible line_item formats:
@@ -217,6 +237,33 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
   const hasMixedTender = effectiveCredit > 0 && cardPaid > 0;
   const fullyPaidByCredit = effectiveCredit > 0 && cardPaid === 0;
 
+  // ── Correction banner (session 229) ──
+  // Set only when this is a re-send of a receipt that was originally emailed with
+  // a too-low total (see the NON_LINE_TYPES note above). `priorTotal` is the big
+  // number the ORIGINAL email displayed, computed by the caller from the old
+  // allow-list rules. The corrected figure is whatever THIS render arrives at, so
+  // the banner can never disagree with the itemization printed below it.
+  const correctedFigure = fullyPaidByCredit || grandTotal <= 0
+    ? '$0.00 (paid with credits)'
+    : fmt(hasMixedTender ? cardPaid : grandTotal);
+  const correctionHtml = (priorTotal !== null) ? `
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;margin-bottom:20px;">
+      <tr><td style="padding:16px 18px;">
+        <div style="font-size:13px;font-weight:800;color:#92400e;margin-bottom:8px;">A correction to your receipt</div>
+        <div style="font-size:13px;color:#78350f;line-height:1.65;">
+          We found an error in our emailed receipts: subscription weight-overage charges were not being
+          listed. The receipt we sent you for this order showed <strong>${fmt(priorTotal)}</strong>, but the
+          amount charged to your card was <strong>${correctedFigure}</strong>.
+          <br><br>
+          <strong>Nothing about your charge has changed and no new charge has been made</strong> &mdash; only
+          the receipt was wrong. The corrected, itemized version is below.
+          <br><br>
+          We&rsquo;re sorry for the confusion. The error is fixed. If anything here doesn&rsquo;t look right,
+          just reply to this email.
+        </div>
+      </td></tr>
+    </table>` : '';
+
   // Schedule rows
   const pickupAddr = order.pickup_address;
   const addrLine = pickupAddr
@@ -268,15 +315,15 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
   const discountItemsHtml = discountItems.map((i: any) => `
         <tr>
           <td style="padding:5px 0;font-size:13px;color:#059669;">${i.label ?? 'Discount'}</td>
-          <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">\u2212${fmt(i.amount)}</td>
+          <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">−${fmt(i.amount)}</td>
         </tr>`).join('');
 
   // Session 150: account-credit-application row. Rendered ONCE from effectiveCredit
-  // (transactions, or legacy line-item fallback) \u2014 never also from line items.
+  // (transactions, or legacy line-item fallback) — never also from line items.
   const accountCreditHtml = effectiveCredit > 0 ? `
         <tr>
           <td style="padding:5px 0;font-size:13px;color:#059669;">Account credit applied</td>
-          <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">\u2212${fmt(effectiveCredit)}</td>
+          <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">−${fmt(effectiveCredit)}</td>
         </tr>` : '';
 
   // Tip row — styled like credit items but in green with a + prefix
@@ -321,8 +368,12 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
             <div style="font-size:11px;color:#9ca3af;margin-bottom:22px;">2609 Foothill Blvd &middot; Oakland, CA 94601</div>
 
             <div style="font-size:14px;color:#374151;margin-bottom:18px;line-height:1.6;">
-              Hi ${firstName}, thanks for your order &mdash; here&rsquo;s your receipt.
+              ${priorTotal !== null
+                ? `Hi ${firstName} &mdash; here&rsquo;s a corrected receipt for this order.`
+                : `Hi ${firstName}, thanks for your order &mdash; here&rsquo;s your receipt.`}
             </div>
+
+            ${correctionHtml}
 
             <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 18px;">
 
@@ -402,7 +453,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { order_id } = await req.json();
+    const { order_id, prior_total } = await req.json();
     if (!order_id) throw new Error('order_id is required');
 
     const supabase = createClient(
@@ -455,7 +506,11 @@ Deno.serve(async (req: Request) => {
       creditApplied = Math.max(0, Math.round(net * 100) / 100);
     } catch (_e) { /* non-fatal — email still goes without the credit breakdown */ }
 
-    const html = buildEmailHtml(order, customer, creditApplied);
+    // session 229: `prior_total` present => render the correction banner.
+    const priorTotal = (prior_total === undefined || prior_total === null)
+      ? null
+      : Math.round(Number(prior_total) * 100) / 100;
+    const html = buildEmailHtml(order, customer, creditApplied, priorTotal);
 
     const sgRes = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
@@ -466,7 +521,9 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         personalizations: [{ to: [{ email: toEmail }] }],
         from: { email: FROM_EMAIL, name: FROM_NAME },
-        subject: `Your receipt \u2014 Family Laundry Order #${order.order_number}`,
+        subject: priorTotal !== null
+          ? `Corrected receipt — Family Laundry Order #${order.order_number}`
+          : `Your receipt — Family Laundry Order #${order.order_number}`,
         content: [{ type: 'text/html', value: html }],
       }),
     });
