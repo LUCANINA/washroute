@@ -1,8 +1,25 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 237 (left by session 236, 2026-08-26)
+> ## ⏭️ START HERE — first thing, session 239 (left by session 238, 2026-08-26)
 >
-> ### 1. DEPLOY, then re-verify. Three fixes are committed and untested live.
+> ### 1. FOUR RATES ARE NOT MEASURED, and the Debt Schedule now leaves the building
+>
+> Client View's Debt Schedule is a document David sends to **lenders and vendors** who ask for
+> one. Its rate column is measured (`fitted_annual_rate`) — but only SEVEN loans have been
+> through the rate fit. **Dexter, EIDL, PCV and Verdant fall back to `loan_accounts.interest_rate`,
+> the typed figure that column exists to stop publishing.** They print (a blank rate on a lender's
+> copy is worse than a close one) with a dotted underline and a title-only hover, so the printed
+> and exported document is unchanged.
+>
+> **Run the fit on those four before that sheet goes to anyone.** PCV has monthly
+> `portal_manual_pull` statements and is fittable today; Dexter and Verdant can be fitted from
+> their own amortization schedules, which ARE the contracts. EIDL is the hard one — almost no
+> statement history.
+>
+> Reminder of why this matters: `interest_rate` is wrong on all four Fords (9.000 typed vs
+> 8.29 / 9.29 / 9.99 / 8.99 measured) and on Funding Circle (20.000 vs 17.99).
+>
+> ### 2. DEPLOY, then re-verify. Three fixes are committed and untested live.
 >
 > ```
 > npx supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq
@@ -16,19 +33,6 @@
 >    E5-4751's own June payments onto another loan.
 >
 > If any is off, **adjust the model, never the fixture.**
->
-> ### 2. The Loans page is already live — look at it
->
-> Pushed and deployed (`58324e3` confirmed on origin/main at the close of session 236, so Vercel
-> has it). Principal / Interest / Xero / Statement / Variance columns, a close-readiness strip,
-> and totals. Reads `loan_tie_outs`, not findings — see the log entry for why that distinction is
-> load-bearing (PCV and Verdant would otherwise show green while carrying the two largest
-> deviations on the page).
->
-> **Open it first thing and sanity-check it against real eyes** — it was verified by simulating
-> the render against the live tie-out rows (all five states, Xero − Statement = Variance on all 13
-> comparable loans), but nobody has actually LOOKED at the rendered table yet. Expect: 5 red, 3
-> grey "explained", 3 green, 2 amber "no statement", 1 n/a, and $1,877.36 to resolve.
 >
 > ### 3. Waiting on the accountant — three Ford journals, all dated 2026-08-31
 >
