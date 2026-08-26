@@ -13,7 +13,57 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: August 26, 2026 — Session 229 — **Emailed receipts silently dropped every subscription weight-overage charge. 113 orders since June 15, $8,571 hidden — customers were emailed a receipt lower than the amount that hit their card. Root-caused into `send-receipt`'s allow-list; fixed, deployed as v60.***
+*Last updated: August 26, 2026 — Session 230 — **Unpaid orders lived in two places and agreed with neither. $79.95 of declined debt was visible in Orders → Issues and invisible on Overview. The definition of "unpaid" now lives in one DB view that all five surfaces read.***
+
+David, with two screenshots: "We seem to have unpaid orders in different parts of the admin. Regroup any failed or unpaid delivered order to the same UNPAID ORDERS section of the Overview page. Audit the entire system for other unpaid orders that may have also slipped through the cracks."
+
+**The order that exposed it.** #11089 (Erin Traylor, $79.95) was charged, **DECLINED**, and then marked `delivery_failed`. Overview's Unpaid Orders widget queried `status IN ('delivered','ready_for_delivery','out_for_delivery')`. `delivery_failed` is not in that list, so the order appeared only in the Issues tab — which surfaced it for a different reason entirely (`delivery_failed` is an issue status), with a "Card Declined" badge that made the omission from Overview look deliberate.
+
+**The actual bug was not a missing status — it was five copies of the same rule.** Each surface had hand-rolled its own definition of unpaid, and they had already drifted:
+
+| Surface | Status filter it used | on_account? | archived? |
+|---|---|---|---|
+| Overview → Unpaid Orders | the three chargeable statuses | excluded | excluded |
+| Orders → Issues (row test) | same three, for the billing branch | excluded | — |
+| Orders → Issues (tab counter) | a **separate inline copy** of the same three | excluded | — |
+| Customer panel → Balance | same three | **not** excluded | not excluded |
+| In-app audit Check 3 | same three | **not** excluded | excluded |
+
+Adding `delivery_failed` to one list would have fixed #11089 and left the identical hole for the next status. So the definition moved into the database.
+
+**`public.v_outstanding_orders`** (migrations `session_230_outstanding_orders_view` + `_null_safe`) is now the only definition:
+
+> outstanding = **(a)** a charge was attempted and declined — `billing_status='failed' OR charge_failed_at IS NOT NULL` — in **any** status, OR **(b)** an unsettled order that reached `ready_for_delivery` or later (`ready_for_delivery`, `out_for_delivery`, `delivered`, `delivery_failed`); and not already `paid`/`refunded`/`written_off`; and a positive balance.
+
+`security_invoker = on` so RLS still applies (a customer querying it sees only their own orders); granted to `authenticated` + `service_role`, revoked from `anon` — verified by REST round-trip, which returned `42501 permission denied` rather than `PGRST205 not found`, proving both the grant and that PostgREST had picked the view up.
+
+Four buckets — `card_declined`, `awaiting_payment`, `on_account`, `stuck_in_process` — plus **`counts_as_due`**, the one flag every dollar total must filter on. It excludes stalled work-in-progress (an operational warning, not debt) and archived orders (deliberately set aside), so a consumer can't accidentally inflate the balance.
+
+**What the system-wide audit actually found.** The first pass flagged **1,530 orders / $224k**, which per the Widespread-Issue Rule meant the criterion was wrong, not the data. 926 `skipped` orders alone carry $88k of `total_amount` for laundry that was never washed. With the real definition:
+
+- **$553.90 genuinely chaseable** — #10471 (Kayla Jones, $473.95) and #11089. That is the whole card-debt exposure.
+- **$459.15 invisible in BOTH places** — Stacie Cheatem's #8769/#8773 are `on_account` **and** stamped `billing_status='failed'`. Session 175 taught every surface to ignore failed stamps on on-account customers, so these fell through both filters. They now show in an On account group with a "⚠ card was attempted on an invoiced account" flag; new `on_account_card_error` column.
+- **$63.95 archived** (#4669 Andrew Chamberlain) — hidden by design, now a collapsed sub-line.
+- **$350.90 stalled** in `processing`/`folding` 7+ days — not debt, surfaced anyway.
+- **Clean:** no legacy status (`ready`, `assembled`, `pickup_missed`, …) holds unpaid money; every unsettled POS retail sale belongs to an on-account customer (City of Oakland, Oakland Roots), so no cash sale is leaking; the `awaiting_payment` bucket is **empty**, meaning the autocharge sweep is keeping up.
+
+**Overview is now grouped, not one flat list.** Card declined and Awaiting payment render as worklists with the existing retry/request-card buttons. On account is ~300 open orders of ordinary receivables from invoiced commercial customers — rendering it flat would have buried the two rows that need a human, so it rolls up per customer, collapsed, with oldest-age. The headline count and badge deliberately count **only** what can be chased today; on-account and stalled totals appear in the sub-line. Archived and stalled each get their own collapsed `<details>`.
+
+**QA caught a regression I introduced, before it shipped.** The new `hasFailedCharge()` helper tested `billing_status === 'failed' || !!charge_failed_at`. But `charge_failed_at` is **not reliably cleared when a later attempt succeeds** — 3 `paid` and 5 `written_off` orders still carry a stale stamp. All 8 would have appeared in the Issues tab as permanent phantom problems. The helper now checks settled-status first, matching the precedence the view already applied (which is why they never appeared there). Worth remembering: **`charge_failed_at` is a historical marker, not current state — always gate it behind a settled check.**
+
+**Also fixed by the same change:** the customer-panel Balance had no on-account carve-out and no archived exclusion, and read the three-status list — so a customer whose only debt was a declined charge on a `delivery_failed` order showed a **$0 balance**. It now reads the view filtered by `counts_as_due`. In-app audit Check 3 was treating `refunded` as unpaid and lumping invoiced customers in with card debt; it now splits P0 (card customers) from P2 (on-account receivables).
+
+**`washroute-audit` skill Check 3 rewritten** onto the view, with 3a/3c/3d sub-queries and both traps documented inline (filter `counts_as_due` when summing; never test `charge_failed_at` alone). Rebuilt and handed to David to reinstall.
+
+**Verification:** view returns 305 rows with **zero NULL booleans**; the four render functions were extracted and run in node against real view rows — no `undefined`/`NaN`/`[object Object]`, chaseable total exactly $553.90. Commit `95a9e77`.
+
+**Lesson banked — a rule copy-pasted into five surfaces is not five bugs waiting to happen, it is one bug already happening; you just haven't found which copy drifted.** The tell isn't that a query is wrong, it's that the same `IN (...)` list appears more than once. When you find a filter duplicated across surfaces, the fix is never to correct the copies — it's to delete them and give the rule one home, ideally in the database where a `COMMENT` can carry the reasoning. Session 213's `link_subscription_on_order_fn` and session 229's receipt allow-list were the same shape: money logic that lived in the renderer instead of the model.
+
+⚠️ **Session-numbering drift, flagged not fixed:** this file's Last-updated said 229 while `PROJECT-NOTES-BOOKKEEPING.md` said 223 and git log referenced "session 240". Migrations here were named `session_230_*` per the documented rule (use PROJECT-NOTES.md's Last-updated line). The two notes files clearly no longer share a counter — worth deciding whether they should.
+
+---
+
+*Previously: August 26, 2026 — Session 229 — **Emailed receipts silently dropped every subscription weight-overage charge. 113 orders since June 15, $8,571 hidden — customers were emailed a receipt lower than the amount that hit their card. Root-caused into `send-receipt`'s allow-list; fixed, deployed as v60.***
 
 David: two receipts for Rae Maxwell-Ross, one emailed at $21.00 and one texted at $34.75 — "investigate and fix root cause."
 
@@ -1223,6 +1273,22 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 
 ## Admin Dashboard — Completed Features
 
+### Money Outstanding — one definition (session 230)
+
+**`public.v_outstanding_orders` is the single source of truth for "unpaid". Read it; do not re-derive it.**
+
+Outstanding = a declined charge in **any** status (`billing_status='failed' OR charge_failed_at IS NOT NULL`), OR an unsettled order that reached `ready_for_delivery` or later — which **includes `delivery_failed`**, the status whose omission caused the bug. Not `scheduled`/`skipped`/`cancelled`/`pickup_failed` without a failed charge: those carry a `total_amount` for laundry that was never washed (926 skipped orders hold $88k of it).
+
+Buckets: `card_declined` · `awaiting_payment` · `on_account` · `stuck_in_process`.
+
+**Two rules for anyone consuming it:**
+1. **Filter `counts_as_due` whenever you sum dollars.** It already drops stalled work-in-progress and archived orders. Without it you overstate the balance.
+2. **Never test `charge_failed_at` on its own** — it is a historical stamp that isn't reliably cleared on a later success (Known Issue #37). The view and the JS helper `hasFailedCharge()` both check settled-status first; copy that precedence.
+
+Consumers wired to it: Overview → Unpaid Orders, customer panel Balance, in-app audit Check 3, `washroute-audit` skill Check 3. The Orders → Issues tab filters the in-memory `allOrders` cache instead (a round-trip per keystroke isn't worth it) using `hasFailedCharge()` / `isOutstandingOrder()` — client-side mirrors of the same WHERE clause, defined once near `orderChargedTotal()`. **If you change one, change both.**
+
+The on_account bucket is ordinary receivables (~300 open orders, Kidango / Kasa / City of Oakland / Soul Sanctuary) and is rendered collapsed and rolled up per customer, so it can't bury the handful of declined cards that need a human. Overview's headline count and badge deliberately count only the chaseable buckets.
+
 ### Orders Page
 - Full order table with status pipeline filter tabs: Scheduled / In Process / Ready / Issues / **Delivered** (last 24 hours only; cancelled orders are archived, never shown)
 - Click status badge to change status on individual orders
@@ -1653,6 +1719,8 @@ There are actually **two separate hang points** that must both be covered:
 | 34 | P3 | `orders.service_id` after a plan lapses | **An order booked on the $0/bag Subscription service stays on it after the subscription is cancelled.** `link_subscription_on_order_fn` correctly refuses to LINK such an order, but nothing re-prices the base, so a still-scheduled order can deliver for free. One live instance found in session 213: **#12544 Candy RamirezHale** (plan lapsed 2026-07-13, order still scheduled at $0.00). Small ($74.95 across 14 historical orders). Needs a product decision on what should happen to in-flight orders when a plan ends, not just a code fix. |
 | ~~35~~ | ✅ **FIXED session 213** | `refund-charge` → `record_order_refund` RPC | **Partial refunds recorded as full refunds; `orders.amount_refunded` never incremented.** Fixed by moving all refund bookkeeping into one transactional SECURITY DEFINER RPC (`record_order_refund`) that both refund paths can call, deploying `refund-charge` v39 onto it, and backfilling 87 orders snapshot-then-apply (71 restored `refunded`→`paid`, $6,414.37 of kept revenue reclassified; 33 accumulators synced). Verified 0 remaining inconsistencies across all 97 orders with refunds. **Open remainder:** the POS path (`refund_pos_payment`) still has its own correct-but-duplicated copy — rewire it onto the RPC in a daytime session. |
 | 36 | P3 Low | admin-dashboard Drivers report, `rpt-drv-tbody` render (~line 34960) | **Driver name interpolated into table `innerHTML` unescaped (`${r.name}` instead of `${esc(r.name)}`).** Same class of issue just fixed in the Launderer report's `_renderLndrTbody()` this session (session 220) — found via that fix's blast-radius grep for the same pattern, not fixed here since it's a different, unrelated report and out of this session's scope. Low severity: driver names are staff-entered (would need write access to the `drivers`/`profiles` table to exploit), not customer-facing. Quick fix next time Drivers-report code is touched: wrap `r.name` in `esc()` in all 3 `rpt-drv-tbody` render sites. |
+| 37 | P2 Data | `charge-order` / `orders.charge_failed_at` | **`charge_failed_at` is not reliably cleared when a later charge succeeds.** 3 orders are `billing_status='paid'` and 5 are `written_off` while still carrying a stamp from an old decline (#5633, #2387, #1690, #6108, #3991, #995, #695, #226). Harmless today because every consumer added in session 230 checks settled-status FIRST (`v_outstanding_orders` in SQL, `hasFailedCharge()` in JS) — but any future hand-written query testing `charge_failed_at IS NOT NULL` on its own will resurrect all 8 as phantom open problems. Found during session 230's QA blast-radius pass, where the first version of `hasFailedCharge()` would have pulled them into the Issues tab. Fix: have `charge-order` null the column on success (the skill claims v31 already does — these may predate it; verify before backfilling), then a one-time `UPDATE orders SET charge_failed_at = NULL WHERE billing_status IN ('paid','refunded','written_off')`. |
+| 38 | P2 Data | Stacie Cheatem #8769 / #8773 | **A card was charged against an on-account customer and declined, leaving a wrong `billing_status='failed'` stamp on $459.15 of invoiced work.** Session 175 taught every surface to ignore failed stamps on on-account customers, so these two were invisible in BOTH the Overview widget and the Issues tab until session 230's view surfaced them (new `on_account_card_error` flag). The money is still fully collectible by invoice — only the stamp is wrong. **Not fixed: this is David's billing data and needs his call** on whether to null `billing_status` back to NULL or settle via an account payment. Root cause not yet traced: admin's manual charge path guards on `billing_type === 'on_account'`, so the likely culprit is the autocharge sweep or an intake-time charge that skips the guard — audit `sweep_autocharge_ready_orders` before clearing the data. |
 
 ---
 
