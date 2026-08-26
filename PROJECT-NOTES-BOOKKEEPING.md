@@ -312,6 +312,49 @@ So, without exception:
 transaction, so two journals landed on one $1,180.32 payment while the June payment went
 uncorrected. One payment cannot settle two periods; that is now an error in its own right.
 
+### "ONLY ONE LEFT" IS NOT EVIDENCE (session 233) — how 4140 lost $415.88
+
+`loan-xero-post` classifies every bank transaction matching a split's amount: one whose
+Xero coding carries a second line or an interest line has ALREADY been worked, and one
+another split has posted against is taken. If exactly one candidate survives that filter,
+it posts against it automatically. That rule is what put E-Transit 4140's 2026-06 interest
+onto its 2026-05-18 payment.
+
+The safety check was not missing. It ran, it looked at the real 2026-06-17 payment, and it
+correctly excluded it — someone had split that payment by hand in Xero on 2026-07-14, five
+weeks before the app posted anything. Every other $1,180.32 payment on the loan was either
+split at source too or claimed by another period. One candidate survived: **May's**. And
+the 2026-05 split was posted sixteen minutes later, so at the moment of the decision May's
+payment still looked unclaimed.
+
+**The survivor was not evidence. It was what was left over.** The correct answer was "this
+period's payment is already done — post nothing", and the code already reaches exactly that
+answer when EVERY candidate is worked. It just could not reach it when one unrelated
+payment happened to survive.
+
+So the pick now has to be earned (`pick-candidate.ts`, six fixtures in
+`pick-candidate.test.ts`):
+
+- **The survivor must sit within `AUTO_PICK_MAX_DAYS` (12) of where this period's payment is
+  expected.** A month away is a different period's payment, however few alternatives remain.
+- **No EXCLUDED candidate may sit closer to that date than the survivor does.** This is the
+  rule that catches 4140: the excluded 06-17 payment was 0 days out, the surviving 05-18
+  payment 30. When a closer candidate was excluded for being already split, THAT is this
+  period's payment — so the response becomes `already_handled_in_xero` with the
+  mark-and-move-on path, not a post.
+- **Date judgement gets its own anchor.** `warnAnchor` deliberately points at the PRIOR
+  statement, because that is where the search WINDOW starts. The payment lands at the other
+  end: a balance delta is measured up to the CURRENT statement, and the payment that caused
+  it falls on or just before that date. 4140's 2026-06 split has a prior statement of
+  2026-05-28 and a real payment on 2026-06-17 — anchoring date judgement on the prior
+  statement would have made the WRONG payment look nearer. `payAnchor` is the current
+  statement (or the amortization row, or an ISO period label).
+
+**The generalisation.** Every automatic identification in this module should be able to
+answer *"what positively identifies this?"* — never *"what else could it be?"* Elimination
+is sound only when the candidate set is known to be complete and correctly classified, and
+on a loan with eight identically-sized monthly payments it is neither.
+
 ### A guard is only as good as the branch it sits on (session 231)
 
 Six separate bugs in one night, all the same shape: the correct check EXISTED, one
@@ -1485,6 +1528,26 @@ the engine's sweep closes any fingerprint it no longer re-finds.
 splits against the same 2026-05-18 payment (new `split_collision` check). 4140 is also one
 of the three Ford loans still disagreeing with the lender, by $415.88 — likely the same
 root cause.
+
+
+**Then: why was 4140's June payment split at source at all?** Not a missing journal check —
+the reverse. The Xero-side hand-edit is dated **2026-07-14 09:12**; the app posted journal
+`12ef542c` on **2026-08-21 00:09**, five weeks later. The app wrote on top of a payment that
+was already corrected, and it did so because it was matched to the wrong payment. Root cause
+and fix: see the "ONLY ONE LEFT IS NOT EVIDENCE" invariant.
+
+**4140's $415.88, fully explained.** The 2026-06-17 payment of $1,180.32 is coded in Xero as
+$764.44 to the loan and **$415.88** to interest, and journal `12ef542c` then moves a further
+$132.81. The loan came down $631.63 instead of $1,047.51 — and $415.88 is not a random
+number: it is April's $147.43 + May's $135.64 + June's $132.81, three months of interest all
+of which had already been reallocated by journals (`31ad48e9`, `7ce60981`, `12ef542c`).
+**Fix: recode that transaction back to a single line, $1,180.32 → 242.** The journal handles
+June's interest and the loan lands on $10,685.52, matching Ford to the cent. Verified: the
+06-27 → 08-17 walk already ties exactly on both sides, so this one transaction is the whole
+remaining gap.
+
+**Also noted:** `12ef542c` carries June's interest but is dated 2026-05-18, so $132.81 of
+interest expense sits in the May P&L. Ramona's call whether to move it.
 
 > **What this cost and why.** The check was written, reviewed, committed and deployed in a
 > single sitting against zero fixtures, on the strength of "it mirrors the pairing rule

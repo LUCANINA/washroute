@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { ensureUpcomingSplit } from '../_shared/staging-next.ts'
 import { effectiveCloseDate, isPeriodClosed } from '../_shared/close-date.ts'
+import { chooseAutoCandidate, AUTO_PICK_MAX_DAYS } from './pick-candidate.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
 // admin/manager may do both. Anything else is rejected outright.
@@ -349,6 +350,9 @@ async function callerRole(req: Request) {
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
 const ZERO_TOLERANCE = 0.005 // dollars -- treat anything under half a cent as exactly zero
 const DIRECT_SPLIT_WINDOW_DAYS = 2 // v24 -- David's call, tightened from an initial 3
+// v57 (session 233): how far an auto-identified candidate may sit from the date this
+// period's payment is actually expected. See pick-candidate.ts for why "only one
+// candidate is left open" stopped being sufficient reason to post against it.
 
 // v41: pre-staging knobs.
 const STAGE_REF_PREFIX = 'WR-STAGE'
@@ -1880,6 +1884,22 @@ async function handleRequest(req: Request): Promise<Response> {
     // split's period than the direct-split window allows. Reported, never enforced.
     let pickedDateWarning: string | null = null
 
+    // v57: warnAnchor above anchors on the PRIOR statement, because that is where the
+    // matching WINDOW starts. The payment itself lands at the other end -- a balance
+    // delta is measured up to the CURRENT statement, and the payment that caused it
+    // falls on or just before that date. 4140's 2026-06 split has a prior statement of
+    // 2026-05-28 and a real payment on 2026-06-17: twenty days apart, and anchoring on
+    // the prior statement makes the 2026-05-18 payment look like the nearer match. So
+    // date judgement uses its own anchor, and warnAnchor keeps doing what it does.
+    const payAnchorDate = /^\d{4}-\d{2}-\d{2}$/.test(String(split.period_label))
+      ? split.period_label
+      : (isScheduleSourced ? amortRow?.row_date : stmt?.statement_date)
+    const payAnchor = payAnchorDate ? String(payAnchorDate).slice(0, 10) : null
+    // Set when the auto-pick was refused because an already-split candidate sits closer
+    // to payAnchor than the sole survivor does -- i.e. this period's payment is done.
+    let periodPaymentAlreadyWorked: { id: string; date: string | null; usedByPeriod: string | null } | null = null
+    let autoPickTooFarDays: number | null = null
+
     // v29: an operator's explicit pick still wins, but when the direct-split matcher
     // already positively identified the transaction (and only declined because it is
     // reconciled), reuse that identification rather than re-searching. Without this, a
@@ -2043,12 +2063,20 @@ async function handleRequest(req: Request): Promise<Response> {
           lines: withAccountNames(lines, acctMap),
         })
       }
-      const open = candidates.filter(c => {
-        const a = candidateAnnotations!.get(c.BankTransactionID)!
-        return !a.alreadyWorked && !a.usedByPeriod
-      })
-      if (open.length === 1) {
-        candidate = detailedById.get(open[0].BankTransactionID) || open[0]
+      // v57: "exactly one candidate is left open" is the absence of evidence, not
+      // evidence. chooseAutoCandidate makes the survivor earn the pick -- see
+      // pick-candidate.ts, and the E-Transit 4140 fixture in its test file.
+      const decision = chooseAutoCandidate(
+        candidates.map(c => ({ id: c.BankTransactionID, date: c.DateString ?? null })),
+        new Map(Array.from(candidateAnnotations.entries())
+          .map(([id, a]) => [id, { alreadyWorked: a.alreadyWorked, usedByPeriod: a.usedByPeriod }])),
+        payAnchor,
+        AUTO_PICK_MAX_DAYS,
+      )
+      periodPaymentAlreadyWorked = decision.periodPaymentAlreadyWorked
+      autoPickTooFarDays = decision.tooFarDays
+      if (decision.pickId) {
+        candidate = detailedById.get(decision.pickId) || candidates.find(c => c.BankTransactionID === decision.pickId)
       }
     }
 
@@ -2089,7 +2117,10 @@ async function handleRequest(req: Request): Promise<Response> {
         ? annotatedCandidates.filter(c => !c.already_worked && !c.used_by_period).length
         : null
       const soleWorked = candidateAnnotationsSeed !== null
+      // v57: a closer, already-split candidate means this period's payment IS done --
+      // the same conclusion as "every candidate is handled", reached from one that is.
       const allHandled = soleWorked || (candidateAnnotations !== null && openCount === 0)
+        || periodPaymentAlreadyWorked !== null
       if (allHandled) {
         const handledEvidence = soleWorked
           ? [{ id: candidateAnnotationsSeed!.id, already_worked: true, used_by_period: null, current_lines: withAccountNames(candidateAnnotationsSeed!.lines, acctMap) }]
@@ -2132,7 +2163,9 @@ async function handleRequest(req: Request): Promise<Response> {
         return new Response(JSON.stringify({
           can_mark: true,
           reason: 'already_handled_in_xero',
-          error: soleWorked
+          error: periodPaymentAlreadyWorked
+            ? `This period's payment is the ${periodPaymentAlreadyWorked.date} transaction, and it has already been ${periodPaymentAlreadyWorked.usedByPeriod ? `posted against the ${periodPaymentAlreadyWorked.usedByPeriod} split` : 'split in Xero'}. Other payments of this amount are still unsplit, but they belong to other periods — posting against one of those would put this period's interest on the wrong payment. Nothing was posted.`
+            : soleWorked
             ? `The one bank transaction matching this amount was already split in Xero — its coding already carries the interest breakdown. WashRoute will not touch it again.`
             : `Every bank transaction matching this amount ($${split.total_amount}) has already been handled — split in Xero or attached to another period's split. WashRoute will not redo any of them.`,
           anchor_date: isoDay(warnAnchor),
@@ -2155,7 +2188,9 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response(JSON.stringify({
         reason: notFoundReason,
         error: notFoundReason === 'ambiguous_candidates'
-          ? (handledCount > 0
+          ? (autoPickTooFarDays !== null
+            ? `${candidates.length} payments matched this amount. The only one still unsplit is ${autoPickTooFarDays} days from where this period's payment is expected (${payAnchor}), which is too far to assume it is the right one — it most likely belongs to another period. Pick the payment explicitly if you know which it is.`
+            : handledCount > 0
             ? `${candidates.length} payments matched this amount — ${handledCount} ${handledCount === 1 ? 'is' : 'are'} already handled, leaving ${openCount} to choose from.`
             : `${candidates.length} live bank transactions matched the amount ($${split.total_amount}) in the date window -- pass bank_transaction_id to pick the right one.`)
           : (notFoundReason === 'payment_not_yet_in_xero'
