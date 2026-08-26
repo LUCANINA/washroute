@@ -629,19 +629,39 @@ function checkLumpedPayments(loan: any, ledger: any, today: string, statements: 
     // exists but ingestion just hasn't produced a split yet" (the generic case below).
     const hasPriorStatement = realStatementDates.some((d: string) => d < r.date)
     const missingPrior = !hasPriorStatement && oldestStatementDate != null
+    const ageDays = daysBetween(r.date, today)
 
     out.push({
       fingerprint: `lumped_payment:${code}:${r.srcId}`,
       check_key: missingPrior ? 'lumped_payment_missing_prior_statement' : 'lumped_payment',
-      severity: daysBetween(r.date, today) > 45 ? 'warn' : 'info',
+      // SEVERITY CEILING, removed session 241 (David: "surface this issue to the
+      // accountant through the ISSUE list. In fact, why isn't it here yet?").
+      //
+      // It WAS in the list. This line is why nobody saw it: capped at 'warn', a
+      // lumped payment could never reach 'error', and the Issues pane's "Fix
+      // first" band renders errors only. Funding Circle's 2026-04-20 payment --
+      // $2,033.77 booked entirely to the loan with no interest line, verified
+      // against Xero as still uncorrected four months later, roughly $1,038 of
+      // interest expense that never reached the P&L -- sat under "worth a look"
+      // the whole time.
+      //
+      // Money in the wrong account for six weeks is not a note to read later. An
+      // unsplit payment that is still unsplit after 45 days is an error, and it
+      // says so now.
+      //
+      // The one case that stays 'warn' is missingPrior: it cannot be split until
+      // a document arrives, so it is genuinely blocked rather than neglected, and
+      // ranking a blocked item above things the accountant can actually act on
+      // just teaches them to ignore the top of the list.
+      severity: missingPrior ? 'warn' : (ageDays > 45 ? 'error' : 'info'),
       loan_account_id: loan.id,
       title: missingPrior
         ? `${loan.xero_account_name} — ${r.date} payment of ${money(amt)} needs a statement from before ${oldestStatementDate}`
         : `${loan.xero_account_name} — ${r.date} payment of ${money(amt)} has no interest split`,
       plain_english: missingPrior
         ? `The whole ${money(amt)} was recorded as paying down the loan, with nothing booked as interest. This can't be split yet because it needs to be compared against the statement from just before it, and the oldest lender statement on file for this loan is ${oldestStatementDate} — after this payment, not before it. Upload a statement dated before ${r.date} for this loan and the split will be computed and posted for review automatically.`
-        : `The whole ${money(amt)} was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. ${daysBetween(r.date, today) > 45 ? 'This one is over 45 days old, so it is probably genuinely missed rather than just pending month-end.' : 'Recent — most likely just waiting for month-end or the lender statement.'}`,
-      detail: { code, date: r.date, amount: amt, bank_transaction_id: r.srcId, contact: r.contact, age_days: daysBetween(r.date, today), oldest_statement_on_file: oldestStatementDate },
+        : `The whole ${money(amt)} was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. ${ageDays > 45 ? `This one is ${ageDays} days old, so it is genuinely missed rather than pending month-end — the interest belongs in that month's expense and is not there.` : 'Recent — most likely just waiting for month-end or the lender statement.'}`,
+      detail: { code, date: r.date, amount: amt, bank_transaction_id: r.srcId, contact: r.contact, age_days: ageDays, oldest_statement_on_file: oldestStatementDate },
       proposed_action: missingPrior
         ? { kind: 'upload_earlier_statement', note: `Upload the lender statement covering the period just before ${r.date} for this loan (the oldest one on file is dated ${oldestStatementDate}). Once it's on file, this split will be computed and posted for review automatically — no other action needed.` }
         : { kind: 'reallocation_journal', note: 'Split principal/interest once the lender statement or schedule gives the exact figures, then post via loan-xero-post.' },

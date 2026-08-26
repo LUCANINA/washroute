@@ -3434,6 +3434,9 @@
             @keyframes bkCountBounce { 0% { transform: scale(1); } 35% { transform: scale(1.18); } 100% { transform: scale(1); } }
             .bk-confetti-piece { position: absolute; width: 7px; height: 11px; border-radius: 2px; top: -14px; animation: bkConfettiFall 1.5s ease-in forwards; pointer-events: none; }
             @keyframes bkConfettiFall { 0% { transform: translate(0, 0) rotate(0deg); opacity: 1; } 100% { transform: translate(var(--cf-x), 240px) rotate(var(--cf-r)); opacity: 0; } }
+            .bk-queue-stale { font-size: 11.5px; color: #92400e; background: #fffbeb;
+              border: 1px solid #fde68a; border-radius: 5px; padding: 3px 7px;
+              margin-top: 5px; display: inline-block; }
             .bk-allclear { text-align: center; padding: 34px 20px; }
             .bk-allclear-badge { width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%; background: #f0fdf4; border: 1.5px solid #bbf7d0; display: flex; align-items: center; justify-content: center; }
             .bk-allclear-title { font-size: 14.5px; font-weight: 700; color: var(--gray-900); }
@@ -8814,6 +8817,7 @@
         tier: it.severityRank === 0 ? 1 : 2,
         amount: it.amount,
         name: it.title, reason: it.explain || 'Needs a decision.',
+        stale: it.stale || null,
         action: 'Review', onclick, detailHtml,
         // Evidence next to the question (session 224 cont.): when a stored
         // source document resolves for this item, 👁 opens it centered on the
@@ -9012,6 +9016,7 @@
         <div style="min-width:0;flex:1">
           <div class="bk-queue-name">${esc(it.name)}</div>
           <div class="bk-queue-reason">${esc(it.reason)}</div>
+          ${it.stale ? `<div class="bk-queue-stale" title="The latest reconciliation run did not re-examine this item, so the text above is preserved from when it last did.">⏱ ${esc(it.stale.label)}</div>` : ''}
           ${panelId ? `<div id="${panelId}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12.5px;color:var(--gray-600)" onclick="event.stopPropagation()">${it.detailHtml}</div>` : ''}
         </div>
       </div>
@@ -14170,6 +14175,35 @@
     return t.slice(0, maxLen - 1).replace(/\s+\S*$/, '') + '…';
   }
 
+  // A finding the LATEST run did not re-examine is not a current claim about the
+  // books, and must not be shown as one.
+  //
+  // The engine is deliberately right to keep these open: a finding whose date
+  // falls before the run's pulled window was never looked at, so "not re-found"
+  // means "out of range", not "fixed" — a false-resolve bug from session v5 that
+  // was correctly closed. What was never handled is the other half. Funding
+  // Circle's 2026-04-20 lumped payment aged past the 120-day window on 19 August
+  // and has been frozen ever since, still telling the accountant to "upload a
+  // statement dated before 2026-04-20" — nine such statements were uploaded on
+  // 22 August, three days after that sentence stopped being recomputed.
+  //
+  // So: keep it open, and say plainly when it was last actually checked.
+  function _bkNewestRunId() {
+    const done = (_reconRuns || []).filter(r => r.finished_at && r.status !== 'failed');
+    return done.length ? done[0].id : null;   // _reconRuns arrives newest-first
+  }
+
+  function _bkFindingStaleness(f) {
+    const newest = _bkNewestRunId();
+    if (!newest || !f || f.last_seen_run_id === newest) return null;
+    const seen = f.last_seen_at ? String(f.last_seen_at).slice(0, 10) : null;
+    if (!seen) return { days: null, label: 'not re-checked by the latest run' };
+    const days = Math.max(0, Math.round((new Date(today() + 'T00:00:00') - new Date(seen + 'T00:00:00')) / 86400000));
+    return { days, seen,
+      label: days === 0 ? 'not re-checked by the latest run'
+           : `last actually checked ${days} day${days === 1 ? '' : 's'} ago (${seen}) — outside the window the check now looks at, so the wording below may be out of date` };
+  }
+
   function _bkLoanAttentionItems() {
     const items = [];
     (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status !== 'resolved').forEach(a => {
@@ -14191,9 +14225,11 @@
     });
     (_reconFindings || []).filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).forEach(f => {
       const raw = f.plain_english || '';
+      const stale = _bkFindingStaleness(f);
       items.push({
         key: 'recon-' + f.id, kind: 'recon_finding', severityRank: f.severity === 'error' ? 0 : 1, finding: f,
-        title: f.title || 'Untitled finding', explain: _bkOneLine(raw), rawExplain: raw, amount: null, tag: f.check_key || null,
+        title: f.title || 'Untitled finding', explain: _bkOneLine(raw), rawExplain: raw, amount: null,
+        tag: f.check_key || null, stale,
       });
     });
     // Session 226: a staged pre-split transaction the sweep flagged — either a
