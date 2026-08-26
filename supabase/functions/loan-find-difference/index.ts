@@ -608,11 +608,24 @@ function analyzeWalk(o: {
         const ownJournalInSpan = !!ownJnlId && entries.some(r => r.srcType === 'ManualJournal'
           && String(r.srcId || '').toLowerCase() === ownJnlId
           && r.date > (p.entry_from || p.from) && r.date <= (p.entry_to || p.to))
+        // Session 236 cont.: corroborate an `already_in_xero` claim on a FOREIGN
+        // month against Xero itself — is there a SECOND live transaction on this
+        // loan that actually carves out that month's interest? E5-4751's 2026-04
+        // is marked handled and has no such transaction anywhere; trusting the
+        // marker proposed reversing $548.21 on a loan $266.42 above its lender.
+        // Matching on the interest amount is safe here: within one loan the
+        // monthly interest figures are distinct to the cent, and the candidate
+        // must also touch this loan's own account code.
+        const atSourceEvidence = (interest: number) => entries.some(r =>
+          r !== rec && r.srcType === 'BankTransaction' && isLive(r)
+          && r.lines.some((l: any) => String(l.c) === String(code))
+          && r.lines.some((l: any) => String(l.c) === INTEREST_EXPENSE_ACCOUNT_CODE
+            && Math.abs(Math.abs(Number(l.a || 0)) - interest) < TOL))
         const diagnosis = diagnoseWorkedEntry({
           lines: rec.lines, loanCode: code, interestCode: INTEREST_EXPENSE_ACCOUNT_CODE,
           splits, paymentPeriod: String(spx.period_label), gap: p.diff,
           postingDate, postingWhy, loanName: loan.xero_account_name || 'this loan',
-          tol: TOL, ownJournalInSpan,
+          tol: TOL, ownJournalInSpan, atSourceEvidence,
         })
         if (!diagnosis) continue
         cpaException = {
@@ -625,6 +638,17 @@ function analyzeWalk(o: {
             : null,
           note: diagnosis.note,
         }
+        // SESSION 236 cont.: this span is now EXPLAINED. Two consequences, and
+        // missing either leaves the wrong answer on screen:
+        //  * its cross-loan candidates are guesses about a gap we can now account
+        //    for exactly -- on 4140 they named two sibling loans' own, correctly
+        //    coded June payments, and recoding either would have broken them.
+        //  * it must stop feeding `hypFor()`, which is what writes the headline
+        //    bullets David actually reads. The first live re-run had the right
+        //    entry attached to the wrong headline, because the diagnosis was
+        //    added here and the conclusions were left alone.
+        p.explained_by_exception = true
+        p.cross_loan_candidates = []
         break
       }
     }
@@ -722,9 +746,26 @@ function analyzeWalk(o: {
   // have happened. Either X or Z." Everything below the bullets is collapsed
   // evidence, not the message. ──
   const divergentPeriods = periods.filter(p => p.verdict === 'divergent')
-  const realDivergent = divergentPeriods.filter(p => !p.timing_pair)
+  const realDivergent = divergentPeriods.filter(p => !p.timing_pair && !p.explained_by_exception)
   const pairFirsts = periods.filter(p => p.timing_pair?.role === 'first')
   const conclusions: string[] = []
+
+  // The exception is the most confident statement the engine can make about a
+  // span: every number in it is a recorded fact, not a candidate. It leads.
+  if (cpaException?.diagnosis) {
+    const dg = cpaException.diagnosis
+    const sp0 = cpaException.period
+    const booked = (dg.components || []).filter((c: any) => c.already_booked)
+    let s = `${sp0.from} → ${sp0.to} is off by ${money(Math.abs(periods.find(p => p.from === sp0.from)?.diff ?? 0))} — your accountant's own split on the ${cpaException.entry?.date} payment carries `
+    s += `${(dg.components || []).map((c: any) => c.period).join(' + ')} interest (${money(dg.at_source)}), `
+    s += booked.length === (dg.components || []).length
+      ? `and all ${booked.length} of those months were already booked. `
+      : `of which ${money(dg.duplicated)} was already booked. `
+    s += cpaException.proposed_entry
+      ? `Approve the prepared ${money(cpaException.proposed_entry.amount)} correction below — nothing else to fix in this span.`
+      : `Nothing is proposed: see the detail below.`
+    conclusions.push(s)
+  }
 
   if (pairFirsts.length) {
     const purePairs = pairFirsts.filter(p => p.timing_pair.pure)

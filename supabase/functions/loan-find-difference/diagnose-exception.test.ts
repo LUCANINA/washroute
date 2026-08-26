@@ -72,6 +72,7 @@ Deno.test('the own month is only a duplicate when a JOURNAL doubled it', () => {
   // second booking. Only April + May are duplicates, and the gap still ties.
   const d = diagnoseWorkedEntry({
     ...FORD_4140,
+    atSourceEvidence: () => true,
     splits: FORD_4140.splits.map((s) =>
       s.period_label === '2026-06' ? { ...s, status: 'already_in_xero', xero_manual_journal_id: null } : s),
   })!
@@ -149,9 +150,10 @@ Deno.test('a split whose journal never reached Xero is not evidence', () => {
 // principal/interest the split row records. Reading it as "never booked" — which
 // the first draft did — would leave a real duplicate unreversed.
 
-Deno.test('already_in_xero counts as booked even with no journal id', () => {
+Deno.test('already_in_xero counts as booked when Xero corroborates it', () => {
   const d = diagnoseWorkedEntry({
     ...FORD_4140,
+    atSourceEvidence: () => true,   // a real split-at-source payment exists for each month
     splits: FORD_4140.splits.map((s) => ({ ...s, status: 'already_in_xero', xero_manual_journal_id: null })),
   })!
   assertEquals(d.shape, 'duplicated_reallocation')
@@ -167,6 +169,7 @@ Deno.test('already_in_xero counts as booked even with no journal id', () => {
 Deno.test('the two routes mix freely within one split', () => {
   const d = diagnoseWorkedEntry({
     ...FORD_4140,
+    atSourceEvidence: () => true,
     splits: FORD_4140.splits.map((s) =>
       s.period_label === '2026-05' ? { ...s, status: 'already_in_xero', xero_manual_journal_id: null } : s),
   })!
@@ -258,4 +261,111 @@ Deno.test('splits after the payment period are never components', () => {
     splits: [...FORD_4140.splits, { period_label: '2026-07', interest_amount: 130.0, xero_manual_journal_id: 'future', status: 'posted' }],
   })!
   assertEquals(d.components!.map((c) => c.period), ['2026-04', '2026-05', '2026-06'])
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE OTHER TWO FORD LOANS — read off the same live lender-level run that
+// produced the 4140 numbers above. All three turned out to be the same shape:
+// the accountant catching several months of interest up on one payment.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// E5-4751. The one that caught the bug. Payment 2026-05-12 coded 332=498.74 /
+// 800=548.21; span 2026-04-22 → 2026-05-12 off by +281.79; loan $266.42 above
+// the lender overall.
+//
+//   2026-04 $281.79  already_in_xero, NO journal — and no April booking exists
+//                    anywhere in Xero: that month's own payment (2026-04-13) is a
+//                    single unsplit line of $1,046.95. The marker is a note about
+//                    THIS catch-up, not evidence of a prior booking.
+//   2026-05 $266.42  journal 85c70a85, dated 2026-04-13 — outside this span.
+//
+// So only May is a duplicate. Reversing $548.21 would push the loan $281.79 BELOW
+// its lender.
+const FORD_4751 = {
+  loanCode: '332',
+  interestCode: '800',
+  loanName: 'E-Transit Loan E5-4751',
+  paymentPeriod: '2026-05',
+  gap: 281.79,
+  ownJournalInSpan: false,
+  postingDate: '2026-08-31',
+  postingWhy: 'books are closed through 2026-06-30 and July is being closed',
+  lines: [{ c: '332', a: 498.74 }, { c: '800', a: 548.21 }],
+  splits: [
+    { period_label: '2026-03', interest_amount: 260.54, xero_manual_journal_id: null, status: 'already_in_xero' },
+    { period_label: '2026-04', interest_amount: 281.79, xero_manual_journal_id: null, status: 'already_in_xero' },
+    { period_label: '2026-05', interest_amount: 266.42, xero_manual_journal_id: '85c70a85-0000', status: 'posted' },
+  ],
+  // Xero holds split-at-source payments for Jan/Feb/Mar (301.17 / 294.84 /
+  // 260.54) and nothing at all for April.
+  atSourceEvidence: (interest: number) => [301.17, 294.84, 260.54].some((x) => Math.abs(x - interest) < 0.02),
+}
+
+Deno.test('4751 LIVE: an uncorroborated already_in_xero month is NOT reversed', () => {
+  const d = diagnoseWorkedEntry(FORD_4751)!
+  assertEquals(d.at_source, 548.21)
+  assertEquals(d.owed, 266.42)
+  // April is downgraded: marked handled, but nothing in Xero books it.
+  const apr = d.components!.find((c) => c.period === '2026-04')!
+  assertEquals(apr.already_booked, false)
+  assertEquals(apr.booked_by, 'at_source_unverified')
+  assertEquals(d.duplicated, 266.42)
+  assertEquals(d.carry_over, { amount: 281.79, months: ['2026-04'] })
+})
+
+Deno.test('4751 LIVE: the entry matches the loan\'s actual variance, and never overshoots', () => {
+  const d = diagnoseWorkedEntry(FORD_4751)!
+  // $266.42 is exactly how far 4751 sits above its lender. $548.21 would overshoot
+  // by $281.79 and push it below — the bug this fixture exists to prevent.
+  assertEquals(d.entry!.amount, 266.42)
+  assertEquals(d.entry!.JournalLines.reduce((s, l) => s + l.LineAmount, 0), 0)
+  assertEquals(d.entry!.JournalLines.find((l) => l.AccountCode === '332')!.LineAmount, 266.42)
+  assert(/no separate transaction actually books/.test(d.note))
+})
+
+Deno.test('4751: with corroboration for April, it DOES reverse both months', () => {
+  // Same inputs, except Xero really does show an April split-at-source. Then both
+  // months are genuine duplicates and $548.21 is the right answer — April's share
+  // is the span's gap, May's lands in the span its journal is dated into, exactly
+  // as on 4140. The entire difference between this and the live case is whether
+  // that April booking actually exists. It does not, which is the whole point:
+  // the marker is a claim, and the claim decides how much money moves.
+  const d = diagnoseWorkedEntry({ ...FORD_4751, atSourceEvidence: () => true })!
+  assertEquals(d.duplicated, 548.21)
+  assertEquals(d.entry!.amount, 548.21)
+  assertEquals(d.carry_over, null)
+})
+
+// E4-9744. Payment 2026-05-11 coded 244=793.81 / 800=350.74; span 2026-04-19 →
+// 2026-05-09 off by +181.97 against a schedule that says 181.99. Two cents.
+const FORD_9744 = {
+  loanCode: '244',
+  interestCode: '800',
+  loanName: 'E-Transit Loan E4 -9744',
+  paymentPeriod: '2026-05',
+  gap: 181.97,
+  ownJournalInSpan: false,
+  postingDate: '2026-08-31',
+  postingWhy: 'books are closed through 2026-06-30 and July is being closed',
+  lines: [{ c: '244', a: 793.81 }, { c: '800', a: 350.74 }],
+  splits: [
+    { period_label: '2026-04', interest_amount: 181.99, xero_manual_journal_id: 'f49a48db-0000', status: 'posted' },
+    { period_label: '2026-05', interest_amount: 168.77, xero_manual_journal_id: null, status: 'already_in_xero' },
+  ],
+  atSourceEvidence: () => false,
+}
+
+Deno.test('9744 LIVE: two cents of walk drift does not block the diagnosis', () => {
+  const d = diagnoseWorkedEntry(FORD_9744)!
+  assertEquals(d.at_source, 350.74)
+  assertEquals(d.owed, 168.77)
+  // April was journalled; May is the payment's own month, so its already_in_xero
+  // marker refers to THIS split and is never a duplicate of itself.
+  assertEquals(d.duplicated, 181.99)
+  assertEquals(d.entry!.amount, 181.99)   // the split's exact figure, not the walk's 181.97
+})
+
+Deno.test('9744: the slack is two cents, not two dollars', () => {
+  assertEquals(diagnoseWorkedEntry({ ...FORD_9744, gap: 181.50 })!.entry, null)
+  assertEquals(diagnoseWorkedEntry({ ...FORD_9744, gap: 181.95 })!.entry!.amount, 181.99)
 })

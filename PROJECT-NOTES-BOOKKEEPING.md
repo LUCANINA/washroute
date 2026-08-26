@@ -2,106 +2,102 @@
 
 > ## ⏭️ START HERE — first thing, session 237 (left by session 236, 2026-08-26)
 >
-> ### 1. DEPLOY, then RE-VERIFY. The fix is committed and untested live.
+> ### 1. DEPLOY, then re-verify. Three fixes are committed and untested live.
 >
 > ```
 > npx supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq
 > ```
-> Session 236 found that the diagnosis never fired on 4140 (the $415.88 is the loan-level
-> headline, not one span's gap) and reworked the gate to find the PAYMENT rather than a
-> one-month gap. 20 fixtures pass — **and fixtures are exactly what fooled us last time.**
+> Live-run the lender-level Ford walk (§6) and confirm ALL FOUR:
+> 1. **4140** proposes **$415.88** (unchanged — it was already right).
+> 2. **E5-4751** proposes **$266.42**, NOT $548.21. That loan is only $266.42 above its lender;
+>    $548.21 would push it $281.79 below. This is the overshoot session 236 caught.
+> 3. **E4-9744** proposes **$181.99** (it was blocked by a 2-cent walk drift).
+> 4. The roadmap no longer contains `check` steps telling anyone to recode E6-7410's or
+>    E5-4751's own June payments onto another loan.
 >
-> After deploying, re-run the live walk (§6) on 4140 and confirm ALL THREE:
-> 1. `cpa_exception` is non-null.
-> 2. `cpa_exception.proposed_entry` is **$415.88**, debit 242 / credit 800, dated **2026-08-31**.
-> 3. The cross-loan suggestion naming E6-7410 / E5-4751 is **gone** from `conclusions`.
+> If any is off, **adjust the model, never the fixture.**
 >
-> If any is off, the model is still wrong. **Adjust the model, never the fixture.**
+> ### 2. The Loans page is now a variance sheet — push it if you have not
 >
-> ### 2. ⚠️ Until it is deployed and verified — do not act on the 4140 advice
+> Vercel deploys on push. Principal / Interest / Xero / Statement / Variance columns, a
+> close-readiness strip, and totals. Reads `loan_tie_outs`, not findings — see the log entry for
+> why that distinction is load-bearing (PCV and Verdant would otherwise show green while carrying
+> the two largest deviations on the page).
 >
-> The live engine currently recommends recoding **E6-7410's $643.50 (2026-06-09)** or
-> **E5-4751's $1,046.95 (2026-06-12)** onto 4140. Both are those loans' own June payments,
-> correctly coded (4751's is split at source 332=778.28 / 800=268.67). Following either would
-> break a correct payment and would not close the gap. The cross-loan hunt only runs when
-> nothing better explains a span, so check 3 above is what proves this is gone.
+> ### 3. Waiting on the accountant — three Ford journals, all dated 2026-08-31
 >
-> ### 3. After that: `undecomposable`
+> | loan | entry | lands on |
+> |---|---|---|
+> | 4140 | debit 242 / credit 800 **$415.88** | $10,685.52 |
+> | E5-4751 | debit 332 / credit 800 **$266.42** | $29,302.52 |
+> | E4-9744 | debit 244 / credit 800 **$181.99** | $16,223.75 (1¢ over) |
 >
-> Her at-source figure is not a consecutive run of months at all, so the engine cannot say what
-> the extra covers. Two rules session 236 paid for — carry them in:
+> **Do NOT recode the underlying payments** — June is closed, July is being closed. Each is a
+> separate journal; her own split entries are never touched. After 4140's posts, **re-point the
+> `2026-06` split from `2f10db32` to `0d297c29`** and re-run — that clears `split_collision`.
+> Doing it first raises a true-looking double-correction finding for something already fixed.
 >
-> - **A period's correction lands in the span its journal's DATE puts it in**, not the span of
->   the period it corrects. `12ef542c` carries 2026-06 and is dated 2026-05-18. Never assume
->   one gap has one cause.
-> - **Build the fixture from a live walk, not from this file.** Session 234's fixture passed
->   while asserting a span that never existed.
+> ### 4. The other open variances
 >
-> ### 4. Waiting on the accountant: 4140's $415.88 — the correction itself is UNCHANGED
->
-> Still a journal dated **2026-08-31**, debit 242 $415.88 / credit 800 $415.88, landing 242 on
-> $10,685.52 and matching Ford to the cent. Session 236 only changed our understanding of
-> where the $415.88 shows up in the walk, not what it is. **Do NOT recode the 2026-06-17
-> transaction** — June is closed, July is being closed. Once the journal posts,
-> `balance_vs_lender` self-resolves. **Then re-point the `2026-06` split from `2f10db32` to
-> `0d297c29`** and re-run; that clears `split_collision`. Before the journal posts it would
-> raise a true-looking double-correction finding for something already fixed.
+> - **Funding Circle −$3,041.83** — one problem, two symptoms. −$1,008.06 at the 2026-08-03
+>   statement, plus the **2026-08-18 payment of $2,033.77 booked 100% to principal** dated after
+>   it. The "no interest split" item on the Overview IS the rest of this number, not a separate
+>   issue. Its re-derive is still outstanding (pays the 1st, projected the 3rd; `2026-09` staged
+>   live as `WR-STAGE 253 2026-09-03`).
+> - **EIDL SBA −$5.00** — Xero $960,000.00 vs the lender's $960,005.00 as of 2026-08-25,
+>   `email_pdf_upload` anchor. Small and old; the notes recall a $5-scale future-dated-statement
+>   bug here in session 217. Check whether the $5 is real or an artefact of that before chasing.
+> - **PCV −$1,802.58 and Verdant −$1,835.75** — real deviations with NO lender document to check
+>   against (anchored to our own schedule). The fix is a statement, not a journal. Verdant also
+>   still has **14 splits marked `posted` with no posting evidence**, $27,438.70 of interest.
 >
 > ### 5. Terminology is a product rule
 >
 > The product says **"your accountant"** — never a person's name, never "bookkeeper". Note
-> `Pre-Staged Loan Payments — Ramona.pdf` is STILL untracked in the repo root — it is the
-> hand-written-handoff pattern this rule replaces.
+> `Pre-Staged Loan Payments — Ramona.pdf` is STILL untracked in the repo root.
 >
-> ### 6. Reading Xero — `xero-read` is deployed; `payment_picture` first
+> ### 6. Running the engine live (needs an admin session, so: David's browser)
 >
-> One call returns the transaction, the journals touching its accounts, `net_by_account`, and
-> warnings for *corrected twice* / *never corrected*. From the sandbox, plain curl beats pg_net:
+> Open `admin.familylaundry.com`, then in the page console:
+> ```js
+> await _loanFn('loan-find-difference', { loan_account_id: '<uuid>' }, 240000)          // one loan
+> await _loanFn('loan-find-difference', { lender_analysis: true, lender: 'Ford Pro FinSimple' }, 300000)
+> ```
+> Analyze mode writes nothing. Page globals (`_reconFindings`, `_loanTieOuts`, `_allLoanAccounts`)
+> are top-level `let`s — reachable by bare name in the console, but NOT as `window.` properties.
 >
+> Reading Xero directly — `xero-read` is deployed; `payment_picture` first:
 > ```bash
 > curl -s -X POST https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/xero-read \
->   -H 'content-type: application/json' -H "x-wr-internal: $(select public.wr_internal_secret())" \
+>   -H 'content-type: application/json' -H "x-wr-internal: <select public.wr_internal_secret()>" \
 >   -d '{"mode":"payment_picture","id":"<BankTransactionID>"}'
 > ```
-> Quirks: BOTH `ManualJournals` and `BankTransactions` list responses omit line items — fetch
-> by `id` for lines. Trimmed line keys are `account`/`amount` (the reconciliation ledger's are
-> `c`/`a`). `Total == 1144.55` works; `Contact.Name.Contains(...)` is rejected on
-> BankTransactions (400), and Ford has eleven contact records — filter by AMOUNT, never name.
->
-> **To run the engine live** (session 236's method — it needs an admin session, so it runs in
-> David's browser, not the sandbox): open `admin.familylaundry.com`, then in the page console
-> `await _loanFn('loan-find-difference', { loan_account_id: '<uuid>' }, 240000)`. Analyze mode
-> writes nothing.
+> Quirks: BOTH `ManualJournals` and `BankTransactions` list responses omit line items — fetch by
+> `id` for lines. Trimmed line keys are `account`/`amount`. `Total == 1144.55` works;
+> `Contact.Name.Contains(...)` is rejected on BankTransactions (400), and Ford has eleven contact
+> records — **filter by AMOUNT, never name.**
 >
 > ### 7. Still open, none urgent
 >
-> - **`reconciliation-run` does not know about the close date.** Deliberately not fixed — a
->   design call per `check_key`, not a bug. `loan-cross-check` skips per-period findings inside
->   a closed period; `reconciliation-run` raises `lumped_payment`, `double_reallocation`,
->   `split_collision` and `unexplained_ledger_adjustment` with no such filter. 4140's own
->   `split_collision` is a closed-June finding David is actively working, so silencing them
->   wholesale would hide live work. `balance_vs_lender` must never be filtered either way.
-> - **The git remote carries a plaintext GitHub token** in `.git/config`
->   (`https://ghp_...@github.com/LUCANINA/washroute.git`). Local-only, not committed, but it is
->   a live credential sitting in a file — worth rotating and switching to SSH or a keychain
->   helper when convenient.
-> - **Funding Circle re-derive** — pays the 1st, projected the 3rd; `2026-09` staged live as
->   `WR-STAGE 253 2026-09-03`. Four steps, same as BayFirst. Its real problems are for the
->   accountant: 2026-06-18 coded $995.65/$1,038.12 vs the lender's $1,025.71/$1,008.06;
->   2026-07-20 unknowable until the September statement; a **2026-08-18 payment of $2,033.77
->   with no card on our side**; 2026-04-20 still 100% principal.
-> - **Verdant — 14 splits `posted` with no posting evidence**, $27,438.70 of interest: no
->   journal id, no posted_at, no posted_by. Now answerable with `payment_picture`.
-> - **E4-9744 is paid ahead and correct** — nothing owed, the 2026-09 card is deliberately
->   Ignored (in `bk_issue_dismissals`, restorable). Still to do: upload the **08/20/2026
->   statement**. ~$433.58 of finance charges have accrued unbooked and grow monthly; Ford
->   applies payments to charges FIRST, so re-derive from a fresh statement when payments
->   resume — never restart the old schedule, and $1,144.55 is stale.
+> - **`reconciliation-run` does not know about the close date.** Deliberately not fixed — a design
+>   call per `check_key`. `loan-cross-check` skips per-period findings inside a closed period;
+>   `reconciliation-run` raises `lumped_payment`, `double_reallocation`, `split_collision` and
+>   `unexplained_ledger_adjustment` with no such filter. 4140's own `split_collision` is a
+>   closed-June finding David is actively working, so silencing them wholesale would hide live
+>   work. `balance_vs_lender` must never be filtered either way.
+> - **The git remote carries a plaintext GitHub token** in `.git/config`. Local-only, not
+>   committed, but worth rotating and moving to SSH or a keychain helper.
+> - **E4-9744**: upload the **08/20/2026 statement**. ~$433.58 of finance charges have accrued
+>   unbooked and grow monthly; Ford applies payments to charges FIRST, so re-derive from a fresh
+>   statement when payments resume — never restart the old schedule, and $1,144.55 is stale. Its
+>   2026-09 card is deliberately Ignored (in `bk_issue_dismissals`, restorable).
 > - **Statement-intake dedupe** keys on balance + a 14-day window, not date + `file_sha256`.
 >   Suspected of skipping real statements; NOT reproduced — get the specific files first.
-> - **Set Xero's period lock date.** It is null, which is why a June transaction was editable
->   on 14 July with nothing objecting. This is the fix that generalises.
-> - `markSplitAlreadyInXero` is still one-way — no un-mark path in the UI.
+> - **Set Xero's period lock date.** It is null, which is why a June transaction was editable on
+>   14 July with nothing objecting. This is the fix that generalises.
+> - `markSplitAlreadyInXero` is still one-way — no un-mark path in the UI. Session 236 gives this
+>   more weight: the marker is now load-bearing evidence, and a wrong one changes how much money
+>   a proposed journal moves.
 
 ## Why this file exists (session 217)
 
@@ -1717,6 +1713,90 @@ the live walk on 4140 (method in START HERE §6) and confirm three things: `cpa_
 non-null; its `proposed_entry` is $415.88 debit 242 / credit 800 dated 2026-08-31; and the
 false cross-loan suggestion naming E6-7410 / E5-4751 is GONE from `conclusions`. If any of
 those is off, the model is still wrong — do not adjust the fixture to match, adjust the model.
+
+### Session 236 cont. (2026-08-26) — all three Ford loans, the overshoot, and the Loans page as a variance sheet
+
+Deployed v19, re-ran 4140 live, then ran the lender-level walk across all of Ford.
+
+**The gate fix works, and the shape is not unique to 4140.** All three Ford loans are the
+same story — the accountant catching several months of interest up on one payment:
+
+| loan | payment | at source | decomposes to | span gap | correction |
+|---|---|---|---|---|---|
+| 4140 | 2026-06-17 | $415.88 | Apr 147.43 + May 135.64 + Jun 132.81 | +283.07 | **$415.88** ✓ |
+| E4-9744 | 2026-05-11 | $350.74 | Apr 181.99 + May 168.77 | +181.97 | **$181.99** |
+| E5-4751 | 2026-05-12 | $548.21 | Apr 281.79 + May 266.42 | +281.79 | **$266.42** |
+
+**Check 3 of the handoff FAILED and is now fixed.** The right entry was attached to the wrong
+headline: `conclusions` is built from `hypFor()` off `cross_loan_candidates`, which the gate fix
+never touched, so the top bullet still told David to recode a sibling loan's correctly-coded
+June payment. A span with an exception now sets `explained_by_exception`, clears its candidates,
+drops out of `hypFor()`, and leads the bullets with its own diagnosis. The lender-level roadmap
+inherits this, since it gathers candidates from the same per-loan analyses.
+
+**The overshoot — session 235's rule was wrong, and Ford held the counterexample.** 4751 proposed
+**$548.21** on a loan only **$266.42** above its lender: reversing it would have pushed 4751
+$281.79 BELOW. Cause: 2026-04 is marked `already_in_xero`, which session 235 verified on five
+samples and generalised into "that month was booked at source in its own month". 4751's April
+has no booking anywhere in Xero — its own payment (2026-04-13) is a single unsplit line of
+$1,046.95, and the $281.79 was only ever booked as part of the May catch-up.
+
+**`already_in_xero` is a CLAIM, not evidence — and a human may set it BECAUSE of the very
+catch-up payment being examined.** For a foreign month it must now be corroborated by an actual
+second live transaction on this loan carrying that month's interest (`atSourceEvidence`, supplied
+by the caller, which can see Xero). With no predicate the claim counts as unverified: the safe
+direction is to leave money alone. The month is then reported as never booked and lands in
+`carry_over`, so nothing silently reverses.
+
+**And a 2-cent tolerance.** 9744's walk reads 181.97 against a schedule saying 181.99, and the
+tie test was `< 0.02`. `gapTol` defaults to 0.05, documented: the walk sums many Xero lines
+against lender balances and a couple of cents of drift is normal (9744 carries a 0.02 span
+elsewhere in its own history). **The amount proposed is always the split's exact figure, never
+the walk's, so the slack never reaches a journal** — it only decides whether we understand the
+span well enough to act.
+
+24 fixtures on the diagnosis, 42 across the module. 4751 and 9744 now have live fixtures of their
+own, including the one asserting that with April genuinely corroborated the answer flips to
+$548.21 — the entire difference between the two is whether that booking exists.
+
+### The Loans page is now a variance sheet (same session)
+
+David, after talking to his CPA: *"the key word around every monthly close is variance. Does the
+ledger deviate from statements and what/where is the variance. When it's at $0, the Loan section
+is ready to be closed and locked."*
+
+Split → **Principal** and **Interest** as separate right-aligned columns; **Status** dropped (with
+closed loans hidden every row said "active"); **Outstanding** renamed **Statement** (which is what
+it always was — `loan_statements.principal_balance`); **Xero** and **Variance** added so the
+subtraction is on screen. A strip above the table says how many loans stand between here and a
+lock, and the footer totals all three columns.
+
+**It reads `loan_tie_outs`, NOT the findings list**, and that distinction is the whole thing.
+`reconciliation-run` writes one tie-out per loan per run — status, xero_balance, lender_balance,
+difference, as_of, anchor_source — and that is the only record of what the check CONCLUDED.
+Findings are a strict subset: a loan can be examined, come out fine, and leave nothing behind.
+The first draft inferred a tie from "no open finding" and the live data killed it:
+
+- **PCV −$1,802.58** and **Verdant −$1,835.75** raise no finding, because their anchor is our own
+  amortization projection rather than a lender document, and `checkBalanceVsLender` deliberately
+  suppresses those (session 231: *"Xero disagreeing with our arithmetic, not with a fact"*). Both
+  would have rendered as a green `$0.00 ✓` — the two largest deviations on the page.
+- **BayFirst SBA 2 (+858.66), BayFirst SBA Loan (+971.56), E6-7410 (+470.64)** are `explained`;
+  they would have gone green too.
+
+Five states, because "no finding" means five different things: `tied` (green, lockable);
+`explained` (grey — a gap that later payments account for; timing, not work, so never red);
+`exception` against a real lender document (red, blocks the close); `exception` against our own
+projection (amber "no statement" — not a fact about the world, so never red, but not lockable
+either); `not_comparable` (n/a — Stripe Capital is a live Xero snapshot with nothing to deviate
+from). Today: 5 variance, 3 explained, 3 tied, 2 unverified, 1 n/a.
+
+**The combined figure is the sum of ABSOLUTE variances.** Signed, today's five net to −$148.76,
+which would make $1,877.36 of real work look like a rounding error on the one screen whose job is
+to say how much is left.
+
+Verified against the live tie-out rows before shipping: all five states map as expected and
+**Xero − Statement equals Variance to the cent on all 13 comparable loans**.
 
 ### Session 236 (2026-08-26) — the first live run: the diagnosis does not fire on the case it was built for
 

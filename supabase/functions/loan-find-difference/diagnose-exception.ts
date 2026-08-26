@@ -119,7 +119,7 @@ const money = (n: number) => '$' + Math.abs(n).toLocaleString('en-US', { minimum
 // reversing it would re-break the month it was fixing.
 const REACHED_XERO = new Set(['posted', 'already_in_xero', 'staged'])
 
-export type BookedBy = 'our_journal' | 'at_source' | null
+export type BookedBy = 'our_journal' | 'at_source' | 'at_source_unverified' | null
 
 export function bookedBy(s: DiagSplit): BookedBy {
   const status = String(s.status ?? '').toLowerCase()
@@ -155,6 +155,35 @@ export function diagnoseWorkedEntry(o: {
    * first version of this file never fire on the case it was written for.
    */
   ownJournalInSpan?: boolean
+  /**
+   * Session 236 cont.: does a SEPARATE transaction actually show this month's
+   * interest booked at source? The caller can see Xero; we cannot.
+   *
+   * Session 235 trusted `already_in_xero` on its own, having verified five
+   * samples that all turned out to be split-at-source. E5-4751's 2026-04 is the
+   * counterexample, sitting in the same lender's books: marked already_in_xero,
+   * carrying no journal, and with NO booking anywhere in Xero — its own month's
+   * payment is a single unsplit line, and the $281.79 was only ever booked as
+   * part of the May catch-up. Trusting the marker proposed reversing $548.21 on a
+   * loan only $266.42 above its lender, which would have pushed it $281.79 BELOW.
+   *
+   * The marker means "a human said this month is handled" — and a human may well
+   * have said it BECAUSE of the catch-up payment we are now examining. So for a
+   * foreign month it is a claim, not evidence, and it has to be corroborated by
+   * an actual second transaction. With no predicate supplied, an at-source claim
+   * counts as UNVERIFIED: the safe direction is to leave money alone.
+   */
+  atSourceEvidence?: (interest: number, period: string) => boolean
+  /**
+   * Tolerance for "does the walk agree with my decomposition". Wider than the
+   * cent-level TOL used for matching amounts: the walk sums many Xero lines
+   * against lender balances, and a couple of cents of drift is normal (E4-9744
+   * reads 181.97 against a schedule that says 181.99, and carries a 0.02 span
+   * elsewhere in its own history). The amount PROPOSED is always the exact
+   * figure from the split, never the walk's, so this slack never reaches a
+   * journal — it only decides whether we understand the span well enough to act.
+   */
+  gapTol?: number
 }): WorkedEntryDiagnosis | null {
   const TOL = o.tol ?? 0.02
   const maxLookback = o.maxLookback ?? 12
@@ -242,6 +271,19 @@ export function diagnoseWorkedEntry(o: {
   // `our_journal` makes the own month a duplicate.
   const ownComp = components.find((c) => c.period === String(o.paymentPeriod)) ?? null
   const foreign = components.filter((c) => c !== ownComp)
+
+  // Corroborate every FOREIGN at-source claim before it is allowed to count as a
+  // prior booking (see `atSourceEvidence`). A claim that fails is downgraded in
+  // place, so carry_over and the note pick it up automatically and the month is
+  // reported as never booked rather than silently reversed.
+  for (const c of foreign) {
+    if (c.booked_by !== 'at_source') continue
+    const corroborated = !!o.atSourceEvidence && o.atSourceEvidence(c.interest, c.period)
+    if (!corroborated) {
+      c.already_booked = false
+      c.booked_by = 'at_source_unverified'
+    }
+  }
   const foreignSum = r2(foreign.reduce((s, c) => s + c.interest, 0))
   const ownDuplicated = !!ownComp && ownComp.booked_by === 'our_journal'
 
@@ -271,6 +313,7 @@ export function diagnoseWorkedEntry(o: {
     : `${c.period} handled directly in Xero`
   const journalList = already.map(describe).join(', ')
   const notBooked = foreign.filter((c) => !c.already_booked)
+  const unverified = notBooked.filter((c) => c.booked_by === 'at_source_unverified')
   const carryOver = r2(foreignSum - r2(foreignBooked.reduce((s, c) => s + c.interest, 0)))
   const partial = notBooked.length > 0
 
@@ -280,7 +323,7 @@ export function diagnoseWorkedEntry(o: {
   // inside this span. If the walk disagrees, something else is moving here too and
   // the engine has no business proposing an entry it cannot fully account for.
   const expectedGap = r2(foreignSum + (ownDuplicated && o.ownJournalInSpan ? (ownComp?.interest ?? 0) : 0))
-  const tiesToGap = Math.abs(Math.abs(o.gap) - expectedGap) < TOL
+  const tiesToGap = Math.abs(Math.abs(o.gap) - expectedGap) < (o.gapTol ?? 0.05)
   if (!tiesToGap) {
     return {
       ...base,
@@ -330,6 +373,11 @@ export function diagnoseWorkedEntry(o: {
         ? `The other ${money(carryOver)} (${notBooked.map((c) => c.period).join(', ')}) had never been booked at all — `
           + `her split is the only correction ${notBooked.length === 1 ? 'that month has' : 'those months have'} had, so it stays; `
           + `reversing it would re-break the ${notBooked.length === 1 ? 'month' : 'months'} it just fixed. `
+          + (unverified.length
+            ? `(${unverified.map((c) => c.period).join(', ')} ${unverified.length === 1 ? 'is' : 'are'} marked as handled in Xero on our side, but no `
+              + `separate transaction actually books ${unverified.length === 1 ? 'it' : 'them'} — so the marker looks like a note about this very `
+              + `payment, and ${unverified.length === 1 ? 'it is' : 'they are'} treated as never booked.) `
+            : '')
         : '')
       + (Math.abs(beyondSpan) >= TOL
         ? `Note this span is only off by ${money(o.gap)}: ${money(beyondSpan)} of the correction answers a duplicate `
