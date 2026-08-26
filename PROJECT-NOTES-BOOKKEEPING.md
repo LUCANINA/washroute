@@ -1730,6 +1730,26 @@ RENDERED table, so an export can never disagree with the screen. `exportDebtSche
 was updated in the same pass: three surfaces disagreeing about a lender's interest rate
 is exactly the failure this session set out to remove.
 
+#### Client View split into three sub-tabs (same session, after first look)
+
+Dashboard / Debt Schedule / KPIs, on the `.cv-subtoggle` pattern Loans used to
+carry — same interaction, so nothing new to learn. The tab was holding three jobs
+at three different tempos: Dashboard is the only one that asks anything of you and
+the only one that changes day to day; Debt Schedule is a document that leaves the
+building; KPIs is a monthly read. Stacked, the one actionable thing competed with
+two reference surfaces.
+
+- `switchClientSubView(sub)` + `_clientActiveSubView`; every pane renders whether
+  or not it is showing (cheap, reads memory) — rendering only the visible one is
+  how a stale pane gets shipped.
+- Hash is now `#bookkeeping/client/<sub>`, and the boot handler passes
+  `hashParts[2]` through. **Legacy bookmarks land on the thing they named**, not
+  just near it: `#bookkeeping/debtsched` → `client/debt`, `#bookkeeping/kpis` →
+  `client/kpis`.
+- Print scope moved from `#cv-debtsched` to `#cv-debtsched-card`, so the PDF is
+  the schedule alone — the debt tiles, the chart and the toggle stay off the page
+  a lender sees.
+
 #### ⚠ Two bugs the offline harness caught that reading the code did not
 
 Both in the trailing-12-month totals, and both are the SAME invariant this module already
