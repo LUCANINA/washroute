@@ -1,25 +1,49 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 239 (left by session 238, 2026-08-26)
+> ## ⏭️ START HERE — first thing, session 240 (left by session 239, 2026-08-26)
 >
-> ### 1. FOUR RATES ARE NOT MEASURED, and the Debt Schedule now leaves the building
+> ### 1. TWO UNGUARDED PATHS THAT WRITE MONEY — the deferred half of session 239
 >
-> Client View's Debt Schedule is a document David sends to **lenders and vendors** who ask for
-> one. Its rate column is measured (`fitted_annual_rate`) — but only SEVEN loans have been
-> through the rate fit. **Dexter, EIDL, PCV and Verdant fall back to `loan_accounts.interest_rate`,
-> the typed figure that column exists to stop publishing.** They print (a blank rate on a lender's
-> copy is worse than a close one) with a dotted underline and a title-only hover, so the printed
-> and exported document is unchanged.
+> Session 239 fixed anchor authority ranking in `reconciliation-run` (read-only) and the
+> client. It deliberately did NOT touch the two sites that need the same fix and WRITE:
 >
-> **Run the fit on those four before that sheet goes to anyone.** PCV has monthly
-> `portal_manual_pull` statements and is fittable today; Dexter and Verdant can be fitted from
-> their own amortization schedules, which ARE the contracts. EIDL is the hard one — almost no
-> statement history.
+> - **`loan-find-difference`** — filters anchors on `balance_basis` and nothing else. No
+>   source filter, in two byte-identical branches. A `xero_derived` row stamped
+>   `principal_only` becomes a walk endpoint, so the engine can compare Xero against Xero
+>   and propose a correcting journal for the difference.
+> - **`loan-ingest-statement`** — picks the prior statement unfiltered. A projection
+>   between two real statements makes the computed principal wrong, and it flows to
+>   `pending_review` → approve → Xero.
 >
-> Reminder of why this matters: `interest_rate` is wrong on all four Fords (9.000 typed vs
-> 8.29 / 9.29 / 9.99 / 8.99 measured) and on Funding Circle (20.000 vs 17.99).
+> Copy `rankAnchorsByAuthority()` + `ANCHOR_AUTHORITY_GRACE_DAYS` from
+> `reconciliation-run/index.ts`, or better, lift the pair into `_shared/`. Also queued:
+> `xero-payout-sync` reads its own `xero_balance_snapshot` output (a self-chaining loop).
 >
-> ### 2. DEPLOY, then re-verify. Three fixes are committed and untested live.
+> ### 2. DEPLOY AND RUN THE RATE MEASUREMENTS — Dexter's rate changes 2026-08-31
+>
+> ```
+> npx supabase@latest functions deploy loan-derive-schedule --project-ref umjpbuxrdydwejqtensq
+> npx supabase@latest functions deploy reconciliation-run   --project-ref umjpbuxrdydwejqtensq
+> ```
+> Then in the browser console — **dry runs first, they write nothing**:
+> ```js
+> await _loanFn('loan-derive-schedule', { loan_account_id: 'cba4240f-08cc-43d7-9d32-d37d695b5e2c' })  // Dexter 2  → 6.640%
+> await _loanFn('loan-derive-schedule', { loan_account_id: '2927c59e-1af4-4a60-84dc-cda0819558a3' })  // Verdant   → 8.780%
+> await _loanFn('loan-derive-schedule', { loan_account_id: 'ad5dd55d-7b49-44c6-8705-2803a79611c0' })  // PCV       → 5.000%
+> ```
+> Add `confirm:true` once each preview matches. **The Debt Schedule is publishing 6.500%
+> for Dexter and 9.000% for Verdant to lenders and vendors until this is run.**
+>
+> **The daily rate refresh is a cron job nobody has created** — it goes through
+> `washroute-preflight` first. Without it, Dexter's 2026-08-31 step to 5.890% needs a
+> manual `{refresh_rates:true, confirm:true}` run. The command is in session 239's log.
+>
+> **EIDL still cannot be fitted** — its balance ROSE over five years, so both models
+> correctly reject it. A human reading the 2026-08-25 PDF settles that rate faster than
+> any code.
+>
+>
+> ### 3. DEPLOY, then re-verify. Three fixes are committed and untested live.
 >
 > ```
 > npx supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq
@@ -34,7 +58,7 @@
 >
 > If any is off, **adjust the model, never the fixture.**
 >
-> ### 3. Waiting on the accountant — three Ford journals, all dated 2026-08-31
+> ### 4. Waiting on the accountant — three Ford journals, all dated 2026-08-31
 >
 > | loan | entry | lands on |
 > |---|---|---|
@@ -47,7 +71,7 @@
 > `2026-06` split from `2f10db32` to `0d297c29`** and re-run — that clears `split_collision`.
 > Doing it first raises a true-looking double-correction finding for something already fixed.
 >
-> ### 4. The other open variances
+> ### 5. The other open variances
 >
 > - **Funding Circle −$3,041.83** — one problem, two symptoms. −$1,008.06 at the 2026-08-03
 >   statement, plus the **2026-08-18 payment of $2,033.77 booked 100% to principal** dated after
@@ -61,12 +85,12 @@
 >   against (anchored to our own schedule). The fix is a statement, not a journal. Verdant also
 >   still has **14 splits marked `posted` with no posting evidence**, $27,438.70 of interest.
 >
-> ### 5. Terminology is a product rule
+> ### 6. Terminology is a product rule
 >
 > The product says **"your accountant"** — never a person's name, never "bookkeeper". Note
 > `Pre-Staged Loan Payments — Ramona.pdf` is STILL untracked in the repo root.
 >
-> ### 6. Running the engine live (needs an admin session, so: David's browser)
+> ### 7. Running the engine live (needs an admin session, so: David's browser)
 >
 > Open `admin.familylaundry.com`, then in the page console:
 > ```js
@@ -87,7 +111,7 @@
 > `Contact.Name.Contains(...)` is rejected on BankTransactions (400), and Ford has eleven contact
 > records — **filter by AMOUNT, never name.**
 >
-> ### 7. Still open, none urgent
+> ### 8. Still open, none urgent
 >
 > - **`reconciliation-run` does not know about the close date.** Deliberately not fixed — a design
 >   call per `check_key`. `loan-cross-check` skips per-period findings inside a closed period;
@@ -1668,6 +1692,100 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 239 (2026-08-26) — measured evidence: authority ranking, rates from schedules, and the close band
+
+Goal set by David: **CPA-ready for loans by Sept 1.** Three of the four items shipped
+here; the fourth (server guards on money-moving paths) was deliberately deferred and is
+the top of the next session.
+
+#### The audit that resized the job
+
+A subagent mapped every "pick the latest balance" in the codebase before anything was
+built. **~20 sites, NINE duplicated copies of the real-source list, three genuine
+convergence points.** Two sites nobody had listed:
+
+- **`loan-find-difference`** filters anchors on `balance_basis` and NOTHING else — no
+  source filter, in two byte-identical branches. A `xero_derived` row stamped
+  `principal_only` becomes a walk endpoint, so the engine can compare Xero against Xero
+  and propose a correcting journal for the difference.
+- **`loan-ingest-statement`** picks the prior statement unfiltered. A projection sitting
+  between two real statements makes the computed principal wrong, and it flows to
+  `pending_review` → approve → Xero.
+
+Both write money. Both are OUT of this commit on purpose.
+
+#### 1. Authority ranking (Tech Debt #3, open since session 221)
+
+The rule, and why it is not simply authority-first: **a two-year-old lender document is
+not a better answer for "what is owed today" than last week's snapshot.** Pure
+authority-first trades a fresh wrong number for a stale one. So:
+
+> a lender document outranks our own arithmetic UNLESS it is more than 45 days staler
+> than the newest row we hold.
+
+Six cases proven offline including both boundaries (45 wins, 46 loses) and the
+ancient-doc guard.
+
+**A correction worth keeping.** I built the CLIENT ranking first and said it would fix
+PCV. It changed nothing — on any of the 14 loans. PCV's competing projection lives in
+`loan_amortization_rows`, which the client never merges with statements; only
+`reconciliation-run` does. Found by running before/after across all 14 rather than
+trusting the reasoning. **The client ranking is still right — it just wasn't the fix.**
+
+And PCV's balance was never wrong: both rows read **$427,284.34**. The *classification*
+was. Anchored to the projection, `anchor_source` came back `amortization_schedule`,
+`_loanVariance()` correctly downgraded it to `unverified`, and the page said "upload a
+statement" about a loan holding sixteen. Fixing the anchor turns an amber
+"nothing to check against" into its real **−$1,802.58** deviation.
+
+#### 2. Rates measured from a lender amortization schedule
+
+`loan-derive-schedule` only ever read `loan_statements`, so Dexter and Verdant came back
+"not fittable" when the answer was sitting in a lender document already on file — a
+product gap, not a data gap. Measured, residual $0.01:
+
+| loan | measured | was publishing |
+|---|---|---|
+| Dexter Loan 2 | **6.640%**, → **5.890%** from 2026-08-31 | 6.500% |
+| Verdant Capital | **8.780%** | 9.000% |
+| E-Transit 4140 | 8.29000715% — regression check, exact match on all four stored values | unchanged |
+
+Guards that matter: a schedule is refused on **three independent markers** of being our
+own projection (a projection that lost one marker is still a projection); `total_payback`
+basis refused; opening balance recovered from each row rather than its neighbour
+(`loan_amortization_rows` has no ordinal and Dexter has three rows on one date); and a
+schedule may stand in only where there is NO statement evidence, never where statements
+exist and fit badly — falling back on a failed residual gate would paper over the
+disagreement worth seeing.
+
+Dexter is variable-rate. `loan_accounts` holds one rate, so the fitter measures every
+segment, publishes the one in force on the as-of date, and names the next change. **The
+fuller fix is an effective-dated series** (`loan_rate_periods`) — written into the
+function header, not a Sept-1 change.
+
+#### 3. The close band on Loans
+
+    opening balance  −  principal paid  =  what the lender says
+
+The obvious build was "run the variance check as at month end", which needs every loan's
+Xero balance rebuilt to 7/31. The check a CPA actually signs needs none of it — every
+term is already on file. **Ties to the cent on all ten loans with a July statement;
+total variance $0.00 on $954,985.04.**
+
+Which settles what is actually blocking July: **not a variance.** Three missing
+statements (EIDL, Dexter 2, Verdant) and one unposted split (Funding Circle $2,033.77).
+
+Extra principal payments ARE included here, unlike `_loanRecurringPayment` which excludes
+them — a rollforward asks how far the balance moved, and excluding Ford 4140's $5,000
+lump would make it fail to tie by exactly $5,000. Same data, opposite treatment, for
+reasons worth remembering.
+
+#### ⏭ Next session — the two money-moving paths
+
+`loan-find-difference` and `loan-ingest-statement`, above. Both need the same
+authority ranking; both write. Also queued: `xero-payout-sync` reads its own
+`xero_balance_snapshot` output (a self-chaining loop), and the effective-dated rate series.
 
 ### Session 238 (2026-08-26) — KPIs becomes Client View, and the Debt Schedule starts leaving the building
 
