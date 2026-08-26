@@ -3275,7 +3275,7 @@
             <button class="section-tab active" id="bkvt-overview" onclick="switchBookkeepingView('overview')">Overview</button>
             <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
-            <button class="section-tab" id="bkvt-kpis" onclick="switchBookkeepingView('kpis')">KPIs</button>
+            <button class="section-tab" id="bkvt-client" onclick="switchBookkeepingView('client')">Client View</button>
           </div>
           <!-- Session 213: Debt Schedule and Reconciliation folded into Loans (below) as a
                toggle + section rather than separate top-level tabs -- David's tab-consolidation
@@ -3289,9 +3289,39 @@
                the right screen edge). Inner tables keep their own overflow-x
                scrolling wrappers. */
             #page-bookkeeping { overflow-x: hidden; }
-            .loans-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 16px; }
-            .loans-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
-            .loans-subtoggle button.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+            /* Session 238: .loans-subtoggle retired with the Manage/Debt Schedule
+               toggle. Client View's own section furniture below. */
+            .cv-sec { margin-bottom: 26px; }
+            .cv-sec-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+            .cv-sec-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gray-900); letter-spacing: -.015em; }
+            .cv-why { font-size: 12px; color: var(--gray-400); }
+            .cv-right { margin-left: auto; font-size: 11.5px; color: var(--gray-400); display: flex; align-items: center; gap: 10px; }
+            .cv-dropzone { padding: 22px 24px; margin-bottom: 12px; }
+            .cv-method { padding: 10px 24px 16px; font-size: 11.5px; color: var(--gray-400); line-height: 1.5; }
+
+            /* the checklist */
+            .cv-list { background: #fff; border: 1px solid var(--gray-200); border-radius: 14px; overflow: hidden; }
+            .cv-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--gray-100); }
+            .cv-row:last-child { border-bottom: 0; }
+            .cv-mark { width: 19px; height: 19px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center;
+                       font-size: 11px; font-weight: 800; border: 1.5px solid var(--gray-200); color: var(--gray-400); background: #fff; }
+            .cv-mark.open { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+            .cv-mark.done { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+            .cv-what { min-width: 0; flex: 1; }
+            .cv-what b { display: block; font-size: 13px; font-weight: 600; color: var(--gray-900); }
+            .cv-what span { display: block; font-size: 11.5px; color: var(--gray-500); margin-top: 1px; }
+            .cv-who { font-size: 11.5px; color: var(--gray-400); white-space: nowrap; }
+            .cv-done-note { font-size: 11.5px; color: #166534; font-weight: 600; white-space: nowrap; }
+
+            /* the debt schedule leaves the building — print it alone */
+            @media print {
+              body * { visibility: hidden; }
+              #cv-debtsched, #cv-debtsched * { visibility: visible; }
+              #cv-debtsched { position: absolute; left: 0; top: 0; width: 100%; }
+              #cv-debtsched .cv-noprint, #cv-debtsched .cv-sec-head, #debtsched-summary { display: none !important; }
+              #cv-debtsched .card { border: 0; box-shadow: none; }
+              #cv-debtsched tbody tr { page-break-inside: avoid; }
+            }
 
             /* ── REELOAD-inspired design language (session 223) ──────────────
                Ported from bookswell/design/mockup-cpa-view-v4.html: one queue
@@ -3517,10 +3547,6 @@
 
           <!-- Loans (session 205; toggle + Reconciliation section added session 213) -->
           <div id="bk-view-loans" style="display:none">
-          <div class="loans-subtoggle">
-            <button id="loans-subtoggle-manage" class="active" onclick="switchLoansSubView('manage')">Manage</button>
-            <button id="loans-subtoggle-debtsched" onclick="switchLoansSubView('debtsched')">Debt Schedule</button>
-          </div>
           <div id="loans-subview-manage">
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="loans-summary" style="margin-bottom:20px"></div>
@@ -3555,34 +3581,6 @@
           </div>
           </div><!-- /loans-subview-manage -->
 
-          <!-- Debt Schedule (added at David's request — a live, always-current version
-               of the manual spreadsheet he was maintaining by hand and re-checking
-               against the balance sheet every month. Reads the same _allLoanAccounts/
-               _allLoanStatements/_allLoanAmortRows globals loadLoans() already
-               populates — no separate query, so it can never drift from the Loans tab.
-               Present Balance uses the same _loanOutstandingBalance() helper the Loans
-               summary card uses. The "static" columns (original amount/date, rate,
-               maturity, security, category) live on loan_accounts and are edited via
-               the pencil icon — they rarely change, unlike balance/payment which
-               update automatically every time a statement is ingested. Folded under the
-               Loans Manage/Debt Schedule toggle session 213 -- was its own top-level tab. -->
-          <div id="loans-subview-debtsched" style="display:none">
-          <div id="debtsched-summary" style="margin-bottom:20px"></div>
-          <div class="card">
-            <div class="card-header" style="padding:20px 24px">
-              <div style="flex:1">
-                <div class="card-title">All Debt</div>
-                <div class="card-sub" id="debtsched-asof"></div>
-                <div class="card-sub">Click the pencil to edit a loan's original amount, rate, maturity, or security.</div>
-              </div>
-              <span style="display:flex;align-items:center;gap:10px">
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()">📄 Export PDF</button>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
-              </span>
-            </div>
-            <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
-          </div>
-          </div><!-- /loans-subview-debtsched -->
           </div><!-- /bk-view-loans -->
 
           <!-- Payroll (session 206) -->
@@ -3739,13 +3737,119 @@
                distracting. make KPIs its own tab.") — moved wholesale out of
                Overview's bottom. Same tiles, same 6h snapshot + Refresh; the
                Overview stays a pure workspace (dropzone + queue). -->
-          <div id="bk-view-kpis" style="display:none">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-              <div class="card-sub" id="bk-kpi-asof" style="margin:0">Live from Xero</div>
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
+          <!-- ── CLIENT VIEW (session 238) ────────────────────────────────
+               Renamed from "KPIs". Loans and Payroll are the workbench — where
+               the books get closed. This is the other lens: what the business is
+               doing, and what it still needs from the owner. Three things live
+               here, in the order they're read:
+
+                 1. LAST MONTH's statement checklist, with the batch dropzone
+                    wired straight into it. Only last month is ever asked for —
+                    the current month's statements arrive when they arrive, and
+                    asking for them would put a permanently-red item on a page
+                    whose whole job is to say when you're done. Internal work
+                    (an unposted split, a payroll run that failed its Xero
+                    check) stays on Loans/Payroll where it can be acted on.
+                 2. The business KPIs (unchanged renderer, moved header).
+                 3. The debt: what it costs, and the Debt Schedule itself,
+                    moved wholesale out of the Loans tab. It is a report, not a
+                    workbench, and it is the one thing here that goes OUTSIDE —
+                    lenders and vendors ask for a debt schedule. That framing is
+                    why its rate and payment columns are MEASURED, never typed
+                    (see _loanMeasuredRate / _loanRecurringPayment). -->
+          <div id="bk-view-client" style="display:none">
+
+            <!-- 1 ── what's still needed for last month -->
+            <div class="cv-sec">
+              <div class="cv-sec-head">
+                <h3 id="cv-checklist-title">What&#39;s still needed</h3>
+                <span class="cv-why">Drop everything in at once — we&#39;ll work out what each file is.</span>
+                <span class="cv-right" id="cv-checklist-count"></span>
+              </div>
+              <div class="bk-dropzone cv-dropzone" id="cv-dropzone"
+                   onclick="document.getElementById('cv-batch-input').click()"
+                   ondragover="event.preventDefault();this.classList.add('drag')"
+                   ondragleave="this.classList.remove('drag')"
+                   ondrop="cvHandleDrop(event)">
+                <div class="bk-drop-icon">↑</div>
+                <div class="bk-drop-title" id="cv-drop-title">Drop last month&#39;s statements here</div>
+                <div class="bk-drop-sub">Any lender, any format, as many at once as you like — PDF, screenshot, or a forwarded email.</div>
+                <input type="file" id="cv-batch-input" multiple accept=".pdf,.csv,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="cvBatchFilesChosen(event)">
+              </div>
+              <!-- the ONE #bk-batch-card node is relocated here while a batch is
+                   running from this tab, so there is a single renderer and no
+                   duplicate ids — see cvAdoptBatchCard(). -->
+              <div id="cv-batch-slot"></div>
+              <div id="cv-checklist"></div>
             </div>
-            <div id="bk-kpi-tiles"></div>
-          </div><!-- /bk-view-kpis -->
+
+            <!-- 2 ── where the business stands -->
+            <div class="cv-sec">
+              <div class="cv-sec-head">
+                <h3>Where the business stands</h3>
+                <span class="cv-why" id="bk-kpi-asof">Live from Xero</span>
+                <span class="cv-right">
+                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" id="bk-kpi-refresh-btn" onclick="refreshBookkeepingKpis()">↻ Refresh</button>
+                </span>
+              </div>
+              <div id="bk-kpi-tiles"></div>
+            </div>
+
+            <!-- 3 ── what the debt is costing -->
+            <div class="cv-sec">
+              <div class="cv-sec-head">
+                <h3>What the debt is costing</h3>
+                <span class="cv-why">Across your active loans. None of this appears on a P&amp;L or balance sheet in one place.</span>
+              </div>
+              <div id="cv-debt-tiles" style="margin-bottom:12px"></div>
+              <div class="card" style="padding:16px 20px 12px">
+                <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+                  <div class="card-title" style="font-size:13.5px">Every debt payment, split</div>
+                  <div class="card-sub" id="cv-chart-note" style="margin:0"></div>
+                  <span style="margin-left:auto;display:flex;gap:14px;font-size:11.5px;font-weight:600;color:var(--gray-700)">
+                    <span><i style="display:inline-block;width:9px;height:9px;border-radius:2.5px;background:#2563eb;margin-right:6px"></i>Principal</span>
+                    <span><i style="display:inline-block;width:9px;height:9px;border-radius:2.5px;background:#f59e0b;margin-right:6px"></i>Interest</span>
+                  </span>
+                </div>
+                <div style="overflow-x:auto"><div id="cv-debt-chart"></div></div>
+              </div>
+            </div>
+
+            <!-- 4 ── the debt schedule, moved here from Loans -->
+          <!-- Debt Schedule (added at David's request — a live, always-current version
+               of the manual spreadsheet he was maintaining by hand and re-checking
+               against the balance sheet every month. Reads the same _allLoanAccounts/
+               _allLoanStatements/_allLoanAmortRows globals loadLoans() already
+               populates — no separate query, so it can never drift from the Loans tab.
+               Present Balance uses the same _loanOutstandingBalance() helper the Loans
+               summary card uses. The "static" columns (original amount/date, rate,
+               maturity, security, category) live on loan_accounts and are edited via
+               the pencil icon — they rarely change, unlike balance/payment which
+               update automatically every time a statement is ingested. Folded under the
+               Loans Manage/Debt Schedule toggle session 213 -- was its own top-level tab. -->
+          <div class="cv-sec" id="cv-debtsched">
+            <div class="cv-sec-head">
+              <h3>Debt schedule</h3>
+              <span class="cv-why">A snapshot to keep, or to send when a lender asks.</span>
+            </div>
+            <div id="debtsched-summary" style="margin-bottom:20px"></div>
+            <div class="card">
+              <div class="card-header" style="padding:20px 24px">
+                <div style="flex:1">
+                  <div class="card-title" id="debtsched-doc-title">Debt Schedule</div>
+                  <div class="card-sub" id="debtsched-asof"></div>
+                </div>
+                <span style="display:flex;align-items:center;gap:8px" class="cv-noprint">
+                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtScheduleCSV()" title="Save the schedule as a spreadsheet">⤓ Spreadsheet</button>
+                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()" title="Print-ready page to email a lender">📄 PDF</button>
+                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
+                </span>
+              </div>
+              <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
+              <div class="cv-method">Balances are the most recent figure from each lender. Rates are measured from payment history against lender balances rather than taken from a note on file. Monthly payment is the recurring obligation — the median of the last six months of scheduled payments, with one-off principal paydowns excluded.</div>
+            </div>
+          </div>
+          </div><!-- /bk-view-client -->
         </div><!-- /page-bookkeeping -->
 
         <!-- Payroll Upload modal -->
@@ -8307,31 +8411,32 @@
   let _loanTieOuts = [];
   let _loanTieOutRunId = null;
   let _reconFindings = [];
-  // Session 213: Debt Schedule and Reconciliation are no longer their own top-level
-  // bookkeeping tabs -- Debt Schedule is a toggle inside Loans (switchLoansSubView
-  // below), Reconciliation is a section within Loans' Manage view. Both still load
-  // their data eagerly whenever the bookkeeping page opens (loadLoans()/loadReconciliation()
-  // in the id==='bookkeeping' branch of showPage), so nothing here needed to change
-  // about when the data itself refreshes -- only where it's displayed.
-  let _loansActiveSubView = 'manage';
+  // Session 238: Loans is ONE screen again. The Manage/Debt Schedule toggle is
+  // gone -- the Debt Schedule moved to Client View, because it is a report
+  // nobody acts on and the one Bookkeeping surface that leaves the building.
+  // Reconciliation remains a section within Loans. Both still load their data
+  // eagerly whenever the bookkeeping page opens (loadLoans()/loadReconciliation()
+  // in the id==='bookkeeping' branch of showPage).
 
   function switchBookkeepingView(view) {
-    // Legacy redirect (session 213): 'debtsched' and 'reconciliation' used to be
-    // their own top-level tabs -- an old bookmark/link to #bookkeeping/debtsched
-    // or #bookkeeping/reconciliation should still land somewhere sensible instead
-    // of silently falling back to Overview.
-    if (view === 'debtsched') { _loansActiveSubView = 'debtsched'; view = 'loans'; }
+    // Legacy redirects. 'debtsched' and 'reconciliation' were top-level tabs
+    // until session 213; 'kpis' was one until session 238, when it became
+    // Client View and the Debt Schedule moved into it. An old bookmark to any
+    // of them should land where that thing actually lives now, not silently
+    // fall back to Overview.
+    if (view === 'kpis') view = 'client';
+    if (view === 'debtsched') view = 'client';
     if (view === 'reconciliation') view = 'loans';
-    if (!['overview', 'loans', 'payroll', 'kpis'].includes(view)) view = 'overview';
+    if (!['overview', 'loans', 'payroll', 'client'].includes(view)) view = 'overview';
     _bookkeepingActiveTab = view;
-    document.getElementById('bk-view-overview').style.display  = view === 'overview'  ? '' : 'none';
-    document.getElementById('bk-view-loans').style.display     = view === 'loans'     ? '' : 'none';
-    document.getElementById('bk-view-payroll').style.display   = view === 'payroll'   ? '' : 'none';
-    document.getElementById('bk-view-kpis').style.display      = view === 'kpis'      ? '' : 'none';
+    document.getElementById('bk-view-overview').style.display = view === 'overview' ? '' : 'none';
+    document.getElementById('bk-view-loans').style.display    = view === 'loans'    ? '' : 'none';
+    document.getElementById('bk-view-payroll').style.display  = view === 'payroll'  ? '' : 'none';
+    document.getElementById('bk-view-client').style.display   = view === 'client'   ? '' : 'none';
     document.getElementById('bkvt-overview').classList.toggle('active', view === 'overview');
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
-    document.getElementById('bkvt-kpis').classList.toggle('active', view === 'kpis');
+    document.getElementById('bkvt-client').classList.toggle('active', view === 'client');
 
     // Session 223 cont. 2: the per-tab Upload Statement / Upload Payroll
     // Report buttons merged into the Overview dropzone — no topbar CTA on any
@@ -8339,26 +8444,12 @@
     document.getElementById('topbar-cta').style.display = 'none';
 
     if (view === 'overview') renderBookkeepingOverview();
-    // KPI tiles live in their own tab (session 224 cont.) but are rendered by
-    // the same renderBookkeepingOverview() — both panes exist in the DOM at all
-    // times, only display toggles, so one renderer keeps them in sync.
-    if (view === 'kpis') renderBookkeepingOverview();
-    if (view === 'loans') switchLoansSubView(_loansActiveSubView);
+    // The KPI tiles are still rendered by renderBookkeepingOverview() — both
+    // panes exist in the DOM at all times and only display toggles, so one
+    // renderer keeps them in sync. renderClientView() adds the parts that are
+    // only on this tab: the checklist and the debt summary.
+    if (view === 'client') { renderBookkeepingOverview(); renderClientView(); }
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
-  }
-
-  // Toggle between Loans' two sub-views: Manage (the day-to-day flag/review/post
-  // workflow, plus Reconciliation) and Debt Schedule (the read-only rollup report).
-  // Both subviews' underlying data is already loaded by loadLoans()/loadReconciliation()
-  // regardless of which is showing -- this only ever flips display:none, it never
-  // triggers a fetch, so switching back and forth is instant and can't show stale data.
-  function switchLoansSubView(sub) {
-    if (!['manage', 'debtsched'].includes(sub)) sub = 'manage';
-    _loansActiveSubView = sub;
-    document.getElementById('loans-subview-manage').style.display    = sub === 'manage'    ? '' : 'none';
-    document.getElementById('loans-subview-debtsched').style.display = sub === 'debtsched' ? '' : 'none';
-    document.getElementById('loans-subtoggle-manage').classList.toggle('active', sub === 'manage');
-    document.getElementById('loans-subtoggle-debtsched').classList.toggle('active', sub === 'debtsched');
   }
 
   // Sums whatever's already loaded into _allLoanSplits/_allPayrollImports —
@@ -12154,6 +12245,423 @@
     }
   }
 
+
+  // ══ CLIENT VIEW (session 238) ═══════════════════════════════════════════
+  //
+  // The Debt Schedule now leaves the building — David: "the client will use
+  // this for their own info AND to share with lenders or vendors that request
+  // a debt schedule." That single fact drives every rule below.
+  //
+  // ── WHY THE RATE AND PAYMENT COLUMNS ARE MEASURED, NOT TYPED ───────────
+  // Session 230's invariant ("a typed number is never evidence") was written
+  // for code that POSTS money. A document sent to a lender deserves the same
+  // standard for the same reason: loan_accounts.interest_rate was wrong on all
+  // four Fords (9.000 typed; 8.29 / 9.29 / 9.99 / 8.99 measured) and on Funding
+  // Circle (20.000 typed; 17.99 measured). Publishing a typed rate to a lender
+  // is the same error as posting on one, with an audience.
+  //
+  // So there is ONE rate column and it prefers fitted_annual_rate, and ONE
+  // payment column computed from what actually left the bank.
+  //
+  // ── WHY THE PAYMENT IS A MEDIAN, AND WHY IT EXCLUDES 'principal_payment' ─
+  // David: "actual may calculate extra principal payments? we need to exclude
+  // those." Right — and there are two kinds, so there are two defences:
+  //   * TAGGED lumps. loan-record-principal-payment writes them with
+  //     source='principal_payment' (E-Transit 4140's $5,000 is the one on file).
+  //     Those are filtered out outright.
+  //   * UNTAGGED lumps, and catch-up months. Nothing marks these, so the median
+  //     absorbs them instead of the mean. This is not theoretical: BayFirst
+  //     SBA 2's six-month MEAN is $2,459.62, inflated by a single $4,216.49
+  //     catch-up month. Its actual recurring payment is $2,108.25.
+  // Belt and braces on purpose — the exclusion catches what we tagged, the
+  // median catches what we didn't.
+  const CV_PAYMENT_WINDOW_MONTHS = 6;
+
+  // The recurring monthly obligation, measured. null when there isn't enough
+  // history to say — never a fallback to the typed figure, which would defeat
+  // the point of the column.
+  // A period label that isn't a real month can't be placed in one. Verdant
+  // carries 'Period 84'; string-compared against 'YYYY-MM' it sorts ABOVE every
+  // real month, so a naive range test lets it through. Same shape as the
+  // close-date rule that a label carrying no date stays open.
+  const CV_MONTH_RE = /^\d{4}-\d{2}$/;
+
+  function _loanRecurringPayment(loanAccountId) {
+    const months = new Map();
+    const cutoff = _cvMonthsBack(CV_PAYMENT_WINDOW_MONTHS);
+    const lastComplete = _cvLastMonth();
+    for (const sp of (_allLoanSplits || [])) {
+      if (sp.loan_account_id !== loanAccountId) continue;
+      if (sp.status === 'voided') continue;
+      if (sp.source === 'principal_payment') continue;   // tagged extra paydown
+      const m = (sp.period_label || '').slice(0, 7);
+      if (!CV_MONTH_RE.test(m)) continue;
+      // Complete months only. The current one is always partial, and anything
+      // later is a staged projection, not a payment that has happened.
+      if (m < cutoff || m > lastComplete) continue;
+      months.set(m, (months.get(m) || 0) + Number(sp.total_amount || 0));
+    }
+    const vals = [...months.values()].sort((a, b) => a - b);
+    if (!vals.length) return null;
+    const mid = Math.floor(vals.length / 2);
+    return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+  }
+
+  // 'YYYY-MM' n months before the current one.
+  function _cvMonthsBack(n) {
+    const [y, m] = today().slice(0, 7).split('-').map(Number);
+    const d = new Date(y, m - 1 - n, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  // The month the client is responsible for: the last COMPLETE one.
+  function _cvLastMonth() { return _cvMonthsBack(1); }
+
+  function _cvMonthName(label) {
+    const [y, m] = label.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  // The rate, measured. fitted_annual_rate comes from _shared/rate-fit.ts —
+  // solved against real lender balances. Returns { pct, measured } so callers
+  // can tell a measured rate from a stand-in without the column having to.
+  function _loanMeasuredRate(a) {
+    if (a.fitted_annual_rate != null) return { pct: Number(a.fitted_annual_rate), measured: true };
+    if (a.interest_rate != null)      return { pct: Number(a.interest_rate), measured: false };
+    return { pct: null, measured: false };
+  }
+
+  // ── The statement gate ───────────────────────────────────────────────────
+  // Which loans owe us a document for a given month, and which have delivered.
+  //
+  // EXPECTED is every active loan EXCEPT the automatic ones: Stripe Capital's
+  // balance IS the Xero sweep, so there is no outside party that could disagree
+  // with it and nothing to chase. Everything else stays in the denominator on
+  // purpose — Dexter and Verdant have never sent a statement, and that is the
+  // problem to fix, not a reason to stop counting. A denominator you can never
+  // reach is a progress bar people learn to ignore.
+  //
+  // RECEIVED counts only real lender documents. A xero_derived or
+  // amortization_schedule row is our own arithmetic wearing a statement's
+  // clothes; counting one here would mark a loan verified against itself.
+  // Same list as _VARIANCE_REAL_ANCHORS, deliberately.
+  function _bkStatementCoverage(monthLabel) {
+    const expected = (_allLoanAccounts || []).filter(a =>
+      a.status === 'active' && a.ingestion_method !== 'automatic');
+    const received = [], missing = [];
+    for (const a of expected) {
+      const doc = (_allLoanStatements || []).find(st =>
+        st.loan_account_id === a.id &&
+        _VARIANCE_REAL_ANCHORS.includes(String(st.source || '')) &&
+        (st.statement_date || '').slice(0, 7) === monthLabel);
+      (doc ? received : missing).push({ account: a, statement: doc || null });
+    }
+    return {
+      month: monthLabel, expected, received, missing,
+      naCount: (_allLoanAccounts || []).filter(a => a.status === 'active' && a.ingestion_method === 'automatic').length,
+    };
+  }
+
+  // Has this loan EVER sent a real document? Drives the checklist's wording:
+  // "August statement" for a lender that normally delivers, versus "any
+  // statement" for one that never has — a different ask, to a different person.
+  function _cvEverSentStatement(loanAccountId) {
+    return (_allLoanStatements || []).some(st =>
+      st.loan_account_id === loanAccountId && _VARIANCE_REAL_ANCHORS.includes(String(st.source || '')));
+  }
+
+  function renderClientView() {
+    renderClientChecklist();
+    renderClientDebtSummary();
+  }
+
+  function renderClientChecklist() {
+    const el = document.getElementById('cv-checklist');
+    if (!el) return;
+    const month = _cvLastMonth();
+    const cov = _bkStatementCoverage(month);
+    const monthName = _cvMonthName(month);
+
+    const title = document.getElementById('cv-checklist-title');
+    if (title) title.textContent = `${monthName} — what's still needed`;
+    const drop = document.getElementById('cv-drop-title');
+    if (drop) drop.textContent = `Drop ${monthName} statements here`;
+
+    const count = document.getElementById('cv-checklist-count');
+    if (count) {
+      const n = cov.missing.length;
+      count.textContent = n
+        ? `${n} of ${cov.expected.length} statement${n === 1 ? '' : 's'} outstanding`
+        : `All ${cov.expected.length} statements in — ${monthName} is ready for your accountant`;
+      count.style.color = n ? '' : 'var(--green)';
+      count.style.fontWeight = n ? '' : '700';
+    }
+
+    const row = (mark, cls, name, why, who, note) => `
+      <div class="cv-row">
+        <span class="cv-mark ${cls}">${mark}</span>
+        <span class="cv-what"><b>${esc(name)}</b><span>${esc(why)}</span></span>
+        ${note ? `<span class="cv-done-note">${esc(note)}</span>` : `<span class="cv-who">${esc(who)}</span>`}
+      </div>`;
+
+    const rows = cov.missing.map(({ account: a }) => {
+      const ever = _cvEverSentStatement(a.id);
+      const name = ever
+        ? `${a.xero_account_name || a.lender_account_number} — ${monthName} statement`
+        : `${a.xero_account_name || a.lender_account_number} — any statement`;
+      const why = ever
+        ? `Nothing on file for ${monthName} yet. Until it arrives this balance is carried forward rather than confirmed.`
+        : `${a.lender} has never sent one, so this balance is our own arithmetic rather than theirs.`;
+      return row('·', 'open', name, why, ever ? `${a.lender}` : `Ask ${a.lender}`, null);
+    });
+
+    rows.push(row('✓', 'done', `Everything else for ${monthName} is in`,
+      `${cov.received.length} of ${cov.expected.length} loan statements received.` +
+      (cov.naCount ? ` ${cov.naCount} more ${cov.naCount === 1 ? 'loan reconciles' : 'loans reconcile'} automatically and never need one.` : ''),
+      '', 'Nothing to do'));
+
+    el.innerHTML = `<div class="cv-list">${rows.join('')}</div>`;
+  }
+
+  // ── The debt, summarised ─────────────────────────────────────────────────
+  // Four figures a P&L and a balance sheet cannot show you side by side: what
+  // is owed, what the borrowing costs each year, how much of it you are
+  // actually retiring, and what it commits you to every month.
+  const CV_TRAILING_MONTHS = 12;
+
+  function _cvDebtTotals() {
+    const active = (_allLoanAccounts || []).filter(a => a.status === 'active');
+    const owed = active.reduce((sum, a) => {
+      const b = _loanOutstandingBalance(a);
+      return sum + (b ? b.amount : 0);
+    }, 0);
+
+    // The twelve COMPLETE months ending last month. Two exclusions matter and
+    // both were caught by the harness rather than by reading the code: a staged
+    // FUTURE period is a projection, not money that has moved (the same rule
+    // _loanOutstandingBalance lives by), and an undated label can't be placed
+    // in a month at all. Without them this read $518,142.92 of principal
+    // against a true $340,494.02, and drew a phantom bar labelled "Period ".
+    const cutoff = _cvMonthsBack(CV_TRAILING_MONTHS);
+    const lastComplete = _cvLastMonth();
+    // Scoped to the ACTIVE loans, the same set as "Total owed" beside it and the
+    // schedule below. Payments on since-closed loans are real deleveraging, but
+    // a tile row where one figure covers 14 loans and its neighbour covers 22 is
+    // the incoherence session 222 removed from the Loans summary — every number
+    // in this section describes the same fourteen facilities.
+    const activeIds = new Set(active.map(a => a.id));
+    let interest = 0, principal = 0;
+    const byMonth = new Map();
+    for (const sp of (_allLoanSplits || [])) {
+      if (sp.status === 'voided') continue;
+      if (!activeIds.has(sp.loan_account_id)) continue;
+      const m = (sp.period_label || '').slice(0, 7);
+      if (!CV_MONTH_RE.test(m) || m < cutoff || m > lastComplete) continue;
+      const i = Number(sp.interest_amount || 0), pr = Number(sp.principal_amount || 0);
+      interest += i; principal += pr;
+      const cur = byMonth.get(m) || { p: 0, i: 0 };
+      cur.p += pr; cur.i += i;
+      byMonth.set(m, cur);
+    }
+
+    // Recurring commitment: the measured payment per loan. A loan with too
+    // little history contributes nothing rather than a typed guess — the tile
+    // says how many were countable so an understated total is never silent.
+    let committed = 0, counted = 0;
+    for (const a of active) {
+      const pmt = _loanRecurringPayment(a.id);
+      if (pmt != null) { committed += pmt; counted++; }
+    }
+    return { active, owed, interest, principal, committed, counted, byMonth };
+  }
+
+  // Debt service coverage: operating income against the recurring obligation.
+  // Uses the same bookkeeping_kpi_snapshots payload the tiles above read, so
+  // the two can't disagree. Three months, because one month of operating
+  // income in this business swings by a factor of two.
+  function _cvCoverage(committed) {
+    const series = _bkKpiSnapshot?.operating_income?.series;
+    if (!Array.isArray(series) || series.length < 3 || !committed) return null;
+    const avg = (Number(series[0]) + Number(series[1]) + Number(series[2])) / 3;
+    if (!isFinite(avg) || avg <= 0) return null;
+    return avg / committed;
+  }
+
+  function renderClientDebtSummary() {
+    const el = document.getElementById('cv-debt-tiles');
+    if (!el) return;
+    const t = _cvDebtTotals();
+    const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const tile = (label, value, sub, color) => `<div class="bk-tile">
+      <div class="bk-tile-label">${esc(label)}</div>
+      <div class="bk-tile-value"${color ? ` style="color:${color}"` : ''}>${esc(value)}</div>
+      ${sub ? `<div class="bk-tile-delta flat">${esc(sub)}</div>` : ''}</div>`;
+
+    const cover = _cvCoverage(t.committed);
+    // Effective cost: what the borrowing actually cost over the trailing year,
+    // against the average balance across it. Measured, like everything else on
+    // this page — never a weighted average of rates somebody typed.
+    const avgBalance = t.owed + t.principal / 2;
+    const effective = avgBalance > 0 ? (t.interest / avgBalance) * 100 : null;
+
+    el.innerHTML = `<div class="bk-tiles">` +
+      tile('Total owed', money(t.owed), `Across ${t.active.length} active loan${t.active.length === 1 ? '' : 's'}`) +
+      tile('Interest paid, last 12 months', money(t.interest),
+           effective != null ? `≈ ${effective.toFixed(1)}% effective — interest over average balance` : '') +
+      tile('Principal retired, last 12 months', money(t.principal),
+           'Paid down against the balances above', 'var(--green)') +
+      tile('Committed each month', money(t.committed),
+           (cover ? `Covered ${cover.toFixed(1)}× by operating income` : '') +
+           (t.counted < t.active.length ? `${cover ? ' · ' : ''}${t.counted} of ${t.active.length} loans have enough history to measure` : '')) +
+      `</div>`;
+
+    renderClientDebtChart(t.byMonth);
+  }
+
+  // Principal vs interest, by month. The one thing worth drawing here: the
+  // interest share falls as the principal share climbs, and no statement shows
+  // that shape. Hand-built SVG — the app carries no chart library and this is
+  // twelve bars.
+  function renderClientDebtChart(byMonth) {
+    const host = document.getElementById('cv-debt-chart');
+    if (!host) return;
+    const months = [...byMonth.keys()].sort();
+    if (months.length < 2) { host.innerHTML = ''; return; }
+    // Complete months only — see _cvDebtTotals. No partial bar, so no caveat.
+    const data = months.map(m => ({ m, ...byMonth.get(m) }));
+
+    const W = 940, H = 240, L = 56, R = 14, T = 14, B = 38;
+    const pw = W - L - R, ph = H - T - B;
+    const peak = Math.max(...data.map(d => d.p + d.i), 1);
+    const max = Math.ceil(peak / 10000) * 10000;
+    const step = pw / data.length, bw = Math.min(38, step - 14);
+    const y = (v) => T + ph - (v / max) * ph;
+    const esc2 = (n) => '$' + Math.round(n).toLocaleString('en-US');
+    const label = (m) => {
+      const [yy, mm] = m.split('-').map(Number);
+      return new Date(yy, mm - 1, 1).toLocaleDateString('en-US', { month: 'short' });
+    };
+
+    let g = '';
+    for (let k = 0; k <= 4; k++) {
+      const v = (max / 4) * k;
+      g += `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="#eef1f5" stroke-width="1"/>` +
+           `<text x="${L - 9}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end" font-size="10.5" fill="#9ca3af" font-weight="600">${v ? '$' + (v / 1000) + 'k' : '0'}</text>`;
+    }
+    data.forEach((d, idx) => {
+      const cx = L + idx * step + step / 2, tot = d.p + d.i;
+      const op = 1;
+      g += `<g><title>${label(d.m)} ${d.m.slice(0, 4)} — ${esc2(tot)} total · ${esc2(d.p)} principal · ${esc2(d.i)} interest</title>` +
+           `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(d.p).toFixed(1)}" width="${bw}" height="${Math.max(0, T + ph - y(d.p)).toFixed(1)}" fill="#2563eb" fill-opacity="${op}"/>` +
+           `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(tot).toFixed(1)}" width="${bw}" height="${Math.max(0, y(d.p) - y(tot) - 2).toFixed(1)}" fill="#f59e0b" fill-opacity="${op}" rx="4"/>` +
+           `<rect x="${(cx - bw / 2 - 6).toFixed(1)}" y="${T}" width="${bw + 12}" height="${ph}" fill="transparent"/></g>` +
+           `<text x="${cx.toFixed(1)}" y="${H - B + 18}" text-anchor="middle" font-size="10.5" fill="#6b7280" font-weight="600">${label(d.m)}</text>`;
+    });
+    g += `<line x1="${L}" x2="${W - R}" y1="${T + ph}" y2="${T + ph}" stroke="#d1d5db" stroke-width="1"/>`;
+
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-width:720px;display:block" role="img"
+      aria-label="Monthly debt payments split into principal and interest over the last ${data.length} months">${g}</svg>`;
+
+    const note = document.getElementById('cv-chart-note');
+    if (note) {
+      const first = data[0], last = data[data.length - 1];
+      const share = (d) => { const t2 = d.p + d.i; return t2 > 0 ? Math.round((d.i / t2) * 100) : null; };
+      const a = share(first), b = share(last);
+      const span = `${label(first.m)} ${first.m.slice(0, 4)}`;   // two-year window: name the year
+      note.textContent = (a != null && b != null && a !== b)
+        ? `The share going to interest has moved from ${a}% to ${b}% since ${span}.`
+        : '';
+    }
+  }
+
+  // ── The dropzone on this tab ─────────────────────────────────────────────
+  // Reuses bkStartBatch() wholesale — the 3-rung ladder (browser fingerprints →
+  // loan-document-intake → human fallback) is the same engine the Overview
+  // dropzone drives, and duplicating it here would be a second thing to keep
+  // right. What differs is only WHERE the result renders: there is exactly ONE
+  // #bk-batch-card node, and it gets relocated into whichever tab started the
+  // batch. One node, two homes, no duplicate ids, one renderer.
+  function cvAdoptBatchCard() {
+    const card = document.getElementById('bk-batch-card');
+    const slot = document.getElementById('cv-batch-slot');
+    if (card && slot && card.parentElement !== slot) slot.appendChild(card);
+  }
+
+  function cvHandleDrop(e) {
+    e.preventDefault();
+    const zone = document.getElementById('cv-dropzone');
+    if (zone) zone.classList.remove('drag');
+    const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+    if (!files.length) return;
+    cvAdoptBatchCard();
+    bkStartBatch(files);
+  }
+
+  function cvBatchFilesChosen(e) {
+    const files = Array.from((e.target && e.target.files) || []);
+    e.target.value = '';
+    if (!files.length) return;
+    cvAdoptBatchCard();
+    bkStartBatch(files);
+  }
+
+  // ── Export ───────────────────────────────────────────────────────────────
+  // exportDebtSchedulePDF() already makes a page you email to a lender. What it
+  // can't do is go into a model, so this writes the same schedule as CSV. It
+  // reads the RENDERED table rather than re-deriving anything, so an exported
+  // file can never disagree with the screen someone is looking at.
+  function exportDebtScheduleCSV() {
+    const table = document.querySelector('#debtsched-table-wrap table');
+    if (!table) { showToast('Nothing to export yet — the schedule is still loading.', 'error'); return; }
+
+    const cell = (td) => {
+      if (!td) return '';
+      const c = td.cloneNode(true);
+      c.querySelectorAll('button').forEach(b => b.remove());   // the Edit pencil
+      const v = (c.textContent || '').replace(/\s+/g, ' ').trim();
+      return v === '—' ? '' : v;
+    };
+    const q = (v) => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+
+    const rows = [];
+    const head = [...table.querySelectorAll('thead th')].map(th => (th.textContent || '').trim()).filter(Boolean);
+    rows.push(['Category'].concat(head));
+    let group = '';
+    for (const tr of table.querySelectorAll('tbody tr')) {
+      const tds = [...tr.children];
+      if (tds.length === 1) { group = cell(tds[0]); continue; }          // group heading
+      rows.push([group].concat(tds.map(cell)));
+    }
+    for (const tr of table.querySelectorAll('tfoot tr')) {
+      rows.push([''].concat([...tr.children].map(cell)));
+    }
+    rows.push([]);
+    rows.push([`${_cvOrgName()} — Debt Schedule as of ${_cvTodayLong()}`]);
+    rows.push(['Rates are measured from payment history. Monthly payment is the recurring obligation: ' +
+               'the median of the last six months, with one-off principal paydowns excluded.']);
+
+    const csv = rows.map(r => r.map(c => q(String(c == null ? '' : c))).join(',')).join('\r\n');
+    const name = `debt-schedule-${today()}.csv`;
+    try {
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+      showToast(`Saved ${name}`, 'success');
+    } catch (e) {
+      showToast('Could not save the file — try the PDF export instead.', 'error');
+    }
+  }
+
+  function _cvOrgName() { return 'Family Laundry'; }
+  function _cvTodayLong() {
+    return new Date().toLocaleDateString('en-US',
+      { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' });
+  }
+
   // ── Debt Schedule ─────────────────────────────────────────────────────────
   // A live replacement for the manual spreadsheet David re-checked against the
   // balance sheet every month. Present Balance is never stored here — it's
@@ -12217,61 +12725,64 @@
         const days = (Date.now() - new Date(bal.asOf + 'T00:00:00').getTime()) / 86400000;
         return days > DEBT_SCHED_STALE_DAYS ? 'stale' : 'fresh';
       })();
-      const months = _monthsToPayoff(bal?.amount ?? null, a.interest_rate, a.scheduled_monthly_payment);
-      return { a, bal, staleness, months };
+      const pmt = _loanRecurringPayment(a.id);
+      const rate = _loanMeasuredRate(a);
+      const months = _monthsToPayoff(bal?.amount ?? null, rate.pct, pmt);
+      return { a, bal, staleness, months, pmt, rate };
     });
 
-    // Summary tiles
-    const known = enriched.filter(e => e.bal);
-    const totalOutstanding = known.reduce((s, e) => s + e.bal.amount, 0);
-    const totalMonthlyPayment = enriched.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
-    const flaggedCount = enriched.filter(e => e.staleness !== 'fresh').length;
-    const uncatCount = enriched.filter(e => !e.a.debt_category).length;
+    // Session 238: the summary tiles are gone from this card. The Client View's
+    // own debt tiles directly above carry the same figures (owed / interest /
+    // principal retired / committed), measured rather than typed, and two tile
+    // rows on one screen made the reader compare them instead of reading either.
+    summaryEl.innerHTML = '';
 
-    // Session 223: hairline tile row, same as the Loans/Payroll summaries.
-    const tile = (label, val, color, title) => `<div class="bk-tile"${title ? ` title="${esc(title)}"` : ''}>
-      <div class="bk-tile-label">${label}</div>
-      <div class="bk-tile-value" style="color:${color}">${val}</div></div>`;
+    asOfEl.textContent = `As of ${_cvTodayLong()} · ${rows.length} active facilities · ${money(enriched.reduce((s2, e) => s2 + (e.bal?.amount || 0), 0))} outstanding`;
+    const docTitleEl = document.getElementById('debtsched-doc-title');
+    if (docTitleEl) docTitleEl.textContent = `${_cvOrgName()} — Debt Schedule`;
 
-    summaryEl.innerHTML = `<div class="bk-tiles">` +
-      tile('Active loans on schedule', rows.length, 'var(--gray-900)') +
-      tile('Total present balance', money(totalOutstanding), 'var(--gray-900)', known.length === rows.length ? '' : `${rows.length - known.length} loan(s) missing a balance — see flags below`) +
-      tile('Total monthly payment', money(totalMonthlyPayment), 'var(--gray-900)') +
-      (flaggedCount ? tile('Needs attention', flaggedCount, '#dc2626', 'Stale or missing balance / uncategorized') : '') +
-      (uncatCount ? tile('Uncategorized', uncatCount, '#d97706') : '') +
-      `</div>`;
+    // Session 238: no ⚠ markers here any more. This table is now a document the
+    // client sends to lenders and vendors; "stale" and "no data" are notes to
+    // OURSELVES about our own collection process, and they read as defects in
+    // the loan to anybody outside. The gap they described is surfaced properly
+    // instead, on the statement checklist at the top of this same tab.
+    const balCell = (e) => (e.bal ? money(e.bal.amount) : '—');
 
-    asOfEl.textContent = `As of ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })} — present balance reflects the latest statement or amortization schedule on file for each loan.`;
-
-    const balCell = (e) => {
-      if (!e.bal) return `<span style="color:#dc2626;font-size:11.5px;font-weight:600" title="No statement or amortization schedule on file for this loan yet">⚠ no data</span>`;
-      const flag = e.staleness === 'stale' ? `<div style="font-size:10.5px;color:#d97706;font-weight:600" title="Last updated ${esc(e.bal.asOf)} — upload a newer statement to refresh">⚠ as of ${esc(e.bal.asOf)}</div>` : '';
-      return `${money(e.bal.amount)}${flag}`;
+    // ONE rate, measured. See _loanMeasuredRate — a rate somebody typed was
+    // wrong on five of the fourteen loans here, and this sheet leaves the
+    // building.
+    const rateCell = (e) => {
+      const r = _loanMeasuredRate(e.a);
+      if (r.pct == null) return '—';
+      const txt = r.pct.toFixed(2) + '%';
+      // Not measured yet = the figure on file, which is exactly what this column
+      // exists to stop publishing. It still prints (a blank rate on a lender's
+      // copy is worse than a close one), but it must never look measured to us.
+      // A title carries no ink, so the printed and exported document is unchanged.
+      return r.measured ? txt
+        : `<span title="From the note on file — this loan has not been through the rate fit yet. Run it before sending this to a lender." style="border-bottom:1px dotted var(--gray-300)">${txt}</span>`;
     };
 
-    const monthsCell = (e) => {
-      if (e.months == null) return `<span style="color:var(--gray-400);font-size:11.5px" title="Add an interest rate and monthly payment to calculate">— add rate/payment</span>`;
-      if (e.months === Infinity) return `<span style="color:#dc2626;font-weight:600;font-size:12px" title="The scheduled payment doesn't cover the interest accruing at the current rate — the balance will never go down at this payment.">⚠ payment ≤ interest</span>`;
-      if (e.months === 0) return `<span style="color:var(--green)">paid off</span>`;
-      // Session 223 cont. 4 (David): just the number — the "(2y 2mo — ~Oct 2028)"
-      // sub-line duplicated what Maturity already says.
-      return `${e.months} mo`;
-    };
+    // ONE payment, measured: the recurring obligation, median of the last six
+    // months, tagged principal paydowns excluded.
+    const pmtCell = (e) => (e.pmt == null ? '—' : money(e.pmt));
+
+    const SECURITY_LABEL = { UCC: 'UCC lien', vehicle: 'Vehicle title', none: 'Unsecured' };
+    const securityCell = (a) => esc(SECURITY_LABEL[a.security_type] || a.security_type || '—');
 
     const rowHtml = (e) => {
       const a = e.a;
       return `<tr>
-        <td class="td-name" style="white-space:nowrap">${esc(a.xero_account_name || a.lender_account_number)}<div style="font-size:11px;color:var(--gray-400);font-weight:400">${esc(a.lender)}</div></td>
+        <td>${esc(a.lender)}</td>
+        <td class="td-name" style="white-space:nowrap">${esc(a.xero_account_name || a.lender_account_number)}</td>
         <td style="text-align:right">${money(a.original_amount)}</td>
         <td style="text-align:right;white-space:nowrap">${_fmtYM(a.original_date)}</td>
-        <td style="text-align:right;white-space:nowrap">${balCell(e)}</td>
-        <td style="text-align:right;white-space:nowrap">${a.interest_rate != null ? Number(a.interest_rate) + '%' : '—'}</td>
+        <td style="text-align:right;white-space:nowrap;font-weight:600">${balCell(e)}</td>
+        <td style="text-align:right;white-space:nowrap">${rateCell(e)}</td>
+        <td style="text-align:right;white-space:nowrap">${pmtCell(e)}</td>
         <td style="text-align:right;white-space:nowrap">${_fmtYM(a.maturity_date)}</td>
-        <td style="text-align:right;white-space:nowrap">${money(a.scheduled_monthly_payment)}</td>
-        <td style="text-align:right;white-space:nowrap">${monthsCell(e)}</td>
-        <td style="white-space:nowrap">${esc(a.security_type || '—')}</td>
-        <td style="white-space:nowrap"><span class="badge badge-green">${esc(a.status)}</span></td>
-        <td style="text-align:center"><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openDebtSchedEditModal('${a.id}')">✎ Edit</button></td>
+        <td style="white-space:nowrap">${securityCell(a)}</td>
+        <td style="text-align:center" class="cv-noprint"><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openDebtSchedEditModal('${a.id}')">✎</button></td>
       </tr>`;
     };
 
@@ -12280,49 +12791,48 @@
       if (!items.length) return '';
       const subOrig = items.reduce((s, e) => s + Number(e.a.original_amount || 0), 0);
       const subBal = items.reduce((s, e) => s + (e.bal?.amount || 0), 0);
-      const subPmt = items.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
+      const subPmt = items.reduce((s, e) => s + (e.pmt || 0), 0);
       return `
-        <tr><td colspan="11" style="padding:14px 12px 4px;font-weight:700;font-size:12.5px;color:var(--gray-700);border-top:2px solid var(--gray-200)">${esc(group.label)}</td></tr>
+        <tr><td colspan="10" style="padding:14px 12px 4px;font-weight:700;font-size:12.5px;color:var(--gray-700);border-top:2px solid var(--gray-200)">${esc(group.label)}</td></tr>
         ${items.map(rowHtml).join('')}
         <tr style="background:var(--gray-50);font-weight:700">
-          <td style="padding:6px 12px">Subtotal (${items.length})</td>
+          <td colspan="2" style="padding:6px 12px">Subtotal (${items.length})</td>
           <td style="text-align:right">${money(subOrig)}</td>
           <td></td>
           <td style="text-align:right">${money(subBal)}</td>
-          <td></td><td></td>
+          <td></td>
           <td style="text-align:right">${money(subPmt)}</td>
-          <td></td><td></td><td></td><td></td>
+          <td></td><td></td><td class="cv-noprint"></td>
         </tr>`;
     };
 
     const grandOrig = enriched.reduce((s, e) => s + Number(e.a.original_amount || 0), 0);
     const grandBal = enriched.reduce((s, e) => s + (e.bal?.amount || 0), 0);
-    const grandPmt = enriched.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
+    const grandPmt = enriched.reduce((s, e) => s + (e.pmt || 0), 0);
 
     wrapEl.innerHTML = rows.length ? `
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
         <thead><tr style="border-bottom:1px solid var(--gray-200)">
-          <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">CREDITOR</th>
-          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">ORIGINAL AMT</th>
-          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">ORIG DATE</th>
-          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">PRESENT BALANCE</th>
+          <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">LENDER</th>
+          <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">FACILITY</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">ORIGINAL</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">ORIGINATED</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">BALANCE</th>
           <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">RATE</th>
-          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MATURITY</th>
-          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MONTHLY PMT</th>
-          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MONTHS LEFT</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MONTHLY PAYMENT</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">MATURES</th>
           <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">SECURITY</th>
-          <th style="text-align:left;padding:8px 12px;font-size:10.5px;color:var(--gray-400);font-weight:600">STATUS</th>
-          <th></th>
+          <th class="cv-noprint"></th>
         </tr></thead>
         <tbody>${DEBT_SCHED_GROUPS.map(groupBlock).join('')}</tbody>
         <tfoot><tr style="border-top:2px solid #111;font-weight:700;font-size:13.5px">
-          <td style="padding:10px 12px">Grand Total (${enriched.length})</td>
+          <td colspan="2" style="padding:10px 12px">Total — ${enriched.length} facilities</td>
           <td style="text-align:right">${money(grandOrig)}</td>
           <td></td>
           <td style="text-align:right">${money(grandBal)}</td>
-          <td></td><td></td>
+          <td></td>
           <td style="text-align:right">${money(grandPmt)}</td>
-          <td></td><td></td><td></td><td></td>
+          <td></td><td></td><td class="cv-noprint"></td>
         </tr></tfoot>
       </table>` : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No active loans on the schedule.</div>`;
   }
@@ -12386,50 +12896,44 @@
     const money = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rows = _debtScheduleRows().map(a => {
       const bal = _loanOutstandingBalance(a);
-      const months = _monthsToPayoff(bal?.amount ?? null, a.interest_rate, a.scheduled_monthly_payment);
-      return { a, bal, months };
+      const pmt = _loanRecurringPayment(a.id);
+      const rate = _loanMeasuredRate(a);
+      const months = _monthsToPayoff(bal?.amount ?? null, rate.pct, pmt);
+      return { a, bal, months, pmt, rate };
     });
-
-    const monthsText = (e) => {
-      if (e.months == null) return '—';
-      if (e.months === Infinity) return 'payment ≤ interest';
-      if (e.months === 0) return 'paid off';
-      return `${e.months} mo`;
-    };
 
     const groupTable = (group) => {
       const items = rows.filter(e => (e.a.debt_category || null) === group.key);
       if (!items.length) return '';
       const sub = (f) => items.reduce((s, e) => s + f(e), 0);
       const rowsHtml = items.map(e => `<tr>
+        <td style="padding:5px 8px;font-size:13.5px">${esc(e.a.lender)}</td>
         <td style="padding:5px 8px;font-size:13.5px">${esc(e.a.xero_account_name || e.a.lender_account_number)}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(e.a.original_amount)}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${_fmtYM(e.a.original_date)}</td>
-        <td style="padding:5px 8px;font-size:13.5px;text-align:right;font-weight:600">${e.bal ? money(e.bal.amount) : '⚠ no data'}</td>
-        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.a.interest_rate != null ? e.a.interest_rate + '%' : '—'}</td>
+        <td style="padding:5px 8px;font-size:13.5px;text-align:right;font-weight:600">${e.bal ? money(e.bal.amount) : '—'}</td>
+        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.rate.pct != null ? e.rate.pct.toFixed(2) + '%' : '—'}</td>
+        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.pmt != null ? money(e.pmt) : '—'}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${_fmtYM(e.a.maturity_date)}</td>
-        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(e.a.scheduled_monthly_payment)}</td>
-        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${monthsText(e)}</td>
-        <td style="padding:5px 8px;font-size:13.5px">${esc(e.a.security_type || '—')}</td>
-        <td style="padding:5px 8px;font-size:13.5px">${esc(e.a.status)}</td>
+        <td style="padding:5px 8px;font-size:13.5px">${esc({UCC:'UCC lien',vehicle:'Vehicle title',none:'Unsecured'}[e.a.security_type] || e.a.security_type || '—')}</td>
       </tr>`).join('');
       return `
-        <tr><td colspan="10" style="padding:12px 8px 3px;font-weight:700;font-size:14px;border-top:1.5px solid #111">${esc(group.label)}</td></tr>
+        <tr><td colspan="9" style="padding:12px 8px 3px;font-weight:700;font-size:14px;border-top:1.5px solid #111">${esc(group.label)}</td></tr>
         ${rowsHtml}
         <tr style="background:#f9fafb;font-weight:700">
-          <td style="padding:5px 8px;font-size:13.5px">Subtotal</td>
+          <td colspan="2" style="padding:5px 8px;font-size:13.5px">Subtotal</td>
           <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(sub(e => Number(e.a.original_amount || 0)))}</td>
           <td></td>
           <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(sub(e => e.bal?.amount || 0))}</td>
+          <td></td>
+          <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(sub(e => e.pmt || 0))}</td>
           <td></td><td></td>
-          <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(sub(e => Number(e.a.scheduled_monthly_payment || 0)))}</td>
-          <td></td><td></td><td></td>
         </tr>`;
     };
 
     const grandOrig = rows.reduce((s, e) => s + Number(e.a.original_amount || 0), 0);
     const grandBal = rows.reduce((s, e) => s + (e.bal?.amount || 0), 0);
-    const grandPmt = rows.reduce((s, e) => s + Number(e.a.scheduled_monthly_payment || 0), 0);
+    const grandPmt = rows.reduce((s, e) => s + (e.pmt || 0), 0);
 
     // Absolute URL — the report window is about:blank, so a relative
     // ../assets path would not resolve there.
@@ -12463,22 +12967,22 @@
 
 <table>
   <thead><tr>
-    <th>CREDITOR</th><th style="text-align:right">ORIGINAL AMT</th><th style="text-align:right">ORIG DATE</th>
-    <th style="text-align:right">PRESENT BALANCE</th><th style="text-align:right">RATE</th><th style="text-align:right">MATURITY</th>
-    <th style="text-align:right">MONTHLY PMT</th><th style="text-align:right">MONTHS LEFT</th><th>SECURITY</th><th>STATUS</th>
+    <th>LENDER</th><th>FACILITY</th><th style="text-align:right">ORIGINAL</th><th style="text-align:right">ORIGINATED</th>
+    <th style="text-align:right">BALANCE</th><th style="text-align:right">RATE</th>
+    <th style="text-align:right">MONTHLY PAYMENT</th><th style="text-align:right">MATURES</th><th>SECURITY</th>
   </tr></thead>
   <tbody>${DEBT_SCHED_GROUPS.map(groupTable).join('')}</tbody>
   <tfoot><tr style="border-top:2px solid #111;font-weight:700">
-    <td style="padding:8px">GRAND TOTAL</td>
+    <td colspan="2" style="padding:8px">TOTAL — ${rows.length} FACILITIES</td>
     <td style="padding:8px;text-align:right">${money(grandOrig)}</td>
     <td></td>
     <td style="padding:8px;text-align:right">${money(grandBal)}</td>
-    <td></td><td></td>
+    <td></td>
     <td style="padding:8px;text-align:right">${money(grandPmt)}</td>
-    <td></td><td></td><td></td>
+    <td></td><td></td>
   </tr></tfoot>
 </table>
-<div style="margin-top:16px;font-size:12.5px;color:#9ca3af">Present balance reflects the latest lender statement or amortization schedule on file for each loan as of the date above. Months remaining is calculated from present balance, interest rate, and monthly payment and will shift as the balance updates.</div>
+<div style="margin-top:16px;font-size:12.5px;color:#9ca3af">Balances are the most recent figure from each lender. Rates are measured from payment history against lender balances rather than taken from a note on file. Monthly payment is the recurring obligation &mdash; the median of the last six months of scheduled payments, with one-off principal paydowns excluded.</div>
 </body></html>`;
 
     const w = window.open('', '_blank');

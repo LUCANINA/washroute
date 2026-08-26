@@ -1665,6 +1665,113 @@ to "what is running".
 
 ## Session Log
 
+### Session 238 (2026-08-26) — KPIs becomes Client View, and the Debt Schedule starts leaving the building
+
+**The reframing that drove everything:** David, on the Debt Schedule — *"this is a
+moment-in-time snapshot of our debt picture, not closing documents. The client will
+use this for their own info AND to share with lenders or vendors that request a debt
+schedule."* Once that sheet has an outside audience, most of the decisions below stop
+being taste and become correctness.
+
+**Tab: KPIs → Client View** (`bkvt-client`, `bk-view-client`, `#bookkeeping/client`).
+`kpis` and `debtsched` both redirect there; `reconciliation` still redirects to Loans.
+A tab named after a metric type was a filing cabinet, not a destination. Loans is ONE
+screen again — the Manage/Debt Schedule toggle, `switchLoansSubView()` and
+`_loansActiveSubView` are all gone.
+
+**The Debt Schedule moved wholesale into Client View.** It is a report nobody acts on,
+and it is the one Bookkeeping surface that goes to third parties. Its own summary tiles
+were deleted: the Client View debt tiles directly above carry the same four figures
+measured rather than typed, and two tile rows on one screen made the reader compare
+them instead of reading either (the session-222 lesson, applied again).
+
+**ONE rate column, and it is measured.** `_loanMeasuredRate()` prefers
+`fitted_annual_rate`. Session 230's "a typed number is never evidence" was written for
+code that POSTS money; a document sent to a lender earns the same standard for the same
+reason — `interest_rate` is wrong on all four Fords (9.000 typed vs 8.29 / 9.29 / 9.99 /
+8.99 measured) and on Funding Circle (20.000 vs 17.99). Publishing a typed rate to a
+lender is the same error as posting on one, with an audience.
+
+**ONE payment column, and it is a MEDIAN.** David: *"actual may calculate extra
+principal payments? we need to exclude those."* Correct, and there are two kinds, so
+`_loanRecurringPayment()` has two defences:
+- TAGGED lumps — `loan_splits.source = 'principal_payment'`, written by
+  `loan-record-principal-payment` (E-Transit 4140's $5,000 is the only row carrying it
+  today) — filtered outright.
+- UNTAGGED lumps and catch-up months — nothing marks these, so the median absorbs them
+  where a mean would not. Not theoretical: BayFirst SBA 2's six-month MEAN is $2,459.62,
+  inflated by one $4,216.49 catch-up month; its recurring payment is **$2,108.25**.
+
+Belt and braces on purpose — with exactly one tagged lump in the whole table, the
+exclusion alone would be a guard that has almost never fired.
+
+**Statement gate — `_bkStatementCoverage(month)`.** Expected = every active loan EXCEPT
+`ingestion_method='automatic'` (Stripe Capital's balance IS the Xero sweep; there is no
+outside party to disagree with it). Dexter and Verdant stay in the denominator on
+purpose — never having sent a statement is the problem to fix, not a reason to stop
+counting, and a denominator you can never reach is a progress bar people learn to
+ignore. Received counts only `_VARIANCE_REAL_ANCHORS`; a `xero_derived` or
+`amortization_schedule` row is our own arithmetic wearing a statement's clothes.
+
+**Only LAST month is ever asked for.** The current month's statements arrive when they
+arrive, and asking for them would put a permanently-red item on a page whose whole job
+is to say when you are done. Internal work — an unposted split, a payroll run that
+failed its Xero check — stays on Loans/Payroll where it can be acted on.
+
+**The dropzone reuses `bkStartBatch()` wholesale.** The 3-rung ladder is the same engine
+Overview drives; duplicating it would be a second thing to keep right. What differs is
+only where the result renders: there is exactly ONE `#bk-batch-card` node and
+`cvAdoptBatchCard()` relocates it into whichever tab started the batch. One node, two
+homes, no duplicate ids, one renderer.
+
+**Export: `exportDebtScheduleCSV()` beside the existing PDF.** They do different jobs —
+the PDF is a page you email a lender, the CSV goes into a model. Both build from the
+RENDERED table, so an export can never disagree with the screen. `exportDebtSchedulePDF()`
+was updated in the same pass: three surfaces disagreeing about a lender's interest rate
+is exactly the failure this session set out to remove.
+
+#### ⚠ Two bugs the offline harness caught that reading the code did not
+
+Both in the trailing-12-month totals, and both are the SAME invariant this module already
+lives by, applied one place short:
+
+1. **Future staged periods counted as payments.** `2026-09` is a staged projection, not
+   money that has moved. Reading $518,142.92 of principal against a true $340,494.02.
+   This is `_loanOutstandingBalance`'s today-or-earlier rule — I simply had not applied
+   it to a sum.
+2. **Verdant's `Period 84` counted as a month.** Sliced to 7 chars it becomes `"Period "`,
+   which string-compares ABOVE every real `YYYY-MM`, so a naive range test lets it
+   through — and it drew a phantom bar labelled "Period" on the chart. Same shape as the
+   close-date rule that a label carrying no date stays open. Now guarded by `CV_MONTH_RE`.
+
+A third was a scope mismatch rather than a bug: the trailing totals summed ALL loans
+while "Total owed" beside them counted only active ones. Now both are active-scoped.
+
+**Verification.** No live-network path from the sandbox, so: (a) a Node harness running
+the extracted functions against the real 22 accounts / 329 splits / 709 statements, with
+every figure asserted against independent SQL — recurring payments, the $64,676.25
+committed total, coverage 10/13 for 2026-07, $340,494.02 principal and $153,434.32
+interest; (b) a headless-Chromium render of the real `index.html` with a Supabase stand-in
+serving those same rows, so the page's own `loadLoans()` populated its own closure
+variables — table headers, 20 body rows, `$3,002,589.00 / $2,357,960.41 / $64,676.25`
+totals, the 12-bar chart, and the CSV export all confirmed from the rendered DOM.
+
+#### ⏭ Where to pick up
+
+**Four rates are not measured yet** — Dexter, EIDL, PCV and Verdant fall back to the
+figure on file, which is the very thing this column exists to stop publishing. They print
+(a blank rate on a lender's copy is worse than a close one) but carry a dotted underline
+and a hover saying so; the hover is title-only, so the printed and exported document is
+unchanged. **Run the rate fit on those four before this sheet goes to a lender.** PCV has
+monthly portal statements and is fittable today; Dexter and Verdant can be fitted from
+their own amortization schedules, which are the contracts.
+
+Also still open, and NOT touched this session: everything in the session-237 START HERE
+block above — `loan-find-difference` is still undeployed, and the three Ford journals are
+still with the accountant.
+
+
+
 ### Session 236 cont. (2026-08-26) — the gate reworked around the payment, and the fixture rebuilt from a walk
 
 Fixed what the live run exposed. Not deployed yet.
