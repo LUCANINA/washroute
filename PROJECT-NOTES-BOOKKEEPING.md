@@ -1,92 +1,95 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 234 (left by session 233, 2026-08-25)
+> ## ⏭️ START HERE — first thing, session 235 (left by session 234, 2026-08-26)
 >
-> ### 1. DEPLOY. Three functions are committed and NOT deployed.
+> ### 1. DEPLOY. Now THREE functions, still none of them deployed.
 >
 > ```
 > npx supabase@latest functions deploy loan-xero-post        --project-ref umjpbuxrdydwejqtensq
 > npx supabase@latest functions deploy loan-find-difference  --project-ref umjpbuxrdydwejqtensq
 > ```
-> `reconciliation-run` was deployed mid-session (`split_collision` is live on screen).
-> The dashboard also changed — `build-version.txt` is bumped, open tablets will reload.
+> Session 233 left these two undeployed; session 234 changed `loan-find-difference`
+> again, so it is the same two commands. `reconciliation-run` is already live.
+> `build-version.txt` is bumped again — open tablets will reload.
 > Never deploy from the sandbox: re-typing 148KB of posting code risks silent corruption.
 >
-> ### 2. What session 233 fixed, all three tested
+> ### 2. What session 234 built — job 3 of session 233's list is DONE
 >
-> Run the fixtures before touching any of it (**deno is NOT on the device VM** — run these
-> in the cloud sandbox, or install deno locally):
-> `deno test supabase/functions/reconciliation-run/double-reallocation.test.ts`
-> `deno test supabase/functions/loan-xero-post/pick-candidate.test.ts`
-> `deno test supabase/functions/_shared/close-date.test.ts`
+> Fixtures (deno is NOT on the device VM — run in the cloud sandbox):
+> `deno test supabase/functions/loan-find-difference/diagnose-exception.test.ts` (12)
+> plus session 233's three, all 17 re-run green on 2026-08-26.
 >
-> - **`checkDoubleReallocation` was rewritten.** Its first real run produced 33 findings and
->   every one was false — a ±40-day window blaming each payment for its neighbour's journal.
->   Now pairs via the `loan_splits` link. See the PROXIMITY IS NOT OWNERSHIP invariant.
-> - **`loan-xero-post` no longer picks by elimination.** "Only one candidate left open" is
->   what put 4140's June interest on its May payment. See "ONLY ONE LEFT" IS NOT EVIDENCE.
-> - **`postingDateFor()` added to `_shared/close-date.ts`** — three kinds of month (closed,
->   being closed, open) and where a correction is allowed to land. **NOT YET WIRED INTO ANY
->   CALLER.** That is job 3.
+> - **`diagnose-exception.ts`** — deference now carries a diagnosis. An entry the
+>   accountant already worked no longer answers "she decides" and stops: it decomposes
+>   her at-source interest split into the months it covers, names which of those our own
+>   `loan_splits` record as ALREADY reallocated (by journal id), and emits the balanced
+>   entry reversing only the duplicated part. Nothing is proposed unless the recorded
+>   journals AND the span's gap both agree. See DEFERENCE HAS TO CARRY A DIAGNOSIS.
+> - **`postingDateFor()` is wired** — into the exception's entry AND into the existing
+>   safe-fix proposal, which until now dated itself at the payment (`lump.date`). That is
+>   the June-recode-into-an-active-July-close near miss, still live in the code.
+> - **The close date now binds the WRITES here too** (session 231's rule; this function
+>   was the named exception). All three post paths re-check `isProtectedDate` against a
+>   freshly computed close date before touching Xero.
+> - **A duplicate-journal check on all three post paths.** They had none — protection was
+>   "a re-analysis can never produce this proposal again", which is only true AFTER the
+>   first post lands. One GET for a POSTED journal with the same narration and date now
+>   precedes every write.
+> - Proposal tokens now fold in the journal DATE, so a close date that moves between
+>   review and approval refuses to post instead of landing in a different month.
 >
-> ### 3. THE OPEN BUILD: deference has to carry a diagnosis
+> ### 3. Next: the same treatment for the OTHER exception shapes
 >
-> David's rule (session 233): *"everything that has to be shared with our CPA needs to be
-> done through the tool we're building — that's the only way this thing can scale"*, and
-> *"the accountant work takes precedence over finding every possible mistake."*
-> Read the **THE ACCOUNTANT IS THE OTHER USER** invariant before starting.
+> `diagnoseWorkedEntry` answers one shape — her split double-counts months we already
+> journalled. Three shapes still return the diagnosis and no entry, correctly:
+> `partly_duplicated` (some months journalled, some not), `undecomposable` (the at-source
+> figure is not a consecutive run of months), and a duplication that does not equal the
+> span's gap. Each is a real case waiting for its own diagnosis. Start with
+> `partly_duplicated` — it is the one where the engine already knows both halves.
 >
-> `loan-find-difference` answers an entry it may not touch with *"your accountant already
-> worked it — she decides"* and nothing more (the `cpa_exception` note, ~line 583). In the
-> 4140 case it held every input needed to say: *the $415.88 is April $147.43 + May $135.64 +
-> June $132.81, all three already reallocated by journals `31ad48e9` / `7ce60981` /
-> `12ef542c`; here is the balanced entry, dated into your open period.* **A human worked
-> that out by hand — so for the next customer it does not happen at all.**
+> ### 4. Waiting on the accountant: 4140's $415.88 — UNCHANGED, and now automated
 >
-> Build: the exception computes the over-allocation against what the period owes, names the
-> journals that already did the work, and emits a proposed entry dated with
-> `postingDateFor()`. Same review-before-write contract as everything else.
+> The correction is still hers to post: a journal dated **2026-08-31**, debit 242 $415.88 /
+> credit 800 $415.88, landing 242 on $10,685.52 and matching Ford to the cent. What changed
+> is that the tool now produces exactly that entry by itself — the fixture in
+> `diagnose-exception.test.ts` IS this case, asserted to the cent. **Do NOT recode the
+> 2026-06-17 transaction**: June is closed and July is being closed. Once the journal posts,
+> `balance_vs_lender` self-resolves. **Then re-point the `2026-06` split from `2f10db32` to
+> `0d297c29`** and re-run; that clears `split_collision`. Doing it BEFORE the journal posts
+> raises a true-looking double-correction finding for something already fixed.
 >
-> ### 4. Waiting on the accountant: 4140's $415.88
+> ### 5. Terminology is a product rule
 >
-> The 2026-06-17 payment is coded $764.44 / $415.88 and journal `12ef542c` moves another
-> $132.81 — the loan fell $631.63 instead of $1,047.51. **Do NOT recode it**: June is closed
-> and July is being closed. The correction is a journal dated **2026-08-31**, debit 242
-> $415.88 / credit 800 $415.88, landing 242 on $10,685.52 and matching Ford to the cent.
-> Verified: the 06-27 → 08-17 walk already ties on both sides, so this is the whole gap.
-> Once it posts, `balance_vs_lender` self-resolves (`status: 'explained'`) — no September
-> statement needed. **Then re-point the `2026-06` split from `2f10db32` to `0d297c29`** and
-> re-run; that clears `split_collision`. Doing it BEFORE the journal posts would raise a
-> true-looking double-correction finding for something already fixed.
+> The product says **"your accountant"** — never a person's name, never "bookkeeper". Note
+> `Pre-Staged Loan Payments — Ramona.pdf` is STILL sitting untracked in the repo root — it is
+> the hand-written-handoff pattern this rule replaces.
 >
-> ### 5. Terminology is a product rule now
+> ### 6. Reading Xero — `xero-read` is deployed; `payment_picture` first
 >
-> The product says **"your accountant"** — never a person's name, never "bookkeeper". Swept
-> from the code in `5c854e6`. Audit fields (`xero_posted_by`, `dismissed_by`) keep real
-> values; they are evidence, not copy. Note `Pre-Staged Loan Payments — Ramona.pdf` is still
-> sitting untracked in the repo root — it is the hand-written-handoff pattern this rule
-> replaces.
->
-> ### 6. Reading Xero — easier than the old note said
->
-> `xero-read` is deployed and has **`payment_picture`**, the mode to reach for first: one
-> call returns the transaction, the journals touching its accounts, `net_by_account`, and
-> warnings for *corrected twice* / *never corrected*. From the sandbox, plain curl beats
-> pg_net:
+> One call returns the transaction, the journals touching its accounts, `net_by_account`, and
+> warnings for *corrected twice* / *never corrected*. From the sandbox, plain curl beats pg_net:
 >
 > ```bash
 > curl -s -X POST https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/xero-read \
 >   -H 'content-type: application/json' -H "x-wr-internal: $(secret from wr_internal_auth)" \
 >   -d '{"mode":"payment_picture","id":"<BankTransactionID>"}'
 > ```
-> **Corrections to the old note:** ManualJournals list responses omit `JournalLines` too —
-> BOTH endpoints need a fetch by `id` for lines. Trimmed line keys are `account`/`amount`
-> (the reconciliation ledger's are `c`/`a`; do not mix them up). `Total == 1144.55` works;
-> `Contact.Name.Contains(...)` is rejected on BankTransactions (400), and Ford has eleven
-> contact records — filter by AMOUNT, never contact name.
+> Quirks: BOTH `ManualJournals` and `BankTransactions` list responses omit line items — fetch
+> by `id` for lines. Trimmed line keys are `account`/`amount` (the reconciliation ledger's are
+> `c`/`a`). `Total == 1144.55` works; `Contact.Name.Contains(...)` is rejected on
+> BankTransactions (400), and Ford has eleven contact records — filter by AMOUNT, never name.
 >
 > ### 7. Still open, none urgent
 >
+> - **`reconciliation-run` does not know about the close date.** Found in session 234's
+>   blast-radius sweep and deliberately NOT fixed — it is a design call, not a bug.
+>   `loan-cross-check` skips per-period findings inside a closed period; `reconciliation-run`
+>   raises `lumped_payment`, `double_reallocation`, `split_collision` and
+>   `unexplained_ledger_adjustment` with no such filter. By session 230's rule those are WORK
+>   and a closed month should generate none — but 4140's own `split_collision` is a closed-June
+>   finding that David is currently acting on, so silencing them wholesale would have hidden
+>   live work. `balance_vs_lender` must never be filtered either way. **Decide per check_key
+>   before touching it.**
 > - **Funding Circle re-derive** — pays the 1st, projected the 3rd; `2026-09` staged live as
 >   `WR-STAGE 253 2026-09-03`. Four steps, same as BayFirst. Its real problems are for the
 >   accountant: 2026-06-18 coded $995.65/$1,038.12 vs the lender's $1,025.71/$1,008.06;
@@ -198,6 +201,72 @@ session — see the session log below for why).
 ---
 
 ## Invariants — the actual reason this module has its own skill
+
+### DEFERENCE HAS TO CARRY A DIAGNOSIS (session 234)
+
+We never write on top of the accountant's work. Until session 234 that rule was implemented
+as SILENCE: an entry carrying her fingerprint produced one amber sentence — *"your accountant
+already worked it — she decides"* — and the analysis stopped there.
+
+In the 4140 case the engine held, at that exact moment, every input needed to say:
+
+> the $415.88 is April $147.43 + May $135.64 + June $132.81, all three already reallocated by
+> journals `31ad48e9` / `7ce60981` / `12ef542c`; here is the balanced entry, dated into your
+> open period.
+
+**A human worked that out by hand — which means for the next customer it does not happen at
+all.** That is rule 2 of THE ACCOUNTANT IS THE OTHER USER failing in practice: the moment a
+hand-written document is the delivery mechanism, the product silently requires an analyst per
+customer.
+
+`diagnoseWorkedEntry()` (`loan-find-difference/diagnose-exception.ts`) is the fix, and its
+guards are the point:
+
+- **Arithmetic decides WHICH months; the recorded link decides whether they were already
+  corrected.** A month counts as already-reallocated only when OUR OWN split records the
+  journal (`xero_manual_journal_id`, status posted/staged/already_in_xero) — the same link
+  `checkDoubleReallocation` was rewritten to pair through in session 233. Never proximity.
+- **Only a CONSECUTIVE run of months, walking back from the payment's own period, bounded to
+  12.** A catch-up allocation covers arrears; it does not cherry-pick. Arbitrary subset-sum
+  would match by coincidence in almost any schedule.
+- **The total must equal the span's gap to the cent, or nothing is proposed.** If what was
+  corrected twice does not equal what the walk observes, something else is moving too and the
+  engine has no business writing a journal.
+- **Partial duplication proposes nothing.** When some months carry a journal and some do not,
+  the two halves need different answers; the engine reports both and stops.
+- **Her entry is never touched.** The correction is always a SEPARATE journal.
+
+Consumers must test `entry`, not `shape` — a confident `duplicated_reallocation` can still
+carry `entry: null` when it does not fully account for the gap.
+
+### DEFERENCE IS NOT THE ONLY THING THE CLOSE DATE BINDS (session 234)
+
+Session 231 wrote that the close date binds WRITES and named `loan-find-difference` as the one
+function that still did not honour it. Session 234 closed that, and found the shape was worse
+than "missing on one path": the safe-fix proposal had been dating its journal at the PAYMENT
+(`lump.date`) since session 225. That is precisely the near miss session 233 caught by hand — a
+2026-06-17 recode landing in the middle of an active July close — sitting in the code the whole
+time, one approval away, on every loan.
+
+Now: a payment in an OPEN month is still corrected at the payment (where an accountant expects
+to find it); a payment inside a closed or closing month moves to `postingDateFor()`. All three
+post paths re-check `isProtectedDate` against a freshly computed close date before writing.
+**And the proposal token folds in the journal date** — a close date that moves between review
+and approval refuses to post rather than landing in a different month.
+
+### NEVER A DUPLICATE JOURNAL — INCLUDING WHERE THERE IS NO ROW TO CHECK (session 234)
+
+`loan-xero-post` and `payroll-xero-post` check `xero_manual_journal_id` on their own row before
+posting. `loan-find-difference`'s three post paths write journals that set no id on any row of
+ours, so there was nothing local to check — and the protection was left implicit: *"once posted,
+the next re-analysis finds those spans tied and can never produce this proposal again."* True,
+but only AFTER the first post lands. A double-click, a retried request, or two admins on the
+same card all race that window, and a disabled button is a UI convention, not a guarantee.
+
+Where there is no row of ours to check, **Xero is the ledger**: one GET for a POSTED manual
+journal with the same narration on the same date now precedes every write, and a hit is a loud
+409, never a second journal. Any future Xero write that does not stamp an id on one of our rows
+owes the same check.
 
 ### THE ACCOUNTANT IS THE OTHER USER (session 233)
 
@@ -1570,6 +1639,50 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 234 (2026-08-26) — the deferral learns to do the arithmetic, and the proposal learns what month it is
+
+Job 3 from session 233's handoff: *"deference has to carry a diagnosis."* Built, tested, not
+yet deployed.
+
+**What shipped.** `diagnose-exception.ts` + 12 fixtures. When a span's gap traces to a payment
+the accountant already split herself, the engine now decomposes her at-source interest figure
+into the months it covers, checks each of those months against OUR OWN splits for a recorded
+reallocation journal, and — when every component is already journalled AND the duplicated total
+equals the span's gap to the cent — emits the balanced reversing entry, dated by
+`postingDateFor()`. The 4140 case is the fixture: $415.88 → April $147.43 + May $135.64 + June
+$132.81, journals `31ad48e9` / `7ce60981` / `12ef542c`, debit 242 / credit 800, dated 2026-08-31.
+Asserted to the cent. A human derived that by hand last night; nobody has to again.
+
+There is a `post_exception` path with the same contract as `post_fix` (admin/manager, full
+server-side re-analysis on the same request, exact-token match), and the dashboard renders the
+decomposition as a table — month, interest, which journal already corrected it — above the
+prepared entry. The lender-level view shows the same working with no button, because that view
+is read-only by construction.
+
+**Two things found while wiring it, both older and both worse than the job itself.**
+
+1. The safe-fix proposal has been dating its journal at the PAYMENT since session 225. Session
+   233 caught that by hand as a near miss; it was never a near miss, it was the code's normal
+   behaviour on every loan. Fixed, and the token now carries the date so a close date that moves
+   between review and approval refuses to post.
+2. None of the three post paths had a duplicate-journal check. Their protection was that a
+   re-analysis can never produce the same proposal once it is posted — true, but only after the
+   first post lands. Added a Xero-side check (POSTED journal, same narration, same date) to all
+   three. See NEVER A DUPLICATE JOURNAL.
+
+**Blast radius, reported not fixed.** `reconciliation-run` does not know about the close date at
+all. `loan-cross-check` skips per-period findings inside a closed period; `reconciliation-run`
+raises `lumped_payment`, `double_reallocation`, `split_collision` and
+`unexplained_ledger_adjustment` with no filter. By session 230's rule a closed month generates no
+work — but 4140's own `split_collision` is a closed-June finding David is actively working, so
+silencing them wholesale would hide live work, and `balance_vs_lender` must never be filtered on
+either argument. This needs a decision per `check_key`, which is David's call, not a QA fix.
+
+**Where to pick up.** Deploy `loan-xero-post` and `loan-find-difference` (both still pending from
+session 233). Then the other exception shapes: `partly_duplicated` is the one to do next, because
+the engine already knows both halves — some months journalled, some not — and currently says so
+without proposing anything.
 
 ### Session 233 (2026-08-25, evening) — the check that cried wolf 33 times
 

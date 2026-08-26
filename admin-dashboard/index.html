@@ -10227,9 +10227,12 @@
     if (Array.isArray(data.periods) && data.periods.length) {
       parts.push(_bkFdiffSpanTable(data.periods));
     }
-    // CPA exception
+    // The accountant already worked this entry. Session 234: deference carries a
+    // diagnosis — the months her split covers, which of them our own splits
+    // record as already reallocated (by journal id), and the prepared entry that
+    // reverses only the duplicated part. Her entry is never touched.
     if (data.cpa_exception) {
-      parts.push(`<div style="margin-top:10px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e">${esc(data.cpa_exception.note || '')}</div>`);
+      parts.push(_bkFdiffExceptionHtml(data.cpa_exception, data, findingId, loanId));
     }
     // The safe fix, review-gated
     if (data.proposal) {
@@ -10243,6 +10246,78 @@
       </div>`);
     }
     return parts.join('');
+  }
+
+  // ── session 234: the exception, with its working shown ─────────────────────
+  // Before this, an entry the accountant had already touched produced one amber
+  // sentence: "she decides". The engine was holding the whole answer at that
+  // moment. Now it shows the decomposition (which months, which journals already
+  // corrected them) and, when the recorded journals AND the span's gap agree, a
+  // balanced entry dated into the first period she can actually post into.
+  function _bkFdiffExceptionHtml(ex, data, findingId, loanId) {
+    const d = ex.diagnosis || null;
+    const pe = ex.proposed_entry || null;
+    const rows = (d && Array.isArray(d.components) && d.components.length) ? `
+      <table style="width:100%;margin-top:10px;border-collapse:collapse;font-size:12px">
+        <thead><tr style="text-align:left;color:#92400e;opacity:.75">
+          <th style="padding:3px 6px 3px 0;font-weight:600">Month</th>
+          <th style="padding:3px 6px;font-weight:600;text-align:right">Interest</th>
+          <th style="padding:3px 0 3px 6px;font-weight:600">Already reallocated on our side</th>
+        </tr></thead>
+        <tbody>${d.components.map(c => `<tr style="border-top:1px solid #fde68a">
+          <td style="padding:4px 6px 4px 0">${esc(c.period)}</td>
+          <td style="padding:4px 6px;text-align:right;font-variant-numeric:tabular-nums">${esc(fmtMoney(c.interest))}</td>
+          <td style="padding:4px 0 4px 6px">${c.reallocated
+            ? `<span style="color:#b45309">yes — journal ${esc(String(c.journal_id || '').slice(0, 8))}</span>`
+            : `<span style="color:var(--gray-500)">no</span>`}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr style="border-top:2px solid #fde68a;font-weight:700">
+          <td style="padding:4px 6px 4px 0">Her split, at source</td>
+          <td style="padding:4px 6px;text-align:right;font-variant-numeric:tabular-nums">${esc(fmtMoney(d.at_source))}</td>
+          <td style="padding:4px 0 4px 6px">counted twice: ${esc(fmtMoney(d.duplicated))}</td>
+        </tr></tfoot>
+      </table>` : '';
+
+    const prepared = pe ? `
+      <div style="margin-top:12px;padding:12px;background:#fff;border:1px solid #fde68a;border-radius:8px">
+        <div style="font-weight:700;color:#166534">Prepared correction — a separate journal; her entry is not touched</div>
+        <div style="margin-top:6px;font-weight:600">${esc(pe.Narration)} (dated ${esc(fmtDate(pe.Date))})</div>
+        <div style="color:var(--gray-500);margin-top:2px;font-size:11.5px">Dated here because ${esc(pe.dated_because || '')}.</div>
+        ${(pe.JournalLines || []).map(l => `<div style="color:var(--gray-600);margin-top:3px;font-size:12px">
+          <strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} — ${esc(l.Description)}</div>`).join('')}
+        ${data.can_post_exception
+          ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-ex-${findingId}" onclick="bkPostFdiffException('${findingId}','${loanId}','${esc(ex.token)}')">Approve &amp; post correction to Xero</button></div>`
+          : data.read_only_view
+            ? `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-500)">Open this loan on its own to approve it — the lender-level view never writes.</div>`
+            : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
+      </div>` : '';
+
+    return `<div style="margin-top:10px;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e">
+      <div style="font-weight:700">Your accountant already worked this payment</div>
+      <div style="margin-top:4px;line-height:1.5">${esc(ex.note || '')}</div>
+      ${rows}${prepared}
+    </div>`;
+  }
+
+  async function bkPostFdiffException(findingId, loanId, token) {
+    const btn = document.getElementById('fdiff-ex-' + findingId);
+    if (btn) { btn.disabled = true; btn.textContent = 'Re-checking and posting…'; }
+    const { ok, data } = await _loanFn('loan-find-difference', {
+      loan_account_id: loanId, post_exception: true, proposal_token: token,
+      posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+    }, 180000);
+    const out = document.getElementById('fdiff-out-' + findingId);
+    if (!ok || data.error) {
+      showToast(data.error || 'Could not post the correction.', 'error');
+      if (data.analysis && out) out.innerHTML = _bkFdiffHtml(data.analysis, findingId, loanId);
+      else if (btn) { btn.disabled = false; btn.textContent = 'Approve & post correction to Xero'; }
+      return;
+    }
+    showToast('Correction posted to Xero.', 'success');
+    if (out) out.innerHTML = `<div style="margin-top:10px;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534">
+      <div style="font-weight:700">✓ Correction posted</div>
+      <div style="margin-top:4px">${esc(data.posted_journal?.narration || '')} — dated ${esc(fmtDate(data.posted_journal?.date))}. Your accountant's own entry was left exactly as it was. Run a reconciliation check to confirm the loan now ties.</div>
+    </div>`;
   }
 
   async function bkPostFdiffFix(findingId, loanId, token) {
@@ -10428,7 +10503,7 @@
         return `<details style="padding:6px 0;border-bottom:1px solid var(--gray-100)">
           <summary style="cursor:pointer;font-size:12.5px;color:var(--gray-700)"><span style="font-weight:600">${esc(L.name)}</span>${isFinite(d) ? ` — ${esc(fmtMoney(Math.abs(d)))} ${d >= 0 ? 'above' : 'below'} the lender` : ''}${exp ? ` · after the fixes: ${esc(exp.label)}` : ''}</summary>
           ${_bkFdiffSpanTable(L.periods || [])}
-          ${L.cpa_exception ? `<div style="margin-top:8px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e">${esc(L.cpa_exception.note || '')}</div>` : ''}
+          ${L.cpa_exception ? _bkFdiffExceptionHtml(L.cpa_exception, { can_post_exception: false, read_only_view: true }, L.finding_id || '', L.id || '') : ''}
           ${solo}
         </details>`;
       }).join('')}</div>`);

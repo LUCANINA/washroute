@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
+import { effectiveCloseDate, postingDateFor, isProtectedDate } from '../_shared/close-date.ts'
+import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 
 // ── loan-find-difference (session 225) ──────────────────────────────────────
 // "Find the difference": when the reconciliation engine says a loan's Xero
@@ -292,8 +294,13 @@ const alreadyWorked = (rec: any) =>
 // Deterministic proposal token: the human approves EXACTLY this journal; a
 // re-analysis that lands anywhere else refuses to post. FNV-1a over the fields
 // that define the journal.
-function proposalToken(loanId: string, period: string, amount: number, direction: string): string {
-  const s = `${loanId}|${period}|${amount.toFixed(2)}|${direction}`
+// session 234: `extra` carries the journal DATE. The date is now derived from
+// the close date, which can move between the moment a human reads a proposal and
+// the moment they approve it -- and a correction landing in a different month is
+// a different correction. Folding it into the token makes that drift refuse to
+// post, exactly like an amount change does.
+function proposalToken(loanId: string, period: string, amount: number, direction: string, extra?: string): string {
+  const s = `${loanId}|${period}|${amount.toFixed(2)}|${direction}${extra ? `|${extra}` : ''}`
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0 }
   return h.toString(16)
@@ -456,8 +463,12 @@ function analyzeWalk(o: {
   entries: any[], siblingPool: any[], otherLoanByCode: Map<string, any>,
   matchKnown: (gap: number) => { amount: number, what: string } | null,
   acctMap: Record<string, string>, skippedForBasis: any[],
+  // session 234: where a correction we propose is ALLOWED to land. Computed
+  // once per request from the effective close date; see postingDateFor().
+  postingDate: string, postingWhy: string, closeDate: string | null, today: string,
 }) {
   const { loan, code, usable, splits, headline, entries, siblingPool, otherLoanByCode, matchKnown, acctMap, skippedForBasis } = o
+  const { postingDate, postingWhy, closeDate, today } = o
   const winFrom = usable[0].statement_date
   const winTo = usable[usable.length - 1].statement_date
 
@@ -577,10 +588,32 @@ function analyzeWalk(o: {
     const lump = lumps.find(r => r.date.slice(0, 7) === sp.period_label) || lumps[0]
     if (!lump) continue
     if (alreadyWorked(lump)) {
+      // ── session 234: DEFERENCE HAS TO CARRY A DIAGNOSIS ──────────────────
+      // We still never touch her entry. But "she decides" with no working is
+      // a flag, not an answer, and the 4140 case proved the engine already
+      // holds everything needed to hand her the arithmetic: which months the
+      // at-source split covers, which of them our own splits record as ALREADY
+      // reallocated (by journal id, not by proximity), and the balanced entry
+      // that reverses only the duplicated part -- dated into the first period
+      // she can actually post into. diagnoseWorkedEntry() proposes nothing
+      // unless the recorded journals AND the span's gap both agree.
+      const diagnosis = diagnoseWorkedEntry({
+        lines: lump.lines, loanCode: code, interestCode: INTEREST_EXPENSE_ACCOUNT_CODE,
+        splits, paymentPeriod: sp.period_label, gap: p.diff,
+        postingDate, postingWhy, loanName: loan.xero_account_name || 'this loan',
+        tol: TOL,
+      })
       cpaException = {
         period: { from: p.from, to: p.to }, split_period: sp.period_label,
         entry: entryView(lump, code, acctMap),
-        note: `The ${money(Math.abs(p.diff))} gap in this span traces to a payment your accountant has already split in Xero. Per your rule, nothing touches her work — this stays flagged for her to look at.`,
+        diagnosis,
+        proposed_entry: diagnosis?.entry ?? null,
+        token: diagnosis?.entry
+          ? proposalToken(loan.id, `exception:${sp.period_label}`, diagnosis.entry.amount, diagnosis.entry.direction, diagnosis.entry.Date)
+          : null,
+        note: diagnosis
+          ? diagnosis.note
+          : `The ${money(Math.abs(p.diff))} gap in this span traces to a payment your accountant has already split in Xero. Per your rule, nothing touches her work — this stays flagged for her to look at.`,
       }
       continue
     }
@@ -598,17 +631,29 @@ function analyzeWalk(o: {
         { LineAmount: -amount, AccountCode: INTEREST_EXPENSE_ACCOUNT_CODE, Description: 'Interest correction', TaxType: 'NONE' },
         { LineAmount: amount, AccountCode: code, Description: `${loan.xero_account_name} principal correction`, TaxType: 'NONE' },
       ]
+    // session 234: WHERE the correction lands. Until now this journal was dated
+    // at the payment (`lump.date`). Session 233 nearly shipped exactly that -- a
+    // 2026-06-17 recode -- into the middle of an active July close. A payment in
+    // an OPEN month is still corrected at the payment, which is where an
+    // accountant expects to find it; a payment inside a closed or closing month
+    // moves to the first month she can actually post into.
+    const protectedDate = isProtectedDate(lump.date, closeDate, today)
+    const journalDate = protectedDate ? postingDate : lump.date
     proposal = {
       kind: 'interest_reallocation_journal',
       period: sp.period_label, span: { from: p.from, to: p.to },
       amount, direction,
+      dated_into: journalDate,
+      dated_because: protectedDate
+        ? `the payment is dated ${lump.date}, and ${postingWhy} — so the correction lands at ${journalDate} instead`
+        : `the ${lump.date} payment is in an open period, so the correction is dated at the payment`,
       based_on: `The lender's statements say this span's balance should move ${money(Math.abs(p.lender_delta))}; Xero moved ${money(Math.abs(p.xero_delta))}. The ${money(Math.abs(p.diff))} gap equals the ${sp.period_label} interest portion to the cent, and the payment sits in Xero as a single un-split line.`,
       journal: {
         Narration: `${loan.xero_account_name} — balance correction, ${sp.period_label}`,
-        Date: lump.date, Status: 'POSTED',
+        Date: journalDate, Status: 'POSTED',
         JournalLines: lines.map(l => ({ ...l, AccountName: acctMap[l.AccountCode] ?? null })),
       },
-      token: proposalToken(loan.id, sp.period_label, amount, direction),
+      token: proposalToken(loan.id, sp.period_label, amount, direction, journalDate),
     }
   }
 
@@ -707,6 +752,49 @@ function analyzeWalk(o: {
 //    path to Xero or the DB.
 const jres = (obj: any, status = 200) => new Response(JSON.stringify(obj, null, 2), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 
+
+// ── session 234: NEVER A DUPLICATE JOURNAL ─────────────────────────────────
+// Every other Xero write in this module checks whether it has already happened
+// before it happens (`xero_manual_journal_id` on loan_splits / payroll_imports).
+// The three post paths here had no such check -- their only protection was "a
+// re-analysis can never produce this proposal again once it is posted", which is
+// true but only AFTER the first post lands. A double-click, a retried request or
+// two admins on the same card all race that window.
+//
+// These journals write no id to a row of ours, so there is nothing local to
+// check. Xero itself is the ledger: a POSTED manual journal with the same
+// narration on the same date IS this correction, already made. One GET before
+// the write, and the answer is a loud explicit error -- never a second journal.
+async function alreadyPostedInXero(narration: string, date: string, headers: Record<string, string>): Promise<any | null> {
+  try {
+    const [y, m, d] = String(date).slice(0, 10).split('-').map(Number)
+    const w = encodeURIComponent(`Date==DateTime(${y},${m},${d})&&Status=="POSTED"`)
+    const res = await fetch(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${w}`, { headers })
+    if (!res.ok) return null // Xero unreachable: fall through to the post rather than block a legitimate correction
+    const json = await res.json().catch(() => null)
+    const hit = (json?.ManualJournals || []).find((j: any) => String(j?.Narration || '').trim() === String(narration).trim())
+    return hit ? { id: hit.ManualJournalID, narration: hit.Narration, date: normDate(hit.DateString, hit.Date) } : null
+  } catch { return null }
+}
+
+const duplicateJournalError = (hit: any) =>
+  `This correction is already in Xero — manual journal ${String(hit.id || '').slice(0, 8)} ("${hit.narration}") dated ${hit.date}. Nothing was posted a second time. Run a reconciliation check to see where the loan stands now.`
+
+// ── session 234: the posting window, computed once per request ──────────────
+// Session 231's lesson, applied: the close date binds WRITES, not just what we
+// propose. This org's Xero carries no lock date, so nothing downstream will
+// refuse a journal dated into a settled month -- this is the only thing that
+// will. Every proposal gets its date from here, and both post paths re-check it
+// against the freshly-computed value before touching Xero.
+async function postingWindow(supa: any, today: string) {
+  const cd = await effectiveCloseDate(supa)
+  const postingDate = postingDateFor(cd.date, today)
+  const postingWhy = cd.date
+    ? `books are closed through ${cd.date} (${cd.source === 'manual' ? 'the close date set in Bookkeeping' : "Xero's lock date"}) and the month after that is being closed`
+    : `no close date is set, so the correction is dated at this month's end`
+  return { closeDate: cd.date, closeSource: cd.source, postingDate, postingWhy }
+}
+
 async function handleLender(supa: any, body: any, role: string): Promise<Response> {
   const lenderName = String(body.lender || '').trim()
   if (!lenderName) return jres({ error: 'lender is required for a lender-level analysis.' }, 400)
@@ -727,6 +815,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   }
 
   const today = new Date().toISOString().slice(0, 10)
+  const pw = await postingWindow(supa, today)
   const bundles: any[] = []
   for (const loan of flagged) {
     const [{ data: statements }, { data: splits }] = await Promise.all([
@@ -813,6 +902,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       loan: b.loan, code: b.code, usable: b.usable, splits: b.splits, headline: b.headline,
       entries: b.entries, siblingPool: b.siblingPool, otherLoanByCode,
       matchKnown: b.matchKnown, acctMap, skippedForBasis: b.skippedForBasis,
+      postingDate: pw.postingDate, postingWhy: pw.postingWhy, closeDate: pw.closeDate, today,
     })
   }
 
@@ -1107,7 +1197,14 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   }
   for (const b of walkable) {
     if (!b.aw.cpa_exception) continue
-    roadmap.push({ step: n++, kind: 'cpa_review', loan: b.loan.xero_account_name, why: b.aw.cpa_exception.note })
+    roadmap.push({
+      step: n++, kind: 'cpa_review', loan: b.loan.xero_account_name,
+      why: b.aw.cpa_exception.note,
+      // session 234: the step carries the working, not just the deferral.
+      diagnosis: b.aw.cpa_exception.diagnosis ?? null,
+      proposed_entry: b.aw.cpa_exception.proposed_entry ?? null,
+      token: b.aw.cpa_exception.token ?? null,
+    })
   }
   // v11: when a loan's real gap predates its statements on file (the masked
   // case), the single most useful thing a human can provide is the lender's
@@ -1229,7 +1326,14 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     } else if (s.kind === 'approve_journal') {
       hand.push(`${s.step}. APPROVE IN WASHROUTE — ${s.loan}: prepared ${s.period} interest correction of ${money(s.amount)} (button on the ${lenderName} card; David/admin only)`)
     } else if (s.kind === 'cpa_review') {
-      hand.push(`${s.step}. CPA CALL — ${s.why}`)
+      hand.push(`${s.step}. YOUR ACCOUNTANT DECIDES — ${s.why}`)
+      if (s.proposed_entry) {
+        hand.push(`   Prepared entry (${s.proposed_entry.Date}): ${s.proposed_entry.Narration}`)
+        for (const l of s.proposed_entry.JournalLines) {
+          hand.push(`     ${l.LineAmount >= 0 ? 'DEBIT ' : 'CREDIT'} ${l.AccountCode}  ${money(l.LineAmount)}  — ${l.Description}`)
+        }
+        hand.push(`   Approve it in WashRoute; nothing posts until then.`)
+      }
     } else if (s.kind === 'rerun') {
       hand.push(`${s.step}. RE-RUN — in WashRoute, run one Reconciliation Check after all steps above.`)
       hand.push(`   Expected: ${expectedLine}`)
@@ -1246,6 +1350,16 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     if (!step) {
       return jres({ error: 'Re-analysis found no matching reallocation to post — the books may have changed since you looked. Run the analysis again and review the fresh roadmap.', conclusions: finalConclusions, roadmap }, 409)
     }
+    // session 234 (session 231's rule): the close date binds the WRITE. This
+    // org's Xero has no lock date, so nothing downstream will refuse a journal
+    // dated into a settled month.
+    if (isProtectedDate(step.journal.Date, pw.closeDate, today)) {
+      return jres({
+        error: `That journal is dated ${step.journal.Date}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted. Re-run the analysis — the correction will re-date itself to ${pw.postingDate}.`,
+      }, 409)
+    }
+    const dupX = await alreadyPostedInXero(step.journal.Narration, step.journal.Date, headers)
+    if (dupX) return jres({ error: duplicateJournalError(dupX), already_posted: dupX }, 409)
     const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ManualJournals: [{ ...step.journal, JournalLines: step.journal.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
@@ -1264,7 +1378,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   }
 
   return jres({
-    ok: true, mode: 'lender_analysis', lender: lenderName,
+    ok: true, mode: 'lender_analysis', lender: lenderName, posting_window: pw,
     combined: { before: combinedBefore, after_expected: combinedAfter, direction: combinedBefore >= 0 ? 'xero_above_lender' : 'xero_below_lender', explained_two_sided: internalMoved },
     conclusions: finalConclusions,
     roadmap,
@@ -1289,12 +1403,16 @@ async function handle(req: Request): Promise<Response> {
   const supa = admin()
   const body = await req.json().catch(() => ({}))
   const { loan_account_id, post_fix, proposal_token, posted_by } = body
+  // session 234: approving the exception's prepared correction. Same contract as
+  // post_fix in every respect -- admin/manager, full server-side re-analysis on
+  // this same request, exact-token match or nothing posts.
+  const post_exception = !!body.post_exception
 
   const role = await callerRole(req)
   if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
-  if (post_fix && !['admin', 'manager'].includes(role)) {
+  if ((post_fix || post_exception) && !['admin', 'manager'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Only an admin or manager can post a correction. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   // v10: lender-level analysis — read-only by construction; corrections are
@@ -1387,9 +1505,11 @@ async function handle(req: Request): Promise<Response> {
   // v10: the whole walk — spans, timing pairs, candidates, proposal,
   // conclusions — now runs through the shared analyzeWalk() (the lender-level
   // analysis calls the same function per loan). Behavior here is unchanged.
+  const pw = await postingWindow(supa, today)
   const aw = analyzeWalk({
     loan, code, usable, splits: splits || [], headline, entries, siblingPool,
     otherLoanByCode, matchKnown, acctMap, skippedForBasis,
+    postingDate: pw.postingDate, postingWhy: pw.postingWhy, closeDate: pw.closeDate, today,
   })
   const periods = aw.periods
   const totalPeriodDiff = aw.total_period_diff
@@ -1439,6 +1559,7 @@ async function handle(req: Request): Promise<Response> {
 
   const analysis = {
     ok: true, mode: 'analyze' as string,
+    posting_window: pw,
     loan: { id: loan.id, name: loan.xero_account_name, code },
     headline,
     window: { from: winFrom, to: winTo, anchors_used: usable.length, truncated_before: truncated, skipped_for_basis: skippedForBasis,
@@ -1448,8 +1569,44 @@ async function handle(req: Request): Promise<Response> {
     fingerprint_hunt: hunt,
     proposal, cpa_exception: cpaException,
     can_post: !!proposal && ['admin', 'manager'].includes(role),
+    can_post_exception: !!cpaException?.proposed_entry && ['admin', 'manager'].includes(role),
     conclusions: finalConclusions,
     narrative: bits.join(' '),
+  }
+
+  // ── post_exception: the prepared correction for an entry the accountant
+  //    already worked. It never touches her entry -- it is a separate journal
+  //    reversing only what our own splits record as already reallocated. ──
+  if (post_exception) {
+    const prepared = cpaException?.proposed_entry
+    if (!prepared) {
+      return new Response(JSON.stringify({ error: 'Re-analysis found no prepared correction to post — the books may have changed since you looked. Review the fresh analysis.', analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (cpaException.token !== proposal_token) {
+      return new Response(JSON.stringify({ error: 'The prepared correction changed since you reviewed it — approve the current one instead.', analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (isProtectedDate(prepared.Date, pw.closeDate, today)) {
+      return new Response(JSON.stringify({ error: `That correction is dated ${prepared.Date}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    const dupE = await alreadyPostedInXero(prepared.Narration, prepared.Date, headers)
+    if (dupE) {
+      return new Response(JSON.stringify({ error: duplicateJournalError(dupE), already_posted: dupE }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    const exRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ManualJournals: [{ Narration: prepared.Narration, Date: prepared.Date, Status: prepared.Status, JournalLines: prepared.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
+    })
+    const exJson = await exRes.json().catch(() => null)
+    if (!exRes.ok || exJson?.Elements?.[0]?.ValidationErrors?.length) {
+      return new Response(JSON.stringify({ error: 'Xero journal post failed', status: exRes.status, details: exJson }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    const exJournal = exJson.ManualJournals?.[0]
+    return new Response(JSON.stringify({
+      ok: true, mode: 'post_exception',
+      posted_journal: { id: exJournal?.ManualJournalID, narration: prepared.Narration, date: prepared.Date, lines: prepared.JournalLines },
+      posted_by: posted_by || null,
+      note: 'Correction posted as a separate journal. Your accountant\'s own entry was not touched. Run a reconciliation check — the loan should now tie.',
+    }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } })
   }
 
   if (!post_fix) {
@@ -1463,6 +1620,19 @@ async function handle(req: Request): Promise<Response> {
   }
   if (proposal.token !== proposal_token) {
     return new Response(JSON.stringify({ error: 'The proposal changed since you reviewed it — approve the current one instead.', analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+  // session 234 (session 231's rule): the close date binds the WRITE, not just
+  // the proposal. Same check on both post paths -- a guard on one branch of two
+  // is the shape of bug session 231 found six times in one night.
+  if (isProtectedDate(proposal.journal.Date, pw.closeDate, today)) {
+    return new Response(JSON.stringify({
+      error: `That correction is dated ${proposal.journal.Date}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted. Re-run the analysis — it will re-date itself to ${pw.postingDate}.`,
+      analysis,
+    }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+  const dupF = await alreadyPostedInXero(proposal.journal.Narration, proposal.journal.Date, headers)
+  if (dupF) {
+    return new Response(JSON.stringify({ error: duplicateJournalError(dupF), already_posted: dupF, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
