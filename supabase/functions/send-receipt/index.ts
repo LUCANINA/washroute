@@ -107,12 +107,26 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
     return { label, amount: Number(i.total ?? 0), type: 'base' };
   }));
 
-  // Only show meaningful line items — include pref_service (Vinegar, Oxi, etc.)
-  const DISPLAY_TYPES = new Set(['base', 'overage', 'addon_service', 'pref_service', 'delivery_fee', 'same_day_surcharge']);
+  // ── Which line items render as charge rows (session 229) ──
+  // This used to be an ALLOW-list (`DISPLAY_TYPES`). Any line-item type
+  // introduced later was therefore silently dropped from the receipt AND from
+  // the computed total. `lb_overage` — the subscription weight-overage line
+  // appended by the `apply_subscription_usage_fn` trigger at
+  // ready_for_delivery — was never added to it, so every subscriber overage
+  // since June 2026 was invisible on the emailed receipt. Rae Maxwell-Ross
+  // #11775: card charged $144.75, emailed receipt said $21.00. 113 orders /
+  // $8,591 of charges hidden.
+  //
+  // It is now a DENY-list: anything not rendered elsewhere on the receipt
+  // shows up as a charge row, so a future new type can never vanish again.
+  //   discount → its own green minus rows below
+  //   credit   → rendered exactly once from `effectiveCredit`
+  //   tax      → its own row from order.tax_amount / legacy type:'tax'
+  const NON_LINE_TYPES = new Set(['discount', 'credit', 'tax']);
   // Session 170: show the $0 "Delivery — included" line on subscription receipts
   // (reinforces the free-delivery perk). Other $0 lines stay hidden as before;
   // a regular $9.95 delivery line is already amount>0 so it's unaffected.
-  const displayItems = allItems.filter((i: any) => DISPLAY_TYPES.has(i.type)
+  const displayItems = allItems.filter((i: any) => !NON_LINE_TYPES.has(i.type)
     && (Number(i.amount ?? 0) > 0 || (i.type === 'delivery_fee' && /included/i.test(String(i.label ?? '')))));
   // Reductions to subtotal — both account credits AND service discounts (SENIORS, promo codes,
   // etc.) render as green minus rows under the subtotal. Before this, type='discount' line items
@@ -133,13 +147,19 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
     .reduce((s: number, i: any) => s + Math.abs(Number(i.amount ?? 0)), 0);
 
   const subtotal = displayItems.reduce((sum: number, i: any) => sum + Number(i.amount ?? 0), 0);
+  // `orders.total_amount` is the authoritative pre-tip service total — it is what
+  // charge-order actually bills. The rendered line items must agree with it; see
+  // the under-report backstop below.
+  const authoritativeSubtotal = Math.round(Number(order.total_amount ?? 0) * 100) / 100;
   const bags     = order.total_bags ?? null;
   const weightLbs = order.weight_lbs ? Number(order.weight_lbs) : null;
 
   // ── Tip calculation ──
   const tipAmt = parseFloat(order.tip_amount || 0);
   const tipDollars = tipAmt > 0
-    ? (order.tip_type === 'pct' ? Math.round(subtotal * tipAmt) / 100 : tipAmt)
+    // pct tips bill off orders.total_amount in charge-order (computeTipDollars),
+    // so the receipt must use the same base — not the rendered line sum.
+    ? (order.tip_type === 'pct' ? Math.round(authoritativeSubtotal * tipAmt) / 100 : tipAmt)
     : 0;
   const tipLabel = tipAmt > 0
     ? (order.tip_type === 'pct' ? `Team Tip (${tipAmt}%)` : 'Team Tip')
@@ -169,7 +189,26 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
   // NET of the account credit (and discounts), so using it double-subtracted the
   // credit and understated the card charge (Todd Bower #7240 — see note above).
   const discountTotal = discountItems.reduce((s: number, i: any) => s + Number(i.amount ?? 0), 0); // negative
-  const grandTotal = Math.round((subtotal + discountTotal + taxAmt + tipDollars) * 100) / 100;
+
+  // ── Under-report backstop (session 229) ──
+  // If the rendered lines sum to LESS than orders.total_amount, some charge did
+  // not render and the customer would see a total lower than what their card was
+  // charged. That must never ship: log it loudly and add a catch-all row so the
+  // receipt still reconciles to the real charge. The opposite direction (lines
+  // summing to MORE) is normal on orders where credit was applied at intake —
+  // total_amount is net of it there — so that only warns.
+  const renderedSubtotal = Math.round((subtotal + discountTotal) * 100) / 100;
+  let reconcileDelta = 0;
+  if (authoritativeSubtotal - renderedSubtotal > 0.01) {
+    reconcileDelta = Math.round((authoritativeSubtotal - renderedSubtotal) * 100) / 100;
+    console.error(`[send-receipt] RECONCILE order #${order.order_number}: rendered $${renderedSubtotal.toFixed(2)} but orders.total_amount is $${authoritativeSubtotal.toFixed(2)} — $${reconcileDelta.toFixed(2)} of charges had no matching line item. Rendered a catch-all row; investigate the line_items types on this order.`);
+    displayItems.push({ type: '_reconcile', label: 'Additional charges', amount: reconcileDelta });
+  } else if (renderedSubtotal - authoritativeSubtotal > 0.01 && effectiveCredit === 0) {
+    console.warn(`[send-receipt] order #${order.order_number}: rendered $${renderedSubtotal.toFixed(2)} exceeds orders.total_amount $${authoritativeSubtotal.toFixed(2)} with no account credit applied.`);
+  }
+  const subtotalShown = Math.round((subtotal + reconcileDelta) * 100) / 100;
+
+  const grandTotal = Math.round((subtotalShown + discountTotal + taxAmt + tipDollars) * 100) / 100;
 
   // `cardPaid` is what hit the customer's actual card. When both credit and card
   // are > 0, the receipt shows them as separate lines so the customer's
@@ -309,7 +348,7 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
             <table width="100%" cellpadding="0" cellspacing="0">
               ${showSubtotal ? `<tr>
                 <td style="font-size:13px;color:#6b7280;padding:3px 0;">Subtotal</td>
-                <td align="right" style="font-size:13px;color:#111827;font-weight:500;">${fmt(subtotal)}</td>
+                <td align="right" style="font-size:13px;color:#111827;font-weight:500;">${fmt(subtotalShown)}</td>
               </tr>` : ''}
               ${discountItemsHtml}
               ${accountCreditHtml}
