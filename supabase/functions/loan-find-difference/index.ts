@@ -44,7 +44,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // MORE than the lender (excess_reduction), this loan's own matching-size
 // payments are flagged as possibly belonging to a different loan. Product-
 // managed stages (Reference WR-STAGE …) are excluded — they are never
-// mistakes. Pure read-side: candidates are QUESTIONS for the bookkeeper, never
+// mistakes. Pure read-side: candidates are QUESTIONS for the accountant, never
 // proposals; the CPA recodes the transaction in Xero, re-runs the analysis,
 // and the span ties or shrinks.
 //
@@ -78,7 +78,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // against ONE shared Xero pull, then solves them jointly: an entry explains
 // at most one gap, a recode must shrink the gap on BOTH walks, and the
 // output is one ≤5-bullet story + one ordered roadmap + a plain-text
-// bookkeeper handoff + the simulated end state each loan should show after a
+// accountant handoff + the simulated end state each loan should show after a
 // single re-run. Read-only; safe-fix approvals reuse the per-loan post_fix
 // path and tokens (no new write path). The per-loan analysis is unchanged
 // (analyzeWalk is the same function both modes call).
@@ -103,7 +103,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // post. That should settle it."): CROSS-LOAN REALLOCATION PROPOSALS. In the
 // strictest shape ONLY — the move closes BOTH loans' spans exactly
 // (two-sided confirmed), exactly one candidate destination (an either/or
-// tie stays a human call), entry untouched by the bookkeeper — the lender
+// tie stays a human call), entry untouched by the accountant — the lender
 // mode now proposes a reallocation Manual Journal (debit the destination
 // loan, credit the source; the original bank line is never edited, same law
 // as the interest fix). Deterministic token; { post_crossloan: true,
@@ -301,7 +301,7 @@ function proposalToken(loanId: string, period: string, amount: number, direction
 
 // v4: the "could this have been a mistake?" list for one divergent span.
 // Pure classification over data already pulled — no Xero calls, no writes.
-// Candidates are QUESTIONS for the bookkeeper, deliberately not proposals.
+// Candidates are QUESTIONS for the accountant, deliberately not proposals.
 function crossLoanCandidatesFor(
   p: any,
   siblingPool: any[],
@@ -580,7 +580,7 @@ function analyzeWalk(o: {
       cpaException = {
         period: { from: p.from, to: p.to }, split_period: sp.period_label,
         entry: entryView(lump, code, acctMap),
-        note: `The ${money(Math.abs(p.diff))} gap in this span traces to a payment your bookkeeper has already split in Xero. Per your rule, nothing touches her work — this stays flagged for her to look at.`,
+        note: `The ${money(Math.abs(p.diff))} gap in this span traces to a payment your accountant has already split in Xero. Per your rule, nothing touches her work — this stays flagged for her to look at.`,
       }
       continue
     }
@@ -1061,7 +1061,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     const riseNote = fromExp?.uncovers ? ` ${fromName}'s headline will RISE — an older gap surfacing, not new damage.` : ''
     let why: string
     if (m.kind === 'cpa_review') {
-      why = `The ${money(m.amount)} ${what} on ${m.date} looks misallocated (${fromName} → ${toName || 'another loan'}), but your bookkeeper already worked it — per your rule, she decides.`
+      why = `The ${money(m.amount)} ${what} on ${m.date} looks misallocated (${fromName} → ${toName || 'another loan'}), but your accountant already worked it — per your rule, she decides.`
     } else if (m.kind === 'investigate') {
       const known = m.ev.dFrom && m.from?.bundle ? m.from.bundle.matchKnown(m.ev.dFrom.after) : null
       why = `The ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} is coded to ${fromName}, but its lender statements never saw it — it belongs to another loan. Check the bank line's payee / lender account number, then recode. After: ${outcomes}${known ? ` (remainder equals ${known.what} — an older item)` : ''}.${riseNote}`
@@ -1069,7 +1069,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       why = `In Xero, recode the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} from ${fromName} to ${toName}.${(m.ev.alternates || []).length ? ` Could equally belong to ${m.ev.alternates.map((x: any) => x.loan.xero_account_name).join(' or ')} — check which loan's statement shows it first.` : ''} After: ${outcomes}.${riseNote}`
     }
     if (m.xl) {
-      why = `Closes both loans' spans exactly: the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} belongs to ${toName}, not ${fromName}. Approve below to post a reallocation journal (${m.xl.from.code} → ${m.xl.to.code}) — OR have your bookkeeper recode the bank line. Do exactly ONE. After: ${outcomes}.${riseNote}`
+      why = `Closes both loans' spans exactly: the ${money(m.amount)} ${what} dated ${m.date}${m.contact ? ` (${m.contact})` : ''} belongs to ${toName}, not ${fromName}. Approve below to post a reallocation journal (${m.xl.from.code} → ${m.xl.to.code}) — OR have your accountant recode the bank line. Do exactly ONE. After: ${outcomes}.${riseNote}`
     }
     roadmap.push({
       step: n++, kind: m.xl ? 'approve_reallocation' : m.kind,
@@ -1203,7 +1203,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   if (conclusions.length === 1 && Math.abs(combinedAfter) < TOL) conclusions.push(`After the roadmap and one re-run, every ${lenderName} loan should tie with the lender.`)
   const finalConclusions = conclusions.slice(0, 5)
 
-  // 8. The plain-text handoff — everything the bookkeeper needs WITHOUT the
+  // 8. The plain-text handoff — everything the accountant needs WITHOUT the
   //    dashboard: one checklist, copy/paste into an email or text. v11: carries
   //    the RISE warning and the do-not-move list so she is never surprised or
   //    tempted to "fix" a ruled-out entry.

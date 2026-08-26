@@ -2018,7 +2018,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
-    // ── Session 224 (David): "Giving the bookkeeper 6 dates to choose from is
+    // ── Session 224 (David): "Giving the accountant 6 dates to choose from is
     // not helpful. We need to be abstracting as much as possible here." ──────
     // The system can answer most of the question itself, from facts it already
     // has: a transaction whose Xero coding carries more than one line item, or

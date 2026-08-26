@@ -10290,7 +10290,7 @@
   // lender_analysis mode: every flagged loan of the lender walked against ONE
   // shared Xero pull, solved jointly (an entry explains at most one gap; a
   // recode must shrink the gap on BOTH loans), returning one ≤5-bullet story,
-  // one ordered fix roadmap, a copyable bookkeeper checklist, and the end
+  // one ordered fix roadmap, a copyable accountant checklist, and the end
   // state each loan should show after a single re-run. Read-only server-side;
   // the roadmap's Approve buttons reuse the per-loan bkPostFdiffFix path.
   const _bkLenderHandoff = {};
@@ -10335,11 +10335,11 @@
     </div>`;
   }
 
-  function _bkCopyRamona(slug) {
+  function _bkCopyForAccountant(slug) {
     const t = _bkLenderHandoff[slug];
     if (!t) return;
     navigator.clipboard.writeText(t).then(
-      () => showToast('Checklist copied — paste it into an email or text to your bookkeeper.', 'success'),
+      () => showToast('Checklist copied — paste it into an email or text to your accountant.', 'success'),
       () => showToast('Could not copy — your browser blocked clipboard access.', 'error'));
   }
 
@@ -10359,7 +10359,7 @@
       recode: ['RECODE IN XERO', '#dbeafe', '#1e40af'],
       investigate: ['FIND WHERE IT BELONGS', '#ede9fe', '#5b21b6'],
       check: ['WORTH CHECKING', 'var(--gray-100)', 'var(--gray-600)'],
-      cpa_review: ['FOR YOUR BOOKKEEPER', '#fef3c7', '#92400e'],
+      cpa_review: ['FOR YOUR ACCOUNTANT', '#fef3c7', '#92400e'],
       approve_journal: ['APPROVE HERE', '#dcfce7', '#166534'],
       approve_reallocation: ['APPROVE HERE', '#dcfce7', '#166534'],
       upload_history: ['GET LENDER HISTORY', '#fae8ff', '#86198f'],
@@ -10407,7 +10407,7 @@
       parts.push(`<div style="margin-top:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
           <div style="font-weight:700;font-size:13px">The fix list — in order</div>
-          <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="_bkCopyRamona('${slug}')">📋 Copy checklist for your bookkeeper</button>
+          <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="_bkCopyForAccountant('${slug}')">📋 Copy checklist for your accountant</button>
         </div>
         ${steps}
       </div>`);
@@ -15576,7 +15576,7 @@ ${noActivityNote}
             const closest = !isHandled && pickable[0] === c && minAbs != null && minAbs <= 31 && sorted.length > 1;
             const far = !isHandled && !closest && d != null && Math.abs(d) > 2;
             const dist = isHandled
-              ? `<span style="color:var(--gray-500)">${c.used_by_period ? `already attached to the ${esc(c.used_by_period)} split` : 'already split in Xero — your bookkeeper has handled this one'}</span>`
+              ? `<span style="color:var(--gray-500)">${c.used_by_period ? `already attached to the ${esc(c.used_by_period)} split` : 'already split in Xero — your accountant has handled this one'}</span>`
               : d == null ? ''
               : (d === 0 ? '<span style="color:var(--green)">same day as the period</span>'
                 : closest ? `<span style="color:var(--green)">${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} ${d > 0 ? 'before' : 'after'} the period — closest to this split's period</span>`

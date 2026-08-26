@@ -243,7 +243,7 @@ async function pullXero(fromDate: string, toDate: string, modifiedSince: string 
   }
 
   // Anything of ANY date touched since the last run. Design note 3 — this is what
-  // catches a bookkeeper deleting a March entry in August.
+  // catches an accountant deleting a March entry in August.
   let changedOld: any[] = []
   if (modifiedSince) {
     await sleep(350)

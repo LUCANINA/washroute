@@ -174,6 +174,54 @@ session — see the session log below for why).
 
 ## Invariants — the actual reason this module has its own skill
 
+### THE ACCOUNTANT IS THE OTHER USER (session 233)
+
+Not an external party we email. A second user of this product, with their own role, their
+own cadence, and precedence over us. Three rules follow, and they are product rules — they
+are not about our books.
+
+**1. Never a person's name. The product says "your accountant".**
+Our books are a test fixture, not the goal; every string a customer reads has to work for
+a customer who has never heard of ours. Code, UI copy, findings, notes and conversation all
+say *your accountant* (or *the accountant*). Session 233 swept the last of a real person's
+name out of the codebase — one function name and a button — along with "bookkeeper", which
+was the same leak wearing a generic hat. Audit fields that record who did what
+(`xero_posted_by`, `dismissed_by`) are evidence and keep their real values.
+
+**2. Everything that reaches the accountant goes through the tool.**
+David, session 233: *"That's the only way this thing can scale."* A checklist someone
+writes by hand does not survive contact with the second customer. If the engine found it,
+the engine has to deliver it — in-product, with its evidence attached, to a role that can
+log in and act on it. The moment a hand-written document is the delivery mechanism, the
+product silently requires an analyst per customer, and that is not a product.
+
+**3. Their close takes precedence over finding every possible mistake.**
+Assume a MONTHLY close. The accountant is always working a month, and that month is
+work-in-progress, not error surface. So:
+
+- **Closed periods generate no work** (session 230, unchanged).
+- **The month being closed generates no work either.** A discrepancy dated inside it is
+  most likely an adjustment that hasn't been made yet. Wait for the close.
+- **Defer to their adjustments.** A historical miscoding is not a finding until you have
+  searched FORWARD for its correction (session 232), and an entry carrying their
+  fingerprint is never rewritten by us (session 224).
+- **Every proposed correction dates itself into the earliest OPEN period.** Not into a
+  closed month, not into the one being closed. The engine should work this out; a human
+  should never have to notice that June is shut. Session 233 nearly shipped a June recode
+  into the middle of an active July close because the close date was checked second
+  instead of first.
+
+**Deference is not a shrug.** Precedence means we do not overwrite their work and do not
+nag inside their working month. It does not mean handing them a flag with no diagnosis.
+`loan-find-difference` currently answers an entry it cannot touch with *"your accountant
+already worked it — she decides"*, and that is the whole of what it says. In the 4140 case
+it held every input needed to say: *the $415.88 is April $147.43 + May $135.64 + June
+$132.81, all three already reallocated by journals 31ad48e9 / 7ce60981 / 12ef542c, and here
+is the balanced entry dated into your open period.* A human worked that out by hand, which
+means for the next customer it does not happen at all. **Wherever the engine defers, it
+still owes the arithmetic and the proposed entry.**
+
+
 ### The books must be locked for this tool to work well (session 230)
 
 The close date is what lets the module tell WORK from HISTORY. Without one it
