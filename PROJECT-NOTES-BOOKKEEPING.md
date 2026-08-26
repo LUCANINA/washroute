@@ -1,74 +1,57 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 236 (left by session 235, 2026-08-26)
+> ## ⏭️ START HERE — first thing, session 237 (left by session 236, 2026-08-26)
 >
-> ### 1. DEPLOY. Two functions, still not deployed — three sessions running.
+> ### 1. THE DIAGNOSIS DOES NOT FIRE ON 4140. Read session 236 in the log first.
 >
-> ```
-> npx supabase@latest functions deploy loan-xero-post        --project-ref umjpbuxrdydwejqtensq
-> npx supabase@latest functions deploy loan-find-difference  --project-ref umjpbuxrdydwejqtensq
-> ```
-> Session 233 left these two undeployed; sessions 234 and 235 changed
-> `loan-find-difference` again, so it is still the same two commands.
-> `reconciliation-run` is already live.
-> `build-version.txt` is bumped again — open tablets will reload.
-> Never deploy from the sandbox: re-typing 148KB of posting code risks silent corruption.
+> Sessions 234–235 are deployed (`loan-find-difference` v19, `loan-xero-post` v61,
+> `reconciliation-run` v32) and were run live for the first time in session 236.
+> **`cpa_exception` came back null.** The $415.88 is the loan-level headline, not one span's
+> gap — the walk splits it into +283.07 on the June span (April + May interest sitting on the
+> June payment) and +132.81 as a timing-pair residue (June's own interest, double-booked, and
+> landing in the previous pair because journal `12ef542c` is dated 2026-05-18).
 >
-> ### 2. What sessions 234 and 235 built — job 3 of session 233's list is DONE
+> The exception branch is gated on a span gap equal to ONE month's interest, so it is never
+> entered. The tie test in `diagnoseWorkedEntry` encodes the same wrong assumption, and the
+> fixture that "proves" the 4140 case was written from this file's prose rather than a walk —
+> it asserts a span that does not exist. **Self-confirming.** Full detail and the real walk
+> table: session 236 in the log.
 >
-> Fixtures (deno is NOT on the device VM — run in the cloud sandbox):
-> `deno test supabase/functions/loan-find-difference/diagnose-exception.test.ts` (17)
-> plus session 233's three — 34 across the module, all green on 2026-08-26.
+> ### 2. ⚠️ LIVE AND WRONG — do not act on the engine's 4140 advice
 >
-> - **`diagnose-exception.ts`** — deference now carries a diagnosis. An entry the
->   accountant already worked no longer answers "she decides" and stops: it decomposes
->   her at-source interest split into the months it covers, names which of those our own
->   `loan_splits` record as ALREADY reallocated (by journal id), and emits the balanced
->   entry reversing only the duplicated part. Nothing is proposed unless the recorded
->   journals AND the span's gap both agree. See DEFERENCE HAS TO CARRY A DIAGNOSIS.
-> - **`postingDateFor()` is wired** — into the exception's entry AND into the existing
->   safe-fix proposal, which until now dated itself at the payment (`lump.date`). That is
->   the June-recode-into-an-active-July-close near miss, still live in the code.
-> - **The close date now binds the WRITES here too** (session 231's rule; this function
->   was the named exception). All three post paths re-check `isProtectedDate` against a
->   freshly computed close date before touching Xero.
-> - **A duplicate-journal check on all three post paths.** They had none — protection was
->   "a re-analysis can never produce this proposal again", which is only true AFTER the
->   first post lands. One GET for a POSTED journal with the same narration and date now
->   precedes every write.
-> - Proposal tokens now fold in the journal DATE, so a close date that moves between
->   review and approval refuses to post instead of landing in a different month.
+> With no diagnosis to offer, the cross-loan hunt fills the gap and recommends recoding
+> **E6-7410's $643.50 (2026-06-09)** or **E5-4751's $1,046.95 (2026-06-12)** onto 4140. Both
+> are those loans' own June payments, correctly coded. Following either would break a correct
+> payment and would not close the gap. Fixing item 1 removes the false lead as a side effect,
+> because the cross-loan hunt only runs when nothing better explains a span.
 >
-> ### 3. Next: `undecomposable` — but get a real walk in front of you first
+> ### 3. The redesign
 >
-> `partly_duplicated` was answered in session 235 (reverse only the booked months, when the
-> span's gap equals that amount to the cent; the rest is named as `carry_over` and left alone).
-> What remains is `undecomposable`: her at-source figure is not a consecutive run of months at
-> all, so the engine cannot say what the extra covers.
+> The engine can already turn 283.07 into "April $147.43 + May $135.64" —
+> `diagnoseWorkedEntry` does exactly that decomposition — it is simply never asked, because
+> the gate in front of it looks for a single month. Rework the gate around the run-of-months
+> decomposition. Two rules to carry in:
 >
-> That one probably needs per-span evidence, which session 235 deliberately backed away from
-> because the sign convention could not be verified without a live walk. **Deploy first, run
-> find-the-difference on 4140, and read the actual span diffs before designing anything.** Note
-> 4140's statements carry pull-date duplicates (the 17th AND the 27th of most months) and lag
-> grace shifts the entry boundary, so which span a correcting journal falls into is not
-> obvious from the dates alone — that is exactly what tripped the first design.
+> - **A period's correction can be split across spans by the DATE of the journal that made
+>   it.** Never assume one gap has one cause. `12ef542c` proves it.
+> - **Build the fixture from a live walk, not from this file.** That is how session 234's
+>   fixture passed while describing a span that never existed.
 >
-> ### 4. Waiting on the accountant: 4140's $415.88 — UNCHANGED, and now automated
+> ### 4. Waiting on the accountant: 4140's $415.88 — the correction itself is UNCHANGED
 >
-> The correction is still hers to post: a journal dated **2026-08-31**, debit 242 $415.88 /
-> credit 800 $415.88, landing 242 on $10,685.52 and matching Ford to the cent. What changed
-> is that the tool now produces exactly that entry by itself — the fixture in
-> `diagnose-exception.test.ts` IS this case, asserted to the cent. **Do NOT recode the
-> 2026-06-17 transaction**: June is closed and July is being closed. Once the journal posts,
+> Still a journal dated **2026-08-31**, debit 242 $415.88 / credit 800 $415.88, landing 242 on
+> $10,685.52 and matching Ford to the cent. Session 236 only changed our understanding of
+> where the $415.88 shows up in the walk, not what it is. **Do NOT recode the 2026-06-17
+> transaction** — June is closed, July is being closed. Once the journal posts,
 > `balance_vs_lender` self-resolves. **Then re-point the `2026-06` split from `2f10db32` to
-> `0d297c29`** and re-run; that clears `split_collision`. Doing it BEFORE the journal posts
-> raises a true-looking double-correction finding for something already fixed.
+> `0d297c29`** and re-run; that clears `split_collision`. Before the journal posts it would
+> raise a true-looking double-correction finding for something already fixed.
 >
 > ### 5. Terminology is a product rule
 >
 > The product says **"your accountant"** — never a person's name, never "bookkeeper". Note
-> `Pre-Staged Loan Payments — Ramona.pdf` is STILL sitting untracked in the repo root — it is
-> the hand-written-handoff pattern this rule replaces.
+> `Pre-Staged Loan Payments — Ramona.pdf` is STILL untracked in the repo root — it is the
+> hand-written-handoff pattern this rule replaces.
 >
 > ### 6. Reading Xero — `xero-read` is deployed; `payment_picture` first
 >
@@ -77,7 +60,7 @@
 >
 > ```bash
 > curl -s -X POST https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/xero-read \
->   -H 'content-type: application/json' -H "x-wr-internal: $(secret from wr_internal_auth)" \
+>   -H 'content-type: application/json' -H "x-wr-internal: $(select public.wr_internal_secret())" \
 >   -d '{"mode":"payment_picture","id":"<BankTransactionID>"}'
 > ```
 > Quirks: BOTH `ManualJournals` and `BankTransactions` list responses omit line items — fetch
@@ -85,17 +68,23 @@
 > `c`/`a`). `Total == 1144.55` works; `Contact.Name.Contains(...)` is rejected on
 > BankTransactions (400), and Ford has eleven contact records — filter by AMOUNT, never name.
 >
+> **To run the engine live** (session 236's method — it needs an admin session, so it runs in
+> David's browser, not the sandbox): open `admin.familylaundry.com`, then in the page console
+> `await _loanFn('loan-find-difference', { loan_account_id: '<uuid>' }, 240000)`. Analyze mode
+> writes nothing.
+>
 > ### 7. Still open, none urgent
 >
-> - **`reconciliation-run` does not know about the close date.** Found in session 234's
->   blast-radius sweep and deliberately NOT fixed — it is a design call, not a bug.
->   `loan-cross-check` skips per-period findings inside a closed period; `reconciliation-run`
->   raises `lumped_payment`, `double_reallocation`, `split_collision` and
->   `unexplained_ledger_adjustment` with no such filter. By session 230's rule those are WORK
->   and a closed month should generate none — but 4140's own `split_collision` is a closed-June
->   finding that David is currently acting on, so silencing them wholesale would have hidden
->   live work. `balance_vs_lender` must never be filtered either way. **Decide per check_key
->   before touching it.**
+> - **`reconciliation-run` does not know about the close date.** Deliberately not fixed — a
+>   design call per `check_key`, not a bug. `loan-cross-check` skips per-period findings inside
+>   a closed period; `reconciliation-run` raises `lumped_payment`, `double_reallocation`,
+>   `split_collision` and `unexplained_ledger_adjustment` with no such filter. 4140's own
+>   `split_collision` is a closed-June finding David is actively working, so silencing them
+>   wholesale would hide live work. `balance_vs_lender` must never be filtered either way.
+> - **The git remote carries a plaintext GitHub token** in `.git/config`
+>   (`https://ghp_...@github.com/LUCANINA/washroute.git`). Local-only, not committed, but it is
+>   a live credential sitting in a file — worth rotating and switching to SSH or a keychain
+>   helper when convenient.
 > - **Funding Circle re-derive** — pays the 1st, projected the 3rd; `2026-09` staged live as
 >   `WR-STAGE 253 2026-09-03`. Four steps, same as BayFirst. Its real problems are for the
 >   accountant: 2026-06-18 coded $995.65/$1,038.12 vs the lender's $1,025.71/$1,008.06;
@@ -110,8 +99,8 @@
 >   resume — never restart the old schedule, and $1,144.55 is stale.
 > - **Statement-intake dedupe** keys on balance + a 14-day window, not date + `file_sha256`.
 >   Suspected of skipping real statements; NOT reproduced — get the specific files first.
-> - **Set Xero's period lock date.** It is null, which is why a June transaction was
->   editable on 14 July with nothing objecting. This is the fix that generalises.
+> - **Set Xero's period lock date.** It is null, which is why a June transaction was editable
+>   on 14 July with nothing objecting. This is the fix that generalises.
 > - `markSplitAlreadyInXero` is still one-way — no un-mark path in the UI.
 
 ## Why this file exists (session 217)
@@ -1665,6 +1654,75 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 236 (2026-08-26) — the first live run: the diagnosis does not fire on the case it was built for
+
+Sessions 234 and 235 were deployed (`loan-find-difference` v19, `loan-xero-post` v61) and run
+against 4140 for the first time, from the real dashboard with David's admin session. Result:
+
+**`cpa_exception` came back NULL. The diagnosis never fires on 4140.** The fixtures pass; the
+live case does not reach them.
+
+**Why: the $415.88 is not one span's gap.** It is the loan-level headline
+(`total_period_diff`), and the walk decomposes it across THREE places:
+
+| span | diff | what it is |
+|---|---|---|
+| 2025-10-17 → 2025-11-17 / 2025-11-17 → 2025-12-17 | −183.19 / +183.18 | pure timing pair, nets −0.01 |
+| 2026-04-27 → 2026-05-17 / 2026-05-17 → 2026-05-28 | −7,554.72 / +7,687.53 | timing pair, **residue +132.81** — named by the engine as "the 2026-06 interest portion" |
+| 2026-05-28 → 2026-06-17 | **+283.07** | the June payment |
+
+−0.01 + 132.81 + 283.07 = 415.87 ≈ the headline 415.88.
+
+**The arithmetic, properly derived this time.** The 2026-06-17 payment is coded 764.44 → 242
+and 415.88 → 800. It should have been 1,047.51 → 242 and 132.81 → 800. So:
+
+- **283.07 = 147.43 (April) + 135.64 (May)** — interest belonging to OTHER months, sitting on
+  this payment. This is `at_source − owed`, and it is what lands in THIS span's gap.
+- **132.81 = June's own interest**, booked at source AND again by journal `12ef542c`. Because
+  that journal is dated 2026-05-18 it lands in the PREVIOUS pair, where it surfaces as the
+  timing-pair residue — not in the June span at all.
+
+Both together are the $415.88 the note has always said, so the correction itself is unchanged.
+What was wrong was session 234's model of WHERE it appears.
+
+**What this breaks in the shipped code, concretely.**
+
+1. The exception branch is gated on finding a split whose `interest_amount` equals the span's
+   gap to the cent. 283.07 is not any single month's interest — it is a SUM of two — so the
+   branch is never entered and no diagnosis is produced.
+2. `diagnoseWorkedEntry`'s tie test (`|gap| ≈ duplicated`) encodes the same wrong assumption.
+   The right relation is `|gap| ≈ at_source − owed` for the part visible in this span, with the
+   own-month duplicate accounted for wherever its journal's DATE puts it.
+3. The fixture that "proves" the 4140 case was built from this file's prose, not from a walk. It
+   asserts a gap of 415.88 on a single span, which the walk shows never existed. **The fixture
+   was self-confirming.** Session 235's instruction to read a real walk first was right, and
+   should have been applied to session 234's fixture too, before it was written.
+
+**⚠️ LIVE AND WRONG — the engine's top recommendation for that span is a false lead.** With no
+diagnosis to offer, the cross-loan hunt fills the gap and says:
+
+> 2026-05-28 → 2026-06-17 is off by $283.07 — either the $643.50 payment (2026-06-09) on
+> E-Transit Loan E6-7410 — same lender — likely belongs here, or the $1,046.95 payment
+> (2026-06-12) on E-Transit Loan E5-4751 — same lender — likely belongs here.
+
+Both are those loans' own June payments, correctly coded (4751's is split at source
+332=778.28 / 800=268.67). Acting on either would break a correct payment and would not close
+the gap, because the real cause is April + May interest on the 4140 payment. **Do not follow
+that suggestion.** The cross-loan hunt runs only when nothing better explains a span, so
+fixing (1) removes this false lead as a side effect.
+
+**Where to pick up.** Redesign the exception gate around the run-of-months decomposition that
+`diagnoseWorkedEntry` already does — the engine can already turn 283.07 into "April 147.43 +
+May 135.64", it is simply never asked. Two rules to carry in:
+
+- **A period's correction can be split across spans by the DATE of the journal that made it.**
+  Never assume one gap = one cause. `12ef542c` proves it.
+- **Build the fixture from a live walk, not from this file.** Session 234's passed while
+  describing a span that does not exist.
+
+The full walk is above and in this session's transcript; re-run it rather than trusting the
+table if anything has moved since.
 
 ### Session 235 (2026-08-26) — partly_duplicated, and the status that meant the opposite of what the code assumed
 
