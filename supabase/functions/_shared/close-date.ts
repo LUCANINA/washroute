@@ -88,3 +88,40 @@ export function closedNote(cd: CloseDate, periodLabel: string): string {
     + `Filed rather than queued: a closed period is settled by the CPA's own adjustment, so there is nothing to approve here. `
     + `It stays in this loan's split history.`
 }
+
+// ── Where a correction is allowed to land (session 233) ─────────────────────
+// A correction we propose has to be POSTABLE. Session 233 nearly handed David a
+// recode of a 2026-06-17 transaction while the accountant was closing July: June was
+// settled, July was live work-in-progress, and the entry would have landed in the
+// middle of both. The close date was checked second instead of first.
+//
+// The rule, from David: "assume the CPA works on a monthly closing schedule, and defer
+// to their adjustments." So at any moment there are three kinds of month:
+//
+//   CLOSED    <= closeDate            settled; never touch
+//   CLOSING   the month after that    their live work; never touch either
+//   OPEN      everything after        ours to post into
+//
+// The first OPEN month is (closeMonth + 2). But when the books are months behind --
+// closed through January while it is August -- (closeMonth + 2) is March, a month they
+// will close soon and would have to redo. The current month is always safe and always
+// correct, so the answer is whichever of the two is LATER.
+//
+// Month-end is the date, because that is where an adjustment belongs and where an
+// accountant expects to find one. It can therefore be a few days in the future; that
+// is normal for a month-end adjustment and Xero accepts it.
+export function postingDateFor(closeDate: string | null, today: string): string {
+  const cur = String(today).slice(0, 7)
+  if (!closeDate) return endOfMonth(cur)
+  const [cy, cm] = String(closeDate).slice(0, 7).split('-').map((x) => parseInt(x, 10))
+  // +2: one to clear the closed month, one to clear the month being closed.
+  const d = new Date(Date.UTC(cy, (cm - 1) + 2, 1))
+  const firstOpen = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+  return endOfMonth(firstOpen > cur ? firstOpen : cur)
+}
+
+// Is this date inside a month nobody should be writing to -- closed, or being closed?
+export function isProtectedDate(date: string | null, closeDate: string | null, today: string): boolean {
+  if (!date || !closeDate) return false
+  return String(date).slice(0, 10) < postingDateFor(closeDate, today).slice(0, 8) + '01'
+}
