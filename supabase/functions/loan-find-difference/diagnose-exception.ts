@@ -41,7 +41,9 @@ export interface DiagLine { c: string | null; a: number | string | null; d?: str
 export interface DiagnosisComponent {
   period: string
   interest: number
-  reallocated: boolean
+  /** Already booked once, by either route — so allocating it again duplicates it. */
+  already_booked: boolean
+  booked_by: BookedBy
   journal_id: string | null
 }
 
@@ -59,8 +61,14 @@ export interface WorkedEntryDiagnosis {
   owed: number
   /** The months the at-source figure decomposes into, newest last. */
   components: DiagnosisComponent[] | null
-  /** Of `at_source`, how much is already covered by a recorded journal. */
+  /** Of `at_source`, how much was already booked once before (either route). */
   duplicated: number
+  /**
+   * The remainder of her split that we deliberately do NOT reverse: months that
+   * were never booked, where her allocation is a legitimate catch-up. Null when
+   * there is none, or when no entry is proposed.
+   */
+  carry_over: { amount: number; months: string[] } | null
   /** The balanced correcting entry — only when shape is 'duplicated_reallocation'. */
   entry: {
     amount: number
@@ -79,10 +87,46 @@ export interface WorkedEntryDiagnosis {
 const r2 = (n: number) => Math.round(n * 100) / 100
 const money = (n: number) => '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/** A split's journal counts as evidence only when the split actually reached Xero. */
+// ── WAS THIS MONTH'S INTEREST ALREADY BOOKED? (session 235) ────────────────
+// There are exactly TWO ways it can already be booked, and both are RECORDED
+// FACTS in our own rows -- neither is inferred from arithmetic or proximity:
+//
+//   'our_journal'  the split carries `xero_manual_journal_id` and reached Xero.
+//                  We reallocated it. The payment was coded 100% to the loan and
+//                  our journal carved the interest out afterwards.
+//
+//   'at_source'    the split's status is `already_in_xero`. Per loan-xero-post
+//                  (session 224) that is "a human looked at the evidence and
+//                  recorded that the month was handled directly in Xero", and it
+//                  is set deliberately, one way, by a person clicking a button.
+//
+// Session 235 checked the second against production before trusting it, because
+// an `already_in_xero` split carries NO journal id and the first draft of this
+// file therefore read it as "never booked" -- the exact inversion that would
+// have left a real duplicate unreversed. Every such split sampled across four
+// loans (242, 332, 338, 243) resolves to a bank transaction split AT SOURCE into
+// the loan account and 800, for exactly the principal/interest this row records:
+//
+//   4140  2026-01  242=1011.27  800=169.05   (split row: 1011.27 / 169.05)
+//   4140  2026-08  242=1070.29  800=110.03   (split row: 1070.29 / 110.03)
+//   4751  2026-08  332= 791.62  800=255.33   (split row:  791.62 / 255.33)
+//   7410  2026-08  338= 470.64  800=172.86   (split row:  470.64 / 172.86)
+//   BayFirst 2026-08 243=971.56 800=1094.19  (split row:  971.56 / 1094.19)
+//
+// Anything else -- pending_review, needs_attention, a staged split with no
+// journal, or no split row for that month at all -- is NOT booked. A later
+// payment allocating that month's interest is then a legitimate CATCH-UP, and
+// reversing it would re-break the month it was fixing.
 const REACHED_XERO = new Set(['posted', 'already_in_xero', 'staged'])
-const wasReallocated = (s: DiagSplit) =>
-  !!s.xero_manual_journal_id && REACHED_XERO.has(String(s.status ?? 'posted').toLowerCase())
+
+export type BookedBy = 'our_journal' | 'at_source' | null
+
+export function bookedBy(s: DiagSplit): BookedBy {
+  const status = String(s.status ?? '').toLowerCase()
+  if (s.xero_manual_journal_id && REACHED_XERO.has(status || 'posted')) return 'our_journal'
+  if (status === 'already_in_xero') return 'at_source'
+  return null
+}
 
 const shortId = (id: string | null) => (id ? String(id).slice(0, 8) : '—')
 
@@ -133,18 +177,22 @@ export function diagnoseWorkedEntry(o: {
   for (let i = sched.length - 1, steps = 0; i >= 0 && steps < maxLookback; i--, steps++) {
     run = r2(run + Number(sched[i].interest_amount))
     if (Math.abs(run - atSource) < TOL) {
-      components = sched.slice(i).map((s) => ({
-        period: String(s.period_label),
-        interest: r2(Number(s.interest_amount)),
-        reallocated: wasReallocated(s),
-        journal_id: s.xero_manual_journal_id ?? null,
-      }))
+      components = sched.slice(i).map((s) => {
+        const by = bookedBy(s)
+        return {
+          period: String(s.period_label),
+          interest: r2(Number(s.interest_amount)),
+          already_booked: by !== null,
+          booked_by: by,
+          journal_id: s.xero_manual_journal_id ?? null,
+        }
+      })
       break
     }
     if (run > atSource + TOL) break // overshot; no consecutive run can match
   }
 
-  const base = { at_source: atSource, owed, components, duplicated: 0, entry: null }
+  const base = { at_source: atSource, owed, components, duplicated: 0, carry_over: null, entry: null }
 
   if (!components) {
     return {
@@ -157,7 +205,7 @@ export function diagnoseWorkedEntry(o: {
     }
   }
 
-  const already = components.filter((c) => c.reallocated)
+  const already = components.filter((c) => c.already_booked)
   const duplicated = r2(already.reduce((s, c) => s + c.interest, 0))
   const monthList = components.map((c) => `${c.period} ${money(c.interest)}`).join(' + ')
 
@@ -167,12 +215,18 @@ export function diagnoseWorkedEntry(o: {
       shape: 'no_duplication',
       duplicated: 0,
       note: `Your accountant's ${money(atSource)} interest split covers ${components.length} month${components.length === 1 ? '' : 's'} `
-        + `(${monthList}). None of them carries a reallocation journal on our side, so her entry is the only correction `
-        + `these months have had — nothing is double-counted and there is nothing to propose.`,
+        + `(${monthList}). None of them was booked before — no reallocation journal on our side, and none marked as `
+        + `handled directly in Xero — so her entry is the only correction these months have had. Nothing is `
+        + `double-counted and there is nothing to propose.`,
     }
   }
 
-  const journalList = already.map((c) => `${c.period} by journal ${shortId(c.journal_id)}`).join(', ')
+  const describe = (c: DiagnosisComponent) => c.booked_by === 'our_journal'
+    ? `${c.period} by journal ${shortId(c.journal_id)}`
+    : `${c.period} handled directly in Xero`
+  const journalList = already.map(describe).join(', ')
+  const notBooked = components.filter((c) => !c.already_booked)
+  const carryOver = r2(atSource - duplicated)
   const partial = duplicated < atSource - TOL
 
   // 4. The safety belt. The proposed entry has to close the span's gap to the
@@ -180,40 +234,51 @@ export function diagnoseWorkedEntry(o: {
   //    what the walk actually observes, something else is also going on and the
   //    engine has no business proposing a journal — it reports and stops.
   const tiesToGap = Math.abs(Math.abs(o.gap) - duplicated) < TOL
-  if (!tiesToGap || partial) {
+  if (!tiesToGap) {
     return {
       ...base,
       shape: partial ? 'partly_duplicated' : 'duplicated_reallocation',
       duplicated,
       note: `Your accountant's ${money(atSource)} interest split covers ${monthList}. `
-        + `${money(duplicated)} of that was ALREADY reallocated on our side (${journalList}) — counted twice. `
-        + (tiesToGap
-          ? `The rest of her split (${money(r2(atSource - duplicated))}) has no journal behind it, so the two halves need `
-            + `different answers and the engine will not guess: this is hers to decide.`
-          : `That does not equal this span's ${money(o.gap)} gap, so something else is moving here too — `
-            + `the engine will not propose an entry it cannot fully account for.`),
+        + `${money(duplicated)} of that was already booked once before (${journalList}) — counted twice. `
+        + `That does not equal this span's ${money(o.gap)} gap, so something else is moving here too, and reversing `
+        + `${money(duplicated)} on its own would leave the loan out by ${money(r2(Math.abs(o.gap) - duplicated))}. `
+        + `The engine will not propose an entry it cannot fully account for — this one is hers.`,
     }
   }
 
-  // 5. Reverse exactly the duplicated amount. Direction from the gap's sign, the
-  //    same convention the walk uses everywhere: gap > 0 means Xero's balance
-  //    sits ABOVE the lender's, so the loan account comes down (debit) and
-  //    Interest Expense gives the duplicate back (credit).
+  // 5. Reverse exactly the duplicated amount -- NOT her whole split.
+  //
+  //    Session 235: this is what makes `partly_duplicated` answerable. When some
+  //    of the months she covered were already booked and some were not, the two
+  //    halves genuinely need different treatment, and the safety belt above is
+  //    what decides whether we understand the split well enough to act: the gap
+  //    the walk actually observes must equal the DUPLICATED part alone. When it
+  //    does, the months that were never booked are not in this span's gap at all
+  //    -- her allocation for them is a legitimate catch-up correcting the month
+  //    it names, and reversing it would re-break that month. So we reverse the
+  //    duplicate, leave the catch-up alone, and say so in as many words.
+  //
+  //    Direction from the gap's sign, the same convention the walk uses
+  //    everywhere: gap > 0 means Xero's balance sits ABOVE the lender's, so the
+  //    loan account comes down (debit) and Interest Expense gives the duplicate
+  //    back (credit).
   const amount = duplicated
   const direction: 'interest_back_to_loan' | 'interest_out_of_loan' =
     o.gap > 0 ? 'interest_back_to_loan' : 'interest_out_of_loan'
   const sign = direction === 'interest_back_to_loan' ? 1 : -1
   const JournalLines = [
     { LineAmount: r2(sign * amount), AccountCode: o.loanCode, Description: `${o.loanName} — reverse duplicated interest allocation`, TaxType: 'NONE' as const },
-    { LineAmount: r2(-sign * amount), AccountCode: o.interestCode, Description: `Interest already reallocated (${already.map((c) => c.period).join(', ')})`, TaxType: 'NONE' as const },
+    { LineAmount: r2(-sign * amount), AccountCode: o.interestCode, Description: `Interest already booked (${already.map((c) => c.period).join(', ')})`, TaxType: 'NONE' as const },
   ]
 
   return {
-    shape: 'duplicated_reallocation',
+    shape: partial ? 'partly_duplicated' : 'duplicated_reallocation',
     at_source: atSource,
     owed,
     components,
     duplicated,
+    carry_over: partial ? { amount: carryOver, months: notBooked.map((c) => c.period) } : null,
     entry: {
       amount,
       direction,
@@ -225,8 +290,15 @@ export function diagnoseWorkedEntry(o: {
       JournalLines,
     },
     note: `Your accountant split this payment herself, putting ${money(atSource)} on Interest Expense — that is `
-      + `${monthList}. All ${already.length} of those months had ALREADY been reallocated on our side (${journalList}), `
-      + `so the same interest is booked twice and the loan sits ${money(o.gap)} above the lender. `
+      + `${monthList}. `
+      + (partial
+        ? `${money(duplicated)} of that was already booked once before (${journalList}), so it is counted twice. `
+          + `The other ${money(carryOver)} (${notBooked.map((c) => c.period).join(', ')}) had never been booked at all — `
+          + `her split is the only correction ${notBooked.length === 1 ? 'that month has' : 'those months have'} had, so it stays. `
+          + `Reversing it would re-break the ${notBooked.length === 1 ? 'month' : 'months'} it just fixed. `
+          + `This span's ${money(o.gap)} gap matches the duplicated part exactly, which is how we know the rest is not in question. `
+        : `All ${already.length} of those months had ALREADY been booked once (${journalList}), `
+          + `so the same interest is booked twice and the loan sits ${money(o.gap)} ${o.gap > 0 ? 'above' : 'below'} the lender. `)
       + `Her entry stays exactly as it is; the correction is a separate journal for ${money(amount)}, dated ${o.postingDate} `
       + `(${o.postingWhy}). Nothing posts until it is approved.`,
   }

@@ -1,23 +1,24 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 235 (left by session 234, 2026-08-26)
+> ## ⏭️ START HERE — first thing, session 236 (left by session 235, 2026-08-26)
 >
-> ### 1. DEPLOY. Now THREE functions, still none of them deployed.
+> ### 1. DEPLOY. Two functions, still not deployed — three sessions running.
 >
 > ```
 > npx supabase@latest functions deploy loan-xero-post        --project-ref umjpbuxrdydwejqtensq
 > npx supabase@latest functions deploy loan-find-difference  --project-ref umjpbuxrdydwejqtensq
 > ```
-> Session 233 left these two undeployed; session 234 changed `loan-find-difference`
-> again, so it is the same two commands. `reconciliation-run` is already live.
+> Session 233 left these two undeployed; sessions 234 and 235 changed
+> `loan-find-difference` again, so it is still the same two commands.
+> `reconciliation-run` is already live.
 > `build-version.txt` is bumped again — open tablets will reload.
 > Never deploy from the sandbox: re-typing 148KB of posting code risks silent corruption.
 >
-> ### 2. What session 234 built — job 3 of session 233's list is DONE
+> ### 2. What sessions 234 and 235 built — job 3 of session 233's list is DONE
 >
 > Fixtures (deno is NOT on the device VM — run in the cloud sandbox):
-> `deno test supabase/functions/loan-find-difference/diagnose-exception.test.ts` (12)
-> plus session 233's three, all 17 re-run green on 2026-08-26.
+> `deno test supabase/functions/loan-find-difference/diagnose-exception.test.ts` (17)
+> plus session 233's three — 34 across the module, all green on 2026-08-26.
 >
 > - **`diagnose-exception.ts`** — deference now carries a diagnosis. An entry the
 >   accountant already worked no longer answers "she decides" and stops: it decomposes
@@ -38,14 +39,19 @@
 > - Proposal tokens now fold in the journal DATE, so a close date that moves between
 >   review and approval refuses to post instead of landing in a different month.
 >
-> ### 3. Next: the same treatment for the OTHER exception shapes
+> ### 3. Next: `undecomposable` — but get a real walk in front of you first
 >
-> `diagnoseWorkedEntry` answers one shape — her split double-counts months we already
-> journalled. Three shapes still return the diagnosis and no entry, correctly:
-> `partly_duplicated` (some months journalled, some not), `undecomposable` (the at-source
-> figure is not a consecutive run of months), and a duplication that does not equal the
-> span's gap. Each is a real case waiting for its own diagnosis. Start with
-> `partly_duplicated` — it is the one where the engine already knows both halves.
+> `partly_duplicated` was answered in session 235 (reverse only the booked months, when the
+> span's gap equals that amount to the cent; the rest is named as `carry_over` and left alone).
+> What remains is `undecomposable`: her at-source figure is not a consecutive run of months at
+> all, so the engine cannot say what the extra covers.
+>
+> That one probably needs per-span evidence, which session 235 deliberately backed away from
+> because the sign convention could not be verified without a live walk. **Deploy first, run
+> find-the-difference on 4140, and read the actual span diffs before designing anything.** Note
+> 4140's statements carry pull-date duplicates (the 17th AND the 27th of most months) and lag
+> grace shifts the entry boundary, so which span a correcting journal falls into is not
+> obvious from the dates alone — that is exactly what tripped the first design.
 >
 > ### 4. Waiting on the accountant: 4140's $415.88 — UNCHANGED, and now automated
 >
@@ -222,18 +228,38 @@ customer.
 `diagnoseWorkedEntry()` (`loan-find-difference/diagnose-exception.ts`) is the fix, and its
 guards are the point:
 
-- **Arithmetic decides WHICH months; the recorded link decides whether they were already
-  corrected.** A month counts as already-reallocated only when OUR OWN split records the
-  journal (`xero_manual_journal_id`, status posted/staged/already_in_xero) — the same link
-  `checkDoubleReallocation` was rewritten to pair through in session 233. Never proximity.
+- **Arithmetic decides WHICH months; a RECORDED FACT decides whether they were already
+  booked.** Never proximity. There are exactly two recorded routes, and session 235 learned
+  the hard way that both count:
+  - `our_journal` — the split carries `xero_manual_journal_id` and reached Xero. The same
+    link `checkDoubleReallocation` was rewritten to pair through in session 233.
+  - `at_source` — the split's status is `already_in_xero`, which per `loan-xero-post`
+    (session 224) means *a human looked at the evidence and recorded that the month was
+    handled directly in Xero*. **These carry NO journal id.** Session 234's first draft
+    therefore read them as "never booked" — the exact inversion that leaves a real duplicate
+    unreversed. Verified against production before being trusted: every `already_in_xero`
+    split sampled across loans 242 / 332 / 338 / 243 resolves to a bank transaction split AT
+    SOURCE for exactly the principal/interest the split row records (4140 2026-01
+    242=1011.27 / 800=169.05; 4751 2026-08 332=791.62 / 800=255.33; BayFirst 2026-08
+    243=971.56 / 800=1094.19; and so on).
+
+  Anything else — `pending_review`, `needs_attention`, a staged split with no journal, or no
+  split row at all — is NOT booked, and a later payment allocating that month is a legitimate
+  CATCH-UP that must never be reversed.
 - **Only a CONSECUTIVE run of months, walking back from the payment's own period, bounded to
   12.** A catch-up allocation covers arrears; it does not cherry-pick. Arbitrary subset-sum
   would match by coincidence in almost any schedule.
 - **The total must equal the span's gap to the cent, or nothing is proposed.** If what was
   corrected twice does not equal what the walk observes, something else is moving too and the
   engine has no business writing a journal.
-- **Partial duplication proposes nothing.** When some months carry a journal and some do not,
-  the two halves need different answers; the engine reports both and stops.
+- **Partial duplication reverses only the booked part — and only when the gap says so
+  (session 235).** When some months were already booked and some were not, the engine
+  proposes reversing the duplicated part alone, provided the span's gap equals THAT amount to
+  the cent. That tie is what proves the never-booked months are not in this span's gap: their
+  allocation is correcting the month it names, and reversing it would re-break that month. If
+  the gap is larger, the engine says by how much it would leave the loan out and proposes
+  nothing. The untouched remainder is returned as `carry_over` and named on screen, so nobody
+  reads the smaller entry as the engine having missed something.
 - **Her entry is never touched.** The correction is always a SEPARATE journal.
 
 Consumers must test `entry`, not `shape` — a confident `duplicated_reallocation` can still
@@ -1639,6 +1665,58 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 235 (2026-08-26) — partly_duplicated, and the status that meant the opposite of what the code assumed
+
+Session 234's handoff named `partly_duplicated` as the next shape to answer: her split covers
+several months, some already corrected on our side and some not, and the engine reported both
+halves and proposed nothing.
+
+**The finding that changed the design.** Before writing anything, I checked 4140's splits
+against production and hit a contradiction: months 2026-01/02/03/08 are `already_in_xero` and
+carry **no** `xero_manual_journal_id`. Session 234's classifier required a journal id, so it
+read those months as *never booked* — the exact inversion of the truth. Pulling the actual
+transactions through `xero-read` settled it: every one of them is split AT SOURCE, for exactly
+the principal and interest our split row records, and the pattern holds across four loans
+(242, 332, 338, 243). `already_in_xero` means she handled the month herself, in its own month.
+
+So a month is already booked by either of two RECORDED routes — our journal, or her at-source
+split recorded as `already_in_xero` — and only anything else counts as never booked. That is
+not a refinement of session 234's rule, it is a correction to it: without this, a duplicate
+covering an `already_in_xero` month would have been silently left in the books, which is the
+failure mode this whole module exists to prevent.
+
+**What `partly_duplicated` now does.** Reverses only the months that were already booked, and
+only when the span's gap equals THAT amount to the cent. The tie is the whole argument: if the
+never-booked months' allocation were also sitting in this span's gap, the gap would be bigger,
+and reversing the smaller amount would leave the loan out — so the engine says by how much and
+proposes nothing. When it does tie, the remainder is returned as `carry_over`, named on screen
+with the reason it stays: her allocation is the only correction those months ever got, and
+reversing it would re-break the month it just fixed.
+
+**What I deliberately did NOT build.** My first design corroborated each never-booked month
+against its own span's diff, which would have needed a span-diff lookup threaded into the
+diagnosis. I dropped it: I could not verify the sign convention against real numbers without
+the live walk (the notes' "$631.63" for 4140 does not decompose into a single span once you
+look at the actual statement dates — there are pull-date duplicates on the 17th and the 27th,
+and lag grace moves the boundary), and a write path resting on an unverified sign is precisely
+session 233's mistake. The gap-tie test needs no theory about where the other months' money
+went, so it is what shipped.
+
+**Blast radius.** `checkDoubleReallocation` also keys on `xero_manual_journal_id` and skips
+`already_in_xero` splits — checked, and correct there: it asks a per-split question ("is THIS
+payment both split at source and journalled?"), and a split with no journal has no double
+reallocation to find. The cross-month shape — a later payment re-allocating a month that was
+already handled at source — is invisible to it, and is exactly what `diagnoseWorkedEntry` now
+covers from the other direction. Noted, not a defect.
+
+17 fixtures on the diagnosis (up from 12), 34 across the module, all green. Still not deployed.
+
+**Where to pick up.** Deploy (still `loan-xero-post` + `loan-find-difference`). Then
+`undecomposable` — where her at-source figure is not a consecutive run of months at all. That
+one probably needs the span evidence I backed away from here, so start by getting a real walk
+in front of you: deploy first, run find-the-difference on 4140, and read the actual span diffs
+before designing anything.
 
 ### Session 234 (2026-08-26) — the deferral learns to do the arithmetic, and the proposal learns what month it is
 

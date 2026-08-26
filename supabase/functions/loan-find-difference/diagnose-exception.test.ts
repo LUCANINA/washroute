@@ -32,7 +32,8 @@ Deno.test('4140: decomposes $415.88 into the three months that were already real
   assertEquals(d.owed, 132.81)
   assertEquals(d.duplicated, 415.88)
   assertEquals(d.components!.map((c) => c.period), ['2026-04', '2026-05', '2026-06'])
-  assert(d.components!.every((c) => c.reallocated))
+  assert(d.components!.every((c) => c.already_booked))
+  assert(d.components!.every((c) => c.booked_by === 'our_journal'))
 })
 
 Deno.test('4140: proposes a balanced entry, debit the loan, dated into the open period', () => {
@@ -66,31 +67,98 @@ Deno.test('the mirror: Xero below the lender reverses the direction', () => {
 Deno.test('no journal on any component: her split is the only correction — nothing proposed', () => {
   const d = diagnoseWorkedEntry({
     ...FORD_4140,
-    splits: FORD_4140.splits.map((s) => ({ ...s, xero_manual_journal_id: null })),
+    splits: FORD_4140.splits.map((s) => ({ ...s, xero_manual_journal_id: null, status: 'pending_review' })),
   })!
   assertEquals(d.shape, 'no_duplication')
   assertEquals(d.duplicated, 0)
   assertEquals(d.entry, null)
 })
 
-Deno.test('only some months reallocated: two halves need different answers — nothing proposed', () => {
-  const d = diagnoseWorkedEntry({
-    ...FORD_4140,
-    splits: FORD_4140.splits.map((s) =>
-      s.period_label === '2026-04' ? { ...s, xero_manual_journal_id: null } : s),
-  })!
-  assertEquals(d.shape, 'partly_duplicated')
-  assertEquals(d.duplicated, 268.45) // 135.64 + 132.81
-  assertEquals(d.entry, null)
-})
-
 Deno.test('a split whose journal never reached Xero is not evidence', () => {
   const d = diagnoseWorkedEntry({
     ...FORD_4140,
-    splits: FORD_4140.splits.map((s) => ({ ...s, status: 'pending_review' })),
+    splits: FORD_4140.splits.map((s) => ({ ...s, status: 'pending_review', xero_manual_journal_id: null })),
   })!
   assertEquals(d.shape, 'no_duplication')
   assertEquals(d.entry, null)
+})
+
+// ── session 235: the two ways a month can already be booked ────────────────
+// Verified against production before being trusted: an `already_in_xero` split
+// carries NO journal id, and every one sampled across loans 242 / 332 / 338 /
+// 243 resolves to a bank transaction split AT SOURCE for exactly the
+// principal/interest the split row records. Reading it as "never booked" — which
+// the first draft did — would leave a real duplicate unreversed.
+
+Deno.test('already_in_xero counts as booked even with no journal id', () => {
+  const d = diagnoseWorkedEntry({
+    ...FORD_4140,
+    splits: FORD_4140.splits.map((s) => ({ ...s, status: 'already_in_xero', xero_manual_journal_id: null })),
+  })!
+  assertEquals(d.shape, 'duplicated_reallocation')
+  assertEquals(d.duplicated, 415.88)
+  assert(d.components!.every((c) => c.booked_by === 'at_source'))
+  assertEquals(d.entry!.amount, 415.88)
+  assert(/handled directly in Xero/.test(d.note))
+})
+
+Deno.test('the two routes mix freely within one split', () => {
+  const d = diagnoseWorkedEntry({
+    ...FORD_4140,
+    splits: FORD_4140.splits.map((s) =>
+      s.period_label === '2026-05' ? { ...s, status: 'already_in_xero', xero_manual_journal_id: null } : s),
+  })!
+  assertEquals(d.duplicated, 415.88)
+  assertEquals(d.components!.map((c) => c.booked_by), ['our_journal', 'at_source', 'our_journal'])
+  assertEquals(d.entry!.amount, 415.88)
+})
+
+// ── session 235: PARTLY DUPLICATED — the case this session was for ─────────
+
+// April was never booked (pending_review, no journal). May and June were.
+// Her split covers all three; only May + June are duplicates. The span's gap is
+// $268.45 — the duplicated part alone — which is how we know April's share is
+// not in question here.
+const PARTIAL = {
+  ...FORD_4140,
+  gap: 268.45,
+  splits: FORD_4140.splits.map((s) =>
+    s.period_label === '2026-04'
+      ? { ...s, status: 'pending_review', xero_manual_journal_id: null }
+      : s),
+}
+
+Deno.test('partly duplicated: reverses only the months that were already booked', () => {
+  const d = diagnoseWorkedEntry(PARTIAL)!
+  assertEquals(d.shape, 'partly_duplicated')
+  assertEquals(d.at_source, 415.88)
+  assertEquals(d.duplicated, 268.45) // 135.64 + 132.81
+  assertEquals(d.entry!.amount, 268.45)
+  assertEquals(d.entry!.JournalLines.reduce((s, l) => s + l.LineAmount, 0), 0)
+  assertEquals(d.entry!.JournalLines.find((l) => l.AccountCode === '242')!.LineAmount, 268.45)
+})
+
+Deno.test('partly duplicated: names the carry-over and says why it stays', () => {
+  const d = diagnoseWorkedEntry(PARTIAL)!
+  assertEquals(d.carry_over, { amount: 147.43, months: ['2026-04'] })
+  assert(/never been booked at all/.test(d.note))
+  assert(/re-break/.test(d.note))
+  // The narration must name only the months actually being reversed.
+  assert(/2026-05, 2026-06/.test(d.entry!.Narration))
+  assert(!/2026-04/.test(d.entry!.Narration))
+})
+
+Deno.test('partly duplicated that does NOT tie to the gap proposes nothing', () => {
+  // Gap is the whole $415.88, so the never-booked month IS in this span too —
+  // reversing $268.45 alone would leave the loan out by $147.43.
+  const d = diagnoseWorkedEntry({ ...PARTIAL, gap: 415.88 })!
+  assertEquals(d.shape, 'partly_duplicated')
+  assertEquals(d.entry, null)
+  assert(/would leave the loan out by \$147\.43/.test(d.note))
+})
+
+Deno.test('a fully-duplicated diagnosis carries no carry-over', () => {
+  assertEquals(diagnoseWorkedEntry(FORD_4140)!.carry_over, null)
 })
 
 Deno.test('duplication that does not equal the span gap proposes nothing', () => {
