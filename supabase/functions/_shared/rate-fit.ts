@@ -106,7 +106,13 @@ export function classifyPeriods(periods: Period[]): {
 // This uses as much evidence as is CONSISTENT, rather than as much as exists -- and
 // it reports the break, which is how a rate change becomes visible instead of just
 // degrading the fit.
-export function currentRegime(ps: Period[], model: RateModel, tol = 0.001): {
+// The line between "the same rate, measured through cent-rounding noise" and "the
+// rate actually changed". Exported because schedule-fit.ts cuts a LENDER'S OWN
+// amortization schedule into rate segments by this same rule -- one definition of
+// what counts as a different rate, rather than two that can quietly drift apart.
+export const REGIME_TOL = 0.001
+
+export function currentRegime(ps: Period[], model: RateModel, tol = REGIME_TOL): {
   regime: Period[]; dropped: number; breakAt: string | null
 } {
   if (ps.length < 2) return { regime: ps, dropped: 0, breakAt: null }
