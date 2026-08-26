@@ -8495,6 +8495,29 @@
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
   }
 
+  // ── Where every data-arrival hook converges (session 238) ────────────────
+  // SEVEN call sites -- loadLoans, loadPayroll, loadReconciliation, the KPI
+  // snapshot read, and three others -- each said
+  // `if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview()`.
+  // That was correct while the KPI tiles lived on Overview. The moment they
+  // moved to Client View, all seven silently stopped refreshing them: the tab
+  // rendered once on switch, before loadLoans() had resolved, and nothing ever
+  // rendered it again. Every figure that reads _allLoanAccounts came out $0.00
+  // and "0 of 0 statements", while the Debt Schedule table -- the one surface
+  // loadLoans() calls directly -- was correct. Two numbers on one page,
+  // disagreeing, which is this module's oldest recurring bug.
+  //
+  // Session 231's rule, applied: when a guard needs a new branch, put it where
+  // the branches converge rather than at seven call sites. Adding a surface to
+  // Bookkeeping now means editing THIS function and nothing else.
+  function _bkRefreshVisibleBookkeeping() {
+    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+    if (_bookkeepingActiveTab === 'client') {
+      renderBookkeepingOverview();   // still the renderer for the KPI tiles
+      renderClientView();
+    }
+  }
+
   // Client View's three sub-tabs. Every pane is rendered whether or not it is
   // showing -- the renders are cheap and read from data already in memory, and
   // rendering only the visible one is how a stale pane gets shipped. This only
@@ -8560,7 +8583,7 @@
       .select('captured_at, payload').is('error', null)
       .order('captured_at', { ascending: false }).limit(1);
     if (data && data[0]) { _bkKpiSnapshot = data[0].payload; _bkKpiCapturedAt = data[0].captured_at; }
-    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+    _bkRefreshVisibleBookkeeping();
   }
 
   async function refreshBookkeepingKpis() {
@@ -10860,7 +10883,7 @@
     renderPayrollEmployeesTable();
     renderPayrollDeptRulesTable();
     _bkUpdateNavBadge();
-    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+    _bkRefreshVisibleBookkeeping();
   }
 
   // Needs Attention (session 206 cont.) -- purely reads attention_flag/
@@ -11479,7 +11502,7 @@
       }
       // Any other failure (network/auth/Xero hiccup) leaves the state as-is --
       // re-checked next time the Bookkeeping page loads.
-      if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+      _bkRefreshVisibleBookkeeping();
     } finally {
       _retailCashReclassInFlight = false;
     }
@@ -11501,7 +11524,7 @@
         footer.innerHTML = `<button class="btn btn-ghost" onclick="closeRetailCashReclassModal()">Close</button>`;
         if (data.error === 'no_adjustment_needed') {
           _retailReclassPeriod = null;
-          if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+          _bkRefreshVisibleBookkeeping();
         }
         return;
       }
@@ -11535,7 +11558,7 @@
       if (!ok || data.error) throw new Error(data.error || 'Posting failed');
       closeRetailCashReclassModal();
       _retailReclassPeriod = null;
-      if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+      _bkRefreshVisibleBookkeeping();
       showToast('Correction posted to Xero.', 'success');
     } catch (e) {
       showToast(e.message || 'Posting failed', 'error');
@@ -11936,7 +11959,7 @@
     _renderIntakeBatchReceipts(true);   // History → Document uploads (session 224)
 
     _bkUpdateNavBadge();
-    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+    _bkRefreshVisibleBookkeeping();
   }
 
   // Every "most recent statement" read MUST go through this helper.
@@ -12128,7 +12151,7 @@
     // checked" until something else happens to repaint the table, which reads as
     // "nothing has been reconciled" on the screen David closes the month from.
     renderLoansTable();
-    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+    _bkRefreshVisibleBookkeeping();
   }
 
   // Session 214: this used to also render the finding cards themselves (a "Needs
@@ -12441,6 +12464,20 @@
   function renderClientChecklist() {
     const el = document.getElementById('cv-checklist');
     if (!el) return;
+    // Before loadLoans() resolves there are no accounts, and the honest answer
+    // is "we don't know yet" -- NOT "all 0 statements in, ready for your
+    // accountant", which is what this rendered when the tab was opened cold.
+    // A confident zero is a wrong number, not an empty state.
+    if (!(_allLoanAccounts || []).length) {
+      const t0 = document.getElementById('cv-checklist-title');
+      if (t0) t0.textContent = 'What\u2019s still needed';
+      const c0 = document.getElementById('cv-checklist-count');
+      if (c0) { c0.textContent = 'Checking\u2026'; c0.style.color = ''; c0.style.fontWeight = ''; }
+      el.innerHTML = '<div class="cv-list"><div class="cv-row">' +
+        '<span class="cv-mark"></span><span class="cv-what"><b>Loading your loans\u2026</b>' +
+        '<span>One moment while we read what each lender has sent.</span></span></div></div>';
+      return;
+    }
     const month = _cvLastMonth();
     const cov = _bkStatementCoverage(month);
     const monthName = _cvMonthName(month);
@@ -12553,6 +12590,21 @@
   function renderClientDebtSummary() {
     const el = document.getElementById('cv-debt-tiles');
     if (!el) return;
+    // Same rule as the checklist: $0.00 owed across 0 loans is a claim, and it
+    // is false. Show nothing rather than something wrong.
+    if (!(_allLoanAccounts || []).length) {
+      const dash = '\u2014';
+      el.innerHTML = '<div class="bk-tiles">' + [
+        'Total owed', 'Interest paid, last 12 months',
+        'Principal retired, last 12 months', 'Committed each month',
+      ].map(label => `<div class="bk-tile"><div class="bk-tile-label">${label}</div>` +
+        `<div class="bk-tile-value" style="color:var(--gray-300)">${dash}</div></div>`).join('') + '</div>';
+      const host = document.getElementById('cv-debt-chart');
+      if (host) host.innerHTML = '';
+      const note = document.getElementById('cv-chart-note');
+      if (note) note.textContent = '';
+      return;
+    }
     const t = _cvDebtTotals();
     const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const tile = (label, value, sub, color) => `<div class="bk-tile">

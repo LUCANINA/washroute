@@ -1750,6 +1750,39 @@ two reference surfaces.
   the schedule alone — the debt tiles, the chart and the toggle stay off the page
   a lender sees.
 
+#### ⚠ The bug the harness MISSED, and why — read this before trusting a harness
+
+Shipped, David opened the tab, and every figure reading `_allLoanAccounts` was
+**$0.00 / "0 of 0 statements"** — while the Debt Schedule table beside them was
+perfectly correct. Two numbers on one page disagreeing: this module's oldest
+recurring bug, shipped again.
+
+**Cause.** Seven data-arrival hooks each said
+`if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview()`. Correct
+while the KPI tiles lived on Overview; the moment they moved to Client View, all
+seven silently stopped refreshing anything on it. The tab rendered ONCE on switch
+— before `loadLoans()` had resolved — and nothing ever rendered it again. The
+schedule table was right only because `loadLoans()` calls `renderDebtSchedule()`
+directly at its tail.
+
+Session 231's rule, verbatim: *"When adding a guard, grep every other branch that
+reaches the same write and put the check where they converge."* Fixed at the
+convergence — `_bkRefreshVisibleBookkeeping()`, one function, all seven sites.
+**Adding a Bookkeeping surface now means editing that function and nothing else.**
+
+**Why the harness missed it: it tested the wrong ORDER.** It did
+`await loadLoans()` and *then* `switchBookkeepingView('client')`. The real page
+does the opposite — `showPage('bookkeeping')` fires the four loaders and switches
+the tab synchronously, so the tab always renders cold. Every assertion passed
+against a sequence that never happens. **A harness that picks its own ordering
+tests a program you did not write.** The harness now switches the tab first and
+asserts the cold state, then awaits the loaders and asserts again.
+
+**Second fix, same root.** Cold, those tiles rendered a confident `$0.00` and
+"All 0 statements in — ready for your accountant". A zero is a CLAIM, and that
+one was false and reassuring, which is the worst combination. Both renderers now
+short-circuit on empty `_allLoanAccounts` to em-dashes and "Checking…".
+
 #### ⚠ Two bugs the offline harness caught that reading the code did not
 
 Both in the trailing-12-month totals, and both are the SAME invariant this module already
