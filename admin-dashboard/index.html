@@ -1650,14 +1650,15 @@
             <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
-          <!-- Requires Rescheduling -->
+          <!-- For your review — catch-all for orders that need a decision, not a payment -->
           <div class="card" style="margin-top:0">
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('reschedule-orders-body',this)">
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
-                  <div class="card-title">Requires Rescheduling</div>
+                  <div class="card-title">For your review</div>
                   <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
+                <div class="card-sub" id="forreview-count-sub" style="margin-top:2px">Loading…</div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
@@ -8362,7 +8363,7 @@
     if (id === 'drivers') { loadDrivers(); switchDriverTab(_activeDriverTab || 'manage'); /* session 189: preserve last sub-tab (was hardcoded 'manage' back when Driver View didn't exist yet). session 147: Messages hidden — team uses Slack. To restore: unhide tab bar markup in page-drivers, remove `if (tab === 'messages') tab = 'manage';` redirect in switchDriverTab, and add loadAdminDriverMessages() here. */ }
     if (id === 'services') loadServices();
     // session 145: refresh the Overview when navigating BACK to it. Without
-    // this, the "Requires Rescheduling" / "Unpaid" / "Issues" cards keep
+    // this, the "For your review" / "Unpaid Orders" / "Issues" cards keep
     // whatever they had at first page load, so a status change made on the
     // Orders page (e.g. marking #3557 delivered) leaves the Overview cards
     // showing the stale entry until a hard refresh.
@@ -18109,10 +18110,14 @@ ${noActivityNote}
       return;
     }
 
-    // Re-shape the view's flat columns into the nested `customers` object the shared
-    // action-button helpers already expect, so _deliveredActionBtn stays ONE
-    // implementation used by both this widget and the Issues tab.
-    const data = rows.map(r => ({
+    // This widget is ONLY ordinary unpaid orders. Three things are deliberately NOT
+    // here and live in "For your review" instead, because they need a decision rather
+    // than a payment (David, session 230): orders stalled mid-process (no charge is
+    // due yet), archived orders (already set aside by a human), and on-account orders
+    // wrongly card-charged (the stamp is wrong, the money isn't). `counts_as_due`
+    // already drops the first two; on_account_card_error drops the third.
+    // Written-off orders never enter the view at all.
+    const data = rows.filter(r => r.counts_as_due && !r.on_account_card_error).map(r => ({
       ...r,
       customers: {
         id: r.customer_id,
@@ -18131,12 +18136,8 @@ ${noActivityNote}
       return;
     }
 
-    // counts_as_due is the view's single rule for "this is real money owed":
-    // it already excludes stale work-in-progress and deliberately-archived orders.
-    // Never sum amount_due without it.
-    const due      = data.filter(o => o.counts_as_due);
-    const archived = data.filter(o => o.is_archived);
-    const stuck    = data.filter(o => o.bucket === 'stuck_in_process' && !o.is_archived);
+    // Everything that survived the filter above is real, ordinary money owed.
+    const due = data;
 
     // Card lookups are only meaningful for card-paying customers — on-account
     // customers are invoiced, so skip them and keep the query small.
@@ -18178,7 +18179,6 @@ ${noActivityNote}
       : ['Nothing to chase'];
     if (declinedCount) parts.push(`${declinedCount} card declined`);
     if (onAcct.length) parts.push(`${fmtMoney(onAcctTotal)} on account`);
-    if (stuck.length)  parts.push(`${stuck.length} stalled`);
     if (subEl) subEl.textContent = parts.join(' · ');
     const unpaidBadge = document.getElementById('unpaid-count-badge');
     if (unpaidBadge) {
@@ -18195,8 +18195,7 @@ ${noActivityNote}
       return g.key === 'on_account'
         ? _unpaidOnAccountHtml(g, list, subtotal)
         : _unpaidGroupHtml(g, list, subtotal);
-    }).join('')
-    + _unpaidAsideHtml(stuck, archived);
+    }).join('');
   }
 
   // One group: a labelled header strip + its table.
@@ -18224,11 +18223,6 @@ ${noActivityNote}
       : isOnAcct
         ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#e0e7ff;color:#3730a3">INVOICED</span>'
         : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e">UNPAID</span>';
-    // An on-account customer should never have been card-charged at all — surface
-    // the mis-stamp so it can be cleaned up, but offer no card action for it.
-    const acctNote = o.on_account_card_error
-      ? '<div style="font-size:10.5px;color:#92400e;margin-top:2px">⚠ card was attempted on an invoiced account</div>'
-      : '';
     const action = isOnAcct
       ? '<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">Bill by invoice</span>'
       : _deliveredActionBtn(o);
@@ -18237,7 +18231,7 @@ ${noActivityNote}
     return `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
       <td class="td-mono">#${o.order_number}</td>
       <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}${ageTag}</td>
-      <td class="td-name">${esc(cust)}${acctNote}</td>
+      <td class="td-name">${esc(cust)}</td>
       <td>${statusBadge(o.status)}</td>
       <td>${billingBadge}</td>
       <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
@@ -18255,26 +18249,23 @@ ${noActivityNote}
       const key = o.customer_id || 'unknown';
       const cur = byCust.get(key) || {
         name: `${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown',
-        n: 0, amount: 0, oldest: 0, cardError: 0,
+        n: 0, amount: 0, oldest: 0,
       };
       cur.n      += 1;
       cur.amount += Number(o.amount_due || 0);
       cur.oldest  = Math.max(cur.oldest, Number(o.age_days || 0));
-      if (o.on_account_card_error) cur.cardError += 1;
       byCust.set(key, cur);
     });
     const rows = [...byCust.values()].sort((a, b) => b.amount - a.amount);
-    const cardErrors = list.filter(o => o.on_account_card_error).length;
     return `<details style="border-top:1px solid var(--gray-100)">
       <summary style="padding:14px 24px;cursor:pointer">
         <span style="font-size:13px;font-weight:700;color:var(--gray-900)">${esc(g.title)}</span>
         <span style="font-size:12px;font-weight:600;color:var(--gray-600);margin-left:10px">${rows.length} customer${rows.length !== 1 ? 's' : ''} · ${list.length} order${list.length !== 1 ? 's' : ''} · ${fmtMoney(subtotal)}</span>
-        ${cardErrors ? `<span style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border-radius:8px;padding:2px 7px;margin-left:8px">⚠ ${cardErrors} card-charged in error</span>` : ''}
       </summary>
       <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">${esc(g.note)} Record payments in Reports → On Account.</div>
       <table><thead><tr><th>Customer</th><th style="text-align:right">Orders</th><th style="text-align:right">Oldest</th><th style="text-align:right">Outstanding</th></tr></thead><tbody>
         ${rows.map(r => `<tr>
-          <td class="td-name">${esc(r.name)}${r.cardError ? '<div style="font-size:10.5px;color:#92400e;margin-top:2px">⚠ a card was attempted on this invoiced account</div>' : ''}</td>
+          <td class="td-name">${esc(r.name)}</td>
           <td style="text-align:right;color:var(--gray-600)">${r.n}</td>
           <td style="text-align:right;font-weight:${r.oldest >= 60 ? '600' : '400'};color:${r.oldest >= 60 ? '#991b1b' : 'var(--gray-600)'}">${r.oldest}d</td>
           <td style="text-align:right;font-weight:600">${fmtMoney(r.amount)}</td>
@@ -18283,86 +18274,112 @@ ${noActivityNote}
     </details>`;
   }
 
-  // Quiet sub-lines. Neither counts toward the outstanding total — stalled orders
-  // are an operations warning, and archived orders were deliberately set aside —
-  // but both stay one click away so nothing is silently invisible.
-  function _unpaidAsideHtml(stuck, archived) {
-    let html = '';
-    if (stuck.length) {
-      const t = stuck.reduce((s, o) => s + Number(o.amount_due || 0), 0);
-      html += `<details style="border-top:1px solid var(--gray-100)">
-        <summary style="padding:12px 24px;cursor:pointer;font-size:12.5px;color:#92400e;font-weight:600">
-          ⏳ ${stuck.length} order${stuck.length !== 1 ? 's' : ''} stalled in process 7+ days · ${fmtMoney(t)} not yet billable
-        </summary>
-        <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">Not debt — these haven't reached ready-for-delivery, so no charge has been attempted. Listed because they've stopped moving.</div>
-        <table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th style="text-align:right">Value</th></tr></thead><tbody>
-          ${stuck.map(o => `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
-            <td class="td-mono">#${o.order_number}</td>
-            <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)} <span style="color:#92400e;font-weight:600">${o.age_days}d</span></td>
-            <td class="td-name">${esc(`${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown')}</td>
-            <td>${statusBadge(o.status)}</td>
-            <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
-          </tr>`).join('')}
-        </tbody></table>
-      </details>`;
-    }
-    if (archived.length) {
-      const t = archived.reduce((s, o) => s + Number(o.amount_due || 0), 0);
-      html += `<details style="border-top:1px solid var(--gray-100)">
-        <summary style="padding:12px 24px;cursor:pointer;font-size:12.5px;color:var(--gray-600);font-weight:600">
-          🗄 ${archived.length} archived unpaid order${archived.length !== 1 ? 's' : ''} · ${fmtMoney(t)} excluded from the total
-        </summary>
-        <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">Archived means someone deliberately set these aside. Still collectible — restore from the Archived tab to act on one.</div>
-        <table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead><tbody>
-          ${archived.map(o => `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
-            <td class="td-mono">#${o.order_number}</td>
-            <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
-            <td class="td-name">${esc(`${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown')}${o.archived_reason ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:2px">${esc(o.archived_reason)}</div>` : ''}</td>
-            <td>${statusBadge(o.status)}</td>
-            <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
-          </tr>`).join('')}
-        </tbody></table>
-      </details>`;
-    }
-    return html;
-  }
-
-  // ── Requires Rescheduling (mirrors Issues tab "Reschedule →" subset) ──
+  // ── For your review — the catch-all for orders needing a DECISION, not a payment ──
+  //
+  // Renamed from "Requires Rescheduling" in session 230. David: "This is where 'weird'
+  // orders can go… make it easy for the admin to archive or ignore."
+  //
+  // Four kinds of weird, in the order you'd want to deal with them:
+  //   1. Needs rescheduling  — pickup/delivery failed, on hold, skipped (the original scope)
+  //   2. Card charged in error — an ON-ACCOUNT customer had a card run and declined.
+  //                             The stamp is wrong; the money is fine. One click fixes it.
+  //   3. Stalled in process   — unpaid, hasn't moved in 7+ days, no charge due yet.
+  //   4. Archived but unpaid  — set aside earlier, money still outstanding.
+  //
+  // Every row offers "Ignore", which archives it in one click with an Undo toast —
+  // deliberately the SAME archived_at column the Archive modal writes, so there is one
+  // concept of "set aside" rather than two competing kinds of dismissal.
   async function loadRescheduleOrders() {
     const el = document.getElementById('reschedule-orders-body');
+    const subEl = document.getElementById('forreview-count-sub');
     if (!el) return;
 
-    // Same statuses as ORDER_FILTER_GROUPS.issues: pickup_failed, delivery_failed, on_hold, skipped
-    // Archived orders are hidden here — they remain fully intact in the DB but sit in the Archived tab.
-    const { data, error } = await db.from('orders')
-      .select('id, order_number, status, total_amount, billing_status, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache)')
-      .in('status', ['pickup_failed', 'delivery_failed', 'on_hold', 'skipped'])
-      .is('archived_at', null)
-      .order('created_at', { ascending: false });
+    // Kinds 2-4 all come from the outstanding-orders view (session 230), which is the
+    // single source of truth for what money is owed and why. Kind 1 is a status
+    // question, not a money question, so it still reads orders directly.
+    const [reschedRes, reviewRes] = await Promise.all([
+      db.from('orders')
+        .select('id, order_number, status, total_amount, billing_status, charge_failed_at, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
+        .in('status', ['pickup_failed', 'delivery_failed', 'on_hold', 'skipped'])
+        .is('archived_at', null)
+        .order('created_at', { ascending: false }),
+      db.from('v_outstanding_orders')
+        .select('id, order_number, status, amount_due, age_days, bucket, is_archived, archived_reason, on_account_card_error, created_at, customer_id, first_name_cache, last_name_cache')
+        .order('age_days', { ascending: false }),
+    ]);
 
-    if (error || !data) {
+    if (reschedRes.error || !reschedRes.data) {
       el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load orders.</div>';
+      if (subEl) subEl.textContent = 'Could not load';
       return;
     }
+    const reviewRows = reviewRes.data || [];
 
-    // Match exact Issues tab filter logic via _isIssueRow, then keep only non-billing-failed
-    // (those get card/retry actions, not reschedule). _isIssueRow lives near the Orders
-    // filter so the two definitions can never drift apart.
-    const needsReschedule = data.filter(o => _isIssueRow(o) && o.billing_status !== 'failed');
+    // 1. Needs rescheduling. _isIssueRow lives next to the Orders-tab filter so this
+    //    can never drift from what the Issues tab considers actionable. Billing
+    //    failures are excluded — those are a payment problem, handled on Unpaid Orders.
+    const needsReschedule = reschedRes.data.filter(o => _isIssueRow(o) && !hasFailedCharge(o));
+    // 2/3/4 from the view.
+    const cardErrors = reviewRows.filter(o => o.on_account_card_error && !o.is_archived);
+    const stalled    = reviewRows.filter(o => o.bucket === 'stuck_in_process' && !o.is_archived);
+    const archived   = reviewRows.filter(o => o.is_archived);
 
+    const total = needsReschedule.length + cardErrors.length + stalled.length + archived.length;
     const badge = document.getElementById('reschedule-count-badge');
-    if (!needsReschedule.length) {
+
+    if (!total) {
       if (badge) badge.style.display = 'none';
-      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No orders need rescheduling</div>';
+      if (subEl) subEl.textContent = 'All clear';
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ Nothing needs review</div>';
       return;
     }
 
-    if (badge) { badge.textContent = `${needsReschedule.length} order${needsReschedule.length !== 1 ? 's' : ''}`; badge.style.display = ''; }
+    if (badge) { badge.textContent = `${total} order${total !== 1 ? 's' : ''}`; badge.style.display = ''; }
+    if (subEl) {
+      const bits = [];
+      if (needsReschedule.length) bits.push(`${needsReschedule.length} to reschedule`);
+      if (cardErrors.length)      bits.push(`${cardErrors.length} charged in error`);
+      if (stalled.length)         bits.push(`${stalled.length} stalled`);
+      if (archived.length)        bits.push(`${archived.length} archived, still owed`);
+      subEl.textContent = bits.join(' · ');
+    }
 
+    el.innerHTML = _fyrRescheduleHtml(needsReschedule)
+                 + _fyrCardErrorHtml(cardErrors)
+                 + _fyrStalledHtml(stalled)
+                 + _fyrArchivedHtml(archived);
+  }
+
+  // Shared section wrapper so all four groups read as one system.
+  function _fyrSection(title, note, count, bodyHtml, opts) {
+    const o = opts || {};
+    const openAttr = o.open ? ' open' : '';
+    const tone = o.tone || 'var(--gray-900)';
+    return `<details${openAttr} style="border-top:1px solid var(--gray-100)">
+      <summary style="padding:14px 24px;cursor:pointer">
+        <span style="font-size:13px;font-weight:700;color:${tone}">${esc(title)}</span>
+        <span style="font-size:12px;font-weight:600;color:var(--gray-600);margin-left:10px">${count}</span>
+      </summary>
+      <div style="padding:0 24px 6px;font-size:11.5px;color:var(--gray-400);line-height:1.5">${esc(note)}</div>
+      ${bodyHtml}
+    </details>`;
+  }
+
+  const _fyrOpenOrder = (id) => `showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${id}'),150)`;
+  const _fyrName = (o) => `${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown';
+
+  // The "Ignore" button every group shares. One click, no modal, Undo toast.
+  const _fyrIgnoreBtn = (id, num, name) =>
+    `<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--gray-500);margin-left:4px" onclick="event.stopPropagation();fyrIgnoreOrder('${id}',${num},${escAttrJSArg(name)},this)" title="Archive — hide from Overview, keep full history">Ignore</button>`;
+
+  function _fyrRescheduleHtml(list) {
+    if (!list.length) return '';
     const REASON_LABELS = { bags_not_out: 'Bags not out', cant_access: "Can't access", customer_not_home: 'Not home', customer_requested_skip: 'Cust. requested', other: 'Other' };
-
-    el.innerHTML = `<table><thead><tr><th style="width:32px;padding:8px 6px"><input type="checkbox" id="select-all-reschedule" onchange="toggleSelectAllOrders(this)" title="Select all"></th><th>Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Pickup Date</th><th style="text-align:right">Action</th></tr></thead><tbody>
-      ${needsReschedule.map(o => {
+    const body = `<table><thead><tr>
+      <th style="width:32px;padding:8px 6px"><input type="checkbox" id="select-all-reschedule" onchange="toggleSelectAllOrders(this)" title="Select all"></th>
+      <th>Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Pickup Date</th><th style="text-align:right">Action</th>
+    </tr></thead><tbody>
+      ${list.map(o => {
         const cust = o.customers;
         const custId = cust?.id || '';
         const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
@@ -18373,8 +18390,7 @@ ${noActivityNote}
           : o.status === 'on_hold' ? 'On hold'
           : '—';
         const pickupDate = o.pickup_window_start ? fmtDate(o.pickup_window_start) : '—';
-        const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
-        return `<tr ${clickable}>
+        return `<tr style="cursor:pointer" onclick="${_fyrOpenOrder(o.id)}">
           <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${phone}" data-cust-name="${esc(name)}" onchange="updateOrderBatchBar()"></td>
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name"><span style="display:flex;align-items:center;gap:6px">${_recurSvg(o.recurring_interval)}<span>${esc(name)}</span></span></td>
@@ -18382,13 +18398,124 @@ ${noActivityNote}
           <td style="font-size:12px;color:var(--gray-500)">${esc(reasonText)}</td>
           <td style="font-size:12px">${pickupDate}</td>
           <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
-            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">Reschedule →</button>
-            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--gray-500);margin-left:4px" onclick="openArchiveModal('${o.id}','${o.order_number}','${esc(name).replace(/'/g,"\\'")}','${o.status}')" title="Archive — hide from Overview, keep history intact">Archive</button>
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="${_fyrOpenOrder(o.id)}">Reschedule →</button>
+            ${_fyrIgnoreBtn(o.id, o.order_number, name)}
           </td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
+    return _fyrSection('Needs rescheduling',
+      'Pickup or delivery failed, on hold, or skipped. Reschedule it, or ignore it to file it away.',
+      `${list.length} order${list.length !== 1 ? 's' : ''}`, body, { open: true, tone: '#991b1b' });
   }
+
+  function _fyrCardErrorHtml(list) {
+    if (!list.length) return '';
+    const t = list.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+    const body = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead><tbody>
+      ${list.map(o => `<tr style="cursor:pointer" onclick="${_fyrOpenOrder(o.id)}">
+        <td class="td-mono">#${o.order_number}</td>
+        <td class="td-name">${esc(_fyrName(o))}</td>
+        <td>${statusBadge(o.status)}</td>
+        <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
+        <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="fyrClearCardError('${o.id}',${o.order_number},this)" title="Clear the wrong decline stamp — the invoice stays outstanding">Clear card error</button>
+          ${_fyrIgnoreBtn(o.id, o.order_number, _fyrName(o))}
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+    return _fyrSection('Card charged in error',
+      'These are invoiced (on-account) customers who had a card run against them by mistake, and it declined. The money is still fully collectible by invoice — only the "failed" label is wrong. Clearing it returns the order to the normal On account balance.',
+      `${list.length} order${list.length !== 1 ? 's' : ''} · ${fmtMoney(t)}`, body, { open: true, tone: '#92400e' });
+  }
+
+  function _fyrStalledHtml(list) {
+    if (!list.length) return '';
+    const t = list.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+    const body = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Age</th><th style="text-align:right">Value</th><th style="text-align:right">Action</th></tr></thead><tbody>
+      ${list.map(o => `<tr style="cursor:pointer" onclick="${_fyrOpenOrder(o.id)}">
+        <td class="td-mono">#${o.order_number}</td>
+        <td class="td-name">${esc(_fyrName(o))}</td>
+        <td>${statusBadge(o.status)}</td>
+        <td style="font-size:12px;font-weight:600;color:#92400e">${o.age_days}d</td>
+        <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
+        <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="${_fyrOpenOrder(o.id)}">Open →</button>
+          ${_fyrIgnoreBtn(o.id, o.order_number, _fyrName(o))}
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+    return _fyrSection('Stalled in process',
+      "Unpaid and hasn't moved in 7+ days. Not money owed yet — these haven't reached ready-for-delivery, so no charge has been attempted. They're here because the laundry has stopped moving.",
+      `${list.length} order${list.length !== 1 ? 's' : ''} · ${fmtMoney(t)}`, body, { tone: '#92400e' });
+  }
+
+  function _fyrArchivedHtml(list) {
+    if (!list.length) return '';
+    const t = list.reduce((s, o) => s + Number(o.amount_due || 0), 0);
+    const body = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Reason archived</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead><tbody>
+      ${list.map(o => `<tr style="cursor:pointer" onclick="${_fyrOpenOrder(o.id)}">
+        <td class="td-mono">#${o.order_number}</td>
+        <td class="td-name">${esc(_fyrName(o))}</td>
+        <td>${statusBadge(o.status)}</td>
+        <td style="font-size:12px;color:var(--gray-500)">${esc(o.archived_reason || '—')}</td>
+        <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
+        <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="unarchiveOrder('${o.id}',${o.order_number})" title="Un-archive — puts it back on the unpaid list">Restore</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+    return _fyrSection('Archived, still owed',
+      'Set aside earlier, but the money is still outstanding. Restore one to put it back on the unpaid list, or leave it filed away.',
+      `${list.length} order${list.length !== 1 ? 's' : ''} · ${fmtMoney(t)}`, body, { tone: 'var(--gray-600)' });
+  }
+
+  // One-click archive with an Undo toast — the "ignore" affordance. Writes the same
+  // archived_at/archived_reason/archived_by the Archive modal writes, so there is one
+  // concept of "set aside" in the system rather than two.
+  async function fyrIgnoreOrder(orderId, orderNumber, customerName, btn) {
+    if (!orderId) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Ignoring…'; }
+    const { error } = await db.from('orders').update({
+      archived_at: new Date().toISOString(),
+      archived_reason: 'Ignored from For your review',
+      archived_by: currentUserId || null,
+    }).eq('id', orderId);
+    if (error) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Ignore'; }
+      showToast('Could not ignore: ' + error.message, 'error');
+      return;
+    }
+    showToast(`📦 #${orderNumber} ignored — ${customerName || ''}`.trim(), 'success', 8000, {
+      label: 'Undo',
+      onClick: () => unarchiveOrder(orderId, orderNumber),
+    });
+    if (currentPage === 'overview') loadOverview();
+  }
+  window.fyrIgnoreOrder = fyrIgnoreOrder;
+
+  // Clear a wrong card-decline stamp from an on-account order. Goes through the
+  // clear_erroneous_card_failure RPC (session 230) rather than writing billing_status
+  // from the browser — the RPC refuses to run on a card-paying customer, where a
+  // decline is a real collections problem and erasing it would hide lost revenue.
+  async function fyrClearCardError(orderId, orderNumber, btn) {
+    if (!orderId) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Clearing…'; }
+    const { data, error } = await db.rpc('clear_erroneous_card_failure', {
+      p_order_id: orderId,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Clear card error'; }
+      showToast('Could not clear: ' + error.message, 'error');
+      return;
+    }
+    showToast(data?.already_clear
+      ? `#${orderNumber} was already clear`
+      : `✓ #${orderNumber} — card error cleared, invoice still outstanding`, 'success');
+    if (currentPage === 'overview') loadOverview();
+  }
+  window.fyrClearCardError = fyrClearCardError;
 
   // ── Bags Not On Rack (session 191, reassign-to-resolve added session 193) ──
   // Surfaces delivery stops the driver flagged "Missing" during their pre-departure
@@ -29445,11 +29572,32 @@ ${oneCopy}
     }
   }
 
-  function showToast(msg, type='', durationMs=3000) {
+  // Session 230: optional 4th arg `action` = { label, onClick } renders an inline
+  // button in the toast (used by "Ignore" -> Undo). Backward compatible — every
+  // existing 1–3 arg call behaves exactly as before.
+  //
+  // The button is built with createElement and textContent, never innerHTML. Toast
+  // messages routinely carry raw Supabase error strings and customer names, so this
+  // element must never become a markup sink.
+  function showToast(msg, type='', durationMs=3000, action=null) {
     const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = `toast ${type} show`;
     clearTimeout(t._hideTimer);
+    t.textContent = msg;
+    if (action && typeof action.onClick === 'function') {
+      const btn = document.createElement('button');
+      btn.textContent = action.label || 'Undo';
+      btn.style.cssText = 'margin-left:12px;background:rgba(255,255,255,.2);color:inherit;border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:2px 10px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer';
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        clearTimeout(t._hideTimer);
+        t.className = 'toast';
+        action.onClick();
+      };
+      t.appendChild(btn);
+      // An undo you can't reach in time isn't an undo.
+      durationMs = Math.max(durationMs, 8000);
+    }
+    t.className = `toast ${type} show`;
     t._hideTimer = setTimeout(()=>{ t.className='toast'; }, durationMs);
   }
 
