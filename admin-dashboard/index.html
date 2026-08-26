@@ -8300,6 +8300,12 @@
   let _bookkeepingActiveTab = 'overview';
   // Populated by loadReconciliation() — see the Reconciliation section below.
   let _reconRuns = [];
+  // Session 236: per-loan tie-out rows from the newest completed reconciliation
+  // run — the record of what the check concluded about each loan, which the
+  // findings list cannot supply (a clean loan leaves no finding). Powers the
+  // Variance column on the All Loans table.
+  let _loanTieOuts = [];
+  let _loanTieOutRunId = null;
   let _reconFindings = [];
   // Session 213: Debt Schedule and Reconciliation are no longer their own top-level
   // bookkeeping tabs -- Debt Schedule is a toggle inside Loans (switchLoansSubView
@@ -11843,6 +11849,67 @@
     return null;
   }
 
+  // ── VARIANCE: what the CPA actually closes on (session 236) ───────────────
+  // David, after talking to his CPA: "the key word around every monthly close is
+  // variance. Does the ledger deviate from statements and what/where is the
+  // variance. When it's at $0, the Loan section is ready to be closed and locked."
+  //
+  // THE SOURCE IS `loan_tie_outs`, NOT the findings list. reconciliation-run
+  // already writes one row per loan per run -- status, xero_balance,
+  // lender_balance, difference, as_of, anchor_source -- and that is the only
+  // record of what the check actually CONCLUDED about each loan. Findings are a
+  // strict subset: a loan can be examined, come out fine, and leave nothing
+  // behind.
+  //
+  // The first draft of this function inferred a tie from "no open finding", and
+  // the live data killed it: PCV (−$1,802.58) and Verdant (−$1,835.75) both carry
+  // real deviations and raise NO finding, because their anchor is our own
+  // projected schedule rather than a lender document -- checkBalanceVsLender
+  // deliberately suppresses those (session 231: "Xero disagreeing with our
+  // arithmetic, not with a fact"). Both would have rendered as green $0.00 ✓,
+  // telling David two of his three largest deviations were ready to lock. Same
+  // for the three `explained` loans. Absence of a finding is not evidence of a
+  // tie; only the tie-out says what happened.
+  //
+  // The five states, and why each is or is not a blocker at close:
+  //   tied          Xero equals the lender document. Lockable.
+  //   explained     A gap at the statement date that payments dated after it
+  //                 account for to the cent. The books are correct; this is
+  //                 timing, not work. Lockable, shown in grey, never red.
+  //   exception     A real, unexplained deviation against a REAL lender document.
+  //                 This is the variance. Red, and it blocks the close.
+  //   unverified    An `exception` measured against our own amortization
+  //                 projection, with no lender document to check against. Not a
+  //                 fact about the world, so never red -- but not lockable
+  //                 either. The fix is to upload a statement.
+  //   n/a           not_comparable: Stripe Capital is a live Xero snapshot with
+  //                 no statement, so there is nothing to deviate FROM.
+  const _VARIANCE_REAL_ANCHORS = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'];
+
+  function _loanVariance(a) {
+    if (!_loanTieOutRunId) return { state: 'unchecked', reason: 'no reconciliation check has finished yet — run one to find out' };
+    const t = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+    if (!t) return { state: 'unchecked', reason: 'the last reconciliation check did not cover this loan' };
+
+    const num = (x) => (x == null ? null : Number(x));
+    const base = { xero: num(t.xero_balance), lender: num(t.lender_balance), asOf: t.as_of || null, anchorSource: t.anchor_source || null };
+
+    if (t.status === 'not_comparable') {
+      return { ...base, state: 'na', reason: 'no lender statement or schedule to compare against — this balance is a live Xero snapshot' };
+    }
+    if (t.status === 'tied') return { ...base, state: 'ties', difference: 0 };
+    if (t.status === 'explained') {
+      return { ...base, state: 'explained', difference: num(t.difference) ?? 0,
+               reason: `Xero and the ${t.as_of || 'statement'} statement differ, but payments dated after it account for the gap exactly` };
+    }
+    // exception
+    const real = _VARIANCE_REAL_ANCHORS.includes(String(t.anchor_source || ''));
+    return real
+      ? { ...base, state: 'variance', difference: num(t.difference) ?? 0 }
+      : { ...base, state: 'unverified', difference: num(t.difference) ?? 0,
+          reason: 'measured against our own projected schedule, not a lender document — upload a statement to make this a real check' };
+  }
+
   // ── Reconciliation ────────────────────────────────────────────────────────
   // A read-only view over the reconciliation-run edge function's output. The
   // function performs every check server-side (it's the only thing allowed to
@@ -11864,6 +11931,22 @@
       if (findingsRes.error) throw findingsRes.error;
       _bkDismissals = new Map((dismissRes.data || []).map(d => [d.item_key, d]));
       _reconRuns = runsRes.data || [];
+      // Session 236: tie-outs for the newest COMPLETED run only. A run still in
+      // flight, or one that failed partway, has a partial set — showing those
+      // would mark loans "not checked" that were fine an hour ago.
+      const newestDone = _reconRuns.find(r => r.finished_at && r.status !== 'failed');
+      _loanTieOutRunId = newestDone ? newestDone.id : null;
+      if (_loanTieOutRunId) {
+        const tieRes = await db.from('loan_tie_outs')
+          .select('loan_account_id, status, difference, xero_balance, lender_balance, as_of, anchor_source')
+          .eq('run_id', _loanTieOutRunId);
+        // A tie-out read failure must not take the whole Bookkeeping page down —
+        // the Variance column falls back to "not checked", which is honest.
+        _loanTieOuts = tieRes.error ? [] : (tieRes.data || []);
+        if (tieRes.error) console.error('loan_tie_outs read failed (page continues):', tieRes.error.message);
+      } else {
+        _loanTieOuts = [];
+      }
       // Severity first, then most-recently-seen -- PostgREST can't order by the
       // severity enum in the order we want ('error' before 'warn' before 'info'),
       // so the secondary sort comes from the query and the primary one from here.
@@ -11876,6 +11959,8 @@
     } catch (e) {
       _reconRuns = [];
       _reconFindings = [];
+      _loanTieOuts = [];
+      _loanTieOutRunId = null;
       showToast('Could not load reconciliation data: ' + (e.message || 'unknown error'), 'error');
     }
     renderReconciliation();
@@ -11884,6 +11969,11 @@
     // of their own section -- so a fresh _reconFindings needs that list re-rendered too,
     // not just the run-status strip renderReconciliation() itself still owns.
     renderLoansAttention();
+    // Session 236: the All Loans table's Variance column reads _reconFindings, so
+    // it has to re-render when they arrive too -- otherwise every row shows "not
+    // checked" until something else happens to repaint the table, which reads as
+    // "nothing has been reconciled" on the screen David closes the month from.
+    renderLoansTable();
     if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
   }
 
@@ -12998,7 +13088,13 @@
       case 'date': return r.lastSplit ? _splitDateKey(r.lastSplit) : null;
       case 'split': return r.lastSplit ? Number(r.lastSplit.total_amount) : null;
       case 'type': return r.type.label;
+      case 'principal': return r.lastSplit ? Number(r.lastSplit.principal_amount) : null;
+      case 'interest': return r.lastSplit ? Number(r.lastSplit.interest_amount) : null;
       case 'outstanding': return r.bal ? Number(r.bal.amount) : null;
+      case 'xero': return r.v.state === 'variance' ? r.v.xero : (r.v.state === 'ties' && r.bal ? Number(r.bal.amount) : null);
+      // Unchecked rows sort last in EITHER direction (null), which is right: they
+      // are not "a small variance", they are an unknown.
+      case 'variance': return r.v.state === 'variance' ? Math.abs(r.v.unexplained ?? r.v.difference) : (r.v.state === 'ties' ? 0 : null);
       default: return null;
     }
   }
@@ -13060,7 +13156,7 @@
       const statusKey = a.status === 'paid_off' ? 'paid_off' : 'active';
       const statusLabel = statusKey === 'paid_off' ? 'paid off' : 'active';
       const statusBadge = statusKey === 'paid_off' ? `<span class="badge badge-gray">paid off</span>` : `<span class="badge badge-green">active</span>`;
-      return { a, lastSplit, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a) };
+      return { a, lastSplit, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a), v: _loanVariance(a) };
     });
     const f = _loansTableFilters;
     const filtered = rowData.filter(r =>
@@ -13091,8 +13187,41 @@
     const known = sorted.map(r => r.bal).filter(Boolean);
     const total = known.reduce((sum, b) => sum + b.amount, 0);
 
+    // Session 236: the close-readiness arithmetic. Only `variance` rows are the
+    // work; `explained` is timing and `tied` is done, so neither blocks a close.
+    // `unverified` and `not checked` block it for a different reason — nobody can
+    // say whether they are right — and the strip names that separately, because
+    // "upload a statement" and "fix a $415.88 misallocation" are different jobs.
+    const varianceRows = sorted.filter(r => r.v.state === 'variance');
+    const unverifiedRows = sorted.filter(r => r.v.state === 'unverified' || r.v.state === 'unchecked');
+    const explainedRows = sorted.filter(r => r.v.state === 'explained');
+    const tiedRows = sorted.filter(r => r.v.state === 'ties');
+    // ABSOLUTE, not signed. 4140 +$415.88, 9744 +$182.00, 4751 +$266.42, EIDL
+    // −$5.00 and Funding Circle −$1,008.06 sum to −$148.76 signed — a number that
+    // makes $1,877.36 of real work look like a rounding error, on the one screen
+    // whose job is to say how much is left to do. Direction is per-row; the total
+    // is how much has to be resolved.
+    const totalVariance = varianceRows.reduce((sum, r) => sum + Math.abs(r.v.difference || 0), 0);
+    const totalXero = sorted.reduce((sum, r) => sum + (r.v.xero != null ? r.v.xero : 0), 0);
+    const totalStatement = sorted.reduce((sum, r) => sum + (r.v.lender != null ? r.v.lender : (r.bal ? r.bal.amount : 0)), 0);
+
+    const readyToClose = varianceRows.length === 0 && unverifiedRows.length === 0 && (tiedRows.length + explainedRows.length) > 0;
+    const bits = [];
+    if (varianceRows.length) bits.push(`<span><strong>${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'} to fix</strong> — ${money2(totalVariance)} of variance to resolve.</span>`);
+    if (unverifiedRows.length) bits.push(`<span style="color:#92400e">${unverifiedRows.length} with no lender statement to check against.</span>`);
+    if (explainedRows.length) bits.push(`<span style="color:var(--gray-500)">${explainedRows.length} explained by later payments.</span>`);
+    if (tiedRows.length) bits.push(`<span style="color:#166534">${tiedRows.length} tie${tiedRows.length === 1 ? 's' : ''} exactly.</span>`);
+    const closeStripHtml = readyToClose
+      ? `<div style="margin-bottom:10px;padding:9px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534">
+          <strong>Every loan ties to its lender.</strong> Combined variance $0.00 — this section is ready to close and lock.
+        </div>`
+      : `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding:9px 12px;background:${varianceRows.length ? '#fffbeb' : 'var(--gray-50,#f9fafb)'};border:1px solid ${varianceRows.length ? '#fde68a' : 'var(--gray-200)'};border-radius:8px;font-size:12.5px;color:${varianceRows.length ? '#92400e' : 'var(--gray-600)'}">
+          ${bits.join('')}
+          <span style="color:var(--gray-500);margin-left:auto">Lockable when the variance is $0.00 and nothing is unverified.</span>
+        </div>`;
+
     const loanRow = (r) => {
-      const { a, lastSplit, isAutomaticLoan, statusKey, statusBadge, type, bal } = r;
+      const { a, lastSplit, isAutomaticLoan, statusKey, statusBadge, type, bal, v } = r;
       // David's ask: Lender moved to the far left; "Last statement" (the pulled
       // lender-document date) replaced with "Last payment" (the full amount
       // actually debited -- reads directly off the same split, no separate
@@ -13106,27 +13235,57 @@
       const dateCell = lastSplit
         ? `<span class="td-mono" style="font-size:12.5px">${esc(lastSplit.period_label)}</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
-      const splitCell = lastSplit
-        ? `<div style="font-size:12.5px;white-space:nowrap">
-             <span class="td-mono">${money2(lastSplit.principal_amount)}</span> <span style="color:var(--gray-500)">principal</span>
-             <span style="color:var(--gray-400)"> + </span>
-             <span class="td-mono">${money2(lastSplit.interest_amount)}</span> <span style="color:var(--gray-500)">interest</span>
-           </div>
-           <div style="font-size:12.5px;white-space:nowrap;margin-top:2px"><span style="color:var(--gray-400)">= </span><b class="td-mono">${money2(lastSplit.total_amount)}</b></div>`
-        : `<span style="color:var(--gray-300)">—</span>`;
-      const balCell = bal
-        ? `<span title="as of ${esc(bal.asOf)}">${money2(bal.amount)}</span>`
-        : `<span style="color:var(--gray-300)">—</span>`;
+      // Session 236: Split became its own Principal and Interest columns. The old
+      // cell packed "$X principal + $Y interest = $Z" into one box, which reads
+      // fine one row at a time and is useless down a column -- you cannot scan
+      // interest across fourteen loans when every figure sits at a different
+      // indent. Two numeric columns, right-aligned, one number each.
+      const dash = `<span style="color:var(--gray-300)">—</span>`;
+      const principalCell = lastSplit ? `<span class="td-mono" style="font-size:12.5px">${money2(lastSplit.principal_amount)}</span>` : dash;
+      const interestCell = lastSplit ? `<span class="td-mono" style="font-size:12.5px">${money2(lastSplit.interest_amount)}</span>` : dash;
+      // Prefer the tie-out's own lender figure: it is the number the difference was
+      // measured against, so Xero − Statement on screen equals Variance exactly.
+      const stmtAmount = v.lender != null ? v.lender : (bal ? bal.amount : null);
+      const balCell = stmtAmount != null
+        ? `<span class="td-mono" style="font-size:12.5px" title="as of ${esc(v.asOf || (bal && bal.asOf) || '')}">${money2(stmtAmount)}</span>`
+        : dash;
+
+      // Xero's own balance, and the variance between them. Both read off the
+      // loan's tie-out row so the subtraction on screen is always exact —
+      // Variance is literally Xero minus Statement on every row that shows both.
+      const xeroCell = v.xero != null
+        ? `<span class="td-mono" style="font-size:12.5px" title="Xero's rebuilt balance as of ${esc(v.asOf || '')}">${money2(v.xero)}</span>`
+        : dash;
+
+      let varianceCell;
+      if (v.state === 'variance') {
+        const dir = v.difference > 0 ? 'Xero is ABOVE the lender' : 'Xero is BELOW the lender';
+        varianceCell = `<span class="td-mono" style="font-size:12.5px;font-weight:700;color:#dc2626" title="${dir} as of ${esc(v.asOf || '')} — this one blocks the close">${v.difference < 0 ? '−' : '+'}${money2(v.difference)}</span>`;
+      } else if (v.state === 'ties') {
+        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:#166534" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">$0.00 ✓</span>`;
+      } else if (v.state === 'explained') {
+        // Not red, and deliberately so: the books are right, the gap is timing.
+        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:var(--gray-500)" title="${esc(v.reason || '')} — nothing to fix">${v.difference < 0 ? '−' : '+'}${money2(v.difference)} <span style="font-size:11px">explained</span></span>`;
+      } else if (v.state === 'unverified') {
+        varianceCell = `<span style="font-size:11.5px;color:#92400e" title="${esc(v.reason || '')}">no statement — ${money2(v.difference)} vs our projection</span>`;
+      } else if (v.state === 'na') {
+        varianceCell = `<span style="font-size:11.5px;color:var(--gray-400)" title="${esc(v.reason || '')}">n/a</span>`;
+      } else {
+        varianceCell = `<span style="font-size:11.5px;color:var(--gray-400)" title="${esc(v.reason || '')}">not checked</span>`;
+      }
+
       return `<tr onclick="openLoanDetailModal('${a.id}')" style="cursor:pointer">
         <td>${a.lender ? _loansFilterPill('lender', a.lender, esc(a.lender), f.lender === a.lender) : `<span style="color:var(--gray-300)">—</span>`}</td>
         <td class="td-name">${esc(a.xero_account_name || '—')}</td>
         <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
-        <td>${_loansFilterPill('status', statusKey, statusBadge, f.status === statusKey)}</td>
-        <td>${lastPaymentCell}</td>
+        <td style="text-align:right">${lastPaymentCell}</td>
         <td>${dateCell}</td>
-        <td>${splitCell}</td>
+        <td style="text-align:right">${principalCell}</td>
+        <td style="text-align:right">${interestCell}</td>
         <td>${_loansFilterPill('type', type.key, type.badge, f.type === type.key)}</td>
+        <td style="text-align:right">${xeroCell}</td>
         <td style="text-align:right">${balCell}</td>
+        <td style="text-align:right">${varianceCell}</td>
       </tr>`;
     };
 
@@ -13148,23 +13307,34 @@
       const cls = _loansSortCol === col ? `th-sort ${_loansSortDir === 'asc' ? 'sort-asc' : 'sort-desc'}` : 'th-sort';
       return `<th class="${cls}"${alignRight ? ' style="text-align:right"' : ''} onclick="_loansSetSort('${col}')">${label}</th>`;
     };
-    el.innerHTML = `${filterBarHtml}<div style="overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:1400px">
-      <colgroup><col style="width:13%"><col style="width:12%"><col style="width:8%"><col style="width:7%"><col style="width:9%"><col style="width:8%"><col style="width:26%"><col style="width:9%"><col style="width:8%"></colgroup>
+    // Session 236: Status is gone. With "Hide closed loans" ticked -- the default --
+    // every visible row said "active", so the column cost 7% of the width to carry
+    // no information. Its click-filter still clears from the filter bar above.
+    // "Outstanding" is now "Statement", because that is what it always was: the
+    // lender's own figure. Calling it Outstanding while a Xero column sits beside
+    // it would invite reading one for the other on the exact screen where the
+    // difference between them is the point.
+    el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:1560px">
+      <colgroup><col style="width:11%"><col style="width:12%"><col style="width:8%"><col style="width:8%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup>
       <thead><tr>
         ${thSort('lender', 'Lender')}
         ${thSort('loan', 'Loan')}
         ${thSort('account', 'Account #')}
-        ${thSort('status', 'Status')}
-        ${thSort('lastpayment', 'Last payment')}
+        ${thSort('lastpayment', 'Last payment', true)}
         ${thSort('date', 'Date')}
-        ${thSort('split', 'Split')}
+        ${thSort('principal', 'Principal', true)}
+        ${thSort('interest', 'Interest', true)}
         ${thSort('type', 'Type')}
-        ${thSort('outstanding', 'Outstanding', true)}
+        ${thSort('xero', 'Xero', true)}
+        ${thSort('outstanding', 'Statement', true)}
+        ${thSort('variance', 'Variance', true)}
       </tr></thead>
-      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
+      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="11" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
       <tfoot><tr style="border-top:2px solid var(--gray-200)">
         <td colspan="8" style="font-size:12.5px;color:var(--gray-500);font-weight:600">Total${anyFilterActive ? ` (${sorted.length} filtered of ${visibleAccounts.length})` : (known.length < sorted.length ? ` (${known.length} of ${sorted.length} with a balance on file)` : '')}</td>
-        <td style="text-align:right;font-weight:700">${money2(total)}</td>
+        <td style="text-align:right;font-weight:700">${money2(totalXero)}</td>
+        <td style="text-align:right;font-weight:700">${money2(totalStatement)}</td>
+        <td style="text-align:right;font-weight:700;color:${totalVariance < 0.005 ? '#166534' : '#dc2626'}" title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '$0.00' : money2(totalVariance)}</td>
       </tr></tfoot>
     </table></div>`;
   }
