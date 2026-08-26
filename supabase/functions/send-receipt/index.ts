@@ -217,14 +217,24 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, pr
   // receipt still reconciles to the real charge. The opposite direction (lines
   // summing to MORE) is normal on orders where credit was applied at intake —
   // total_amount is net of it there — so that only warns.
+  //
+  // ⚠️ Compare against total_amount MINUS tax, not total_amount. On POS
+  // (`source='walk_in'`) orders `orders.total_amount` is tax-INCLUSIVE
+  // (#13445: total 8.31 = 7.50 of line items + 0.81 tax) while line_items are
+  // always pre-tax. Comparing the raw column would fire the backstop on every
+  // single retail sale, add a bogus "Additional charges" row for the tax, and
+  // then add the tax AGAIN below — overstating every POS receipt by its own
+  // tax. Delivery orders are tax-exempt (taxAmt = 0), so subtracting is a
+  // no-op for them.
+  const authoritativePreTax = Math.round((authoritativeSubtotal - taxAmt) * 100) / 100;
   const renderedSubtotal = Math.round((subtotal + discountTotal) * 100) / 100;
   let reconcileDelta = 0;
-  if (authoritativeSubtotal - renderedSubtotal > 0.01) {
-    reconcileDelta = Math.round((authoritativeSubtotal - renderedSubtotal) * 100) / 100;
-    console.error(`[send-receipt] RECONCILE order #${order.order_number}: rendered $${renderedSubtotal.toFixed(2)} but orders.total_amount is $${authoritativeSubtotal.toFixed(2)} — $${reconcileDelta.toFixed(2)} of charges had no matching line item. Rendered a catch-all row; investigate the line_items types on this order.`);
+  if (authoritativePreTax - renderedSubtotal > 0.01) {
+    reconcileDelta = Math.round((authoritativePreTax - renderedSubtotal) * 100) / 100;
+    console.error(`[send-receipt] RECONCILE order #${order.order_number}: rendered $${renderedSubtotal.toFixed(2)} but orders.total_amount (less tax) is $${authoritativePreTax.toFixed(2)} — $${reconcileDelta.toFixed(2)} of charges had no matching line item. Rendered a catch-all row; investigate the line_items types on this order.`);
     displayItems.push({ type: '_reconcile', label: 'Additional charges', amount: reconcileDelta });
-  } else if (renderedSubtotal - authoritativeSubtotal > 0.01 && effectiveCredit === 0) {
-    console.warn(`[send-receipt] order #${order.order_number}: rendered $${renderedSubtotal.toFixed(2)} exceeds orders.total_amount $${authoritativeSubtotal.toFixed(2)} with no account credit applied.`);
+  } else if (renderedSubtotal - authoritativePreTax > 0.01 && effectiveCredit === 0) {
+    console.warn(`[send-receipt] order #${order.order_number}: rendered $${renderedSubtotal.toFixed(2)} exceeds orders.total_amount less tax $${authoritativePreTax.toFixed(2)} with no account credit applied.`);
   }
   const subtotalShown = Math.round((subtotal + reconcileDelta) * 100) / 100;
 
