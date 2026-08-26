@@ -3292,6 +3292,39 @@
             /* Session 238: .loans-subtoggle retired with the Manage/Debt Schedule
                toggle; the same pattern now carries Client View's three sub-tabs,
                so the interaction is one users already know from Loans. */
+            /* ── the close band (session 239) ── */
+            .lcb-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+            .lcb-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gray-900); letter-spacing: -.015em; }
+            .lcb-why { font-size: 12px; color: var(--gray-400); }
+            .lcb-right { margin-left: auto; font-size: 11.5px; color: var(--gray-400); }
+            .lcb-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px;
+                         border-radius: 11px; margin-bottom: 12px; font-size: 12.5px;
+                         border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
+            .lcb-strip.clear { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+            .lcb-lead { font-weight: 700; }
+            .lcb-gate { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 7px; font-weight: 600;
+                        background: rgba(255,255,255,.72); border: 1px solid rgba(146,64,14,.16); }
+            .lcb-gate.ok { border-color: rgba(22,101,52,.2); color: #166534; }
+            .lcb-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+            .lcb-table thead th { text-align: left; padding: 8px 12px; font-size: 10.5px; font-weight: 600;
+                                  color: var(--gray-400); background: #fbfcfd; border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+            .lcb-table thead th.lcb-n { text-align: right; }
+            .lcb-table tbody td { padding: 9px 12px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+            .lcb-table tbody tr:hover { background: #fafbfd; }
+            .lcb-table td.lcb-n { text-align: right; white-space: nowrap;
+                                  font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+            .lcb-sub { display: block; font-family: inherit; font-size: 10.5px; color: var(--gray-400); font-weight: 600; margin-top: 2px; }
+            .lcb-sub.soft { color: #b45309; }
+            .lcb-none { font-size: 11px; font-weight: 600; color: #92400e; }
+            .lcb-na { font-size: 11px; color: var(--gray-400); }
+            .lcb-tie { color: var(--green); font-weight: 600; }
+            .lcb-off { color: #dc2626; font-weight: 700; }
+            .lcb-table tfoot td { padding: 10px 12px; border-top: 1px solid var(--gray-200); background: #fbfcfd;
+                                  font-weight: 700; color: var(--gray-900); font-size: 12px; }
+            .lcb-table tfoot td.lcb-n { text-align: right; font-variant-numeric: tabular-nums;
+                                        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+            .lcb-foot { padding: 10px 14px; font-size: 11.5px; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
+
             .cv-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
             .cv-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
             .cv-subtoggle button.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -3554,6 +3587,20 @@
           <!-- Loans (session 205; toggle + Reconciliation section added session 213) -->
           <div id="bk-view-loans" style="display:none">
           <div id="loans-subview-manage">
+
+          <!-- ── THE CLOSE BAND (session 239) ────────────────────────────────
+               David's original ask for this page: "I want this display page to
+               reflect both the past (i.e. last month) that needs to be closed,
+               and the present (this month)." Two bands, past ON TOP, because
+               the past is the half with a deadline. Deliberately NOT a period
+               toggle — session 238 removed a Loans sub-toggle and putting one
+               straight back would be churn; a closing month you have to click
+               to see is a closing month you forget.
+               The rollforward is the workpaper a CPA actually signs: opening
+               minus principal paid must equal what the lender says. Every
+               column comes from data loadLoans() already holds. -->
+          <div id="loans-close-band" style="margin-bottom:24px"></div>
+
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="loans-summary" style="margin-bottom:20px"></div>
 
@@ -11951,6 +11998,7 @@
     _allLoanAmortRows  = amortRows || [];
     _allLoanDocuments  = documents || [];
 
+    renderLoansCloseBand();
     renderLoansSummary();
     renderLoansAttention();
     renderLoansTable();
@@ -13198,6 +13246,219 @@
     const w = window.open('', '_blank');
     if (w) { w.document.write(html); w.document.close(); }
     else { showToast('Pop-up blocked — allow pop-ups for this site to view the report.', 'error'); return; }
+  }
+
+
+  // ══ THE CLOSE BAND (session 239) ════════════════════════════════════════
+  //
+  // Closing a month asks three questions, and the page used to answer only the
+  // third: (1) do we have the evidence, (2) does the lender's arithmetic agree
+  // with ours, (3) is it all in Xero. The All Loans table below answers a
+  // FOURTH question — "does Xero agree with the lender right now" — which is
+  // about today, not about the month being closed. Both belong; they are not
+  // the same question and were being read as one.
+  //
+  // WHY A ROLLFORWARD RATHER THAN A DATED VARIANCE. The obvious build was "run
+  // the variance check as at month end". That needs every loan's Xero balance
+  // rebuilt to 7/31 — real work in reconciliation-run. But the check a CPA
+  // actually signs needs none of it:
+  //
+  //     opening balance  −  principal paid  =  what the lender says
+  //
+  // Every term is already on file. Measured against live data the day this was
+  // built, it ties TO THE CENT on all ten loans that have a July statement —
+  // which also means the July close is not blocked by a variance at all. It is
+  // blocked by three missing statements and one unposted split, and those are
+  // the two things the band puts at the top.
+
+  // The best balance we hold for a loan as at a date, authority-ranked.
+  // realOnly:true restricts to lender documents — used for the closing column,
+  // where "what the lender says" must mean exactly that and our own projection
+  // standing in would make the check circular.
+  function _loanBalanceAsOf(a, asOfIso, opts) {
+    const realOnly = !!(opts && opts.realOnly);
+    const rows = (_allLoanStatements || []).filter(s =>
+      s.loan_account_id === a.id && s.principal_balance != null &&
+      s.statement_date <= asOfIso &&
+      (!realOnly || _VARIANCE_REAL_ANCHORS.includes(String(s.source || ''))));
+    const ranked = _rankByAuthority(rows);
+    if (ranked.length) {
+      const r = ranked[0];
+      return { amount: Number(r.principal_balance), asOf: r.statement_date,
+               source: r.source || null,
+               authoritative: _VARIANCE_REAL_ANCHORS.includes(String(r.source || '')) };
+    }
+    if (realOnly) return null;
+    const arows = (_allLoanAmortRows || [])
+      .filter(r => r.loan_amortization_schedules?.loan_account_id === a.id &&
+                   r.balance != null && r.row_date <= asOfIso)
+      .sort((x, y) => (x.row_date < y.row_date ? 1 : -1));
+    return arows.length
+      ? { amount: Number(arows[0].balance), asOf: arows[0].row_date,
+          source: 'amortization_schedule', authoritative: false }
+      : null;
+  }
+
+  // Day 0 of a month is the last day of the one before it — the same trick
+  // both of these use, which is why they sit together.
+  function _priorMonthEnd(monthLabel) {
+    const [y, m] = monthLabel.split('-').map(Number);
+    const d = new Date(y, m - 1, 0);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  function _lastDayOfMonth(monthLabel) {
+    const [y, m] = monthLabel.split('-').map(Number);
+    const d = new Date(y, m, 0);            // day 0 of next month = last of this
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  // Splits belonging to a month. Extra principal paydowns ARE included here —
+  // unlike the recurring-payment measurement, which excludes them. A
+  // rollforward asks how much the balance actually moved, and a $5,000 lump
+  // moved it. Excluding it would make the loan fail to tie by exactly $5,000.
+  function _monthSplits(loanId, monthLabel) {
+    return (_allLoanSplits || []).filter(sp =>
+      sp.loan_account_id === loanId && sp.status !== 'voided' &&
+      (sp.period_label || '').slice(0, 7) === monthLabel);
+  }
+
+  function _loanCloseRollforward(monthLabel) {
+    const monthEnd = _lastDayOfMonth(monthLabel);
+    const priorEnd = _priorMonthEnd(monthLabel);
+    const active = (_allLoanAccounts || []).filter(a => a.status === 'active');
+
+    const rows = active.map(a => {
+      const opening = _loanBalanceAsOf(a, priorEnd);
+      const perLender = _loanBalanceAsOf(a, monthEnd, { realOnly: true });
+      const splits = _monthSplits(a.id, monthLabel);
+      const principal = splits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
+      const interest  = splits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
+      const computed  = opening ? opening.amount - principal : null;
+      // Only a comparison against a real lender document counts as a check.
+      const variance  = (computed != null && perLender) ? computed - perLender.amount : null;
+      const automatic = a.ingestion_method === 'automatic';
+      const unposted  = splits.filter(sp => sp.status === 'pending_review' || sp.status === 'needs_attention');
+      return { a, opening, perLender, splits, principal, interest, computed, variance, automatic, unposted };
+    });
+
+    const checkable = rows.filter(r => r.variance != null);
+    return {
+      monthLabel, monthEnd, priorEnd, rows,
+      checkable,
+      ties:      checkable.filter(r => Math.abs(r.variance) < 0.005),
+      off:       checkable.filter(r => Math.abs(r.variance) >= 0.005),
+      noEvidence: rows.filter(r => !r.perLender && !r.automatic),
+      unpostedRows: rows.filter(r => r.unposted.length),
+      totals: {
+        opening:   rows.reduce((n, r) => n + (r.opening ? r.opening.amount : 0), 0),
+        principal: rows.reduce((n, r) => n + r.principal, 0),
+        interest:  rows.reduce((n, r) => n + r.interest, 0),
+        computed:  rows.reduce((n, r) => n + (r.computed != null ? r.computed : 0), 0),
+        perLender: checkable.reduce((n, r) => n + r.perLender.amount, 0),
+        variance:  checkable.reduce((n, r) => n + r.variance, 0),
+      },
+    };
+  }
+
+
+  function renderLoansCloseBand() {
+    const el = document.getElementById('loans-close-band');
+    if (!el) return;
+    if (!(_allLoanAccounts || []).length) { el.innerHTML = ''; return; }
+
+    const month = _cvLastMonth();
+    const rf = _loanCloseRollforward(month);
+    const name = _cvMonthName(month);
+    const money = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const short = (iso) => { if (!iso) return ''; const [, m, d] = iso.split('-'); return `${Number(m)}/${Number(d)}`; };
+
+    const cov = _bkStatementCoverage(month);
+    const unpostedTotal = rf.unpostedRows.reduce((n, r) =>
+      n + r.unposted.reduce((m, sp) => m + Number(sp.total_amount || 0), 0), 0);
+
+    // ── the three gates, in the order they have to clear ──
+    const gates = [];
+    gates.push(cov.missing.length
+      ? { bad: true, text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding` }
+      : { bad: false, text: `all ${cov.expected.length} statements in` });
+    gates.push(rf.off.length
+      ? { bad: true, text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off by ${money(Math.abs(rf.totals.variance))}` }
+      : { bad: false, text: `${rf.ties.length} loan${rf.ties.length === 1 ? '' : 's'} tie exactly` });
+    gates.push(rf.unpostedRows.length
+      ? { bad: true, text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}` }
+      : { bad: false, text: 'everything booked' });
+    const blocked = gates.some(g => g.bad);
+
+    const chip = (g) => `<span class="lcb-gate${g.bad ? '' : ' ok'}">${g.bad ? '' : '✓ '}${esc(g.text)}</span>`;
+
+    const row = (r) => {
+      const a = r.a;
+      const openCell = r.opening
+        ? `${money(r.opening.amount)}<span class="lcb-sub${r.opening.authoritative ? '' : ' soft'}">${short(r.opening.asOf)} · ${esc(_anchorSourceLabel(r.opening.source))}</span>`
+        : '<span class="lcb-none">no opening balance</span>';
+      const lenderCell = r.perLender
+        ? `${money(r.perLender.amount)}<span class="lcb-sub">${short(r.perLender.asOf)} · ${esc(_anchorSourceLabel(r.perLender.source))}</span>`
+        : (r.automatic
+            ? '<span class="lcb-na">n/a — swept from Xero</span>'
+            : '<span class="lcb-none">not received</span>');
+      const varCell = r.variance == null
+        ? '<span class="lcb-na">nothing to check against</span>'
+        : (Math.abs(r.variance) < 0.005
+            ? '<span class="lcb-tie">$0.00 ✓</span>'
+            : `<span class="lcb-off">${r.variance > 0 ? '+' : '−'}${money(Math.abs(r.variance)).slice(1)}</span>`);
+      const booked = r.unposted.length
+        ? `<span class="badge" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a">${r.unposted.length === 1 ? esc(r.unposted[0].status.replace('_', ' ')) : r.unposted.length + ' unposted'}</span>`
+        : (r.splits.length ? '<span class="lcb-na">booked</span>' : '<span class="lcb-na">no payment</span>');
+      return `<tr>
+        <td>${esc(a.lender)}</td>
+        <td class="td-name" style="white-space:nowrap">${esc(a.xero_account_name || a.lender_account_number)}</td>
+        <td class="lcb-n">${openCell}</td>
+        <td class="lcb-n">${r.principal ? money(r.principal) : '—'}</td>
+        <td class="lcb-n">${r.interest ? money(r.interest) : '—'}</td>
+        <td class="lcb-n">${r.computed != null ? money(r.computed) : '—'}</td>
+        <td class="lcb-n">${lenderCell}</td>
+        <td class="lcb-n">${varCell}</td>
+        <td style="white-space:nowrap">${booked}</td>
+      </tr>`;
+    };
+
+    el.innerHTML = `
+      <div class="lcb-head">
+        <h3>Closing ${esc(name)}</h3>
+        <span class="lcb-why">Opening balance minus principal paid must equal what the lender says.</span>
+        <span class="lcb-right">${esc(_cvMonthName(today().slice(0, 7)))} is still open — see Current position below</span>
+      </div>
+      <div class="lcb-strip${blocked ? '' : ' clear'}">
+        <span class="lcb-lead">${blocked ? esc(name) + ' is not ready to close.' : esc(name) + ' is ready for your accountant.'}</span>
+        ${gates.map(chip).join('')}
+      </div>
+      <div class="card" style="overflow:hidden">
+        <div style="overflow-x:auto">
+          <table class="lcb-table">
+            <thead><tr>
+              <th>LENDER</th><th>LOAN</th>
+              <th class="lcb-n">OPENING · ${esc(short(rf.priorEnd))}</th>
+              <th class="lcb-n">PRINCIPAL</th><th class="lcb-n">INTEREST</th>
+              <th class="lcb-n">CLOSING · COMPUTED</th>
+              <th class="lcb-n">PER LENDER · ${esc(short(rf.monthEnd))}</th>
+              <th class="lcb-n">VARIANCE</th><th>IN XERO</th>
+            </tr></thead>
+            <tbody>${rf.rows.map(row).join('')}</tbody>
+            <tfoot><tr>
+              <td colspan="2">Total</td>
+              <td class="lcb-n">${money(rf.totals.opening)}</td>
+              <td class="lcb-n">${money(rf.totals.principal)}</td>
+              <td class="lcb-n">${money(rf.totals.interest)}</td>
+              <td class="lcb-n">${money(rf.totals.computed)}</td>
+              <td class="lcb-n">${money(rf.totals.perLender)}</td>
+              <td class="lcb-n">${Math.abs(rf.totals.variance) < 0.005 ? '<span class="lcb-tie">$0.00</span>' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+        </div>
+        <div class="lcb-foot">Variance covers the ${rf.checkable.length} loan${rf.checkable.length === 1 ? '' : 's'} with a lender statement for ${esc(name)}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} have none and cannot be checked` : ''}. Extra principal payments are included — a rollforward measures how far the balance actually moved.</div>
+      </div>`;
   }
 
   function renderLoansSummary() {
