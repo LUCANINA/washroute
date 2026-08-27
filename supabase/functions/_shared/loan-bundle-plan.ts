@@ -50,6 +50,7 @@
 // judgement below can be tested without a database.
 
 import type { ContractTerm, StripeCsvParseResult, DecompositionResult } from './stripe-capital.ts'
+import { explainBalanceGap, dailyWithholdingFromMonths } from './settlement-lag.ts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -493,32 +494,67 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         //                             has not acknowledged. Nothing benign explains
         //                             that, and it is the direction that means money.
         const booksLagLender = diff > 0
-        conflicts.push({
-          key: 'balance_vs_lender',
-          statement: booksLagLender
-            ? `Your books show more still owing than the lender does.`
-            : `Your books show less still owing than the lender does.`,
-          expected: `${money(ctx.portal!.amount_remaining!)} (lender, ${asOf ?? 'as shown'})`,
-          found: `${money(Number(book.principal_balance))} (books, ${book.statement_date})`,
-          sources: ['loan history', 'lender portal'],
-          severity: 'error',
-          caveat: booksLagLender
-            ? `This is the direction settlement timing produces: the lender counts a withholding when the sale happens, your books count it when the payout settles a day or two later, so the lender is always slightly ahead. Confirm it is only timing by checking that the gap closes as later payouts land — a gap that grows month after month is not timing.`
-            : `This is the direction that matters. Your books have credited payments the lender does not acknowledge, and nothing routine explains that. Check it before this loan is relied on in a close.`,
+
+        // On a loan repaid out of settled card receipts the two balances are
+        // SUPPOSED to differ, because the lender's clock starts at the sale and
+        // the books' clock starts at the payout two or three business days later.
+        // The old code said exactly that, in prose, and then raised the finding
+        // anyway — which on every such loan means an alarm that can never be
+        // cleared and that people learn to scroll past.
+        //
+        // So the claim is now tested rather than asserted: the gap either is a
+        // few business days of this loan's own withholding or it is not. See
+        // _shared/settlement-lag.ts.
+        const rate = ctx.csv?.ok ? dailyWithholdingFromMonths(ctx.csv.months) : null
+        const lag = explainBalanceGap({
+          gap: diff,
+          lenderAsOf: asOf,
+          dailyWithholding: rate?.rate ?? null,
+          rateBasis: rate?.basis ?? 'no transaction export in this set',
+          repaysContinuously: rate?.continuous ?? false,
         })
-        actions.push({
-          id: nextId('finding'),
-          kind: 'raise_finding',
-          title: `Flag the ${money(Math.abs(diff))} difference between your books and the lender`,
-          plain_english: `The lender says ${money(ctx.portal!.amount_remaining!)} is still owed; your books say ${money(Number(book.principal_balance))}. That is a ${money(Math.abs(diff))} difference and it needs explaining before this loan is relied on in a close. Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
-          payload: {
-            check_key: 'balance_vs_lender', severity: 'error',
-            title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: books and lender disagree by ${money(Math.abs(diff))}`,
-            detail: { book_balance: Number(book.principal_balance), book_date: book.statement_date,
-                      lender_balance: ctx.portal!.amount_remaining, lender_date: asOf, difference: Number(diff.toFixed(2)) },
-          },
-          default_checked: true,
-        })
+
+        if (lag.benign) {
+          // Explained by arithmetic. It is not a discrepancy, so it does not go
+          // in front of anyone as one — it goes in the corroborations, where a
+          // thing that checks out belongs.
+          corroborations.push({
+            statement:
+              `Your books and the lender differ by ${money(Math.abs(diff))} at ${book.statement_date}, and that is expected. ${lag.statement}`,
+            sources: ['loan history', 'lender portal', 'transaction export'],
+            tie: 'within_tolerance',
+          })
+        } else {
+          conflicts.push({
+            key: 'balance_vs_lender',
+            statement: booksLagLender
+              ? `Your books show more still owing than the lender does.`
+              : `Your books show less still owing than the lender does.`,
+            expected: `${money(ctx.portal!.amount_remaining!)} (lender, ${asOf ?? 'as shown'})`,
+            found: `${money(Number(book.principal_balance))} (books, ${book.statement_date})`,
+            sources: ['loan history', 'lender portal'],
+            severity: 'error',
+            caveat: booksLagLender
+              ? lag.statement
+              : `This is the direction that matters. Your books have credited payments the lender does not acknowledge, and nothing routine explains that. Check it before this loan is relied on in a close.`,
+          })
+          actions.push({
+            id: nextId('finding'),
+            kind: 'raise_finding',
+            title: `Flag the ${money(Math.abs(diff))} difference between your books and the lender`,
+            plain_english: `The lender says ${money(ctx.portal!.amount_remaining!)} is still owed; your books say ${money(Number(book.principal_balance))}. That is a ${money(Math.abs(diff))} difference and it needs explaining before this loan is relied on in a close. ${lag.statement} Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
+            payload: {
+              check_key: 'balance_vs_lender', severity: 'error',
+              title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: books and lender disagree by ${money(Math.abs(diff))}`,
+              detail: { book_balance: Number(book.principal_balance), book_date: book.statement_date,
+                        lender_balance: ctx.portal!.amount_remaining, lender_date: asOf, difference: Number(diff.toFixed(2)),
+                        settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
+                                          implied_business_days: lag.impliedBusinessDays,
+                                          implied_books_through: lag.impliedBooksThrough } },
+            },
+            default_checked: true,
+          })
+        }
       }
     }
   }

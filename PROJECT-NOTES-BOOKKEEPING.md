@@ -8,6 +8,7 @@
 >
 > ```
 > npx supabase@latest functions deploy loan-bundle       --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> #  reconciliation-run below is LIVE AND SCHEDULED — session 242 cont. 5 changed it too
 > npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
 > git push          # 12 files, admin-dashboard/index.html among them
 > ```
@@ -373,6 +374,58 @@ that DOES it. `loan-xero-post` did not import `_shared/close-date.ts` at all;
 call `effectiveCloseDate()` / `isPeriodClosed()` before the write — this org's Xero
 carries no lock date of its own, so nothing else will refuse it. Previews stay
 allowed and carry `closed_period_warning`; only writes 409.
+
+### Settlement lag: on a payment-provider loan the balances are SUPPOSED to differ (session 242)
+
+David, on Stripe Capital: *"the lender calculates the payback at the time of a
+successful card transaction, but Xero only sees the update 2-3 business days later
+when we receive our daily deposit."* And then, correctly: *"this will be an issue
+with most, if not all, payment provider loans like this one — we should make this
+common knowledge to the system."*
+
+**This is not a Stripe quirk. It is the shape of every loan repaid out of settled
+card receipts** — Stripe Capital, PayPal Working Capital, Square, Shopify Capital,
+any merchant-cash-advance facility. The lender's clock starts at the SALE; the
+books' clock starts at the PAYOUT two or three business days later. So the lender
+is permanently, structurally ahead, and `balance_vs_lender` fires every month
+forever on every such loan. **A check that can never be cleared is how a queue
+becomes something people scroll past** — the same failure the close-date work
+existed to fix.
+
+**Settlement lag has a signature, and it is checkable:**
+
+> the gap should equal the withholding of the last few days
+
+Stripe Capital, 2026-08-26: books $125,257.71, lender $123,091.66, gap $2,166.05.
+The lender's own July export withheld $11,192.29 over 26 days = **$430.47/day**.
+$2,166.05 / $430.47 = **5.03 calendar days**, and five days back from Wednesday
+2026-08-26 crosses a weekend: **3 business days** — exactly the lag David
+described, derived from the documents without being told.
+
+`_shared/settlement-lag.ts` (`explainBalanceGap`) is the one place this lives.
+Rules that matter:
+
+* **Direction first.** Lag always leaves the LENDER ahead. Books ahead of the
+  lender is never timing and is never downgraded.
+* **Only loans that actually repay continuously.** In the bundle that means ≥20
+  withholdings in the export's latest month; in `reconciliation-run` it means the
+  contract states a `repayment_rate_percent` — *the lender's own words, not an
+  inference from the shape of the data*. A monthly-ACH loan gets no lag excuse:
+  the arithmetic would still produce a number and the number would mean nothing.
+* **No rate → no conclusion, and it is NOT waved through.** Silence is not
+  absolution.
+* **Explained → benign.** In the bundle it becomes a corroboration rather than a
+  conflict. In `reconciliation-run` it is **downgraded to `info`, never
+  suppressed** — `tie.status === 'explained'` returns nothing because those
+  entries account for the gap TO THE CENT; lag explains it only approximately, and
+  the standing rule is that the balance is always checked.
+* **What actually matters is the gap GROWING.** Settlement lag stays the same size
+  month to month; a real shortfall compounds. The sentence shown says so.
+* Measuring the rate off balances counts **only the days the balance actually
+  fell**. A stretch where it ROSE (a fee capitalised, an advance drawn) hides
+  whatever was withheld underneath it; counting those days without their
+  withholding halves the rate, which doubles the apparent lag — this module's own
+  failure mode.
 
 ### A TRANSACTION IS NEVER THE WHOLE ANSWER (session 232) — read the journals too
 
@@ -1666,6 +1719,49 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 242 (cont. 5, 2026-08-27) — the $2,166.05, and turning an explanation into a check
+
+David explained the gap: Stripe counts the payback when the card transaction
+succeeds, Xero sees it 2-3 business days later at the daily deposit. Then: *"this
+will be an issue with most, if not all, payment provider loans like this one — we
+should make this common knowledge to the system."*
+
+The module already SAID this, as prose, in the finding's caveat — and raised the
+finding anyway. It asked a person to do arithmetic the system already had the
+numbers for, every month, on every such loan.
+
+So it is now arithmetic. **`_shared/settlement-lag.ts`** tests the claim instead of
+asserting it, and on the real figures it derives David's 3 business days from the
+documents alone. Full rules in the "Settlement lag" invariant section above — read
+that, not this entry, when working on it.
+
+Wired into **both** surfaces, which is what "common knowledge to the system" has to
+mean: the bundle plan (`loan-bundle-plan.ts` — an explained gap moves from
+conflicts to corroborations) and the scheduled **`reconciliation-run`** (downgraded
+to `info` with the arithmetic in the sentence and the workings in `detail`, never
+suppressed). `reconciliation-run` needed no new database reads: `mine` and
+`contractTerms` were already in scope at the call site.
+
+**One bug caught by its own test.** The first version of `dailyWithholdingFromBalances`
+divided total decreases by the whole span, including stretches where the balance
+ROSE. A capitalised fee therefore halved the rate — and a halved rate doubles the
+apparent lag, turning an ordinary gap into an alarm. Precisely this module's own
+failure mode, found because the test asserted the number rather than the shape.
+
+**Files:** `_shared/settlement-lag.ts` (new), `_shared/loan-bundle-plan.ts`,
+`reconciliation-run/index.ts`, `tests/settlement-lag.test.mts` (new, 47
+assertions).
+
+**Test totals: 68 + 29 + 83 + 47 = 227 assertions, all passing.**
+
+**Where to pick up:** `reconciliation-run` is now in the deploy list too — it is a
+LIVE SCHEDULED function, so deploy it deliberately and check the next run's
+findings. On this loan the $2,166.05 should read as informational, titled
+"(settlement timing)", carrying the 3-business-day arithmetic. Note the check only
+downgrades once `repayment_rate_percent` is on file, which happens when the
+bundle's 12 contract terms are **applied** — so apply the bundle first, then run
+reconciliation.
 
 ### Session 242 (cont. 4, 2026-08-27) — the run that worked, and what the stored readings then showed
 

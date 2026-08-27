@@ -12,6 +12,7 @@ import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './d
 // good as the branch it sits on, so the two paths that need this answer must
 // read it from one place rather than each growing their own copy.
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
+import { explainBalanceGap, dailyWithholdingFromBalances } from '../_shared/settlement-lag.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -503,7 +504,12 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
   }
 }
 
-function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
+function checkBalanceVsLender(
+  loan: any, tie: TieOut,
+  // Added session 242 for the settlement-lag test below. Both were already in
+  // scope at the call site; nothing new is read from the database.
+  myStatements: any[] = [], contractTerms: any[] = [], today = '',
+): Finding[] {
   // A tie and an un-checkable loan both produced no finding before this refactor; they
   // still do. The un-checkable case is now VISIBLE in the tie-out instead of silent.
   if (tie.status === 'tied' || tie.status === 'not_comparable') return []
@@ -548,7 +554,40 @@ function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
   // close, and a comparison against our own projection have all already returned
   // above. Under a dollar is rounding and gets info rather than a red dot.
   const residual = Number(d.residual_after_later ?? diff)
-  const sev: Finding['severity'] = Math.abs(residual) < 1 ? 'info' : 'error'
+
+  // ── SETTLEMENT LAG IS NOT A DISCREPANCY (session 242) ───────────────────────
+  // David: "the lender calculates the payback at the time of a successful card
+  // transaction, but Xero only sees the update 2-3 business days later when we
+  // receive our daily deposit... this will be an issue with most, if not all,
+  // payment provider loans like this one."
+  //
+  // On a loan repaid out of settled card receipts the lender is PERMANENTLY a few
+  // business days ahead, so this check fires every month forever and can never be
+  // cleared. That is how a queue becomes something people scroll past — and this
+  // module's whole history is the cost of that (see the close-date section).
+  //
+  // The claim is tested, not assumed: the gap either is a few business days of
+  // this loan's own withholding or it is not. Only a contract that states a
+  // repayment RATE counts as continuous repayment — the lender's own words, not
+  // an inference from the shape of the data.
+  //
+  // Deliberately DOWNGRADED and never suppressed. `tie.status === 'explained'`
+  // above returns nothing because the later entries account for the gap to the
+  // cent; settlement lag explains it only approximately, and the module's standing
+  // rule is that the BALANCE is always checked. It stays on the board, in black
+  // rather than red, carrying the arithmetic.
+  const repaysContinuously = (contractTerms || []).some((t: any) =>
+    t.loan_account_id === loan.id && t.term_key === 'repayment_rate_percent' && !t.superseded_at)
+  const rate = repaysContinuously && today
+    ? dailyWithholdingFromBalances(myStatements || [], today)
+    : { rate: null, basis: '' }
+  const lag = explainBalanceGap({
+    gap: residual, lenderAsOf: tie.as_of as string,
+    dailyWithholding: rate.rate, rateBasis: rate.basis,
+    repaysContinuously,
+  })
+
+  const sev: Finding['severity'] = Math.abs(residual) < 1 || lag.benign ? 'info' : 'error'
 
   // Name HOW the later entries were booked. Splitting the bank transaction is the
   // cleaner of the two ways to record a payment split, and this check used to refuse
@@ -561,14 +600,16 @@ function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
     check_key: 'balance_vs_lender',
     severity: sev,
     loan_account_id: loan.id,
-    title: `${loan.xero_account_name} — Xero is ${money(Math.abs(residual))} ${residual < 0 ? 'below' : 'above'} the lender`,
+    title: `${loan.xero_account_name} — Xero is ${money(Math.abs(residual))} ${residual < 0 ? 'below' : 'above'} the lender${lag.benign ? ' (settlement timing)' : ''}`,
     plain_english:
       `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${tie.as_of}, `
       + `against ${money(lender)} on the lender's own statement for that date. `
       + (laterCount
           ? `${laterCount} entr${laterCount === 1 ? 'y' : 'ies'} dated after that statement${howBooked} move it by ${money(Math.abs(laterNet))}, leaving ${money(Math.abs(residual))} unexplained. `
           : `Nothing is dated after that statement, so the whole ${money(Math.abs(diff))} is unexplained. `)
-      + `That remainder is either missing from Xero or recorded twice.`,
+      + (lag.benign
+          ? `That remainder is settlement timing, not money: ${lag.statement}`
+          : `That remainder is either missing from Xero or recorded twice.`),
     detail: {
       code, anchor_date: tie.as_of, anchor_source: tie.anchor_source,
       lender_balance: lender, xero_balance: xeroAtAnchor,
@@ -577,6 +618,9 @@ function checkBalanceVsLender(loan: any, tie: TieOut): Finding[] {
       net_after_anchor: laterNet,
       still_unexplained: residual,
       later_entry_types: d.later_entry_types ?? [],
+      settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
+                        implied_business_days: lag.impliedBusinessDays,
+                        implied_books_through: lag.impliedBooksThrough, rate_basis: rate.basis },
     },
   }]
 }
@@ -1325,7 +1369,7 @@ async function handle(req: Request): Promise<Response> {
       // point of the tie-out. checkBalanceVsLender then derives its finding from it.
       const tie = computeTieOut(loan, ledger, cp, cpDate, anchors, windowFrom, haveCheckpoint, today)
       tieOuts.push(tie)
-      findings.push(...checkBalanceVsLender(loan, tie))
+      findings.push(...checkBalanceVsLender(loan, tie, mine, contractTerms || [], today))
 
       // Still gated: derived drift genuinely has nothing to say without a checkpoint.
       if (haveCheckpoint) {
