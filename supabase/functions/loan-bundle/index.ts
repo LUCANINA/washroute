@@ -56,7 +56,7 @@ import {
   verifyDecompositionRule,
   type ContractTerm, type StripeCsvParseResult, type DecompositionResult,
 } from '../_shared/stripe-capital.ts'
-import { buildPlan, type PlanContext, type BundleDocument, type BundlePlan } from '../_shared/loan-bundle-plan.ts'
+import { buildPlan, summarisePlan, type PlanContext, type BundleDocument, type BundlePlan } from '../_shared/loan-bundle-plan.ts'
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 
@@ -519,6 +519,10 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       })
     }
   }
+
+  // Re-count now that every corroboration and question has been added, so the
+  // header cannot disagree with the lists underneath it.
+  summarisePlan(plan)
 
   const { data: row, error: insErr } = await supa.from('intake_bundles').insert({
     id: bundleId, loan_account_id: loan.id, document_count: bundleDocs.length,

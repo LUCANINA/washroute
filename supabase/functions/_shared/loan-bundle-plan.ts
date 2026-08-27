@@ -362,6 +362,11 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
 
   const agreeing = basisEvidence.filter(e => e.basis === proposedBasis)
   const dissenting = basisEvidence.filter(e => e.basis !== proposedBasis)
+  // Split the two meanings apart. `proposedBasis` is the leading hypothesis and
+  // may be reported as such; `establishedBasis` is set ONLY when two independent
+  // pieces of evidence agree, and is the only one anything confident may rest on.
+  let establishedBasis: 'gross_payback' | 'net_principal' | null = null
+
   if (dissenting.length) {
     // Evidence pointing both ways is not corroboration, it is a conflict, and
     // recording either reading would put a sentence in the audit trail that
@@ -377,6 +382,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     proposedBasis = null
   }
   if (proposedBasis && agreeing.length >= 2) {
+    establishedBasis = proposedBasis
     established.push({
       key: 'carrying_basis',
       value: proposedBasis === 'gross_payback' ? 'Payoff basis (fee included in the balance)' : 'Principal basis (fee held outside the balance)',
@@ -410,10 +416,17 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   }
 
   // ── 4. Statement rows whose basis was never established ─────────────────
-  if (proposedBasis) {
-    const wanted = proposedBasis === 'gross_payback' ? 'total_payback' : 'principal_only'
+  {
+    // Derived from the labels already on this loan's own history, NOT from the
+    // agreement — which is what the action's own wording promises, and which
+    // means it stands whether or not the carrying basis was established. Only a
+    // unanimous existing basis counts; a loan whose history already disagrees
+    // with itself is not one to add more labels to.
+    const labelled = ctx.statements.map(s => s.balance_basis).filter(b => b && b !== 'unknown')
+    const distinct = [...new Set(labelled)]
+    const wanted = distinct.length === 1 ? distinct[0] : null
     const wrong = ctx.statements.filter(s => s.balance_basis === 'unknown')
-    if (wrong.length) {
+    if (wanted && wrong.length) {
       const from = wrong[0].statement_date, to = wrong[wrong.length - 1].statement_date
       conflicts.push({
         key: 'statement_basis_unknown',
@@ -537,14 +550,25 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   // The check that started all this, and the one most easily got wrong.
   const zeroInterest = ctx.splits.filter(s => Number(s.interest_amount) === 0 && Number(s.total_amount) !== 0)
   if (zeroInterest.length && zeroInterest.length === ctx.splits.length && fixedFee !== null) {
-    if (proposedBasis === 'gross_payback') {
-      // CORRECT, and worth saying out loud so nobody "fixes" it later.
+    if (establishedBasis === 'gross_payback') {
+      // CORRECT, and worth saying out loud so nobody "fixes" it later. Gated on
+      // the ESTABLISHED basis: if the basis is only a hypothesis, so is this, and
+      // "correct as booked" is not a sentence to write on a hypothesis.
       established.push({
         key: 'payments_carry_no_interest',
         value: 'Correct as booked',
         how: `Every payment on this loan is recorded as pure principal with no interest, and on a payoff basis that is right: the balance already includes the ${money(fixedFee)} fee, so each payment reduces it dollar for dollar. Splitting these payments would credit the fee back into the loan a second time and leave ${money(fixedFee)} still owing after the lender says paid in full.`,
       })
-    } else if (proposedBasis === 'net_principal') {
+    } else if (proposedBasis === 'gross_payback') {
+      // Leaning payoff-basis but not established. Say what it would mean and why
+      // it is not being asserted, rather than either asserting it or going silent.
+      unresolved.push({
+        question: `Every payment on this loan is booked as pure principal, with no financing cost. Is that right?`,
+        why_it_matters:
+          `It depends entirely on the question above. If this loan is carried at payoff — the balance already including the ${money(fixedFee)} fee — then booking each payment as pure principal is correct, and splitting them would credit the fee back into the loan a second time. If it is carried at principal, then no financing cost is reaching your profit and loss at all. The same rows are either right or wrong depending on an answer these documents do not settle.`,
+        what_would_answer_it: `The same evidence: a lender statement or portal screen showing both the balance still owed and the amount paid to date.`,
+      })
+    } else if (establishedBasis === 'net_principal') {
       const openMonths = [...new Set(ctx.splits.map(s => s.period_label.slice(0, 7)))]
         .filter(mth => !isClosed(mth, ctx.closeDate)).sort()
       unresolved.push({
@@ -580,14 +604,14 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   }
 
   // ── 8. The structure note ───────────────────────────────────────────────
-  if (hasAgreement && proposedBasis && loanAmount !== null && fixedFee !== null && totalRepayment !== null) {
+  if (hasAgreement && establishedBasis && loanAmount !== null && fixedFee !== null && totalRepayment !== null) {
     const pct = ((fixedFee / totalRepayment) * 100).toFixed(4)
     const note = [
       `${money(loanAmount)} borrowed with a fixed fee of ${money(fixedFee)}, repaid as ${money(totalRepayment)} in total${origination ? `, originated ${origination}` : ''}${finalRepayment ? ` and due in full by ${finalRepayment}` : ''}. There is no interest rate — the whole cost of this loan is that one fixed fee.`,
       num('repayment_rate_percent') !== null
         ? `Repayment is automatic: the lender withholds ${num('repayment_rate_percent')}% of every sale${minPayment !== null && minPeriodDays !== null ? `, with a floor of ${money(minPayment)} every ${minPeriodDays} days` : ''}. There is no monthly payment, so a monthly figure on this record is a rough guide only.`
         : '',
-      proposedBasis === 'gross_payback'
+      establishedBasis === 'gross_payback'
         ? `In the books: account ${ctx.loan.xero_account_code ?? '(unset)'} carries the FULL payback of ${money(totalRepayment)}, fee included, so every payment is pure principal and no interest is booked per payment. Balances on file are payoff figures, not principal — never compare them against a principal-only balance from anywhere else.`
         : `In the books: account ${ctx.loan.xero_account_code ?? '(unset)'} carries principal only, so every payment splits into principal and financing cost. Balances on file are principal-only.`,
       ctx.decomposition?.holds
@@ -622,19 +646,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     }
   }
 
-  // ── 10. The summary ─────────────────────────────────────────────────────
-  const errCount = conflicts.filter(c => c.severity === 'error').length
-  const warnCount = conflicts.filter(c => c.severity === 'warn').length
-  const summary = [
-    `${ctx.documents.length} document${ctx.documents.length === 1 ? '' : 's'} read together for ${ctx.loan.xero_account_name ?? ctx.loan.lender}.`,
-    corroborations.length ? `${corroborations.length} thing${corroborations.length === 1 ? '' : 's'} checked out against each other.` : '',
-    errCount ? `${errCount} need${errCount === 1 ? 's' : ''} attention.` : '',
-    warnCount ? `${warnCount} worth a look.` : '',
-    unresolved.length ? `${unresolved.length} question${unresolved.length === 1 ? '' : 's'} these documents cannot answer on their own.` : '',
-    `${actions.filter(a => !a.blocked_reason).length} change${actions.filter(a => !a.blocked_reason).length === 1 ? '' : 's'} ready for you to approve.`,
-  ].filter(Boolean).join(' ')
-
-  return {
+  // ── 10. Assemble ────────────────────────────────────────────────────────
+  const plan: BundlePlan = {
     loan: {
       id: ctx.loan.id, lender: ctx.loan.lender,
       xero_account_name: ctx.loan.xero_account_name,
@@ -651,6 +664,36 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         what_would_answer_it: u,
       })),
     ],
-    summary,
+    summary: '',
   }
+  return summarisePlan(plan)
+}
+
+/**
+ * Write the one-line summary from the FINISHED plan.
+ *
+ * Separated out and exported because loan-bundle/index.ts appends more
+ * corroborations after buildPlan returns — the agreement's own arithmetic
+ * checks and the portal screenshot's. Counting inside buildPlan meant the header
+ * said "2 things checked out against each other" above a list of five. A number
+ * on screen that disagrees with the list beneath it is exactly the class of bug
+ * this module keeps finding in itself; the fix, as ever, is one function that
+ * every surface calls rather than a count taken at a convenient moment.
+ *
+ * Call this again after mutating a plan.
+ */
+export function summarisePlan(plan: BundlePlan): BundlePlan {
+  const n = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+  const errCount = plan.conflicts.filter(c => c.severity === 'error').length
+  const warnCount = plan.conflicts.filter(c => c.severity === 'warn').length
+  const open = plan.actions.filter(a => !a.blocked_reason).length
+  plan.summary = [
+    `${n(plan.documents.length, 'document', 'documents')} read together for ${plan.loan.xero_account_name ?? plan.loan.lender}.`,
+    plan.corroborations.length ? `${n(plan.corroborations.length, 'thing', 'things')} checked out against each other.` : '',
+    errCount ? `${errCount} need${errCount === 1 ? 's' : ''} attention.` : '',
+    warnCount ? `${warnCount} worth a look.` : '',
+    plan.unresolved.length ? `${n(plan.unresolved.length, 'question', 'questions')} these documents cannot answer on their own.` : '',
+    `${n(open, 'change', 'changes')} ready for you to approve.`,
+  ].filter(Boolean).join(' ')
+  return plan
 }
