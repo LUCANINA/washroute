@@ -1960,6 +1960,33 @@ close one) and **`record_lender_balance`** (the portal balance as `portal_manual
 requiring the figure to be *corroborated* rather than merely present, and **blocked
 with an Unresolved question when the date cannot be established**).
 
+#### "It's no longer giving me the option to file together"
+
+David re-dropped the same five Stripe documents to re-run the bundle with the new
+August export in the set, and **"Read together" did not appear at all.** Four of
+the five were already on record, so `_bkClassifyItem` returned early with status
+`'duplicate'` before classifying them, and the gate accepted only `'ready'` and
+`'manual'` — one file left, no bundle, no button.
+
+**A category error, and the same shape as everything else this session: an
+optional check deciding a primary question.** "Already on record" answers *should
+I FILE this again* — no. It says nothing about *should I READ this*, and for a
+bundle the answer is emphatically yes: the whole point is that the agreement names
+the loan a screenshot cannot and states the terms an export cannot. **A document
+does not stop being evidence by being on file.** Nothing gets filed twice as a
+result — the plan marks such a document `duplicate_of`, and `documentAttachPlan`
+(shipped earlier the same session) adopts the row already on the loan instead of
+inserting a second one. The apply layer had been right about this all along; the
+intake layer dropped the documents before they could reach it.
+
+`_bkBundleReadable()` is now the single definition, shared by the button and the
+action so the two cannot disagree — the module's standing rule for any number or
+set shown in more than one place. It is an **allowlist** (`ready`, `manual`,
+`handed_off`, `duplicate`, `failed`), so a status added later is excluded until
+someone decides it belongs; a file dropped twice in one go still counts once.
+Pinned by harness group `bundle-readable-set` (11 assertions) against the real
+five-file drop.
+
 #### The audit that started the session
 
 Four adversarial agents; I reproduced the severe claims independently before fixing

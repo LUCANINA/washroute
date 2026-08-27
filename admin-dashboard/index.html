@@ -9455,7 +9455,7 @@
       || (_allLoanStatements || []).find(s => s.file_sha256 && s.file_sha256 === item.sha);
     if (dbDup) {
       item.status = 'duplicate'; item.dupOf = 'db';
-      item.proposal = 'You already have this exact file on record — skipped.';
+      item.proposal = 'You already have this exact file on record — not filed again, but still read when these are read together.';
       return;
     }
 
@@ -9837,7 +9837,7 @@
     // feature exactly when it is most useful.
     const bundleBtn = document.getElementById('bk-batch-bundle');
     if (bundleBtn) {
-      const readable = items.filter(i => ['ready', 'manual'].includes(i.status) && i.base64);
+      const readable = _bkBundleReadable(items);
       // Reading a set together stores the files and creates a bundle record, so
       // it needs the same write access filing does.
       const canBundle = !sorting && !nFiling && readable.length >= 2 && currentUserRole !== 'cpa';
@@ -10384,10 +10384,41 @@
     if (lb && lb.style.display !== 'none') closeLoanBundleModal();
   });
 
+  // WHICH FILES IN A DROP CAN BE READ TOGETHER (session 245)
+  //
+  // David re-dropped the same five Stripe documents to re-run the bundle with a
+  // new export in the set, and the "Read together" button did not appear at all.
+  // Four of the five were already on record, `_bkClassifyItem` returned early
+  // with status 'duplicate', and the old filter accepted only 'ready'/'manual' —
+  // so the agreement and both screenshots were dropped from the set before the
+  // feature could offer itself, leaving one file and no bundle.
+  //
+  // THE MISTAKE IS A CATEGORY ERROR. "Already on record" answers *should I FILE
+  // this again* — no. It does not answer *should I READ this*, and for a bundle
+  // the answer there is emphatically yes: the whole point is that the agreement
+  // names the loan a screenshot cannot, and states the terms an export cannot.
+  // A document does not stop being evidence by being on file. Nothing is filed
+  // twice as a result — the plan marks such a document `duplicate_of` and the
+  // apply step adopts the row already on the loan instead of inserting a second
+  // one (see documentAttachPlan in _shared/loan-bundle-apply.ts).
+  //
+  // An ALLOWLIST, not a denylist, so a status added later is excluded until
+  // someone decides it belongs — the safe direction for a set of documents the
+  // engine is about to reason over.
+  const _BK_BUNDLE_READABLE = ['ready', 'manual', 'handed_off', 'duplicate', 'failed'];
+  function _bkBundleReadable(items) {
+    return (items || []).filter(i =>
+      i && i.base64 &&
+      _BK_BUNDLE_READABLE.includes(i.status) &&
+      // A file dropped twice in ONE go is the same bytes twice. Reading both
+      // would have the set disagree with itself about how many documents it has.
+      !(i.status === 'duplicate' && i.dupOf === 'batch'));
+  }
+
   async function bkStartBundle(loanAccountId) {
     const batch = _bkBatch;
     if (!batch) return;
-    const items = batch.items.filter(i => ['ready', 'manual'].includes(i.status) && i.base64);
+    const items = _bkBundleReadable(batch.items);
     if (items.length < 2) { showToast('Reading documents together needs at least two of them.', 'error'); return; }
 
     if (_lbRunning) return;

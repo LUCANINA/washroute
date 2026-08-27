@@ -1761,6 +1761,63 @@ GROUPS.push({
   },
 });
 
+GROUPS.push({
+  name: 'bundle-readable-set',
+  // Session 245. David re-dropped the same five Stripe documents to re-run the
+  // bundle with a new export in the set, and "Read together" did not appear at
+  // all: four were already on record, so `_bkClassifyItem` returned early with
+  // status 'duplicate', and the old filter accepted only 'ready'/'manual'.
+  //
+  // "Already on record" answers *should I FILE this again*. It does not answer
+  // *should I READ this*, and for a bundle it must not: the agreement names the
+  // loan a screenshot cannot. This group drives the shipped `_bkBundleReadable`.
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'overview' });
+    const r = await p.evaluate(() => {
+      const F = (items) => _bkBundleReadable(items).map(i => i.name);
+      const b64 = 'x';
+      return {
+        exists: typeof _bkBundleReadable === 'function',
+        // The exact drop, statuses as the classifier really left them.
+        davids: F([
+          { name: 'Stripe Capital_agreement.pdf', status: 'duplicate', dupOf: 'db', base64: b64 },
+          { name: 'Stripe deposit.png',           status: 'duplicate', dupOf: 'db', base64: b64 },
+          { name: 'Stripe July.csv',              status: 'duplicate', dupOf: 'db', base64: b64 },
+          { name: 'Stripe overview.png',          status: 'duplicate', dupOf: 'db', base64: b64 },
+          { name: 'Stripe August.csv',            status: 'handed_off',             base64: b64 },
+        ]),
+        batchDup: F([{ name: 'a', status: 'duplicate', dupOf: 'batch', base64: b64 },
+                     { name: 'b', status: 'ready', base64: b64 }]),
+        noBytes:  F([{ name: 'a', status: 'ready' }]),
+        inFlight: F([{ name: 'a', status: 'classifying', base64: b64 },
+                     { name: 'b', status: 'filing',      base64: b64 },
+                     { name: 'c', status: 'filed',       base64: b64 }]),
+        unreadable: F([{ name: 'a', status: 'unreadable', base64: b64 }]),
+        // An allowlist, so a status nobody has considered stays out.
+        invented: F([{ name: 'a', status: 'some_future_status', base64: b64 }]),
+        ordinary: F([{ name: 'a', status: 'ready', base64: b64 },
+                     { name: 'b', status: 'manual', base64: b64 }]),
+        empty: F(null),
+      };
+    });
+    t.eq(r.exists, true, 'r7: the page defines _bkBundleReadable');
+    t.eq(r.davids.length, 5,
+         'r7: all five of the real drop can be read together, four of them already on file');
+    t.eq(r.davids.includes('Stripe Capital_agreement.pdf'), true,
+         'r7: ...including the agreement, which is the document that names the loan');
+    t.eq(r.davids.includes('Stripe August.csv'), true,
+         'r7: ...and the new export that prompted the re-run');
+    t.eq(r.batchDup, ['b'], 'r7: the same file dropped twice in one go is counted once');
+    t.eq(r.noBytes.length, 0, 'r7: a file whose bytes never loaded cannot be read');
+    t.eq(r.inFlight.length, 0, 'r7: nothing in flight or already filed is pulled back in');
+    t.eq(r.unreadable.length, 0, 'r7: a file that could not be read is not offered');
+    t.eq(r.invented.length, 0, 'r7: an unknown status is excluded — it is an allowlist');
+    t.eq(r.ordinary.length, 2, 'r7: the ordinary two-readable-files case still works');
+    t.eq(r.empty.length, 0, 'r7: no items at all is not a crash');
+    await p.close();
+  },
+});
+
 /* ═══════════════════════════════ RUNNER ═════════════════════════════════ */
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
