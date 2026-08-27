@@ -627,11 +627,27 @@ function checkLumpedPayments(loan: any, ledger: any, today: string, statements: 
     // nameable, fixable gap — as opposed to "no statements at all" (a different,
     // pre-existing problem the stale_anchor check already covers) or "a prior statement
     // exists but ingestion just hasn't produced a split yet" (the generic case below).
+    out.push(lumpedFinding(loan, {
+      date: r.date, amount: Math.abs(Number(r.total || 0)), srcId: r.srcId, contact: r.contact,
+    }, today, realStatementDates))
+  }
+  return out
+}
+
+// The finding itself, built in ONE place. The out-of-window refresh below needs
+// to produce a byte-identical shape, and two copies of this would drift the way
+// the client's copies of the math did before session 231 folded them together.
+function lumpedFinding(loan: any, p: { date: string, amount: number, srcId: string, contact?: any },
+                       today: string, realStatementDates: string[]): Finding {
+    const code = loan.xero_account_code
+    const r = { date: p.date, srcId: p.srcId, contact: p.contact }
+    const amt = p.amount
+    const oldestStatementDate = realStatementDates[0] ?? null
     const hasPriorStatement = realStatementDates.some((d: string) => d < r.date)
     const missingPrior = !hasPriorStatement && oldestStatementDate != null
     const ageDays = daysBetween(r.date, today)
 
-    out.push({
+    return ({
       fingerprint: `lumped_payment:${code}:${r.srcId}`,
       check_key: missingPrior ? 'lumped_payment_missing_prior_statement' : 'lumped_payment',
       // SEVERITY CEILING, removed session 241 (David: "surface this issue to the
@@ -666,6 +682,44 @@ function checkLumpedPayments(loan: any, ledger: any, today: string, statements: 
         ? { kind: 'upload_earlier_statement', note: `Upload the lender statement covering the period just before ${r.date} for this loan (the oldest one on file is dated ${oldestStatementDate}). Once it's on file, this split will be computed and posted for review automatically — no other action needed.` }
         : { kind: 'reallocation_journal', note: 'Split principal/interest once the lender statement or schedule gives the exact figures, then post via loan-xero-post.' },
     })
+}
+
+// ── OUT-OF-WINDOW LUMPED PAYMENTS ────────────────────────────────────────────
+//
+// A finding whose date falls before this run's pulled window is deliberately NOT
+// resolved (see the resolve block below -- "not re-found" means "out of range",
+// not "fixed"). But it is also never re-examined, so its text freezes on the day
+// it last ran and then quietly rots.
+//
+// Funding Circle's 2026-04-20 payment froze on 19 August still saying "needs a
+// statement from before 2026-08-03". Nine such statements were uploaded on
+// 22 August. The sentence became false three days later and nothing could
+// correct it, because the only code that writes that sentence needs ledger rows
+// the pull no longer fetches.
+//
+// It does not need them. Everything in that sentence -- whether a prior
+// statement exists, how old the payment is, what it should now say -- comes from
+// the statements and the finding's own stored detail. So rebuild those from what
+// we already have, using the same builder, and leave the ledger out of it.
+function refreshOutOfWindowLumped(existing: any[], loans: any[], statements: any[],
+                                  today: string, windowFrom: string, seenFps: Set<string>): Finding[] {
+  const out: Finding[] = []
+  for (const f of existing || []) {
+    if (f.status !== 'open') continue
+    if (!String(f.check_key || '').startsWith('lumped_payment')) continue
+    if (seenFps.has(f.fingerprint)) continue          // the live check already handled it
+    const d = f.detail?.date
+    if (!d || d >= windowFrom) continue               // in window: absence means fixed, not stale
+    const loan = loans.find((l: any) => l.id === f.loan_account_id)
+    if (!loan) continue
+    const realStatementDates = (statements || [])
+      .filter((s: any) => s.loan_account_id === loan.id && REAL_ANCHOR_SOURCES.includes(s.source))
+      .map((s: any) => s.statement_date)
+      .sort()
+    out.push(lumpedFinding(loan, {
+      date: d, amount: Number(f.detail?.amount || 0),
+      srcId: String(f.detail?.bank_transaction_id || ''), contact: f.detail?.contact,
+    }, today, realStatementDates))
   }
   return out
 }
@@ -1125,7 +1179,16 @@ async function handle(req: Request): Promise<Response> {
     // would silently auto-resolve every intake finding. Never resolve what we don't own.
     const { data: existing } = await supa.from('reconciliation_findings').select('*').eq('source', 'engine')
     const byFp: Record<string, any> = Object.fromEntries((existing || []).map(f => [f.fingerprint, f]))
-    const seenFps = new Set(findings.map(f => f.fingerprint))
+    let seenFps = new Set(findings.map(f => f.fingerprint))
+    // Rebuild the ones the window can no longer reach, before anything is written.
+    // They keep their fingerprints, so this UPDATES the existing rows rather than
+    // creating new ones -- the point is to correct text that has gone stale, not
+    // to re-raise anything.
+    const refreshed = refreshOutOfWindowLumped(existing || [], active, statements || [], today, windowFrom, seenFps)
+    if (refreshed.length) {
+      findings.push(...refreshed)
+      seenFps = new Set(findings.map(f => f.fingerprint))
+    }
     const enriched: any[] = []
 
     for (const f of findings) {

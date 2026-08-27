@@ -8886,13 +8886,61 @@
     }));
     // Archived good-to-know items leave the queue (restorable from the
     // Archived list); within a tier, bigger dollar impact floats up.
-    const live = items.filter(i => !_bkDismissals.has(i.key));
+    const live = items.filter(i => !_bkDismissalHolds(i.key, { isError: i.tier === 1, title: i.name }));
+    // A row that came back from the archive says so, rather than just reappearing.
+    live.forEach(i => { i.unarchived = _bkUnarchivedReason(i.key, { isError: i.tier === 1, title: i.name }); });
     // Session 230, David: "worth a look" and "good to know" are ONE section now, and
     // every row in it gets a Got it. Tier 1 (fix first) deliberately stays
     // undismissable -- an error anyone can wave away is an error nobody fixes.
     live.forEach(i => { if (i.tier !== 1) i.archive = true; });
     live.sort((a, b) => (a.tier - b.tier) || ((Number(b.amount) || 0) - (Number(a.amount) || 0)) || String(a.name).localeCompare(String(b.name)));
     return live;
+  }
+
+  // ── DOES A "GOT IT" STILL HOLD? ──────────────────────────────────────────
+  //
+  // The rule two functions up is right: "an error anyone can wave away is an
+  // error nobody fixes", so tier 1 is undismissable. It was only ever enforced
+  // at the MOMENT OF THE CLICK. Nothing re-checked it afterwards, so an item
+  // archived while it was minor stayed archived after it became serious, and
+  // an item archived over one sentence stayed archived when the sentence was
+  // replaced by a different one.
+  //
+  // Live example, and the reason this exists. On 2026-08-24 David archived:
+  //
+  //   "Funding Circle Loan — 2026-04-20 payment of $2,033.77 needs a statement
+  //    from before 2026-08-03"
+  //
+  // That reads as a filing task, and he had just uploaded nine such statements,
+  // so "Got it" was the correct response to the sentence in front of him. The
+  // sentence was wrong. Underneath it was $2,033.77 booked entirely to
+  // principal, roughly $1,038 of interest expense missing from April, still
+  // uncorrected in Xero four months later, and it has been invisible ever
+  // since — hidden by a decision made about different words.
+  //
+  // Thirteen archived rows are still open findings today. One is a
+  // balance_vs_lender at ERROR severity.
+  //
+  // So a dismissal now covers the finding AS IT WAS, not the id forever:
+  //   * it never survives an escalation to error
+  //   * it never survives a change to the finding's own title
+  // Anything that comes back says why, so it does not look like a bug.
+  function _bkDismissalHolds(key, opts) {
+    const d = _bkDismissals.get(key);
+    if (!d) return false;
+    if (opts && opts.isError) return false;
+    if (opts && opts.title && d.item_title && String(opts.title) !== String(d.item_title)) return false;
+    return true;
+  }
+
+  // Why an archived row came back, for the badge on the row itself.
+  function _bkUnarchivedReason(key, opts) {
+    const d = _bkDismissals.get(key);
+    if (!d) return null;
+    if (opts && opts.isError) return 'set aside on ' + String(d.dismissed_at || '').slice(0, 10) + ', back because it is now a Fix first';
+    if (opts && opts.title && d.item_title && String(opts.title) !== String(d.item_title))
+      return 'set aside on ' + String(d.dismissed_at || '').slice(0, 10) + ', back because what it says has changed since';
+    return null;
   }
 
   // The archived ("Got it") items, newest first — shown behind the Archived
@@ -9017,6 +9065,7 @@
           <div class="bk-queue-name">${esc(it.name)}</div>
           <div class="bk-queue-reason">${esc(it.reason)}</div>
           ${it.stale ? `<div class="bk-queue-stale" title="The latest reconciliation run did not re-examine this item, so the text above is preserved from when it last did.">⏱ ${esc(it.stale.label)}</div>` : ''}
+          ${it.unarchived ? `<div class="bk-queue-stale" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af" title="A 'Got it' covers a finding as it was, not its id forever.">↩ ${esc(it.unarchived)}</div>` : ''}
           ${panelId ? `<div id="${panelId}" style="display:none;margin-top:10px;padding:10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12.5px;color:var(--gray-600)" onclick="event.stopPropagation()">${it.detailHtml}</div>` : ''}
         </div>
       </div>
@@ -14265,7 +14314,8 @@
   function _bkReconInfoFindings() {
     // Session 225: an info note archived via "Got it" leaves this list too —
     // one dismissal, everywhere.
-    return (_reconFindings || []).filter(f => f.status === 'open' && f.severity === 'info' && !_bkDismissals.has('recon-' + f.id));
+    return (_reconFindings || []).filter(f => f.status === 'open' && f.severity === 'info'
+      && !_bkDismissalHolds('recon-' + f.id, { isError: false, title: f.title }));
   }
 
   // One shared card renderer, styled after the mockup David liked: a severity dot,
@@ -15083,7 +15133,8 @@
     // 1. Whatever the reconciliation engine and the intake cross-check already found
     // for this loan. Not re-derived here -- one writer, one list.
     (_reconFindings || [])
-      .filter(f => f.loan_account_id === loanId && f.status === 'open' && !_bkDismissals.has('recon-' + f.id))
+      .filter(f => f.loan_account_id === loanId && f.status === 'open'
+        && !_bkDismissalHolds('recon-' + f.id, { isError: f.severity === 'error', title: f.title }))
       .forEach(f => out.push({ sev: f.severity || 'info', label: f.title || 'Finding', detail: _bkOneLine(f.plain_english || '', 150) }));
 
     // 2. Payments the lender has already taken that have no split computed. Their
