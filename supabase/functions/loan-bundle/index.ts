@@ -178,7 +178,7 @@ async function readPortalScreenshot(base64: string, mediaType: string): Promise<
     const dateOrNull = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
     return {
       as_of: dateOrNull(i.as_of),
-      sources: [], disputes: [],
+      sources: [], disputes: [], corroborated: [],
       amount_remaining: numOrNull(i.amount_remaining),
       paid_to_date: numOrNull(i.paid_to_date),
       principal_paid: numOrNull(i.principal_paid),
@@ -268,6 +268,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     const ext = (filename.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
     let kind = 'other', label: string | null = null, role = 'Filed against the loan for reference.'
     let confidence: 'high' | 'medium' | 'low' = 'low'
+    let figures: BundleDocument['figures'] = null
 
     if (ext === 'pdf') {
       let text = ''
@@ -305,6 +306,9 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       const p = await readPortalScreenshot(b64, media)
       kind = 'balance_screenshot'
       if (p) {
+        // What the reader SAW, before any check dropped anything. Compared with
+        // `checked` below this is what makes a misread diagnosable afterwards.
+        const raw = { ...p }
         const checked = checkPortalTotals(p)
         checked.sources = [filename]
         // Merge across screenshots. One screen shows the terms, another the
@@ -314,6 +318,18 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
         portal = portal ? mergePortal(portal, checked) : checked
         confidence = checked.checks.length ? 'high' : 'medium'
         role = describeScreenshot(checked)
+        const NUMS = ['amount_remaining','paid_to_date','principal_paid','fee_paid',
+                      'total_amount_due','funds_deposited'] as const
+        figures = {
+          as_of: raw.as_of, amount_remaining: raw.amount_remaining,
+          paid_to_date: raw.paid_to_date, principal_paid: raw.principal_paid,
+          fee_paid: raw.fee_paid, total_amount_due: raw.total_amount_due,
+          funds_deposited: raw.funds_deposited, funds_deposited_date: raw.funds_deposited_date,
+          corroborated: checked.corroborated ?? [],
+          // Read but NOT used, and why it matters: this is the list that would
+          // have answered "where did $125,000.00 come from" in one query.
+          dropped: NUMS.filter(k => raw[k] !== null && checked[k] === null),
+        }
       } else {
         confidence = 'low'
         role = `A screenshot whose figures could not be read.`
@@ -323,7 +339,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     read.push({ filename, b64, sha, ext, size: bytes.length, kind })
     bundleDocs.push({
       filename, sha256: sha, bytes: bytes.length, kind, lender_label: label,
-      confidence, role, duplicate_of: null,
+      confidence, role, duplicate_of: null, figures,
     })
   }
 

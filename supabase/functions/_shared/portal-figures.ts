@@ -32,6 +32,11 @@ export interface PortalTotals {
    *  kind of problem with a different remedy, so it is reported separately
    *  rather than filed under "this screen does not add up". */
   disputes: string[]
+  /** Field names whose value took part in an identity that CAME OUT RIGHT on this
+   *  screen. This is the difference between a figure that has earned its place and
+   *  one that merely appeared, and it is what settles a disagreement between two
+   *  screens without a tie-break. */
+  corroborated: string[]
   checks: string[]
 }
 
@@ -53,11 +58,13 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   const near = (a: number, b: number) => Math.abs(a - b) <= 0.02
   const checks: string[] = []
   const warnings: string[] = []
+  const corroborated: string[] = []
   const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   if (p.principal_paid !== null && p.fee_paid !== null && p.paid_to_date !== null) {
     if (near(p.principal_paid + p.fee_paid, p.paid_to_date)) {
       checks.push(`The screen's own parts add up: ${fmt(p.principal_paid)} financing + ${fmt(p.fee_paid)} fee = ${fmt(p.paid_to_date)} paid.`)
+      corroborated.push('principal_paid', 'fee_paid', 'paid_to_date')
     } else {
       warnings.push(`The screen's parts do not add up (${fmt(p.principal_paid)} + ${fmt(p.fee_paid)} ≠ ${fmt(p.paid_to_date)}), so these three figures were dropped rather than used.`)
       p.principal_paid = p.fee_paid = p.paid_to_date = null
@@ -66,36 +73,44 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   if (p.total_amount_due !== null && p.paid_to_date !== null && p.amount_remaining !== null) {
     if (near(p.total_amount_due - p.paid_to_date, p.amount_remaining)) {
       checks.push(`The remaining balance ties to the total: ${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} = ${fmt(p.amount_remaining)}.`)
+      corroborated.push('total_amount_due', 'paid_to_date', 'amount_remaining')
     } else {
       warnings.push(`The remaining balance does not tie to the total less what is paid (${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} ≠ ${fmt(p.amount_remaining)}), so the remaining balance was dropped.`)
       p.amount_remaining = null
     }
   }
+
   // A funding figure transcribed into the balance field.
   //
-  // On a deposit screen the same number is often read twice — once correctly as
-  // the amount advanced, once wrongly as the amount remaining, because the model
-  // is asked for both and the screen only shows one. Two identical figures on a
-  // screen carrying nothing else to check them against are one figure read twice,
-  // not two facts. This is what put $125,000.00 forward as the Stripe balance.
+  // On a funding screen the same number is routinely read twice — once correctly
+  // as the amount advanced, once wrongly as the amount remaining, because the
+  // reader is asked for both and the screen shows one. That is what put
+  // $125,000.00 forward as the Stripe balance against a true $123,091.66.
   //
-  // A genuine day-one screenshot — balance still equal to the amount advanced,
-  // nothing repaid yet — looks identical from the outside, and is dropped too.
-  // Nothing is lost by that: a balance with no "paid to date" beside it cannot
-  // establish anything on its own anyway, which is the only thing it would have
-  // been used for.
+  // The first version of this guard also required the screen to carry NOTHING
+  // else, on the theory that anything more would tell the two apart. It does not:
+  // `Stripe deposit.png` carried a third figure, the guard stood down, and the
+  // bad reading went through exactly as before. What matters is not whether other
+  // figures are PRESENT but whether they PROVED anything — so the test is now
+  // corroboration. Equality is treated as one number read twice unless an identity
+  // on this very screen came out right and vouched for the balance.
+  //
+  // A genuine day-one screenshot (nothing repaid, balance still equal to the
+  // advance) is dropped too unless it shows its own arithmetic. Nothing is lost:
+  // a balance with no amount-paid-to-date beside it cannot establish the carrying
+  // basis on its own, which is the only thing it would have been used for.
   if (p.amount_remaining !== null && p.funds_deposited !== null &&
       near(p.amount_remaining, p.funds_deposited) &&
-      p.total_amount_due === null && p.paid_to_date === null) {
+      !corroborated.includes('amount_remaining')) {
     warnings.push(
       `This screen gives the same figure (${fmt(p.funds_deposited)}) as both the funding advanced ` +
-      `and the balance still owed, and carries nothing else to tell the two apart — the mark of one ` +
+      `and the balance still owed, and nothing on it proves the two really are equal — the mark of one ` +
       `number read twice on a funding screen. It was kept as the funding amount and dropped as the ` +
-      `balance. If this really is a balance, it needs a screen that shows the amount paid to date beside it.`)
+      `balance. If this really is the balance, it needs a screen showing the amount paid to date beside it.`)
     p.amount_remaining = null
   }
 
-  return { ...p, checks, warnings, disputes: p.disputes ?? [] }
+  return { ...p, checks, warnings, corroborated, disputes: p.disputes ?? [] }
 }
 
 /**
@@ -128,6 +143,7 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
   const checks = [...a.checks, ...b.checks]
   const warnings = [...a.warnings, ...b.warnings]
   const disputes = [...(a.disputes ?? []), ...(b.disputes ?? [])]
+  const corroborated: string[] = []
   const who = (p: PortalTotals) => p.sources.length ? p.sources.join(' + ') : 'another screenshot'
   const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -140,18 +156,43 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
     funds_deposited: 'the amount deposited',
   }
 
+  const aOk = (k: string) => (a.corroborated ?? []).includes(k)
+  const bOk = (k: string) => (b.corroborated ?? []).includes(k)
+
   const num = (k: keyof PortalTotals): number | null => {
+    const key = k as string
     const av = a[k] as number | null, bv = b[k] as number | null
     if (av === null || av === undefined) return (bv ?? null)
     if (bv === null || bv === undefined) return av
     if (Math.abs(av - bv) <= 0.02) {
-      checks.push(`Two of the lender's own screens agree on ${LABEL[k as string]}: ${fmt(av)}.`)
+      checks.push(`Two of the lender's own screens agree on ${LABEL[key]}: ${fmt(av)}.`)
+      if (aOk(key) || bOk(key)) corroborated.push(key)
       return av
     }
+
+    // They disagree — but a disagreement is only a TIE when the two figures are
+    // equally good. One that took part in an identity that came out right on its
+    // own screen is not equal to one that merely appeared, and preferring it is a
+    // reading of the evidence rather than a tie-break. This is what separates
+    // Stripe overview.png's $123,091.66 from Stripe deposit.png's $125,000.00.
+    if (aOk(key) !== bOk(key)) {
+      const win = aOk(key) ? av : bv
+      const winner = aOk(key) ? who(a) : who(b)
+      const loser  = aOk(key) ? who(b) : who(a)
+      const lost   = aOk(key) ? bv : av
+      checks.push(
+        `Two screenshots gave different figures for ${LABEL[key]} — ${winner} shows ${fmt(win)} and ` +
+        `${loser} shows ${fmt(lost)}. ${winner}'s figure is the one its own screen proves by arithmetic, ` +
+        `so that is the one used; the other was not checked by anything and was set aside.`)
+      corroborated.push(key)
+      return win
+    }
+
     disputes.push(
-      `Two screenshots disagree about ${LABEL[k as string]} — ${who(a)} shows ${fmt(av)}, ` +
-      `${who(b)} shows ${fmt(bv)}. The figure was dropped rather than picking one, so nothing ` +
-      `below rests on it. Re-upload the single screen that states the balance you want used.`)
+      `Two screenshots disagree about ${LABEL[key]} — ${who(a)} shows ${fmt(av)}, ` +
+      `${who(b)} shows ${fmt(bv)}, and neither screen proves its own figure. It was dropped rather ` +
+      `than picking one, so nothing below rests on it. Re-upload the single screen that states the ` +
+      `balance you want used.`)
     return null
   }
 
@@ -183,7 +224,7 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
     funds_deposited: num('funds_deposited'),
     funds_deposited_date,
     sources: [...a.sources, ...b.sources],
-    checks, warnings, disputes,
+    checks, warnings, disputes, corroborated,
   }
 }
 

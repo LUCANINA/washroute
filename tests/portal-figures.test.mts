@@ -20,7 +20,7 @@ const section = (s: string) => console.log(`\n── ${s} ${'─'.repeat(Math.ma
 const blank = (o: Partial<PortalTotals> = {}): PortalTotals => ({
   as_of: null, amount_remaining: null, paid_to_date: null, principal_paid: null,
   fee_paid: null, total_amount_due: null, funds_deposited: null,
-  funds_deposited_date: null, sources: [], checks: [], warnings: [], disputes: [], ...o,
+  funds_deposited_date: null, sources: [], checks: [], warnings: [], disputes: [], corroborated: [], ...o,
 })
 
 section('the $125,000 bug, pinned')
@@ -118,7 +118,7 @@ section('merging never invents')
 {
   const empty = mergePortal(blank(), blank())
   ok('two empty screens stay empty',
-     Object.entries(empty).every(([k, v]) => ['checks','warnings','disputes','sources'].includes(k) ? true : v === null))
+     Object.entries(empty).every(([k, v]) => ['checks','warnings','disputes','corroborated','sources'].includes(k) ? true : v === null))
   ok('...with nothing to report', empty.warnings.length === 0 && empty.disputes.length === 0 && empty.checks.length === 0)
 
   // A zero is a figure, not an absence. `?? ` handled this correctly; a truthiness
@@ -133,7 +133,7 @@ section('merging never invents')
 section('a funding figure read into the balance field')
 {
   // Exactly what Stripe deposit.png did: $125,000 reported as BOTH the funding
-  // advanced and the balance still owed, with nothing else on the screen.
+  // advanced and the balance still owed.
   const dep = checkPortalTotals(blank({
     sources: ['Stripe deposit.png'], funds_deposited: 125000, amount_remaining: 125000,
   }))
@@ -148,12 +148,30 @@ section('a funding figure read into the balance field')
   }))
   ok('a screen with real corroboration is untouched', real.amount_remaining === 123091.66)
 
-  // Equal figures are fine when paid-to-date is there to make sense of them.
+  // Equal figures survive when the screen's OWN arithmetic proves them:
+  // 125,000 total − 0 paid = 125,000 remaining is a real day-one balance.
   const dayOne = checkPortalTotals(blank({
     sources: ['dayone.png'], funds_deposited: 125000, amount_remaining: 125000, paid_to_date: 0,
     total_amount_due: 125000,
   }))
-  ok('equal figures survive when paid-to-date is shown', dayOne.amount_remaining === 125000)
+  ok('equal figures survive when the screen proves them', dayOne.amount_remaining === 125000)
+  ok('...and are marked as proven', dayOne.corroborated.includes('amount_remaining'))
+
+  // THE BUG THIS ROUND. The first version of the guard also required the screen
+  // to carry nothing else. Stripe deposit.png carried a third figure, so the
+  // guard stood down and $125,000 went through again. Presence is not proof.
+  const withThird = checkPortalTotals(blank({
+    sources: ['Stripe deposit.png'], funds_deposited: 125000, amount_remaining: 125000,
+    total_amount_due: 145875,
+  }))
+  ok('a third figure that proves nothing does not rescue the balance',
+     withThird.amount_remaining === null, `got ${withThird.amount_remaining}`)
+  ok('...and the funding amount is still kept', withThird.funds_deposited === 125000)
+  const withPaid = checkPortalTotals(blank({
+    sources: ['Stripe deposit.png'], funds_deposited: 125000, amount_remaining: 125000,
+    paid_to_date: 22783.34,
+  }))
+  ok('nor does a paid-to-date that does not tie', withPaid.amount_remaining === null)
 
   // A deposit screen with no balance claim at all is left alone.
   const clean = checkPortalTotals(blank({ sources: ['d.png'], funds_deposited: 125000 }))
@@ -183,6 +201,54 @@ section('a screenshot is described by what is actually on it')
   // sentence, teaching the reader the very misreading the checks then caught.
   ok('the funding screen does NOT get the balance sentence',
      !/what is still owed, which is what the books/.test(describeScreenshot(blank({ funds_deposited: 125000 }))))
+}
+
+section('a disagreement between a proven figure and an unproven one is not a tie')
+{
+  // David's real bundle. overview.png's balance is proved by its own arithmetic
+  // (145,875 − 22,783.34 = 123,091.66); deposit.png's is not proved by anything.
+  const overview = checkPortalTotals(blank({
+    sources: ['Stripe overview.png'],
+    total_amount_due: 145875, paid_to_date: 22783.34, amount_remaining: 123091.66,
+  }))
+  ok('the good screen proves its own balance', overview.corroborated.includes('amount_remaining'))
+
+  const deposit = checkPortalTotals(blank({
+    sources: ['Stripe deposit.png'], funds_deposited: 125000, amount_remaining: 125000,
+    total_amount_due: 145875,
+  }))
+  ok('the funding screen loses its balance at source', deposit.amount_remaining === null)
+
+  const m = mergePortal(overview, deposit)
+  ok('the real balance stands', m.amount_remaining === 123091.66, `got ${m.amount_remaining}`)
+  ok('no disagreement is raised at all', m.disputes.length === 0)
+  ok('the funding amount still comes through', m.funds_deposited === 125000)
+
+  // And if the funding screen's figure had somehow survived to the merge, the
+  // proven one still wins there rather than both being thrown away.
+  const stubborn = blank({ sources: ['stubborn.png'], amount_remaining: 125000 })
+  const m2 = mergePortal(overview, stubborn)
+  ok('proven beats unproven in the merge too', m2.amount_remaining === 123091.66)
+  ok('...reported as a reading, not a dispute', m2.disputes.length === 0 &&
+     m2.checks.some(c => /is the one its own screen proves by arithmetic/.test(c)))
+  ok('...naming both figures', m2.checks.some(c => /\$123,091\.66/.test(c) && /\$125,000\.00/.test(c)))
+
+  // Order must not matter here either.
+  const m3 = mergePortal(stubborn, overview)
+  ok('and the order still does not matter', m3.amount_remaining === 123091.66)
+
+  // Two UNPROVEN figures that disagree are still a genuine tie — dropped.
+  const t = mergePortal(blank({ sources: ['x.png'], amount_remaining: 100 }),
+                        blank({ sources: ['y.png'], amount_remaining: 200 }))
+  ok('two unproven figures are still dropped', t.amount_remaining === null)
+  ok('...and reported as a disagreement', t.disputes.some(d => /neither screen proves its own figure/.test(d)))
+
+  // Two PROVEN figures that disagree are a real contradiction — also dropped.
+  const p1 = checkPortalTotals(blank({ sources: ['p1.png'], total_amount_due: 145875, paid_to_date: 22783.34, amount_remaining: 123091.66 }))
+  const p2 = checkPortalTotals(blank({ sources: ['p2.png'], total_amount_due: 145875, paid_to_date: 20000, amount_remaining: 125875 }))
+  const tp = mergePortal(p1, p2)
+  ok('two screens that each prove a DIFFERENT balance are dropped', tp.amount_remaining === null)
+  ok('...and that is a dispute', tp.disputes.length > 0)
 }
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)

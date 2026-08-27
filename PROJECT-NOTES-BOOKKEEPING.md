@@ -1667,6 +1667,68 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 3, 2026-08-27) — presence is not proof
+
+The funding guard from cont. 2 did not fire, and `$125,000.00` went forward a
+third time. The guard read:
+
+```ts
+near(p.amount_remaining, p.funds_deposited) &&
+p.total_amount_due === null && p.paid_to_date === null   // <- wrong
+```
+
+Those last two clauses were meant to protect a legitimate day-one screenshot, on
+the theory that any THIRD figure on the screen would tell a funding amount from a
+balance. `Stripe deposit.png` carried a third figure. The guard stood down. The
+bad reading went through exactly as before.
+
+**What matters is not whether other figures are PRESENT but whether they PROVED
+anything.** A screen showing a total and a balance that do not tie to each other
+has told you nothing; a screen where `total − paid = remaining` comes out right
+has. So `checkPortalTotals` now records `corroborated: string[]` — the field names
+that took part in an identity that CAME OUT RIGHT — and the guard drops
+`amount_remaining` whenever it equals `funds_deposited` unless the screen's own
+arithmetic vouched for it.
+
+The same distinction settles the merge, which is the better half of this change.
+Two screens disagreeing is only a TIE when the two figures are equally good.
+`Stripe overview.png` proves its balance (145,875 − 22,783.34 = 123,091.66);
+`Stripe deposit.png` proves nothing. **Preferring the proven one is a reading of
+the evidence, not a tie-break**, so `mergePortal` now takes it and says why in the
+corroborations rather than dropping both and asking. Two unproven figures that
+disagree are still dropped. Two figures that each prove a DIFFERENT balance are
+also dropped — that is a real contradiction and nobody should resolve it silently.
+
+**AND THE THING THAT ACTUALLY COST THE TIME.** Two rounds were spent INFERRING
+what those screenshots had reported, because the plan recorded conclusions and
+never readings. A figure that decides where money is booked was the one thing the
+audit trail could not show. `BundleDocument.figures` now stores, per screenshot,
+every number read off it BEFORE any check ran, which of them the screen's own
+arithmetic vouched for, and which were dropped. One query answers "where did
+$125,000.00 come from". **If a value can drive a booking decision, the record has
+to show what was read, not only what was concluded.**
+
+To read them:
+
+```sql
+select d->>'filename', jsonb_pretty(d->'figures')
+from public.intake_bundles b, jsonb_array_elements(b.plan->'documents') d
+where b.id = '<bundle id>' and d->'figures' is not null;
+```
+
+**Files:** `_shared/portal-figures.ts`, `_shared/loan-bundle-plan.ts`
+(`BundleDocument.figures`), `loan-bundle/index.ts`,
+`tests/portal-figures.test.mts` (45 → 62 assertions).
+
+**Test totals: 68 + 29 + 62 = 159 assertions, all passing.**
+
+**Where to pick up:** deploy `loan-bundle` and push, then re-run the four Stripe
+documents. Expect `$123,091.66` to stand as the balance with the disagreement
+replaced by a line saying which screen proved its figure — and, with a balance
+finally established, the carrying-basis question should answer itself instead of
+being asked for a fourth time. If it still is not established, read the stored
+`figures` rather than guessing: that is what they are for.
+
 ### Session 242 (cont. 2, 2026-08-27) — the second live run, and where the $125,000 actually came from
 
 All three fixes from the previous entry behaved. The modal centred with Apply

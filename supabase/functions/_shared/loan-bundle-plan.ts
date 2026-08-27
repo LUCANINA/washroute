@@ -69,6 +69,26 @@ export interface BundleDocument {
   role: string
   /** Set when this file is byte-identical to one already on the loan. */
   duplicate_of: string | null
+  /** For a screenshot: the figures actually read off it, exactly as they came,
+   *  and which of them the screen's own arithmetic vouched for.
+   *
+   *  Kept because session 242 spent two rounds INFERRING what a screenshot had
+   *  reported — the plan recorded the conclusions and never the readings, so a
+   *  misread could only be diagnosed by guessing at it or uploading the file
+   *  again. A figure that decides where money is booked should not be the one
+   *  thing the audit trail cannot show. */
+  figures?: {
+    as_of: string | null
+    amount_remaining: number | null
+    paid_to_date: number | null
+    principal_paid: number | null
+    fee_paid: number | null
+    total_amount_due: number | null
+    funds_deposited: number | null
+    funds_deposited_date: string | null
+    corroborated: string[]
+    dropped: string[]
+  } | null
 }
 
 export interface Corroboration {
