@@ -3304,34 +3304,57 @@
             .lcb-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gray-900); letter-spacing: -.015em; }
             .lcb-why { font-size: 12px; color: var(--gray-400); }
             .lcb-right { margin-left: auto; font-size: 11.5px; color: var(--gray-400); }
-            .lcb-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px;
+            .lcb-strip { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; padding: 11px 14px;
                          border-radius: 11px; margin-bottom: 12px; font-size: 12.5px;
                          border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
             .lcb-strip.clear { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
             .lcb-lead { font-weight: 700; }
-            .lcb-gate { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 7px; font-weight: 600;
-                        background: rgba(255,255,255,.72); border: 1px solid rgba(146,64,14,.16); }
-            .lcb-gate.ok { border-color: rgba(22,101,52,.2); color: #166534; }
-            .lcb-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-            .lcb-table thead th { text-align: left; padding: 8px 12px; font-size: 10.5px; font-weight: 600;
-                                  color: var(--gray-400); background: #fbfcfd; border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+            .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; }
+            .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: var(--gray-300);
+                                            font-weight: 400; }
+            .lcb-gate.ok { color: var(--gray-500); font-weight: 400; }
+            /* ── the rollforward, reset as a document (session 241) ──────────
+               David: "this looks circa 2001." The diagnosis was one thing, not
+               a list: MONOSPACE WAS DOING A JOB IT WAS NEVER ASKED TO DO. It
+               earns its place on figures, where digits must align down a
+               column. It had been extended to prose -- "not received",
+               "nothing to check against", "booked", "our ledger" -- and prose
+               set in monospace has read as mainframe since mainframes. Three
+               separate monospace treatments appeared in a single row.
+               Proportional faces have had tabular figures for twenty years:
+               font-variant-numeric does the aligning, and the table can speak
+               in the same voice as the rest of the interface. */
+            .lcb-table { width: 100%; border-collapse: collapse; font-size: 13px;
+                         font-variant-numeric: tabular-nums; }
+            .lcb-table thead th { text-align: left; padding: 11px 14px 8px; font-size: 11px; font-weight: 600;
+                                  color: var(--gray-400); border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
             .lcb-table thead th.lcb-n { text-align: right; }
-            .lcb-table tbody td { padding: 9px 12px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
-            .lcb-table tbody tr:hover { background: #fafbfd; }
-            .lcb-table td.lcb-n { text-align: right; white-space: nowrap;
-                                  font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-            .lcb-sub { display: block; font-family: inherit; font-size: 10.5px; color: var(--gray-400); font-weight: 600; margin-top: 2px; }
-            .lcb-sub.soft { color: #b45309; }
-            .lcb-none { font-size: 11px; font-weight: 600; color: #92400e; }
-            .lcb-na { font-size: 11px; color: var(--gray-400); }
-            .lcb-tie { color: var(--green); font-weight: 600; }
-            .lcb-off { color: #dc2626; font-weight: 700; }
-            .lcb-table tfoot td { padding: 10px 12px; border-top: 1px solid var(--gray-200); background: #fbfcfd;
-                                  font-weight: 700; color: var(--gray-900); font-size: 12px; }
-            .lcb-table tfoot td.lcb-n { text-align: right; font-variant-numeric: tabular-nums;
-                                        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-            .lcb-excluded td { background: #fbfcfd; color: var(--gray-500); font-weight: 600; }
-            .lcb-foot { padding: 10px 14px; font-size: 11.5px; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
+            .lcb-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--gray-100); vertical-align: baseline; }
+            .lcb-table tbody tr:hover { background: var(--gray-50, #fafbfd); }
+            /* No font-family override. That line was the whole problem. */
+            .lcb-table td.lcb-n { text-align: right; white-space: nowrap; }
+            /* The lender is context for the loan, not a column competing for
+               width. Paired under the name, the two read as one identity. */
+            .lcb-lender { display: block; font-size: 11.5px; color: var(--gray-400); font-weight: 400; margin-top: 1px; }
+            /* Provenance is a footnote. It was bold rust monospace and it was
+               the loudest thing in the cell, fourteen times over. */
+            .lcb-sub { display: block; font-size: 11px; color: var(--gray-400); font-weight: 400; margin-top: 2px; }
+            /* The ONE distinction a reader must not miss: this opening is our
+               own arithmetic, not the lender's. The only warm colour left. */
+            .lcb-sub.soft { color: #a1741f; }
+            .lcb-none { color: var(--gray-400); }
+            .lcb-na { color: var(--gray-400); }
+            /* Agreement is silence. Ten green ticks made the eye filter ten
+               confirmations to find the three rows that need a person. A tie
+               now prints nothing at all and carries data-tie for the harness,
+               which is a sturdier hook than a glyph anyway. */
+            .lcb-off { color: #b3382c; font-weight: 600; }
+            .lcb-flag { color: #b3382c; font-weight: 600; }
+            .lcb-table tfoot td { padding: 14px 14px; border-top: 1px solid var(--gray-300);
+                                  font-weight: 600; color: var(--gray-900); font-size: 13px; }
+            .lcb-table tfoot td.lcb-n { text-align: right; }
+            .lcb-excluded td { color: var(--gray-500); font-weight: 400; border-top: none; }
+            .lcb-foot { padding: 12px 14px 16px; font-size: 12px; color: var(--gray-400); }
 
             .cv-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
             .cv-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
@@ -3457,13 +3480,30 @@
             .lpb-count { font-size:10.5px; font-weight:700; background:#fffbeb; color:#92400e;
               border:1px solid #fde68a; border-radius:20px; padding:1px 7px; margin-left:2px; }
             .lpb-chips { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
-            .lpb-chip { font-size:11.5px; color:var(--gray-500); background:var(--gray-50,#f9fafb);
-              border:1px solid var(--gray-200); border-radius:20px; padding:3px 10px; }
+            .lpb-chip { font-size:12px; color:var(--gray-500); }
+            .lpb-chip + .lpb-chip::before { content:"·"; margin:0 9px; color:var(--gray-300); }
+            .lpb-chip b { font-weight:600; color:var(--gray-700); }
             /* Close tiles reuse the module's bk-tile shell; only the meter is new. */
+            /* ── close tiles, unboxed (session 241) ──────────────────────────
+               Four bordered cards, a bordered strip, bordered chips and a
+               bordered table, all inside a bordered card. Boxes are how a
+               layout admits it does not trust whitespace to group things.
+               Space and one hairline do the grouping instead. The meter stays
+               -- it is the one element here that shows rather than tells. */
+            .lct .bk-tile { background: transparent; border: 0; box-shadow: none;
+                            border-radius: 0; padding: 0 26px 0 0; min-width: 190px; }
+            .lct .bk-tile + .bk-tile { border-left: 1px solid var(--gray-200); padding-left: 26px; }
+            .lct .bk-tiles { gap: 0; }
+            .lct .bk-tile-label { font-size: 12.5px; font-weight: 500; color: var(--gray-500);
+                                  white-space: normal; margin-bottom: 5px; }
+            .lct .bk-tile-value { font-size: 27px; font-weight: 650; letter-spacing: -.02em;
+                                  font-variant-numeric: tabular-nums; }
+            .lct .bk-tile-delta { font-weight: 400; font-size: 12px; line-height: 1.45;
+                                  white-space: normal; }
             .lct-meter { display:flex; gap:3px; margin-top:9px; }
             .lct-meter i { height:5px; flex:1; border-radius:2px; background:var(--gray-200); }
-            .lct-meter i.in  { background:#16a34a; }
-            .lct-meter i.out { background:#f59e0b; }
+            .lct-meter i.in  { background:var(--gray-300); }
+            .lct-meter i.out { background:#c2892a; }
             .lct-meter i.na  { background:var(--gray-200); }
             .bk-queue-stale { font-size: 11.5px; color: #92400e; background: #fffbeb;
               border: 1px solid #fde68a; border-radius: 5px; padding: 3px 7px;
@@ -14094,26 +14134,26 @@
     const paidP = b.rf.totals.principal + b.rf.excluded.principal;
     const paidI = b.rf.totals.interest  + b.rf.excluded.interest;
 
-    el.innerHTML = '<div class="bk-tiles">'
+    el.innerHTML = '<div class="lct"><div class="bk-tiles">'
       + tile(`${name} statements received`,
-          `${received} <span style="font-size:.6em;color:var(--gray-400);font-weight:600">of ${b.cov.expected.length}</span>`,
+          `${received} <span style="font-size:.6em;color:var(--gray-400);font-weight:500">of ${b.cov.expected.length}</span>`,
           b.missing ? `Missing: ${esc(missingNames)}` : 'Every expected statement is in.',
-          b.missing ? 'var(--amber,#b45309)' : 'var(--green)', meter)
+          b.missing ? '#a1741f' : null, meter)
       + tile(`${name} rollforward variance`,
           b.rf.totals.variance < 0.005 ? '$0.00' : money(b.rf.totals.variance),
           b.rf.totals.variance < 0.005
             ? `All ${b.rf.checkable.length} checkable loans tie to the cent.`
             : `${b.off} loan${b.off === 1 ? '' : 's'} disagree with the lender.`,
-          b.rf.totals.variance < 0.005 ? 'var(--green)' : 'var(--red)')
+          b.rf.totals.variance < 0.005 ? null : '#b3382c')
       + tile('Not yet in Xero',
           b.unposted ? money(b.unpostedTotal) : '$0.00',
           b.unposted
             ? `${b.unposted} ${name} split${b.unposted === 1 ? '' : 's'} still unposted.`
             : 'Everything for this month is booked.',
-          b.unposted ? 'var(--red)' : 'var(--green)')
+          b.unposted ? '#b3382c' : null)
       + tile(`Paid in ${name}`, money(paidP + paidI),
           `${money(paidP)} principal · ${money(paidI)} interest`)
-      + '</div>';
+      + '</div></div>';
   }
 
   function renderLoansCloseBand() {
@@ -14169,33 +14209,46 @@
 
     const chip = (g) => `<span class="lcb-gate${g.bad ? '' : ' ok'}">${g.bad ? '' : '✓ '}${esc(g.text)}</span>`;
 
+    // Bare figures in the body; the currency symbol survives only on the total,
+    // which is the anchor a reader checks. Fourteen dollar signs down a column
+    // headed with money is fourteen characters of noise.
+    const bare = (n) => n == null ? '—'
+      : (Number(n) < 0 ? '−' : '') + Math.abs(Number(n)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Sentence case, in the interface's own voice. These were set as though a
+    // shell had returned them.
+    const STATUS_WORD = { pending_review: 'Pending review', closed_period: 'In a closed month',
+                          needs_attention: 'Needs attention', staged: 'Staged' };
+
     const row = (r) => {
       const a = r.a;
       const openCell = r.opening
-        ? `${money(r.opening.amount)}<span class="lcb-sub${r.opening.authoritative ? '' : ' soft'}">${short(r.opening.asOf)} · ${esc(_anchorSourceLabel(r.opening.source))}</span>`
+        ? `${bare(r.opening.amount)}<span class="lcb-sub${r.opening.authoritative ? '' : ' soft'}">${short(r.opening.asOf)} · ${esc(_anchorSourceLabel(r.opening.source))}</span>`
         : '<span class="lcb-none">no opening balance</span>';
       const lenderCell = r.perLender
-        ? `${money(r.perLender.amount)}<span class="lcb-sub">${short(r.perLender.asOf)} · ${esc(_anchorSourceLabel(r.perLender.source))}</span>`
+        ? `${bare(r.perLender.amount)}<span class="lcb-sub">${short(r.perLender.asOf)}</span>`
         : (r.automatic
             ? '<span class="lcb-na">n/a — swept from Xero</span>'
             : '<span class="lcb-none">not received</span>');
+      // A tie prints NOTHING. data-tie carries the fact for anything that needs
+      // to count them — a data hook outlives a glyph, and the harness was
+      // asserting on "$0.00 ✓" as a string.
+      const ties = r.variance != null && Math.abs(r.variance) < 0.005;
       const varCell = r.variance == null
-        ? '<span class="lcb-na">nothing to check against</span>'
-        : (Math.abs(r.variance) < 0.005
-            ? '<span class="lcb-tie">$0.00 ✓</span>'
-            : `<span class="lcb-off">${r.variance > 0 ? '+' : '−'}${money(Math.abs(r.variance)).slice(1)}</span>`);
+        ? '<span class="lcb-na">—</span>'
+        : (ties ? '' : `<span class="lcb-off">${r.variance > 0 ? '+' : '−'}${bare(Math.abs(r.variance))}</span>`);
       const booked = r.unposted.length
-        ? `<span class="badge" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a">${r.unposted.length === 1 ? esc(r.unposted[0].status.replace('_', ' ')) : r.unposted.length + ' unposted'}</span>`
-        : (r.splits.length ? '<span class="lcb-na">booked</span>' : '<span class="lcb-na">no payment</span>');
+        ? `<span class="lcb-flag">${r.unposted.length === 1
+            ? esc(STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
+            : esc(r.unposted.length + ' unposted')}</span>`
+        : (r.splits.length ? 'Booked' : '<span class="lcb-na">No payment</span>');
       return `<tr>
-        <td>${esc(a.lender)}</td>
-        <td class="td-name" style="white-space:nowrap">${esc(a.xero_account_name || a.lender_account_number)}</td>
-        <td class="lcb-n">${openCell}</td>
-        <td class="lcb-n">${r.principal ? money(r.principal) : '—'}</td>
-        <td class="lcb-n">${r.interest ? money(r.interest) : '—'}</td>
-        <td class="lcb-n">${r.computed != null ? money(r.computed) : '—'}</td>
-        <td class="lcb-n">${lenderCell}</td>
-        <td class="lcb-n">${varCell}</td>
+        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span><span class="lcb-lender">${esc(a.lender)}</span></td>
+        <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}">${openCell}</td>
+        <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}">${lenderCell}</td>
+        <td class="lcb-n"${ties ? ' data-tie="1"' : ''} data-variance="${r.variance == null ? '' : r.variance}">${varCell}</td>
         <td style="white-space:nowrap">${booked}</td>
       </tr>`;
     };
@@ -14209,31 +14262,31 @@
         <span class="lcb-lead">For ${esc(name)}: ${blocked ? 'not ready to close.' : 'ready for your accountant.'}</span>
         ${gates.map(chip).join('')}
       </div>
-      <div class="card" style="overflow:hidden">
+      <div class="card" style="overflow:hidden;box-shadow:none;border-color:var(--gray-200)">
         <div style="overflow-x:auto">
           <table class="lcb-table">
             <thead><tr>
-              <th>LENDER</th><th>LOAN</th>
-              <th class="lcb-n">OPENING · ${esc(short(rf.priorEnd))}</th>
-              <th class="lcb-n">PRINCIPAL</th><th class="lcb-n">INTEREST</th>
-              <th class="lcb-n">CLOSING · COMPUTED</th>
-              <th class="lcb-n">PER LENDER · ${esc(short(rf.monthEnd))}</th>
-              <th class="lcb-n">VARIANCE</th><th>IN XERO</th>
+              <th>Loan</th>
+              <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
+              <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
+              <th class="lcb-n">Computed</th>
+              <th class="lcb-n">Per lender · ${esc(short(rf.monthEnd))}</th>
+              <th class="lcb-n">Variance</th><th>Status</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
               <tr>
-                <td colspan="2">Total — ${rf.checkable.length} checkable</td>
+                <td>${rf.checkable.length} checkable loan${rf.checkable.length === 1 ? '' : 's'}</td>
                 <td class="lcb-n">${money(rf.totals.opening)}</td>
                 <td class="lcb-n">${money(rf.totals.principal)}</td>
                 <td class="lcb-n">${money(rf.totals.interest)}</td>
                 <td class="lcb-n">${money(rf.totals.computed)}</td>
                 <td class="lcb-n">${money(rf.totals.perLender)}</td>
-                <td class="lcb-n">${rf.totals.variance < 0.005 ? '<span class="lcb-tie">$0.00</span>' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
+                <td class="lcb-n" data-variance="${rf.totals.variance}"${rf.totals.variance < 0.005 ? ' data-tie="1"' : ''}>${rf.totals.variance < 0.005 ? '' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
                 <td></td>
               </tr>
               ${rf.excluded.count ? `<tr class="lcb-excluded">
-                <td colspan="2">Not checkable — ${rf.excluded.count} loan${rf.excluded.count === 1 ? '' : 's'} without a ${esc(name)} statement</td>
+                <td>Not checkable — ${rf.excluded.count} without a statement</td>
                 <td class="lcb-n">—</td>
                 <td class="lcb-n">${money(rf.excluded.principal)}</td>
                 <td class="lcb-n">${money(rf.excluded.interest)}</td>
