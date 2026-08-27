@@ -9,8 +9,13 @@
 > ```
 > npx supabase@latest functions deploy loan-bundle       --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
 > npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> git push          # 8 files, admin-dashboard/index.html among them
+> git push          # 12 files, admin-dashboard/index.html among them
 > ```
+>
+> **Session 242 cont. added four files to that deploy** — `_shared/loan-matcher.ts`
+> and `_shared/portal-figures.ts` are NEW and `loan-bundle` will not start without
+> them, so deploy `loan-bundle` rather than assuming the earlier deploy covered it.
+> See the "Session 242 (cont.)" log entry for what the three fixes were.
 >
 > `loan-bundle` is NEW. `reconciliation-run` gained one check. The dashboard gained a
 > "Read together" button and a review modal. **`loan_contract_terms` and `intake_bundles`
@@ -1661,6 +1666,103 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 242 (cont., 2026-08-27) — three things the first live run showed
+
+The bundle engine ran against real documents for the first time. Everything below
+was found by USING it, not by reviewing it, which is worth noting: 52 defects were
+caught by two red teams before it shipped and these three still got through.
+
+**1. The review modal could not be reached.** `#modal-loan-bundle` was written with
+`class="modal-backdrop"`. There is no `.modal-backdrop` rule in this dashboard —
+every other modal uses `.modal-overlay`. So the div had no `position`, no
+`z-index`, nothing: it rendered as an ordinary block in the Loans tab's normal
+flow, roughly 2,400px down the page, 480px wide, with "Apply selected" off the
+bottom of the screen and no way to scroll to it. Fixed by using `.modal-overlay`
+like everything else, plus `width:min(920px,94vw)` (the base `.modal` rule pins
+`width:480px`, which `max-width` cannot widen), `min-height:0` on the body so the
+flex child can actually shrink and scroll, and `z-index:900` — **the batch bar is
+`z-index:850` and stays visible while this modal is open, because the modal is
+launched from it.** Verified by rendering the real markup in headless Chromium at
+three viewport sizes and asserting the Apply button is in the viewport, is the
+topmost element at its own centre, and actually clicks; the same assertions fail
+on the old markup at `(0, 2400)`.
+
+*The general lesson: a class name that does not exist fails silently in CSS.*
+Nothing warns. Grep the stylesheet for any class you are about to use for the
+first time in this file.
+
+**2. The engine could not recognise its own documents.** David: *"the engine
+doesn't automatically recognize these are belonging to Stripe without my input."*
+The old matcher compared the account reference printed on the document against
+`loan_accounts.lender_account_number` and gave up when they disagreed — which for
+Stripe Capital they always do, because the agreement names `acct_1MPrRD…` and the
+loan record stores the string `STRIPE-CAPITAL`. Replaced with a ranked matcher in
+**`_shared/loan-matcher.ts`** (pure, 29 assertions in `tests/loan-matcher.test.mts`):
+
+1. the account number, **exact equality only** — the old rule also accepted "the
+   last 8 characters agree", which is a coincidence generator;
+2. an account reference **learned from a document filed earlier** (the first
+   Stripe bundle records `acct_…` as a `lender_account_ref` contract term, and
+   from then on the matcher recognises it — this rung is what makes it
+   self-healing);
+3. the lender a parser recognised, when exactly one **active** loan is theirs.
+
+**Every rung must resolve to exactly one loan or it is discarded.** The four Ford
+loans and the two BayFirst loans narrow to several and are refused, which is the
+correct answer — and the tests spend more effort on the refusals than the matches.
+A matching original amount deliberately does **not** break a tie; it only
+strengthens the sentence the human reads. Whichever rung fired is reported in the
+plan, so a match made on a lender's name is visibly weaker than one made on an
+account number.
+
+**3. A $125,000 balance that was never the balance.** The Needs Attention panel
+read `Expected: $125,000.00 (lender, as shown)` against a true $123,091.66. Cause:
+`mergePortal` was a first-non-null pick. Two screenshots — a loan-details screen
+and a deposit screen — both stated an "amount remaining"; they disagreed by
+$1,908.34; the merge kept whichever arrived first and discarded the other **without
+a word**.
+
+That is the one thing this module exists not to do. Reading documents together is
+only worth something if a disagreement between them survives the reading. Now, in
+**`_shared/portal-figures.ts`** (32 assertions):
+
+* two screens agreeing on a figure → keep it, and record the agreement as a
+  corroboration (that is real evidence and the plan should show it);
+* two screens disagreeing → **drop the figure** and say so, naming both files and
+  both numbers;
+* one screen silent → take the other's, as before.
+
+Dropping is deliberately the outcome rather than "prefer the higher / later / more
+precise". Every such rule is a tie-break dressed up as reasoning, and this module's
+job when the documents do not settle a question is to hand the question back.
+`mergePortal` is now order-independent, which is asserted directly — the old code
+gave different answers depending on upload order.
+
+A cross-document dispute is also reported **separately** from a screen failing its
+own arithmetic (`disputes` vs `warnings`). They had shared one framing, and
+"a figure read off a screenshot did not check out … it failed its own arithmetic"
+is simply untrue of two screens contradicting each other, and points at the wrong
+fix.
+
+**Files:** `_shared/loan-matcher.ts` (new), `_shared/portal-figures.ts` (new, the
+`PortalTotals` interface plus `checkPortalTotals` and `mergePortal` lifted out of
+`loan-bundle/index.ts`), `tests/loan-matcher.test.mts` (new),
+`tests/portal-figures.test.mts` (new), `loan-bundle/index.ts`,
+`admin-dashboard/index.html`.
+
+**Test totals: 68 + 29 + 32 = 129 assertions, all passing.**
+
+*Note on `deno check`: `loan-bundle/index.ts` reports one pre-existing TS2345 at
+the `crypto.subtle.digest('SHA-256', bytes)` call — a `Uint8Array<ArrayBufferLike>`
+vs `BufferSource` lib mismatch in deno 2.9.x, not a real defect. It is in the
+already-deployed v2 and runs fine. Do not "fix" it by widening the type.*
+
+**Where to pick up:** deploy `loan-bundle` and push, then re-run the same four
+Stripe documents and check three things — the modal centres with Apply reachable,
+the plan's headline names Stripe Capital without being told, and the $125,000
+figure is gone, replaced by a question naming both screenshots. Nothing here
+changes what gets written; the confirm step still applies the stored plan verbatim.
 
 ### Session 242 (2026-08-27) — several documents about one loan, and the fact that decides how a payment is booked
 

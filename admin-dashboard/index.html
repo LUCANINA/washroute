@@ -3611,17 +3611,17 @@
                  assuming it, and a portal screenshot's "amount remaining" is what
                  says which of two possible meanings the books' balance carries.
                  Nothing here writes until the tickboxes are approved. -->
-            <div class="modal-backdrop" id="modal-loan-bundle" style="display:none">
-              <div class="modal" style="max-width:920px;max-height:88vh;display:flex;flex-direction:column">
-                <div class="modal-header">
+            <div class="modal-overlay" id="modal-loan-bundle" style="display:none;z-index:900">
+              <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+                <div class="modal-header" style="flex-shrink:0">
                   <div>
                     <div class="modal-title" id="lb-title">Reading these together…</div>
                     <div class="card-sub" id="lb-sub"></div>
                   </div>
                   <button class="modal-close" onclick="closeLoanBundleModal()">&times;</button>
                 </div>
-                <div class="modal-body" id="lb-body" style="overflow:auto;flex:1"></div>
-                <div class="modal-footer">
+                <div class="modal-body" id="lb-body" style="overflow-y:auto;flex:1 1 auto;min-height:0"></div>
+                <div class="modal-footer" style="flex-shrink:0">
                   <div id="lb-error" style="color:var(--danger);font-size:13px;flex:1"></div>
                   <button class="btn btn-ghost" onclick="closeLoanBundleModal()">Cancel</button>
                   <button class="btn btn-primary" id="lb-apply" style="display:none" onclick="bkApplyBundle()">Apply selected</button>

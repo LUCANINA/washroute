@@ -59,6 +59,8 @@ import {
 import { buildPlan, summarisePlan, type PlanContext, type BundleDocument, type BundlePlan } from '../_shared/loan-bundle-plan.ts'
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
+import { matchLoan } from '../_shared/loan-matcher.ts'
+import { checkPortalTotals, mergePortal, type PortalTotals } from '../_shared/portal-figures.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -116,18 +118,6 @@ async function extractPdfText(bytes: Uint8Array): Promise<string> {
 // numbers on it — and control totals are precisely what a bundle needs, because
 // they are the lender's own statement of the answer the books are supposed to reach.
 
-interface PortalTotals {
-  as_of: string | null
-  amount_remaining: number | null
-  paid_to_date: number | null
-  principal_paid: number | null
-  fee_paid: number | null
-  total_amount_due: number | null
-  funds_deposited: number | null
-  funds_deposited_date: string | null
-  checks: string[]
-  warnings: string[]
-}
 
 const PORTAL_TOOL = {
   name: 'report_portal_totals',
@@ -188,6 +178,7 @@ async function readPortalScreenshot(base64: string, mediaType: string): Promise<
     const dateOrNull = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
     return {
       as_of: dateOrNull(i.as_of),
+      sources: [], disputes: [],
       amount_remaining: numOrNull(i.amount_remaining),
       paid_to_date: numOrNull(i.paid_to_date),
       principal_paid: numOrNull(i.principal_paid),
@@ -204,44 +195,6 @@ async function readPortalScreenshot(base64: string, mediaType: string): Promise<
   }
 }
 
-/**
- * Arithmetic-check a transcribed screenshot against ITSELF before trusting it.
- *
- * A model reading a picture is the least reliable input this system has, so a
- * figure off a screenshot only earns its place by participating in a sum that
- * comes out right. Two identities the lender's own screen must satisfy:
- *
- *     principal paid + fee paid = paid to date
- *     total due − paid to date  = amount remaining
- *
- * A number that fails one of these is dropped, not corrected. Session 242's
- * screenshots passed both to the cent, which is the only reason their figures
- * were allowed to establish the loan's carrying basis.
- */
-function checkPortalTotals(p: PortalTotals): PortalTotals {
-  const near = (a: number, b: number) => Math.abs(a - b) <= 0.02
-  const checks: string[] = []
-  const warnings: string[] = []
-  const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-  if (p.principal_paid !== null && p.fee_paid !== null && p.paid_to_date !== null) {
-    if (near(p.principal_paid + p.fee_paid, p.paid_to_date)) {
-      checks.push(`The screen's own parts add up: ${fmt(p.principal_paid)} financing + ${fmt(p.fee_paid)} fee = ${fmt(p.paid_to_date)} paid.`)
-    } else {
-      warnings.push(`The screen's parts do not add up (${fmt(p.principal_paid)} + ${fmt(p.fee_paid)} ≠ ${fmt(p.paid_to_date)}), so these three figures were dropped rather than used.`)
-      p.principal_paid = p.fee_paid = p.paid_to_date = null
-    }
-  }
-  if (p.total_amount_due !== null && p.paid_to_date !== null && p.amount_remaining !== null) {
-    if (near(p.total_amount_due - p.paid_to_date, p.amount_remaining)) {
-      checks.push(`The remaining balance ties to the total: ${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} = ${fmt(p.amount_remaining)}.`)
-    } else {
-      warnings.push(`The remaining balance does not tie to the total less what is paid (${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} ≠ ${fmt(p.amount_remaining)}), so the remaining balance was dropped.`)
-      p.amount_remaining = null
-    }
-  }
-  return { ...p, checks, warnings }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth
@@ -277,6 +230,12 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   let csvRaw: string | null = null
   let portal: PortalTotals | null = null
   let acctRefFromDoc: string | null = null
+  // The lender a parser RECOGNISED, as opposed to an account number it read.
+  // A document can name its lender unmistakably and still carry an account
+  // reference that matches nothing on file — which is the normal case for Stripe
+  // Capital, whose agreement names acct_1MPrRD... while the loan record's
+  // lender_account_number is the string 'STRIPE-CAPITAL'.
+  const lenderHints = new Set<string>()
 
   const bundleId = crypto.randomUUID()
 
@@ -320,6 +279,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
           agreementTerms = a.terms; agreementChecks = a.checks_passed; agreementUnresolved = a.unresolved
           const ref = a.terms.find(t => t.term_key === 'lender_account_ref')?.value_text
           if (ref) acctRefFromDoc = String(ref)
+          lenderHints.add('Stripe Capital')
           role = `The signed agreement — the only document here that states the loan's terms.`
         } else {
           agreementUnresolved = [a.refused_because || 'The agreement could not be read.']
@@ -334,6 +294,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       if (detectStripeCapitalCsv(text)) {
         csvRaw = text
         csv = parseStripeCapitalCsv(text)
+        lenderHints.add('Stripe Capital')
         kind = 'transaction_history'; label = csv.lender_label; confidence = csv.ok ? 'high' : 'low'
         role = csv.ok
           ? `The lender's own ledger — every payment it took, and how each one splits between financing and fee.`
@@ -345,9 +306,11 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       kind = 'balance_screenshot'
       if (p) {
         const checked = checkPortalTotals(p)
-        // Merge across screenshots: one screen shows the terms, another the
-        // funding row. Take the first non-null of each — never overwrite a
-        // figure that already passed its arithmetic check with a later null.
+        checked.sources = [filename]
+        // Merge across screenshots. One screen shows the terms, another the
+        // funding row, so a figure missing from one is filled from the other.
+        // But two screens STATING THE SAME FIGURE DIFFERENTLY is a conflict, not
+        // a tie to be broken quietly — see mergePortal.
         portal = portal ? mergePortal(portal, checked) : checked
         confidence = checked.checks.length ? 'high' : 'medium'
         role = `The lender's own screen — its statement of what is still owed, which is what the books have to agree with.`
@@ -383,12 +346,37 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     loan = (loans || []).find((l: any) => l.id === body.loan_account_id) || null
     if (!loan) return json({ error: 'That loan account does not exist.' }, 404)
   }
+  // ── Which loan, when the caller did not say ──────────────────────────────
+  // The ranking lives in _shared/loan-matcher.ts, where it can be tested against
+  // the loan list's real collisions (four Ford loans, two BayFirst) without a
+  // request, a database or a storage bucket in the way. See that file for why
+  // every rung must resolve to exactly one loan or be discarded.
+  //
+  // The one piece of I/O the ranking needs is fetched here and handed in: the
+  // loans that already carry this document's account reference as a contract
+  // term, learned from an earlier bundle.
+  let learnedRefLoanIds: string[] = []
   if (!loan && acctRefFromDoc) {
-    const hits = (loans || []).filter((l: any) =>
-      l.lender_account_number === acctRefFromDoc ||
-      String(l.lender_account_number || '').endsWith(acctRefFromDoc.slice(-8)))
-    if (hits.length === 1) loan = hits[0]
+    const { data: refs } = await supa.from('loan_contract_terms')
+      .select('loan_account_id')
+      .eq('term_key', 'lender_account_ref').eq('value_text', acctRefFromDoc)
+      .is('superseded_at', null)
+    learnedRefLoanIds = (refs || []).map((r: any) => r.loan_account_id)
   }
+
+  let matchedOn: string | null = null
+  if (!loan) {
+    const m = matchLoan({
+      loans: (loans || []) as any,
+      acctRef: acctRefFromDoc,
+      lenderHints,
+      learnedRefLoanIds,
+      agreementLoanAmount: agreementTerms.find(t => t.term_key === 'loan_amount')?.value_numeric ?? null,
+    })
+    loan = m.loan
+    matchedOn = m.matchedOn
+  }
+
   if (!loan) {
     return json({
       error: 'These documents do not say which loan they belong to, and no loan was chosen. Pick the loan and try again.',
@@ -510,12 +498,44 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   for (const c of agreementChecks) {
     plan.corroborations.push({ statement: c, sources: ['agreement'], tie: 'exact' })
   }
+  // Two screens contradicting each other is not the same problem as one screen
+  // failing its own arithmetic, and it does not have the same fix, so it is asked
+  // as its own question. This is the shape that reported a $125,000 balance
+  // against the lender's own $123,091.66.
+  if (portal?.disputes?.length) {
+    for (const d of portal.disputes) {
+      plan.unresolved.push({
+        question: 'Two of these screenshots do not say the same thing.',
+        why_it_matters: 'Documents that contradict each other cannot both be evidence, and choosing between them would be a guess. The disputed figure was dropped, so nothing in this plan rests on it.',
+        what_would_answer_it: d,
+      })
+    }
+  }
   if (portal?.warnings.length) {
     for (const w of portal.warnings) {
       plan.unresolved.push({
         question: 'A figure read off a screenshot did not check out.',
         why_it_matters: 'A number read from a picture is the least reliable input here, so one that fails its own arithmetic is dropped rather than used.',
         what_would_answer_it: w,
+      })
+    }
+  }
+
+  // How this bundle found its loan, said out loud. A match on the account number
+  // and a match on "there is only one Stripe loan" are not the same strength of
+  // claim, and the person approving eleven changes to a loan record deserves to
+  // know which one they are looking at.
+  if (matchedOn) {
+    plan.corroborations.push({
+      statement: `These documents were matched to ${loan.xero_account_name || loan.lender} by ${matchedOn}.`,
+      sources: ['agreement', 'loan record'], tie: 'exact',
+    })
+    if (!acctRefFromDoc || loan.lender_account_number !== acctRefFromDoc) {
+      plan.corroborations.push({
+        statement: acctRefFromDoc
+          ? `This loan's record stores its account number as "${loan.lender_account_number}", while the lender's own documents use "${acctRefFromDoc}". Recording the contract terms below files the lender's reference too, so the next set of documents for this loan is recognised without being asked.`
+          : `None of these documents carries an account reference, so the match rests on the lender's name alone.`,
+        sources: ['loan record'], tie: 'within_tolerance',
       })
     }
   }
@@ -535,16 +555,6 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   return json({ ok: true, dry_run: true, wrote_nothing_financial: true, bundle_id: row.id, plan })
 }
 
-function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
-  const pick = <K extends keyof PortalTotals>(k: K) => (a[k] ?? b[k]) as PortalTotals[K]
-  return {
-    as_of: pick('as_of'), amount_remaining: pick('amount_remaining'),
-    paid_to_date: pick('paid_to_date'), principal_paid: pick('principal_paid'),
-    fee_paid: pick('fee_paid'), total_amount_due: pick('total_amount_due'),
-    funds_deposited: pick('funds_deposited'), funds_deposited_date: pick('funds_deposited_date'),
-    checks: [...a.checks, ...b.checks], warnings: [...a.warnings, ...b.warnings],
-  }
-}
 
 function contentTypeFor(ext: string): string {
   const m: Record<string, string> = {
