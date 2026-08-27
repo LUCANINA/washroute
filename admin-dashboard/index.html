@@ -3434,6 +3434,37 @@
             @keyframes bkCountBounce { 0% { transform: scale(1); } 35% { transform: scale(1.18); } 100% { transform: scale(1); } }
             .bk-confetti-piece { position: absolute; width: 7px; height: 11px; border-radius: 2px; top: -14px; animation: bkConfettiFall 1.5s ease-in forwards; pointer-events: none; }
             @keyframes bkConfettiFall { 0% { transform: translate(0, 0) rotate(0deg); opacity: 1; } 100% { transform: translate(var(--cf-x), 240px) rotate(var(--cf-r)); opacity: 0; } }
+            /* ── period bar (session 241) ── */
+            .lpb { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+            .lpb-seg { display:inline-flex; background:var(--gray-100); border:1px solid var(--gray-200);
+              border-radius:11px; padding:3px; gap:3px; }
+            .lpb-seg button { font:inherit; cursor:pointer; border:0; background:transparent;
+              color:var(--gray-500); padding:7px 15px 7px 13px; border-radius:8px; display:flex;
+              align-items:center; gap:9px; text-align:left; line-height:1.15;
+              transition:background .12s, color .12s, box-shadow .12s; }
+            .lpb-seg button:hover { color:var(--gray-700); }
+            .lpb-seg button:focus-visible { outline:2px solid var(--blue,#3b82f6); outline-offset:2px; }
+            .lpb-seg button.on { background:#fff; color:var(--gray-900);
+              box-shadow:0 1px 2px rgba(15,37,71,.10); }
+            .lpb-k { display:block; font-size:10px; font-weight:700; letter-spacing:.09em;
+              text-transform:uppercase; color:var(--gray-400); }
+            .lpb-seg button.on .lpb-k { color:#2563eb; }
+            .lpb-v { display:block; font-size:13.5px; font-weight:650; }
+            .lpb-pip { width:8px; height:8px; border-radius:50%; flex:none; }
+            .lpb-pip.warn { background:#f59e0b; }
+            .lpb-pip.ok   { background:#16a34a; }
+            .lpb-pip.live { background:#3b82f6; }
+            .lpb-count { font-size:10.5px; font-weight:700; background:#fffbeb; color:#92400e;
+              border:1px solid #fde68a; border-radius:20px; padding:1px 7px; margin-left:2px; }
+            .lpb-chips { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+            .lpb-chip { font-size:11.5px; color:var(--gray-500); background:var(--gray-50,#f9fafb);
+              border:1px solid var(--gray-200); border-radius:20px; padding:3px 10px; }
+            /* Close tiles reuse the module's bk-tile shell; only the meter is new. */
+            .lct-meter { display:flex; gap:3px; margin-top:9px; }
+            .lct-meter i { height:5px; flex:1; border-radius:2px; background:var(--gray-200); }
+            .lct-meter i.in  { background:#16a34a; }
+            .lct-meter i.out { background:#f59e0b; }
+            .lct-meter i.na  { background:var(--gray-200); }
             .bk-queue-stale { font-size: 11.5px; color: #92400e; background: #fffbeb;
               border: 1px solid #fde68a; border-radius: 5px; padding: 3px 7px;
               margin-top: 5px; display: inline-block; }
@@ -3601,19 +3632,36 @@
             <div class="bk-load-banner"></div>
           <div id="loans-subview-manage">
 
-          <!-- ── THE CLOSE BAND (session 239) ────────────────────────────────
-               David's original ask for this page: "I want this display page to
-               reflect both the past (i.e. last month) that needs to be closed,
-               and the present (this month)." Two bands, past ON TOP, because
-               the past is the half with a deadline. Deliberately NOT a period
-               toggle — session 238 removed a Loans sub-toggle and putting one
-               straight back would be churn; a closing month you have to click
-               to see is a closing month you forget.
-               The rollforward is the workpaper a CPA actually signs: opening
-               minus principal paid must equal what the lender says. Every
-               column comes from data loadLoans() already holds. -->
-          <div id="loans-close-band" style="margin-bottom:24px"></div>
+          <!-- ── THE PERIOD BAR (session 241) ────────────────────────────────
+               Session 239 stacked the two months, past on top, and wrote down
+               why it was NOT a toggle: "a closing month you have to click to
+               see is a closing month you forget." That objection is right, and
+               it is the thing this design has to answer rather than ignore.
+               David has now seen both and wants the toggle, so it answers it
+               three ways instead of arguing:
 
+                 1. The closing month is the DEFAULT view for as long as it is
+                    blocked. You land on it; you do not go looking for it.
+                 2. Its tab carries a live count of what is blocking it, so the
+                    unfinished work is legible from the other view.
+                 3. Only once the close is clean does the page open on the month
+                    in flight — at which point forgetting it costs nothing.
+
+               Stacking was honest but it made the page two full workpapers
+               long, and the reader had to hold "which month am I looking at"
+               in their head the whole way down. One question, answered once, at
+               the top. -->
+          <div id="loans-period-bar"></div>
+
+          <div id="loans-period-closing">
+            <!-- The rollforward is the workpaper a CPA actually signs: opening
+                 minus principal paid must equal what the lender says. Every
+                 column comes from data loadLoans() already holds. -->
+            <div id="loans-close-tiles" style="margin-bottom:18px"></div>
+            <div id="loans-close-band" style="margin-bottom:24px"></div>
+          </div>
+
+          <div id="loans-period-inflight" style="display:none">
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="loans-summary" style="margin-bottom:20px"></div>
 
@@ -3645,6 +3693,7 @@
               <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
             </div>
           </div>
+          </div><!-- /loans-period-inflight -->
           </div><!-- /loans-subview-manage -->
 
           </div><!-- /bk-view-loans -->
@@ -12187,6 +12236,11 @@
   // than blanking it — stale is recoverable, confidently-wrong is not.
   let _bkLoansLoaded = false;
   let _bkPayrollLoaded = false;
+  // The accountant's close date, for the period bar's chip. Read separately from
+  // loadLoans' main batch so a failure here can never take the loan data with it
+  // — a missing chip is cosmetic, a missing rollforward is not.
+  let _bkCloseDate = null;
+  let _bkXeroLockDate = null;
   function _bkDataReady() { return _bkLoansLoaded && _bkPayrollLoaded; }
 
   // PostgREST's db-max-rows. Asking for exactly this many is what makes a
@@ -12243,6 +12297,16 @@
       return;                       // keep the last good data rather than blanking it
     }
     _bkClearLoadError('loans');
+    // Fire-and-forget: the chip it feeds is decoration, and the close band must
+    // not wait on it or fail with it.
+    db.from('settings').select('books_closed_through, xero_period_lock_date').eq('id', 1).single()
+      .then(({ data: st }) => {
+        if (!st) return;
+        _bkCloseDate = st.books_closed_through || null;
+        _bkXeroLockDate = st.xero_period_lock_date || null;
+        try { renderLoansPeriodBar(); } catch (_) {}
+      })
+      .catch(() => {});
     const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }] = _res;
     _bkCheckRowCap('loan_amortization_rows', amortRows);
     _bkCheckRowCap('loan_statements', statements);
@@ -12254,6 +12318,8 @@
     _allLoanAmortRows  = amortRows || [];
     _allLoanDocuments  = documents || [];
 
+    renderLoansPeriodBar();
+    renderLoansCloseTiles();
     renderLoansCloseBand();
     renderLoansSummary();
     renderLoansAttention();
@@ -12924,6 +12990,12 @@
 
   // The month the client is responsible for: the last COMPLETE one.
   function _cvLastMonth() { return _cvMonthsBack(1); }
+
+  // Bare month, for labels that sit under something already showing the year.
+  function _cvMonthShort(label) {
+    const [y, m] = label.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long' });
+  }
 
   function _cvMonthName(label) {
     const [y, m] = label.split('-').map(Number);
@@ -13896,6 +13968,154 @@
   }
 
 
+  // ── THE PERIOD BAR ────────────────────────────────────────────────────────
+  //
+  // Two months, one at a time: the one being CLOSED and the one IN FLIGHT.
+  // See the markup comment for why this replaced the stacked layout, and for
+  // the objection it has to keep answering — a closing month you have to click
+  // to see is a closing month you forget. The answer is that you do not have to
+  // click to see it while it is unfinished: it is the default, and its tab
+  // carries the count of what is blocking it from wherever you are standing.
+  const LOAN_PERIODS = ['closing', 'inflight'];
+  let _loansPeriod = null;          // null until the first render picks a default
+
+  // What is stopping the closing month, as a number. Shared by the tab badge and
+  // the tiles so the two cannot disagree — the same rule the rest of this module
+  // lives by.
+  function _loansCloseBlockers(month) {
+    if (!_bkLoansLoaded || !(_allLoanAccounts || []).length) return null;
+    const rf  = _loanCloseRollforward(month);
+    const cov = _bkStatementCoverage(month);
+    const unpostedTotal = rf.unpostedRows.reduce((n, r) =>
+      n + r.unposted.reduce((m, sp) => m + Number(sp.total_amount || 0), 0), 0);
+    return {
+      rf, cov, unpostedTotal,
+      missing: cov.missing.length,
+      off: rf.off.length,
+      unposted: rf.unpostedRows.length,
+      // The number of THINGS to deal with, not the number of kinds of thing.
+      // Three missing statements plus one unposted split is 4 pieces of work;
+      // reporting "2" because they fall in two categories reads as two items.
+      count: cov.missing.length + rf.off.length + rf.unpostedRows.length,
+    };
+  }
+
+  function switchLoansPeriod(p, opts) {
+    if (!LOAN_PERIODS.includes(p)) p = 'closing';
+    _loansPeriod = p;
+    const c = document.getElementById('loans-period-closing');
+    const f = document.getElementById('loans-period-inflight');
+    if (c) c.style.display = p === 'closing'  ? '' : 'none';
+    if (f) f.style.display = p === 'inflight' ? '' : 'none';
+    for (const key of LOAN_PERIODS) {
+      const b = document.getElementById('lpb-' + key);
+      if (b) { b.classList.toggle('on', key === p); b.setAttribute('aria-selected', String(key === p)); }
+    }
+    // Remembered per browser so a refresh mid-close does not bounce the reader
+    // back. Deliberately sessionStorage, not localStorage: the right default
+    // changes as the close progresses, and a stale choice from last week should
+    // not outrank it.
+    if (!(opts && opts.silent)) { try { sessionStorage.setItem('wr-loans-period', p); } catch (_) {} }
+  }
+
+  function renderLoansPeriodBar() {
+    const el = document.getElementById('loans-period-bar');
+    if (!el) return;
+    const closingMonth = _cvLastMonth();
+    const liveMonth    = today().slice(0, 7);
+    const b = _loansCloseBlockers(closingMonth);
+
+    // THE DEFAULT IS THE WHOLE ARGUMENT. While the close is blocked you land on
+    // it. Once it is clean, the month in flight is the useful view and the
+    // closing month costs nothing to forget.
+    if (_loansPeriod === null) {
+      let remembered = null;
+      try { remembered = sessionStorage.getItem('wr-loans-period'); } catch (_) {}
+      const dflt = (b && b.count === 0) ? 'inflight' : 'closing';
+      switchLoansPeriod(LOAN_PERIODS.includes(remembered) ? remembered : dflt, { silent: true });
+    }
+
+    const pip = b == null ? 'live' : (b.count ? 'warn' : 'ok');
+    const badge = b && b.count
+      ? `<span class="lpb-count">${b.count} to clear</span>` : '';
+
+    el.innerHTML = `
+      <div class="lpb-seg" role="tablist" aria-label="Accounting period">
+        <button id="lpb-closing" role="tab" class="${_loansPeriod === 'closing' ? 'on' : ''}"
+                aria-selected="${_loansPeriod === 'closing'}" onclick="switchLoansPeriod('closing')">
+          <span class="lpb-pip ${pip}"></span>
+          <span><span class="lpb-k">Closing</span><span class="lpb-v">${esc(_cvMonthName(closingMonth))}</span></span>
+          ${badge}
+        </button>
+        <button id="lpb-inflight" role="tab" class="${_loansPeriod === 'inflight' ? 'on' : ''}"
+                aria-selected="${_loansPeriod === 'inflight'}" onclick="switchLoansPeriod('inflight')">
+          <span class="lpb-pip live"></span>
+          <span><span class="lpb-k">In flight</span><span class="lpb-v">${esc(_cvMonthName(liveMonth))}</span></span>
+        </button>
+      </div>
+      <div class="lpb-chips">
+        <span class="lpb-chip">${_bkCloseDate ? `Books closed through <b>${esc(_bkCloseDate)}</b>` : 'Close date not set'}</span>
+        ${_bkXeroLockDate
+          ? `<span class="lpb-chip">Xero lock date <b>${esc(_bkXeroLockDate)}</b></span>`
+          : `<span class="lpb-chip" style="background:#fffbeb;border-color:#fde68a;color:#92400e" title="Our close date stops US from posting into a closed month. Without a lock date in Xero, nothing stops anyone editing it there directly.">Xero lock date: not set</span>`}
+      </div>`;
+  }
+
+  // ── The closing month, as four numbers ────────────────────────────────────
+  // Everything here is already computed for the rollforward below; the tiles
+  // just say it before the table does, so the answer to "can I close?" does not
+  // require reading fourteen rows first.
+  function renderLoansCloseTiles() {
+    const el = document.getElementById('loans-close-tiles');
+    if (!el) return;
+    const month = _cvLastMonth();
+    const b = _loansCloseBlockers(month);
+    if (!b) { el.innerHTML = ''; return; }
+    const name = _cvMonthShort(month);
+    const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const tile = (label, value, sub, color, extra) => `<div class="bk-tile">
+      <div class="bk-tile-label">${esc(label)}</div>
+      <div class="bk-tile-value"${color ? ` style="color:${color}"` : ''}>${value}</div>
+      ${extra || ''}
+      ${sub ? `<div class="bk-tile-delta flat">${sub}</div>` : ''}</div>`;
+
+    const received = b.cov.expected.length - b.cov.missing.length;
+    const meter = '<div class="lct-meter">'
+      + b.cov.expected.map((_, i) => `<i class="${i < received ? 'in' : 'out'}"></i>`).join('')
+      + '</div>';
+    // _bkStatementCoverage returns [{account, statement}], not bare accounts.
+    // Reading it as accounts printed "Missing: , , " — three empty names and no
+    // error anywhere. The harness was green through all of it.
+    const missingNames = b.cov.missing
+      .map(m => (m.account || m).xero_account_name || (m.account || m).lender_account_number)
+      .filter(Boolean).join(', ');
+
+    // Paid in the closing month, from the same rollforward the table foots to.
+    const paidP = b.rf.totals.principal + b.rf.excluded.principal;
+    const paidI = b.rf.totals.interest  + b.rf.excluded.interest;
+
+    el.innerHTML = '<div class="bk-tiles">'
+      + tile(`${name} statements received`,
+          `${received} <span style="font-size:.6em;color:var(--gray-400);font-weight:600">of ${b.cov.expected.length}</span>`,
+          b.missing ? `Missing: ${esc(missingNames)}` : 'Every expected statement is in.',
+          b.missing ? 'var(--amber,#b45309)' : 'var(--green)', meter)
+      + tile(`${name} rollforward variance`,
+          b.rf.totals.variance < 0.005 ? '$0.00' : money(b.rf.totals.variance),
+          b.rf.totals.variance < 0.005
+            ? `All ${b.rf.checkable.length} checkable loans tie to the cent.`
+            : `${b.off} loan${b.off === 1 ? '' : 's'} disagree with the lender.`,
+          b.rf.totals.variance < 0.005 ? 'var(--green)' : 'var(--red)')
+      + tile('Not yet in Xero',
+          b.unposted ? money(b.unpostedTotal) : '$0.00',
+          b.unposted
+            ? `${b.unposted} ${name} split${b.unposted === 1 ? '' : 's'} still unposted.`
+            : 'Everything for this month is booked.',
+          b.unposted ? 'var(--red)' : 'var(--green)')
+      + tile(`Paid in ${name}`, money(paidP + paidI),
+          `${money(paidP)} principal · ${money(paidI)} interest`)
+      + '</div>';
+  }
+
   function renderLoansCloseBand() {
     const el = document.getElementById('loans-close-band');
     if (!el) return;
@@ -13982,9 +14202,8 @@
 
     el.innerHTML = `
       <div class="lcb-head">
-        <h3>Closing ${esc(name)}</h3>
+        <h3>${esc(name)} rollforward</h3>
         <span class="lcb-why">Opening balance minus principal paid must equal what the lender says.</span>
-        <span class="lcb-right">${esc(_cvMonthName(today().slice(0, 7)))} is still open — see All Loans below for where things stand today</span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}">
         <span class="lcb-lead">For ${esc(name)}: ${blocked ? 'not ready to close.' : 'ready for your accountant.'}</span>
