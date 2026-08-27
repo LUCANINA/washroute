@@ -101,5 +101,45 @@ section('the headline is a bounded score')
   ok('the denominator is the loan count, not the finding count', counts.total === 14)
 }
 
+section('the number shown is the RESIDUAL, never the anchor-date snapshot')
+{
+  // Session 231 removed `difference` from the finding headline because it
+  // overstated four of ten. The first roster read the raw column and brought it
+  // straight back in a new surface: PCV rendered "$5,335.52 above the lender"
+  // directly above a finding reading "$1,802.58 below" — different number,
+  // opposite direction, same loan, same screen.
+  const shown = (tie: any) => {
+    const r = tie?.detail?.residual_after_later
+    return (r == null || !Number.isFinite(Number(r))) ? Number(tie.difference) : Number(r)
+  }
+  const pcv = { difference: 5335.52, detail: { residual_after_later: -1802.58 } }
+  ok('PCV shows the residual', shown(pcv) === -1802.58)
+  ok('...not the anchor-date figure', shown(pcv) !== 5335.52)
+  ok('...and the direction follows the residual', shown(pcv) < 0)
+
+  ok('a tie-out with no residual falls back to difference',
+     shown({ difference: 415.88, detail: {} }) === 415.88)
+  ok('...and so does one with no detail at all',
+     shown({ difference: 266.42 }) === 266.42)
+  // A residual of exactly zero is a real answer and must not fall back.
+  ok('a zero residual is used, not replaced',
+     shown({ difference: 900, detail: { residual_after_later: 0 } }) === 0)
+  ok('a non-numeric residual falls back rather than rendering NaN',
+     shown({ difference: 120, detail: { residual_after_later: 'oops' } }) === 120)
+}
+
+section('every issue reaches the loan it belongs to')
+{
+  // _bkIssueQueueItems builds NEW objects that do not carry .finding, so the
+  // first version orphaned every single finding into "Not tied to one loan"
+  // while the loans above showed no children at all.
+  const loanIdOf = (it: any) => it?.loanId ?? it?.account?.id ?? it?.finding?.loan_account_id ?? null
+  ok('the queue item shape resolves', loanIdOf({ loanId: 'fc' }) === 'fc')
+  ok('the raw attention item still resolves', loanIdOf({ finding: { loan_account_id: 'pcv' } }) === 'pcv')
+  ok('a loan flag resolves', loanIdOf({ account: { id: 'e4140' } }) === 'e4140')
+  ok('a multi-loan group is legitimately unplaceable', loanIdOf({ loanId: null }) === null)
+  ok('so is a payroll item', loanIdOf({}) === null)
+}
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

@@ -1809,6 +1809,54 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 13, 2026-08-27) — an optional enrichment took the primary job hostage
+
+**David could not file his four documents at all: "Timed out waiting for a
+response."** My fault, and the arithmetic was there to be done before shipping.
+
+The dashboard's `_loanFn` has a **25-second** timeout. The bundle plan already
+spends most of that on a PDF, 1,352 CSV rows and two screenshot reads. Then cont.
+9 added `with_lines: true`, which hydrates **every** journal in a 42-day window —
+seventy of them, paced by xero-read to 58/min — **about 72 seconds on its own.**
+
+*The primary job is reading four documents. The fee lookup is a nice-to-have. I
+let the nice-to-have block the job, which is a worse failure than never having
+built it.* Anything optional that reaches the network needs a budget SMALLER than
+the request it rides in, and has to degrade rather than block.
+
+**Two fixes:**
+
+1. **A hard 7-second budget**, with the remaining allowance passed to every call
+   via `AbortController` so one slow reply cannot spend the lot. Out of time
+   yields `incomplete` **naming the reason** — never a silent partial answer.
+2. **Narration triage** (`loan-bundle/candidates.ts`). Narration comes back in the
+   LIST **for free**, and the real entry reads *"Stripe Capital Loan — record
+   Fixed Fee ($20,875.00) per loan agreement"*. Matching the loan name, the lender
+   or the fee figure turns **seventy hydrations into one**. It is triage, not a
+   filter: unmatched entries still get opened blind, just a bounded twelve of
+   them, and the verdict says so when the window held more.
+
+*It is in its own file because `index.ts` imports `jsr:` and `npm:` specifiers, so
+nothing in it can be reached by a test — and this rule is the difference between a
+7-second search and a 72-second one, which is exactly the kind of thing that must
+be tested.*
+
+**A floor on the figure, found by its own test.** A `$1` fee marked every entry in
+the window likely — "1" occurs in 2026 and in most amounts — collapsing the triage
+back into the exhaustive scan it exists to avoid. Digit needles are only used at
+four characters or more ($1,000+); below that the words carry it alone. Same shape
+as the loan matcher's short-name floor, learned again.
+
+**Files:** `loan-bundle/index.ts`, `loan-bundle/candidates.ts` (new),
+`tests/origination-fee.test.mts` (71 → 84).
+
+**Test totals: 68 + 29 + 95 + 47 + 84 + 17 + 35 = 375 assertions, all passing.**
+
+**Where to pick up:** deploy `loan-bundle` and file the four documents — this is
+the blocker that has to clear before anything else. The fee answer should still
+come back (account **264, Loan Fees**), because narration finds it on the first
+lookup rather than the seventieth.
+
 ### Session 242 (cont. 12, 2026-08-27) — the roster: a score you can finish
 
 David: *"I like the idea of a per loan status (only show those with variances) so

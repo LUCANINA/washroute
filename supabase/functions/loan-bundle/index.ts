@@ -62,6 +62,7 @@ import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
 import { findOriginationFeeJournal, classifyFeeDebit, normaliseLedgerEntry, type LedgerEntry, type FeeSearchResult } from '../_shared/origination-fee.ts'
+import { rankFeeCandidates } from './candidates.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -467,7 +468,8 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     const fee = agreementTerms.find(t => t.term_key === 'fixed_fee')?.value_numeric ?? null
     const orig = agreementTerms.find(t => t.term_key === 'origination_date')?.value_date ?? loan.original_date ?? null
     if (typeof fee === 'number' && fee > 0) {
-      feeSearch = await searchLedgerForFeeJournal(loan.xero_account_code ?? null, fee, orig)
+      feeSearch = await searchLedgerForFeeJournal(loan.xero_account_code ?? null, fee, orig,
+        { loanName: loan.xero_account_name ?? null, lender: loan.lender ?? null })
     }
   }
 
@@ -633,9 +635,23 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
 // because silence is only meaningful when the search really was exhaustive. A Xero
 // outage must never become "no fee entry exists".
 const FEE_WINDOW_DAYS = 21
+// The whole bundle request must land inside the dashboard's 25s `_loanFn`
+// timeout, and it already spends most of that reading a PDF, 1,352 CSV rows and
+// two screenshots. So this search gets a HARD slice of what is left and nothing
+// more.
+//
+// The first version had no budget at all: with `with_lines` it hydrated every
+// journal in a 42-day window — seventy of them, paced to 58/min by xero-read —
+// which is about 72 seconds on its own. David got "Timed out waiting for a
+// response" and could not file his documents. **An optional enrichment had taken
+// the primary job hostage**, which is a worse failure than never having built it.
+const FEE_BUDGET_MS = 7_000
+// How many entries to open when narration gives us nothing to go on.
+const FEE_BLIND_HYDRATE = 12
 
 async function searchLedgerForFeeJournal(
   loanAccountCode: string | null, feeAmount: number, origination: string | null,
+  hints: { loanName?: string | null; lender?: string | null },
 ): Promise<FeeSearchResult | null> {
   if (!loanAccountCode || !origination || !(feeAmount > 0)) return null
 
@@ -651,13 +667,35 @@ async function searchLedgerForFeeJournal(
   const to   = new Date(t + FEE_WINDOW_DAYS * day).toISOString().slice(0, 10)
   const xd = (iso: string) => `DateTime(${iso.slice(0, 4)},${iso.slice(5, 7)},${iso.slice(8, 10)})`
 
+  const deadline = Date.now() + FEE_BUDGET_MS
+  const left = () => deadline - Date.now()
+
+  const call = async (body: unknown) => {
+    const ms = left()
+    if (ms <= 250) throw new Error('out of time')
+    // Every call carries the REMAINING budget, so one slow reply cannot spend the
+    // whole allowance and leave nothing for the rest.
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), ms)
+    try {
+      const res = await fetch(url, {
+        method: 'POST', signal: ac.signal,
+        headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`xero-read ${res.status}`)
+      return await res.json()
+    } finally { clearTimeout(timer) }
+  }
+  const rowsOf = (r: any): any[] =>
+    Array.isArray(r?.items) ? r.items
+    : Array.isArray(r?.results) ? r.results
+    : Array.isArray(r?.ManualJournals) ? r.ManualJournals
+    : Array.isArray(r?.BankTransactions) ? r.BankTransactions
+    : r?.item ? [r.item] : []
+
   const entries: LedgerEntry[] = []
   let complete = true
-  // WHY a failure list and not just a boolean: the first version returned
-  // `complete:false` and nothing else, so a run that failed said only "the ledger
-  // could not be searched" — about a journal that was sitting in the window, in
-  // range, at position 37. A diagnostic that discards its own diagnosis costs a
-  // whole round trip to re-learn what the code already knew.
   const trouble: string[] = []
 
   for (const [mode, source] of [
@@ -665,29 +703,27 @@ async function searchLedgerForFeeJournal(
     ['bank_transactions', 'bank_transaction'],
   ] as const) {
     try {
-      // with_lines makes xero-read list AND hydrate, using its own paced fetcher
-      // (5 concurrent, 58/min, retries, time budget). The previous version did
-      // this by hand, sequentially, capped at 40 — and 40 was less than the 70
-      // journals a single six-week window in this business actually contains.
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ mode, with_lines: true, where: `Date >= ${xd(from)} && Date <= ${xd(to)}` }),
-      })
-      const body = await res.json().catch(() => null)
-      if (!res.ok) {
-        complete = false
-        trouble.push(`${mode}: xero-read returned ${res.status}${body?.error ? ` (${String(body.error).slice(0, 120)})` : ''}`)
-        continue
-      }
-      if (body?.complete === false) {
-        complete = false
-        trouble.push(`${mode}: ${body.hydrated ?? 0} of ${body.count ?? 0} read${body.unreadable ? `, ${body.unreadable} unreadable` : ''}${body.not_attempted ? `, ${body.not_attempted} not reached in time` : ''}`)
-      }
-      for (const raw of (Array.isArray(body?.results) ? body.results : [])) {
-        const e = normaliseLedgerEntry(raw, source)
-        if (e) entries.push(e)
-        else { complete = false; trouble.push(`${mode}: an entry could not be read`) }
+      // The LIST is one cheap call and carries narration, which is enough to know
+      // what is worth opening.
+      const list = await call({ mode, where: `Date >= ${xd(from)} && Date <= ${xd(to)}` })
+      const rows = rowsOf(list).map((r: any) => ({
+        id: String(r.id ?? r.ManualJournalID ?? r.BankTransactionID ?? ''),
+        narration: r.narration ?? r.Narration ?? null,
+        reference: r.reference ?? r.Reference ?? null,
+      })).filter(r => r.id)
+
+      const { likely, rest } = rankFeeCandidates(rows, { ...hints, feeAmount })
+      const order = likely.concat(rest.slice(0, FEE_BLIND_HYDRATE))
+      if (order.length < rows.length) complete = false
+
+      for (const id of order) {
+        if (left() <= 250) { complete = false; trouble.push(`${mode}: ran out of time with ${rows.length} entries in the window`); break }
+        try {
+          const one = await call({ mode, id })
+          const e = normaliseLedgerEntry(rowsOf(one)[0] ?? one, source)
+          if (e) entries.push(e)
+          else complete = false
+        } catch (_) { complete = false }
       }
     } catch (err) {
       complete = false
@@ -695,43 +731,11 @@ async function searchLedgerForFeeJournal(
     }
   }
 
-  let r = findOriginationFeeJournal({
+  const r = findOriginationFeeJournal({
     journals: entries, searched: ['manual_journal', 'bank_transaction'],
     loanAccountCode, feeAmount, complete, windowFrom: from, windowTo: to,
   })
-
-  // WHAT the debit account is decides what the answer MEANS, and classifyFeeDebit
-  // has known how to say that since it was written — it was simply never called,
-  // trimmed as an unused import and never wired back. Finding the account and not
-  // saying what it implies is half an answer.
-  const debit = r.debits[0]?.account
-  if (r.verdict === 'found' && debit) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ mode: 'accounts', where: `Code=="${String(debit).replace(/"/g, '')}"` }),
-      })
-      const body = await res.json().catch(() => null)
-      const acct = Array.isArray(body?.results) ? body.results[0] : null
-      if (acct) {
-        const c = classifyFeeDebit(acct.type ?? null, acct.class ?? null)
-        r = {
-          ...r,
-          debits: [{ ...r.debits[0], account_name: r.debits[0].account_name ?? acct.name ?? null }, ...r.debits.slice(1)],
-          treatment: { kind: c.kind, consequence: c.consequence, account_type: acct.type ?? null, account_class: acct.class ?? null },
-          statement: `${r.statement.replace(`account ${debit}`, acct.name ? `${acct.name} (${debit})` : `account ${debit}`)} ${c.consequence}`,
-        }
-      }
-    } catch (_) {
-      // The account lookup is a refinement, never a prerequisite. Failing it must
-      // not turn a found answer back into a question.
-    }
-  }
-  // Say what went wrong, in the sentence a person actually reads.
-  return trouble.length
-    ? { ...r, statement: `${r.statement} (${trouble.join('; ')}.)` }
-    : r
+  return trouble.length ? { ...r, statement: `${r.statement} (${trouble.join('; ')}.)` } : r
 }
 
 function contentTypeFor(ext: string): string {

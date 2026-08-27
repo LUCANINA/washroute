@@ -7,6 +7,7 @@
 
 import { findOriginationFeeJournal, classifyFeeDebit, normaliseLedgerEntry, xeroDate, type LedgerEntry as JournalWithLines }
   from '../supabase/functions/_shared/origination-fee.ts'
+import { rankFeeCandidates } from '../supabase/functions/loan-bundle/candidates.ts'
 
 
 let pass = 0, fail = 0
@@ -262,6 +263,55 @@ section('the real journal, verbatim from Xero')
        loanAccountCode: '304', feeAmount: 20875, complete: false,
        windowFrom: '2026-06-09', windowTo: '2026-07-21',
      }).verdict === 'incomplete')
+}
+
+section('narration triage — 70 hydrations down to 1')
+{
+  // The real window: 70 journals, of which exactly one is the fee. Opening all
+  // of them takes ~72s against Xero's rate limit and blew the 25s request
+  // timeout, so David could not file his documents at all. Narration comes back
+  // in the LIST for free and is enough to know what is worth opening.
+  const rows = [
+    { id: 'j1', narration: 'Accrued Interest - Convertible Notes MQY 2026' },
+    { id: 'j2', narration: 'To Allocate the Square payroll for June 2026' },
+    { id: 'j3', narration: 'Stripe Capital Loan — record Fixed Fee ($20,875.00) per loan agreement, bringing Total Repayment Amount to $145,875.00' },
+    { id: 'j4', narration: 'Depreciation' },
+    { id: 'j5', narration: 'New acquired FA Through Loan (Verdant Capital)' },
+  ]
+  const hints = { loanName: 'Stripe Capital Loan', lender: 'Stripe Capital', feeAmount: 20875 }
+  const { likely, rest } = rankFeeCandidates(rows, hints)
+  ok('the fee journal is picked out', likely.includes('j3'))
+  ok('...and it is the only one', likely.length === 1, likely.join(','))
+  ok('everything else is left for the blind pass', rest.length === 4)
+
+  // The figure alone is enough when the loan is not named.
+  ok('the amount matches with no loan name',
+     rankFeeCandidates([{ id: 'x', narration: 'Fee 20,875.00 capitalised' }],
+       { loanName: null, lender: null, feeAmount: 20875 }).likely.length === 1)
+  ok('...in bare digits too',
+     rankFeeCandidates([{ id: 'x', narration: 'fee of 20875' }],
+       { loanName: null, lender: null, feeAmount: 20875 }).likely.length === 1)
+  ok('a bank transaction reference is searched as well',
+     rankFeeCandidates([{ id: 'x', reference: 'Stripe Capital advance' }], hints).likely.length === 1)
+
+  // Short hints must not match everything — "PCV" would otherwise hit any text.
+  ok('a very short lender name is not used as a needle',
+     rankFeeCandidates([{ id: 'x', narration: 'unrelated payroll entry' }],
+       { loanName: 'PCV', lender: 'PCV', feeAmount: 999999 }).likely.length === 0)
+  ok('nothing matching yields nothing likely',
+     rankFeeCandidates(rows, { loanName: 'Nonexistent Bank', lender: 'Nonexistent', feeAmount: 999999 }).likely.length === 0)
+  ok('...and every row still reaches the blind pass',
+     rankFeeCandidates(rows, { loanName: 'Nonexistent Bank', lender: 'Nonexistent', feeAmount: 999999 }).rest.length === 5)
+  // A tiny fee is not a usable needle: "1" occurs in 2026 and in most amounts,
+  // so it would mark every entry likely and undo the triage entirely.
+  ok('a sub-$1,000 fee is not used as a digit needle',
+     rankFeeCandidates(rows, { loanName: 'Nonexistent', lender: 'Nonexistent', feeAmount: 1 }).likely.length === 0)
+  ok('...while a four-figure fee still is',
+     rankFeeCandidates([{ id: 'x', narration: 'fee 1,250.00 booked' }],
+       { loanName: null, lender: null, feeAmount: 1250 }).likely.length === 1)
+  ok('rows with no id are dropped rather than opened',
+     rankFeeCandidates([{ narration: 'Stripe Capital' } as any], hints).likely.length === 0)
+  ok('an empty window is handled', rankFeeCandidates([], hints).likely.length === 0)
 }
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)

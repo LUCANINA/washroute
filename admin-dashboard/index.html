@@ -8931,6 +8931,12 @@
       }
       items.push({
         key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
+        // The roster groups by loan, and this object is a NEW one — it does not
+        // carry `it`'s .finding / .account / .split references, so without this
+        // line every finding fell into "Not tied to one loan" and the loans above
+        // showed no children at all. Resolved from the ORIGINAL item, which does
+        // have them.
+        loanId: _bkIssueLoanId(it),
         // Session 225 hierarchy: tier 1 "Fix first" = money is wrong in the
         // books or posting is blocked; tier 2 "Worth a look" = an anomaly that
         // doesn't corrupt anything. Loan flags and split mismatches are always
@@ -8985,7 +8991,7 @@
     // (collapsed, archivable) instead of living only at the bottom of the Loans
     // card, so the hierarchy has one home.
     _bkReconInfoFindings().forEach(f => items.push({
-      key: 'recon-' + f.id, dot: 'gray', tier: 3, archive: true,
+      key: 'recon-' + f.id, dot: 'gray', tier: 3, archive: true, loanId: f.loan_account_id || null,
       name: f.title || 'For information', reason: _bkOneLine(f.plain_english || ''),
       detailHtml: f.plain_english ? `<div style="white-space:pre-wrap">${esc(f.plain_english)}</div>` : null,
     }));
@@ -14919,15 +14925,27 @@
   function _bkRosterState(a) {
     const v = _loanVariance(a) || {};
     if (v.state === 'ties' || v.state === 'explained') return { ...v, group: 'reconciled' };
-    if (v.state === 'variance') {
+    if (v.state === 'variance' || v.state === 'unverified') {
+      const t = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
       // detail.material is written by computeTieOut. `undefined` (an older run,
       // before this existed) must read as MATERIAL — a missing flag is not
-      // permission to go quiet.
-      const t = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+      // permission to go quiet about a real gap.
       const material = (t && t.detail && t.detail.material) === false ? false : true;
-      return { ...v, group: material ? 'variance' : 'immaterial', material };
+      // ── THE NUMBER (session 231, relearned the hard way) ──────────────────
+      // `difference` is measured ON the anchor date and is a snapshot, not a
+      // verdict. What a person should act on is what is STILL unexplained once
+      // entries dated after the statement are counted. The first roster showed
+      // `difference` and told David PCV was "$5,335.52 above the lender" while
+      // the finding directly underneath it said "$1,802.58 below" — a different
+      // number AND the opposite direction, on the same loan, on the same screen.
+      // That is precisely the figure session 231 removed from the finding
+      // headline for overstating four of ten, and it came straight back in a new
+      // surface that re-read the raw column.
+      const resid = t && t.detail && t.detail.residual_after_later;
+      const shown = (resid == null || !Number.isFinite(Number(resid))) ? v.difference : Number(resid);
+      if (v.state === 'unverified') return { ...v, difference: shown, group: 'unverified' };
+      return { ...v, difference: shown, group: material ? 'variance' : 'immaterial', material };
     }
-    if (v.state === 'unverified') return { ...v, group: 'unverified' };
     if (v.state === 'na') return { ...v, group: 'na' };
     return { ...v, group: 'unchecked' };
   }
@@ -14937,6 +14955,7 @@
   // dropped — it goes under "Not tied to one loan" rather than vanishing.
   function _bkIssueLoanId(it) {
     if (!it) return null;
+    if (it.loanId) return it.loanId;
     if (it.account && it.account.id) return it.account.id;
     if (it.finding && it.finding.loan_account_id) return it.finding.loan_account_id;
     if (it.split && (it.split.loan_account_id || (it.split.loan_accounts && it.split.loan_accounts.id)))
