@@ -157,7 +157,12 @@ export function findOriginationFeeJournal(input: {
     : `Nothing was searched.`
 
   const want = cents(feeAmount)
-  const DEAD = new Set(['DELETED', 'VOIDED'])
+  // DRAFT is not a booked entry. Xero manual journals can sit in DRAFT
+  // indefinitely and have NO effect on the ledger, so accepting one told the CPA
+  // the fee had been booked when it had not — and stopped the plan asking. The
+  // mirror case matters too: a correct POSTED journal beside its own abandoned
+  // DRAFT copy came back `ambiguous`, refusing an answer it was holding.
+  const DEAD = new Set(['DELETED', 'VOIDED', 'DRAFT'])
   const hits = journals.filter(e =>
     !DEAD.has(String(e.status ?? 'POSTED').toUpperCase()) &&
     creditsAccount(e, String(loanAccountCode), want))
@@ -199,6 +204,25 @@ export function findOriginationFeeJournal(input: {
     candidates: [{ id: j.id, source: j.source, date: j.date ?? null, narration: j.narration ?? null }],
     statement:
       `A ${SOURCE_LABEL[j.source]}${window} credits ${money(feeAmount)} to account ${loanAccountCode} (${j.date ?? 'undated'}), but no debit line could be read from it, so the other side of the entry is still unknown.`,
+  }
+
+  // ── THE DEBITS MUST ACTUALLY BE THE FEE (audit, session 242) ───────────────
+  // `debits` was every positive line of the matched entry, with no requirement
+  // that they sum to anything. A composite month-end journal that merely CONTAINS
+  // a line crediting the loan by the fee amount produced: "credits $20,875.00 to
+  // account 304 and debits Wages (477) $412,000.00, Rent (429) $38,000.00. That
+  // debit is the answer: it is where this loan's $20,875.00 of financing cost
+  // went." It is not. Composite journals containing a loan line are ordinary, and
+  // the wrong account then reached the loan's note and its treatment.
+  const debitTotal = debits.reduce((n, d) => n + d.amount, 0)
+  if (cents(debitTotal) !== want) return {
+    verdict: 'ambiguous', journal: j, debits: [],
+    candidates: [{ id: j.id, source: j.source, date: j.date ?? null, narration: j.narration ?? null }],
+    statement:
+      `A ${SOURCE_LABEL[j.source]}${window} credits ${money(feeAmount)} to account ${loanAccountCode} ` +
+      `(${j.date ?? 'undated'}${j.narration ? `, "${j.narration}"` : ''}), but its debits total ` +
+      `${money(debitTotal)} across ${debits.length} line${debits.length === 1 ? '' : 's'} — it is a composite entry, ` +
+      `not a standalone fee posting, so which of its debits carries the fee cannot be read off it.`,
   }
 
   const named = (d: { account: string | null; account_name: string | null }) =>

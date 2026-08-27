@@ -148,14 +148,34 @@ section('a funding figure read into the balance field')
   }))
   ok('a screen with real corroboration is untouched', real.amount_remaining === 123091.66)
 
-  // Equal figures survive when the screen's OWN arithmetic proves them:
-  // 125,000 total − 0 paid = 125,000 remaining is a real day-one balance.
+  // THE VACUOUS IDENTITY (audit, session 242). This case used to assert the
+  // opposite. A "day one" screen showing total 125,000 − 0 paid = 125,000
+  // remaining, all equal to the 125,000 advanced, satisfies the identity by
+  // algebra alone: subtracting nothing from a number returns that number, for a
+  // correct reading and a misread alike. It is the same shape as the production
+  // bug, so it is dropped, and the funding amount is kept.
   const dayOne = checkPortalTotals(blank({
     sources: ['dayone.png'], funds_deposited: 125000, amount_remaining: 125000, paid_to_date: 0,
     total_amount_due: 125000,
   }))
-  ok('equal figures survive when the screen proves them', dayOne.amount_remaining === 125000)
-  ok('...and are marked as proven', dayOne.corroborated.includes('amount_remaining'))
+  ok('a zero paid-to-date cannot prove a balance equal to the funding',
+     dayOne.amount_remaining === null, `got ${dayOne.amount_remaining}`)
+  ok('...and the endorsement is withdrawn with it',
+     !dayOne.corroborated.includes('amount_remaining'))
+  ok('...while the funding amount is still kept', dayOne.funds_deposited === 125000)
+
+  // What DOES prove an equal balance: a non-zero amount paid printed on the same
+  // screen, whose arithmetic could only come out right if the balance is right.
+  // 145,875 due − 20,875 paid = 125,000 remaining, which happens to equal the
+  // advance. Nothing vacuous about it, so it stands.
+  const proven = checkPortalTotals(blank({
+    sources: ['proven.png'], funds_deposited: 125000, amount_remaining: 125000,
+    paid_to_date: 20875, total_amount_due: 145875,
+  }))
+  ok('a non-zero paid-to-date that ties does prove it', proven.amount_remaining === 125000,
+     `got ${proven.amount_remaining}`)
+  ok('...and it is marked as proven', proven.corroborated.includes('amount_remaining'))
+  ok('...and no warning is raised', proven.warnings.length === 0)
 
   // THE BUG THIS ROUND. The first version of the guard also required the screen
   // to carry nothing else. Stripe deposit.png carried a third figure, so the

@@ -116,6 +116,27 @@ export interface StripeCsvMonth {
   last_date: string
 }
 
+/**
+ * One Pacific calendar day's withholding, added session 245.
+ *
+ * WHY A DAY AND NOT A MONTH. A month total divided by its days is a MEAN, and a
+ * mean is the wrong shape for this lender: Stripe withholds a percentage of each
+ * sale, so what it takes in a day is whatever the sales were. Across this
+ * export's own 26 days the daily figure runs $28.40 to $694.44 — a 24x swing
+ * around a $430.47 mean. settlement-lag.ts needs the withholding of a specific
+ * few days, and there is no way back to that from a month.
+ *
+ * The dates are Pacific, from the same utcStampToPacificDate() the months use,
+ * so a day here is the day the books would call it.
+ */
+export interface StripeCsvDay {
+  date: string          // 'YYYY-MM-DD' Pacific
+  transaction_count: number
+  total_paid: number
+  principal_paid: number
+  fee_paid: number
+}
+
 export interface StripeCsvParseResult {
   ok: boolean
   lender_label: string
@@ -138,6 +159,13 @@ export interface StripeCsvParseResult {
   rows_rejected_sample: { line: number; reason: string }[]
   currency: string | null
   months: StripeCsvMonth[]
+  /**
+   * The same accepted rows totalled by Pacific calendar day (session 245).
+   * Additive: every field that was here before is unchanged, and a consumer that
+   * only reads `months` sees exactly what it saw before. See StripeCsvDay for why
+   * a month total cannot answer the question this one exists for.
+   */
+  days: StripeCsvDay[]
   totals: { total_paid: number; principal_paid: number; fee_paid: number } | null
   first_date: string | null
   last_date: string | null
@@ -681,7 +709,7 @@ export function parseStripeCapitalCsv(text: string): StripeCsvParseResult {
   const base: StripeCsvParseResult = {
     ok: false, lender_label: label, rows_in_file: 0, rows_accepted: 0,
     rows_rejected_count: 0, rows_skipped_not_applicable: 0,
-    rows_rejected_sample: [], currency: null, months: [],
+    rows_rejected_sample: [], currency: null, months: [], days: [],
     totals: null, first_date: null, last_date: null, accepted: [], refused_because: null,
   }
   if (!detectStripeCapitalCsv(text)) {
@@ -782,6 +810,10 @@ export function parseStripeCapitalCsv(text: string): StripeCsvParseResult {
 
   // Aggregate in integer minor units, divide once at the end.
   const byMonth = new Map<string, { n: number; t: number; p: number; f: number; first: string; last: string }>()
+  // Same rows, same integer cents, bucketed by DAY as well as by month (session
+  // 245). One extra Map, no second pass, and no second definition of what a
+  // Pacific day is.
+  const byDay = new Map<string, { n: number; t: number; p: number; f: number }>()
   let tT = 0, tP = 0, tF = 0, firstDate = accepted[0].date, lastDate = accepted[0].date
   for (const r of accepted) {
     const k = r.date.slice(0, 7)
@@ -790,10 +822,20 @@ export function parseStripeCapitalCsv(text: string): StripeCsvParseResult {
     if (r.date < m.first) m.first = r.date
     if (r.date > m.last) m.last = r.date
     byMonth.set(k, m)
+    const dd = byDay.get(r.date) || { n: 0, t: 0, p: 0, f: 0 }
+    dd.n++; dd.t += r.total_minor; dd.p += r.principal_minor; dd.f += r.fee_minor
+    byDay.set(r.date, dd)
     tT += r.total_minor; tP += r.principal_minor; tF += r.fee_minor
     if (r.date < firstDate) firstDate = r.date
     if (r.date > lastDate) lastDate = r.date
   }
+
+  const days: StripeCsvDay[] = [...byDay.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, d]) => ({
+      date, transaction_count: d.n,
+      total_paid: minorToMajor(d.t), principal_paid: minorToMajor(d.p), fee_paid: minorToMajor(d.f),
+    }))
 
   const months: StripeCsvMonth[] = [...byMonth.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -812,7 +854,7 @@ export function parseStripeCapitalCsv(text: string): StripeCsvParseResult {
     rows_in_file: rowsInFile, rows_accepted: accepted.length,
     rows_rejected_count: rejectedCount, rows_skipped_not_applicable: skippedCount,
     rows_rejected_sample: rejected,
-    currency, months,
+    currency, months, days,
     totals: { total_paid: minorToMajor(tT), principal_paid: minorToMajor(tP), fee_paid: minorToMajor(tF) },
     first_date: firstDate, last_date: lastDate, accepted,
     refused_because: okFlag ? null

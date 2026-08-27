@@ -20,8 +20,14 @@
 // and they have years of guards on them that this function does not.
 //
 // What it writes is evidence: documents filed against the loan, terms as the lender
-// stated them, the basis the loan is carried on, and findings. Every one is a fact
-// about the record, not a movement of money.
+// stated them, the basis the loan is carried on, findings — and, since the balance
+// actions were added, rows in loan_statements. Every one is a fact about the
+// record, not a movement of money. A loan_statements row is still on that side of
+// the line: it says what a balance WAS according to a document, and posts nothing
+// anywhere. But it is the first thing this function writes that another screen
+// does arithmetic ON, which is why both balance actions refuse rather than guess
+// when the date or the carrying basis is missing, and why apply files the plan's
+// own figures verbatim and will not overwrite a balance already on file.
 //
 // ─── WHY THIS EXISTS AT ALL ─────────────────────────────────────────────────
 // A loan does not arrive as one document. Session 242 started with four files about
@@ -53,10 +59,16 @@ const pdfjsLib: any = (pdfjsDefault && typeof (pdfjsDefault as any).getDocument 
 import {
   parseStripeCapitalAgreement, detectStripeCapitalAgreement,
   parseStripeCapitalCsv, detectStripeCapitalCsv,
-  verifyDecompositionRule,
+  verifyDecompositionRule, splitCsvRecords, splitCsvLine,
   type ContractTerm, type StripeCsvParseResult, type DecompositionResult,
 } from '../_shared/stripe-capital.ts'
 import { buildPlan, summarisePlan, type PlanContext, type BundleDocument, type BundlePlan } from '../_shared/loan-bundle-plan.ts'
+import {
+  checkApproveList, divergedActions, findingFingerprint, buildFindingWrite,
+  mergeReceipt, mergeDecisions, releaseStatus, closingStatus,
+  documentAttachPlan, termMarkScope,
+  checkStatementPayload, statementRowWrite,
+} from '../_shared/loan-bundle-apply.ts'
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
@@ -85,7 +97,12 @@ function todayPacific(): string {
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', bytes)
+  // The cast is a lib-version nit, not a runtime concern: Deno's local DOM lib
+  // types `digest` as taking a `BufferSource` backed by a plain `ArrayBuffer`,
+  // while `Uint8Array` is now generic over `ArrayBufferLike`. The value passed
+  // is always a real `Uint8Array`. Without this, `deno check` fails here and the
+  // typecheck stops being a gate anyone trusts.
+  const buf = await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource)
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
@@ -230,6 +247,15 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   let agreementUnresolved: string[] = []
   let csv: StripeCsvParseResult | null = null
   let csvRaw: string | null = null
+  // EVERY export in the bundle, not just the last one read (session 245).
+  //
+  // `csv` was a single variable, so a bundle carrying the July export AND the
+  // August-to-date export kept whichever happened to be read second and threw
+  // the other away. That is not a cosmetic loss: dating a screenshot from the
+  // ledger needs the running total from the period start, so July alone cannot
+  // reach an August figure and August alone starts six weeks late. Both failed
+  // safe, and both failed.
+  const csvFiles: { name: string; text: string; parsed: StripeCsvParseResult }[] = []
   let portal: PortalTotals | null = null
   let acctRefFromDoc: string | null = null
   // The lender a parser RECOGNISED, as opposed to an account number it read.
@@ -297,6 +323,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       if (detectStripeCapitalCsv(text)) {
         csvRaw = text
         csv = parseStripeCapitalCsv(text)
+        csvFiles.push({ name: filename, text, parsed: csv })
         lenderHints.add('Stripe Capital')
         kind = 'transaction_history'; label = csv.lender_label; confidence = csv.ok ? 'high' : 'low'
         role = csv.ok
@@ -441,6 +468,91 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   const statements = stRes.data, splits = spRes.data
   const cd = await effectiveCloseDate(supa)
 
+  // ── COMBINING TWO EXPORTS OF THE SAME LEDGER ──────────────────────────────
+  //
+  // Done by re-parsing the concatenated RECORDS rather than by adding up two
+  // parse results. The parser already knows how to convert UTC stamps to
+  // Pacific days, reject reversals, group months and total days; a second
+  // aggregator written here would be a second definition of all four, free to
+  // drift from the first.
+  //
+  // It is refused unless the files are provably disjoint. Overlapping exports
+  // double-count the shared days, and a double-counted running total crosses a
+  // target EARLY — which returns a confident wrong date rather than a refusal,
+  // the one failure mode this whole path is built to avoid. A refusal keeps the
+  // single best export and says why; nothing is silently combined.
+  let csvMergeNote: string | null = null
+  let csvMerged = false
+  if (csvFiles.length > 1) {
+    const ok = csvFiles.filter(f => f.parsed.ok && f.parsed.days.length > 0)
+    // BY COLUMN NAME, NOT BY POSITION — the two real exports of this very loan
+    // do not share a shape. The July file has 7 columns; the August file has 13
+    // (Transaction ID, Merchant, Financing Object, Financing offer ID, Financing
+    // Type, Livemode, then the same 7). Stripe gives you different columns
+    // depending on which Export button you press. Concatenating their records
+    // rejected all 1,458 August rows with "expected 7 columns, found 13" — a
+    // merge that silently produced July on its own.
+    //
+    // So each file is projected onto the columns the parser needs and re-emitted
+    // as one canonical CSV. A file missing any of them cannot be merged at all,
+    // which is a refusal rather than a partial answer.
+    const CANON = ['Effective Time (UTC)', 'Currency', 'Total amount',
+                   'Financing amount', 'Fee amount', 'Transaction type', 'Transaction description']
+    const csvField = (v: string) => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v
+    const canonicalise = (text: string): string[] | null => {
+      const recs = splitCsvRecords(text)
+      if (recs.length < 2) return null
+      const head = splitCsvLine(recs[0]).map(h => h.trim())
+      const idx = CANON.map(c => head.indexOf(c))
+      if (idx.some(i => i < 0)) return null
+      return recs.slice(1).filter(r => r.trim().length)
+        .map(r => { const f = splitCsvLine(r); return idx.map(i => csvField(f[i] ?? '')).join(',') })
+    }
+    const overlap = (() => {
+      const seen = new Map<string, string>()
+      for (const f of ok) {
+        for (const d of f.parsed.days) {
+          const prev = seen.get(d.date)
+          if (prev && prev !== f.name) return `${d.date} appears in both ${prev} and ${f.name}`
+          seen.set(d.date, f.name)
+        }
+      }
+      return null
+    })()
+    const bodies = ok.map(f => canonicalise(f.text))
+    const missing = ok.filter((_, i) => bodies[i] === null).map(f => f.name)
+    if (ok.length < 2) {
+      csvMergeNote = null
+    } else if (overlap) {
+      csvMergeNote = `${csvFiles.length} transaction exports were uploaded and they cover overlapping days (${overlap}), so they were not combined — adding them would count those days twice. The one covering the latest dates was used on its own.`
+    } else if (missing.length) {
+      csvMergeNote = `${csvFiles.length} transaction exports were uploaded but ${missing.join(' and ')} does not carry every column needed to read it alongside the others, so they were not combined. The one covering the latest dates was used on its own.`
+    } else {
+      const combined = [CANON.join(','), ...bodies.flatMap(b => b!)].join('\n')
+      const merged = parseStripeCapitalCsv(combined)
+      // Adopt only if the combined parse is at least as good as its parts. A
+      // merge that loses rows is worse than the best single file.
+      const partsRows = ok.reduce((n, f) => n + f.parsed.rows_accepted, 0)
+      if (merged.ok && merged.rows_accepted === partsRows) {
+        csv = merged
+        csvRaw = combined
+        csvMerged = true
+        csvMergeNote = `${ok.length} transaction exports were combined into one continuous ledger (${merged.first_date} to ${merged.last_date}, ${merged.rows_accepted} withholdings). They cover no day twice.`
+      } else {
+        csvMergeNote = `${ok.length} transaction exports were uploaded but could not be combined without losing rows (${merged.rows_accepted} of ${partsRows} read back), so the one covering the latest dates was used on its own.`
+      }
+    }
+    // Not merged: fall back to the export covering the LATEST dates, which is
+    // not necessarily the last one uploaded. `csv` otherwise holds whichever
+    // file the read loop happened to finish on.
+    if (!csvMerged && ok.length > 0) {
+      const latest = ok.slice().sort((a, b) =>
+        String(a.parsed.last_date ?? '').localeCompare(String(b.parsed.last_date ?? '')))[ok.length - 1]
+      csv = latest.parsed
+      csvRaw = latest.text
+    }
+  }
+
   const termNum = (k: string) => {
     const t = agreementTerms.find(x => x.term_key === k)
     return typeof t?.value_numeric === 'number' ? t.value_numeric : null
@@ -495,11 +607,19 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       treatment_kind: feeSearch.treatment?.kind ?? null,
     } : null,
     agreementTerms, agreementChecks, agreementUnresolved,
-    csv, decomposition,
+    csv, csvNote: csvMergeNote, decomposition,
     portal: portal ? {
       as_of: portal.as_of, amount_remaining: portal.amount_remaining,
       paid_to_date: portal.paid_to_date, principal_paid: portal.principal_paid,
       fee_paid: portal.fee_paid, total_amount_due: portal.total_amount_due,
+      // The verdict travels with the figures. It did not, and while it stayed
+      // behind, the planner could only ever ask whether a balance was PRESENT —
+      // which on this very loan was true of $125,000 of funding read as
+      // $123,091.66 of balance. checkPortalTotals and mergePortal have both been
+      // taught to keep corroboration attached to the value it belongs to; drop it
+      // here and section 5b would file a lender anchor on a number nothing
+      // vouches for.
+      corroborated: portal.corroborated ?? [],
     } : null,
     statements: (statements || [])
       .filter((s: any) => s.statement_date <= today)
@@ -851,7 +971,7 @@ async function applyBundle(supa: any, who: string, body: any) {
   if (!bundleId) return json({ error: 'bundle_id is required.' }, 400)
 
   const { data: peek, error: peekErr } = await supa.from('intake_bundles')
-    .select('status, plan, applied_actions').eq('id', bundleId).maybeSingle()
+    .select('status, plan, applied_actions, decisions').eq('id', bundleId).maybeSingle()
   if (peekErr) return json({ error: `Could not read the bundle: ${peekErr.message}` }, 500)
   if (!peek) return json({ error: 'That bundle does not exist.' }, 404)
 
@@ -860,18 +980,21 @@ async function applyBundle(supa: any, who: string, body: any) {
   // row stuck in 'applying' with nothing able to re-claim it — a bundle bricked
   // by a request that never wrote anything. Validation needs only the plan, and
   // the plan is already here.
+  //
+  // This is the CHEAP half. It is not the half that gates execution: this copy of
+  // the plan is never executed, and the one that is gets checked again below.
   const peekPlan = peek.plan as BundlePlan
-  const peekById = new Map((peekPlan?.actions || []).map(a => [a.id, a]))
-  const unknownEarly = approve.filter(id => !peekById.has(id))
-  if (unknownEarly.length) return json({ error: `These actions are not part of this plan: ${unknownEarly.join(', ')}.` }, 400)
-  const blockedEarly = approve.filter(id => peekById.get(id)!.blocked_reason)
-  if (blockedEarly.length) {
-    return json({ error: `These actions cannot be applied: ${blockedEarly.map(id => `${id} (${peekById.get(id)!.blocked_reason})`).join('; ')}` }, 409)
-  }
+  const early = checkApproveList(peekPlan, approve)
+  if (early) return json({ error: early.message }, early.status)
 
   if (!approve.length) {
+    const abandonedAt = new Date().toISOString()
     const { data: ab, error: abErr } = await supa.from('intake_bundles')
-      .update({ status: 'abandoned', applied_by: who, applied_at: new Date().toISOString(), decisions: { approve } })
+      // Merged, not replaced: a bundle can reach 'planned' again after a run that
+      // failed outright, and stamping `{ approve: [] }` over the top of it would
+      // erase what was ticked on the way in — the column's one job.
+      .update({ status: 'abandoned', applied_by: who, applied_at: abandonedAt,
+                decisions: mergeDecisions(peek.decisions, approve, who, abandonedAt) })
       .eq('id', bundleId).eq('status', 'planned').select('id')
     if (abErr) return json({ error: `Could not close the bundle: ${abErr.message}` }, 500)
     // Reporting "nothing was filed" for a bundle that was in fact already applied
@@ -911,6 +1034,37 @@ async function applyBundle(supa: any, who: string, body: any) {
   // Anything a previous partial run already did is skipped rather than repeated.
   const alreadyDone = new Set<string>(((bundle.applied_actions?.applied) || []).map((a: any) => String(a.id)))
   const priorApplied: any[] = (bundle.applied_actions?.applied) || []
+  // Carried forward for the same reason `applied` is: see the closing update.
+  const priorFailed: any[] = (bundle.applied_actions?.failed) || []
+
+  // ── Validate AGAIN, against the row that was actually claimed ───────────
+  // The plan is read twice — once above into `peek`, once here out of the claim —
+  // and everything below executes from THIS copy. Validating the other one and
+  // executing this one is not validation; it is a hope that nothing changed in
+  // between. Action IDS were compared, and ids are exactly the half that does not
+  // move: an action keeps `basis-1` while its payload is amended underneath it.
+  // Demonstrated with set_carrying_basis — 'net_principal' validated,
+  // 'gross_payback' executed — which on Stripe Capital is the $20,875 phantom
+  // liability the module's own header describes.
+  //
+  // Releasing on the way out matters as much as the check: a bundle refused here
+  // has had nothing applied, and leaving it in 'applying' would brick it exactly
+  // the way the pre-claim validation exists to prevent.
+  const claimedPlan = bundle.plan as BundlePlan
+  const late = checkApproveList(claimedPlan, approve)
+  const moved = late ? [] : divergedActions(peekPlan, claimedPlan, approve)
+  if (late || moved.length) {
+    const back = releaseStatus([], priorApplied)
+    const { error: relErr } = await supa.from('intake_bundles').update({ status: back }).eq('id', bundleId)
+    const tail = relErr
+      ? ` The bundle could not be released either (${relErr.message}) — it is stuck mid-apply, quote bundle ${bundleId}.`
+      : ' Nothing was applied.'
+    if (late) return json({ error: late.message + tail }, late.status)
+    return json({
+      error: `This bundle's plan changed after it was checked and before it was applied — ${moved.join(', ')} ${moved.length === 1 ? 'is' : 'are'} not what was reviewed. Nothing was applied. Re-open the bundle and approve the plan as it now stands.`,
+      changed_actions: moved,
+    }, 409)
+  }
 
   // EVERYTHING from here to the closing update runs inside the release guard.
   // The first version opened the try four statements later, leaving the plan
@@ -925,7 +1079,8 @@ async function applyBundle(supa: any, who: string, body: any) {
   const docIdBySha = new Map<string, string>()
 
   try {
-  const plan = bundle.plan as BundlePlan
+  // The validated copy, by identity — not a third read of the column.
+  const plan = claimedPlan
   const byId = new Map((plan?.actions || []).map(a => [a.id, a]))
 
   const loanId = bundle.loan_account_id
@@ -943,13 +1098,26 @@ async function applyBundle(supa: any, who: string, body: any) {
     if (shas.length) {
       const { data: known, error: knownErr } = await supa.from('loan_documents')
         .select('id, file_sha256').eq('loan_account_id', loanId).in('file_sha256', shas)
+        // Oldest first. This loan already carries one screenshot three times — the
+        // duplicate rows are why the unique index could not be created — so the
+        // `!docIdBySha.has` below is a genuine pick between rows, and an unordered
+        // pick makes which document a term points at depend on the planner's mood.
+        .order('created_at', { ascending: true })
       // Unchecked, a transient failure here leaves docIdBySha empty and every term
       // is written with source_document_id null — which under NULLS NOT DISTINCT
       // is a DIFFERENT slot, so the loan quietly ends up with two full sets of
       // terms. That is the exact stacking the constraint exists to prevent.
       if (knownErr) {
-        await supa.from('intake_bundles').update({ status: 'planned' }).eq('id', bundleId)
-        return json({ error: `Could not check which of these documents are already on the loan: ${knownErr.message}. Nothing was applied.` }, 500)
+        // priorApplied counts here for the same reason it counts in the fatal
+        // handler thirty lines down: an earlier run may already have attached
+        // documents to this loan, and releasing to 'planned' while telling the
+        // person "nothing was applied" describes a loan that does not exist.
+        const back = releaseStatus([], priorApplied)
+        await supa.from('intake_bundles').update({ status: back }).eq('id', bundleId)
+        return json({ error: `Could not check which of these documents are already on the loan: ${knownErr.message}. ` +
+          (priorApplied.length
+            ? `Nothing new was applied; the ${priorApplied.length} change${priorApplied.length === 1 ? '' : 's'} from the earlier run ${priorApplied.length === 1 ? 'is' : 'are'} still on the loan, and the bundle is back to ${back} so the rest can be retried.`
+            : `Nothing was applied.`) }, 500)
       }
       for (const k of known || []) if (k.file_sha256 && !docIdBySha.has(k.file_sha256)) docIdBySha.set(k.file_sha256, k.id)
     }
@@ -968,6 +1136,21 @@ async function applyBundle(supa: any, who: string, body: any) {
       if (act.kind === 'attach_document') {
         const s = stored.find((x: any) => x.sha256 === p.sha256)
         if (!s) throw new Error('the stored copy of this file is missing from the bundle')
+        // Adopt the row that is already there rather than filing a second one.
+        // `alreadyDone` is built from `applied` only, so an INSERT that COMMITTED
+        // and then lost its reply lands in `failed`, and "Apply the rest" re-runs a
+        // bare insert — two loan_documents rows for one file. The unique index that
+        // would have stopped it could not be created (one loan already carries the
+        // same screenshot three times), so this lookup is the only backstop there
+        // is. docIdBySha was seeded above from exactly this set; no second query.
+        const attach = documentAttachPlan(p.sha256, docIdBySha)
+        if (attach.mode === 'adopt') {
+          // Reported as what it is. Saying "filed" for a file we did not file is
+          // the same lie as the duplicate row, minus the row.
+          applied.push({ id, kind: act.kind, sha256: String(p.sha256), document_id: attach.document_id,
+                         result: `${p.filename} was already on file — kept the copy already there rather than filing a second one` })
+          continue
+        }
         const { data, error: e } = await supa.from('loan_documents').insert({
           loan_account_id: loanId, doc_type: docTypeFor(p.kind), title: p.filename,
           storage_path: s.storage_path, file_sha256: p.sha256, uploaded_by: who,
@@ -1015,12 +1198,28 @@ async function applyBundle(supa: any, who: string, body: any) {
         // legitimately state the same term with different values — that is what
         // this table is for — and marking one applied must not mark the other,
         // contradicting one applied too.
-        let markQ = supa.from('loan_contract_terms').update({
-          applied_to_loan_account: true, applied_at: new Date().toISOString(), applied_by: who,
-        }).eq('loan_account_id', loanId).eq('term_key', p.term_key).is('superseded_at', null)
-        const termSrc = p.source_sha256 ? docIdBySha.get(String(p.source_sha256)) : null
-        if (termSrc) markQ = markQ.eq('source_document_id', termSrc)
-        const { error: markErr } = await markQ
+        //
+        // The scope is now MANDATORY. It used to be added only when the id
+        // resolved, so the one case it was written to prevent — not knowing which
+        // document this came from — was the exact case that dropped the filter and
+        // marked every non-superseded row for the key, contradicting figures
+        // included. A source we cannot resolve means we mark nothing.
+        const src = termMarkScope(p.source_sha256, docIdBySha)
+        let markErr: any = null
+        if (src.scope === 'unresolved') {
+          markErr = { message: `the document it came from (${String(p.source_sha256).slice(0, 12)}…) is not on this loan yet` }
+        } else {
+          let markQ = supa.from('loan_contract_terms').update({
+            applied_to_loan_account: true, applied_at: new Date().toISOString(), applied_by: who,
+          }).eq('loan_account_id', loanId).eq('term_key', p.term_key).is('superseded_at', null)
+          // NULL is a scope too, and a single one: record_contract_terms writes
+          // source_document_id NULL when the plan names no source, and under
+          // NULLS NOT DISTINCT that is one slot per (loan, term_key).
+          markQ = src.scope === 'document'
+            ? markQ.eq('source_document_id', src.document_id)
+            : markQ.is('source_document_id', null)
+          markErr = (await markQ).error
+        }
         // The loan is updated either way; say so rather than reporting a clean
         // success on a half-done action.
         applied.push({ id, kind: act.kind,
@@ -1051,6 +1250,70 @@ async function applyBundle(supa: any, who: string, body: any) {
                        result: n === dates.length ? `labelled ${n} balances as ${p.balance_basis}`
                          : `labelled ${n} of ${dates.length} balances as ${p.balance_basis} — the rest had already been labelled` })
 
+      } else if (act.kind === 'open_at_origination' || act.kind === 'record_lender_balance') {
+        // ONE handler for both, deliberately. They differ only in what the row says
+        // it IS — the contract's statement of day one, or the lender's statement of
+        // a balance — and every rule underneath is the same rule: file the plan's
+        // own figures, never a second row for the same day, never over the top of a
+        // figure somebody else put there. Two copies of that is two chances to fix
+        // only one of them.
+        //
+        // NOTHING IS RE-DERIVED HERE. The day-one balance is not recomputed from
+        // contract terms and the lender's balance is not re-read off a screenshot:
+        // the number on the screen a person approved is the number that gets filed,
+        // or nothing does. This module's whole integrity property is that the plan
+        // stored at review time is the plan that executes; a figure worked out again
+        // at apply time is one that can differ from the one that was agreed to, with
+        // no audit trail able to show that it did.
+        const checked = checkStatementPayload(act.kind, p)
+        if (!checked.ok) throw new Error(checked.error)
+        const stmt = checked.row
+        // Look before inserting. `alreadyDone` is built from the receipt's `applied`
+        // list only, so an INSERT that COMMITTED and then lost its reply lands in
+        // `failed`, and "Apply the rest" would run a bare insert again — two
+        // balances for one day on one loan, which the dashboard's authority ranking
+        // would then choose between by accident of ordering. Exactly the defect
+        // documentAttachPlan exists for, on a table where the duplicate is a number
+        // rather than a file.
+        const { data: onFile, error: exErr } = await supa.from('loan_statements')
+          .select('id, principal_balance, balance_basis')
+          .eq('loan_account_id', loanId)
+          .eq('statement_date', stmt.statement_date)
+          .eq('source', stmt.source)
+        // Unchecked, a transient read failure looks like "no row is there" and the
+        // insert goes ahead — which is the duplicate this lookup is the only
+        // backstop against.
+        if (exErr) throw exErr
+        const write = statementRowWrite(onFile || [], stmt)
+        if (write.verdict === 'conflict') {
+          // A failure, not a silent skip. Somebody has a different figure for this
+          // day and only one of them can be right; that is a thing to be told, and
+          // the receipt is where it gets recorded.
+          throw new Error(write.message)
+        }
+        if (write.verdict === 'already_filed') {
+          // Reported as what it is. Saying "filed" for a row we did not file is the
+          // same lie as the duplicate row, minus the row.
+          applied.push({ id, kind: act.kind, result: write.message })
+        } else {
+          const { error: e } = await supa.from('loan_statements').insert({
+            loan_account_id: loanId, statement_date: stmt.statement_date,
+            principal_balance: stmt.principal_balance, balance_basis: stmt.balance_basis,
+            source: stmt.source, pulled_at: new Date().toISOString(),
+            // Free text, and the only place this row says where it came from once
+            // the bundle is closed. A balance whose provenance is a source slug and
+            // nothing else is one nobody can question later.
+            pulled_by: act.kind === 'open_at_origination'
+              ? `${who} — the signed agreement's own statement of the balance at origination, filed from a ${stored.length}-document intake on ${todayPacific()}`
+              : `${who} — read off the lender's own screen, filed from a ${stored.length}-document intake on ${todayPacific()}`,
+          })
+          if (e) throw e
+          applied.push({ id, kind: act.kind, actual: stmt.principal_balance,
+            result: act.kind === 'open_at_origination'
+              ? `filed the opening balance at ${stmt.statement_date} (${stmt.balance_basis.replace(/_/g, ' ')})`
+              : `filed the lender's balance at ${stmt.statement_date} (${stmt.balance_basis.replace(/_/g, ' ')})` })
+        }
+
       } else if (act.kind === 'write_structure_note') {
         const { error: e } = await supa.from('loan_accounts').update({
           structure_note: p.structure_note, structure_note_updated_at: new Date().toISOString(),
@@ -1060,16 +1323,39 @@ async function applyBundle(supa: any, who: string, body: any) {
         applied.push({ id, kind: act.kind, result: 'structure note written' })
 
       } else if (act.kind === 'raise_finding') {
-        const fp = `intake:${p.check_key}:${loanId}:${(p.detail?.book_date) || todayPacific()}`
-        const { error: e } = await supa.from('reconciliation_findings').upsert({
-          fingerprint: fp, loan_account_id: loanId, check_key: p.check_key,
-          severity: p.severity, title: p.title,
-          plain_english: act.plain_english, detail: p.detail,
-          status: 'open', source: 'intake',
-          last_seen_at: new Date().toISOString(),
-        }, { onConflict: 'fingerprint' })
-        if (e) throw e
-        applied.push({ id, kind: act.kind, result: `raised ${p.check_key}` })
+        // The fingerprint no longer falls back to today's date. It used to, and a
+        // finding keyed on the day it was APPLIED is a new row every apply: the
+        // same single problem stacked one Needs Attention item per day, none of
+        // which dismissing ever finishes. findingFingerprint takes a stable
+        // discriminator off the detail or omits the segment entirely.
+        const fp = findingFingerprint(String(p.check_key), String(loanId), p.detail)
+        // Read before writing. This table is shared with the engine, which at
+        // reconciliation-run/index.ts:1449 refuses to touch a suppressed row and
+        // preserves a pinned row's own words; an upsert that reads nothing and
+        // hard-codes status:'open' reverses a person's dismissal and overwrites a
+        // hand-written diagnosis that exists nowhere else.
+        const { data: prevF, error: prevErr } = await supa.from('reconciliation_findings')
+          .select('status, pinned_note').eq('fingerprint', fp).maybeSingle()
+        if (prevErr) throw prevErr
+        const write = buildFindingWrite(prevF, {
+          fingerprint: fp, loanId, checkKey: String(p.check_key), severity: String(p.severity),
+          title: String(p.title), plainEnglish: String(act.plain_english), detail: p.detail,
+          now: new Date().toISOString(),
+        })
+        if (write.verdict === 'leave_suppressed') {
+          // Not a failure — the bundle asked for something the record already
+          // answered. Recording it as done stops "Apply the rest" re-proposing it.
+          applied.push({ id, kind: act.kind,
+            result: `${p.check_key} was dismissed here before, so it was left dismissed rather than re-opened` })
+        } else {
+          const { error: e } = await supa.from('reconciliation_findings')
+            .upsert(write.row, { onConflict: 'fingerprint' })
+          if (e) throw e
+          applied.push({ id, kind: act.kind,
+            result: write.keptHumanText
+              ? `raised ${p.check_key} — kept the note somebody pinned to it instead of overwriting it`
+              : `raised ${p.check_key}` })
+        }
 
       } else {
         throw new Error(`unknown action kind '${act.kind}'`)
@@ -1086,10 +1372,15 @@ async function applyBundle(supa: any, who: string, body: any) {
     // run and then threw on the retry is still partially applied, and calling it
     // 'planned' would present a screen saying nothing was ever filed while two
     // loan_documents rows sit on the loan.
-    const release = (applied.length || priorApplied.length) ? 'partially_applied' : 'planned'
+    const release = releaseStatus(applied, priorApplied)
+    // The earlier runs' failures are carried too — a fatal on the retry is no
+    // reason to forget what failed on the way in. The '(fatal)' marker is appended
+    // AFTER the merge so a previous fatal is not deduplicated away by this one.
+    const fatalReceipt = mergeReceipt({ applied: priorApplied, failed: priorFailed }, { applied, failed })
+    fatalReceipt.failed.push({ id: '(fatal)', kind: 'run', error: String((fatal as any)?.message || fatal) })
     const { error: relErr } = await supa.from('intake_bundles').update({
       status: release,
-      applied_actions: { applied: [...priorApplied, ...applied], failed: [...failed, { id: '(fatal)', kind: 'run', error: String((fatal as any)?.message || fatal) }] },
+      applied_actions: fatalReceipt,
     }).eq('id', bundleId)
     return json({
       error: (relErr ? `The run stopped part-way and the bundle could not be released (${relErr.message}) — it is stuck mid-apply, quote bundle ${bundleId}. ` : '') +
@@ -1098,11 +1389,21 @@ async function applyBundle(supa: any, who: string, body: any) {
     }, 500)
   }
 
-  const allApplied = [...priorApplied, ...applied]
-  const status = failed.length === 0 ? 'applied' : (allApplied.length ? 'partially_applied' : 'planned')
+  // The receipt is the WHOLE history, not the latest run's view of it. `applied`
+  // was already carried forward; `failed` was not, so it was replaced by whatever
+  // this run happened to fail — and the cheapest way to erase a failure was to
+  // retry with the failed boxes unticked: `todo` empty, loop never runs, empty
+  // `failed` overwrites the record, status 'applied', ok true, 200. A failure
+  // leaves this list by succeeding and by nothing else.
+  const now = new Date().toISOString()
+  const receipt = mergeReceipt({ applied: priorApplied, failed: priorFailed }, { applied, failed })
+  const allApplied = receipt.applied
+  // Judged on the whole receipt too: an outstanding failure from run one means the
+  // bundle is not 'applied', however cleanly run two went.
+  const status = closingStatus(allApplied, receipt.failed)
   const { error: closeErr } = await supa.from('intake_bundles').update({
-    status, decisions: { approve }, applied_actions: { applied: allApplied, failed },
-    applied_by: who, applied_at: new Date().toISOString(),
+    status, decisions: mergeDecisions(bundle.decisions, approve, who, now), applied_actions: receipt,
+    applied_by: who, applied_at: now,
   }).eq('id', bundleId)
   // If this write fails the bundle is stuck in 'applying' and cannot be retried.
   // Say so loudly with the id, rather than returning ok and stranding it.
@@ -1113,8 +1414,14 @@ async function applyBundle(supa: any, who: string, body: any) {
     }, 500)
   }
 
+  // `ok`, `applied` and `failed` describe THIS request — that is what the caller
+  // just did and what the screen reports. `status` and `outstanding_failed`
+  // describe the bundle, which may still be carrying a failure from a run that
+  // this one did not retry; without the second field an ok:true response beside
+  // status:'partially_applied' would look like a contradiction rather than a fact.
   return json({ ok: failed.length === 0, bundle_id: bundleId, status,
-                applied, failed, skipped_already_done: [...alreadyDone].filter(id => approve.includes(id)) },
+                applied, failed, outstanding_failed: receipt.failed,
+                skipped_already_done: [...alreadyDone].filter(id => approve.includes(id)) },
               failed.length ? 207 : 200)
 }
 

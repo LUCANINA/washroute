@@ -137,9 +137,25 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   // advance) is dropped too unless it shows its own arithmetic. Nothing is lost:
   // a balance with no amount-paid-to-date beside it cannot establish the carrying
   // basis on its own, which is the only thing it would have been used for.
+  // ── THE DERIVED SUM MUST NOT DEFEAT THIS GUARD (audit, session 242) ────────
+  // The guard tested `!corroborated.includes('amount_remaining')`, and the
+  // derived-sum path had just written that entry — so on Stripe Capital, where
+  // total = funding + fee by construction, a screen reporting the DEPOSIT as the
+  // balance and the printed "Fixed Fee" as fee_paid satisfied
+  // `total − (0 + fee) = remaining` IDENTICALLY, by algebra rather than by
+  // evidence. Verdict: $125,000 kept, fully corroborated, guard silent — the
+  // original production bug restored, now carrying an arithmetic endorsement it
+  // did not have the first time. The same collapse happens whenever the sum is
+  // zero: `total − 0 = remaining` proves nothing at all.
+  //
+  // So only a sum the SCREEN ITSELF PRINTED, and a non-zero one, may vouch for a
+  // balance that equals the funding advanced. A number we computed cannot license
+  // the number it was computed from.
+  const provenBalance = corroborated.includes('amount_remaining') &&
+                        !paidWasDerived && (p.paid_to_date ?? 0) > 0
   if (p.amount_remaining !== null && p.funds_deposited !== null &&
       near(p.amount_remaining, p.funds_deposited) &&
-      !corroborated.includes('amount_remaining')) {
+      !provenBalance) {
     warnings.push({
       question: `A funding amount was read as if it were the balance.`,
       detail:
@@ -148,6 +164,11 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
       `number read twice on a funding screen. It was kept as the funding amount and dropped as the ` +
       `balance. If this really is the balance, it needs a screen showing the amount paid to date beside it.` })
     p.amount_remaining = null
+    // The figure is gone; its endorsement must go with it, or the merge will
+    // still prefer a value that no longer exists.
+    for (let i = corroborated.length - 1; i >= 0; i--) {
+      if (corroborated[i] === 'amount_remaining') corroborated.splice(i, 1)
+    }
   }
 
   return { ...p, checks, warnings, corroborated, disputes: p.disputes ?? [] }
@@ -202,8 +223,20 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
   const num = (k: keyof PortalTotals): number | null => {
     const key = k as string
     const av = a[k] as number | null, bv = b[k] as number | null
-    if (av === null || av === undefined) return (bv ?? null)
-    if (bv === null || bv === undefined) return av
+    // Corroboration must travel with the value. It did not, so a screen SILENT
+    // about the balance erased the proof carried by a screen that had earned it —
+    // and with three screenshots, two of the six upload orders then threw away a
+    // proven $123,091.66 and told the user the screens disagreed. Merging is a
+    // left fold, so whether that happens depended only on the order the files
+    // happened to be listed in.
+    if (av === null || av === undefined) {
+      if (bv !== null && bv !== undefined && bOk(key)) corroborated.push(key)
+      return (bv ?? null)
+    }
+    if (bv === null || bv === undefined) {
+      if (aOk(key)) corroborated.push(key)
+      return av
+    }
     if (Math.abs(av - bv) <= 0.02) {
       checks.push(`Two of the lender's own screens agree on ${LABEL[key]}: ${fmt(av)}.`)
       if (aOk(key) || bOk(key)) corroborated.push(key)

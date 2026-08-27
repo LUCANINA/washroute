@@ -1069,6 +1069,698 @@ GROUPS.push({
   },
 });
 
+/* ═════════════ SESSION 243 — THE ROSTER, AGAINST THE REAL FUNCTIONS ══════════
+   These groups replace tests/loan-roster.test.mts and tests/queue-hygiene.test.mts,
+   which did not import the dashboard at all: they TRANSCRIBED _bkRosterState,
+   _bkSubstanceKey and _bkDismissalHolds into their own files and asserted that
+   the copy agreed with itself. Fifty-two green assertions that would still have
+   been green if the shipped functions were deleted.
+
+   Everything below drives the REAL functions inside the REAL page.
+
+   tests/loan-roster.test.mts is DELETED — nothing in it tested a constant that
+   had no dashboard counterpart. tests/queue-hygiene.test.mts is reduced to the
+   two materiality thresholds, which live server-side in reconciliation-run and
+   so are out of this harness's reach. Where each old assertion now lives:
+
+     roster-classification         _bkRosterState / _loanVariance: tied, explained,
+                                   exception-vs-real-anchor, exception-vs-our-own-
+                                   projection, not_comparable, the missing-material
+                                   flag, the residual-not-the-snapshot rule, a run
+                                   that never finished, a loan the run did not cover
+     roster-clean-loan-children    a finding on a reconciled or immaterial loan  (#1)
+     roster-orphan-findings        a finding whose loan is not active            (#2)
+     roster-empty-denominator      zero active loans                             (#3)
+     roster-confetti-gate          the celebration only counts if it was earned  (#4)
+     dismissal-fail-open           _bkDismissalHolds, incl. two REPORTED defects (#5)
+     substance-key-substance       _bkSubstanceKey, incl. a REPORTED defect      (#6)
+
+   Groups #5 and #6 assert the behaviour those functions OUGHT to have and are
+   expected to FAIL until the two reported defects are fixed. They are not tuned
+   green; a red assertion there is the finding.
+
+   ── HOW EACH GROUP PROVES IT DISCRIMINATES ─────────────────────────────────
+   A test that passes is worthless unless it would have failed on the broken
+   code. So each of the four fixed defects is checked twice: once against the
+   shipped page, and once against the SAME page with the pre-fix line put back
+   IN PAGE CONTEXT ONLY — by taking the shipped function's own .toString() and
+   applying the inverse edit, then rebuilding it with new Function(). Nothing on
+   disk is touched; admin-dashboard/index.html stays byte-identical. Every
+   inverse edit asserts its anchor was found, so a future refactor that moves
+   the code turns into a loud failure rather than a silently skipped check.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const ALL_TABLES = [
+  'loan_accounts', 'loan_statements', 'loan_splits', 'loan_amortization_rows', 'loan_documents',
+  'payroll_imports', 'payroll_import_employee_lines', 'payroll_departments', 'payroll_employees',
+  'payroll_notices', 'reconciliation_runs', 'reconciliation_findings', 'loan_tie_outs',
+  'bk_issue_dismissals', 'bookkeeping_kpi_snapshots',
+];
+const LOAN_TABLES = ['loan_accounts', 'loan_statements', 'loan_splits', 'loan_amortization_rows', 'loan_documents'];
+
+/* The inverse edits: shipped source → pre-fix source. Keyed by the defect they
+   re-introduce. Applied to _bkRosterHtml.toString() inside the page. */
+const ROSTER_REVERTS = {
+  // #1a A finding on a RECONCILED loan rendered nowhere: `continue` came before
+  //     the children block, and the dot was green regardless.
+  'reconciled-children': [
+    ['<span class="bk-dot ${r.items.length ? \'amber\' : \'green\'}"></span>',
+     '<span class="bk-dot green"></span>'],
+    ['Agrees with the lender${asOf}${how}${still}',
+     'Agrees with the lender${asOf}${how}'],
+    ['          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`\n            + r.items.map(_bkQueueRowHtml).join(\'\') + `</div>`;\n          continue;\n        }\n\n        if (g.key === \'immaterial\') {',
+     '          continue;\n        }\n\n        if (g.key === \'immaterial\') {'],
+  ],
+  // #1b Same defect on the IMMATERIAL group.
+  'immaterial-children': [
+    ['${r.items.length ? `. ${r.items.length} other thing${r.items.length === 1 ? \'\' : \'s\'} on this loan still need${r.items.length === 1 ? \'s\' : \'\'} a look` : \'\'}', ''],
+    ['          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`\n            + r.items.map(_bkQueueRowHtml).join(\'\') + `</div>`;\n          continue;\n        }\n\n        const sub = g.key === \'variance\'',
+     '          continue;\n        }\n\n        const sub = g.key === \'variance\''],
+  ],
+  // #2 A finding whose loan is not ACTIVE went into byLoan under an id nothing
+  //    ever read back, and was not an orphan either, because it HAD an id.
+  'orphans': [
+    ['if (!id || !onRoster.has(id)) { orphans.push(it); return; }',
+     'if (!id) { orphans.push(it); return; }'],
+  ],
+  // #3 Zero active loans blanked the whole card, taking every queue row with it.
+  'empty-denominator': [
+    ["if (!loans.length) return (issues || []).map(_bkQueueRowHtml).join('');",
+     "if (!loans.length) return '';"],
+  ],
+};
+
+// #4 The confetti gate lives inside renderBookkeepingOverview, not in its own
+//    function, so this one is reverted on that function instead.
+const CONFETTI_FIXED =
+  "const _rc = _bkOverviewSeg === 'issues' ? _bkRosterCounts() : null;\n" +
+  "    const _rcNow = (_rc && _rc.total > 0 && _bkDataReady()) ? _rc.reconciled : null;";
+const CONFETTI_PREFIX =
+  "const _rcNow = _bkOverviewSeg === 'issues' ? _bkRosterCounts().reconciled : null;";
+
+/* Install the pre-fix roster in the page. Returns {ok, missing:[...]}. */
+async function revertRoster(p, names, edits) {
+  return p.evaluate(({ names, edits }) => {
+    let src = window._bkRosterHtml.toString();
+    const missing = [];
+    for (const n of names) for (const [from, to] of edits[n]) {
+      if (!src.includes(from)) { missing.push(n + ' :: ' + from.slice(0, 60)); continue; }
+      src = src.replace(from, to);
+    }
+    if (missing.length) return { ok: false, missing };
+    const body = src.slice(src.indexOf('{') + 1, src.lastIndexOf('}'));
+    try { window._bkRosterHtml = new Function('issues', body); }
+    catch (e) { return { ok: false, missing: ['compile: ' + e.message] }; }
+    renderBookkeepingOverview();
+    return { ok: true, missing: [] };
+  }, { names, edits });
+}
+
+/* The queue card, read the way a person reads it: rows in order, each with the
+   dot colour, the reason, and whatever is indented underneath it. */
+const READ_QUEUE = () => {
+  const list = document.getElementById('bk-ov-queue-list');
+  if (!list) return null;
+  const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  return {
+    counts: _bkRosterCounts(),
+    dataReady: _bkDataReady(),
+    // Every item the queue believes it is showing. If one of these never
+    // reaches `text` below, the page dropped a finding.
+    itemNames: _bkIssueQueueItems().map(i => norm(i.name)),
+    heads: [...list.querySelectorAll('.bk-tier-head')].map(e => norm(e.textContent)),
+    rows: [...list.children].map(e => ({
+      cls: e.className,
+      name: norm((e.querySelector('.bk-queue-name') || {}).textContent),
+      dot: norm((e.querySelector('.bk-dot') || {}).className).replace('bk-dot ', ''),
+      reason: norm((e.querySelector('.bk-queue-reason') || {}).textContent),
+      // A child block is a bare <div> sibling holding the loan's own findings.
+      childRows: e.className ? 0 : e.querySelectorAll('.bk-queue-row').length,
+      childNames: e.className ? [] : [...e.querySelectorAll('.bk-queue-name')].map(n => norm(n.textContent)),
+    })),
+    text: norm(list.textContent),
+    allClear: !!list.querySelector('.bk-allclear'),
+    statusline: norm((document.getElementById('bk-ov-statusline') || {}).textContent),
+  };
+};
+
+/* Find the roster row for a loan (the header row, not a child). */
+const rowFor = (q, name) => q.rows.find(r => /bk-queue-row/.test(r.cls) && r.name === name) || null;
+/* The child block that immediately follows a loan's row. */
+const kidsFor = (q, name) => {
+  const i = q.rows.findIndex(r => /bk-queue-row/.test(r.cls) && r.name === name);
+  const nxt = i >= 0 ? q.rows[i + 1] : null;
+  return nxt && !nxt.cls ? nxt : { childRows: 0, childNames: [] };
+};
+
+/* ── R0 ── WHAT THE ROSTER REFUSES TO CALL RECONCILED ─────────────────────── */
+// This group owns everything tests/loan-roster.test.mts used to claim. That file
+// re-implemented _loanVariance + _bkRosterState in twelve lines of its own and
+// then asserted the twelve lines agreed with themselves; the assertions below
+// call the shipped functions on the shipped tie-outs, through the page.
+//
+// The rule they exist to protect: "nothing wrong" and "never checked" are
+// different states, and the roster must never merge them.
+GROUPS.push({
+  name: 'roster-classification',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'overview' });
+
+    const book = await p.evaluate(() => (_allLoanAccounts || []).filter(a => a.status === 'active').map(a => {
+      const to = (_loanTieOuts || []).find(x => x.loan_account_id === a.id) || {};
+      const st = _bkRosterState(a);
+      return { name: a.xero_account_name, status: to.status || null, anchor: to.anchor_source || null,
+               group: st.group, difference: st.difference == null ? null : Number(st.difference) };
+    }));
+    const g = (n) => (book.find(x => x.name === n) || {}).group;
+
+    t.eq(book.length, 14, 'r0: the book really is 14 active loans');
+
+    // ── tied and explained are the only two ways to be reconciled ──
+    for (const n of ['Dexter Loan 2', 'Rapid Credit Line', 'Paypal 2'])
+      t.eq(g(n), 'reconciled', `r0: ${n} (tied) is reconciled`);
+    for (const n of ['BayFirst SBA Loan', 'BayFirst SBA 2', 'E-Transit Loan E6-7410'])
+      t.eq(g(n), 'reconciled', `r0: ${n} (explained by later payments) is reconciled`);
+
+    // ── an exception measured against a real lender document is red ──
+    for (const n of ['PCV Good and Green Loan', 'Funding Circle Loan', 'E-Transit Loan - 4140',
+                     'E-Transit Loan E4 -9744', 'E-Transit Loan E5-4751'])
+      t.eq(g(n), 'variance', `r0: ${n} deviates from a real lender document — needs attention`);
+    t.eq(g('EIDL SBA Loan'), 'variance',
+         'r0: EIDL deviates against an emailed PDF, and with no materiality flag that reads as MATERIAL');
+
+    // ── an exception measured against OUR OWN projection is never red ──
+    const verdant = book.find(x => x.name === 'Verdant Capital Loan');
+    t.eq(verdant.anchor, 'amortization_schedule', 'r0: Verdant really is anchored to our own schedule');
+    t.eq(verdant.group, 'unverified', 'r0: ...so it needs a statement rather than a red flag');
+    t.ok(verdant.group !== 'variance' && verdant.group !== 'reconciled',
+         'r0: ...and is neither red nor green — it is not a fact about the world yet');
+
+    // ── nothing to compare against is not "nothing wrong" ──
+    const stripe = book.find(x => x.name === 'Stripe Capital Loan');
+    t.eq(stripe.status, 'not_comparable', 'r0: Stripe Capital really has nothing to compare against');
+    t.eq(stripe.group, 'na', 'r0: ...which is its own state');
+    t.ok(stripe.group !== 'reconciled', 'r0: ...and never reads as reconciled — never checked is not a clean bill');
+
+    // ── the denominator has to add up ──
+    const counts = await p.evaluate(() => _bkRosterCounts());
+    const sum = counts.reconciled + counts.variance + counts.unverified + counts.na + counts.unchecked + counts.immaterial;
+    t.eq(sum, counts.total, 'r0: every active loan lands in exactly one group');
+    t.ok(counts.reconciled <= counts.total, 'r0: reconciled can never exceed the total');
+    t.ok(book.every(x => x.group), 'r0: no loan falls out of the classification entirely');
+
+    // ── materiality: a MISSING flag is not permission to go quiet ──
+    const mat = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'EIDL SBA Loan');
+      const to = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+      const at = (d) => { to.detail = d; return _bkRosterState(a).group; };
+      return { missing: at(undefined), explicitTrue: at({ material: true }),
+               explicitFalse: at({ material: false }), emptyDetail: at({}) };
+    });
+    t.eq(mat.missing, 'variance', 'r0: a tie-out with no material flag is treated as MATERIAL');
+    t.eq(mat.emptyDetail, 'variance', 'r0: ...and so is one with a detail payload that omits it');
+    t.eq(mat.explicitTrue, 'variance', 'r0: an explicit material:true is material');
+    t.eq(mat.explicitFalse, 'immaterial',
+         'r0: only an explicit material:false becomes a small difference — and it is NOT reconciled');
+
+    // ── the number shown is the RESIDUAL, never the anchor-date snapshot ──
+    // PCV rendered "$5,335.52 above the lender" directly above a finding reading
+    // "$1,802.58 below" — different number, opposite direction, same loan.
+    const resid = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'PCV Good and Green Loan');
+      const to = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+      const at = (d) => { to.detail = d; return Number(_bkRosterState(a).difference); };
+      const out = {
+        raw: at(undefined),
+        residual: at({ residual_after_later: -1802.58 }),
+        zero: at({ residual_after_later: 0 }),
+        nonNumeric: at({ residual_after_later: 'oops' }),
+        nulled: at({ residual_after_later: null }),
+      };
+      to.detail = { residual_after_later: -1802.58 };
+      renderBookkeepingOverview();
+      const row = [...document.querySelectorAll('#bk-ov-queue-list .bk-queue-row')]
+        .find(e => (e.querySelector('.bk-queue-name') || {}).textContent === 'PCV Good and Green Loan');
+      out.rendered = row ? row.textContent.replace(/\s+/g, ' ').trim() : null;
+      return out;
+    });
+    t.eq(resid.raw, 5335.52, 'r0: with no residual on file, the anchor-date difference is what there is');
+    t.eq(resid.residual, -1802.58, 'r0: a residual on the tie-out replaces it');
+    t.eq(resid.zero, 0, 'r0: a residual of exactly zero is a real answer, not a missing one');
+    t.eq(resid.nonNumeric, 5335.52, 'r0: a non-numeric residual falls back rather than rendering NaN');
+    t.eq(resid.nulled, 5335.52, 'r0: ...and so does a null one');
+    t.ok(/\$1,802\.58 below the lender/.test(resid.rendered || ''),
+         'r0: and the roster row renders the residual, in the residual\'s direction',
+         `rendered=${JSON.stringify(resid.rendered)}`);
+    t.notMatch(resid.rendered, /5,335\.52/,
+               'r0: ...never the anchor-date figure the finding underneath contradicts');
+
+    // ── a loan the run did not cover ──
+    const dropped = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Paypal 2');
+      const i = _loanTieOuts.findIndex(x => x.loan_account_id === a.id);
+      const was = _bkRosterState(a).group;
+      _loanTieOuts.splice(i, 1);
+      return { was, now: _bkRosterState(a).group };
+    });
+    t.eq(dropped.was, 'reconciled', 'r0: Paypal 2 was reconciled while the run covered it');
+    t.eq(dropped.now, 'unchecked', 'r0: ...and drops to "not checked" the moment it is not covered — not to reconciled');
+    await p.close();
+
+    // ── no finished run at all: the board must not go green ──
+    const p2 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      d.reconciliation_runs.forEach(r => { r.finished_at = null; });
+    } });
+    const cold = await p2.evaluate(() => ({ counts: _bkRosterCounts(), runId: _loanTieOutRunId, ties: (_loanTieOuts || []).length }));
+    t.eq(cold.runId, 'null', 'r0: with no run finished, there is no tie-out run to read');
+    t.eq(cold.ties, 0, 'r0: ...and no tie-outs are loaded');
+    t.eq(cold.counts.unchecked, 14, 'r0: every loan reads "not checked yet"');
+    t.eq(cold.counts.reconciled, 0, 'r0: and NOT ONE reads reconciled — a run that did not finish is not an all-clear');
+    await p2.close();
+  },
+});
+/* ── R1 ── A FINDING ON A CLEAN LOAN STILL HAS TO REACH THE SCREEN ────────── */
+// Owns what tests/loan-roster.test.mts called "every issue reaches the loan it
+// belongs to" — except that file tested a five-line re-implementation of
+// _bkIssueLoanId, so it could not have seen this.
+//
+// The mutation is one a person performs with a mouse: Restore everything from
+// the Archived list. The real book has three RECONCILED loans (Dexter Loan 2,
+// Paypal 2, Rapid Credit Line) carrying open findings that are currently
+// archived; un-archiving them puts findings under green loans, which is the
+// exact shape that used to render nowhere at all.
+GROUPS.push({
+  name: 'roster-clean-loan-children',
+  async run(t) {
+    const noDismissals = (d) => { d.bk_issue_dismissals.length = 0; };
+
+    const p = await newHarnessPage({ tab: 'overview', mutate: noDismissals });
+    const q = await p.evaluate(READ_QUEUE);
+
+    t.eq(q.counts.reconciled, 6, 'r1: the six reconciled loans are still reconciled');
+    t.ok(q.heads.includes('Reconciled (6)'), 'r1: the Reconciled group is on screen', JSON.stringify(q.heads));
+
+    // A reconciled loan that carries open findings.
+    const dex = rowFor(q, 'Dexter Loan 2');
+    t.ok(!!dex, 'r1: Dexter Loan 2 (tied, but carrying findings) renders in the roster');
+    t.eq(dex && dex.dot, 'amber', 'r1: a reconciled loan with open findings gets an AMBER dot, not a plain green one');
+    t.ok(/still need/.test((dex || {}).reason || ''),
+         'r1: ...and says so — "still need a look" rather than an unqualified all-clear',
+         `reason=${JSON.stringify((dex || {}).reason)}`);
+    const dexKids = kidsFor(q, 'Dexter Loan 2');
+    t.eq(dexKids.childRows, 2, 'r1: both of Dexter Loan 2\'s open findings render UNDER it');
+    t.ok(dexKids.childNames.some(n => /no lender document on file/.test(n)),
+         'r1: ...including the stale_anchor finding by name', JSON.stringify(dexKids.childNames));
+
+    // ...and a reconciled loan with nothing outstanding still reads green, so
+    // the amber above is a distinction the renderer actually draws.
+    const bay = rowFor(q, 'BayFirst SBA 2');
+    t.eq(bay && bay.dot, 'green', 'r1: a reconciled loan with NOTHING outstanding is still plain green');
+    t.notMatch((bay || {}).reason, /still need/, 'r1: ...and makes no "still need a look" claim');
+
+    // The whole-card property: nothing the queue believes it is showing is missing.
+    const missing = q.itemNames.filter(n => !q.text.includes(n));
+    t.eq(missing.length, 0, 'r1: every item in the queue reaches the DOM — nothing is silently dropped');
+    if (missing.length) console.log('        missing: ' + JSON.stringify(missing));
+
+    // ── does the assertion discriminate? put the pre-fix branch back ──
+    const rev = await revertRoster(p, ['reconciled-children'], ROSTER_REVERTS);
+    t.ok(rev.ok, 'r1: the pre-fix reconciled branch could be re-applied in page context',
+         JSON.stringify(rev.missing));
+    if (rev.ok) {
+      const b = await p.evaluate(READ_QUEUE);
+      const bDex = rowFor(b, 'Dexter Loan 2');
+      t.eq(bDex && bDex.dot, 'green', 'r1 CONTROL: pre-fix, the same loan showed a plain green dot');
+      t.eq(kidsFor(b, 'Dexter Loan 2').childRows, 0, 'r1 CONTROL: pre-fix, its findings rendered nowhere');
+      const gone = b.itemNames.filter(n => !b.text.includes(n));
+      t.ok(gone.length >= 2, 'r1 CONTROL: pre-fix, findings on reconciled loans vanished from the page',
+           `${gone.length} dropped: ${JSON.stringify(gone.slice(0, 4))}`);
+    }
+    await p.close();
+
+    // ── the same rule for the IMMATERIAL group ──
+    // Nothing in the real book is immaterial today (no tie-out carries
+    // detail.material === false), so this is EIDL's shape applied to a loan
+    // that actually has findings: mark E-Transit 4140's tie-out immaterial and
+    // its three open findings must still render underneath it.
+    const p2 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      noDismissals(d);
+      const a = d.loan_accounts.find(x => x.xero_account_name === 'E-Transit Loan - 4140');
+      const to = d.loan_tie_outs.find(x => x.loan_account_id === a.id);
+      to.detail = Object.assign({}, to.detail || {}, { material: false });
+    } });
+    const q2 = await p2.evaluate(READ_QUEUE);
+    t.eq(q2.counts.immaterial, 1, 'r1: an immaterial tie-out moves the loan out of "needs attention"');
+    t.eq(q2.counts.variance, 5, 'r1: ...and the variance count drops by exactly one');
+    const et = rowFor(q2, 'E-Transit Loan - 4140');
+    t.eq(et && et.dot, 'gray', 'r1: a small-difference loan is gray, not red');
+    t.ok(/3 other things on this loan still need a look/.test((et || {}).reason || ''),
+         'r1: ...and still names the work outstanding on it',
+         `reason=${JSON.stringify((et || {}).reason)}`);
+    t.eq(kidsFor(q2, 'E-Transit Loan - 4140').childRows, 3,
+         'r1: all three of its findings render under it');
+
+    const rev2 = await revertRoster(p2, ['immaterial-children'], ROSTER_REVERTS);
+    t.ok(rev2.ok, 'r1: the pre-fix immaterial branch could be re-applied', JSON.stringify(rev2.missing));
+    if (rev2.ok) {
+      const b2 = await p2.evaluate(READ_QUEUE);
+      t.eq(kidsFor(b2, 'E-Transit Loan - 4140').childRows, 0,
+           'r1 CONTROL: pre-fix, an immaterial loan\'s findings rendered nowhere');
+      t.notMatch((rowFor(b2, 'E-Transit Loan - 4140') || {}).reason, /still need a look/,
+                 'r1 CONTROL: pre-fix, it did not mention them either');
+    }
+    await p2.close();
+  },
+});
+
+/* ── R2 ── A FINDING ON A LOAN THAT IS NOT ACTIVE MUST SURFACE ────────────── */
+// The roster is built from ACTIVE loans. A finding on a loan that has been paid
+// off, or is still pending, has an id — so the pre-fix code put it in `byLoan`,
+// never read that key back, and never counted it as an orphan either. It simply
+// stopped existing. Funding Circle carries an ERROR balance_vs_lender of
+// $3,041.83; paying the loan off must not make that error disappear.
+GROUPS.push({
+  name: 'roster-orphan-findings',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan').status = 'paid_off';
+    } });
+    const q = await p.evaluate(READ_QUEUE);
+
+    t.eq(q.counts.total, 13, 'r2: the roster denominator drops to the 13 still-active loans');
+    const orphanHead = q.heads.find(h => /Not tied to one loan/.test(h));
+    t.eq(orphanHead, 'Not tied to one loan (3)',
+         'r2: the two findings on the now-inactive loan join the orphan group');
+
+    const fcErr = 'Funding Circle Loan — Xero is $3,041.83 below the lender';
+    const fcInfo = 'Funding Circle Loan — 2026-08-18 payment of $2,033.77 has no interest split';
+    t.ok(q.text.includes(fcErr), 'r2: the $3,041.83 ERROR on the inactive loan is still on screen');
+    t.ok(q.text.includes(fcInfo), 'r2: ...and so is its lumped-payment finding');
+    t.ok(q.rows.some(r => r.name === fcErr), 'r2: the error renders as its own row, not as buried text');
+
+    const missing = q.itemNames.filter(n => !q.text.includes(n));
+    t.eq(missing.length, 0, 'r2: every item the queue holds reaches the DOM');
+    if (missing.length) console.log('        missing: ' + JSON.stringify(missing));
+
+    // ── does it discriminate? ──
+    const rev = await revertRoster(p, ['orphans'], ROSTER_REVERTS);
+    t.ok(rev.ok, 'r2: the pre-fix orphan test could be re-applied', JSON.stringify(rev.missing));
+    if (rev.ok) {
+      const b = await p.evaluate(READ_QUEUE);
+      t.ok(!b.text.includes(fcErr),
+           'r2 CONTROL: pre-fix, a $3,041.83 error on a non-active loan rendered NOWHERE',
+           b.text.includes(fcErr) ? 'still present — the revert did not reproduce the defect' : '');
+      t.eq(b.heads.find(h => /Not tied to one loan/.test(h)), 'Not tied to one loan (1)',
+           'r2 CONTROL: pre-fix, it was not counted as an orphan either');
+      t.ok(b.itemNames.filter(n => !b.text.includes(n)).length === 2,
+           'r2 CONTROL: pre-fix, exactly the two findings on that loan were dropped',
+           JSON.stringify(b.itemNames.filter(n => !b.text.includes(n))));
+    }
+    await p.close();
+  },
+});
+
+/* ── R3 ── NO ACTIVE LOANS IS NOT A REASON TO THROW THE QUEUE AWAY ───────── */
+// `if (!loans.length) return ''` blanked the entire card — payroll items, loan
+// flags, findings, all of it — while the headline above still counted them.
+// A roster with no denominator falls back to the flat list; it does not fall
+// back to a blank screen.
+GROUPS.push({
+  name: 'roster-empty-denominator',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      d.loan_accounts.forEach(a => { a.status = 'paid_off'; });
+    } });
+    const q = await p.evaluate(READ_QUEUE);
+
+    t.eq(q.counts.total, 0, 'r3: there really are zero active loans in this scenario');
+    t.ok(q.dataReady, 'r3: ...and the books did load — this is an empty book, not a cold boot');
+    t.ok(q.itemNames.length > 0, 'r3: the queue still holds items', `${q.itemNames.length} items`);
+
+    const missing = q.itemNames.filter(n => !q.text.includes(n));
+    t.eq(missing.length, 0, 'r3: every queue row still renders with no roster to hang it on');
+    if (missing.length) console.log('        missing: ' + JSON.stringify(missing));
+    t.ok(q.rows.filter(r => /bk-queue-row/.test(r.cls)).length >= q.itemNames.length,
+         'r3: ...as real rows, one per item',
+         `${q.rows.filter(r => /bk-queue-row/.test(r.cls)).length} rows for ${q.itemNames.length} items`);
+    t.ok(!q.allClear, 'r3: an empty roster never renders the All clear badge over a non-empty queue');
+
+    // ── does it discriminate? ──
+    const rev = await revertRoster(p, ['empty-denominator'], ROSTER_REVERTS);
+    t.ok(rev.ok, 'r3: the pre-fix blank-card return could be re-applied', JSON.stringify(rev.missing));
+    if (rev.ok) {
+      const b = await p.evaluate(READ_QUEUE);
+      t.eq(b.itemNames.filter(n => !b.text.includes(n)).length, b.itemNames.length,
+           'r3 CONTROL: pre-fix, zero active loans discarded EVERY queue row');
+      t.eq(b.rows.filter(r => /bk-queue-row/.test(r.cls)).length, 0,
+           'r3 CONTROL: pre-fix, the card rendered no rows at all');
+    }
+    await p.close();
+  },
+});
+
+/* ── R4 ── THE CELEBRATION ONLY COUNTS IF SOMETHING WAS EARNED ───────────── */
+// Bookkeeping loads in phases: loadReconciliation can resolve while loadLoans is
+// still in flight. _bkRosterCounts() then returns reconciled: 0 — a zero, not a
+// null — so the pre-fix gate recorded 0 on the first paint and 6 on the second,
+// and every ordinary visit to the tab fired confetti mid-load.
+GROUPS.push({
+  name: 'roster-confetti-gate',
+  async run(t) {
+    // Instrumented boot: count _bkConfetti calls and log what each render saw.
+    const armed = async (mode) => {
+      const p = await newHarnessPage({ tab: 'overview', settle: false, hold: ALL_TABLES });
+      const r = await p.evaluate(({ mode, FIXED, PRE }) => {
+        window.__cf = 0; window.__renders = [];
+        const origC = window._bkConfetti;
+        window._bkConfetti = function () { window.__cf++; return origC.apply(this, arguments); };
+        const origR = window.renderBookkeepingOverview;
+        let target = origR;
+        if (mode === 'prefix') {
+          const src = origR.toString();
+          if (!src.includes(FIXED)) return { ok: false, why: 'confetti gate anchor not found in renderBookkeepingOverview' };
+          try { target = new Function('return (' + src.replace(FIXED, PRE) + ')')(); }
+          catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+        }
+        window.renderBookkeepingOverview = function () {
+          const c = _bkRosterCounts();
+          window.__renders.push({ total: c.total, reconciled: c.reconciled, ready: _bkDataReady() });
+          return target.apply(this, arguments);
+        };
+        return { ok: true };
+      }, { mode, FIXED: CONFETTI_FIXED, PRE: CONFETTI_PREFIX });
+      return { p, ok: r.ok, why: r.why };
+    };
+
+    // Phase 1: everything except loadLoans. Phase 2: the loans land.
+    const twoPhase = async (h) => {
+      await h.p.release(...ALL_TABLES.filter(x => !LOAN_TABLES.includes(x)));
+      await h.p.page.waitForTimeout(350);
+      const mid = await h.p.evaluate(() => ({ cf: window.__cf, renders: window.__renders.slice() }));
+      await h.p.release(...LOAN_TABLES);
+      await h.p.settle();
+      const end = await h.p.evaluate(() => ({ cf: window.__cf, renders: window.__renders.slice(), counts: _bkRosterCounts() }));
+      return { mid, end };
+    };
+
+    const ship = await armed('shipped');
+    t.ok(ship.ok, 'r4: instrumentation installed on the shipped page', ship.why || '');
+    const s = await twoPhase(ship);
+    t.ok(s.end.renders.some(r => r.total === 0 && !r.ready),
+         'r4: the scenario really did paint at least one render before the loans arrived',
+         JSON.stringify(s.end.renders));
+    t.ok(s.end.renders.some(r => r.total === 14 && r.reconciled === 6 && r.ready),
+         'r4: ...and one after, with the real 6-of-14', JSON.stringify(s.end.renders));
+    t.eq(s.mid.cf, 0, 'r4: no confetti mid-load');
+    t.eq(s.end.cf, 0, 'r4: no confetti when a two-phase load merely fills in the counts');
+
+    // The reward still has to be reachable, or "never fires" would pass too.
+    const earn = await ship.p.evaluate(() => {
+      const before = window.__cf;
+      const ex = (_loanTieOuts || []).find(x => x.status === 'exception');
+      ex.status = 'tied';                       // a loan is reconciled, for real
+      renderBookkeepingOverview();
+      return { before, after: window.__cf, reconciled: _bkRosterCounts().reconciled };
+    });
+    t.eq(earn.reconciled, 7, 'r4: a loan genuinely went from exception to tied');
+    t.eq(earn.after - earn.before, 1, 'r4: THAT fires the confetti, exactly once');
+    await ship.p.close();
+
+    // Zero denominator must never celebrate either, however the counts move.
+    const pz = await newHarnessPage({ tab: 'overview', mutate: (d) => { d.loan_accounts.forEach(a => { a.status = 'paid_off'; }); } });
+    const z = await pz.evaluate(() => {
+      window.__cf = 0;
+      const orig = window._bkConfetti;
+      window._bkConfetti = function () { window.__cf++; return orig.apply(this, arguments); };
+      renderBookkeepingOverview(); renderBookkeepingOverview();
+      return { cf: window.__cf, total: _bkRosterCounts().total };
+    });
+    t.eq(z.total, 0, 'r4: zero-active-loan scenario really has an empty denominator');
+    t.eq(z.cf, 0, 'r4: an empty denominator never celebrates');
+    await pz.close();
+
+    // ── does it discriminate? ──
+    const pre = await armed('prefix');
+    t.ok(pre.ok, 'r4: the pre-fix confetti gate could be re-applied in page context', pre.why || '');
+    if (pre.ok) {
+      const b = await twoPhase(pre);
+      t.ok(b.end.cf >= 1,
+           'r4 CONTROL: pre-fix, an ordinary two-phase load fired the celebration on its own',
+           `confetti=${b.end.cf} renders=${JSON.stringify(b.end.renders)}`);
+      await pre.p.close();
+    } else {
+      await pre.p.close();
+    }
+  },
+});
+
+/* ── R5 ── DOES _bkDismissalHolds FAIL OPEN? (reported, NOT fixed) ────────── */
+// Two failure modes were reported and are deliberately NOT patched here. These
+// assertions state the behaviour a suppression rule on a financial screen ought
+// to have and then ask the real function. A dismissal SUPPRESSES a finding, so
+// the safe direction when the function cannot verify the finding is to let it
+// through: it must fail CLOSED. Anything it cannot check, it must not hide.
+GROUPS.push({
+  name: 'dismissal-fail-open',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'overview' });
+    const r = await p.evaluate(() => {
+      const REAL = 'Verdant Capital Loan — 6 hand-posted corrections totalling $572,400.13 since 2026-04-28';
+      const OTHER = 'Funding Circle Loan — 2026-04-20 payment of $2,033.77 has no interest split';
+      const seed = (k, title) => _bkDismissals.set(k, { item_key: k, item_title: title, dismissed_at: '2026-08-24T00:00:00Z' });
+      seed('h-normal', REAL);
+      seed('h-blank', '');
+      seed('h-null', null);
+      return {
+        // controls — these must behave, or the probes below mean nothing
+        unknownKey: _bkDismissalHolds('h-nope', { isError: false, title: REAL }),
+        sameTitle: _bkDismissalHolds('h-normal', { isError: false, title: REAL }),
+        escalated: _bkDismissalHolds('h-normal', { isError: true, title: REAL }),
+        changedTitle: _bkDismissalHolds('h-normal', { isError: false, title: OTHER }),
+        // the two reported failure modes
+        noOpts: _bkDismissalHolds('h-normal'),
+        noOptsOnEscalation: (() => { seed('h-err', REAL); return _bkDismissalHolds('h-err'); })(),
+        emptyStored: _bkDismissalHolds('h-blank', { isError: false, title: OTHER }),
+        nullStored: _bkDismissalHolds('h-null', { isError: false, title: OTHER }),
+        emptyIncoming: _bkDismissalHolds('h-normal', { isError: false, title: '' }),
+        // is it reachable from the shipped call sites?
+        liveItemsWithNoTitle: _bkIssueQueueItems().filter(i => !i.name).length,
+        storedTitlesFalsy: [..._bkDismissals.values()].filter(d => !String(d.item_key).startsWith('h-') && !d.item_title).length,
+        storedTotal: [..._bkDismissals.values()].filter(d => !String(d.item_key).startsWith('h-')).length,
+      };
+    });
+
+    // controls first
+    t.eq(r.unknownKey, false, 'r5 control: a key that was never set aside does not hold');
+    t.eq(r.sameTitle, true, 'r5 control: an unchanged, non-error finding stays set aside');
+    t.eq(r.escalated, false, 'r5 control: escalation to error always breaks a dismissal');
+    t.eq(r.changedTitle, false, 'r5 control: a genuinely different sentence breaks it');
+
+    // the reported defects, written as the CORRECT behaviour
+    t.eq(r.noOpts, false,
+         'r5: with opts omitted, a dismissal must NOT hold — nothing was verified, so nothing may be hidden');
+    t.eq(r.noOptsOnEscalation, false,
+         'r5: ...and an omitted opts must not smuggle a would-be error past the escalation rule');
+    t.eq(r.emptyStored, false,
+         'r5: a dismissal whose stored title is "" must not suppress a finding that now says something else');
+    t.eq(r.nullStored, false,
+         'r5: ...nor one whose stored title is null');
+    t.eq(r.emptyIncoming, false,
+         'r5: an incoming finding with an empty title cannot be matched, so it must not be suppressed');
+
+    // reachability, reported either way
+    t.ok(true, `r5 note: reachability — ${r.storedTitlesFalsy} of ${r.storedTotal} real dismissals have a falsy item_title; ` +
+               `${r.liveItemsWithNoTitle} live queue items have a falsy name; all three shipped call sites pass an opts object.`);
+    await p.close();
+  },
+});
+
+/* ── R6 ── DOES _bkSubstanceKey ACTUALLY MEASURE SUBSTANCE? (reported) ───── */
+// The rule it is meant to encode: a re-worded finding is the SAME finding, and a
+// finding whose substance changed — a different amount, a different account — is
+// a NEW one. Probed with the real titles in the fixture (100 findings + 38
+// dismissal titles), through the real function.
+GROUPS.push({
+  name: 'substance-key-substance',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'overview' });
+    const r = await p.evaluate(() => {
+      const K = _bkSubstanceKey;
+      const titles = [];
+      (_reconFindings || []).forEach(f => titles.push({ t: f.title, loan: f.loan_account_id, check: f.check_key }));
+      [..._bkDismissals.values()].forEach(d => titles.push({ t: d.item_title, loan: null, check: 'dismissal' }));
+      const byKey = new Map();
+      for (const x of titles) {
+        if (!x.t) continue;
+        const k = K(x.t);
+        if (!byKey.has(k)) byKey.set(k, []);
+        if (!byKey.get(k).some(y => y.t === x.t)) byKey.get(k).push(x);
+      }
+      const collisions = [...byKey.entries()].filter(([, v]) => v.length > 1)
+        .map(([k, v]) => ({ key: k, titles: v.map(x => x.t), loans: [...new Set(v.map(x => x.loan).filter(Boolean))] }));
+      const crossLoan = collisions.filter(c => c.loans.length > 1);
+
+      // The pairs the rule names, in both directions.
+      const same = (a, b) => K(a) === K(b);
+      const v6 = 'Verdant Capital Loan — 6 hand-posted corrections totalling $572,400.13 since 2026-04-28';
+      const v7 = 'Verdant Capital Loan — 7 hand-posted corrections totalling $580,112.44 since 2026-04-28';
+      const e1 = 'E-Transit Loan - 4140 — 1 hand-posted correction totalling $7,687.53 since 2026-04-28';
+      const e2 = 'E-Transit Loan - 4140 — 2 hand-posted corrections totalling $9,000.00 since 2026-04-28';
+      const fcOld = 'Funding Circle Loan — 2026-04-20 payment of $2,033.77 needs a statement from before 2026-08-03';
+      const fcNew = 'Funding Circle Loan — 2026-08-18 payment of $2,033.77 has no interest split';
+      // real, from the fixture: the same check on the same loan, at two amounts
+      const amtSmall = 'E-Transit Loan - 4140 — Xero is $415.88 above the lender';
+      const amtBig = 'E-Transit Loan - 4140 — Xero is $1,180.32 above the lender';
+      const rcSmall = 'Rapid Credit Line — Xero is $570.70 above the lender';
+      const rcBig = 'Rapid Credit Line — Xero is $1,056.19 above the lender';
+      // real, from the fixture: two DIFFERENT loans of the same lender
+      const e5 = 'E-Transit Loan E5-4751 — 2026-08-12 payment of $1,046.95 was corrected twice';
+      const e6 = 'E-Transit Loan E6-7410 — 2026-08-10 payment of $643.50 was corrected twice';
+
+      return {
+        collisions: collisions.length, crossLoan,
+        countMoved6to7: same(v6, v7),
+        countMoved1to2: same(e1, e2),
+        reworded: same(fcOld, fcNew),
+        differentLoan: same(v6, v6.replace('Verdant Capital', 'Dexter')),
+        amountChanged4140: same(amtSmall, amtBig),
+        amountChangedRapid: same(rcSmall, rcBig),
+        differentAccount: same(e5, e6),
+        keyOf4140: K(amtSmall), keyOfE5: K(e5), keyOfE6: K(e6),
+        totalTitles: titles.filter(x => x.t).length,
+      };
+    });
+
+    // What it gets right, on real titles.
+    t.eq(r.countMoved6to7, true, 'r6: 6 corrections → 7 corrections is the same finding (the treadmill fix works)');
+    t.eq(r.countMoved1to2, true, 'r6: ...and 1 correction → 2 corrections, singular to plural');
+    t.eq(r.reworded, false, 'r6: the session-233 pair is a genuinely different sentence and comes back');
+    t.eq(r.differentLoan, false, 'r6: a different loan NAME is a different finding');
+
+    // What the rule requires and — the point of this group — may not deliver.
+    t.eq(r.amountChanged4140, false,
+         'r6: a balance gap that grew from $415.88 to $1,180.32 is a DIFFERENT claim about the books');
+    t.eq(r.amountChangedRapid, false,
+         'r6: ...and $570.70 → $1,056.19 on Rapid Credit Line likewise');
+    t.eq(r.differentAccount, false,
+         'r6: two different loan accounts (E5-4751 vs E6-7410) are never the same finding');
+    t.eq(r.crossLoan.length, 0,
+         'r6: no substance key in the real book is shared by findings on different loans');
+
+    console.log(`        ${r.collisions} substance keys are shared by 2+ distinct real titles (of ${r.totalTitles} titles)`);
+    for (const c of r.crossLoan) {
+      console.log(`        cross-loan key ${JSON.stringify(c.key)}`);
+      c.titles.slice(0, 4).forEach(x => console.log(`            ${JSON.stringify(x)}`));
+    }
+    // Was `... <- both E5-4751 and E6-7410`, written when those two DID collide.
+    // Session 245 fixed that, and the caption became a sentence the test printed
+    // while passing. A diagnostic that lies is worse than none: it now states the
+    // key and lets the assertion above say whether anything shares it.
+    console.log(`        E5-4751's key is now ${JSON.stringify(r.keyOfE5)}`);
+    await p.close();
+  },
+});
+
 /* ═══════════════════════════════ RUNNER ═════════════════════════════════ */
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 

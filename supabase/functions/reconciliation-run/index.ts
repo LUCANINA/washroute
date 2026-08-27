@@ -533,11 +533,53 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
   }
 }
 
+// ── THE PREVIOUS CLOSE'S GAP, FOR THE SETTLEMENT-LAG GROWTH TEST (session 244) ──
+// Two observations of the same loan's gap only mean something together if they are
+// two CLOSES. They are not looked up by fingerprint: the fingerprint embeds
+// tie.as_of, so consecutive months are different rows by construction and a
+// fingerprint match would only ever find THIS close again. The key is
+// (check_key, loan_account_id), newest earlier anchor_date wins.
+//
+// And not simply the newest earlier one. On this book the previous anchor is
+// routinely days old, not a month: PCV holds balance_vs_lender findings dated
+// 2026-08-01 and 2026-08-04, Rapid Credit Line 2026-08-16 and 2026-08-18, and
+// E-Transit 4140 takes a portal pull most weekdays. A gap measured on Friday and
+// again on Monday legitimately grows by three days of unsettled sales — Stripe
+// Capital's $2,166.05 becomes about $3,000 — which is +38% and would raise a
+// "growing" finding every Monday forever. That is the crying-wolf failure this
+// module exists to stop, so the baseline has to be far enough back to be a
+// different close. Twenty days keeps every real month-over-month pair on this book
+// (E-Transit E5's 07-23 -> 08-12 is exactly 20) and rejects every same-week pair.
+//
+// Status is deliberately ignored: a resolved or suppressed finding still recorded
+// what the gap MEASURED that month, and that measurement is what growth is against.
+const PRIOR_GAP_MIN_SPACING_DAYS = 20
+function priorBalanceGap(existing: any[], loanId: string, asOf: string | null): { gap: number; asOf: string } | null {
+  if (!asOf) return null
+  const earlier = (existing || []).filter((f: any) =>
+    f.check_key === 'balance_vs_lender' &&
+    f.loan_account_id === loanId &&
+    typeof f.detail?.anchor_date === 'string' &&
+    f.detail.anchor_date < asOf &&
+    daysBetween(f.detail.anchor_date, asOf) >= PRIOR_GAP_MIN_SPACING_DAYS)
+  if (!earlier.length) return null
+  const newest = earlier.sort((a: any, b: any) => b.detail.anchor_date.localeCompare(a.detail.anchor_date))[0]
+  // `still_unexplained` is the figure the finding is actually about; `difference` is
+  // the anchor-date snapshot, and is all the rows written before session 231 carry.
+  const gap = Number(newest.detail.still_unexplained ?? newest.detail.difference)
+  if (!Number.isFinite(gap)) return null
+  return { gap, asOf: newest.detail.anchor_date }
+}
+
 function checkBalanceVsLender(
   loan: any, tie: TieOut,
   // Added session 242 for the settlement-lag test below. Both were already in
   // scope at the call site; nothing new is read from the database.
   myStatements: any[] = [], contractTerms: any[] = [], today = '',
+  // Session 244: the same loan's gap at the previous close, or null when there is
+  // no earlier close to compare against — in which case explainBalanceGap behaves
+  // exactly as it did before the growth test existed.
+  prior: { gap: number; asOf: string } | null = null,
 ): Finding[] {
   // A tie and an un-checkable loan both produced no finding before this refactor; they
   // still do. The un-checkable case is now VISIBLE in the tie-out instead of silent.
@@ -607,13 +649,42 @@ function checkBalanceVsLender(
   // rather than red, carrying the arithmetic.
   const repaysContinuously = (contractTerms || []).some((t: any) =>
     t.loan_account_id === loan.id && t.term_key === 'repayment_rate_percent' && !t.superseded_at)
+
+  // The rows handed to the estimator are filtered HERE as well as inside it
+  // (session 244). Not belt-and-braces for its own sake: `myStatements` is every
+  // statement row on the loan, and on Stripe Capital that is 35 rows of
+  // source='xero_balance_snapshot' — the BOOKS balance, which sits above the
+  // lender's by exactly the lag being measured. Interleaved with lender rows it
+  // read $863.68/day against a true $430.47/day, 2.01x, and 2.01x of rate is a real
+  // $6,000 shortfall coming back 'explained'. The module refuses those rows itself;
+  // this call site should never have been the thing offering them.
+  const rateRows = (myStatements || []).filter((s: any) =>
+    REAL_ANCHOR_SOURCES.includes(String(s.source ?? '')) && s.balance_basis === 'principal_only')
   const rate = repaysContinuously && today
-    ? dailyWithholdingFromBalances(myStatements || [], today)
+    ? dailyWithholdingFromBalances(rateRows, today)
     : { rate: null, basis: '' }
+  // ── NO lenderExport IS PASSED HERE, AND THAT IS THE POINT (session 245) ──────
+  // The scheduled run has no transaction export to offer: nothing stores a parsed
+  // one (loan_documents keeps a storage path and no parse), and re-reading a CSV
+  // out of storage on every loan of every run is not what this function is for. So
+  // this call site can now only ever reach a NON-benign verdict, and the one it
+  // reaches on a gap the size of settlement timing is 'unconfirmed_no_export' —
+  // which is what the previous three sessions were calling 'explained' on the
+  // strength of a rate this call site inferred from its own balance history.
+  //
+  // That is a deliberate loss of a reassurance the module was not entitled to
+  // give. What it costs on this book, measured against the 2026-08-26 snapshot:
+  // nothing. No loan reaches 'explained' here today — Stripe Capital, the only
+  // loan with a repayment_rate_percent term, holds 35 statement rows and every one
+  // of them is a xero_balance_snapshot, so it has no lender anchor, its tie-out is
+  // 'not_comparable' and this function returns before the lag test. The six loans
+  // that do reach the test are term loans with no such term and come back
+  // 'not_continuous' exactly as before.
   const lag = explainBalanceGap({
     gap: residual, lenderAsOf: tie.as_of as string,
     dailyWithholding: rate.rate, rateBasis: rate.basis,
     repaysContinuously,
+    priorGap: prior?.gap ?? null, priorGapAsOf: prior?.asOf ?? null,
   })
 
   // Materiality is decided ONCE, in computeTieOut, and read here. It used to be
@@ -622,7 +693,17 @@ function checkBalanceVsLender(
   // one page with no way to tell which is real" is the oldest bug in this module.
   const material = (tie.detail as any)?.material !== false
   const share = Number((tie.detail as any)?.material_share ?? 1)
-  const sev: Finding['severity'] = !material || lag.benign ? 'info' : 'error'
+  // 'Unconfirmed' is not 'wrong', and the severity has to say which one this is
+  // (session 245). The gap is the size of a few days of this loan's own
+  // withholding and nothing has checked it against what the lender actually took:
+  // that is a missing document, not an established error. 'warn' is what
+  // checkStaleAnchor already gives a missing document, and the dashboard counts
+  // warn in Needs Attention exactly as it counts error — so it stays in front of a
+  // person without claiming money has gone astray.
+  const sev: Finding['severity'] =
+    !material || lag.benign ? 'info'
+      : lag.verdict === 'unconfirmed_no_export' ? 'warn'
+        : 'error'
 
   // Name HOW the later entries were booked. Splitting the bank transaction is the
   // cleaner of the two ways to record a payment split, and this check used to refuse
@@ -635,7 +716,12 @@ function checkBalanceVsLender(
     check_key: 'balance_vs_lender',
     severity: sev,
     loan_account_id: loan.id,
-    title: `${loan.xero_account_name} — Xero is ${money(Math.abs(residual))} ${residual < 0 ? 'below' : 'above'} the lender${lag.benign ? ' (settlement timing)' : ''}`,
+    // The suffix names the verdict, and 'unconfirmed_no_export' gets one of its own
+    // rather than falling through to the bare title: a gap that is the SIZE of
+    // settlement timing and has not been confirmed is a different thing from a gap
+    // nobody has an account of, and the title is where a person decides which of
+    // the two they are looking at.
+    title: `${loan.xero_account_name} — Xero is ${money(Math.abs(residual))} ${residual < 0 ? 'below' : 'above'} the lender${lag.benign ? ' (settlement timing)' : lag.verdict === 'growing' ? ' (gap growing)' : lag.verdict === 'unconfirmed_no_export' ? ' (needs a current lender export)' : ''}`,
     plain_english:
       `Rebuilt from every live entry in Xero, this loan comes to ${money(xeroAtAnchor)} on ${tie.as_of}, `
       + `against ${money(lender)} on the lender's own statement for that date. `
@@ -644,7 +730,19 @@ function checkBalanceVsLender(
           : `Nothing is dated after that statement, so the whole ${money(Math.abs(diff))} is unexplained. `)
       + (lag.benign
           ? `That remainder is settlement timing, not money: ${lag.statement}`
-          : !material
+          : lag.verdict === 'unconfirmed_no_export'
+            // Without this branch an unconfirmed gap would print the generic
+            // "missing from Xero or recorded twice" line, which is a claim this
+            // check has NOT made and cannot make: the gap is the size of a few
+            // days of withholding, and what is missing is the evidence, not
+            // necessarily the money.
+            ? `That remainder is the size of settlement timing, but nothing has confirmed it: ${lag.statement}`
+            : lag.verdict === 'growing'
+            // Without this branch the growth finding would print the generic
+            // "missing from Xero or recorded twice" line and never say that what
+            // raised it was the gap growing since the last close.
+            ? `That remainder is the size of settlement timing, but it is growing: ${lag.statement}`
+            : !material
             ? `At ${(share * 100).toFixed(4)}% of the lender's balance that is below the level worth chasing on its own, so it is noted rather than raised — but it is still counted, and it will go red the moment it grows.`
             : `That remainder is either missing from Xero or recorded twice.`),
     detail: {
@@ -658,7 +756,13 @@ function checkBalanceVsLender(
       material, material_share: Math.round(share * 1e6) / 1e6,
       settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                         implied_business_days: lag.impliedBusinessDays,
-                        implied_books_through: lag.impliedBooksThrough, rate_basis: rate.basis },
+                        implied_books_through: lag.impliedBooksThrough, rate_basis: rate.basis,
+                        prior_gap: prior?.gap ?? null, prior_gap_as_of: prior?.asOf ?? null,
+                        // What evidence actually settled this, so a reader of the
+                        // stored row can tell a measurement from an assumption
+                        // without re-deriving it (session 245).
+                        export_evidence: lag.exportEvidence, export_through: lag.exportThrough,
+                        window_from: lag.windowFrom, window_withholding: lag.windowWithholding },
     },
   }]
 }
@@ -1356,6 +1460,18 @@ async function handle(req: Request): Promise<Response> {
     const allEntries = [...entries, ...relevantChangedOld]
     const ledger = buildLedger(allEntries, codes)
 
+    // ── new / still-open / resolved, by fingerprint ──
+    // Engine-owned rows only. This table is now shared with the intake subsystem
+    // (source='intake'), and the resolve sweep below closes anything it did not
+    // re-find. The engine never produces intake check_keys, so an unscoped load
+    // would silently auto-resolve every intake finding. Never resolve what we don't own.
+    //
+    // Read BEFORE the loan loop (session 244), not after it, because the loop now
+    // needs last close's balance_vs_lender gap for the settlement-lag growth test.
+    // Nothing is written to this table until the loop has finished, so moving the
+    // read earlier changes no row it sees.
+    const { data: existing } = await supa.from('reconciliation_findings').select('*').eq('source', 'engine')
+
     const findings: Finding[] = []
     const tieOuts: TieOut[] = []
     for (const loan of active) {
@@ -1407,7 +1523,8 @@ async function handle(req: Request): Promise<Response> {
       // point of the tie-out. checkBalanceVsLender then derives its finding from it.
       const tie = computeTieOut(loan, ledger, cp, cpDate, anchors, windowFrom, haveCheckpoint, today)
       tieOuts.push(tie)
-      findings.push(...checkBalanceVsLender(loan, tie, mine, contractTerms || [], today))
+      findings.push(...checkBalanceVsLender(loan, tie, mine, contractTerms || [], today,
+                                            priorBalanceGap(existing || [], loan.id, tie.as_of)))
 
       // Still gated: derived drift genuinely has nothing to say without a checkpoint.
       if (haveCheckpoint) {
@@ -1425,12 +1542,6 @@ async function handle(req: Request): Promise<Response> {
       findings.push(...checkCarryingBasis(loan, contractTerms || [], mine, mySplits, today))
     }
 
-    // ── new / still-open / resolved, by fingerprint ──
-    // Engine-owned rows only. This table is now shared with the intake subsystem
-    // (source='intake'), and the resolve sweep below closes anything it did not
-    // re-find. The engine never produces intake check_keys, so an unscoped load
-    // would silently auto-resolve every intake finding. Never resolve what we don't own.
-    const { data: existing } = await supa.from('reconciliation_findings').select('*').eq('source', 'engine')
     const byFp: Record<string, any> = Object.fromEntries((existing || []).map(f => [f.fingerprint, f]))
     let seenFps = new Set(findings.map(f => f.fingerprint))
     // Rebuild the ones the window can no longer reach, before anything is written.

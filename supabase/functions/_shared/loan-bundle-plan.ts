@@ -50,7 +50,8 @@
 // judgement below can be tested without a database.
 
 import type { ContractTerm, StripeCsvParseResult, DecompositionResult } from './stripe-capital.ts'
-import { explainBalanceGap, dailyWithholdingFromMonths } from './settlement-lag.ts'
+import { explainBalanceGap, dailyWithholdingFromMonths, lenderExportFromCsv, RATE_SOURCES } from './settlement-lag.ts'
+import { dateFromLedger, type LedgerDatingResult } from './ledger-dating.ts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -115,6 +116,13 @@ export type ActionKind =
   | 'apply_term_to_loan'
   | 'set_carrying_basis'
   | 'correct_statement_basis'
+  // The two that write a BALANCE. Everything above establishes facts ABOUT the
+  // loan; these two put a figure on the line the rollforward reads. They are still
+  // not money entries — no split, no journal — but they are the only actions here
+  // whose output another screen does arithmetic ON, which is why both of them
+  // refuse rather than guess when a date or a basis is missing.
+  | 'open_at_origination'
+  | 'record_lender_balance'
   | 'write_structure_note'
   | 'raise_finding'
 
@@ -178,6 +186,17 @@ export interface PlanContext {
   /** Parsed transaction export, if the bundle contained one. */
   csv: StripeCsvParseResult | null
   /**
+   * What happened when the bundle carried MORE THAN ONE export: combined into one
+   * ledger, or refused and why. Null when there was only one.
+   *
+   * It is a field rather than a silent behaviour because whether two exports were
+   * combined decides whether a screenshot can be dated at all, and this module's
+   * standing rule is that an optional step may fail silently in its EFFECT, never
+   * in its RECORD. A person told "the date could not be established" needs to know
+   * that two files were uploaded and one was dropped.
+   */
+  csvNote?: string | null
+  /**
    * What the LEDGER says about the capitalised fee. null when no search was made
    * (no fee, no account code, no origination date); a result with verdict
    * 'incomplete' when one was attempted and could not be finished.
@@ -205,6 +224,17 @@ export interface PlanContext {
     principal_paid: number | null
     fee_paid: number | null
     total_amount_due: number | null
+    /**
+     * Which of the figures above took part in an identity that CAME OUT RIGHT —
+     * checkPortalTotals' own verdict, carried through the merge.
+     *
+     * It was dropped on the way into the planner, and that omission is why a
+     * balance could only ever be judged PRESENT here. Present is not proven: on
+     * this very loan $125,000 of funding was read as $123,091.66 of balance and
+     * was present the whole time. Section 5b will not file a lender anchor on a
+     * figure nothing vouches for, and it needs this list to tell the difference.
+     */
+    corroborated: string[]
   } | null
   /** Existing statement rows, newest last. */
   statements: { statement_date: string; principal_balance: number; balance_basis: string; source: string }[]
@@ -216,6 +246,53 @@ export interface PlanContext {
 }
 
 const TOL = 0.01
+
+/**
+ * The three sources that mean "a document the LENDER issued". Everything else on
+ * loan_statements — xero_derived, xero_balance_snapshot, amortization_schedule —
+ * is our own arithmetic wearing a statement's clothes, and a loan checked against
+ * one of those is a loan checked against itself.
+ *
+ * ALIASED, NOT RETYPED. RATE_SOURCES in _shared/settlement-lag.ts is already
+ * exactly these three, and its own comment says it is deliberately the same set
+ * the engine anchors on (REAL_ANCHOR_SOURCES in reconciliation-run/index.ts) and
+ * the dashboard trusts (_VARIANCE_REAL_ANCHORS in admin-dashboard/index.html).
+ * That list existed NINE times before session 239 went and found them all; typing
+ * it once more here is the cheapest possible route to ten.
+ *
+ * The coupling is real and worth naming: narrowing RATE_SOURCES for a
+ * rate-measurement reason would silently narrow what counts as an anchor HERE,
+ * and section 5b would then stop seeing a conflicting lender row it should have
+ * seen. tests/loan-bundle-balances.test.mts pins the three values and pins them
+ * against the dashboard's own copy, so that divergence fails loudly instead.
+ */
+export const REAL_ANCHOR_SOURCES = RATE_SOURCES
+
+/**
+ * What section 4b writes into loan_statements.source.
+ *
+ * The column is free text with no CHECK constraint, so the choice is entirely
+ * ours — and it is load-bearing. A day-one balance is the CONTRACT's statement of
+ * what was owed before anything happened; it is not a lender statement of a period
+ * balance, and the dashboard's real-anchor allowlist above must keep saying so.
+ * Anything not on that list fails safe: it can open a rollforward but can never
+ * close one, never satisfies the statement checklist, and never anchors a
+ * reconciliation. Which is precisely the standing this row deserves.
+ *
+ * Every dashboard surface degrades rather than breaks on a value it does not know
+ * — the anchor test is an allowlist, the statement table prints the raw source
+ * with underscores swapped for spaces, and _anchorSourceLabel ends in a fallback.
+ * ONE OUTSTANDING NIT, recorded here so it is not rediscovered: that fallback is
+ * the close band's opening column, so until admin-dashboard/index.html adds
+ *
+ *     contract_origination: 'signed agreement',
+ *
+ * to _ANCHOR_SOURCE_LABEL, that column reads "30 Jun · contract_origination". The
+ * figure, the date and the not-authoritative styling are all correct; only the
+ * word is a slug. Pinned in tests/loan-bundle-balances.test.mts §7, which will
+ * fail the day somebody fixes it and tell them to delete the note.
+ */
+export const ORIGINATION_SOURCE = 'contract_origination'
 
 function money(n: number): string {
   return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -485,6 +562,139 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     }
   }
 
+  // The basis anything below is allowed to rest on. `establishedBasis` first —
+  // two independent pieces of evidence agreeing — then the column already on the
+  // loan, which somebody set with evidence of their own. `proposedBasis` is
+  // deliberately NOT consulted: it is a leading hypothesis, and the whole of
+  // section 3 exists to stop confident things being built on one. The recorded
+  // column is dropped the moment these documents contradict themselves about the
+  // basis, because that conflict is exactly the case where the column may be the
+  // thing that is wrong.
+  const basisDisputed = conflicts.some(c => c.key === 'carrying_basis_evidence_conflict')
+  const recordedBasis: 'gross_payback' | 'net_principal' | null =
+    ctx.loan.carrying_basis === 'gross_payback' ? 'gross_payback'
+    : ctx.loan.carrying_basis === 'net_principal' ? 'net_principal' : null
+  const settledBasis: 'gross_payback' | 'net_principal' | null =
+    establishedBasis ?? (basisDisputed ? null : recordedBasis)
+
+  // ── 4b. The balance on day one ──────────────────────────────────────────
+  // The Stripe Capital bundle planned ten changes, every one of them applied, and
+  // NOT ONE OF THEM WROTE A BALANCE. The engine read the lender's own figure off a
+  // screenshot, used it to establish the carrying basis, and then discarded it as
+  // a balance. The loan still said "no opening balance" on the Loans page and was
+  // left out of the month-end rollforward altogether.
+  //
+  // The rollforward opens each month with _loanBalanceAsOf(loan, priorMonthEnd).
+  // This loan originated 2026-06-30 and the automated Xero sweep's first row is
+  // dated 2026-07-01, so that lookup finds nothing: it MISSES BY ONE DAY. One day
+  // is the whole difference between a loan that rolls forward and a loan nobody
+  // can close.
+  //
+  // Day one is not a measurement, it is the contract. Nothing has been repaid, so
+  // the balance is whatever the books carry this loan AT — which is why this
+  // action will not name a figure until the carrying basis is settled. On a payoff
+  // basis day one is the whole payback; on a principal basis it is the cash
+  // borrowed; the two differ by the fee, and guessing between them writes this
+  // module's own $20,875 phantom liability into the one row every month-end opens
+  // on. A missing opening balance is a visible gap. A wrong one is not.
+  //
+  // NOT subject to the closed-period guard in section 9, and that is a decision
+  // rather than an oversight. Section 9 blocks corrections that reach into closed
+  // months; this row is not a correction and moves no money — and by construction
+  // it is the OLDEST row on the loan, so a loan originated before the close date
+  // (which is most of them) would have the one action that can give it an opening
+  // balance permanently greyed out. That is the bug being fixed, reintroduced as a
+  // guard.
+  {
+    // The agreement's date first. The loan record is a fallback, not a preference:
+    // section 2 is already offering to copy the agreement's date onto the record
+    // precisely because the record's copy can be a hand-typed guess, and a balance
+    // filed on the wrong day is a balance filed against the wrong month.
+    const dayOneDate = origination ?? ctx.loan.original_date
+
+    // ON the origination date counts as covered. A row dated exactly 2026-06-30
+    // already answers the rollforward's question, and a second row that day would
+    // be two answers to it.
+    const covered = dayOneDate ? ctx.statements.some(s => s.statement_date <= dayOneDate) : false
+
+    // A future origination date is bad data, not an opening balance. The dashboard
+    // has a long history of future-dated rows winning "latest balance" picks —
+    // Verdant's whole amortization schedule ingested as statements made a live
+    // $248k loan read as paid off — and this is not the place to add another one.
+    if (dayOneDate && !covered && dayOneDate <= ctx.todayPacific) {
+      // The day-one figure IS the carrying basis restated, so it is read from the
+      // term that basis names and from no other. For net_principal that is
+      // `loan_amount` ahead of `net_loan_proceeds`, which is the same figure
+      // section 3's detector compares the earliest balance against — writing a
+      // day-one row that the detector would then read as evidence for the OTHER
+      // basis is a loop this module can do without.
+      const netPrincipal = loanAmount ?? num('net_loan_proceeds')
+      const dayOne = settledBasis === 'gross_payback' ? totalRepayment
+                   : settledBasis === 'net_principal' ? netPrincipal
+                   : null
+      const derivedFrom = settledBasis === 'gross_payback' ? 'total_repayment_amount'
+                        : settledBasis === 'net_principal' ? (loanAmount !== null ? 'loan_amount' : 'net_loan_proceeds')
+                        : null
+      // Must satisfy loan_statements' CHECK (balance_basis IN ('principal_only',
+      // 'total_payback','payoff_quote','unknown')) AND mean the same thing as the
+      // loan's carrying basis. A payoff figure labelled principal_only is not a
+      // mislabelled row, it is a wrong number in every check that reads the label.
+      const balanceBasis = settledBasis === 'gross_payback' ? 'total_payback'
+                         : settledBasis === 'net_principal' ? 'principal_only' : 'unknown'
+
+      const blockedReason = !settledBasis
+        ? `The day-one balance depends on how this loan is carried, and that is not settled. On a payoff basis it is the whole ${totalRepayment !== null ? money(totalRepayment) : 'contractual'} payback; on a principal basis it is the ${netPrincipal !== null ? money(netPrincipal) : 'cash'} borrowed. Those are two different balances, nothing in these documents chooses between them, and this is the figure every month afterwards is measured from. Settle the carrying basis first.`
+        : dayOne === null
+        ? `This loan is carried on a ${settledBasis === 'gross_payback' ? 'payoff basis, so day one is the agreement’s Total Repayment Amount' : 'principal basis, so day one is the amount borrowed'} — and that figure is not among the terms these documents state.`
+        : undefined
+
+      // The sweep's own first reading, when it agrees to the cent. Worth saying
+      // out loud rather than merely computing with: a contract figure that matches
+      // the first independent reading of the same account is a measurement that
+      // happened to arrive a day late, not an assumption.
+      const firstOnFile = ctx.statements.length ? ctx.statements[0] : null
+      const corroboratedBy = (dayOne !== null && firstOnFile && near(Number(firstOnFile.principal_balance), dayOne))
+        ? firstOnFile : null
+
+      actions.push({
+        id: nextId('openbal'),
+        kind: 'open_at_origination',
+        title: dayOne !== null
+          ? `Record the opening balance of ${money(dayOne)} at ${dayOneDate}`
+          : `Record this loan's opening balance at ${dayOneDate}`,
+        plain_english: [
+          dayOne !== null
+            ? `On the day this loan was signed nothing had been repaid, so the balance was ${money(dayOne)} — ${settledBasis === 'gross_payback' ? 'the whole payback, fee included, which is what this loan is carried at' : 'the cash borrowed, with the financing cost carried outside the balance'}.`
+            : `This would record what this loan's balance was on the day it was signed.`,
+          `Your books hold no balance on or before ${dayOneDate}, so the month-end rollforward has nothing to open on and this loan drops out of the close entirely.`,
+          corroboratedBy
+            ? `The earliest balance already on file (${corroboratedBy.statement_date}, ${money(Number(corroboratedBy.principal_balance))}) is the same figure to the cent, arrived at independently — this fills in the day before it.`
+            : '',
+          `It is filed as the contract's own statement of day one, not as a lender statement, so it can open a month but can never stand in for a figure the lender actually sent.`,
+        ].filter(Boolean).join(' '),
+        // Everything the apply step needs and nothing it has to work out. The
+        // figure is decided HERE, on screen, in front of the person approving it;
+        // re-deriving it at apply time is how what was approved and what happened
+        // become two different things with no audit trail showing it.
+        payload: {
+          statement_date: dayOneDate,
+          principal_balance: dayOne,
+          balance_basis: balanceBasis,
+          source: ORIGINATION_SOURCE,
+          carrying_basis: settledBasis,
+          derived_from: derivedFrom,
+          corroborated_by: corroboratedBy
+            ? { statement_date: corroboratedBy.statement_date,
+                principal_balance: Number(corroboratedBy.principal_balance),
+                source: corroboratedBy.source }
+            : null,
+        },
+        default_checked: !blockedReason,
+        ...(blockedReason ? { blocked_reason: blockedReason } : {}),
+      })
+    }
+  }
+
   // ── 5. Does the lender agree with the books? ────────────────────────────
   if (hasPortal && ctx.portal!.amount_remaining !== null) {
     const asOf = ctx.portal!.as_of
@@ -524,6 +734,37 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         // So the claim is now tested rather than asserted: the gap either is a
         // few business days of this loan's own withholding or it is not. See
         // _shared/settlement-lag.ts.
+        //
+        // ── AND THE TEST IS THE EXPORT, NOT A RATE (session 245) ───────────
+        // "A few business days of this loan's own withholding" used to mean the
+        // gap divided by a mean daily rate, which is a division and not a test —
+        // it returns a number of days for any gap at all. This is the one call
+        // site that can do better, because the bundle may contain the lender's
+        // own transactions: the window is summed out of them, per day, for the
+        // actual days between the books' cut-off and the portal's as-of date.
+        //
+        // THE BASIS IS THE BOOK ROW'S OWN, and it is not a detail. `diff` is this
+        // balance minus the portal's, so the withholding it is compared against
+        // has to measure the same thing the balance does:
+        //
+        //   principal_only  -> principal withheld. Summing totals would count the
+        //                      fee as settlement lag and inflate the window by 14%
+        //                      on this lender ($2,393.23 against $2,050.75 over the
+        //                      dearest three-business-day window in the July file) —
+        //                      enough to flip a real $2,166.05 gap from ruled-out to
+        //                      confirmed.
+        //   total_payback   -> the whole withholding, because a payoff-basis balance
+        //     / payoff_quote   falls by the full amount of each payment.
+        //   unknown         -> no export is offered at all. An unlabelled balance is
+        //                      already excluded from every check that compares the
+        //                      books to the lender (see 4 above); guessing its basis
+        //                      here to reach a benign verdict is the one direction
+        //                      this module must never guess in.
+        const bookBasis = String(book.balance_basis ?? '')
+        const exportBasis: 'principal_only' | 'total_paid' | null =
+          bookBasis === 'principal_only' ? 'principal_only'
+            : (bookBasis === 'total_payback' || bookBasis === 'payoff_quote') ? 'total_paid'
+              : null
         const rate = ctx.csv?.ok ? dailyWithholdingFromMonths(ctx.csv.months) : null
         const lag = explainBalanceGap({
           gap: diff,
@@ -531,17 +772,61 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           dailyWithholding: rate?.rate ?? null,
           rateBasis: rate?.basis ?? 'no transaction export in this set',
           repaysContinuously: rate?.continuous ?? false,
+          // Offered even when it is stale or incomplete: explainBalanceGap judges
+          // freshness itself, and a refusal that can NAME the date the last export
+          // ends is the difference between an answerable finding and a shrug.
+          lenderExport: exportBasis ? lenderExportFromCsv(ctx.csv, exportBasis) : null,
         })
 
         if (lag.benign) {
-          // Explained by arithmetic. It is not a discrepancy, so it does not go
-          // in front of anyone as one — it goes in the corroborations, where a
-          // thing that checks out belongs.
+          // Explained by MEASUREMENT: the lender's own export shows it withheld at
+          // least this much over the window. It is not a discrepancy, so it does
+          // not go in front of anyone as one — it goes in the corroborations,
+          // where a thing that checks out belongs.
           corroborations.push({
             statement:
               `Your books and the lender differ by ${money(Math.abs(diff))} at ${book.statement_date}, and that is expected. ${lag.statement}`,
             sources: ['loan history', 'lender portal', 'transaction export'],
             tie: 'within_tolerance',
+          })
+        } else if (lag.verdict === 'unconfirmed_no_export') {
+          // ── THE REFUSAL, AND WHY IT IS ITS OWN BRANCH (session 245) ────────
+          // This is the case that used to be a corroboration. The gap is the size
+          // of a few days of withholding, no export covers those days, and the
+          // only thing that made it "expected" was an average. It is not an error
+          // — nothing here says the money is missing — so it is not filed as one;
+          // it is filed as a question with exactly one answer, and the answer is a
+          // file the person reading this can produce in a minute.
+          conflicts.push({
+            key: 'balance_vs_lender_unconfirmed',
+            statement: `Your books show ${money(Math.abs(diff))} more still owing than the lender does, which is the size of settlement timing on this loan — but nothing in this set confirms it.`,
+            expected: `${money(ctx.portal!.amount_remaining!)} (lender, ${asOf ?? 'as shown'})`,
+            found: `${money(Number(book.principal_balance))} (books, ${book.statement_date})`,
+            sources: ['loan history', 'lender portal'],
+            severity: 'warn',
+            caveat: lag.statement,
+          })
+          actions.push({
+            id: nextId('finding'),
+            kind: 'raise_finding',
+            title: `Ask for a current transaction export before calling the ${money(Math.abs(diff))} difference settlement timing`,
+            plain_english:
+              `The lender says ${money(ctx.portal!.amount_remaining!)} is still owed; your books say ${money(Number(book.principal_balance))}. ` +
+              `On this loan a difference of about that size is what settlement timing looks like — the lender counts a withholding when the sale clears and your books count it when the payout lands. ` +
+              `But "about that size" is an assumption until the lender's own transactions for those days are added up, and this lender withholds a percentage of every sale, so no two days are alike. ` +
+              `${lag.statement} Raising it puts it in Needs Attention, where it stays until an export settles it either way.`,
+            payload: {
+              check_key: 'balance_vs_lender', severity: 'warn',
+              title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: ${money(Math.abs(diff))} difference is unconfirmed settlement timing`,
+              detail: { book_balance: Number(book.principal_balance), book_date: book.statement_date,
+                        lender_balance: ctx.portal!.amount_remaining, lender_date: asOf, difference: Number(diff.toFixed(2)),
+                        settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
+                                          implied_business_days: lag.impliedBusinessDays,
+                                          implied_books_through: lag.impliedBooksThrough,
+                                          export_evidence: lag.exportEvidence, export_through: lag.exportThrough,
+                                          window_from: lag.windowFrom, window_withholding: lag.windowWithholding } },
+            },
+            default_checked: true,
           })
         } else {
           conflicts.push({
@@ -569,12 +854,316 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
                         lender_balance: ctx.portal!.amount_remaining, lender_date: asOf, difference: Number(diff.toFixed(2)),
                         settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                                           implied_business_days: lag.impliedBusinessDays,
-                                          implied_books_through: lag.impliedBooksThrough } },
+                                          implied_books_through: lag.impliedBooksThrough,
+                                          export_evidence: lag.exportEvidence, export_through: lag.exportThrough,
+                                          window_from: lag.windowFrom, window_withholding: lag.windowWithholding } },
             },
             default_checked: true,
           })
         }
       }
+    }
+  }
+
+  // ── 5b. The lender's own balance, filed as an anchor ────────────────────
+  // A portal screenshot is the only thing in a Stripe Capital bundle that is not
+  // our own arithmetic. Reading it, using it to settle the carrying basis and then
+  // throwing it away is how a loan ends up with 35 balances and no ANCHOR: every
+  // figure on file derived from Xero, checked against Xero, agreeing with Xero.
+  //
+  // `portal_manual_pull` is the source the rest of the system already means by
+  // "the lender said so" — 285 rows across the other loans, and one of the three
+  // in REAL_ANCHOR_SOURCES above. It is what makes a loan checkable at all, and it
+  // is the difference between the close band printing a variance and printing
+  // "n/a — swept from Xero".
+  //
+  // ── AND WHY THIS ONE FAILS CLOSED ON THE DATE ───────────────────────────
+  // The screenshot that prompted all this carried a fully corroborated balance —
+  // $145,875 due less $22,783.34 paid leaves $123,091.66, all five figures
+  // agreeing — and NO AS-OF DATE. It showed a period ("Jul 6 – Sep 4") and a
+  // period-to-date total; it never said which day the balance belonged to. The
+  // extractor returned as_of: null, correctly; its schema says to report a date
+  // ONLY if the image prints one and never to infer one.
+  //
+  // So an undated balance is offered BLOCKED and asked about, never filed on a
+  // guessed date. Getting a lender anchor's date wrong does not fail loudly — the
+  // row is a real anchor by source, so it silently moves the variance on the one
+  // screen whose job is to say this loan is ready for your accountant. No anchor
+  // is a gap somebody can see. A wrong anchor is a gap nobody can.
+  if (hasPortal && ctx.portal!.amount_remaining !== null) {
+    const bal = ctx.portal!.amount_remaining!
+    const asOf = ctx.portal!.as_of
+    // PRESENT is not PROVEN, and only proven earns a row. checkPortalTotals lists
+    // a figure in `corroborated` only when an identity printed on the screen came
+    // out right for it; a balance that merely appeared has already been the wrong
+    // number on this loan, when $125,000 of funding was read as $123,091.66 of
+    // balance and was present the entire time. A figure nothing vouches for may
+    // inform a plan. It may not become the row the whole system measures against.
+    const proven = (ctx.portal!.corroborated || []).includes('amount_remaining')
+
+    // ── DATING THE SCREEN FROM THE LENDER'S OWN LEDGER (session 246) ────────
+    // The date is not always unknowable. The screen states how much has been paid
+    // in its period; the export lists every withholding with a date; the day on
+    // which the export's running total EQUALS the screen's paid-to-date is the day
+    // the screen was showing. On these documents it lands on 2026-08-26 to the cent
+    // ($22,783.34, splitting $19,522.72 financing / $3,260.62 fee — the screen's own
+    // two lines), and the next day is $348.43 past it, so nothing else fits.
+    //
+    // MEASURED, not inferred, and the distinction is the only reason this is
+    // allowed to unblock an action that fails closed on everything else. See
+    // _shared/ledger-dating.ts for the refusals; the two decisions that belong
+    // HERE, because only the planner holds the evidence for them, are:
+    //
+    //   WHAT THE PERIOD START IS. The agreement's Repayment Start Date — the first
+    //   day a withholding could exist on this loan. It is what makes the coverage
+    //   gate real: hand in only the August file (first day 2026-08-01) for a loan
+    //   whose repayment started 2026-07-07 and the running total is $11,192.29
+    //   light from the outset, so it would cross $22,783.34 weeks late and return a
+    //   real date that is simply the wrong one. Without that term nothing here can
+    //   show that the export begins at the start of the period, so it refuses —
+    //   `origination` is kept only as a fallback and on this loan it REFUSES too
+    //   (the export begins 2026-07-06, six days after the 06-30 origination), which
+    //   is the correct answer rather than a shortfall: nothing available proves
+    //   what, if anything, was withheld in those six days.
+    //
+    //   NO OPENING CUMULATIVE IS EVER OFFERED. ledger-dating.ts lets a caller past
+    //   the coverage gate by stating what the period had already accumulated before
+    //   the file begins. That is a claim about money, and this planner has no
+    //   evidence for one. Passing zero "because it is probably zero" is exactly the
+    //   guess §5b exists to refuse, wearing a parameter name.
+    //
+    // ONE LIMITATION, RECORDED SO IT IS NOT REDISCOVERED. `ctx.csv` is ONE parsed
+    // export: loan-bundle/index.ts assigns it per CSV in the upload, so a bundle
+    // carrying July AND August-to-date delivers only whichever was read last, and
+    // dating the real screenshot needs both. Today that fails SAFE in either order
+    // — August alone is refused by the coverage gate (it begins after the period),
+    // July alone by 'target_beyond_export' (it never reaches $22,783.34) — and both
+    // refusals name the file that would settle it. Merging the two is the change
+    // that makes this fire on the real bundle, and it is not a small one: two
+    // exports that OVERLAP would double-count the shared days, and a double-counted
+    // running total crosses the screen's figure EARLY, which is a silently wrong
+    // date rather than a refusal. It needs its own row-identity work.
+    //
+    // CORROBORATION IS REQUIRED, AND THAT IS A JUDGEMENT CALL — recorded here
+    // rather than left implicit. A single figure agreeing could be a coincidence;
+    // the module's own §3 refuses to record a carrying basis on one piece of
+    // evidence for the same reason. So the date is taken only when the screen's
+    // decomposition agrees as well (`corroborated`), and a total-only match is
+    // reported in the question below instead of being filed — a candidate date a
+    // person can confirm in a second, which is worth far more than a row they
+    // cannot check. RECOMMENDATION, if this is ever revisited: keep it this way.
+    // The cost of the strict rule is one extra confirmation; the cost of the loose
+    // one is a lender anchor on a date nothing independently vouched for, and a
+    // wrong anchor date does not fail loudly — it moves the close screen's variance
+    // and says nothing.
+    const repaymentStart = date('repayment_start_date') ?? origination ?? ctx.loan.original_date
+    const dating: LedgerDatingResult | null =
+      (proven && !asOf && ctx.csv && ctx.csv.days.length > 0 && ctx.csv.first_date && repaymentStart &&
+       ctx.portal!.paid_to_date !== null && (ctx.portal!.corroborated || []).includes('paid_to_date'))
+        ? dateFromLedger({
+            days: ctx.csv.days.map(d => ({ date: d.date, total: d.total_paid, financing: d.principal_paid, fee: d.fee_paid })),
+            // `ok` false means rows could not be read, which understates the running
+            // total and therefore dates the screen LATE. Passed through rather than
+            // filtered out so the refusal can say so.
+            complete: ctx.csv.ok === true,
+            coversFrom: ctx.csv.first_date,
+            periodStart: repaymentStart,
+            // The target is the amount paid IN THE PERIOD, and it must be a figure
+            // the screen's own arithmetic vouched for — the gate above. Dating a
+            // lender anchor off a number nothing on the screen checked would put the
+            // misread this module already caught once ($125,000 of funding read as
+            // $123,091.66 of balance) in charge of the date as well as the figure.
+            target: {
+              paid: ctx.portal!.paid_to_date!,
+              financing: ctx.portal!.principal_paid,
+              fee: ctx.portal!.fee_paid,
+            },
+          })
+        : null
+    const derivedDate = dating?.corroborated ? dating.date : null
+    // Every use below is of the date this row would be FILED under, whether the
+    // screen printed it or the export measured it — including the same-day anchor
+    // lookup, which on a derived date is the difference between spotting a lender
+    // figure already on file for 2026-08-26 and filing a second one beside it.
+    const asOfDate = asOf ?? derivedDate
+
+    if (proven) {
+      // Only LENDER rows are compared. A xero_derived or snapshot row on the same
+      // date disagreeing with the lender is not a duplicate anchor, it is the
+      // books-versus-lender gap section 5 has just reported — raising it twice, in
+      // two vocabularies, is how a screen teaches people to scroll.
+      const sameDay = asOfDate
+        ? ctx.statements.filter(s => s.statement_date === asOfDate && REAL_ANCHOR_SOURCES.includes(s.source))
+        : []
+      const already = sameDay.find(s => near(Number(s.principal_balance), bal))
+      const contradicting = sameDay.filter(s => !near(Number(s.principal_balance), bal))
+
+      if (already) {
+        corroborations.push({
+          statement: `The lender's balance at ${asOfDate} (${money(bal)}) is already on file from a lender document, and this screenshot says the same thing.`,
+          sources: ['loan history', 'lender portal'], tie: 'exact',
+        })
+      } else if (contradicting.length) {
+        // A conflict to raise, not a row to write. Overwriting the row already
+        // there would destroy the evidence for whichever reading is right, and
+        // filing a second would leave the loan with two lender anchors on one day
+        // and let the authority ranking pick between them by accident of ordering.
+        const c = contradicting[0]
+        conflicts.push({
+          key: 'lender_balance_disagrees_with_file',
+          statement: `A lender figure is already on file for ${asOfDate}, and this screenshot does not agree with it.`,
+          expected: `${money(bal)} (this screenshot)`,
+          found: `${money(Number(c.principal_balance))} (already on file, ${String(c.source).replace(/_/g, ' ')})`,
+          sources: ['lender portal', 'loan history'],
+          severity: 'warn',
+          caveat: `Two lender figures for the same day cannot both be right, so no balance was proposed. This is not the usual books-versus-lender difference — that is a gap between what you recorded and what the lender says, and it is reported separately. This is two claims about what the LENDER says, and only one of them can stand.`,
+        })
+      } else {
+        // What the lender's figure MEASURES, which is not automatically what the
+        // books carry. When the screen's own total is the agreement's Total
+        // Repayment Amount, the balance beside it is a payoff figure and nothing
+        // else — the same identity section 3 uses to establish the basis, read
+        // here for what it says about the LENDER's number rather than about ours.
+        // Failing that, the settled carrying basis; failing that 'unknown', which
+        // is a legal value and the one that fails safe: an unlabelled balance is
+        // left out of the rate measurement and the published-total check rather
+        // than being counted on a basis nobody proved.
+        const lenderQuotesGross = totalRepayment !== null && ctx.portal!.total_amount_due !== null &&
+          near(ctx.portal!.total_amount_due!, totalRepayment)
+        const lenderBasis = lenderQuotesGross ? 'total_payback'
+          : settledBasis === 'gross_payback' ? 'total_payback'
+          : settledBasis === 'net_principal' ? 'principal_only'
+          : 'unknown'
+        const screens = ctx.documents.filter(d => d.kind === 'balance_screenshot').map(d => d.filename)
+
+        // What the export had to say when it could not settle the date, appended to
+        // the refusal and to the question below. "We looked, and here is what we
+        // found" is the difference between an answerable question and a shrug — and
+        // in the total-only case it hands over a candidate date the person can
+        // confirm in seconds. WITH NO EXPORT IN THE SET THIS IS EMPTY and both
+        // wordings below are byte-identical to what they have always been, which is
+        // what keeps the no-export path the same refusal it was before.
+        //
+        // The coverage refusal gets one more sentence when the period start was a
+        // FALLBACK. With no Repayment Start Date on the agreement the planner falls
+        // back to the origination date, and on this lender that asks for something
+        // no export can supply: repayment starts a week after origination, so the
+        // file legitimately begins six days later (2026-07-06 against a 2026-06-30
+        // origination) and the refusal would otherwise read "an export covering
+        // from 2026-06-30 would date it" — a file that cannot exist. The missing
+        // TERM is the thing to go and get, and the sentence should say so.
+        const startWasStated = date('repayment_start_date') !== null
+        const startCaveat = !startWasStated && dating?.refused_because === 'coverage_starts_late'
+          ? ` The period was taken to begin ${repaymentStart} only because this agreement does not state a Repayment Start Date. That term is the thing worth finding: repayment usually starts days after origination, and with it the export may well cover the whole period after all.`
+          : ''
+        const exportNote = !dating || derivedDate ? ''
+          : dating.date
+          ? ` The transaction export in this set gets close but does not settle it. ${dating.statement} One figure agreeing is not enough to date a row the whole system measures against, so it was not taken — but if ${dating.date} is the day the screen was captured, say so and this can be filed.`
+          : ` The transaction export in this set cannot date it either. ${dating.statement}${startCaveat}`
+
+        const blockedReason = asOfDate ? undefined
+          : `This screen states no balance date. Every figure on it checks out — ${money(bal)} is the total due less the amount paid, to the cent — but it shows a period and a period-to-date total, and never says which day the ${money(bal)} belongs to. Nothing here will invent one: this row would become the figure your books are checked against, and filed against the wrong day it does not fail — it quietly moves the variance on the month-end screen, the one screen whose job is to tell you this loan is ready for your accountant. Tell us the date the screenshot was taken and it can be filed.${exportNote}`
+
+        actions.push({
+          id: nextId('lenderbal'),
+          kind: 'record_lender_balance',
+          title: asOf
+            ? `Record the lender's balance of ${money(bal)} at ${asOf}`
+            // Named as derived on the review screen itself. A date that was measured
+            // rather than printed is a different kind of fact from one the lender
+            // wrote down, and the person ticking the box is entitled to know which
+            // of the two they are approving before they open the description.
+            : derivedDate
+            ? `Record the lender's balance of ${money(bal)} at ${derivedDate}, dated from the transaction export`
+            : `Record the lender's balance of ${money(bal)} — needs the date it was taken`,
+          plain_english: [
+            asOf
+              ? `The lender's own screen says ${money(bal)} was still owed at ${asOf}, and the screen proves it: the total due less the amount paid to date comes to exactly that.`
+              : derivedDate
+              // SHOW THE WORKING. This module's standing rule is that a derived
+              // number says how it was derived, and a derived DATE is the sharpest
+              // case for it: nothing downstream can tell a measured date from a
+              // typed one, so the only place the difference can be seen is here.
+              // The sentence names the figures that agreed, the day they agreed on
+              // and the next day's total, which is enough for a person to check it
+              // against the export by hand rather than take it on trust.
+              ? `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: the total due less the amount paid to date comes to exactly that. What the screen never says is which day that is the balance for — so it was measured rather than guessed. ${dating!.statement} That is why this is filed at ${derivedDate}. The date is only as good as the export it was measured from, which is why it was taken only when more than one figure landed on the same day; if that export later turns out to be missing transactions, this date moves with it.`
+              : `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: the total due less the amount paid to date comes to exactly that. What it does not say is which day that is the balance for.`,
+            `Filing it as a lender balance is what makes this loan checkable. Every balance currently on file for it was swept out of your own ledger, so today the books are only ever compared with themselves — the month-end screen says "n/a" against this loan rather than a figure your accountant can sign.`,
+            screens.length ? `Read from ${screens.join(' and ')}.` : '',
+          ].filter(Boolean).join(' '),
+          // Everything the apply step needs and nothing it has to work out. The date
+          // is decided HERE, in front of the person approving it, and the evidence
+          // rides along with it: applyBundle reads the stored plan verbatim and must
+          // never re-run this measurement, because a date derived twice can differ
+          // between the screen somebody approved and the row that got written — and
+          // it would differ silently, since the export it re-read may by then be a
+          // different file. checkStatementPayload ignores the extra keys.
+          payload: {
+            statement_date: asOfDate,
+            principal_balance: bal,
+            balance_basis: lenderBasis,
+            source: 'portal_manual_pull',
+            read_from: screens,
+            date_source: asOf ? 'screen' : derivedDate ? 'transaction_export' : null,
+            dated_by_export: derivedDate ? {
+              date: derivedDate,
+              method: 'cumulative_withholding_match',
+              period_start: repaymentStart,
+              export_covers: dating!.covers,
+              target: {
+                paid_to_date: ctx.portal!.paid_to_date,
+                financing_paid: ctx.portal!.principal_paid,
+                fee_paid: ctx.portal!.fee_paid,
+              },
+              cumulative: dating!.cumulative,
+              agreed: dating!.agreed,
+              previous_day: dating!.previous_day,
+              next_day: dating!.next_day,
+              statement: dating!.statement,
+            } : null,
+          },
+          default_checked: !blockedReason,
+          ...(blockedReason ? { blocked_reason: blockedReason } : {}),
+        })
+
+        // A blocked action greyed on a review screen is a dead end on its own. The
+        // question is what turns it back into a row, so it is asked where the
+        // other unanswerable questions are asked, in the same three parts.
+        //
+        // Asked on `asOfDate`, not on `asOf`: a screen the export has dated is no
+        // longer an open question, and leaving it in the list would be the module
+        // asking for something it is holding — the same defect §7b was fixed for
+        // when the ledger answered the fee question and the plan asked it anyway.
+        if (!asOfDate) {
+          unresolved.push({
+            question: `What date was this screenshot of the lender's screen taken?`,
+            why_it_matters:
+              `The lender's balance is the one figure on this loan that is not our own arithmetic, and a balance means nothing without the day it belongs to. Filed on the wrong date it does not look wrong: it counts as a real lender anchor, so it silently shifts the variance on the month-end close screen — the screen whose entire job is to say this loan is ready for your accountant. Left out, this loan simply has no lender figure at all, which is at least visible.`,
+            what_would_answer_it:
+              `The date the screen was captured, or a screenshot that prints an "as of" date beside the ${money(bal)}. The screen we have shows a period and a period-to-date total, which is why it was not read off it. With a date this becomes the lender anchor this loan has never had.${exportNote}`,
+          })
+        }
+      }
+    }
+  }
+
+  // ── 5c. More than one export in the bundle ──────────────────────────────
+  // Said out loud either way. Combining two exports is what makes a running
+  // total reach an August figure from a July start; refusing to combine them is
+  // why a date could not be established. Both are facts about the evidence, so
+  // both belong on the page rather than in a log nobody reads.
+  if (ctx.csvNote) {
+    if (/were combined/.test(ctx.csvNote)) {
+      corroborations.push({ statement: ctx.csvNote, sources: ['transaction export'], tie: 'exact' })
+    } else {
+      conflicts.push({
+        key: 'exports_not_combined',
+        statement: `More than one transaction export was uploaded and they could not be read as one ledger.`,
+        expected: 'one continuous ledger', found: ctx.csvNote,
+        sources: ['transaction export'], severity: 'warn',
+        caveat: `Nothing was lost and nothing was double-counted — the fullest single export was used. But a balance can only be dated from the lender's ledger when that ledger runs unbroken from the start of the period, so this may be why a screenshot's date could not be established.`,
+      })
     }
   }
 
@@ -618,6 +1207,13 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         // hand-waving about the identical mechanism is how a module ends up with
         // two answers to the same question — so it gets the same arithmetic, on
         // this month's own rate.
+        //
+        // Session 245: and here the month rate is only the SENTENCE. The file in
+        // hand covers this month's own last days by construction, so the window is
+        // summed out of it day by day rather than extrapolated from the month's
+        // average — which on this export is a 24x-swinging quantity pretending to
+        // be a constant. TOTAL basis, because `booked` and `m.total_paid` are both
+        // totals; the balance check above compares principal and passes principal.
         const monthDays = Math.round(
           (Date.parse(m.last_date + 'T00:00:00Z') - Date.parse(m.first_date + 'T00:00:00Z')) / 86_400_000) + 1
         const monthRate = monthDays > 0 ? Math.round((m.total_paid / monthDays) * 100) / 100 : null
@@ -627,6 +1223,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           dailyWithholding: monthRate,
           rateBasis: `${m.transaction_count.toLocaleString('en-US')} withholdings totalling ${money(m.total_paid)} over ${monthDays} days in this month's export`,
           repaysContinuously: m.transaction_count >= 20,
+          lenderExport: lenderExportFromCsv(ctx.csv, 'total_paid'),
         })
 
         if (lag.benign) {
@@ -766,6 +1363,14 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     // step and the review screen honour correctly, never once activated. A guard
     // is only as good as the branch it sits on. The action that actually reaches
     // into closed months is correct_statement_basis, via statement_dates.
+    //
+    // The two balance-writing actions carry `statement_date`, singular, and are
+    // deliberately out of this guard's reach — see 4b for why. In short: they
+    // insert evidence rather than correct an entry, they move no money, and 4b's
+    // row is by construction the OLDEST on the loan, so blocking it on the close
+    // date would grey out the only action that can give an opening balance to any
+    // loan that originated before the books were closed. That is most of them,
+    // and it is the defect being fixed rather than a guard against it.
     const dates: string[] = Array.isArray(p?.statement_dates) ? p.statement_dates : []
     const closedDates = dates.filter(d => isClosed(d, ctx.closeDate))
     const label: string | undefined = p?.period_label ?? closedDates[closedDates.length - 1]

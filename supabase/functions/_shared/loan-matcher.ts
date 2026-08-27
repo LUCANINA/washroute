@@ -52,10 +52,19 @@ export type MatchResult = {
 }
 
 const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
+/** Words, so a name is compared as a name rather than as a run of letters. */
+const tokens = (v: string) => String(v ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+const startsWith = (long: string[], short: string[]) =>
+  short.length > 0 && short.length <= long.length && short.every((t, i) => long[i] === t)
 const only = <T>(rows: T[]): T | null => (rows.length === 1 ? rows[0] : null)
 
 export function matchLoan(input: MatchInput): MatchResult {
-  const active = (input.loans || []).filter(l => l.status === 'active')
+  // Case-normalised. An exact 'active' test made a sibling stored as 'Active'
+  // invisible — which does not merely lose that loan, it makes its sibling UNIQUE
+  // and turns a correct refusal into a confident wrong answer. Verified: two
+  // BayFirst loans, one stored 'Active', and a $150,000 agreement files against
+  // the $90,000 loan.
+  const active = (input.loans || []).filter(l => String(l.status ?? '').toLowerCase() === 'active')
   const acctRef = (input.acctRef || '').trim() || null
   const none: MatchResult = { loan: null, matchedOn: null, rung: null }
   if (!active.length) return none
@@ -96,20 +105,36 @@ export function matchLoan(input: MatchInput): MatchResult {
   for (const hint of input.lenderHints || []) {
     const h = norm(String(hint))
     if (!h) continue
+    // ── NAMES ARE MATCHED AS NAMES, NOT AS SUBSTRINGS (audit, session 242) ────
+    // `xn.includes(h)` matched any loan whose Xero account name merely MENTIONS
+    // the lender — routine for refinances and payoffs. Verified: with the Stripe
+    // loan closed, a "BayFirst SBA - refinance of Stripe Capital Loan" account
+    // took the entire Stripe bundle at full confidence, because closing the true
+    // loan is exactly what removes the ambiguity that would have refused it.
+    // Substring matching also crossed institutions once punctuation was stripped
+    // ("MT Bank" matching "M&T Bank").
+    //
+    // The hint must now be the BEGINNING of the name, token by token. A name that
+    // mentions the lender part-way through belongs to a different loan that refers
+    // to this one, which is the opposite of a match.
+    const ht = tokens(hint)
     const hit = only(active.filter(l => {
-      const ln = norm(String(l.lender || '')), xn = norm(String(l.xero_account_name || ''))
-      // The `h.includes(ln)` direction needs a length floor. Without it a lender
-      // recorded under a very short name is "contained in" almost any hint and
-      // matches documents that have nothing to do with it.
-      return (!!ln && ln.includes(h)) || (ln.length >= 5 && h.includes(ln)) || (!!xn && xn.includes(h))
+      const lt = tokens(String(l.lender || '')), xt = tokens(String(l.xero_account_name || ''))
+      return startsWith(lt, ht) || startsWith(xt, ht) ||
+             (lt.join('').length >= 5 && startsWith(ht, lt))
     }))
     if (!hit) continue
     let matchedOn = `the lender named in these documents (${hint}), which matches exactly one active loan`
-    // Corroborate with the amount when the agreement gave one. Never required —
-    // it only strengthens the sentence the human reads before approving.
+    // The amount CORROBORATES when it agrees and VETOES when it does not. It used
+    // to do only the first, so a $125,000 agreement filed happily against a
+    // $40,000 loan and said nothing — the one signal that would have caught a
+    // wrong-name match was silent in exactly the case it was needed.
     const la = input.agreementLoanAmount
-    if (typeof la === 'number' && hit.original_amount !== null && hit.original_amount !== undefined &&
-        Math.abs(Number(hit.original_amount) - la) < 0.01) {
+    const rec = hit.original_amount === null || hit.original_amount === undefined
+      ? null : Number(hit.original_amount)
+    if (typeof la === 'number' && rec !== null && Number.isFinite(rec) && rec > 0) {
+      // Name says yes, money says no. That is a question, not a match.
+      if (Math.abs(rec - la) >= 0.01) continue
       matchedOn += `, and whose recorded original amount matches the agreement's Loan Amount to the cent`
     }
     return { loan: hit, matchedOn, rung: 'lender_name' }

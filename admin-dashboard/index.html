@@ -9077,21 +9077,78 @@
   //
   // The escalation rule is untouched and remains the real safety net: a dismissal
   // NEVER survives a finding becoming an error, whatever its wording.
+  // SESSION 245 — WHAT "EVERY FIGURE BECOMES THE SAME TOKEN" ALSO DID
+  // Normalising EVERY number was too broad in two ways an audit found in the
+  // real book of 138 titles: 21 substance keys were shared by two or more
+  // distinct titles, and one was shared ACROSS DIFFERENT LOANS.
+  //
+  //   "E-Transit Loan E5-4751 - 2026-08-12 payment of $1,046.95 ..."
+  //   "E-Transit Loan E6-7410 - 2026-08-10 payment of $643.50 ..."
+  //        both -> "e-transit loan e#-# - #-#-# payment of $# ..."
+  //
+  // and, worse for the books:
+  //
+  //   "E-Transit Loan - 4140 - Xero is $415.88 above the lender"
+  //   "E-Transit Loan - 4140 - Xero is $1,180.32 above the lender"
+  //
+  // A balance gap that nearly TRIPLED read as the same sentence, so a "Got it"
+  // on the small one suppressed the large one. Tier-1 escalation masks that
+  // today, but only by accident: any warn-level check whose title carries an
+  // amount was unprotected.
+  //
+  // The distinction the key actually needs is between a number that COUNTS
+  // something and a number that IDENTIFIES or CLAIMS something. A count going
+  // up is the treadmill this function exists to stop. An amount, a date or an
+  // account number changing means the finding is making a different statement.
+  //
+  // So: the loan's own name (everything before the first em dash) is preserved
+  // verbatim, dates and money are preserved, and only counts collapse — a bare
+  // integer, and the running total introduced by "totalling", which moves in
+  // lockstep with its count. A title with no em dash keeps its numbers rather
+  // than guessing, because for a SUPPRESSION rule the safe failure is a key
+  // that does not match: the finding comes back and a person looks at it.
   function _bkSubstanceKey(t) {
-    return String(t == null ? '' : t)
-      .replace(/[0-9][0-9,.]*/g, '#')   // every figure becomes the same token
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase()
-      .replace(/(\b[a-z]+?)s\b/g, '$1'); // correction/corrections, period/periods
+    const raw = String(t == null ? '' : t);
+    const cut = raw.indexOf('\u2014');                 // em dash: name — claim
+    const who = cut < 0 ? '' : raw.slice(0, cut);
+    const claim = cut < 0 ? raw : raw.slice(cut + 1);
+    const norm = (x) => String(x).replace(/\s+/g, ' ').trim().toLowerCase();
+    // Set aside what identifies, collapse what counts, put the rest back. Doing
+    // it in this order rather than with lookarounds matters: the trailing "12"
+    // of 2026-08-12 has a digit before it but not after, so a single pattern
+    // clever enough to spare dates ended up collapsing the day and nothing else.
+    const keep = [];
+    const stash = (m) => { keep.push(m); return '\u0000'; };
+    const body = claim
+      // "totalling $572,400.13" moves in lockstep with the count in front of it.
+      .replace(/\b(totalling|totaling)\s+\$?[\d][\d,.]*/gi, '$1 #')
+      .replace(/\d{4}-\d{2}-\d{2}/g, stash)      // a different date, a different event
+      .replace(/\$[\d][\d,.]*/g, stash)           // a different amount, a different claim
+      .replace(/\b\d[\d,.]*/g, '#')               // what is left only counts
+      .replace(/\u0000/g, () => keep.shift());
+    return (norm(who) + ' \u2014 ' + norm(body))
+      .replace(/(\b[a-z]+?)s\b/g, '$1');  // correction/corrections, period/periods
   }
 
+  // SESSION 245 — THIS FAILED OPEN, WHICH IS THE WRONG DIRECTION
+  // Both guards were written `if (opts && ...)`, so calling this with no `opts`
+  // at all skipped the escalation check AND the title check and returned true:
+  // nothing was verified, yet the finding was hidden. The same held when the
+  // stored `item_title` was empty or null, because the guard required it to be
+  // truthy — and `bkArchiveIssue` writes `item_title: it.name` unguarded, so an
+  // empty name is one nullable write away from silently suppressing a finding
+  // whose sentence has completely changed.
+  //
+  // A suppression rule that cannot verify WHAT it is suppressing must let the
+  // finding through. The cost of failing closed is a row a person has to set
+  // aside again; the cost of failing open is a real finding nobody ever sees.
   function _bkDismissalHolds(key, opts) {
     const d = _bkDismissals.get(key);
     if (!d) return false;
-    if (opts && opts.isError) return false;
-    if (opts && opts.title && d.item_title &&
-        _bkSubstanceKey(opts.title) !== _bkSubstanceKey(d.item_title)) return false;
+    if (!opts) return false;
+    if (opts.isError) return false;
+    if (!opts.title || !d.item_title) return false;
+    if (_bkSubstanceKey(opts.title) !== _bkSubstanceKey(d.item_title)) return false;
     return true;
   }
 
@@ -9099,10 +9156,13 @@
   function _bkUnarchivedReason(key, opts) {
     const d = _bkDismissals.get(key);
     if (!d) return null;
-    if (opts && opts.isError) return 'set aside on ' + String(d.dismissed_at || '').slice(0, 10) + ', back because it is now a Fix first';
-    if (opts && opts.title && d.item_title &&
-        _bkSubstanceKey(opts.title) !== _bkSubstanceKey(d.item_title))
-      return 'set aside on ' + String(d.dismissed_at || '').slice(0, 10) + ', back because what it says has changed since';
+    const when = 'set aside on ' + String(d.dismissed_at || '').slice(0, 10);
+    if (opts && opts.isError) return when + ', back because it is now a Fix first';
+    // Every reason _bkDismissalHolds can refuse for needs a sentence here, or a
+    // row reappears with no explanation and reads as a bug (session 245).
+    if (!opts || !opts.title || !d.item_title) return when + ', back because there is not enough on file to be sure it is the same item';
+    if (_bkSubstanceKey(opts.title) !== _bkSubstanceKey(d.item_title))
+      return when + ', back because what it says has changed since';
     return null;
   }
 
@@ -10973,7 +11033,15 @@
     // trickle of findings, that is never, so the celebration was unreachable by
     // construction. A LOAN going reconciled is a real, finishable unit of work
     // and happens often enough to mean something.
-    const _rcNow = _bkOverviewSeg === 'issues' ? _bkRosterCounts().reconciled : null;
+    // Only compare two counts that were both measured on REAL data. Before the
+    // loans and tie-outs load, _bkRosterCounts() returns reconciled: 0 — a zero,
+    // not a null — so the first painted render recorded 0 and the second recorded
+    // 6, and every ordinary visit to the tab fired a celebration. A tie-out read
+    // that failed and then succeeded did the same, as did importing a loan that
+    // happened to tie. A reward that fires when nothing was earned stops being a
+    // reward, which is the opposite of what it was added for.
+    const _rc = _bkOverviewSeg === 'issues' ? _bkRosterCounts() : null;
+    const _rcNow = (_rc && _rc.total > 0 && _bkDataReady()) ? _rc.reconciled : null;
     if (_rcNow != null && _bkPrevReconciled != null && _rcNow > _bkPrevReconciled) {
       _bkConfetti(listEl.parentElement || listEl);
     }
@@ -14974,13 +15042,26 @@
 
   function _bkRosterHtml(issues) {
     const loans = (_allLoanAccounts || []).filter(a => a.status === 'active');
-    if (!loans.length) return '';
+    // Returning '' here discarded EVERY issue — payroll items, loan flags, the
+    // lot — whenever the loan list was empty or had not loaded yet, while the
+    // headline above still read "3 to fix first". A roster with no denominator
+    // falls back to the flat list rather than to a blank card.
+    if (!loans.length) return (issues || []).map(_bkQueueRowHtml).join('');
 
+    // An issue reaches the screen or it does not exist. The first version put
+    // issues into `byLoan` keyed by loan id and then only ever read back the keys
+    // of ACTIVE loans — so a finding on a loan that had been closed, or was still
+    // pending, was placed in the map and never rendered anywhere. It did not reach
+    // `orphans` either, because it HAD an id. Silently dropping a finding from a
+    // financial screen is the worst thing this module can do, and it is the exact
+    // inverse of the rule this session wrote down: suppressing a fact and
+    // de-escalating it are different acts, and only the second is ever right.
+    const onRoster = new Set(loans.map(a => a.id));
     const byLoan = new Map();
     const orphans = [];
     (issues || []).forEach(it => {
       const id = _bkIssueLoanId(it);
-      if (!id) { orphans.push(it); return; }
+      if (!id || !onRoster.has(id)) { orphans.push(it); return; }
       if (!byLoan.has(id)) byLoan.set(id, []);
       byLoan.get(id).push(it);
     });
@@ -15010,15 +15091,24 @@
           const how = r.st.state === 'explained'
             ? ' — payments dated after the statement account for the gap exactly'
             : '';
+          // A tie-out says the BALANCE agrees. It says nothing about the eight
+          // other checks that run on every loan, or about a flag a human wrote by
+          // hand. A loan can tie to the cent and still carry an error finding, so
+          // "Reconciled" must describe the balance and never claim all-clear.
+          const still = r.items.length
+            ? ` — but ${r.items.length} thing${r.items.length === 1 ? '' : 's'} on this loan still need${r.items.length === 1 ? 's' : ''} a look`
+            : '';
           html += `<div class="bk-queue-row bk-t3" style="cursor:default">
             <div class="bk-queue-left" style="flex:1;min-width:0">
-              <span class="bk-dot green"></span>
+              <span class="bk-dot ${r.items.length ? 'amber' : 'green'}"></span>
               <div style="min-width:0;flex:1">
                 <div class="bk-queue-name">${name}</div>
-                <div class="bk-queue-reason">Agrees with the lender${asOf}${how}</div>
+                <div class="bk-queue-reason">Agrees with the lender${asOf}${how}${still}</div>
               </div>
             </div>
           </div>`;
+          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`
+            + r.items.map(_bkQueueRowHtml).join('') + `</div>`;
           continue;
         }
 
@@ -15028,10 +15118,12 @@
               <span class="bk-dot gray"></span>
               <div style="min-width:0;flex:1">
                 <div class="bk-queue-name">${name}</div>
-                <div class="bk-queue-reason">${diff != null ? esc(fmtMoney(Math.abs(diff))) : 'A small amount'} ${diff != null && diff < 0 ? 'below' : 'above'} the lender${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''} — too small to be worth chasing on its own, and it will go red if it grows</div>
+                <div class="bk-queue-reason">${diff != null ? esc(fmtMoney(Math.abs(diff))) : 'A small amount'} ${diff != null && diff < 0 ? 'below' : 'above'} the lender${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''} — too small to be worth chasing on its own, and it will go red if it grows${r.items.length ? `. ${r.items.length} other thing${r.items.length === 1 ? '' : 's'} on this loan still need${r.items.length === 1 ? 's' : ''} a look` : ''}</div>
               </div>
             </div>
           </div>`;
+          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`
+            + r.items.map(_bkQueueRowHtml).join('') + `</div>`;
           continue;
         }
 
