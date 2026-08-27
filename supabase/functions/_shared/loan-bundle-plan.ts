@@ -193,6 +193,8 @@ export interface PlanContext {
     journal_date: string | null
     debit_account: string | null
     debit_account_name: string | null
+    /** 'expensed' | 'capitalised' | 'suspense' | 'unusual' | 'unknown' */
+    treatment_kind?: string | null
   } | null
   decomposition: DecompositionResult | null
   /** Control totals read off a portal screenshot, if one was present. */
@@ -742,7 +744,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
       // This sentence is the whole point of the search: it is what stops the
       // question being asked again by the next person and the next session.
       ctx.feeSearch?.verdict === 'found'
-        ? `The ${money(fixedFee)} fee was debited to ${ctx.feeSearch.debit_account_name ? `${ctx.feeSearch.debit_account_name} (${ctx.feeSearch.debit_account})` : `account ${ctx.feeSearch.debit_account}`}${ctx.feeSearch.journal_date ? ` by the journal dated ${ctx.feeSearch.journal_date}` : ''}${ctx.feeSearch.journal_id ? ` (${ctx.feeSearch.journal_id})` : ''}, found in the ledger rather than assumed.`
+        ? `The ${money(fixedFee)} fee was debited to ${ctx.feeSearch.debit_account_name ? `${ctx.feeSearch.debit_account_name} (${ctx.feeSearch.debit_account})` : `account ${ctx.feeSearch.debit_account}`}${ctx.feeSearch.journal_date ? ` by the journal dated ${ctx.feeSearch.journal_date}` : ''}${ctx.feeSearch.journal_id ? ` (${ctx.feeSearch.journal_id})` : ''}, found in the ledger rather than assumed${ctx.feeSearch.treatment_kind === 'expensed' ? ' — booked as a cost at origination, which is settled and needs no revisiting' : ''}.`
         : '',
     ].filter(Boolean).join('\n\n')
 

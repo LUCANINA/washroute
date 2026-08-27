@@ -116,6 +116,8 @@ export type FeeVerdict =
 
 export interface FeeSearchResult {
   verdict: FeeVerdict
+  /** What the debit account turned out to be, once its type was read. */
+  treatment?: { kind: string; consequence: string; account_type: string | null; account_class: string | null }
   journal: LedgerEntry | null
   /** The accounts that took the matching debit, largest first. */
   debits: { account: string | null; account_name: string | null; amount: number }[]
@@ -218,26 +220,48 @@ export function findOriginationFeeJournal(input: {
  * outcomes have three different fixes. Naming which one this is turns the answer
  * into something a CPA can act on rather than a fact to file.
  *
- * Deliberately keyed on the account TYPE Xero reports, not on its name: "Loan
- * Fees" could be an expense or an asset depending on how the chart was built, and
- * guessing from a label is how a prepaid gets recorded as expensed.
+ * Keyed on what Xero REPORTS, never on the account's name: "Loan Fees" could be an
+ * expense or an asset depending on how the chart was built, and guessing from a
+ * label is how a prepaid gets recorded as expensed.
+ *
+ * `class` is preferred over `type` because it is the coarse, stable bucket —
+ * Stripe Capital's fee account came back `type: "OVERHEADS", class: "EXPENSE"`,
+ * and it is the class that answers the question. `type` still refines it and is
+ * the only thing that can spot a suspense account.
  */
-export function classifyFeeDebit(accountType: string | null | undefined): {
-  kind: 'expensed' | 'capitalised' | 'suspense' | 'unknown'
+export function classifyFeeDebit(accountType: string | null | undefined, accountClass?: string | null): {
+  kind: 'expensed' | 'capitalised' | 'suspense' | 'unusual' | 'unknown'
   consequence: string
 } {
   const t = String(accountType ?? '').toUpperCase()
-  if (t === 'EXPENSE' || t === 'OVERHEADS' || t === 'DIRECTCOSTS') return {
-    kind: 'expensed',
-    consequence: `The cost was recognised at origination — all of it in one month, which flatters every month after it. Correct on a cash-basis view; a CPA closing on accruals may want it spread over the loan's life.`,
-  }
-  if (t === 'CURRENT' || t === 'PREPAYMENT' || t === 'NONCURRENTASSET' || t === 'FIXED') return {
-    kind: 'capitalised',
-    consequence: `The cost was capitalised as an asset, which is right on an accruals basis — but something has to amortise it over the loan's life, and nothing in this system does. Worth confirming a schedule exists.`,
-  }
-  if (/SUSPENSE|CLEARING|UNCATEGORI[SZ]ED/.test(t)) return {
+  const c = String(accountClass ?? '').toUpperCase()
+
+  // Suspense first: it is a real answer and it outranks whatever class it sits in.
+  if (/SUSPENSE|CLEARING|UNCATEGORI[SZ]ED/.test(t) || /SUSPENSE|CLEARING/.test(c)) return {
     kind: 'suspense',
     consequence: `The cost was parked, not booked. It is sitting unresolved in the ledger and belongs in a real account before this loan is relied on in a close.`,
+  }
+
+  const expense = c === 'EXPENSE' || (!c && ['EXPENSE', 'OVERHEADS', 'DIRECTCOSTS'].includes(t))
+  const asset   = c === 'ASSET'   || (!c && ['CURRENT', 'PREPAYMENT', 'NONCURRENTASSET', 'FIXED'].includes(t))
+
+  if (expense) return {
+    kind: 'expensed',
+    // Stated, not argued, and then dropped. David, on seeing 264 come back as an
+    // Overhead: "it should probably be simply listed as an expense" — and, on
+    // being offered the accruals caveat anyway, "but that is irrelevant now."
+    // He is right: the treatment is settled, so the tool records what it is and
+    // says nothing further. Re-litigating a decision every run is how a queue
+    // becomes noise, and this module's whole history is the cost of that.
+    consequence: `This is an expense account, so the fee was booked as a cost at origination.`,
+  }
+  if (asset) return {
+    kind: 'capitalised',
+    consequence: `The cost was capitalised as an asset, which is the accruals-basis treatment — but something has to amortise it over the loan's life and nothing in this system does. Worth confirming a schedule exists, or the cost never reaches the profit and loss at all.`,
+  }
+  if (c === 'LIABILITY' || c === 'EQUITY') return {
+    kind: 'unusual',
+    consequence: `The fee was debited to a ${c.toLowerCase()} account, which is not where a financing cost normally lands. Worth checking it was intended before this loan is relied on in a close.`,
   }
   return {
     kind: 'unknown',
@@ -245,23 +269,6 @@ export function classifyFeeDebit(accountType: string | null | undefined): {
   }
 }
 
-
-
-/**
- * Normalise one Xero object into a LedgerEntry.
- *
- * THIS IS THE PART THAT WAS ONLY EVER GUESSED AT. The first search was verified
- * against objects written by hand, which meant the thing most likely to be wrong —
- * what Xero's reply actually looks like — was the one thing nothing tested. It
- * fails safe (an unreadable shape yields no lines, matches nothing, and reports
- * `incomplete` rather than a wrong answer) but failing safe is not working, and it
- * lives here rather than in the edge function precisely so a test can reach it.
- *
- * Both spellings are accepted at every field: `xero-read` returns trimmed objects
- * (`account`, `amount`, `date`) and Xero's raw ones (`AccountCode`, `LineAmount`,
- * `DateString`, `/Date(…)/`) are accepted too, so a change at either layer cannot
- * silently empty the search.
- */
 export function normaliseLedgerEntry(raw: any, source: LedgerSource): LedgerEntry | null {
   if (!raw || typeof raw !== 'object') return null
   const id = String(raw.id ?? raw.ManualJournalID ?? raw.BankTransactionID ?? '')

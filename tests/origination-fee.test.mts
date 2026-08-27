@@ -128,7 +128,11 @@ section('a split debit is reported in full')
 section('what the debit account MEANS — three answers, three fixes')
 {
   ok('an expense account means recognised', classifyFeeDebit('EXPENSE').kind === 'expensed')
-  ok('...and warns it lands in one month', /flatters every month after it/.test(classifyFeeDebit('OVERHEADS').consequence))
+  ok('...stated as a fact, not argued', /booked as a cost at origination/.test(classifyFeeDebit('OVERHEADS').consequence))
+  // The real pairing Xero returned for account 264.
+  ok('OVERHEADS + EXPENSE is the real pairing and classifies', classifyFeeDebit('OVERHEADS', 'EXPENSE').kind === 'expensed')
+  ok('class wins over an unknown type', classifyFeeDebit('WEIRD','ASSET').kind === 'capitalised')
+  ok('a liability debit is called unusual', classifyFeeDebit('CURRLIAB','LIABILITY').kind === 'unusual')
   ok('an asset means capitalised', classifyFeeDebit('PREPAYMENT').kind === 'capitalised')
   ok('...and warns nothing amortises it', /nothing in this system does/.test(classifyFeeDebit('CURRENT').consequence))
   ok('a suspense account means parked', classifyFeeDebit('SUSPENSE').kind === 'suspense')

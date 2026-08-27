@@ -1768,6 +1768,52 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 10, 2026-08-27) — the answer, and knowing when to stop talking
+
+**The fee is settled.** Account **264 "Loan Fees"**, which Xero reports as
+`type: "OVERHEADS", class: "EXPENSE"`. Journal `531c23c0…` dated 2026-06-30
+credits 304 (the loan) and debits 264. So the $20,875 financing cost was **booked
+as an expense at origination**. David: *"it should probably be simply listed as an
+expense."* It is. Question closed, and the loan's note now records it.
+
+**A gap this exposed: `classifyFeeDebit` was written, tested, and never called.**
+I had trimmed it from `loan-bundle`'s import as unused two commits earlier and
+never wired it back — so the tool could tell you WHICH account took the debit and
+nothing about what that meant. Finding the account and not saying what it implies
+is half an answer. It is now called: once the journal is found, the debit
+account's type is read (one `accounts` call, a refinement that can fail without
+turning a found answer back into a question) and the treatment is stated.
+
+**It also keys on the wrong field.** It read Xero's `type`; the stable coarse
+bucket is `class`. Account 264 is `OVERHEADS`/`EXPENSE` — it is the CLASS that
+answers the question, and a prepayment is `PREPAYMENT`/`ASSET`. Now: class first,
+type to refine, type alone to spot a suspense account, and **never the name** —
+"Loan Fees" could be either.
+
+**And the part worth remembering.** The first draft of the expensed verdict argued
+with him: *"a CPA may want it spread across the loan's life... a conversation to
+have deliberately rather than discover at year end."* David: **"but that is
+irrelevant now."** He is right. The treatment is decided; the tool's job is to
+record what it is, not to re-open it every run. The verdict is now one sentence —
+*"This is an expense account, so the fee was booked as a cost at origination"* —
+and the note carries *"booked as a cost at origination, which is settled and needs
+no revisiting."*
+
+*This module's entire history is the cost of queues people learn to scroll past.
+A settled decision re-argued on every run is exactly that, and being right about
+the accounting would not have made it less noise.*
+
+**Files:** `_shared/origination-fee.ts`, `_shared/loan-bundle-plan.ts`,
+`loan-bundle/index.ts`, `tests/origination-fee.test.mts` (68 → 71 assertions,
+including Xero's real `OVERHEADS`/`EXPENSE` pairing).
+
+**Test totals: 68 + 29 + 95 + 47 + 71 = 310 assertions, all passing.**
+
+**Where to pick up:** deploy `xero-read` and `loan-bundle` together — `xero-read`
+gained `with_lines` in the previous commit and `loan-bundle` now depends on it.
+Then re-run and **Apply**: the fee question should read "Where the fee was booked
+— Loan Fees (264)", and `carrying_basis` / `loan_contract_terms` are still empty.
+
 ### Session 242 (cont. 9, 2026-08-27) — a cap of 40 against a window of 70
 
 The fee search came back `incomplete`. I had said that outcome would point at my

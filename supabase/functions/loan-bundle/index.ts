@@ -61,7 +61,7 @@ import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
-import { findOriginationFeeJournal, normaliseLedgerEntry, type LedgerEntry, type FeeSearchResult } from '../_shared/origination-fee.ts'
+import { findOriginationFeeJournal, classifyFeeDebit, normaliseLedgerEntry, type LedgerEntry, type FeeSearchResult } from '../_shared/origination-fee.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -490,6 +490,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       journal_date: feeSearch.journal?.date ?? null,
       debit_account: feeSearch.debits[0]?.account ?? null,
       debit_account_name: feeSearch.debits[0]?.account_name ?? null,
+      treatment_kind: feeSearch.treatment?.kind ?? null,
     } : null,
     agreementTerms, agreementChecks, agreementUnresolved,
     csv, decomposition,
@@ -694,10 +695,39 @@ async function searchLedgerForFeeJournal(
     }
   }
 
-  const r = findOriginationFeeJournal({
+  let r = findOriginationFeeJournal({
     journals: entries, searched: ['manual_journal', 'bank_transaction'],
     loanAccountCode, feeAmount, complete, windowFrom: from, windowTo: to,
   })
+
+  // WHAT the debit account is decides what the answer MEANS, and classifyFeeDebit
+  // has known how to say that since it was written — it was simply never called,
+  // trimmed as an unused import and never wired back. Finding the account and not
+  // saying what it implies is half an answer.
+  const debit = r.debits[0]?.account
+  if (r.verdict === 'found' && debit) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ mode: 'accounts', where: `Code=="${String(debit).replace(/"/g, '')}"` }),
+      })
+      const body = await res.json().catch(() => null)
+      const acct = Array.isArray(body?.results) ? body.results[0] : null
+      if (acct) {
+        const c = classifyFeeDebit(acct.type ?? null, acct.class ?? null)
+        r = {
+          ...r,
+          debits: [{ ...r.debits[0], account_name: r.debits[0].account_name ?? acct.name ?? null }, ...r.debits.slice(1)],
+          treatment: { kind: c.kind, consequence: c.consequence, account_type: acct.type ?? null, account_class: acct.class ?? null },
+          statement: `${r.statement.replace(`account ${debit}`, acct.name ? `${acct.name} (${debit})` : `account ${debit}`)} ${c.consequence}`,
+        }
+      }
+    } catch (_) {
+      // The account lookup is a refinement, never a prerequisite. Failing it must
+      // not turn a found answer back into a question.
+    }
+  }
   // Say what went wrong, in the sentence a person actually reads.
   return trouble.length
     ? { ...r, statement: `${r.statement} (${trouble.join('; ')}.)` }
