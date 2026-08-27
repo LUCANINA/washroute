@@ -1809,6 +1809,46 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 15, 2026-08-27) — spend the budget in order of value
+
+The apology is gone but the fact still read **"Account 264"** with no treatment,
+so the enrichment was still not running. Not deleted this time — **starved.**
+
+The search worked one source to exhaustion before touching the next: it found the
+journal on its FIRST narration hit, then spent the rest of the allowance on twelve
+blind journal lookups and a bank-transaction sweep, and reached the account lookup
+with nothing left. **The search succeeded and the sentence a person reads did
+not.**
+
+*A budget spent in listing order rather than value order will always fund the
+least useful work last-but-one and the most useful work never.* The order is now:
+
+1. **list** both sources — two cheap calls, and narration comes free
+2. open every **likely** candidate, across BOTH sources
+3. open **blind** ones with whatever is left
+4. **name the debit account** — from a slice reserved up front
+
+Step 4 is **reserved (1.5s), not hoped for.** Finding where the fee went and not
+saying what that account IS is half an answer, and it must not be the half that
+gets dropped when the clock runs down.
+
+**And I did it a third time.** Replacing the region by index removed the
+`findOriginationFeeJournal` call that defines `r`. The difference is that this
+time **the typechecker caught it**, because the deleted code was referenced —
+the previous two deletions removed code nothing called, which is exactly why they
+were silent. *Three occurrences in one session is not carelessness, it is a bad
+method: replacing a span between two string anchors cannot see what lives inside
+it. Read the span, or patch the specific lines.*
+
+**Files:** `loan-bundle/index.ts`, `tests/origination-fee.test.mts` (96 → 105).
+
+**Test totals: 68 + 29 + 95 + 47 + 105 + 17 + 35 = 396 assertions, all passing.**
+
+**Where to pick up:** deploy `loan-bundle`, re-run, and the fact should read
+**"Loan Fees (264)"** with "This is an expense account, so the fee was booked as a
+cost at origination." Then **APPLY** — still the one thing that has never
+happened.
+
 ### Session 242 (cont. 14, 2026-08-27) — the timeout is gone, and two things the fix cost
 
 The bundle files again and the fee is found: **"Account 264"**, on the first

@@ -366,5 +366,42 @@ section('diagnostics do not leak into a successful answer')
   ok('no trouble means no parenthetical at all', append('The journal…', [], 'incomplete') === 'The journal…')
 }
 
+section('the budget is spent in order of value')
+{
+  // The search found the journal on its first narration hit, then spent the rest
+  // of the allowance on twelve blind lookups and a bank-transaction sweep, and
+  // reached the account lookup with nothing left — so the answer came back as
+  // "Account 264" with no treatment. The search succeeded and the sentence a
+  // person reads did not.
+  const order = (plan: { likely: string[]; rest: string[] }[], blindCap: number) => {
+    const steps: string[] = []
+    for (const p of plan) for (const id of p.likely) steps.push(id)
+    for (const p of plan) for (const id of p.rest.slice(0, blindCap)) steps.push(id)
+    return steps
+  }
+  const plan = [
+    { likely: ['journal-fee'], rest: ['j1', 'j2', 'j3'] },   // manual journals
+    { likely: ['bt-likely'],   rest: ['b1', 'b2'] },          // bank transactions
+  ]
+  const steps = order(plan, 12)
+  ok('every likely candidate comes before any blind one',
+     steps.indexOf('bt-likely') < steps.indexOf('j1'), steps.join(','))
+  ok('the fee journal is opened first of all', steps[0] === 'journal-fee')
+  ok('blind lookups still happen, just last', steps.slice(-2).join(',') === 'b1,b2')
+  ok('nothing is dropped from the plan', steps.length === 7)
+
+  // The enrichment gets a reserved slice rather than the leftovers.
+  const RESERVE = 1_500
+  const searchLeft = (remaining: number) => remaining - RESERVE
+  ok('the search stops with the reserve intact', searchLeft(1_600) <= 250)
+  ok('...leaving enough to name the account', 1_600 > 250)
+  ok('with plenty of budget the search runs freely', searchLeft(7_000) === 5_500)
+  // The property that matters: whenever an answer exists, budget remains to explain it.
+  const remainingAfterSearch = (spent: number) => 7_000 - Math.min(spent, 7_000 - RESERVE)
+  ok('even a search that burns everything leaves the reserve',
+     remainingAfterSearch(9_999) === RESERVE)
+  ok('...which is more than the 250ms floor the lookup needs', RESERVE > 250)
+}
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

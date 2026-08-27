@@ -667,14 +667,30 @@ async function searchLedgerForFeeJournal(
   const to   = new Date(t + FEE_WINDOW_DAYS * day).toISOString().slice(0, 10)
   const xd = (iso: string) => `DateTime(${iso.slice(0, 4)},${iso.slice(5, 7)},${iso.slice(8, 10)})`
 
+  // The budget is spent in order of VALUE, not in the order the sources happen to
+  // be listed. The first version worked one source to exhaustion before touching
+  // the next: it found the journal on its first narration hit, then spent the rest
+  // of the allowance on twelve blind journal lookups and a bank-transaction sweep,
+  // and arrived at the account lookup with nothing left. So the answer came back
+  // as "Account 264" with no treatment — the search succeeded and the sentence a
+  // person reads did not.
+  //
+  //   1. LIST both sources          — two cheap calls, and narration comes free
+  //   2. open every LIKELY candidate — across both sources, high yield
+  //   3. open blind ones             — only with what is left
+  //   4. name the debit account      — from a slice RESERVED for it up front
+  //
+  // Step 4 is reserved rather than hoped for. Finding where the fee went and not
+  // saying what that account IS is half an answer, and it must not be the half
+  // that gets dropped when the clock runs down.
+  const ENRICH_RESERVE_MS = 1_500
   const deadline = Date.now() + FEE_BUDGET_MS
   const left = () => deadline - Date.now()
+  // What the SEARCH may spend, holding back the enrichment's slice.
+  const searchLeft = () => left() - ENRICH_RESERVE_MS
 
-  const call = async (body: unknown) => {
-    const ms = left()
+  const call = async (body: unknown, ms = left()) => {
     if (ms <= 250) throw new Error('out of time')
-    // Every call carries the REMAINING budget, so one slow reply cannot spend the
-    // whole allowance and leave nothing for the rest.
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), ms)
     try {
@@ -698,36 +714,54 @@ async function searchLedgerForFeeJournal(
   let complete = true
   const trouble: string[] = []
 
-  for (const [mode, source] of [
+  const SOURCES = [
     ['manual_journals', 'manual_journal'],
     ['bank_transactions', 'bank_transaction'],
-  ] as const) {
+  ] as const
+
+  // ── 1. list both ─────────────────────────────────────────────────────────
+  const plan: { mode: typeof SOURCES[number][0]; source: typeof SOURCES[number][1]; likely: string[]; rest: string[]; total: number }[] = []
+  for (const [mode, source] of SOURCES) {
     try {
-      // The LIST is one cheap call and carries narration, which is enough to know
-      // what is worth opening.
-      const list = await call({ mode, where: `Date >= ${xd(from)} && Date <= ${xd(to)}` })
+      const list = await call({ mode, where: `Date >= ${xd(from)} && Date <= ${xd(to)}` }, searchLeft())
       const rows = rowsOf(list).map((r: any) => ({
         id: String(r.id ?? r.ManualJournalID ?? r.BankTransactionID ?? ''),
         narration: r.narration ?? r.Narration ?? null,
         reference: r.reference ?? r.Reference ?? null,
       })).filter(r => r.id)
-
       const { likely, rest } = rankFeeCandidates(rows, { ...hints, feeAmount })
-      const order = likely.concat(rest.slice(0, FEE_BLIND_HYDRATE))
-      if (order.length < rows.length) complete = false
-
-      for (const id of order) {
-        if (left() <= 250) { complete = false; trouble.push(`${mode}: ran out of time with ${rows.length} entries in the window`); break }
-        try {
-          const one = await call({ mode, id })
-          const e = normaliseLedgerEntry(rowsOf(one)[0] ?? one, source)
-          if (e) entries.push(e)
-          else complete = false
-        } catch (_) { complete = false }
-      }
+      plan.push({ mode, source, likely, rest, total: rows.length })
     } catch (err) {
       complete = false
       trouble.push(`${mode}: ${String((err as any)?.message ?? err).slice(0, 120)}`)
+    }
+  }
+
+  const open = async (mode: any, source: any, id: string) => {
+    const one = await call({ mode, id }, searchLeft())
+    const e = normaliseLedgerEntry(rowsOf(one)[0] ?? one, source)
+    if (e) entries.push(e); else complete = false
+  }
+
+  // ── 2. every likely candidate, both sources, before any blind lookup ──────
+  for (const p of plan) {
+    for (const id of p.likely) {
+      if (searchLeft() <= 250) { complete = false; break }
+      try { await open(p.mode, p.source, id) } catch (_) { complete = false }
+    }
+  }
+
+  // ── 3. blind, with whatever is left ──────────────────────────────────────
+  for (const p of plan) {
+    let opened = 0
+    for (const id of p.rest.slice(0, FEE_BLIND_HYDRATE)) {
+      if (searchLeft() <= 250) break
+      try { await open(p.mode, p.source, id); opened++ } catch (_) { complete = false }
+    }
+    const unopened = p.total - p.likely.length - opened
+    if (unopened > 0) {
+      complete = false
+      trouble.push(`${p.mode}: ${unopened} of ${p.total} entries in the window were not opened`)
     }
   }
 
@@ -748,7 +782,7 @@ async function searchLedgerForFeeJournal(
   const debit = r.debits[0]?.account
   if (r.verdict === 'found' && debit && left() > 250) {
     try {
-      const body = await call({ mode: 'accounts', where: `Code=="${String(debit).replace(/"/g, '')}"` })
+      const body = await call({ mode: 'accounts', where: `Code=="${String(debit).replace(/"/g, '')}"` }, left())
       const acct = rowsOf(body)[0] ?? null
       if (acct) {
         const c = classifyFeeDebit(acct.type ?? null, acct.class ?? null)
