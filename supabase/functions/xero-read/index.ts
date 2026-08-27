@@ -267,22 +267,58 @@ async function xeroGet(path: string, headers: Record<string, string>) {
 // rather than silent, and read failures that are counted rather than swallowed.
 // A journal we could not read is NOT a journal that does not touch the account.
 const JOURNAL_FETCH_CAP = 150
-const JOURNAL_FETCH_CONCURRENCY = 6
+// Xero allows 5 concurrent calls and 60 per minute. The first cut used 6 and no
+// pacing, which is over BOTH limits: run live against a 200-day window it read 57
+// of 155 journals and lost 93 to rate limiting. The honesty machinery below did
+// its job -- it reported complete:false and refused to claim an absence -- but a
+// diagnostic that can only see a third of the evidence is not much better than
+// one that saw none, which was the whole complaint about this function.
+const JOURNAL_FETCH_CONCURRENCY = 4
+const JOURNAL_RATE_PER_MIN = 55            // under Xero's 60, leaving room for the other calls this function makes
+const JOURNAL_RETRIES = 2
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// One journal, with the retry Xero explicitly asks for. A 429 carries Retry-After
+// in seconds; honouring it is the difference between a slow answer and a wrong one.
+async function fetchOneJournal(id: string, headers: Record<string, string>) {
+  for (let attempt = 0; attempt <= JOURNAL_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${XERO}/ManualJournals/${encodeURIComponent(id)}`, { method: 'GET', headers })
+      if (res.status === 429) {
+        const wait = Math.min(Number(res.headers.get('Retry-After') || 0) || 5, 30)
+        await res.text().catch(() => '')
+        if (attempt === JOURNAL_RETRIES) return undefined
+        await sleep(wait * 1000)
+        continue
+      }
+      const text = await res.text()
+      if (!res.ok) return undefined
+      return (JSON.parse(text).ManualJournals ?? [])[0] ?? null
+    } catch (_) {
+      if (attempt === JOURNAL_RETRIES) return undefined
+      await sleep(500 * (attempt + 1))
+    }
+  }
+  return undefined
+}
 
 async function fetchJournalsWithLines(ids: string[], headers: Record<string, string>) {
   const journals: any[] = []
   let unreadable = 0
+  const minMsPerBatch = Math.ceil((JOURNAL_FETCH_CONCURRENCY / JOURNAL_RATE_PER_MIN) * 60_000)
   for (let i = 0; i < ids.length; i += JOURNAL_FETCH_CONCURRENCY) {
+    const startedAt = Date.now()
     const chunk = ids.slice(i, i + JOURNAL_FETCH_CONCURRENCY)
-    const settled = await Promise.all(chunk.map(async (id) => {
-      try {
-        const r = await xeroGet(`ManualJournals/${encodeURIComponent(id)}`, headers)
-        return (r.ManualJournals ?? [])[0] ?? null
-      } catch (_) { return undefined }   // undefined = could not read, null = not found
-    }))
+    const settled = await Promise.all(chunk.map((id) => fetchOneJournal(id, headers)))
     for (const j of settled) {
-      if (j === undefined) unreadable++
+      if (j === undefined) unreadable++      // undefined = could not read, null = not found
       else if (j) journals.push(j)
+    }
+    // Pace the NEXT batch rather than sleeping after the last one.
+    if (i + JOURNAL_FETCH_CONCURRENCY < ids.length) {
+      const spent = Date.now() - startedAt
+      if (spent < minMsPerBatch) await sleep(minMsPerBatch - spent)
     }
   }
   return { journals, unreadable }
