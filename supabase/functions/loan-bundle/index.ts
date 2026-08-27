@@ -61,7 +61,7 @@ import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
-import { findOriginationFeeJournal, type JournalWithLines, type FeeSearchResult } from '../_shared/origination-fee.ts'
+import { findOriginationFeeJournal, normaliseLedgerEntry, type LedgerEntry, type FeeSearchResult } from '../_shared/origination-fee.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -607,36 +607,42 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Was the capitalised fee already booked? Ask the ledger.
+// Was the capitalised fee already booked? Ask the ledger — ALL of it.
 // ─────────────────────────────────────────────────────────────────────────────
-// David, on being told "these documents cannot say": "This is knowable
-// information... the amount of the fee should be enough for the system to deduce
-// that it is the missing fee. It can then be presented as a change to make."
+// David: "you need to be looking everywhere, not just the journal entries, or the
+// tool itself is only 50% built."
+//
+// He was right, and the first version's own not-found message admitted the gap —
+// "an opening balance, or a bill rather than a journal". Naming a hole is not
+// covering it. TWO sources can credit a loan liability and both are searched now:
+// a manual journal, and a RECEIVE bank transaction. An opening/conversion balance
+// can also carry the fee and is NOT reachable through this read path, so it is
+// named in the answer rather than left as a silent gap.
 //
 // Reads go through `xero-read` rather than Xero directly, because that function is
 // read-only BY CONSTRUCTION — one fetch, hard-coded GET, fixed endpoint table, no
 // write branch exists. Reaching past it to save a hop would put a Xero-writing
 // capability inside an intake function that has no business having one.
 //
-// Two calls, because Xero's ManualJournals LIST returns no JournalLines (session
-// 241 learned this the hard way): list the narrow window, then fetch each by id.
-// The window is ±21 days around origination, so this is a handful of journals, not
-// the hundreds that forced xero-read's rate-limit machinery.
+// Neither LIST endpoint returns line items (session 241), so each source is listed
+// and then re-fetched by id. The window is ±21 days around origination, so this is
+// a handful of entries, not the hundreds that forced xero-read's rate limiting.
 //
-// EVERY failure path returns `complete: false` rather than an empty list, because
-// the module treats silence as meaningful only when the search really was
-// exhaustive. A Xero outage must never become "no fee entry exists".
+// EVERY failure path sets `complete: false` rather than yielding an empty list,
+// because silence is only meaningful when the search really was exhaustive. A Xero
+// outage must never become "no fee entry exists".
 const FEE_WINDOW_DAYS = 21
-const FEE_JOURNAL_CAP = 40
+const FEE_ENTRY_CAP = 40
 
 async function searchLedgerForFeeJournal(
   loanAccountCode: string | null, feeAmount: number, origination: string | null,
 ): Promise<FeeSearchResult | null> {
   if (!loanAccountCode || !origination || !(feeAmount > 0)) return null
 
-  const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/xero-read`
+  const base = Deno.env.get('SUPABASE_URL')
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  if (!url || !key) return null
+  if (!base || !key) return null
+  const url = `${base}/functions/v1/xero-read`
 
   const t = Date.parse(origination + 'T00:00:00Z')
   if (!Number.isFinite(t)) return null
@@ -654,54 +660,47 @@ async function searchLedgerForFeeJournal(
     if (!res.ok) throw new Error(`xero-read ${res.status}`)
     return await res.json()
   }
+  const rowsOf = (r: any): any[] =>
+    Array.isArray(r?.items) ? r.items
+    : Array.isArray(r?.results) ? r.results
+    : Array.isArray(r?.ManualJournals) ? r.ManualJournals
+    : Array.isArray(r?.BankTransactions) ? r.BankTransactions
+    : r?.item ? [r.item] : []
 
-  const fail = (why: string): FeeSearchResult =>
-    findOriginationFeeJournal({ journals: [], loanAccountCode, feeAmount, complete: false, windowFrom: from, windowTo: to })
+  const entries: LedgerEntry[] = []
+  let complete = true
 
-  try {
-    const list = await call({
-      mode: 'manual_journals',
-      where: `Date >= ${xd(from)} && Date <= ${xd(to)}`,
-    })
-    const rows: any[] = Array.isArray(list?.items) ? list.items
-      : Array.isArray(list?.ManualJournals) ? list.ManualJournals
-      : Array.isArray(list?.results) ? list.results : []
-
-    const ids = rows.map(r => String(r.id ?? r.ManualJournalID ?? '')).filter(Boolean)
-    // Truncation is a real answer here: it means the search was NOT exhaustive, and
-    // the module must not be allowed to say "not found" off a partial read.
-    const complete = ids.length <= FEE_JOURNAL_CAP
-    const journals: JournalWithLines[] = []
-    for (const id of ids.slice(0, FEE_JOURNAL_CAP)) {
-      try {
-        const one = await call({ mode: 'manual_journals', id })
-        const j = (Array.isArray(one?.items) ? one.items[0] : one?.item) ?? one?.ManualJournals?.[0] ?? one
-        if (!j) continue
-        journals.push({
-          id: String(j.id ?? j.ManualJournalID ?? id),
-          date: j.date ?? j.DateString ?? null,
-          narration: j.narration ?? j.Narration ?? null,
-          status: j.status ?? j.Status ?? 'POSTED',
-          lines: (j.lines ?? j.JournalLines ?? []).map((l: any) => ({
-            account: l.account ?? l.AccountCode ?? null,
-            account_name: l.account_name ?? l.AccountName ?? l.Name ?? null,
-            description: l.description ?? l.Description ?? null,
-            amount: typeof l.amount === 'number' ? l.amount
-                  : typeof l.LineAmount === 'number' ? l.LineAmount : null,
-          })),
-        })
-      } catch (_) { /* one unreadable journal is not an absent one — see `complete` */ }
+  for (const [mode, source] of [
+    ['manual_journals', 'manual_journal'],
+    ['bank_transactions', 'bank_transaction'],
+  ] as const) {
+    try {
+      const list = await call({ mode, where: `Date >= ${xd(from)} && Date <= ${xd(to)}` })
+      const ids = rowsOf(list)
+        .map((r: any) => String(r.id ?? r.ManualJournalID ?? r.BankTransactionID ?? ''))
+        .filter(Boolean)
+      if (ids.length > FEE_ENTRY_CAP) complete = false
+      for (const id of ids.slice(0, FEE_ENTRY_CAP)) {
+        try {
+          const one = await call({ mode, id })
+          const e = normaliseLedgerEntry(rowsOf(one)[0] ?? one, source)
+          if (e) entries.push(e)
+          else complete = false
+        } catch (_) { complete = false }
+      }
+    } catch (_) {
+      // One source failing must not poison the other's result — but it does mean
+      // the search was not exhaustive, and the verdict has to say so.
+      complete = false
     }
-    const readEverything = complete && journals.length === ids.length
-    return findOriginationFeeJournal({
-      journals, loanAccountCode, feeAmount, complete: readEverything, windowFrom: from, windowTo: to,
-    })
-  } catch (_) {
-    // Xero unreachable, unauthorised, or rate limited. The plan falls back to
-    // exactly the question it asked before this existed.
-    return fail('unreachable')
   }
+
+  return findOriginationFeeJournal({
+    journals: entries, searched: ['manual_journal', 'bank_transaction'],
+    loanAccountCode, feeAmount, complete, windowFrom: from, windowTo: to,
+  })
 }
+
 
 function contentTypeFor(ext: string): string {
   const m: Record<string, string> = {

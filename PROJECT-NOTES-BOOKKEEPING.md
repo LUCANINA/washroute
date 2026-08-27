@@ -1768,6 +1768,50 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 8, 2026-08-27) — half a search, and a guess with no test under it
+
+David, on the fee search: *"you need to be looking everywhere, not just the
+journal entries, or the tool itself is only 50% built."* Right on both counts, and
+**the code had already confessed**: its own not-found message read "the fee may
+have been capitalised some other way — an opening balance, or a bill rather than a
+journal." Naming a hole is not covering it. That is the third time this session
+the same failure has appeared — a rule applied on one branch and hand-waved on its
+neighbour.
+
+**Now searched: manual journals AND bank transactions.** A RECEIVE coded to the
+loan account credits it exactly as a journal line does. A SPEND of the same amount
+is a repayment, and mistaking one for the other would report a payment going out
+as the fee going on — so the sign convention is per-source and tested in both
+directions. An opening/conversion balance is unreachable through this path and is
+now NAMED in the answer, together with which sources were searched, so "not found"
+tells a person where to look next instead of just stopping.
+
+**The other half was my own caveat.** I had shipped `normaliseLedgerEntry` inside
+the edge function, verified only against objects I had written myself — leaving
+the part most likely to be wrong (what Xero actually returns) as the one part
+nothing tested. It now lives in `_shared/origination-fee.ts` *specifically so a
+test can reach it*, accepts both the trimmed and raw shapes at every field, and
+turns an unreadable amount into **null, never 0**.
+
+*The general lesson: if a caveat is worth writing in the handover, it is worth a
+test instead. "I verified this against constructed data" is a defect report
+written in the first person.*
+
+**Also fixed:** the previous commit left `const FEE_WINDOW_DAYS` declared twice in
+`loan-bundle/index.ts` — a scripted edit matched a comment header that appeared in
+both the old block and its replacement. The region was rebuilt from explicit line
+bounds rather than patched again.
+
+**Files:** `_shared/origination-fee.ts`, `loan-bundle/index.ts`,
+`tests/origination-fee.test.mts` (36 → 61 assertions).
+
+**Test totals: 68 + 29 + 95 + 47 + 61 = 300 assertions, all passing.**
+
+**Where to pick up:** deploy and re-run. The first live run is what proves the
+response-shape parsing, so read the fee result carefully: `found` means it works,
+`not_found` on a reachable Xero now means something real (the fee is in an opening
+balance), and `incomplete` still points at the parsing.
+
 ### Session 242 (cont. 7, 2026-08-27) — asking the ledger
 
 David pushed back on the fee question and was right; the reasoning is now a
