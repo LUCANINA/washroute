@@ -8811,6 +8811,7 @@
   let _bkKpiSnapshot = null;        // latest bookkeeping_kpi_snapshots payload
   let _bkKpiCapturedAt = null;
   let _bkOverviewSeg = 'issues';
+  let _bkPrevReconciled = null;
   let _bkOvQueueExpanded = { issues: false, approvals: false, staged: false };
   // Session 225 issue hierarchy state: archived good-to-know items (from
   // bk_issue_dismissals, keyed by the queue item's stable key), the collapsed/
@@ -10832,9 +10833,27 @@
       else if (!issues.length && !approvals.length && !staged.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
       else {
         const parts = [];
-        if (t1.length) parts.push(`${t1.length} to fix first`);
-        if (t2.length + t3.length) parts.push(`${t2.length + t3.length} worth a look`);
-        if (!issues.length) parts.push('no issues');
+        // The roster's headline: a bounded score, not an unbounded pile. "6 of 14
+        // reconciled" says you are most of the way there; "13 issues" says you
+        // are losing. Same books, and only one of them is a position you can
+        // finish. Counts come from _bkRosterCounts (tie-outs), never from
+        // counting findings — see _bkRosterHtml.
+        const rc = _bkOverviewSeg === 'issues' ? _bkRosterCounts() : null;
+        if (rc && rc.total) {
+          // Every loan must appear in this line. The first version omitted
+          // `immaterial` and quietly described 13 of 14 loans — a denominator
+          // that does not add up is the same lie the roster exists to prevent,
+          // just in one sentence instead of a list.
+          parts.push(`${rc.reconciled} of ${rc.total} loans reconciled`);
+          if (rc.variance) parts.push(`${rc.variance} need attention`);
+          const waiting = rc.unverified + rc.na + rc.unchecked;
+          if (waiting) parts.push(`${waiting} waiting on a statement`);
+          if (rc.immaterial) parts.push(`${rc.immaterial} off by a rounding amount`);
+        } else {
+          if (t1.length) parts.push(`${t1.length} to fix first`);
+          if (t2.length + t3.length) parts.push(`${t2.length + t3.length} worth a look`);
+          if (!issues.length) parts.push('no issues');
+        }
         if (approvals.length) parts.push(`${approvals.length} ready to post`);
         // Staged is stated, never counted as work -- see the seg-button note above.
         if (staged.length) parts.push(stagedFlagged
@@ -10895,14 +10914,13 @@
       // sort already gives them, every row with a Got it.
       const rest = t2.concat(t3);
       const main = t1.concat(rest);
-      const shown = expanded ? main : main.slice(0, CAP);
-      const shownT1 = shown.filter(i => i.tier === 1);
-      const shownRest = shown.filter(i => i.tier !== 1);
-      const useHeaders = t1.length && rest.length;
-      let html = '';
-      if (shownT1.length) html += (useHeaders ? `<div class="bk-tier-head t1">Fix first</div>` : '') + shownT1.map(_bkQueueRowHtml).join('');
-      if (shownRest.length) html += (useHeaders ? `<div class="bk-tier-head t2">Worth a look</div>` : '') + shownRest.map(_bkQueueRowHtml).join('');
-      if (main.length > CAP) html += `<div style="text-align:center;padding:12px"><span onclick="_bkToggleQueueExpand()" style="font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${expanded ? 'Show fewer' : `Show all ${main.length} ▾`}</span></div>`;
+      // ── The roster replaces the flat list (session 242) ────────────────────
+      // No CAP and no "show all" here, deliberately. The cap existed because a
+      // long queue of work walls off the page; the roster is bounded by the
+      // number of loans you have, and the whole point is seeing the denominator.
+      // Fourteen rows is a list, not a wall — and hiding nine of them behind
+      // "show all" would hide exactly the nine that prove the work is working.
+      let html = _bkRosterHtml(main);
       if (!main.length && !archived.length) {
         // An empty queue means "nothing needs a decision" ONLY if we actually
         // read the books. On a cold boot — first visit, expired token, RLS
@@ -10943,6 +10961,17 @@
     // confetti falls over the queue card. Once — the next render sees 0 → 0.
     if (_bkPrevIssueCount != null && _bkPrevIssueCount > 0 && issues.length === 0) _bkConfetti(listEl.parentElement || listEl);
     _bkPrevIssueCount = issues.length;
+
+    // The reward, made reachable. Confetti already existed but fired only when
+    // the ENTIRE queue hit zero — on a book with fourteen loans and a permanent
+    // trickle of findings, that is never, so the celebration was unreachable by
+    // construction. A LOAN going reconciled is a real, finishable unit of work
+    // and happens often enough to mean something.
+    const _rcNow = _bkOverviewSeg === 'issues' ? _bkRosterCounts().reconciled : null;
+    if (_rcNow != null && _bkPrevReconciled != null && _rcNow > _bkPrevReconciled) {
+      _bkConfetti(listEl.parentElement || listEl);
+    }
+    if (_rcNow != null) _bkPrevReconciled = _rcNow;
   }
 
   function _bkToggleArchived() { _bkArchivedOpen = !_bkArchivedOpen; renderBookkeepingOverview(); }
@@ -12939,7 +12968,7 @@
       _loanTieOutRunId = newestDone ? newestDone.id : null;
       if (_loanTieOutRunId) {
         const tieRes = await db.from('loan_tie_outs')
-          .select('loan_account_id, status, difference, xero_balance, lender_balance, as_of, anchor_source')
+          .select('loan_account_id, status, difference, xero_balance, lender_balance, as_of, anchor_source, detail')
           .eq('run_id', _loanTieOutRunId);
         // A tie-out read failure must not take the whole Bookkeeping page down —
         // the Variance column falls back to "not checked", which is honest.
@@ -14845,6 +14874,174 @@
     return { days, seen,
       label: days === 0 ? 'not re-checked by the latest run'
            : `last actually checked ${days} day${days === 1 ? '' : 's'} ago (${seen}) — outside the window the check now looks at, so the wording below may be out of date` };
+  }
+
+
+  // ── The loan roster (session 242) ─────────────────────────────────────────
+  // David: "I like the idea of a per loan status (only show those with
+  // variances) so that the issue seems solvable. The long list is a morale
+  // killer. There needs to be a reward system integrated into this so it doesn't
+  // feel like a constant slog."
+  //
+  // The mechanism behind the morale problem is structural, not cosmetic: a list
+  // of FINDINGS has no denominator, so it can never be finished. Thirteen issues
+  // could become fourteen tomorrow and there is no sense in which you are
+  // winning. A list of LOANS has a fixed denominator — there are fourteen — so
+  // "6 of 14 reconciled" is a position in a game you can complete.
+  //
+  // ONE DEPARTURE FROM WHAT HE ASKED FOR, deliberately. He said show only the
+  // loans with variances. That hides the denominator, and the denominator is
+  // where the good feeling lives: a short list that is always non-empty still
+  // reads as failure. Clean loans are shown, quiet and collapsed — they are the
+  // evidence the work is working.
+  //
+  // STATE COMES FROM _loanVariance(), NOT from counting findings. That function
+  // already learned this the hard way (see its comment): PCV and Verdant carry
+  // real deviations and raise no finding at all, and Stripe Capital has no lender
+  // document to compare against. "No open finding" would paint all three green.
+  // "Nothing wrong" and "never checked" are different states and the roster must
+  // never merge them.
+  const _BK_ROSTER_GROUPS = [
+    { key: 'variance',   label: 'Needs attention',   tone: 't1' },
+    { key: 'unverified', label: 'Needs a statement', tone: 't2' },
+    { key: 'na',         label: 'Nothing to compare against yet', tone: 't2' },
+    { key: 'unchecked',  label: 'Not checked yet',   tone: 't2' },
+    // A real but immaterial gap. NOT filed under Reconciled — the books and the
+    // lender genuinely disagree and saying otherwise would be a lie — but not
+    // work either. This is the group EIDL's $5.00 on $960,005 belongs in, and it
+    // must match what the queue says about the same loan: reconciliation-run
+    // already decided materiality in the tie-out precisely so these two surfaces
+    // cannot drift apart.
+    { key: 'immaterial', label: 'Small differences, not worth chasing', tone: 't3' },
+    { key: 'reconciled', label: 'Reconciled',        tone: 't3' },
+  ];
+
+  function _bkRosterState(a) {
+    const v = _loanVariance(a) || {};
+    if (v.state === 'ties' || v.state === 'explained') return { ...v, group: 'reconciled' };
+    if (v.state === 'variance') {
+      // detail.material is written by computeTieOut. `undefined` (an older run,
+      // before this existed) must read as MATERIAL — a missing flag is not
+      // permission to go quiet.
+      const t = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+      const material = (t && t.detail && t.detail.material) === false ? false : true;
+      return { ...v, group: material ? 'variance' : 'immaterial', material };
+    }
+    if (v.state === 'unverified') return { ...v, group: 'unverified' };
+    if (v.state === 'na') return { ...v, group: 'na' };
+    return { ...v, group: 'unchecked' };
+  }
+
+  // Which loan does an issue belong to? Every kind in _bkLoanAttentionItems()
+  // carries the id somewhere different, and an item we cannot place must NOT be
+  // dropped — it goes under "Not tied to one loan" rather than vanishing.
+  function _bkIssueLoanId(it) {
+    if (!it) return null;
+    if (it.account && it.account.id) return it.account.id;
+    if (it.finding && it.finding.loan_account_id) return it.finding.loan_account_id;
+    if (it.split && (it.split.loan_account_id || (it.split.loan_accounts && it.split.loan_accounts.id)))
+      return it.split.loan_account_id || it.split.loan_accounts.id;
+    if (it.split_row && it.split_row.loan_account_id) return it.split_row.loan_account_id;
+    if (it.loan_account_id) return it.loan_account_id;
+    return null;
+  }
+
+  function _bkRosterCounts() {
+    const loans = (_allLoanAccounts || []).filter(a => a.status === 'active');
+    const c = { total: loans.length, reconciled: 0, variance: 0, unverified: 0, na: 0, unchecked: 0, immaterial: 0 };
+    loans.forEach(a => { c[_bkRosterState(a).group]++; });
+    return c;
+  }
+
+  function _bkRosterHtml(issues) {
+    const loans = (_allLoanAccounts || []).filter(a => a.status === 'active');
+    if (!loans.length) return '';
+
+    const byLoan = new Map();
+    const orphans = [];
+    (issues || []).forEach(it => {
+      const id = _bkIssueLoanId(it);
+      if (!id) { orphans.push(it); return; }
+      if (!byLoan.has(id)) byLoan.set(id, []);
+      byLoan.get(id).push(it);
+    });
+
+    const rows = loans.map(a => ({ a, st: _bkRosterState(a), items: byLoan.get(a.id) || [] }));
+    let html = '';
+
+    for (const g of _BK_ROSTER_GROUPS) {
+      const inGroup = rows.filter(r => r.st.group === g.key);
+      if (!inGroup.length) continue;
+      // A loan with real work sorts by size of the gap; the quiet groups by name.
+      inGroup.sort((x, y) => g.key === 'variance'
+        ? Math.abs(Number(y.st.difference || 0)) - Math.abs(Number(x.st.difference || 0))
+        : String(x.a.xero_account_name || '').localeCompare(String(y.a.xero_account_name || '')));
+
+      html += `<div class="bk-tier-head ${g.tone}">${esc(g.label)} (${inGroup.length})</div>`;
+
+      for (const r of inGroup) {
+        const name = esc(r.a.xero_account_name || r.a.lender || 'Unnamed loan');
+        const diff = r.st.difference == null ? null : Number(r.st.difference);
+
+        if (g.key === 'reconciled') {
+          // The reward, and it is a CLAIM rather than a compliment: this loan was
+          // compared against a real lender document on a real date and agreed.
+          // "Reconciled as of X" is checkable; "all good" is not.
+          const asOf = r.st.asOf ? ` as of ${esc(fmtDate(r.st.asOf))}` : '';
+          const how = r.st.state === 'explained'
+            ? ' — payments dated after the statement account for the gap exactly'
+            : '';
+          html += `<div class="bk-queue-row bk-t3" style="cursor:default">
+            <div class="bk-queue-left" style="flex:1;min-width:0">
+              <span class="bk-dot green"></span>
+              <div style="min-width:0;flex:1">
+                <div class="bk-queue-name">${name}</div>
+                <div class="bk-queue-reason">Agrees with the lender${asOf}${how}</div>
+              </div>
+            </div>
+          </div>`;
+          continue;
+        }
+
+        if (g.key === 'immaterial') {
+          html += `<div class="bk-queue-row bk-t3" style="cursor:default">
+            <div class="bk-queue-left" style="flex:1;min-width:0">
+              <span class="bk-dot gray"></span>
+              <div style="min-width:0;flex:1">
+                <div class="bk-queue-name">${name}</div>
+                <div class="bk-queue-reason">${diff != null ? esc(fmtMoney(Math.abs(diff))) : 'A small amount'} ${diff != null && diff < 0 ? 'below' : 'above'} the lender${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''} — too small to be worth chasing on its own, and it will go red if it grows</div>
+              </div>
+            </div>
+          </div>`;
+          continue;
+        }
+
+        const sub = g.key === 'variance'
+          ? `${diff != null ? esc(fmtMoney(Math.abs(diff))) + (diff < 0 ? ' below' : ' above') + ' the lender' : 'variance against the lender'}${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''}${r.items.length ? ` · ${r.items.length} thing${r.items.length === 1 ? '' : 's'} to look at` : ''}`
+          : esc(r.st.reason || 'not compared against a lender document');
+
+        html += `<div class="bk-queue-row ${g.key === 'variance' ? 'bk-t1' : 'bk-t2'}" style="cursor:default">
+          <div class="bk-queue-left" style="flex:1;min-width:0">
+            <span class="bk-dot ${g.key === 'variance' ? 'red' : 'amber'}"></span>
+            <div style="min-width:0;flex:1">
+              <div class="bk-queue-name">${name}</div>
+              <div class="bk-queue-reason">${sub}</div>
+            </div>
+          </div>
+        </div>`;
+        // The findings themselves, under the loan they belong to, rendered by the
+        // same row builder as before so Got it / Review / the peek eye all keep
+        // working untouched.
+        if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`
+          + r.items.map(_bkQueueRowHtml).join('') + `</div>`;
+      }
+    }
+
+    if (orphans.length) {
+      html += `<div class="bk-tier-head t2">Not tied to one loan (${orphans.length})</div>`
+        + orphans.map(_bkQueueRowHtml).join('');
+    }
+    return html;
   }
 
   function _bkLoanAttentionItems() {

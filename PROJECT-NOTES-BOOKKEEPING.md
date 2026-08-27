@@ -1809,6 +1809,71 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 12, 2026-08-27) — the roster: a score you can finish
+
+David: *"I like the idea of a per loan status (only show those with variances) so
+that the issue seems solvable. The long list is a morale killer. There needs to be
+a reward system integrated into this so it doesn't feel like a constant slog."*
+
+**The morale problem is structural, not cosmetic.** A list of FINDINGS has no
+denominator, so it can never be finished — thirteen can become fourteen tomorrow
+and there is no sense in which you are winning. A list of LOANS has a fixed one.
+"6 of 14 reconciled" is a position in a game you can complete; "13 issues" is not.
+The Needs Attention card is now a roster: one row per active loan, findings nested
+underneath the loan they belong to.
+
+**One deliberate departure from what was asked.** He said show only the loans with
+variances. That hides the denominator, and the denominator is where the good
+feeling lives — a short list that is always non-empty still reads as failure.
+Clean loans are shown, quiet and collapsed. They are the evidence the work works.
+
+**STATE COMES FROM `_loanVariance()` / the tie-outs, NEVER from counting
+findings** — a rule that function had already learned and that a naive roster
+would have broken immediately. Three loans prove it: PCV and Verdant carry real
+deviations and raise no finding at all, and **Stripe Capital has no lender
+document, so "no open findings" would have painted it green on a loan the tool has
+never once been able to compare.** *"Nothing wrong" and "never checked" are
+different states and merging them is lying in the most comfortable direction.*
+
+Six groups, and the four in the middle are the honest ones: **Needs attention**
+(a real gap against a real lender document) · **Needs a statement** (an exception
+measured only against our own projection — never red, because it is not a fact
+about the world) · **Nothing to compare against yet** · **Small differences, not
+worth chasing** (EIDL's $5.00 — a real disagreement, so NOT filed as reconciled,
+but not work either) · **Reconciled**.
+
+**The reward is a claim, not a compliment.** A reconciled row reads *"Agrees with
+the lender as of 2026-07-31"* — checkable, and dated. Confetti already existed but
+fired only when the ENTIRE queue hit zero, which on this book is never; it now
+fires when a LOAN becomes reconciled, which is a finishable unit that happens
+often enough to mean something. No streaks, no badges, no points — Ramona would
+find them insulting and they would undercut the tool.
+
+**Three bugs caught before shipping, all by running the thing rather than reading
+it:**
+1. `money()` is defined only INSIDE other functions in this file — it is not a
+   global. The roster called it and would have thrown a ReferenceError and blanked
+   the whole card. It uses `fmtMoney` (line 7035), the only global one.
+2. The tie-out `select()` did not fetch `detail`, so the roster could not see
+   materiality — EIDL would have been RED on the roster and grey in the queue,
+   the exact disagreement the previous commit existed to prevent.
+3. The headline omitted `immaterial` and described **13 of 14** loans. A
+   denominator that does not add up is the same lie, compressed into one sentence.
+
+*A missing `detail.material` reads as MATERIAL. An older tie-out written before
+the flag existed has no key, and absence is not permission to go quiet about a
+real gap.*
+
+**Files:** `admin-dashboard/index.html`, `tests/loan-roster.test.mts` (new, 23
+assertions).
+
+**Test totals: 68 + 29 + 95 + 47 + 71 + 17 + 23 = 350 assertions, all passing.**
+
+**Where to pick up:** push, then look at the Loans page. Expect **"6 of 14 loans
+reconciled · 5 need attention · 2 waiting on a statement · 1 off by a rounding
+amount"**. Applying the Stripe bundle gives that loan an anchor and should move it
+out of "nothing to compare against".
+
 ### Session 242 (cont. 11, 2026-08-27) — auditing the queue against its own First Law
 
 David, on his own Needs Attention list: *"how many of these fall onto the same
