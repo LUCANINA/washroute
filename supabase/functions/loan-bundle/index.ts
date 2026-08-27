@@ -780,10 +780,26 @@ async function searchLedgerForFeeJournal(
   // prerequisite: it runs only when the answer was found, inside the same budget,
   // and failing it must not turn a found answer back into a question.
   const debit = r.debits[0]?.account
-  if (r.verdict === 'found' && debit && left() > 250) {
+  if (r.verdict === 'found' && debit) {
+    // A BARE `catch (_) {}` sat here and it cost three rounds. The answer came
+    // back as "Account 264" with no treatment, and the code that was supposed to
+    // fix that looked correct every time I read it — because the failure was
+    // being swallowed. I guessed at the cause twice (deleted, then starved) and
+    // shipped a fix for each guess.
+    //
+    // Session 242 cont. 9 taught exactly this and I applied it to the SEARCH and
+    // not to this block: *a diagnostic that discards its own diagnosis costs a
+    // whole round trip to re-learn what the code already knew.* An optional step
+    // may fail silently in its EFFECT — the answer still stands without it — but
+    // it must never fail silently in its RECORD.
     try {
-      const body = await call({ mode: 'accounts', where: `Code=="${String(debit).replace(/"/g, '')}"` }, left())
+      // Timed on its own clock, not on what the search left behind. This lookup
+      // is one small call and it is the difference between an answer and a
+      // complete answer; it should not compete with blind hydration for budget.
+      const body = await call({ mode: 'accounts', where: `Code=="${String(debit).replace(/"/g, '')}"` },
+                              Math.max(left(), ENRICH_RESERVE_MS))
       const acct = rowsOf(body)[0] ?? null
+      if (!acct) trouble.push(`accounts: no account matched Code=="${debit}"`)
       if (acct) {
         const c = classifyFeeDebit(acct.type ?? null, acct.class ?? null)
         const named = acct.name ? `${acct.name} (${debit})` : `account ${debit}`
@@ -794,7 +810,10 @@ async function searchLedgerForFeeJournal(
           statement: `${r.statement.replace(`debits account ${debit}`, `debits ${named}`)} ${c.consequence}`,
         }
       }
-    } catch (_) { /* the answer stands without it */ }
+    } catch (err) {
+      // The answer still stands without it — and now says so out loud.
+      trouble.push(`accounts: ${String((err as any)?.message ?? err).slice(0, 140)}`)
+    }
   }
 
   // Only say what went wrong when something IS wrong. The first version appended
@@ -803,9 +822,15 @@ async function searchLedgerForFeeJournal(
   // bank_transactions: out of time.)" — telling a CPA the search failed
   // immediately after handing her the answer. Triage stopping early is not a
   // failure when the thing being looked for was found on the first lookup.
-  return (trouble.length && r.verdict !== 'found')
-    ? { ...r, statement: `${r.statement} (${trouble.join('; ')}.)` }
-    : r
+  // Search diagnostics stay hidden on a found answer — triage stopping early is
+  // not a failure when the thing being looked for was found first (cont. 14).
+  // But a failure to NAME the account is a defect in the answer itself, so that
+  // one is always shown. The distinction is whether the note describes work not
+  // done or an answer left incomplete.
+  const enrichTrouble = trouble.filter(t => t.startsWith('accounts:'))
+  const searchTrouble = trouble.filter(t => !t.startsWith('accounts:'))
+  const show = r.verdict === 'found' ? enrichTrouble : trouble.length ? trouble : searchTrouble
+  return show.length ? { ...r, statement: `${r.statement} (${show.join('; ')}.)` } : r
 }
 
 function contentTypeFor(ext: string): string {

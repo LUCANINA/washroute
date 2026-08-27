@@ -403,5 +403,32 @@ section('the budget is spent in order of value')
   ok('...which is more than the 250ms floor the lookup needs', RESERVE > 250)
 }
 
+section('an optional step may fail silently in effect, never in record')
+{
+  // A bare catch sat on the account lookup and cost three rounds: the answer kept
+  // coming back as "Account 264" with no treatment, the code looked correct every
+  // time I read it, and the failure was being swallowed. Two fixes shipped for
+  // two guesses. cont. 9 taught this about the SEARCH and it was not applied here.
+  const route = (verdict: string, trouble: string[]) => {
+    const enrich = trouble.filter(t => t.startsWith('accounts:'))
+    const search = trouble.filter(t => !t.startsWith('accounts:'))
+    return verdict === 'found' ? enrich : (trouble.length ? trouble : search)
+  }
+  const searchNote = 'manual_journals: 58 of 70 entries in the window were not opened'
+  const acctNote = 'accounts: xero-read 400'
+
+  ok('search triage stays hidden on a found answer', route('found', [searchNote]).length === 0)
+  ok('a failed account lookup is SHOWN on a found answer',
+     route('found', [acctNote]).join() === acctNote)
+  ok('...even alongside search noise', route('found', [searchNote, acctNote]).join() === acctNote)
+  ok('an incomplete verdict still shows everything',
+     route('incomplete', [searchNote, acctNote]).length === 2)
+  ok('a clean found answer says nothing at all', route('found', []).length === 0)
+
+  // The distinction being drawn: work not done vs an answer left incomplete.
+  ok('work not done is not an apology', route('found', [searchNote]).length === 0)
+  ok('an incomplete answer is', route('found', ['accounts: no account matched Code=="264"']).length === 1)
+}
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

@@ -1809,6 +1809,57 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 16, 2026-08-27) — a bare catch that cost three rounds
+
+Still **"Account 264"**, no treatment, third run. This time I checked the
+deployed function before touching anything: **v18, `index.ts` sha
+`30a8a7dd98974efd`, byte-identical to local.** The latest code IS live, so the
+enrichment runs and produces nothing.
+
+Reading the deployed block, the code is correct. What is not correct is this:
+
+```ts
+} catch (_) { /* the answer stands without it */ }
+```
+
+**A bare catch on the one step that kept failing.** The answer came back as
+"Account 264" every time, the code looked right every time I read it, and the
+cause was being swallowed. I guessed twice — *deleted* (cont. 14), then *starved*
+(cont. 15) — and shipped a fix for each guess. Both were plausible. Neither run
+could tell me whether it was right, because the failure had no voice.
+
+**cont. 9 taught exactly this rule and I applied it to the SEARCH and not to this
+block.** The lesson, stated properly this time:
+
+> An optional step may fail silently in its EFFECT — the answer still stands
+> without it — but it must NEVER fail silently in its RECORD.
+
+So the lookup now records why it failed, gets its own clock rather than the
+search's leftovers, and reports "no account matched" separately from an
+exception.
+
+**And the note is routed by what it describes.** cont. 14 hid diagnostics on a
+found answer, correctly — triage stopping early is not a failure when the thing
+was found first. But a failed account lookup is not work-not-done, it is **an
+answer left incomplete**, so that one is always shown. `accounts:` notes surface
+on a found answer; search notes do not.
+
+*Three rounds on one silent catch is the real cost of a swallowed error, and it is
+worth more than the four lines it takes to avoid.*
+
+**Files:** `loan-bundle/index.ts`, `tests/origination-fee.test.mts` (105 → 112).
+
+**Test totals: 68 + 29 + 95 + 47 + 112 + 17 + 35 = 403 assertions, all passing.**
+
+**Where to pick up:** deploy `loan-bundle` and re-run. Either it says
+**"Loan Fees (264)"** with the treatment, or the fact now ENDS with the reason —
+`accounts: xero-read <status>`, `accounts: no account matched`, or a timeout.
+**Do not guess a fourth fix; read what it says.** The `accounts` mode is known
+good via `net.http_post` with the internal secret (it returned
+`{code:264, name:"Loan Fees", type:"OVERHEADS", class:"EXPENSE"}`), and the
+list/hydrate calls in the same function share the same auth and work — so the
+cause is narrow.
+
 ### Session 242 (cont. 15, 2026-08-27) — spend the budget in order of value
 
 The apology is gone but the fact still read **"Account 264"** with no treatment,
