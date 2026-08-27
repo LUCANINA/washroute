@@ -3310,6 +3310,7 @@
             .lcb-strip.clear { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
             .lcb-lead { font-weight: 700; }
             .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; }
+            .lcb-lead + .lcb-gate::before,
             .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: var(--gray-300);
                                             font-weight: 400; }
             .lcb-gate.ok { color: var(--gray-500); font-weight: 400; }
@@ -3458,7 +3459,8 @@
             .bk-confetti-piece { position: absolute; width: 7px; height: 11px; border-radius: 2px; top: -14px; animation: bkConfettiFall 1.5s ease-in forwards; pointer-events: none; }
             @keyframes bkConfettiFall { 0% { transform: translate(0, 0) rotate(0deg); opacity: 1; } 100% { transform: translate(var(--cf-x), 240px) rotate(var(--cf-r)); opacity: 0; } }
             /* ── period bar (session 241) ── */
-            .lpb { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+            .lpb { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+                   padding-bottom:16px; margin-bottom:22px; border-bottom:1px solid var(--gray-200); }
             .lpb-seg { display:inline-flex; background:var(--gray-100); border:1px solid var(--gray-200);
               border-radius:11px; padding:3px; gap:3px; }
             .lpb-seg button { font:inherit; cursor:pointer; border:0; background:transparent;
@@ -3479,7 +3481,8 @@
             .lpb-pip.live { background:#3b82f6; }
             .lpb-count { font-size:10.5px; font-weight:700; background:#fffbeb; color:#92400e;
               border:1px solid #fde68a; border-radius:20px; padding:1px 7px; margin-left:2px; }
-            .lpb-chips { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+            .lpb-chips { display:flex; gap:0; flex-wrap:wrap; margin-left:auto; align-items:baseline; }
+            @media (max-width: 1100px) { .lpb-chips { margin-left:0; flex-basis:100%; } }
             .lpb-chip { font-size:12px; color:var(--gray-500); }
             .lpb-chip + .lpb-chip::before { content:"·"; margin:0 9px; color:var(--gray-300); }
             .lpb-chip b { font-weight:600; color:var(--gray-700); }
@@ -3491,9 +3494,10 @@
                Space and one hairline do the grouping instead. The meter stays
                -- it is the one element here that shows rather than tells. */
             .lct .bk-tile { background: transparent; border: 0; box-shadow: none;
-                            border-radius: 0; padding: 0 26px 0 0; min-width: 190px; }
+                            border-radius: 0; padding: 0 26px 0 0; min-width: 190px;
+                            flex: 1 1 0; align-self: stretch; }
             .lct .bk-tile + .bk-tile { border-left: 1px solid var(--gray-200); padding-left: 26px; }
-            .lct .bk-tiles { gap: 0; }
+            .lct .bk-tiles { gap: 0; align-items: stretch; }
             .lct .bk-tile-label { font-size: 12.5px; font-weight: 500; color: var(--gray-500);
                                   white-space: normal; margin-bottom: 5px; }
             .lct .bk-tile-value { font-size: 27px; font-weight: 650; letter-spacing: -.02em;
@@ -14138,7 +14142,7 @@
       + tile(`${name} statements received`,
           `${received} <span style="font-size:.6em;color:var(--gray-400);font-weight:500">of ${b.cov.expected.length}</span>`,
           b.missing ? `Missing: ${esc(missingNames)}` : 'Every expected statement is in.',
-          b.missing ? '#a1741f' : null, meter)
+          null, meter)
       + tile(`${name} rollforward variance`,
           b.rf.totals.variance < 0.005 ? '$0.00' : money(b.rf.totals.variance),
           b.rf.totals.variance < 0.005
@@ -14255,11 +14259,11 @@
 
     el.innerHTML = `
       <div class="lcb-head">
-        <h3>${esc(name)} rollforward</h3>
+        <h3>Rollforward</h3>
         <span class="lcb-why">Opening balance minus principal paid must equal what the lender says.</span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}">
-        <span class="lcb-lead">For ${esc(name)}: ${blocked ? 'not ready to close.' : 'ready for your accountant.'}</span>
+        <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
         ${gates.map(chip).join('')}
       </div>
       <div class="card" style="overflow:hidden;box-shadow:none;border-color:var(--gray-200)">
@@ -14282,7 +14286,7 @@
                 <td class="lcb-n">${money(rf.totals.interest)}</td>
                 <td class="lcb-n">${money(rf.totals.computed)}</td>
                 <td class="lcb-n">${money(rf.totals.perLender)}</td>
-                <td class="lcb-n" data-variance="${rf.totals.variance}"${rf.totals.variance < 0.005 ? ' data-tie="1"' : ''}>${rf.totals.variance < 0.005 ? '' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
+                <td class="lcb-n" data-variance="${rf.totals.variance}"${rf.totals.variance < 0.005 ? ' data-tie="1"' : ''}>${rf.totals.variance < 0.005 ? '<span class="lcb-na">$0.00</span>' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
                 <td></td>
               </tr>
               ${rf.excluded.count ? `<tr class="lcb-excluded">

@@ -854,7 +854,12 @@ GROUPS.push({
            `close band — ${c.name}: footer opening − principal = computed`);
       // The band's own headline must not contradict its gates.
       const anyBad = cb.gates.some(g => !g.ok);
-      t.eq(/not ready to close/.test(cb.lead || ''), anyBad,
+      // Case-insensitive on purpose: the assertion's job is "the headline says
+      // it is not ready", not "the headline is capitalised the way it was in
+      // August 2026". Session 241 made it the first words of the strip rather
+      // than a clause inside one, and a test that fails on a capital letter is
+      // a test that punishes copy edits.
+      t.eq(/not ready to close/i.test(cb.lead || ''), anyBad,
            `close band — ${c.name}: headline agrees with its own gates`);
       // …and each gate must agree with the rows underneath it.
       const tieGate = cb.gates[1].text.match(/^(\d+) loans? tie exactly/);
