@@ -314,5 +314,57 @@ section('narration triage — 70 hydrations down to 1')
   ok('an empty window is handled', rankFeeCandidates([], hints).likely.length === 0)
 }
 
+section('what the plan actually says once the account is known')
+{
+  // The live run headlined the fact as "Account 264" and carried no treatment,
+  // because the account lookup had been deleted in a region rewrite. These pin
+  // the sentence a person reads, not just the id it is built from.
+  const REAL = {
+    id: '531c23c0-011c-42c0-8986-0fdc00635f6d', date: '2026-06-30', status: 'POSTED',
+    narration: 'Stripe Capital Loan — record Fixed Fee ($20,875.00) per loan agreement',
+    lines: [
+      { description: 'Fixed Fee', account: '264', amount: 20875 },
+      { description: 'added to loan liability', account: '304', amount: -20875 },
+    ],
+  }
+  const r = findOriginationFeeJournal({
+    journals: [normaliseLedgerEntry(REAL, 'manual_journal')!],
+    searched: ['manual_journal', 'bank_transaction'],
+    loanAccountCode: '304', feeAmount: 20875, complete: true,
+  })
+  ok('the raw statement names the account by code', /debits account 264/.test(r.statement))
+
+  // Exactly what the enrichment does to it, with Xero's real reply for 264.
+  const acct = { code: '264', name: 'Loan Fees', type: 'OVERHEADS', class: 'EXPENSE' }
+  const c = classifyFeeDebit(acct.type, acct.class)
+  const named = `${acct.name} (${acct.code})`
+  const enriched = `${r.statement.replace('debits account 264', `debits ${named}`)} ${c.consequence}`
+  ok('the enriched sentence names it "Loan Fees (264)"', /debits Loan Fees \(264\)/.test(enriched))
+  ok('...and never leaves the bare "account 264"', !/debits account 264/.test(enriched))
+  ok('...and states the treatment', /booked as a cost at origination/.test(enriched))
+  ok('the treatment is expensed', c.kind === 'expensed')
+
+  // The account name flows into the fact's own headline.
+  const headline = (name: string | null, code: string | null) => name ? `${name} (${code})` : `Account ${code}`
+  ok('the headline reads "Loan Fees (264)"', headline('Loan Fees', '264') === 'Loan Fees (264)')
+  ok('...and falls back honestly when the lookup failed', headline(null, '264') === 'Account 264')
+}
+
+section('diagnostics do not leak into a successful answer')
+{
+  // The live run ended "(manual_journals: ran out of time with 70 entries in the
+  // window; bank_transactions: out of time.)" — immediately after handing over
+  // the answer. Triage stopping early is not a failure when the thing being
+  // looked for was found on the first lookup.
+  const append = (statement: string, trouble: string[], verdict: string) =>
+    (trouble.length && verdict !== 'found') ? `${statement} (${trouble.join('; ')}.)` : statement
+  const t = ['manual_journals: ran out of time with 70 entries in the window']
+  ok('a found answer carries no apology', append('The journal…', t, 'found') === 'The journal…')
+  ok('an incomplete search still says why', /ran out of time/.test(append('Nothing…', t, 'incomplete')))
+  ok('so does a not_found', /ran out of time/.test(append('Nothing…', t, 'not_found')))
+  ok('an ambiguous one too', /ran out of time/.test(append('Two…', t, 'ambiguous')))
+  ok('no trouble means no parenthetical at all', append('The journal…', [], 'incomplete') === 'The journal…')
+}
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

@@ -1809,6 +1809,45 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 14, 2026-08-27) — the timeout is gone, and two things the fix cost
+
+The bundle files again and the fee is found: **"Account 264"**, on the first
+lookup rather than the seventieth. Narration triage did its job. Two defects in
+what came back, both mine.
+
+**1. I deleted the account lookup while adding the budget.** `classifyFeeDebit`
+was imported and never called — cont. 13 replaced the whole region from
+`FEE_WINDOW_DAYS` to `contentTypeFor`, and the enrichment block was living inside
+it. So the fact headlined as **"Account 264"** instead of **"Loan Fees (264)"** and
+carried no treatment at all.
+
+*That is the SECOND time this session a scripted region-rewrite has silently
+dropped something inside it* — cont. 9 left a duplicate `const FEE_WINDOW_DAYS`
+the same way. **When replacing a region by index, diff what was in it before
+writing over it.** A test would not have caught either: nothing was calling the
+deleted code, which is exactly why it vanished quietly.
+
+**2. The diagnostics leaked into a successful answer.** The report ended
+*"(manual_journals: ran out of time with 70 entries in the window;
+bank_transactions: out of time.)"* — **immediately after handing over the
+answer.** Triage stopping early is not a failure when the thing being looked for
+was found on the first lookup, and telling a CPA the search failed while showing
+her the result is worse than saying nothing. The trouble note now appends only
+when the verdict is not `found`.
+
+Both are pinned by tests that assert **the sentence a person reads**, not the id
+it is built from — `debits Loan Fees (264)`, the treatment, the honest
+`Account 264` fallback when the lookup fails, and no parenthetical on success.
+
+**Files:** `loan-bundle/index.ts`, `tests/origination-fee.test.mts` (84 → 96).
+
+**Test totals: 68 + 29 + 95 + 47 + 96 + 17 + 35 = 387 assertions, all passing.**
+
+**Where to pick up:** deploy `loan-bundle`, re-run, and **APPLY** — that is still
+the one thing that has never happened. `carrying_basis` and `loan_contract_terms`
+are still empty, and applying is what gives Stripe Capital the anchor that moves
+it out of "nothing to compare against yet" on the roster.
+
 ### Session 242 (cont. 13, 2026-08-27) — an optional enrichment took the primary job hostage
 
 **David could not file his four documents at all: "Timed out waiting for a

@@ -731,11 +731,47 @@ async function searchLedgerForFeeJournal(
     }
   }
 
-  const r = findOriginationFeeJournal({
+  let r = findOriginationFeeJournal({
     journals: entries, searched: ['manual_journal', 'bank_transaction'],
     loanAccountCode, feeAmount, complete, windowFrom: from, windowTo: to,
   })
-  return trouble.length ? { ...r, statement: `${r.statement} (${trouble.join('; ')}.)` } : r
+
+  // What the debit account IS decides what the answer MEANS, and it also supplies
+  // the account's NAME — without it the plan headlines the fact as "Account 264"
+  // rather than "Loan Fees (264)".
+  //
+  // This block existed and I deleted it, by rewriting the whole region when adding
+  // the budget. That is the second time this session a scripted region-rewrite has
+  // silently dropped something living inside it. A refinement, never a
+  // prerequisite: it runs only when the answer was found, inside the same budget,
+  // and failing it must not turn a found answer back into a question.
+  const debit = r.debits[0]?.account
+  if (r.verdict === 'found' && debit && left() > 250) {
+    try {
+      const body = await call({ mode: 'accounts', where: `Code=="${String(debit).replace(/"/g, '')}"` })
+      const acct = rowsOf(body)[0] ?? null
+      if (acct) {
+        const c = classifyFeeDebit(acct.type ?? null, acct.class ?? null)
+        const named = acct.name ? `${acct.name} (${debit})` : `account ${debit}`
+        r = {
+          ...r,
+          debits: [{ ...r.debits[0], account_name: r.debits[0].account_name ?? acct.name ?? null }, ...r.debits.slice(1)],
+          treatment: { kind: c.kind, consequence: c.consequence, account_type: acct.type ?? null, account_class: acct.class ?? null },
+          statement: `${r.statement.replace(`debits account ${debit}`, `debits ${named}`)} ${c.consequence}`,
+        }
+      }
+    } catch (_) { /* the answer stands without it */ }
+  }
+
+  // Only say what went wrong when something IS wrong. The first version appended
+  // the diagnostics unconditionally, so a run that FOUND the journal still ended
+  // "(manual_journals: ran out of time with 70 entries in the window;
+  // bank_transactions: out of time.)" — telling a CPA the search failed
+  // immediately after handing her the answer. Triage stopping early is not a
+  // failure when the thing being looked for was found on the first lookup.
+  return (trouble.length && r.verdict !== 'found')
+    ? { ...r, statement: `${r.statement} (${trouble.join('; ')}.)` }
+    : r
 }
 
 function contentTypeFor(ext: string): string {
