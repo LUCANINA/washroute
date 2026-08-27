@@ -273,9 +273,15 @@ const JOURNAL_FETCH_CAP = 150
 // its job -- it reported complete:false and refused to claim an absence -- but a
 // diagnostic that can only see a third of the evidence is not much better than
 // one that saw none, which was the whole complaint about this function.
-const JOURNAL_FETCH_CONCURRENCY = 4
-const JOURNAL_RATE_PER_MIN = 55            // under Xero's 60, leaving room for the other calls this function makes
+const JOURNAL_FETCH_CONCURRENCY = 5        // Xero's stated concurrent maximum
+const JOURNAL_RATE_PER_MIN = 58            // just under Xero's 60/min
 const JOURNAL_RETRIES = 2
+// The edge function's own wall clock is the other limit, and it bit immediately:
+// pacing 155 journals at a safe rate takes ~2.8 minutes and the invocation died
+// with a 504 at 150s, which is worse than the incomplete answer it replaced.
+// Fast enough to be rate-limited and slow enough to time out are both failures;
+// the way out is to bound the WORK and say exactly what was left undone.
+const JOURNAL_TIME_BUDGET_MS = 75_000
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -306,8 +312,11 @@ async function fetchOneJournal(id: string, headers: Record<string, string>) {
 async function fetchJournalsWithLines(ids: string[], headers: Record<string, string>) {
   const journals: any[] = []
   let unreadable = 0
+  let notAttempted = 0
+  const began = Date.now()
   const minMsPerBatch = Math.ceil((JOURNAL_FETCH_CONCURRENCY / JOURNAL_RATE_PER_MIN) * 60_000)
   for (let i = 0; i < ids.length; i += JOURNAL_FETCH_CONCURRENCY) {
+    if (Date.now() - began > JOURNAL_TIME_BUDGET_MS) { notAttempted = ids.length - i; break }
     const startedAt = Date.now()
     const chunk = ids.slice(i, i + JOURNAL_FETCH_CONCURRENCY)
     const settled = await Promise.all(chunk.map((id) => fetchOneJournal(id, headers)))
@@ -321,7 +330,7 @@ async function fetchJournalsWithLines(ids: string[], headers: Record<string, str
       if (spent < minMsPerBatch) await sleep(minMsPerBatch - spent)
     }
   }
-  return { journals, unreadable }
+  return { journals, unreadable, notAttempted }
 }
 
 async function paymentPicture(b: any): Promise<Response> {
@@ -375,7 +384,7 @@ async function paymentPicture(b: any): Promise<Response> {
   const ids = listed.slice(0, JOURNAL_FETCH_CAP)
     .map((j: any) => String(j.ManualJournalID || ''))
     .filter(Boolean)
-  const { journals, unreadable } = await fetchJournalsWithLines(ids, headers)
+  const { journals, unreadable, notAttempted } = await fetchJournalsWithLines(ids, headers)
 
   const touching = journals
     .map(trimManualJournal)
@@ -384,7 +393,7 @@ async function paymentPicture(b: any): Promise<Response> {
   const notPosted = touching.filter((j: any) => j.status !== 'POSTED')
   // True only when the search was actually complete. Everything that reports an
   // absence below has to consult this first.
-  const searchComplete = !capped && unreadable === 0
+  const searchComplete = !capped && unreadable === 0 && notAttempted === 0
 
   // 3. net it out, per account
   const net: Record<string, { from_transaction: number; from_journals: number }> = {}
@@ -421,6 +430,9 @@ async function paymentPicture(b: any): Promise<Response> {
   if (unreadable) {
     warnings.push(`${unreadable} journal(s) in this window could not be read from Xero, so this picture may be incomplete. A failed lookup is not evidence of absence -- re-run before concluding anything from it.`)
   }
+  if (notAttempted) {
+    warnings.push(`${notAttempted} journal(s) in this window were not examined -- reading them all at a rate Xero accepts would outlast this request. Narrow window_days (each call reads about ${Math.floor(JOURNAL_TIME_BUDGET_MS / 1000 * (JOURNAL_RATE_PER_MIN / 60))} journals) and the answer will be complete.`)
+  }
   if (posted.length === 0 && searchComplete) {
     warnings.push('No posted journal touches this transaction. Its own coding is the whole story -- if that coding is wrong, nothing later fixes it.')
   } else if (posted.length === 0) {
@@ -445,7 +457,7 @@ async function paymentPicture(b: any): Promise<Response> {
     transaction: t,
     window: { from, to, days: windowDays },
     // So a caller can tell "nothing corrected this" from "we did not manage to look".
-    journal_search: { listed: listed.length, read: journals.length, unreadable, capped, complete: searchComplete },
+    journal_search: { listed: listed.length, read: journals.length, unreadable, not_attempted: notAttempted, capped, complete: searchComplete },
     posted_journals: posted,
     excluded_journals: notPosted,
     net_by_account: Object.entries(net).map(([code, v]) => ({
