@@ -202,6 +202,47 @@ session — see the session log below for why).
 
 ## Invariants — the actual reason this module has its own skill
 
+### THE FIRST LAW: A QUEUE PEOPLE SCROLL PAST PROTECTS NOBODY (sessions 230–242)
+
+**Everything below this line is a corollary of this one.** It has now been
+discovered FIVE separate times, each time as though it were new, which is itself
+the evidence that it belongs at the top rather than scattered through the log:
+
+| Discovered as | The noise it produced |
+|---|---|
+| **Close date** (230) | Funding Circle carried five approvals back to 2025-11 — asking for work in months nobody can change |
+| **"No need to display non issues"** (231) | `tie.status === 'explained'` printed "nothing is wrong" inside a list of things that are wrong |
+| **Settlement lag** (242) | `balance_vs_lender` fired every month forever on every payment-provider loan, and could never be cleared |
+| **"These documents cannot say"** (242) | A question raised about evidence the system was holding one API call away |
+| **The fee treatment** (242) | A settled accounting decision re-argued on every single run |
+
+The last one is the sharpest, because the argument was *correct*. The tool told
+David his origination fee, recognised entirely in one month, might warrant an
+accruals conversation. True. He had already decided. His answer — **"but that is
+irrelevant now"** — is the whole law: *being right about the accounting does not
+make an unwanted item less noise.*
+
+**So, before anything reaches a person, it has to survive four questions:**
+
+1. **Is it decided?** Then RECORD it, do not re-open it. The loan's note exists for
+   exactly this, and the phrase to reach for is "so nobody has to ask again".
+2. **Is it actionable?** A finding inside closed books, or one whose remedy the
+   evidence does not identify, asks for something nobody can do.
+3. **Could the system have answered it itself?** Then it must — the ledger, the
+   loan's own history, the contract terms — before it is allowed to ask. A question
+   the tool could have answered is worse than no question.
+4. **Can it EVER be cleared?** A check that structurally fires forever (settlement
+   lag) is not caution, it is training people to ignore the queue that will one day
+   carry something real.
+
+**The corollary that keeps biting:** silence is not the alternative to noise.
+Every one of the fixes above kept the fact and changed its FRAMING — the balance
+gap moved to corroborations with its arithmetic, the fee treatment went into the
+note, the closed-period finding stayed inspectable in the tie-out row. *Suppressing
+a fact and de-escalating it are different acts, and only the second one is ever
+right.* `balance_vs_lender` is downgraded on settlement lag and never suppressed,
+for precisely this reason.
+
 ### DEFERENCE HAS TO CARRY A DIAGNOSIS (session 234)
 
 We never write on top of the accountant's work. Until session 234 that rule was implemented
