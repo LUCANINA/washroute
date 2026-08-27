@@ -1768,6 +1768,71 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 9, 2026-08-27) — a cap of 40 against a window of 70
+
+The fee search came back `incomplete`. I had said that outcome would point at my
+parsing of Xero's reply. **It did not — the parsing was right and the cause was
+dumber.**
+
+Diagnosed live through `net.http_post` → `xero-read` (the pattern in the "Reading
+Xero" section):
+
+* Xero reachable, scopes fine (`whoami` 200).
+* The window query `Date >= DateTime(2026,06,09) && Date <= DateTime(2026,07,21)`
+  returns **`count: 70`**. `FEE_ENTRY_CAP` was **40**.
+* **The journal exists and is unmistakable** — `531c23c0-011c-42c0-8986-0fdc00635f6d`,
+  2026-06-30, *"Stripe Capital Loan — record Fixed Fee ($20,875.00) per loan
+  agreement, bringing Total Repayment Amount to $145,875.00"*. Fetched by id it
+  credits **304** (this loan's account) −20,875 and debits **264** +20,875.
+* Fed that real payload, `normaliseLedgerEntry` + `findOriginationFeeJournal`
+  return **`found`, debit 264**. The logic was never wrong.
+* The journal sits at **position 37 of 70** — inside the cap. So the fetch loop
+  itself failed partway: 40 sequential, unpaced, retry-less calls against Xero's
+  60/min, followed by a second unbounded pass over bank transactions.
+
+**Three faults, one cause: I reimplemented machinery that already existed.**
+`xero-read` has had the correct hydrate-by-id fetcher since session 241 —
+concurrency 5, paced to 58/min, retries honouring `Retry-After`, a 75s budget, and
+honest `unreadable`/`notAttempted` counts. I wrote a worse one in the caller.
+
+Fixes:
+
+1. **`xero-read` gained `with_lines: true`** on the list path for
+   `manual_journals` and `bank_transactions`. It lists, then hydrates with the
+   existing paced fetcher, and returns `hydrated`, `unreadable`, `not_attempted`
+   and **`complete`**. `fetchOneJournal`/`fetchJournalsWithLines` are generalised
+   to `fetchOneById`/`fetchWithLines(endpoint, …)` — BankTransactions omit
+   `LineItems` in a list exactly as ManualJournals omit `JournalLines`. Additive:
+   without the flag, behaviour is byte-for-byte what it was.
+2. **`loan-bundle` makes one call per source** and takes `complete` from the
+   reply. The 40-cap is gone; the time budget is the bound, and it is honest.
+3. **A failure now says WHY.** The old version returned `complete:false` and
+   nothing else, so a run that failed reported only "the ledger could not be
+   searched" — about a journal sitting in range at position 37. It now carries the
+   status code, or how many of how many were read, into the sentence a person
+   reads.
+
+*The lesson, and it is the same one twice in two commits: when a capability
+already exists in this codebase, USE it. Rate-limit courtesy, retry policy and
+completeness accounting are knowledge that belongs in one place. A caller that
+grows its own copy gets the naive version — and mine shipped an arbitrary constant
+that was simply smaller than reality.*
+
+**And the answer itself, for the record:** the $20,875 fee was **debited to
+account 264**, credited to 304, by journal `531c23c0…` dated 2026-06-30. Whether
+264 is an expense or an asset decides whether the cost is recognised or needs
+amortising — `classifyFeeDebit` says which once the account type is read.
+
+**Files:** `xero-read/index.ts` (now in the deploy list — LIVE, read-only),
+`loan-bundle/index.ts`, `tests/origination-fee.test.mts` (61 → 68 assertions,
+including the real journal pinned verbatim as a fixture).
+
+**Test totals: 68 + 29 + 95 + 47 + 68 = 307 assertions, all passing.**
+
+**Where to pick up:** deploy `xero-read` AND `loan-bundle`, re-run, and the fee
+question should become "Where the fee was booked — account 264". If it is still
+`incomplete`, the sentence now names the failure instead of hiding it.
+
 ### Session 242 (cont. 8, 2026-08-27) — half a search, and a guess with no test under it
 
 David, on the fee search: *"you need to be looking everywhere, not just the

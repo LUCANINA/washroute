@@ -632,7 +632,6 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
 // because silence is only meaningful when the search really was exhaustive. A Xero
 // outage must never become "no fee entry exists".
 const FEE_WINDOW_DAYS = 21
-const FEE_ENTRY_CAP = 40
 
 async function searchLedgerForFeeJournal(
   loanAccountCode: string | null, feeAmount: number, origination: string | null,
@@ -651,56 +650,59 @@ async function searchLedgerForFeeJournal(
   const to   = new Date(t + FEE_WINDOW_DAYS * day).toISOString().slice(0, 10)
   const xd = (iso: string) => `DateTime(${iso.slice(0, 4)},${iso.slice(5, 7)},${iso.slice(8, 10)})`
 
-  const call = async (body: unknown) => {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) throw new Error(`xero-read ${res.status}`)
-    return await res.json()
-  }
-  const rowsOf = (r: any): any[] =>
-    Array.isArray(r?.items) ? r.items
-    : Array.isArray(r?.results) ? r.results
-    : Array.isArray(r?.ManualJournals) ? r.ManualJournals
-    : Array.isArray(r?.BankTransactions) ? r.BankTransactions
-    : r?.item ? [r.item] : []
-
   const entries: LedgerEntry[] = []
   let complete = true
+  // WHY a failure list and not just a boolean: the first version returned
+  // `complete:false` and nothing else, so a run that failed said only "the ledger
+  // could not be searched" — about a journal that was sitting in the window, in
+  // range, at position 37. A diagnostic that discards its own diagnosis costs a
+  // whole round trip to re-learn what the code already knew.
+  const trouble: string[] = []
 
   for (const [mode, source] of [
     ['manual_journals', 'manual_journal'],
     ['bank_transactions', 'bank_transaction'],
   ] as const) {
     try {
-      const list = await call({ mode, where: `Date >= ${xd(from)} && Date <= ${xd(to)}` })
-      const ids = rowsOf(list)
-        .map((r: any) => String(r.id ?? r.ManualJournalID ?? r.BankTransactionID ?? ''))
-        .filter(Boolean)
-      if (ids.length > FEE_ENTRY_CAP) complete = false
-      for (const id of ids.slice(0, FEE_ENTRY_CAP)) {
-        try {
-          const one = await call({ mode, id })
-          const e = normaliseLedgerEntry(rowsOf(one)[0] ?? one, source)
-          if (e) entries.push(e)
-          else complete = false
-        } catch (_) { complete = false }
+      // with_lines makes xero-read list AND hydrate, using its own paced fetcher
+      // (5 concurrent, 58/min, retries, time budget). The previous version did
+      // this by hand, sequentially, capped at 40 — and 40 was less than the 70
+      // journals a single six-week window in this business actually contains.
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ mode, with_lines: true, where: `Date >= ${xd(from)} && Date <= ${xd(to)}` }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        complete = false
+        trouble.push(`${mode}: xero-read returned ${res.status}${body?.error ? ` (${String(body.error).slice(0, 120)})` : ''}`)
+        continue
       }
-    } catch (_) {
-      // One source failing must not poison the other's result — but it does mean
-      // the search was not exhaustive, and the verdict has to say so.
+      if (body?.complete === false) {
+        complete = false
+        trouble.push(`${mode}: ${body.hydrated ?? 0} of ${body.count ?? 0} read${body.unreadable ? `, ${body.unreadable} unreadable` : ''}${body.not_attempted ? `, ${body.not_attempted} not reached in time` : ''}`)
+      }
+      for (const raw of (Array.isArray(body?.results) ? body.results : [])) {
+        const e = normaliseLedgerEntry(raw, source)
+        if (e) entries.push(e)
+        else { complete = false; trouble.push(`${mode}: an entry could not be read`) }
+      }
+    } catch (err) {
       complete = false
+      trouble.push(`${mode}: ${String((err as any)?.message ?? err).slice(0, 120)}`)
     }
   }
 
-  return findOriginationFeeJournal({
+  const r = findOriginationFeeJournal({
     journals: entries, searched: ['manual_journal', 'bank_transaction'],
     loanAccountCode, feeAmount, complete, windowFrom: from, windowTo: to,
   })
+  // Say what went wrong, in the sentence a person actually reads.
+  return trouble.length
+    ? { ...r, statement: `${r.statement} (${trouble.join('; ')}.)` }
+    : r
 }
-
 
 function contentTypeFor(ext: string): string {
   const m: Record<string, string> = {

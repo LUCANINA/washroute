@@ -220,5 +220,45 @@ section("Xero's response shape — the part I had only guessed at")
   ok('an unparseable date is null, not a wrong date', xeroDate('nonsense') === null)
 }
 
+section('the real journal, verbatim from Xero')
+{
+  // Copied byte for byte out of xero-read's live reply for
+  // 531c23c0-011c-42c0-8986-0fdc00635f6d. This is the fixture that stops the
+  // response shape from ever being a guess again.
+  const REAL = {
+    id: '531c23c0-011c-42c0-8986-0fdc00635f6d',
+    number: null,
+    date: '2026-06-30',
+    status: 'POSTED',
+    narration: 'Stripe Capital Loan — record Fixed Fee ($20,875.00) per loan agreement, bringing Total Repayment Amount to $145,875.00 (Loan Amount $125,000.00 + Fixed Fee $20,875.00)',
+    lines: [
+      { description: 'Stripe Capital Loan — Fixed Fee per signed Loan Agreement (Origination Date 6/30/2026)', account: '264', amount: 20875 },
+      { description: 'Stripe Capital Loan — Fixed Fee added to total loan liability', account: '304', amount: -20875 },
+    ],
+  }
+  const e = normaliseLedgerEntry(REAL, 'manual_journal')!
+  ok('the real shape parses', e.lines.length === 2)
+  ok('the credit line keeps its sign', e.lines[1].amount === -20875)
+  ok('the date passes through', e.date === '2026-06-30')
+
+  const r = findOriginationFeeJournal({
+    journals: [e], searched: ['manual_journal', 'bank_transaction'],
+    loanAccountCode: '304', feeAmount: 20875, complete: true,
+    windowFrom: '2026-06-09', windowTo: '2026-07-21',
+  })
+  ok('the real journal is FOUND', r.verdict === 'found', r.verdict)
+  ok('debited to 264 — the answer to the question', r.debits[0].account === '264')
+  ok('and the loan account 304 is named as the credit', /credits \$20,875\.00 to account 304/.test(r.statement))
+
+  // The live failure was never the matcher: hand it the entry and it works. It
+  // was the fetch, capped at 40 against a window holding 70.
+  ok('an EMPTY entry list is what actually produced "incomplete"',
+     findOriginationFeeJournal({
+       journals: [], searched: ['manual_journal', 'bank_transaction'],
+       loanAccountCode: '304', feeAmount: 20875, complete: false,
+       windowFrom: '2026-06-09', windowTo: '2026-07-21',
+     }).verdict === 'incomplete')
+}
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

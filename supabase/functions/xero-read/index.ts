@@ -287,10 +287,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 // One journal, with the retry Xero explicitly asks for. A 429 carries Retry-After
 // in seconds; honouring it is the difference between a slow answer and a wrong one.
-async function fetchOneJournal(id: string, headers: Record<string, string>) {
+// Generalised from fetchOneJournal (session 242). BankTransactions omit their
+// LineItems in a list exactly as ManualJournals omit JournalLines, so the same
+// hydrate-by-id dance — and the same rate-limit courtesy — is needed for both.
+async function fetchOneById(endpoint: string, id: string, headers: Record<string, string>) {
   for (let attempt = 0; attempt <= JOURNAL_RETRIES; attempt++) {
     try {
-      const res = await fetch(`${XERO}/ManualJournals/${encodeURIComponent(id)}`, { method: 'GET', headers })
+      const res = await fetch(`${XERO}/${endpoint}/${encodeURIComponent(id)}`, { method: 'GET', headers })
       if (res.status === 429) {
         const wait = Math.min(Number(res.headers.get('Retry-After') || 0) || 5, 30)
         await res.text().catch(() => '')
@@ -309,7 +312,7 @@ async function fetchOneJournal(id: string, headers: Record<string, string>) {
   return undefined
 }
 
-async function fetchJournalsWithLines(ids: string[], headers: Record<string, string>) {
+async function fetchWithLines(endpoint: string, ids: string[], headers: Record<string, string>) {
   const journals: any[] = []
   let unreadable = 0
   let notAttempted = 0
@@ -319,7 +322,7 @@ async function fetchJournalsWithLines(ids: string[], headers: Record<string, str
     if (Date.now() - began > JOURNAL_TIME_BUDGET_MS) { notAttempted = ids.length - i; break }
     const startedAt = Date.now()
     const chunk = ids.slice(i, i + JOURNAL_FETCH_CONCURRENCY)
-    const settled = await Promise.all(chunk.map((id) => fetchOneJournal(id, headers)))
+    const settled = await Promise.all(chunk.map((id) => fetchOneById(endpoint, id, headers)))
     for (const j of settled) {
       if (j === undefined) unreadable++      // undefined = could not read, null = not found
       else if (j) journals.push(j)
@@ -384,7 +387,7 @@ async function paymentPicture(b: any): Promise<Response> {
   const ids = listed.slice(0, JOURNAL_FETCH_CAP)
     .map((j: any) => String(j.ManualJournalID || ''))
     .filter(Boolean)
-  const { journals, unreadable, notAttempted } = await fetchJournalsWithLines(ids, headers)
+  const { journals, unreadable, notAttempted } = await fetchWithLines('ManualJournals', ids, headers)
 
   const touching = journals
     .map(trimManualJournal)
@@ -529,6 +532,35 @@ async function handle(req: Request): Promise<Response> {
 
   const json = JSON.parse(text)
   const rows = json[COLLECTION[mode]] ?? []
+
+  // ── with_lines: hydrate a LIST so its line items are actually present ──────
+  // Both ManualJournals and BankTransactions omit their lines in a list and
+  // return them only when fetched by id (session 241). Every caller that needs
+  // lines therefore has to list, then re-fetch — and the rate-limit courtesy that
+  // requires (5 concurrent, 58/min, retries on 429, a time budget) is knowledge
+  // that belongs HERE, once, not copied into every caller.
+  //
+  // Session 242 proved that the hard way: loan-bundle grew its own sequential,
+  // unpaced, retry-less version with an arbitrary 40-entry cap, met a 70-journal
+  // window, and reported "the ledger could not be searched" about a journal that
+  // was sitting at position 37.
+  //
+  // `complete` is the honest part: false means some entry was NOT read, and a
+  // caller must not treat a miss as an absence.
+  if (b.with_lines === true && (mode === 'manual_journals' || mode === 'bank_transactions')) {
+    const idKey = mode === 'manual_journals' ? 'ManualJournalID' : 'BankTransactionID'
+    const ids = rows.map((r: any) => String(r[idKey] ?? '')).filter(Boolean)
+    const { journals, unreadable, notAttempted } = await fetchWithLines(ENDPOINTS[mode], ids, headers)
+    const hydrated = b.full === true ? journals : journals.map(TRIM[mode])
+    return new Response(JSON.stringify({
+      ok: true, mode, count: ids.length,
+      query: url.replace(XERO, '') + ' (+lines by id)',
+      hydrated: journals.length, unreadable, not_attempted: notAttempted,
+      complete: unreadable === 0 && notAttempted === 0 && journals.length === ids.length,
+      results: hydrated,
+    }, null, 2), { headers: cors })
+  }
+
   const trimmed = b.full === true ? rows : rows.map(TRIM[mode])
 
   return new Response(JSON.stringify({
