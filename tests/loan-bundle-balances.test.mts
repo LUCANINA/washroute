@@ -992,16 +992,26 @@ section('10 — the handlers are wired into the function that ships')
      applySrc.indexOf('checkStatementPayload(act.kind, p)') < applySrc.indexOf("from('loan_statements').insert"))
   ok('...and a refusal throws rather than being patched up',
      /if \(!checked\.ok\) throw new Error\(checked\.error\)/.test(applySrc))
-  ok('the existing row is looked up on (loan, date, source)',
-     /from\('loan_statements'\)[\s\S]{0,200}?\.eq\('loan_account_id', loanId\)[\s\S]{0,160}?\.eq\('statement_date', stmt\.statement_date\)[\s\S]{0,80}?\.eq\('source', stmt\.source\)/.test(applySrc))
+  // CHANGED, session 246. This asserted the lookup was scoped to (loan, date,
+  // SOURCE) — which is what the module assumed the unique constraint was. It is
+  // not: loan_statements carries UNIQUE (loan_account_id, statement_date). Asking
+  // only about our own source found nothing on a day the books' sweep already
+  // owned, returned 'insert', and let Postgres raise the duplicate at a person.
+  // The lookup must key on what the CONSTRAINT keys on.
+  ok('the existing row is looked up on (loan, date) — what the constraint keys on',
+     /from\('loan_statements'\)[\s\S]{0,300}?\.eq\('loan_account_id', loanId\)[\s\S]{0,160}?\.eq\('statement_date', stmt\.statement_date\)/.test(applySrc))
+  ok('...and it selects the source, so a foreign row can be named',
+     /\.select\('id, principal_balance, balance_basis, source'\)/.test(applySrc))
+  ok('...and is NOT narrowed to our own source',
+     !/\.eq\('source', stmt\.source\)/.test(applySrc))
   ok('...before the insert, not after',
-     applySrc.indexOf(".eq('source', stmt.source)") < applySrc.indexOf("from('loan_statements').insert"))
+     applySrc.indexOf(".eq('statement_date', stmt.statement_date)") < applySrc.indexOf("from('loan_statements').insert"))
   ok('...and a failed lookup is not read as "no row is there"',
      /if \(exErr\) throw exErr/.test(applySrc))
   ok('the decision routes through statementRowWrite',
      /const write = statementRowWrite\(onFile \|\| \[\], stmt\)/.test(applySrc))
-  ok('...a conflict fails the action instead of overwriting',
-     /if \(write\.verdict === 'conflict'\) \{[\s\S]{0,400}?throw new Error\(write\.message\)/.test(applySrc))
+  ok('...a conflict OR a taken day fails the action instead of overwriting',
+     /if \(write\.verdict === 'date_taken' \|\| write\.verdict === 'conflict'\) \{[\s\S]{0,400}?throw new Error\(write\.message\)/.test(applySrc))
   ok('...and an adoption is reported without an insert',
      /write\.verdict === 'already_filed'[\s\S]{0,300}?applied\.push/.test(applySrc))
   ok('there is exactly one insert into loan_statements',

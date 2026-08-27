@@ -33,7 +33,7 @@ import {
   canonicalJson, checkApproveList, divergedActions,
   findingFingerprint, buildFindingWrite,
   mergeReceipt, mergeDecisions, releaseStatus, closingStatus,
-  documentAttachPlan, termMarkScope,
+  documentAttachPlan, termMarkScope, statementRowWrite,
 } from '../supabase/functions/_shared/loan-bundle-apply.ts'
 
 let pass = 0, fail = 0
@@ -354,6 +354,46 @@ section('the fixes are wired into the function that ships')
      /\.eq\('balance_basis', 'unknown'\)/.test(applySrc))
   ok('ok is still the failure count of THIS request, at 207',
      /ok: failed\.length === 0/.test(applySrc) && /failed\.length \? 207 : 200/.test(applySrc))
+}
+
+section('one balance per loan per day, whatever said it')
+{
+  // THE REAL FAILURE (session 246). loan_statements carries
+  // UNIQUE (loan_account_id, statement_date) — not (loan, date, source), which
+  // this module had assumed by inference rather than by reading the schema. The
+  // lookup asked only about its own source, found nothing, returned 'insert',
+  // and Postgres raised the duplicate at David:
+  //   duplicate key value violates unique constraint
+  //   "loan_statements_loan_account_id_statement_date_key"
+  const lender = { statement_date: '2026-08-26', principal_balance: 123091.66,
+                   balance_basis: 'total_payback', source: 'portal_manual_pull' } as any
+  const booksRow = [{ principal_balance: '125257.71', balance_basis: 'total_payback',
+                      source: 'xero_balance_snapshot' }]
+
+  const taken = statementRowWrite(booksRow, lender)
+  ok('a day owned by another source is refused, not inserted', taken.verdict === 'date_taken', taken.verdict)
+  ok('...naming who owns it and with what',
+     /xero_balance_snapshot/.test((taken as any).message) && /125,257\.71/.test((taken as any).message))
+  ok('...and saying why overwriting is not the answer',
+     /compared against/.test((taken as any).message))
+  ok('...in English, with no constraint name in sight',
+     !/duplicate key|unique constraint|loan_statements_loan_account/.test((taken as any).message))
+
+  // The ordinary paths must not have moved.
+  ok('an empty day still inserts', statementRowWrite([], lender).verdict === 'insert')
+  const mine = [{ principal_balance: '123091.66', balance_basis: 'total_payback', source: 'portal_manual_pull' }]
+  ok('our own row with the same figure is adopted',
+     statementRowWrite(mine, lender).verdict === 'already_filed')
+  const disagree = [{ principal_balance: '120000.00', balance_basis: 'total_payback', source: 'portal_manual_pull' }]
+  ok('our own row with a DIFFERENT figure is still a conflict',
+     statementRowWrite(disagree, lender).verdict === 'conflict')
+  ok('...and quotes only the row from our own source, not the whole day',
+     /120,000\.00/.test((statementRowWrite([...disagree, ...booksRow], lender) as any).message) &&
+     !/125,257\.71/.test((statementRowWrite([...disagree, ...booksRow], lender) as any).message))
+  // A row with no source recorded is treated as possibly ours — refusing to file
+  // beside it is the safe direction when we cannot tell whose day it is.
+  ok('a source-less row on the day is not assumed to belong to someone else',
+     statementRowWrite([{ principal_balance: '125257.71' }], lender).verdict === 'conflict')
 }
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)

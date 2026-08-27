@@ -1275,17 +1275,20 @@ async function applyBundle(supa: any, who: string, body: any) {
         // would then choose between by accident of ordering. Exactly the defect
         // documentAttachPlan exists for, on a table where the duplicate is a number
         // rather than a file.
+        // SCOPED TO THE DAY, NOT TO THE DAY AND SOURCE. The unique constraint on
+        // this table is (loan_account_id, statement_date) — asking only about our
+        // own source finds nothing, returns 'insert', and lets Postgres raise the
+        // duplicate at a person instead. Read what the constraint actually keys on.
         const { data: onFile, error: exErr } = await supa.from('loan_statements')
-          .select('id, principal_balance, balance_basis')
+          .select('id, principal_balance, balance_basis, source')
           .eq('loan_account_id', loanId)
           .eq('statement_date', stmt.statement_date)
-          .eq('source', stmt.source)
         // Unchecked, a transient read failure looks like "no row is there" and the
         // insert goes ahead — which is the duplicate this lookup is the only
         // backstop against.
         if (exErr) throw exErr
         const write = statementRowWrite(onFile || [], stmt)
-        if (write.verdict === 'conflict') {
+        if (write.verdict === 'date_taken' || write.verdict === 'conflict') {
           // A failure, not a silent skip. Somebody has a different figure for this
           // day and only one of them can be right; that is a thing to be told, and
           // the receipt is where it gets recorded.

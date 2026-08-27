@@ -366,12 +366,19 @@ export function checkStatementPayload(kind: string, payload: unknown): Statement
   return { ok: true, row: { statement_date: date, principal_balance: bal, balance_basis: basis, source: src } }
 }
 
-export interface ExistingStatement { principal_balance: number | string; balance_basis?: string | null }
+export interface ExistingStatement {
+  principal_balance: number | string
+  balance_basis?: string | null
+  /** Required to tell "our own row" from "somebody else already owns this day". */
+  source?: string | null
+}
 
 export type StatementWrite =
   | { verdict: 'insert' }
   | { verdict: 'already_filed'; message: string }
   | { verdict: 'conflict'; message: string }
+  /** The day is taken by a row from a DIFFERENT source. See below. */
+  | { verdict: 'date_taken'; message: string }
 
 /**
  * File this balance, adopt the row already there, or refuse — given every row that
@@ -398,7 +405,46 @@ export function statementRowWrite(
   const rows = (existing || []).filter(r => r && Number.isFinite(Number(r.principal_balance)))
   if (!rows.length) return { verdict: 'insert' }
   const money = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const same = rows.find(r => Math.abs(Number(r.principal_balance) - row.principal_balance) <= 0.005)
+
+  // ── ONE BALANCE PER LOAN PER DAY, WHATEVER SAID IT (session 246) ──────────
+  // `loan_statements` carries UNIQUE (loan_account_id, statement_date). Not
+  // (loan, date, source) — the module ASSUMED the latter, on inference rather
+  // than on a look at the schema, and the assumption reached a person as a raw
+  // Postgres error: 'duplicate key value violates unique constraint
+  // "loan_statements_loan_account_id_statement_date_key"'.
+  //
+  // It bites where it matters most. Stripe Capital is `ingestion_method =
+  // 'automatic'`, so xero-payout-sync writes a daily snapshot of OUR OWN BOOKS
+  // into the lender's table — 35 rows, and the only loan on this book that does
+  // it. Those snapshots sit on exactly the days a lender figure needs. On
+  // 2026-08-26 the books say $125,257.71 and the lender says $123,091.66, and
+  // THAT PAIR IS THE VARIANCE: the table can hold one of them, and the whole
+  // point is to hold both.
+  //
+  // Overwriting is not the escape. Replacing the books row with the lender's
+  // figure would leave an anchor and nothing to compare it against — a check
+  // that agrees with itself, which is the shape this loan was already stuck in.
+  //
+  // So this refuses, and says what it found, in the sentence a person needs. The
+  // real repair is a schema decision (relax the constraint and make every
+  // latest-row lookup source-aware, or stop the sweep writing here at all) and it
+  // is recorded in PROJECT-NOTES-BOOKKEEPING.md rather than guessed at here.
+  const ours = rows.filter(r => !row.source || !r.source || r.source === row.source)
+  const theirs = rows.filter(r => row.source && r.source && r.source !== row.source)
+  if (!ours.length && theirs.length) {
+    const who = [...new Set(theirs.map(r => String(r.source)))].join(', ')
+    return {
+      verdict: 'date_taken',
+      message:
+        `${row.statement_date} already carries a balance from a different source (${who}: ` +
+        `${theirs.map(r => money(Number(r.principal_balance))).join(', ')}), and this loan can hold only ` +
+        `one balance per day. The lender's ${money(row.principal_balance)} was NOT filed and nothing was ` +
+        `changed — overwriting would replace the books' own figure for that day, which is the very number ` +
+        `the lender's balance has to be compared against.`,
+    }
+  }
+
+  const same = ours.find(r => Math.abs(Number(r.principal_balance) - row.principal_balance) <= 0.005)
   if (same) {
     return {
       verdict: 'already_filed',
@@ -409,7 +455,7 @@ export function statementRowWrite(
     verdict: 'conflict',
     message:
       `a balance is already on file for ${row.statement_date} from the same place, and it is not this one ` +
-      `(${rows.map(r => money(Number(r.principal_balance))).join(', ')} on file, ${money(row.principal_balance)} proposed). ` +
+      `(${ours.map(r => money(Number(r.principal_balance))).join(', ')} on file, ${money(row.principal_balance)} proposed). ` +
       `Nothing was changed: overwriting it would destroy the evidence for whichever figure is right.`,
   }
 }

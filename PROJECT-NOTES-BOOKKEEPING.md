@@ -20,22 +20,48 @@
 > changing verdict** against the 2026-08-26 fixture. Deploy it anyway — the code
 > and the deployment have been out of step for four sessions.
 >
-> ### 2. 🟢 STRIPE CAPITAL — READY TO FILE, ONE RE-RUN AWAY
+> ### 2. 🟠 STRIPE'S LENDER ANCHOR — BLOCKED ON A SCHEMA DECISION
 >
-> Stripe still shows "no opening balance" and "n/a — swept from Xero" on the Loans
-> page because **the intake wrote no balances** (see the session 245 entry). Two new
-> planner actions fix it, and both inputs are ready:
+> **What landed:** the 6/30 opening balance IS filed — `contract_origination`,
+> `total_payback`, **$145,875.00**. Stripe rolls forward now. The 12 terms and the
+> structure note applied too. Bundle sits at `partially_applied`, receipt intact.
 >
-> * the **6/30 opening** is $145,875.00 (`total_repayment_amount`, `gross_payback`,
->   corroborated to the cent by the 7/01 sweep row)
-> * the **lender anchor** is $123,091.66 as of **2026-08-26** — a date now PROVEN,
->   not assumed: cumulative withholdings across the two exports reach $22,783.34 on
->   that day and no other, splitting $19,522.72 / $3,260.62, matching all three
->   figures on `Stripe overview.png` to the cent.
+> **What did not:** `record_lender_balance` failed —
+> `duplicate key value violates unique constraint
+> "loan_statements_loan_account_id_statement_date_key"`.
 >
-> **Re-run the bundle on the four Stripe documents plus BOTH exports** (July and
-> August-to-date, now in `tests/fixtures/`). Both are needed: July alone cannot
-> reach an August figure, August alone starts six weeks after the period begins.
+> That constraint is **UNIQUE (loan_account_id, statement_date)** — one balance per
+> loan per day, *whatever its source*. The module had assumed (loan, date, source),
+> by inference rather than by reading the schema, and the assumption reached David
+> as raw Postgres. The apply path now looks up on (loan, date) and refuses with a
+> `date_taken` verdict that explains itself; it will no longer emit SQL at anyone.
+> **But the anchor still cannot be filed.**
+>
+> **Why it is not a one-liner.** Stripe is the ONLY loan whose books-side sweep
+> writes into the lender's table: `ingestion_method='automatic'`, so
+> `xero-payout-sync` puts 35 daily snapshots of OUR OWN BOOKS into `loan_statements`
+> — and they sit on exactly the days a lender figure needs. On 2026-08-26 the books
+> say $125,257.71 and the lender says $123,091.66. **That pair IS the variance.**
+> The table can hold one of them; the whole point is to hold both. Overwriting is
+> not an escape — it leaves an anchor with nothing to compare against, which is the
+> self-agreeing loop this loan is already stuck in.
+>
+> **Three ways out, in the order I would consider them:**
+> 1. **Relax to (loan_account_id, statement_date, source).** Correct in principle.
+>    But "the balance on day D" becomes ambiguous for every existing lookup —
+>    `_loanBalanceAsOf` takes the latest row ≤ D, and two rows on one date make the
+>    winner order-dependent. That is the "two numbers on one page, no way to tell
+>    which is real" bug this module's whole history is made of. So: migration
+>    (use `washroute-migration-review`) PLUS an audit of every latest-row lookup to
+>    make it source-aware and deterministic. Do not do one without the other.
+> 2. **Stop the sweep writing into the lender's table at all.** Most correct, since
+>    `loan_statements` means "what the lender said". Largest blast radius: those 35
+>    rows are currently Stripe's ONLY balances, so moving them carelessly blanks its
+>    debt schedule.
+> 3. **Overwrite the books row.** Rejected above — recorded so nobody re-proposes it.
+>
+> Everything else about the loan is filed and correct. This is the last step.
+>
 > ### 3. 🟠 UNLABELLED LENDER BALANCES ARE BEING WRITTEN RIGHT NOW
 >
 > 11 `portal_manual_pull` rows carry `balance_basis = 'unknown'`, most recently
@@ -2026,6 +2052,44 @@ still compares against the last statement row when `as_of` is null, rather than
 against the derived date"* — filed as a follow-up rather than a defect. It was the
 first thing the next run hit. A known gap between two sections of the same plan is
 not a follow-up; it is a bug that has not happened yet.
+
+#### The constraint I inferred instead of reading
+
+The rebuilt bundle applied 3 of 4. The lender anchor failed:
+
+```
+duplicate key value violates unique constraint
+"loan_statements_loan_account_id_statement_date_key"
+```
+
+`loan_statements` carries **UNIQUE (loan_account_id, statement_date)** — one balance
+per loan per day, whatever its source. The apply path looked up
+`(loan, date, source)`, found no `portal_manual_pull` row on 2026-08-26, returned
+`insert`, and let Postgres deliver the news.
+
+**The agent that wrote it said so in its own report** — that it had *inferred* the
+absence of a unique index on (loan, date, source) rather than checking, listing it
+under "could not verify". I read that line and shipped it anyway. Same family as
+sessions 176/177, whose whole lesson is *prove what the schema does before pointing
+code at it*; I had written that rule into the skill hours earlier the same day.
+
+Fixed at the layer that could be: the lookup now keys on what the CONSTRAINT keys
+on, and a day owned by another source returns a new `date_taken` verdict that names
+the occupant, the figures, and why overwriting is not the answer. No constraint name
+reaches a person again. But **the anchor still cannot be filed** — that needs a
+schema decision, and it is START HERE §2 rather than a guess made at midnight.
+
+The reason it is a decision and not a fix: Stripe is the only loan whose books-side
+sweep writes into the lender's table (35 `xero_balance_snapshot` rows, because
+`ingestion_method='automatic'`). Those rows sit on the days the lender's figures
+need. On 2026-08-26 the books say $125,257.71 and the lender says $123,091.66 —
+**that pair is the variance.** One row per day means the table can hold the question
+or the answer, not both.
+
+Worth recording what went RIGHT: the failure was partial-applied cleanly, the
+receipt named the failing action and its error, the bundle sat at
+`partially_applied`, and the other three changes stand. That is this session's own
+apply-path work behaving exactly as designed under a failure nobody predicted.
 
 #### The audit that started the session
 
