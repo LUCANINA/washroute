@@ -2,23 +2,33 @@
 
 > ## ⏭️ START HERE — first thing, session 246 (left by session 245, 2026-08-27)
 >
-> ### 1. 🚀 NOTHING FROM SESSIONS 242–245 IS DEPLOYED
+> ### 1. 🚀 DEPLOY STATE — CHECKED, NOT ASSUMED (2026-08-27 23:52 UTC)
 >
-> Migrations ARE applied. Code is committed and not shipped:
+> **Most of it IS deployed.** Verified against the live project, not inferred:
+>
+> | | |
+> |---|---|
+> | `loan-bundle` **v21** | deployed 23:41:16 |
+> | `reconciliation-run` **v49** | deployed 23:41:20 |
+> | `fdebe50` committed 23:37:36 | **in v21** |
+> | `ead8a11` committed 23:49:44 | **NOT deployed** |
+>
+> So everything through `fdebe50` is live. **One commit is outstanding —
+> `ead8a11`**, which stops the apply step emitting a raw Postgres constraint name
+> at a person when a statement date is already taken. It changes no verdict and
+> files nothing new; it only improves a failure message. Deploy it when convenient:
 >
 > ```
-> npx supabase@latest functions deploy loan-bundle        --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> git push
+> npx supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> git push          # SIX commits are unpushed — the sandbox cannot push
 > ```
 >
-> `loan-bundle` will not start without `_shared/loan-bundle-plan.ts`,
-> `loan-bundle-apply.ts`, `ledger-dating.ts`, `loan-matcher.ts` and
-> `portal-figures.ts` — deploy the function, do not assume an earlier deploy
-> covered it. **`reconciliation-run` IS LIVE AND SCHEDULED**; session 245 changed
-> its settlement-lag verdicts, and the blast radius was measured at **0 loans
-> changing verdict** against the 2026-08-26 fixture. Deploy it anyway — the code
-> and the deployment have been out of step for four sessions.
+> **Do NOT blanket-redeploy on the assumption that nothing shipped.** The previous
+> version of this block said exactly that, hours after it had stopped being true,
+> and it was written by the session that then deployed. Before trusting any deploy
+> claim here — including this one — run `mcp__Supabase__list_edge_functions` and
+> compare `updated_at` against `git log --date=format:'%Y-%m-%d %H:%M:%S'`. It takes
+> one minute and this block has now been wrong once.
 >
 > ### 2. 🟠 STRIPE'S LENDER ANCHOR — BLOCKED ON A SCHEMA DECISION
 >
