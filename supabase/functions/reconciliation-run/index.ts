@@ -383,7 +383,31 @@ interface TieOut {
   anchor_source: string | null
   statement_id: string | null
   storage_path: string | null
+  /**
+   * `detail.material` / `detail.material_share` — is an 'exception' big enough to
+   * be worth a person? Decided in computeTieOut and read everywhere else, so the
+   * roster and the Needs Attention queue can never disagree about the same loan.
+   *
+   * Both bars must be cleared: $25 AND 0.25% of the lender's balance. The rule was
+   * a flat $1, on a book running from a $10,685 van loan to a $960,005 SBA loan —
+   * so EIDL's $5.00 gap wore the same red as Funding Circle's 4.6%.
+   *
+   * Deliberately inside `detail` and NOT two new columns. This row is written by
+   * PostgREST upsert, so a column that does not exist yet fails the write for
+   * EVERY loan — and adding one means a migration plus the session 176/177
+   * ordering dance (add, prove the data API sees it, only then ship the code).
+   * `detail` is already jsonb and already carries exactly this kind of derived
+   * figure. A schema change you do not need is a deployment hazard you do not need.
+   */
   detail: Record<string, unknown>
+}
+
+export const MATERIAL_FLOOR = 25
+export const MATERIAL_SHARE = 0.0025
+export function isMaterialGap(residual: number, lenderBalance: number | null): { material: boolean; share: number } {
+  const lender = Math.abs(Number(lenderBalance ?? 0))
+  const share = lender > 0 ? Math.abs(residual) / lender : 1
+  return { material: Math.abs(residual) >= MATERIAL_FLOOR && share >= MATERIAL_SHARE, share }
 }
 
 function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, anchors: any[], windowFrom: string, haveCheckpoint: boolean, today: string): TieOut {
@@ -479,6 +503,8 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
   const closesIt = laterOnLoan.length > 0 && Math.abs(residualAfterLater) < 0.02
   const ties = Math.abs(diff) < 0.02
 
+  const gap = isMaterialGap(residualAfterLater, Number(anchor.principal_balance))
+
   return {
     ...base,
     status: ties ? 'tied' : (closesIt ? 'explained' : 'exception'),
@@ -499,6 +525,9 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
       // number a human should act on; `difference` is measured on the anchor date
       // and is a snapshot, not a verdict.
       residual_after_later: residualAfterLater,
+      // Only meaningful on an exception; tied and explained are already agreement.
+      material: ties || closesIt ? null : gap.material,
+      material_share: ties || closesIt ? null : Math.round(gap.share * 1e6) / 1e6,
       later_entry_types: Array.from(new Set(laterOnLoan.map((r: any) => String(r.srcType)))),
     },
   }
@@ -587,21 +616,12 @@ function checkBalanceVsLender(
     repaysContinuously,
   })
 
-  // ── MATERIALITY IS RELATIVE, NOT ABSOLUTE (session 242) ─────────────────────
-  // The rule was `abs(residual) < 1 -> info`. One dollar, flat, across a portfolio
-  // running from a $10,685 van loan to a $960,005 SBA loan — so EIDL's **$5.00 on
-  // $960,005** carried the same red "fix first" dot as a 4.6% gap on Funding
-  // Circle. A queue that puts five dollars and three thousand dollars in the same
-  // colour is teaching people that red means nothing.
-  //
-  // David's call: it must clear BOTH a dollar floor and a share of the balance.
-  // $415.88 on a $10,685 loan is 3.9% and stays red; $5.00 on $960,005 is 0.0005%
-  // and drops to info. De-escalated, NEVER suppressed — the row stays on the board
-  // and in the tie-out, because the balance is always checked.
-  const MATERIAL_FLOOR = 25
-  const MATERIAL_SHARE = 0.0025
-  const share = Math.abs(lender) > 0 ? Math.abs(residual) / Math.abs(lender) : 1
-  const material = Math.abs(residual) >= MATERIAL_FLOOR && share >= MATERIAL_SHARE
+  // Materiality is decided ONCE, in computeTieOut, and read here. It used to be
+  // computed in this function alone — which meant the roster (driven by tie-out
+  // status) and this queue could disagree about the same loan, and "two numbers on
+  // one page with no way to tell which is real" is the oldest bug in this module.
+  const material = (tie.detail as any)?.material !== false
+  const share = Number((tie.detail as any)?.material_share ?? 1)
   const sev: Finding['severity'] = !material || lag.benign ? 'info' : 'error'
 
   // Name HOW the later entries were booked. Splitting the bank transaction is the
