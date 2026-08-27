@@ -1667,6 +1667,78 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 4, 2026-08-27) — the run that worked, and what the stored readings then showed
+
+The bundle came out right. **Carrying basis established** ("Payoff basis — fee
+included in the balance"), **"Correct as booked"**, the $125,000 correctly
+explained as a funding figure read twice, and three new actions the earlier runs
+could never reach: record the payoff basis, flag the $2,166.05 gap against the
+lender, and write the loan's plain-English note. Two questions left instead of
+four.
+
+**Then the stored `figures` earned their keep on the first query**, which is the
+whole argument for having added them. Two findings, neither visible from the
+screen:
+
+**1. `Stripe overview.png` came back `corroborated: []` — it proves itself and
+nothing could see it.** It reported principal_paid 19,522.72, fee_paid 3,260.62,
+total_amount_due 145,875 and amount_remaining 123,091.66, and **no `paid_to_date`
+line**. Both identities need that line, so both stood down. Yet
+19,522.72 + 3,260.62 = 22,783.34 and 145,875 − 22,783.34 = 123,091.66 exactly:
+the four numbers determine each other completely.
+
+**The right answer was reached by luck.** `Stripe deposit.png` happened to carry
+`paid_to_date: 22783.34`, which merged in and supplied the missing line. Had
+overview.png been uploaded alone, or had it needed to win a disagreement, cont.
+3's brand-new "proven beats unproven" rule would have had nothing to work with.
+
+So `checkPortalTotals` now DERIVES the sum from its parts when a screen states
+the parts and omits the total. The identity that then runs is not weaker for it —
+three printed figures predicting a fourth is exactly the check that was wanted.
+Two rules keep it honest: the parts-add-up check is **skipped** when the sum was
+derived (`a + b = a + b` must never look like corroboration), and a derived sum
+whose prediction FAILS is **retracted**, because the screen never claimed it.
+
+**2. `funds_deposited_date` read as 2024-06-30 — two years before the loan
+existed.** Origination is 2026-06-30. Nothing checked it, so a date that cannot
+be true was stored as fact. It is currently unused, which is not a reason to keep
+it: *an unchecked field is one refactor away from being load-bearing, and a record
+carrying an impossible date has stopped being a record.* `checkDepositDate` now
+compares it against the agreement's origination date (window −3 to +120 days,
+deliberately generous — it is there to catch the impossible, not to second-guess
+the plausible), drops the date and keeps the amount.
+
+**Not a bug, asked and answered:** David noticed `Stripe deposit.png` unticked in
+the changes list. The stored plan has it `default_checked: true` with no
+`blocked_reason`, and the UI renders straight off that field — it came up ticked
+and was unticked by hand. Worth re-ticking: the engine dropped that screen's
+BALANCE, but the file remains good evidence of the advance, and keeping it is how
+the reading gets checked later. **A misread figure is not a reason to discard the
+document.**
+
+**Files:** `_shared/portal-figures.ts` (derived sums, `checkDepositDate`),
+`loan-bundle/index.ts` (the deposit-date check runs after the agreement is parsed,
+since origination comes off the agreement and may be read after the screenshot),
+`tests/portal-figures.test.mts` (62 → 83 assertions).
+
+**Test totals: 68 + 29 + 83 = 180 assertions, all passing.**
+
+**Still open, all of it David's call, none of it a defect:**
+
+* **$2,166.05** — books $125,257.71 against the lender's $123,091.66 at
+  2026-08-26. The plan now raises it as a finding. The caveat is the useful part:
+  settlement timing puts the lender slightly ahead permanently, so **confirm it
+  by checking the gap CLOSES as later payouts land — a gap that grows month after
+  month is not timing.**
+* **What was debited against the $20,875 fee** at origination (journal #52168).
+* **$13,000/month on the record vs a $16,208.34 minimum every 60 days** — still no
+  proposed change, because the field cannot express a 60-day floor.
+
+**Where to pick up:** deploy and push, re-run, then **Apply** — this is the first
+run whose plan is worth applying. After applying, `loan_accounts.carrying_basis`
+should read `gross_payback` with its evidence recorded, and `loan_contract_terms`
+should hold 12 rows for this loan (both tables have been empty all session).
+
 ### Session 242 (cont. 3, 2026-08-27) — presence is not proof
 
 The funding guard from cont. 2 did not fire, and `$125,000.00` went forward a

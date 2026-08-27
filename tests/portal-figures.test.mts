@@ -8,7 +8,7 @@
 //
 // Run:  npx tsx tests/portal-figures.test.mts
 
-import { checkPortalTotals, mergePortal, describeScreenshot, type PortalTotals } from '../supabase/functions/_shared/portal-figures.ts'
+import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../supabase/functions/_shared/portal-figures.ts'
 
 let pass = 0, fail = 0
 const ok = (label: string, cond: boolean, detail = '') => {
@@ -249,6 +249,80 @@ section('a disagreement between a proven figure and an unproven one is not a tie
   const tp = mergePortal(p1, p2)
   ok('two screens that each prove a DIFFERENT balance are dropped', tp.amount_remaining === null)
   ok('...and that is a dispute', tp.disputes.length > 0)
+}
+
+section('a screen that states the parts but not the sum')
+{
+  // Stripe overview.png, exactly as it was read: financing paid, fee paid, the
+  // total due and the balance — and no "paid to date" line, which is why both
+  // identities stood down and it came back proving nothing.
+  const ov = checkPortalTotals(blank({
+    sources: ['Stripe overview.png'],
+    principal_paid: 19522.72, fee_paid: 3260.62,
+    total_amount_due: 145875, amount_remaining: 123091.66,
+  }))
+  ok('the missing sum is derived', ov.paid_to_date === 22783.34, `got ${ov.paid_to_date}`)
+  ok('and the balance is now PROVEN by the screen itself',
+     ov.corroborated.includes('amount_remaining'))
+  ok('the parts that predicted it are proven too',
+     ov.corroborated.includes('principal_paid') && ov.corroborated.includes('fee_paid'))
+  ok('the check says how', ov.checks.some(c => /parts predict its balance/.test(c)))
+
+  // a + b = a + b must never look like corroboration on its own.
+  const partsOnly = checkPortalTotals(blank({
+    sources: ['p.png'], principal_paid: 100, fee_paid: 20,
+  }))
+  ok('a derived sum alone proves nothing', partsOnly.corroborated.length === 0)
+  ok('...and no vacuous "parts add up" check is claimed',
+     !partsOnly.checks.some(c => /parts add up/.test(c)))
+
+  // A derived sum whose prediction FAILS was never the screen's claim.
+  const bad = checkPortalTotals(blank({
+    sources: ['b.png'], principal_paid: 100, fee_paid: 20,
+    total_amount_due: 1000, amount_remaining: 999,
+  }))
+  ok('a failed prediction drops the balance', bad.amount_remaining === null)
+  ok('...and retracts the sum we invented', bad.paid_to_date === null)
+
+  // A screen that DOES state its own sum still gets the original check.
+  const stated = checkPortalTotals(blank({
+    sources: ['s.png'], principal_paid: 100, fee_paid: 20, paid_to_date: 120,
+  }))
+  ok('a stated sum is still checked against its parts', stated.checks.some(c => /parts add up/.test(c)))
+  ok('...and corroborates them', stated.corroborated.includes('paid_to_date'))
+
+  // THE POINT: overview.png now wins a disagreement on its own merits, rather
+  // than needing another screenshot to supply the missing line.
+  const rival = blank({ sources: ['rival.png'], amount_remaining: 125000 })
+  const m = mergePortal(ov, rival)
+  ok('it now wins a disagreement unaided', m.amount_remaining === 123091.66)
+  ok('...with no dispute raised', m.disputes.length === 0)
+}
+
+section('a deposit date that cannot be true')
+{
+  // Read off Stripe deposit.png as 2024-06-30 on a loan originated 2026-06-30.
+  const p = checkDepositDate(blank({
+    sources: ['Stripe deposit.png'], funds_deposited: 125000, funds_deposited_date: '2024-06-30',
+  }), '2026-06-30')
+  ok('a date two years before the loan is dropped', p.funds_deposited_date === null)
+  ok('the amount is kept', p.funds_deposited === 125000)
+  ok('and it is explained', p.warnings.some(w => /before the agreement exists/.test(w)))
+
+  const late = checkDepositDate(blank({ funds_deposited_date: '2027-06-30' }), '2026-06-30')
+  ok('a date a year after the loan is dropped', late.funds_deposited_date === null)
+
+  const good = checkDepositDate(blank({ funds_deposited_date: '2026-06-30' }), '2026-06-30')
+  ok('the real date survives', good.funds_deposited_date === '2026-06-30')
+  const nextDay = checkDepositDate(blank({ funds_deposited_date: '2026-07-02' }), '2026-06-30')
+  ok('funding a couple of days later survives', nextDay.funds_deposited_date === '2026-07-02')
+  const dayBefore = checkDepositDate(blank({ funds_deposited_date: '2026-06-29' }), '2026-06-30')
+  ok('a day early survives (settlement runs ahead of signing dates)', dayBefore.funds_deposited_date === '2026-06-29')
+
+  ok('no origination date on file -> nothing is judged',
+     checkDepositDate(blank({ funds_deposited_date: '2024-06-30' }), null).funds_deposited_date === '2024-06-30')
+  ok('no deposit date -> nothing to judge',
+     checkDepositDate(blank({ funds_deposited: 125000 }), '2026-06-30').warnings.length === 0)
 }
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)

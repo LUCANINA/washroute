@@ -61,7 +61,27 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   const corroborated: string[] = []
   const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  if (p.principal_paid !== null && p.fee_paid !== null && p.paid_to_date !== null) {
+  // A screen that states the PARTS but not the SUM.
+  //
+  // `Stripe overview.png` shows financing paid, fee paid, the total due and the
+  // balance — everything except the "paid to date" line. Both identities below
+  // need that line, so both stood down and the screen came back proving nothing,
+  // even though its four numbers determine each other completely. The right
+  // balance then survived only because a DIFFERENT screenshot happened to supply
+  // the missing sum. That is luck, and luck is not a mechanism.
+  //
+  // So the sum is derived from its parts when the screen omits it. The identity
+  // that then runs is not weaker for it — three figures printed on the screen
+  // predicting a fourth is exactly the check that was wanted.
+  let paidWasDerived = false
+  if (p.paid_to_date === null && p.principal_paid !== null && p.fee_paid !== null) {
+    p.paid_to_date = Math.round((p.principal_paid + p.fee_paid) * 100) / 100
+    paidWasDerived = true
+  }
+
+  // Skipped when the sum was derived a moment ago: `a + b = a + b` proves nothing
+  // and must never be allowed to look like corroboration.
+  if (!paidWasDerived && p.principal_paid !== null && p.fee_paid !== null && p.paid_to_date !== null) {
     if (near(p.principal_paid + p.fee_paid, p.paid_to_date)) {
       checks.push(`The screen's own parts add up: ${fmt(p.principal_paid)} financing + ${fmt(p.fee_paid)} fee = ${fmt(p.paid_to_date)} paid.`)
       corroborated.push('principal_paid', 'fee_paid', 'paid_to_date')
@@ -72,11 +92,18 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   }
   if (p.total_amount_due !== null && p.paid_to_date !== null && p.amount_remaining !== null) {
     if (near(p.total_amount_due - p.paid_to_date, p.amount_remaining)) {
-      checks.push(`The remaining balance ties to the total: ${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} = ${fmt(p.amount_remaining)}.`)
+      checks.push(paidWasDerived
+        ? `The screen's own parts predict its balance: ${fmt(p.principal_paid!)} financing + ${fmt(p.fee_paid!)} fee = ${fmt(p.paid_to_date)} paid, and ${fmt(p.total_amount_due)} due less that is ${fmt(p.amount_remaining)} — which is the balance printed on it.`
+        : `The remaining balance ties to the total: ${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} = ${fmt(p.amount_remaining)}.`)
       corroborated.push('total_amount_due', 'paid_to_date', 'amount_remaining')
+      // The parts took part in the prediction, so they are proven too.
+      if (paidWasDerived) corroborated.push('principal_paid', 'fee_paid')
     } else {
       warnings.push(`The remaining balance does not tie to the total less what is paid (${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} ≠ ${fmt(p.amount_remaining)}), so the remaining balance was dropped.`)
       p.amount_remaining = null
+      // The sum was ours, not the screen's. If the prediction failed, the screen
+      // never said it and it must not be reported as though it had.
+      if (paidWasDerived) p.paid_to_date = null
     }
   }
 
@@ -251,4 +278,36 @@ export function describeScreenshot(p: PortalTotals): string {
     return `The lender's own screen — the funding it advanced. It says what arrived, not what is still owed.`
   }
   return `A screenshot of the lender's screen. No figure on it could be checked, so nothing rests on it.`
+}
+
+/**
+ * A funding date read off a screenshot, against the date the agreement was signed.
+ *
+ * `Stripe deposit.png` reported its deposit as 2024-06-30 — TWO YEARS before a
+ * loan originated 2026-06-30. Nothing looked at it, so a figure that cannot be
+ * true was stored as though it were. It happened to be unused, which is not a
+ * reason to keep it: an unchecked field is one refactor away from being load
+ * bearing, and a record that carries an impossible date has stopped being a
+ * record of anything.
+ *
+ * A year misread by a digit or two is the ordinary failure of reading dates off
+ * pictures, so the window is deliberately generous — this is meant to catch the
+ * impossible, not to second-guess the plausible.
+ */
+export function checkDepositDate(p: PortalTotals, originationDate: string | null): PortalTotals {
+  const d = p.funds_deposited_date
+  if (!d || !originationDate) return p
+  const warnings = [...p.warnings]
+  const days = (Date.parse(d) - Date.parse(originationDate)) / 86_400_000
+  if (!Number.isFinite(days)) return p
+  // Funding lands on or just after origination — never before it, and never
+  // months after.
+  if (days < -3 || days > 120) {
+    warnings.push(
+      `The deposit date read off this screen (${d}) cannot be right: this loan was originated ` +
+      `${originationDate}, and money does not arrive ${days < 0 ? 'before the agreement exists' : 'that long after it'}. ` +
+      `The date was dropped; the amount was kept.`)
+    return { ...p, funds_deposited_date: null, warnings }
+  }
+  return p
 }

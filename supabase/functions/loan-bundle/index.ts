@@ -60,7 +60,7 @@ import { buildPlan, summarisePlan, type PlanContext, type BundleDocument, type B
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
-import { checkPortalTotals, mergePortal, describeScreenshot, type PortalTotals } from '../_shared/portal-figures.ts'
+import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -447,6 +447,15 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   if (csv?.ok && csvRaw) {
     const fee = termNum('fixed_fee'), tot = termNum('total_repayment_amount')
     if (fee !== null && tot !== null) decomposition = verifyDecompositionRule(csv.accepted, fee, tot)
+  }
+
+  // The deposit date against the date the loan was signed. This runs here rather
+  // than in the read loop because the origination date comes off the AGREEMENT,
+  // which may be read after the screenshot. `Stripe deposit.png` reported its
+  // deposit as 2024-06-30 on a loan originated 2026-06-30 and nothing looked.
+  if (portal) {
+    const orig = agreementTerms.find(t => t.term_key === 'origination_date')?.value_date ?? null
+    portal = checkDepositDate(portal, orig)
   }
 
   const ctx: PlanContext = {
