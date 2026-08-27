@@ -60,7 +60,7 @@ import { buildPlan, summarisePlan, type PlanContext, type BundleDocument, type B
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
-import { checkPortalTotals, mergePortal, type PortalTotals } from '../_shared/portal-figures.ts'
+import { checkPortalTotals, mergePortal, describeScreenshot, type PortalTotals } from '../_shared/portal-figures.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -313,7 +313,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
         // a tie to be broken quietly — see mergePortal.
         portal = portal ? mergePortal(portal, checked) : checked
         confidence = checked.checks.length ? 'high' : 'medium'
-        role = `The lender's own screen — its statement of what is still owed, which is what the books have to agree with.`
+        role = describeScreenshot(checked)
       } else {
         confidence = 'low'
         role = `A screenshot whose figures could not be read.`

@@ -8,7 +8,7 @@
 //
 // Run:  npx tsx tests/portal-figures.test.mts
 
-import { checkPortalTotals, mergePortal, type PortalTotals } from '../supabase/functions/_shared/portal-figures.ts'
+import { checkPortalTotals, mergePortal, describeScreenshot, type PortalTotals } from '../supabase/functions/_shared/portal-figures.ts'
 
 let pass = 0, fail = 0
 const ok = (label: string, cond: boolean, detail = '') => {
@@ -128,6 +128,61 @@ section('merging never invents')
   ok('a stated $0.00 conflicts with $500 rather than yielding to it', z.amount_remaining === null)
   const z2 = mergePortal(blank({ sources: ['a.png'], amount_remaining: 0 }), blank({ sources: ['b.png'] }))
   ok('a paid-off $0.00 balance survives on its own', z2.amount_remaining === 0)
+}
+
+section('a funding figure read into the balance field')
+{
+  // Exactly what Stripe deposit.png did: $125,000 reported as BOTH the funding
+  // advanced and the balance still owed, with nothing else on the screen.
+  const dep = checkPortalTotals(blank({
+    sources: ['Stripe deposit.png'], funds_deposited: 125000, amount_remaining: 125000,
+  }))
+  ok('the balance is dropped', dep.amount_remaining === null)
+  ok('the funding amount is kept', dep.funds_deposited === 125000)
+  ok('and the reason is given', dep.warnings.some(w => /one number read twice on a funding screen/.test(w)))
+
+  // The guard must NOT fire when the screen carries something to tell them apart.
+  const real = checkPortalTotals(blank({
+    sources: ['overview.png'], funds_deposited: 125000, amount_remaining: 123091.66,
+    total_amount_due: 145875, paid_to_date: 22783.34,
+  }))
+  ok('a screen with real corroboration is untouched', real.amount_remaining === 123091.66)
+
+  // Equal figures are fine when paid-to-date is there to make sense of them.
+  const dayOne = checkPortalTotals(blank({
+    sources: ['dayone.png'], funds_deposited: 125000, amount_remaining: 125000, paid_to_date: 0,
+    total_amount_due: 125000,
+  }))
+  ok('equal figures survive when paid-to-date is shown', dayOne.amount_remaining === 125000)
+
+  // A deposit screen with no balance claim at all is left alone.
+  const clean = checkPortalTotals(blank({ sources: ['d.png'], funds_deposited: 125000 }))
+  ok('a funding-only screen raises nothing', clean.warnings.length === 0 && clean.funds_deposited === 125000)
+
+  // THE POINT: with the bad reading dropped at source, the good screen's balance
+  // survives the merge instead of both being killed as a disagreement.
+  const overview = blank({ sources: ['Stripe overview.png'], amount_remaining: 123091.66 })
+  const merged = mergePortal(overview, dep)
+  ok('the good balance now survives the merge', merged.amount_remaining === 123091.66)
+  ok('...with no disagreement raised', merged.disputes.length === 0)
+}
+
+section('a screenshot is described by what is actually on it')
+{
+  ok('a funding screen is not called a statement of the balance',
+     describeScreenshot(blank({ funds_deposited: 125000 })) ===
+     `The lender's own screen — the funding it advanced. It says what arrived, not what is still owed.`)
+  ok('a balance screen is called one',
+     /what is still owed/.test(describeScreenshot(blank({ amount_remaining: 123091.66 }))))
+  ok('a screen carrying both says both',
+     /both what was advanced and what is still owed/.test(
+       describeScreenshot(blank({ amount_remaining: 123091.66, funds_deposited: 125000 }))))
+  ok('a screen with nothing readable says so',
+     /nothing rests on it/.test(describeScreenshot(blank())))
+  // The regression this replaces: the deposit screen used to get the balance
+  // sentence, teaching the reader the very misreading the checks then caught.
+  ok('the funding screen does NOT get the balance sentence',
+     !/what is still owed, which is what the books/.test(describeScreenshot(blank({ funds_deposited: 125000 }))))
 }
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)

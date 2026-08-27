@@ -71,6 +71,30 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
       p.amount_remaining = null
     }
   }
+  // A funding figure transcribed into the balance field.
+  //
+  // On a deposit screen the same number is often read twice — once correctly as
+  // the amount advanced, once wrongly as the amount remaining, because the model
+  // is asked for both and the screen only shows one. Two identical figures on a
+  // screen carrying nothing else to check them against are one figure read twice,
+  // not two facts. This is what put $125,000.00 forward as the Stripe balance.
+  //
+  // A genuine day-one screenshot — balance still equal to the amount advanced,
+  // nothing repaid yet — looks identical from the outside, and is dropped too.
+  // Nothing is lost by that: a balance with no "paid to date" beside it cannot
+  // establish anything on its own anyway, which is the only thing it would have
+  // been used for.
+  if (p.amount_remaining !== null && p.funds_deposited !== null &&
+      near(p.amount_remaining, p.funds_deposited) &&
+      p.total_amount_due === null && p.paid_to_date === null) {
+    warnings.push(
+      `This screen gives the same figure (${fmt(p.funds_deposited)}) as both the funding advanced ` +
+      `and the balance still owed, and carries nothing else to tell the two apart — the mark of one ` +
+      `number read twice on a funding screen. It was kept as the funding amount and dropped as the ` +
+      `balance. If this really is a balance, it needs a screen that shows the amount paid to date beside it.`)
+    p.amount_remaining = null
+  }
+
   return { ...p, checks, warnings, disputes: p.disputes ?? [] }
 }
 
@@ -161,4 +185,29 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
     sources: [...a.sources, ...b.sources],
     checks, warnings, disputes,
   }
+}
+
+/**
+ * Say what a screenshot ACTUALLY carries, from the figures read off it.
+ *
+ * Every image used to get one sentence — "the lender's own screen, its statement
+ * of what is still owed" — whether it showed a balance or not. So a funding
+ * confirmation was introduced to the reader as a statement of the balance, which
+ * is the same false premise that let $125,000 of DEPOSIT be taken for $123,091.66
+ * of BALANCE. The document list is the first thing a person reads; it should not
+ * be teaching them the misreading the checks below then have to catch.
+ */
+export function describeScreenshot(p: PortalTotals): string {
+  const hasBalance = p.amount_remaining !== null || p.total_amount_due !== null || p.paid_to_date !== null
+  const hasDeposit = p.funds_deposited !== null
+  if (hasBalance && hasDeposit) {
+    return `The lender's own screen — it states both what was advanced and what is still owed.`
+  }
+  if (hasBalance) {
+    return `The lender's own screen — its statement of what is still owed, which is what the books have to agree with.`
+  }
+  if (hasDeposit) {
+    return `The lender's own screen — the funding it advanced. It says what arrived, not what is still owed.`
+  }
+  return `A screenshot of the lender's screen. No figure on it could be checked, so nothing rests on it.`
 }

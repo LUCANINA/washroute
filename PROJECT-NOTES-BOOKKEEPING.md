@@ -12,7 +12,7 @@
 > git push          # 12 files, admin-dashboard/index.html among them
 > ```
 >
-> **Session 242 cont. added four files to that deploy** — `_shared/loan-matcher.ts`
+> **Session 242 cont. + cont. 2 added four files to that deploy** — `_shared/loan-matcher.ts`
 > and `_shared/portal-figures.ts` are NEW and `loan-bundle` will not start without
 > them, so deploy `loan-bundle` rather than assuming the earlier deploy covered it.
 > See the "Session 242 (cont.)" log entry for what the three fixes were.
@@ -1666,6 +1666,77 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 242 (cont. 2, 2026-08-27) — the second live run, and where the $125,000 actually came from
+
+All three fixes from the previous entry behaved. The modal centred with Apply
+reachable, the plan headline read **Stripe Capital Loan** with no prompting, and
+the $125,000 was gone — replaced by a question naming both screenshots and both
+figures. But the run showed two things the fix had stopped short of.
+
+**1. The document list asserted something false.** Every image got the same
+sentence — *"The lender's own screen — its statement of what is still owed, which
+is what the books have to agree with."* — regardless of what was on it. So
+`Stripe deposit.png`, a funding confirmation, was introduced to the reader as a
+statement of the balance. **That is the same false premise that produced the
+$125,000 in the first place**, printed at the top of the page, above the checks
+that then had to catch it. Replaced with `describeScreenshot(p)`, which reads the
+figures the screen actually yielded: funding only, balance only, both, or nothing
+checkable.
+
+**2. Dropping both figures was correct but not the best available answer.** The
+disagreement check did its job, but the cost was that the *good* figure died with
+the bad one, and the carrying-basis question — the whole point of the bundle —
+went back to resting on a single piece of evidence. David would have had to
+re-upload `Stripe overview.png` on its own to settle it.
+
+The bad reading is identifiable at source, one screen earlier. On a funding
+screen the same number is often transcribed twice: once correctly as the amount
+advanced, once wrongly as the amount remaining, because the model is asked for
+both and the screen only shows one. **Two identical figures on a screen carrying
+nothing else to tell them apart are one figure read twice, not two facts.**
+`checkPortalTotals` now drops `amount_remaining` in exactly that shape — equal to
+`funds_deposited`, with no `paid_to_date` and no `total_amount_due` beside it —
+keeps the funding amount, and says why.
+
+A genuine day-one screenshot (nothing repaid yet, balance still equal to the
+advance) looks identical from outside and is dropped too. **Nothing is lost by
+that:** a balance with no "paid to date" next to it cannot establish the carrying
+basis on its own, which is the only thing it would have been used for. Where
+`paid_to_date` *is* shown, equal figures survive — that case is pinned.
+
+The consequence is the one worth remembering: **with the bad reading removed one
+stage earlier, the good screen's $123,091.66 now survives the merge instead of
+being killed as a disagreement.** Asserted directly in the tests. Fixing a
+misreading at its source beats catching it downstream, even when the downstream
+catch is working — the catch is a floor, not a ceiling.
+
+**Files:** `_shared/portal-figures.ts` (+`describeScreenshot`, +the funding guard),
+`loan-bundle/index.ts`, `tests/portal-figures.test.mts` (31 → 45 assertions).
+
+**Test totals: 68 + 29 + 45 = 142 assertions, all passing.**
+
+**Still open after this run, from the plan itself — none of it a defect:**
+
+* **The carrying basis is still not established.** With the disputed figure gone
+  and only one piece of evidence pointing at payoff basis, the engine refuses to
+  set it, which is right. A portal screen showing the balance *and* the amount
+  paid to date settles it in one upload.
+* **What was debited against the $20,875 fee at origination.** Journal #52168,
+  dated 2026-06-30. David has the screenshots; the answer belongs in the loan's
+  note so nobody asks again.
+* **2026-07 shows $11,192.29 withheld by the lender against $9,296.75 recorded.**
+  The plan calls it timing (lender dates to the sale, books to the payout) and
+  says worth confirming, not worth alarm. It has not been confirmed.
+* **`$13,000.00 per month` on the loan record against a `$16,208.34` minimum every
+  60 days.** Flagged, with no proposed change — deliberately, since the record's
+  field cannot express a 60-day floor. Worth deciding what that field should hold
+  for a percentage-of-sales lender.
+
+**Where to pick up:** deploy `loan-bundle` and push, then re-run the same four
+documents. The deposit screen should now be described as funding rather than
+balance, and $123,091.66 should stand as the balance with no disagreement raised
+— which should in turn let the carrying basis be established rather than asked.
 
 ### Session 242 (cont., 2026-08-27) — three things the first live run showed
 
