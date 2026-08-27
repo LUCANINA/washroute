@@ -9045,11 +9045,46 @@
   //   * it never survives an escalation to error
   //   * it never survives a change to the finding's own title
   // Anything that comes back says why, so it does not look like a bug.
+  //
+  // SESSION 242 — AND THE SIDE EFFECT THAT RULE HAD
+  // "Never survives a change to the title" is right about WHAT a person judged.
+  // But several titles carry a LIVE COUNTER:
+  //
+  //   "Verdant Capital Loan — 6 hand-posted corrections totalling $572,400.13
+  //    since 2026-04-29"
+  //
+  // David set all six of those aside on 2026-08-24. Every one came back, because
+  // the CPA posted another correction, 6 became 7, the total moved, the title
+  // changed, and the dismissal died. **The more correctly Ramona works, the more
+  // the tool nags him about it** — a finding that resurrects itself every time it
+  // counts higher is not a finding, it is a treadmill, and it is the same
+  // never-clearable shape as the settlement-lag alarm.
+  //
+  // So the comparison is on SUBSTANCE, not on the literal string: numbers are
+  // normalised out and count-driven plurals collapsed, so "6 corrections
+  // totalling $572,400.13" and "7 corrections totalling $580,112.44" are the same
+  // sentence, while the session-233 case still comes back correctly —
+  //   "...needs a statement from before 2026-08-03"  ->
+  //   "...has no interest split"
+  // differs in WORDS, which is exactly what a person's judgement was about.
+  //
+  // The escalation rule is untouched and remains the real safety net: a dismissal
+  // NEVER survives a finding becoming an error, whatever its wording.
+  function _bkSubstanceKey(t) {
+    return String(t == null ? '' : t)
+      .replace(/[0-9][0-9,.]*/g, '#')   // every figure becomes the same token
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+      .replace(/(\b[a-z]+?)s\b/g, '$1'); // correction/corrections, period/periods
+  }
+
   function _bkDismissalHolds(key, opts) {
     const d = _bkDismissals.get(key);
     if (!d) return false;
     if (opts && opts.isError) return false;
-    if (opts && opts.title && d.item_title && String(opts.title) !== String(d.item_title)) return false;
+    if (opts && opts.title && d.item_title &&
+        _bkSubstanceKey(opts.title) !== _bkSubstanceKey(d.item_title)) return false;
     return true;
   }
 
@@ -9058,7 +9093,8 @@
     const d = _bkDismissals.get(key);
     if (!d) return null;
     if (opts && opts.isError) return 'set aside on ' + String(d.dismissed_at || '').slice(0, 10) + ', back because it is now a Fix first';
-    if (opts && opts.title && d.item_title && String(opts.title) !== String(d.item_title))
+    if (opts && opts.title && d.item_title &&
+        _bkSubstanceKey(opts.title) !== _bkSubstanceKey(d.item_title))
       return 'set aside on ' + String(d.dismissed_at || '').slice(0, 10) + ', back because what it says has changed since';
     return null;
   }

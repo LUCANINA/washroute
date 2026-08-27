@@ -587,7 +587,22 @@ function checkBalanceVsLender(
     repaysContinuously,
   })
 
-  const sev: Finding['severity'] = Math.abs(residual) < 1 || lag.benign ? 'info' : 'error'
+  // ── MATERIALITY IS RELATIVE, NOT ABSOLUTE (session 242) ─────────────────────
+  // The rule was `abs(residual) < 1 -> info`. One dollar, flat, across a portfolio
+  // running from a $10,685 van loan to a $960,005 SBA loan — so EIDL's **$5.00 on
+  // $960,005** carried the same red "fix first" dot as a 4.6% gap on Funding
+  // Circle. A queue that puts five dollars and three thousand dollars in the same
+  // colour is teaching people that red means nothing.
+  //
+  // David's call: it must clear BOTH a dollar floor and a share of the balance.
+  // $415.88 on a $10,685 loan is 3.9% and stays red; $5.00 on $960,005 is 0.0005%
+  // and drops to info. De-escalated, NEVER suppressed — the row stays on the board
+  // and in the tie-out, because the balance is always checked.
+  const MATERIAL_FLOOR = 25
+  const MATERIAL_SHARE = 0.0025
+  const share = Math.abs(lender) > 0 ? Math.abs(residual) / Math.abs(lender) : 1
+  const material = Math.abs(residual) >= MATERIAL_FLOOR && share >= MATERIAL_SHARE
+  const sev: Finding['severity'] = !material || lag.benign ? 'info' : 'error'
 
   // Name HOW the later entries were booked. Splitting the bank transaction is the
   // cleaner of the two ways to record a payment split, and this check used to refuse
@@ -609,7 +624,9 @@ function checkBalanceVsLender(
           : `Nothing is dated after that statement, so the whole ${money(Math.abs(diff))} is unexplained. `)
       + (lag.benign
           ? `That remainder is settlement timing, not money: ${lag.statement}`
-          : `That remainder is either missing from Xero or recorded twice.`),
+          : !material
+            ? `At ${(share * 100).toFixed(4)}% of the lender's balance that is below the level worth chasing on its own, so it is noted rather than raised — but it is still counted, and it will go red the moment it grows.`
+            : `That remainder is either missing from Xero or recorded twice.`),
     detail: {
       code, anchor_date: tie.as_of, anchor_source: tie.anchor_source,
       lender_balance: lender, xero_balance: xeroAtAnchor,
@@ -618,6 +635,7 @@ function checkBalanceVsLender(
       net_after_anchor: laterNet,
       still_unexplained: residual,
       later_entry_types: d.later_entry_types ?? [],
+      material, material_share: Math.round(share * 1e6) / 1e6,
       settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                         implied_business_days: lag.impliedBusinessDays,
                         implied_books_through: lag.impliedBooksThrough, rate_basis: rate.basis },

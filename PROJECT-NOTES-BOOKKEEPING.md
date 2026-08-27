@@ -1809,6 +1809,69 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 11, 2026-08-27) — auditing the queue against its own First Law
+
+David, on his own Needs Attention list: *"how many of these fall onto the same
+category?"* Counted rather than eyeballed. **Twelve of twenty open findings come
+from two checks** — `balance_vs_lender` (6, all error) and
+`unexplained_ledger_adjustment` (6). Two real defects behind that.
+
+**1. Materiality was absolute on a portfolio spanning two orders of magnitude.**
+The rule was `abs(residual) < 1 -> info`, so **EIDL SBA's $5.00 gap on a $960,005
+balance carried the same red "fix first" dot** as Funding Circle's 4.6%. The six
+real gaps that day:
+
+| Loan | Residual | Lender | Share |
+|---|---|---|---|
+| Funding Circle | −$3,041.83 | $66,215 | 4.6% |
+| PCV Good and Green | −$1,802.58 | $427,284 | 0.42% |
+| E-Transit 4140 | +$415.88 | $10,686 | 3.9% |
+| E-Transit E5-4751 | +$266.42 | $29,303 | 0.9% |
+| E-Transit E4-9744 | +$182.00 | $16,224 | 1.1% |
+| **EIDL SBA** | **−$5.00** | **$960,005** | **0.0005%** |
+
+David's call: **$25 floor AND 0.25% share, both required.** Only EIDL drops.
+De-escalated to info and **never suppressed** — the row stays on the board and in
+the tie-out, and the sentence says it will go red the moment it grows.
+
+**2. A finding that resurrects itself every time it counts higher.** All six
+`unexplained_ledger_adjustment` items showed *"set aside on 2026-08-24, back
+because what it says has changed since"*. The dismissal rule — *never survives a
+change to the finding's own title* — was written deliberately in session 233,
+after a dismissal hid $2,033.77 with ~$1,038 of missing interest for four months.
+Right rule. But these titles carry a **live counter**:
+
+> "Verdant Capital Loan — **6** hand-posted corrections totalling **$572,400.13**
+> since 2026-04-29"
+
+Ramona posts another correction, 6 becomes 7, the title changes, the dismissal
+dies, the finding returns. **The more correctly the CPA works, the more the tool
+nags.** A finding that comes back every time it counts higher is not a finding, it
+is a treadmill — the never-clearable shape of the settlement-lag alarm in another
+costume.
+
+Fixed by comparing **substance, not the literal string**: `_bkSubstanceKey()`
+normalises every figure to `#` and collapses count-driven plurals, so
+"6 corrections totalling $572,400.13" and "7 corrections totalling $580,112.44"
+are the same sentence. The session-233 case still returns correctly, because
+*"needs a statement from before 2026-08-03"* → *"has no interest split"* differs
+in WORDS, which is what the person's judgement was actually about. **The
+escalation rule is untouched and remains the real safety net: a dismissal never
+survives a finding becoming an error.**
+
+*Both rules are now executable — `tests/queue-hygiene.test.mts` pins them against
+the actual six gaps and the actual titles from this day, including the
+session-233 pair that must keep coming back.*
+
+**Files:** `reconciliation-run/index.ts`, `admin-dashboard/index.html`,
+`tests/queue-hygiene.test.mts` (new, 17 assertions).
+
+**Test totals: 68 + 29 + 95 + 47 + 71 + 17 = 327 assertions, all passing.**
+
+**Where to pick up:** deploy `reconciliation-run`, push the dashboard, then **Run
+Reconciliation Check** — EIDL should turn grey and the six set-aside adjustment
+items should stay set aside. The Stripe bundle is still unapplied.
+
 ### Session 242 (cont. 10, 2026-08-27) — the answer, and knowing when to stop talking
 
 **The fee is settled.** Account **264 "Loan Fees"**, which Xero reports as
