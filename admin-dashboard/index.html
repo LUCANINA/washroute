@@ -12945,6 +12945,13 @@
     amortization_schedule: 'amortization schedule',
     xero_derived: 'our ledger',
     xero_balance_snapshot: 'Xero balance sweep',
+    // Session 245. The day-one balance a loan opens at, taken from the signed
+    // agreement rather than from any statement — Stripe Capital's sweep began
+    // 2026-07-01 and the loan originated 06-30, so the close band's opening
+    // column had nothing to show and the loan fell out of the rollforward
+    // entirely. Deliberately NOT in _VARIANCE_REAL_ANCHORS: it can open a
+    // rollforward, never close one.
+    contract_origination: 'signed agreement',
   };
   function _anchorSourceLabel(src) { return _ANCHOR_SOURCE_LABEL[src] || src || 'unknown'; }
 

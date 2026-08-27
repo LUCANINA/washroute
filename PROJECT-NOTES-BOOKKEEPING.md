@@ -36,7 +36,19 @@
 > **Re-run the bundle on the four Stripe documents plus BOTH exports** (July and
 > August-to-date, now in `tests/fixtures/`). Both are needed: July alone cannot
 > reach an August figure, August alone starts six weeks after the period begins.
-> ### 3. 🔴 FUNDING CIRCLE — STILL UNRESOLVED, STILL THE OLDEST OPEN THING
+> ### 3. 🟠 UNLABELLED LENDER BALANCES ARE BEING WRITTEN RIGHT NOW
+>
+> 11 `portal_manual_pull` rows carry `balance_basis = 'unknown'`, most recently
+> **2026-08-25**. That is a real-anchor source, and an unlabelled balance is
+> silently excluded from the lender-comparison checks — so a real discrepancy in
+> one of those rows would never be reported. E-Transit E5-4751 and E6-7410 each
+> carry one and it is their NEWEST row; **Dexter Loan 2 has 61 rows and none is
+> labelled.** Find the writer first — labelling the rows without fixing it just
+> means they come back. E5/E6 can then be fixed by the bundle's
+> `correct_statement_basis` action; Dexter 2 has nothing to infer from and needs
+> a human decision about what its balances measure.
+>
+> ### 4. 🔴 FUNDING CIRCLE — STILL UNRESOLVED, STILL THE OLDEST OPEN THING
 >
 > Session 241 left it and session 242 did not touch it. Eight months of every payment on
 > file twice, 2025-11 → 2026-06, and one materially wrong row: `2026-04-20`
@@ -48,7 +60,7 @@
 > then void through `void_loan_split`, then correct the survivors, then re-run
 > `_loanPrincipalReconciliation`.
 >
-> ### 4. ⚠️ THREE DUPLICATE DOCUMENTS BLOCK A GUARD WE WANT
+> ### 5. ⚠️ THREE DUPLICATE DOCUMENTS BLOCK A GUARD WE WANT
 >
 > E-Transit Loan 4140 carries the same screenshot **three times** — `861b6093`, `49f93485`,
 > `029f7439`, all `679ff195…`, uploaded 2026-08-24 within 37 minutes of each other. Almost
@@ -65,7 +77,7 @@
 > at the bottom of `migrations/session_242b_bundle_upsert_arbiter.sql` ready to run. Delete
 > two of the three and apply it. Not done unasked — they are real documents.
 >
-> ### 5. ⚖️ THE STRIPE CAPITAL FEE: A QUESTION FOR RAMONA, NOT A BUG
+> ### 6. ⚖️ THE STRIPE CAPITAL FEE: A QUESTION FOR RAMONA, NOT A BUG
 >
 > The $20,875 fixed fee was expensed **in one lump on 2026-06-30**, journal `#52168`:
 > `DR 264 Loan Fees / CR 304 Stripe Capital Loan`. That is why the loan sits at gross
@@ -82,7 +94,7 @@
 > where the books and the tool disagree and `balance_vs_lender` screams. The detector in §5
 > catches the state either way.
 >
-> ### 6. ✅ WHAT SESSION 242 BUILT — read `DESIGN-LOAN-BUNDLE-INTAKE.md`
+> ### 7. ✅ WHAT SESSION 242 BUILT — read `DESIGN-LOAN-BUNDLE-INTAKE.md`
 >
 > Multi-document intake: several files about ONE loan, read as a single piece of evidence.
 > Plus `carrying_basis`, which is the fact that decides whether a payment needs splitting
@@ -95,7 +107,7 @@
 > Stripe said paid in full. An adversarial pass caught it, and the only reason it was
 > catchable is that somebody asked which basis the loan was on.
 >
-> ### 7. 🧪 THE TEST SUITE IS THE THING THAT KEEPS THIS HONEST
+> ### 8. 🧪 THE TEST SUITE IS THE THING THAT KEEPS THIS HONEST
 >
 > ```
 > npx tsx tests/loan-bundle.test.mts        # 68 assertions, fixtures now in fixtures/
@@ -106,7 +118,7 @@
 > confirmed — **30 in the parsers, 22 in the plumbing.** Do not adjust an expected value to
 > make it pass; every number came off a real document or an independent calculation.
 >
-> ### 8. 📋 STILL OPEN FROM SESSION 241's AUDITS
+> ### 9. 📋 STILL OPEN FROM SESSION 241's AUDITS
 >
 > Unchanged and unworked: the 57 deploy-only edge functions (`retail-cash-reclass-monthly`'s
 > duplicate guard failing open twice on a live Approve button is still the worst),
@@ -2011,6 +2023,19 @@ The harness then found two dashboard defects the transcriptions never could:
   day someone adds it.
 * Section 5 (books-vs-lender) still compares against the last statement row when
   `as_of` is null, rather than against the derived date.
+* **NEW, found while verifying the last harness failure: 11 `portal_manual_pull`
+  rows carry `balance_basis = 'unknown'`,** the most recent written 2026-08-25.
+  That source is a REAL anchor — the rows the variance check and the published
+  debt total rest on — and an unlabelled balance is silently excluded from the
+  lender comparison, so a genuine discrepancy in one would never be reported.
+  E-Transit E5-4751 and E6-7410 each carry exactly one and in both cases it is
+  their NEWEST row; Dexter Loan 2 has 61 rows and not one of them is labelled.
+  Whatever writes `portal_manual_pull` is not setting the basis — find it before
+  labelling the rows, or they will come back. `record_lender_balance` (new this
+  session) always sets a basis and is pinned by test, so it is not the culprit.
+  E5/E6 are fixable by the bundle's existing `correct_statement_basis` action
+  (both have a unanimous `principal_only` history); **Dexter 2 is not** — with no
+  labelled row to infer from, it needs a human to say what its balances measure.
 
 ### Session 242 (cont. 16, 2026-08-27) — a bare catch that cost three rounds
 
