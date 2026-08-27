@@ -26,8 +26,19 @@ export interface PortalTotals {
   funds_deposited_date: string | null
   /** Which screenshot(s) these figures came from. Needed to say WHO disagreed. */
   sources: string[]
-  /** Figures dropped because the screen failed ITS OWN arithmetic. */
-  warnings: string[]
+  /**
+   * Figures dropped, each with the question a person should be shown.
+   *
+   * This was a bare string[] and every one of them was rendered under the same
+   * fixed heading — "A figure read off a screenshot did not check out. A number
+   * read from a picture is the least reliable input here, so one that fails its
+   * own arithmetic is dropped rather than used." With two warnings the review
+   * screen printed that identical heading twice, and for the deposit-date warning
+   * it was simply untrue: that figure failed a check against the AGREEMENT, not
+   * against its own arithmetic. A heading that misdescribes what is under it is
+   * the same defect as a document description that misdescribes the document.
+   */
+  warnings: { question: string; detail: string }[]
   /** Figures dropped because two SCREENS contradicted each other. A different
    *  kind of problem with a different remedy, so it is reported separately
    *  rather than filed under "this screen does not add up". */
@@ -57,7 +68,7 @@ export interface PortalTotals {
 export function checkPortalTotals(p: PortalTotals): PortalTotals {
   const near = (a: number, b: number) => Math.abs(a - b) <= 0.02
   const checks: string[] = []
-  const warnings: string[] = []
+  const warnings: PortalTotals["warnings"] = []
   const corroborated: string[] = []
   const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -86,7 +97,7 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
       checks.push(`The screen's own parts add up: ${fmt(p.principal_paid)} financing + ${fmt(p.fee_paid)} fee = ${fmt(p.paid_to_date)} paid.`)
       corroborated.push('principal_paid', 'fee_paid', 'paid_to_date')
     } else {
-      warnings.push(`The screen's parts do not add up (${fmt(p.principal_paid)} + ${fmt(p.fee_paid)} ≠ ${fmt(p.paid_to_date)}), so these three figures were dropped rather than used.`)
+      warnings.push({ question: `A screenshot's own figures do not add up.`, detail: `The screen's parts do not add up (${fmt(p.principal_paid)} + ${fmt(p.fee_paid)} ≠ ${fmt(p.paid_to_date)}), so these three figures were dropped rather than used.` })
       p.principal_paid = p.fee_paid = p.paid_to_date = null
     }
   }
@@ -99,7 +110,7 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
       // The parts took part in the prediction, so they are proven too.
       if (paidWasDerived) corroborated.push('principal_paid', 'fee_paid')
     } else {
-      warnings.push(`The remaining balance does not tie to the total less what is paid (${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} ≠ ${fmt(p.amount_remaining)}), so the remaining balance was dropped.`)
+      warnings.push({ question: `A screenshot's own figures do not add up.`, detail: `The remaining balance does not tie to the total less what is paid (${fmt(p.total_amount_due)} − ${fmt(p.paid_to_date)} ≠ ${fmt(p.amount_remaining)}), so the remaining balance was dropped.` })
       p.amount_remaining = null
       // The sum was ours, not the screen's. If the prediction failed, the screen
       // never said it and it must not be reported as though it had.
@@ -129,11 +140,13 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   if (p.amount_remaining !== null && p.funds_deposited !== null &&
       near(p.amount_remaining, p.funds_deposited) &&
       !corroborated.includes('amount_remaining')) {
-    warnings.push(
+    warnings.push({
+      question: `A funding amount was read as if it were the balance.`,
+      detail:
       `This screen gives the same figure (${fmt(p.funds_deposited)}) as both the funding advanced ` +
       `and the balance still owed, and nothing on it proves the two really are equal — the mark of one ` +
       `number read twice on a funding screen. It was kept as the funding amount and dropped as the ` +
-      `balance. If this really is the balance, it needs a screen showing the amount paid to date beside it.`)
+      `balance. If this really is the balance, it needs a screen showing the amount paid to date beside it.` })
     p.amount_remaining = null
   }
 
@@ -266,8 +279,15 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
  * be teaching them the misreading the checks below then have to catch.
  */
 export function describeScreenshot(p: PortalTotals): string {
-  const hasBalance = p.amount_remaining !== null || p.total_amount_due !== null || p.paid_to_date !== null
+  // "What is still owed" means amount_remaining and nothing else. total_amount_due
+  // is the whole contractual repayment and paid_to_date is what has gone — neither
+  // is a balance. Counting them here is how `Stripe deposit.png` kept being
+  // introduced as a screen that "states what is still owed" AFTER its balance had
+  // been dropped for being a funding figure read twice: the reader was told the
+  // screen says a thing the tool had just refused to believe.
+  const hasBalance = p.amount_remaining !== null
   const hasDeposit = p.funds_deposited !== null
+  const hasOther = p.total_amount_due !== null || p.paid_to_date !== null
   if (hasBalance && hasDeposit) {
     return `The lender's own screen — it states both what was advanced and what is still owed.`
   }
@@ -276,6 +296,9 @@ export function describeScreenshot(p: PortalTotals): string {
   }
   if (hasDeposit) {
     return `The lender's own screen — the funding it advanced. It says what arrived, not what is still owed.`
+  }
+  if (hasOther) {
+    return `The lender's own screen. It carries figures about this loan but no usable balance, so nothing about what is still owed rests on it.`
   }
   return `A screenshot of the lender's screen. No figure on it could be checked, so nothing rests on it.`
 }
@@ -303,10 +326,12 @@ export function checkDepositDate(p: PortalTotals, originationDate: string | null
   // Funding lands on or just after origination — never before it, and never
   // months after.
   if (days < -3 || days > 120) {
-    warnings.push(
+    warnings.push({
+      question: `A date read off a screenshot contradicts the signed agreement.`,
+      detail:
       `The deposit date read off this screen (${d}) cannot be right: this loan was originated ` +
       `${originationDate}, and money does not arrive ${days < 0 ? 'before the agreement exists' : 'that long after it'}. ` +
-      `The date was dropped; the amount was kept.`)
+      `The date was dropped; the amount was kept.` })
     return { ...p, funds_deposited_date: null, warnings }
   }
   return p

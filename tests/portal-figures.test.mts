@@ -104,7 +104,7 @@ section('a screen must agree with ITSELF first')
   }))
   ok('parts that do not add up are dropped, all three',
      bad.principal_paid === null && bad.fee_paid === null && bad.paid_to_date === null)
-  ok('...and the drop is explained', bad.warnings.some(w => /do not add up/.test(w)))
+  ok('...and the drop is explained', bad.warnings.some(w => /do not add up/.test(w.detail)))
 
   const badBal = checkPortalTotals(blank({
     total_amount_due: 145000, paid_to_date: 21908.34, amount_remaining: 999999,
@@ -139,7 +139,7 @@ section('a funding figure read into the balance field')
   }))
   ok('the balance is dropped', dep.amount_remaining === null)
   ok('the funding amount is kept', dep.funds_deposited === 125000)
-  ok('and the reason is given', dep.warnings.some(w => /one number read twice on a funding screen/.test(w)))
+  ok('and the reason is given', dep.warnings.some(w => /one number read twice on a funding screen/.test(w.detail)))
 
   // The guard must NOT fire when the screen carries something to tell them apart.
   const real = checkPortalTotals(blank({
@@ -307,7 +307,7 @@ section('a deposit date that cannot be true')
   }), '2026-06-30')
   ok('a date two years before the loan is dropped', p.funds_deposited_date === null)
   ok('the amount is kept', p.funds_deposited === 125000)
-  ok('and it is explained', p.warnings.some(w => /before the agreement exists/.test(w)))
+  ok('and it is explained', p.warnings.some(w => /before the agreement exists/.test(w.detail)))
 
   const late = checkDepositDate(blank({ funds_deposited_date: '2027-06-30' }), '2026-06-30')
   ok('a date a year after the loan is dropped', late.funds_deposited_date === null)
@@ -323,6 +323,54 @@ section('a deposit date that cannot be true')
      checkDepositDate(blank({ funds_deposited_date: '2024-06-30' }), null).funds_deposited_date === '2024-06-30')
   ok('no deposit date -> nothing to judge',
      checkDepositDate(blank({ funds_deposited: 125000 }), '2026-06-30').warnings.length === 0)
+}
+
+section('each dropped figure gets its OWN question')
+{
+  // They shared one heading, so two warnings printed the same title twice — and on
+  // the deposit-date one that heading described the wrong kind of failure.
+  const funding = checkPortalTotals(blank({
+    sources: ['d.png'], funds_deposited: 125000, amount_remaining: 125000, total_amount_due: 145875 }))
+  const dated = checkDepositDate(blank({
+    sources: ['d.png'], funds_deposited: 125000, funds_deposited_date: '2024-06-30' }), '2026-06-30')
+  const badParts = checkPortalTotals(blank({
+    sources: ['x.png'], principal_paid: 100, fee_paid: 20, paid_to_date: 999 }))
+
+  ok('the funding misread names itself',
+     funding.warnings[0].question === 'A funding amount was read as if it were the balance.')
+  ok('the impossible date names itself',
+     dated.warnings[0].question === 'A date read off a screenshot contradicts the signed agreement.')
+  ok('a screen that does not add up names itself',
+     badParts.warnings[0].question === "A screenshot's own figures do not add up.")
+  ok('and the three are not the same heading',
+     new Set([funding.warnings[0].question, dated.warnings[0].question, badParts.warnings[0].question]).size === 3)
+  ok('the detail survives alongside the question',
+     /one number read twice on a funding screen/.test(funding.warnings[0].detail))
+  // The date failed a check against the AGREEMENT, not against its own arithmetic.
+  ok('the date warning does not claim to be an arithmetic failure',
+     !/add up|arithmetic/.test(dated.warnings[0].question))
+}
+
+section('a screen whose balance was dropped does not claim to state one')
+{
+  // Stripe deposit.png after its balance is refused: it still carries a total, and
+  // the old description called that "what is still owed" — telling the reader the
+  // screen says a thing the tool had just refused to believe.
+  const dep = checkPortalTotals(blank({
+    sources: ['Stripe deposit.png'], funds_deposited: 125000,
+    amount_remaining: 125000, total_amount_due: 145875 }))
+  ok('the balance really was dropped', dep.amount_remaining === null)
+  const desc = describeScreenshot(dep)
+  ok('it is described as a funding screen', /the funding it advanced/.test(desc), desc)
+  ok('it does NOT claim to state what is still owed', !/its statement of what is still owed/.test(desc))
+  ok('and it does not claim to state both', !/both what was advanced and what is still owed/.test(desc))
+
+  // A total with no balance and no funding is neither.
+  ok('a total alone is not a balance',
+     /no usable balance/.test(describeScreenshot(blank({ total_amount_due: 145875 }))))
+  // A surviving balance still reads as one.
+  ok('a real balance still reads as one',
+     /its statement of what is still owed/.test(describeScreenshot(blank({ amount_remaining: 123091.66 }))))
 }
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)

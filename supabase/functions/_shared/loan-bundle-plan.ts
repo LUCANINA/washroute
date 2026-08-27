@@ -589,15 +589,46 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           sources: ['transaction export', 'loan history'], tie: 'exact',
         })
       } else {
-        conflicts.push({
-          key: `coverage_${m.month}`,
-          statement: `${m.month}: the lender's export shows more withheld than your books recorded.`,
-          expected: `${money(m.total_paid)} across ${m.transaction_count} withholdings (${m.first_date} to ${m.last_date})`,
-          found: `${money(booked)} recorded`,
-          sources: ['transaction export', 'loan history'],
-          severity: 'warn',
-          caveat: `Almost certainly timing, not missing money: the lender dates each withholding to the sale, your books date it to the payout that settles a day or two later. The end of the month is where the two always differ. Worth confirming, not worth alarm.`,
+        // The SAME settlement lag as the balance check above, at a month boundary
+        // instead of an as-of date: the last few days' withholdings settle in the
+        // following month, so the books fall short by roughly that much.
+        //
+        // This branch used to assert "almost certainly timing... worth
+        // confirming, not worth alarm" in prose while its sibling forty lines up
+        // had been taught to PROVE it. One check reasoning and one check
+        // hand-waving about the identical mechanism is how a module ends up with
+        // two answers to the same question — so it gets the same arithmetic, on
+        // this month's own rate.
+        const monthDays = Math.round(
+          (Date.parse(m.last_date + 'T00:00:00Z') - Date.parse(m.first_date + 'T00:00:00Z')) / 86_400_000) + 1
+        const monthRate = monthDays > 0 ? Math.round((m.total_paid / monthDays) * 100) / 100 : null
+        const lag = explainBalanceGap({
+          gap: diff,
+          lenderAsOf: m.last_date,
+          dailyWithholding: monthRate,
+          rateBasis: `${m.transaction_count.toLocaleString('en-US')} withholdings totalling ${money(m.total_paid)} over ${monthDays} days in this month's export`,
+          repaysContinuously: m.transaction_count >= 20,
         })
+
+        if (lag.benign) {
+          corroborations.push({
+            statement:
+              `${m.month}: the lender's export shows ${money(m.total_paid)} and your books recorded ${money(booked)}, a difference of ${money(Math.abs(diff))} — which is what a month boundary looks like here. ${lag.statement}`,
+            sources: ['transaction export', 'loan history'], tie: 'within_tolerance',
+          })
+        } else {
+          conflicts.push({
+            key: `coverage_${m.month}`,
+            statement: diff > 0
+              ? `${m.month}: the lender's export shows more withheld than your books recorded.`
+              : `${m.month}: your books recorded more than the lender's export shows withheld.`,
+            expected: `${money(m.total_paid)} across ${m.transaction_count} withholdings (${m.first_date} to ${m.last_date})`,
+            found: `${money(booked)} recorded`,
+            sources: ['transaction export', 'loan history'],
+            severity: 'warn',
+            caveat: lag.statement,
+          })
+        }
       }
     }
   }

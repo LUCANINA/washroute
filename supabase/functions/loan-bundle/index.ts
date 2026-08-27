@@ -536,12 +536,16 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       })
     }
   }
+  // Each warning carries its OWN question. They used to share one fixed heading —
+  // so two warnings printed the same title twice, and on the deposit-date warning
+  // that heading ("fails its own arithmetic") described the wrong kind of failure
+  // entirely: that figure was contradicted by the AGREEMENT, not by the screen.
   if (portal?.warnings.length) {
     for (const w of portal.warnings) {
       plan.unresolved.push({
-        question: 'A figure read off a screenshot did not check out.',
-        why_it_matters: 'A number read from a picture is the least reliable input here, so one that fails its own arithmetic is dropped rather than used.',
-        what_would_answer_it: w,
+        question: w.question,
+        why_it_matters: 'A number read from a picture is the least reliable input here, so one that does not hold up is dropped rather than used.',
+        what_would_answer_it: w.detail,
       })
     }
   }

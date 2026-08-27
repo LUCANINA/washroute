@@ -1720,6 +1720,57 @@ to "what is running".
 
 ## Session Log
 
+### Session 242 (cont. 6, 2026-08-27) — the sibling check that was still hand-waving
+
+Settlement lag worked: the $2,166.05 moved out of Needs Attention and into
+"Checked against each other", carrying its own arithmetic. The deposit-date check
+caught the impossible 2024-06-30. Three things the run then showed, all of them
+mine.
+
+**1. I generalised one check and left its twin asserting the same thing in prose.**
+Forty lines below `balance_vs_lender`, the month-coverage check still said
+*"almost certainly timing, not missing money... worth confirming, not worth
+alarm"* about the **identical mechanism** — and the numbers were sitting right
+there: $11,192.29 − $9,296.75 = $1,895.54, which at that month's own $430.47/day
+is 4.4 days. **One check reasoning and one check hand-waving about the same
+question is how a module ends up with two answers to it.** The coverage check now
+runs `explainBalanceGap` on the month's own rate, at the month boundary, and an
+explained shortfall becomes a corroboration.
+
+*The lesson worth keeping: when a rule is extracted into a module, grep for the
+OTHER places that were making the same argument informally. A shared module that
+one caller uses and its neighbour ignores has not reduced the number of answers,
+it has added one.* (Same shape as the session-231 "a guard is only as good as the
+branch it sits on".)
+
+**2. Two questions on screen with the identical heading**, "A figure read off a
+screenshot did not check out" — because `warnings` was a bare `string[]` rendered
+under one fixed title. Worse, that title reads *"one that fails its own
+arithmetic"*, which is **false of the deposit-date warning**: that figure was
+contradicted by the AGREEMENT, not by the screen. `warnings` is now
+`{ question, detail }[]` and each kind names itself. *A heading that misdescribes
+what is under it is the same defect as a document description that misdescribes
+the document — and this module has now made that mistake twice.*
+
+**3. `Stripe deposit.png` was STILL described as stating "what is still owed"**,
+after its balance had been dropped as a funding figure read twice. `describeScreenshot`
+counted `total_amount_due` as a balance. It is not: it is the whole contractual
+repayment. **"What is still owed" means `amount_remaining` and nothing else.** The
+cont. 2 fix caught the wrong description; this catches the wrong DEFINITION
+underneath it, which is why the wrong description came back.
+
+**Files:** `_shared/portal-figures.ts`, `_shared/loan-bundle-plan.ts`,
+`loan-bundle/index.ts`, `tests/portal-figures.test.mts` (83 → 95 assertions).
+
+**Test totals: 68 + 29 + 95 + 47 = 239 assertions, all passing.**
+
+**Where to pick up:** deploy both functions and push, re-run. Expect the 2026-07
+coverage line to move into "Checked against each other" with ~4.4 days of
+arithmetic, the deposit screenshot to be described as a funding screen, and the two
+screenshot questions to carry different headings. Then **Apply** — nothing since
+cont. 4 has changed what gets written, and `carrying_basis` / `loan_contract_terms`
+are still empty.
+
 ### Session 242 (cont. 5, 2026-08-27) — the $2,166.05, and turning an explanation into a check
 
 David explained the gap: Stripe counts the payback when the card transaction
