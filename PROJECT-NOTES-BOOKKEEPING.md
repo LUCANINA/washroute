@@ -1987,6 +1987,46 @@ someone decides it belongs; a file dropped twice in one go still counts once.
 Pinned by harness group `bundle-readable-set` (11 assertions) against the real
 five-file drop.
 
+#### §5 asked for the file §5b was reading — fixed at source
+
+The first real run of the repaired intake produced a plan with two items that
+contradicted each other:
+
+> **§5**  "There is no lender as-of date here, so there is no window to measure an
+> export against." — and raised a finding asking for a transaction export.
+>
+> **§5b** "...the running total is $22,783.34 on 2026-08-26, and on no other day in
+> the file." — having just measured that date FROM the export in the bundle.
+
+David was asked to upload the file he had uploaded, with the answer printed eleven
+lines beneath the question. **Third gate of the First Law: could the system have
+answered it itself? It could, and it had.**
+
+Cause: the date was derived inside §5b, which runs AFTER §5. §5 therefore ran with
+`ctx.portal.as_of === null`, had no window, and fell to `unconfirmed_no_export` —
+the correct verdict for the inputs it was given, and the wrong inputs.
+
+Fix: **§5a derives the date once, above everything that needs it.** The screen's own
+date always wins; the ledger speaks only when the screen is silent, and only on a
+corroborated, unique, exact match. §5 and §5b now read the same value. With that,
+§5 reaches a measurement instead of a question:
+
+```
+Your books and the lender differ by $2,166.05 at 2026-08-26, and that is expected.
+$2,166.05 against the $2,341.19 this lender's own export shows it actually withheld
+over the 3 business days from 2026-08-21 to 2026-08-26. Every dollar of the gap is
+withholding the lender has already counted and the books have not seen yet.
+```
+
+That is the same figure reached by hand from the two exports, and the finding is
+gone. Pinned by `tests/export-merge.test.mts` §"§5 and §5b must not contradict".
+
+**This was on the "Left standing" list I wrote the night before** — *"Section 5
+still compares against the last statement row when `as_of` is null, rather than
+against the derived date"* — filed as a follow-up rather than a defect. It was the
+first thing the next run hit. A known gap between two sections of the same plan is
+not a follow-up; it is a bug that has not happened yet.
+
 #### The audit that started the session
 
 Four adversarial agents; I reproduced the severe claims independently before fixing
@@ -2048,8 +2088,9 @@ The harness then found two dashboard defects the transcriptions never could:
 * `_anchorSourceLabel` has no entry for `contract_origination`, so the close band's
   opening column will read the raw slug. One line; pinned by a test that fails the
   day someone adds it.
-* Section 5 (books-vs-lender) still compares against the last statement row when
-  `as_of` is null, rather than against the derived date.
+* ~~Section 5 (books-vs-lender) still compares against the last statement row when
+  `as_of` is null~~ — **fixed the same session**, see "§5 asked for the file §5b was
+  reading" above. Left here as the record of a follow-up that should have been a fix.
 * **NEW, found while verifying the last harness failure: 11 `portal_manual_pull`
   rows carry `balance_basis = 'unknown'`,** the most recent written 2026-08-25.
   That source is a REAL anchor — the rows the variance check and the published

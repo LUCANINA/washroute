@@ -21,6 +21,7 @@
 import { readFileSync } from 'node:fs'
 import { parseStripeCapitalCsv, splitCsvRecords, splitCsvLine } from '../supabase/functions/_shared/stripe-capital.ts'
 import { dateFromLedger } from '../supabase/functions/_shared/ledger-dating.ts'
+import { buildPlan } from '../supabase/functions/_shared/loan-bundle-plan.ts'
 
 let pass = 0, fail = 0
 const ok = (label: string, cond: boolean, detail = '') => {
@@ -123,6 +124,70 @@ section('what the combined ledger can then date')
   // The balance the screen states follows from the total due less what it dated.
   ok('145,875.00 less the dated total is the balance on screen',
      Math.abs((145875 - 22783.34) - 123091.66) < 0.005)
+}
+
+section('and what the plan then says — §5 and §5b must not contradict')
+{
+  // THE BUG (session 246). The date was derived inside §5b, which runs AFTER §5.
+  // So §5 ran with no as-of date, could not measure a window, and raised a finding
+  // asking for a transaction export — while §5b, eleven lines lower in the same
+  // plan, was busy measuring the date out of that very export. David got a plan
+  // that asked him to upload the file he had just uploaded, with the answer to the
+  // question printed directly beneath it. Third gate of the First Law: could the
+  // system have answered it itself? It could, and it had.
+  const merged = parseStripeCapitalCsv(
+    [CANON.join(','), ...canonicalise(jul)!, ...canonicalise(aug)!].join('\n'))
+  const T = (k: string, n?: number, d?: string) => ({
+    term_key: k, value_numeric: n ?? null, value_date: d ?? null, value_text: null,
+    source_text: 'agreement', extracted_by: 'parser', confidence: 'high', as_of: null } as any)
+  const stmt = (d: string, b: number) => ({
+    statement_date: d, principal_balance: b, balance_basis: 'total_payback',
+    source: 'xero_balance_snapshot' } as any)
+
+  const plan = buildPlan({
+    loan: { id: 'loan-stripe', lender: 'Stripe Capital', xero_account_name: 'Stripe Capital Loan',
+            lender_account_number: 'STRIPE-CAPITAL', carrying_basis: 'gross_payback',
+            original_amount: 125000, original_date: '2026-06-30', maturity_date: '2027-12-29',
+            interest_rate: null, scheduled_monthly_payment: null, structure_note: null,
+            xero_account_code: '304' },
+    documents: [], agreementChecks: [], agreementUnresolved: [], feeSearch: null,
+    decomposition: null, csvNote: null, csv: merged,
+    agreementTerms: [T('total_repayment_amount', 145875), T('loan_amount', 125000),
+                     T('fixed_fee', 20875), T('origination_date', undefined, '2026-06-30'),
+                     T('repayment_start_date', undefined, '2026-07-07')],
+    // The REAL overview screen: five figures that corroborate, and NO as-of date.
+    portal: { as_of: null, amount_remaining: 123091.66, paid_to_date: 22783.34,
+              principal_paid: 19522.72, fee_paid: 3260.62, total_amount_due: 145875,
+              corroborated: ['total_amount_due', 'paid_to_date', 'amount_remaining',
+                             'principal_paid', 'fee_paid'] },
+    statements: [stmt('2026-07-01', 145875), stmt('2026-08-26', 125257.71)],
+    splits: [], closeDate: null, todayPacific: '2026-08-27',
+  } as any)
+
+  const asksForExport = plan.actions.some(a => /current transaction export/i.test(a.title))
+  ok('the plan does NOT ask for an export it was given', !asksForExport,
+     asksForExport ? 'the §5/§5b contradiction is back' : '')
+
+  const lender = plan.actions.find(a => a.kind === 'record_lender_balance')
+  ok('the lender balance is still offered', !!lender && !lender.blocked_reason)
+  ok('...dated 2026-08-26 from the ledger',
+     (lender?.payload as any)?.statement_date === '2026-08-26',
+     String((lender?.payload as any)?.statement_date))
+
+  const opening = plan.actions.find(a => a.kind === 'open_at_origination')
+  ok('the 6/30 opening is still offered at $145,875.00',
+     !!opening && !opening.blocked_reason &&
+     Number((opening.payload as any).principal_balance) === 145875 &&
+     (opening.payload as any).statement_date === '2026-06-30')
+
+  // The gap must come back MEASURED, not merely consistent.
+  const corr = (plan as any).corroborations?.find((x: any) => /differ by/.test(x.statement)) as any
+  ok('the $2,166.05 gap is corroborated rather than raised', !!corr)
+  ok('...and the sentence shows the measured window, not an average',
+     /2,341\.19/.test(corr?.statement ?? '') && /3 business days/.test(corr?.statement ?? ''),
+     (corr?.statement ?? '').slice(0, 90))
+  ok('...naming the days the books are behind by',
+     /2026-08-21/.test(corr?.statement ?? '') && /2026-08-26/.test(corr?.statement ?? ''))
 }
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)

@@ -867,18 +867,13 @@ section('7 — the source value, and the allowlist it must stay off')
   ok('_anchorSourceLabel falls through to the raw value rather than throwing',
      /_ANCHOR_SOURCE_LABEL\[src\] \|\| src \|\| 'unknown'/.test(dash))
 
-  // KNOWN COSMETIC GAP, reported rather than papered over. That fallback is the
-  // close band's opening column, so until admin-dashboard/index.html gains
-  //     contract_origination: 'signed agreement',
-  // in _ANCHOR_SOURCE_LABEL, that column reads "30 Jun · contract_origination" —
-  // a raw database enum on screen, which is a formatting failure in its own right
-  // (session 240 #20, pinned in tests/bookkeeping-harness.mjs). Nothing
-  // MISREPORTS: the figure, the date and its non-authoritative styling are all
-  // correct. The file is read-only in this checkout, so the one-line fix is left
-  // for whoever owns it.
-  ok('the label is still missing, so the gap above is still worth reporting',
-     !new RegExp(`${ORIGINATION_SOURCE}: '[^']+'`).test(dash),
-     'if this fails, the label has been added — delete this assertion and the note above it')
+  // The gap this section used to report is CLOSED (session 246). Until the label
+  // existed, the close band's opening column read "30 Jun · contract_origination"
+  // — a raw database enum on screen. The assertion that stood here was written to
+  // FAIL the day someone added the label, and it did; this is what replaced it.
+  ok('the close band has a human label for the day-one source',
+     new RegExp(`${ORIGINATION_SOURCE}: 'signed agreement'`).test(dash),
+     'the opening column will print the raw slug again')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

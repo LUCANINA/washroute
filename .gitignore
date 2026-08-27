@@ -21,3 +21,6 @@ washroute.skill
 # Temp/scratch files (skill snapshot artifacts, browser zip downloads, etc.)
 zi[A-Za-z0-9]*
 *.tmp
+
+# Supabase CLI scratch — link state and version markers, not source (session 246)
+supabase/.temp/

@@ -695,9 +695,58 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     }
   }
 
+  // ── 5a. WHICH DAY IS THE LENDER'S BALANCE FOR? ──────────────────────────
+  //
+  // Derived ONCE, here, above every section that needs it. It used to be computed
+  // inside §5b, which meant §5 ran first without it, and the two sections then
+  // contradicted each other on screen in the same plan:
+  //
+  //   §5  "There is no lender as-of date here, so there is no window to measure
+  //        an export against."          -> raised a finding asking for an export
+  //   §5b "...the running total is $22,783.34 on 2026-08-26, and on no other day
+  //        in the file."                -> had just measured the date FROM the
+  //                                        export that was already in the bundle
+  //
+  // David hit exactly that: the plan asked him to upload the file he had uploaded,
+  // and the answer was in the item directly beneath the question. It fails the
+  // third gate of the First Law — could the system have answered it itself? It
+  // could, and it had, eleven lines lower.
+  //
+  // The screen's OWN date always wins; the ledger only speaks when the screen is
+  // silent, and only on a corroborated, unique, exact match (see ledger-dating.ts
+  // for every way it refuses). One value, one definition, every consumer.
+  const repaymentStart = date('repayment_start_date') ?? origination ?? ctx.loan.original_date
+  const portalDating: LedgerDatingResult | null =
+    (hasPortal && ctx.portal!.amount_remaining !== null &&
+     (ctx.portal!.corroborated || []).includes('amount_remaining') &&
+     !ctx.portal!.as_of && ctx.csv && ctx.csv.days.length > 0 && ctx.csv.first_date &&
+     repaymentStart && ctx.portal!.paid_to_date !== null &&
+     (ctx.portal!.corroborated || []).includes('paid_to_date'))
+      ? dateFromLedger({
+          days: ctx.csv.days.map(d => ({ date: d.date, total: d.total_paid, financing: d.principal_paid, fee: d.fee_paid })),
+          // `ok` false means rows could not be read, which understates the running
+          // total and therefore dates the screen LATE. Passed through rather than
+          // filtered out so the refusal can say so.
+          complete: ctx.csv.ok === true,
+          coversFrom: ctx.csv.first_date,
+          periodStart: repaymentStart,
+          // The target must be a figure the screen's own arithmetic vouched for.
+          // Dating a lender anchor off a number nothing on the screen checked would
+          // put the misread this module already caught once ($125,000 of funding
+          // read as $123,091.66 of balance) in charge of the date as well.
+          target: {
+            paid: ctx.portal!.paid_to_date!,
+            financing: ctx.portal!.principal_paid,
+            fee: ctx.portal!.fee_paid,
+          },
+        })
+      : null
+  const portalDerivedDate = portalDating?.corroborated ? portalDating.date : null
+  const portalAsOf = (hasPortal ? ctx.portal!.as_of : null) ?? portalDerivedDate
+
   // ── 5. Does the lender agree with the books? ────────────────────────────
   if (hasPortal && ctx.portal!.amount_remaining !== null) {
-    const asOf = ctx.portal!.as_of
+    const asOf = portalAsOf
     const book = asOf
       ? ctx.statements.filter(s => s.statement_date <= asOf).slice(-1)[0]
       : ctx.statements.slice(-1)[0]
@@ -901,91 +950,12 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     // inform a plan. It may not become the row the whole system measures against.
     const proven = (ctx.portal!.corroborated || []).includes('amount_remaining')
 
-    // ── DATING THE SCREEN FROM THE LENDER'S OWN LEDGER (session 246) ────────
-    // The date is not always unknowable. The screen states how much has been paid
-    // in its period; the export lists every withholding with a date; the day on
-    // which the export's running total EQUALS the screen's paid-to-date is the day
-    // the screen was showing. On these documents it lands on 2026-08-26 to the cent
-    // ($22,783.34, splitting $19,522.72 financing / $3,260.62 fee — the screen's own
-    // two lines), and the next day is $348.43 past it, so nothing else fits.
-    //
-    // MEASURED, not inferred, and the distinction is the only reason this is
-    // allowed to unblock an action that fails closed on everything else. See
-    // _shared/ledger-dating.ts for the refusals; the two decisions that belong
-    // HERE, because only the planner holds the evidence for them, are:
-    //
-    //   WHAT THE PERIOD START IS. The agreement's Repayment Start Date — the first
-    //   day a withholding could exist on this loan. It is what makes the coverage
-    //   gate real: hand in only the August file (first day 2026-08-01) for a loan
-    //   whose repayment started 2026-07-07 and the running total is $11,192.29
-    //   light from the outset, so it would cross $22,783.34 weeks late and return a
-    //   real date that is simply the wrong one. Without that term nothing here can
-    //   show that the export begins at the start of the period, so it refuses —
-    //   `origination` is kept only as a fallback and on this loan it REFUSES too
-    //   (the export begins 2026-07-06, six days after the 06-30 origination), which
-    //   is the correct answer rather than a shortfall: nothing available proves
-    //   what, if anything, was withheld in those six days.
-    //
-    //   NO OPENING CUMULATIVE IS EVER OFFERED. ledger-dating.ts lets a caller past
-    //   the coverage gate by stating what the period had already accumulated before
-    //   the file begins. That is a claim about money, and this planner has no
-    //   evidence for one. Passing zero "because it is probably zero" is exactly the
-    //   guess §5b exists to refuse, wearing a parameter name.
-    //
-    // ONE LIMITATION, RECORDED SO IT IS NOT REDISCOVERED. `ctx.csv` is ONE parsed
-    // export: loan-bundle/index.ts assigns it per CSV in the upload, so a bundle
-    // carrying July AND August-to-date delivers only whichever was read last, and
-    // dating the real screenshot needs both. Today that fails SAFE in either order
-    // — August alone is refused by the coverage gate (it begins after the period),
-    // July alone by 'target_beyond_export' (it never reaches $22,783.34) — and both
-    // refusals name the file that would settle it. Merging the two is the change
-    // that makes this fire on the real bundle, and it is not a small one: two
-    // exports that OVERLAP would double-count the shared days, and a double-counted
-    // running total crosses the screen's figure EARLY, which is a silently wrong
-    // date rather than a refusal. It needs its own row-identity work.
-    //
-    // CORROBORATION IS REQUIRED, AND THAT IS A JUDGEMENT CALL — recorded here
-    // rather than left implicit. A single figure agreeing could be a coincidence;
-    // the module's own §3 refuses to record a carrying basis on one piece of
-    // evidence for the same reason. So the date is taken only when the screen's
-    // decomposition agrees as well (`corroborated`), and a total-only match is
-    // reported in the question below instead of being filed — a candidate date a
-    // person can confirm in a second, which is worth far more than a row they
-    // cannot check. RECOMMENDATION, if this is ever revisited: keep it this way.
-    // The cost of the strict rule is one extra confirmation; the cost of the loose
-    // one is a lender anchor on a date nothing independently vouched for, and a
-    // wrong anchor date does not fail loudly — it moves the close screen's variance
-    // and says nothing.
-    const repaymentStart = date('repayment_start_date') ?? origination ?? ctx.loan.original_date
-    const dating: LedgerDatingResult | null =
-      (proven && !asOf && ctx.csv && ctx.csv.days.length > 0 && ctx.csv.first_date && repaymentStart &&
-       ctx.portal!.paid_to_date !== null && (ctx.portal!.corroborated || []).includes('paid_to_date'))
-        ? dateFromLedger({
-            days: ctx.csv.days.map(d => ({ date: d.date, total: d.total_paid, financing: d.principal_paid, fee: d.fee_paid })),
-            // `ok` false means rows could not be read, which understates the running
-            // total and therefore dates the screen LATE. Passed through rather than
-            // filtered out so the refusal can say so.
-            complete: ctx.csv.ok === true,
-            coversFrom: ctx.csv.first_date,
-            periodStart: repaymentStart,
-            // The target is the amount paid IN THE PERIOD, and it must be a figure
-            // the screen's own arithmetic vouched for — the gate above. Dating a
-            // lender anchor off a number nothing on the screen checked would put the
-            // misread this module already caught once ($125,000 of funding read as
-            // $123,091.66 of balance) in charge of the date as well as the figure.
-            target: {
-              paid: ctx.portal!.paid_to_date!,
-              financing: ctx.portal!.principal_paid,
-              fee: ctx.portal!.fee_paid,
-            },
-          })
-        : null
-    const derivedDate = dating?.corroborated ? dating.date : null
-    // Every use below is of the date this row would be FILED under, whether the
-    // screen printed it or the export measured it — including the same-day anchor
-    // lookup, which on a derived date is the difference between spotting a lender
-    // figure already on file for 2026-08-26 and filing a second one beside it.
-    const asOfDate = asOf ?? derivedDate
+    // The date comes from §5a, which derived it once for the whole plan. It used
+    // to be computed here, below §5, which is why §5 could ask for an export
+    // while this section was busy measuring a date out of that very export.
+    const dating = portalDating
+    const derivedDate = portalDerivedDate
+    const asOfDate = portalAsOf
 
     if (proven) {
       // Only LENDER rows are compared. A xero_derived or snapshot row on the same
