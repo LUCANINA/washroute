@@ -61,6 +61,7 @@ import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
+import { findOriginationFeeJournal, type JournalWithLines, type FeeSearchResult } from '../_shared/origination-fee.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -458,6 +459,18 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     portal = checkDepositDate(portal, orig)
   }
 
+  // Ask the LEDGER what these documents cannot say. Bounded, read-only, and
+  // entirely optional: any failure returns a result that says the search was
+  // incomplete, and the plan falls back to the question it asked before.
+  let feeSearch: FeeSearchResult | null = null
+  {
+    const fee = agreementTerms.find(t => t.term_key === 'fixed_fee')?.value_numeric ?? null
+    const orig = agreementTerms.find(t => t.term_key === 'origination_date')?.value_date ?? loan.original_date ?? null
+    if (typeof fee === 'number' && fee > 0) {
+      feeSearch = await searchLedgerForFeeJournal(loan.xero_account_code ?? null, fee, orig)
+    }
+  }
+
   const ctx: PlanContext = {
     loan: {
       id: loan.id, lender: loan.lender, xero_account_name: loan.xero_account_name,
@@ -470,6 +483,14 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       structure_note: loan.structure_note, xero_account_code: loan.xero_account_code,
     },
     documents: bundleDocs,
+    feeSearch: feeSearch ? {
+      verdict: feeSearch.verdict,
+      statement: feeSearch.statement,
+      journal_id: feeSearch.journal?.id ?? null,
+      journal_date: feeSearch.journal?.date ?? null,
+      debit_account: feeSearch.debits[0]?.account ?? null,
+      debit_account_name: feeSearch.debits[0]?.account_name ?? null,
+    } : null,
     agreementTerms, agreementChecks, agreementUnresolved,
     csv, decomposition,
     portal: portal ? {
@@ -584,6 +605,103 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   return json({ ok: true, dry_run: true, wrote_nothing_financial: true, bundle_id: row.id, plan })
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Was the capitalised fee already booked? Ask the ledger.
+// ─────────────────────────────────────────────────────────────────────────────
+// David, on being told "these documents cannot say": "This is knowable
+// information... the amount of the fee should be enough for the system to deduce
+// that it is the missing fee. It can then be presented as a change to make."
+//
+// Reads go through `xero-read` rather than Xero directly, because that function is
+// read-only BY CONSTRUCTION — one fetch, hard-coded GET, fixed endpoint table, no
+// write branch exists. Reaching past it to save a hop would put a Xero-writing
+// capability inside an intake function that has no business having one.
+//
+// Two calls, because Xero's ManualJournals LIST returns no JournalLines (session
+// 241 learned this the hard way): list the narrow window, then fetch each by id.
+// The window is ±21 days around origination, so this is a handful of journals, not
+// the hundreds that forced xero-read's rate-limit machinery.
+//
+// EVERY failure path returns `complete: false` rather than an empty list, because
+// the module treats silence as meaningful only when the search really was
+// exhaustive. A Xero outage must never become "no fee entry exists".
+const FEE_WINDOW_DAYS = 21
+const FEE_JOURNAL_CAP = 40
+
+async function searchLedgerForFeeJournal(
+  loanAccountCode: string | null, feeAmount: number, origination: string | null,
+): Promise<FeeSearchResult | null> {
+  if (!loanAccountCode || !origination || !(feeAmount > 0)) return null
+
+  const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/xero-read`
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  if (!url || !key) return null
+
+  const t = Date.parse(origination + 'T00:00:00Z')
+  if (!Number.isFinite(t)) return null
+  const day = 86_400_000
+  const from = new Date(t - FEE_WINDOW_DAYS * day).toISOString().slice(0, 10)
+  const to   = new Date(t + FEE_WINDOW_DAYS * day).toISOString().slice(0, 10)
+  const xd = (iso: string) => `DateTime(${iso.slice(0, 4)},${iso.slice(5, 7)},${iso.slice(8, 10)})`
+
+  const call = async (body: unknown) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`xero-read ${res.status}`)
+    return await res.json()
+  }
+
+  const fail = (why: string): FeeSearchResult =>
+    findOriginationFeeJournal({ journals: [], loanAccountCode, feeAmount, complete: false, windowFrom: from, windowTo: to })
+
+  try {
+    const list = await call({
+      mode: 'manual_journals',
+      where: `Date >= ${xd(from)} && Date <= ${xd(to)}`,
+    })
+    const rows: any[] = Array.isArray(list?.items) ? list.items
+      : Array.isArray(list?.ManualJournals) ? list.ManualJournals
+      : Array.isArray(list?.results) ? list.results : []
+
+    const ids = rows.map(r => String(r.id ?? r.ManualJournalID ?? '')).filter(Boolean)
+    // Truncation is a real answer here: it means the search was NOT exhaustive, and
+    // the module must not be allowed to say "not found" off a partial read.
+    const complete = ids.length <= FEE_JOURNAL_CAP
+    const journals: JournalWithLines[] = []
+    for (const id of ids.slice(0, FEE_JOURNAL_CAP)) {
+      try {
+        const one = await call({ mode: 'manual_journals', id })
+        const j = (Array.isArray(one?.items) ? one.items[0] : one?.item) ?? one?.ManualJournals?.[0] ?? one
+        if (!j) continue
+        journals.push({
+          id: String(j.id ?? j.ManualJournalID ?? id),
+          date: j.date ?? j.DateString ?? null,
+          narration: j.narration ?? j.Narration ?? null,
+          status: j.status ?? j.Status ?? 'POSTED',
+          lines: (j.lines ?? j.JournalLines ?? []).map((l: any) => ({
+            account: l.account ?? l.AccountCode ?? null,
+            account_name: l.account_name ?? l.AccountName ?? l.Name ?? null,
+            description: l.description ?? l.Description ?? null,
+            amount: typeof l.amount === 'number' ? l.amount
+                  : typeof l.LineAmount === 'number' ? l.LineAmount : null,
+          })),
+        })
+      } catch (_) { /* one unreadable journal is not an absent one — see `complete` */ }
+    }
+    const readEverything = complete && journals.length === ids.length
+    return findOriginationFeeJournal({
+      journals, loanAccountCode, feeAmount, complete: readEverything, windowFrom: from, windowTo: to,
+    })
+  } catch (_) {
+    // Xero unreachable, unauthorised, or rate limited. The plan falls back to
+    // exactly the question it asked before this existed.
+    return fail('unreachable')
+  }
+}
 
 function contentTypeFor(ext: string): string {
   const m: Record<string, string> = {

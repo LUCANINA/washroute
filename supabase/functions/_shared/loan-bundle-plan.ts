@@ -177,6 +177,23 @@ export interface PlanContext {
   agreementUnresolved: string[]
   /** Parsed transaction export, if the bundle contained one. */
   csv: StripeCsvParseResult | null
+  /**
+   * What the LEDGER says about the capitalised fee. null when no search was made
+   * (no fee, no account code, no origination date); a result with verdict
+   * 'incomplete' when one was attempted and could not be finished.
+   *
+   * The plan used to ask "what was debited on the other side" and answer its own
+   * question with "these documents cannot say" — true, and beside the point, since
+   * the ledger can. See _shared/origination-fee.ts.
+   */
+  feeSearch: {
+    verdict: 'found' | 'ambiguous' | 'not_found' | 'incomplete'
+    statement: string
+    journal_id: string | null
+    journal_date: string | null
+    debit_account: string | null
+    debit_account_name: string | null
+  } | null
   decomposition: DecompositionResult | null
   /** Control totals read off a portal screenshot, if one was present. */
   portal: {
@@ -679,13 +696,30 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   // proposal's clothes. So the engine asks instead.
   if (proposedBasis === 'gross_payback' && fixedFee !== null && fixedFee > 0) {
     const feeDocumented = /fixed fee|loan fee|financing cost|fee was/i.test(ctx.loan.structure_note || '')
-    if (!feeDocumented) {
+    const fs = ctx.feeSearch
+    if (!feeDocumented && fs?.verdict === 'found') {
+      // The ledger answered it. This is no longer a question, and treating it as
+      // one would be the module asking for something it is holding.
+      established.push({
+        key: 'fee_debit_account',
+        value: fs.debit_account_name ? `${fs.debit_account_name} (${fs.debit_account})` : `Account ${fs.debit_account}`,
+        how: fs.statement,
+      })
+      // Deliberately NOT its own action. The structure note below is already the
+      // designated home for "record it so nobody has to ask again", and a second
+      // action writing the same column is a clobber waiting for the day both are
+      // ticked. The fact goes into the note; section 8 picks it up.
+    } else if (!feeDocumented) {
       unresolved.push({
         question: `The ${money(fixedFee)} fee was added into this loan's balance at the start. What was debited on the other side of that entry?`,
         why_it_matters:
-          `It decides whether this loan's cost ever reaches your profit and loss, and these documents cannot say. If it was expensed at origination, the cost is recognised — all in one month, which flatters every month after it. If it went to a prepaid or deferred asset, something has to amortise it and nothing is. If it was plugged to a suspense account, there is ${money(fixedFee)} unexplained in your ledger. Three different answers, three different fixes, and no way to tell them apart from the outside.`,
-        what_would_answer_it:
-          `The journal dated on or around ${origination ?? 'the origination date'} that credited ${money(fixedFee)} to this loan's account. Whatever account took the matching debit is the answer. Once you know, record it in this loan's note so nobody has to ask again.`,
+          `It decides whether this loan's cost ever reaches your profit and loss. If it was expensed at origination, the cost is recognised — all in one month, which flatters every month after it. If it went to a prepaid or deferred asset, something has to amortise it and nothing is. If it was plugged to a suspense account, there is ${money(fixedFee)} unexplained in your ledger. Three different answers, three different fixes.`,
+        // Say what was actually SEARCHED. "These documents cannot say" was true and
+        // useless; a person needs to know whether the ledger was looked at, and
+        // with what result, before spending an afternoon on it.
+        what_would_answer_it: fs
+          ? `${fs.statement} ${fs.verdict === 'ambiguous' ? 'Pick the one that capitalised the fee and record it in this loan\'s note.' : 'Once you know, record it in this loan\'s note so nobody has to ask again.'}`
+          : `The journal dated on or around ${origination ?? 'the origination date'} that credited ${money(fixedFee)} to this loan's account. Whatever account took the matching debit is the answer. Once you know, record it in this loan's note so nobody has to ask again.`,
       })
     }
   }
@@ -703,6 +737,12 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         : `In the books: account ${ctx.loan.xero_account_code ?? '(unset)'} carries principal only, so every payment splits into principal and financing cost. Balances on file are principal-only.`,
       ctx.decomposition?.holds
         ? `Each withholding splits ${pct}% fee / ${(100 - Number(pct)).toFixed(4)}% financing, rounded to the cent — proven against ${ctx.decomposition.rows_checked} of the lender's own transactions, not assumed.`
+        : '',
+      // The other side of the capitalised fee, once the ledger has answered it.
+      // This sentence is the whole point of the search: it is what stops the
+      // question being asked again by the next person and the next session.
+      ctx.feeSearch?.verdict === 'found'
+        ? `The ${money(fixedFee)} fee was debited to ${ctx.feeSearch.debit_account_name ? `${ctx.feeSearch.debit_account_name} (${ctx.feeSearch.debit_account})` : `account ${ctx.feeSearch.debit_account}`}${ctx.feeSearch.journal_date ? ` by the journal dated ${ctx.feeSearch.journal_date}` : ''}${ctx.feeSearch.journal_id ? ` (${ctx.feeSearch.journal_id})` : ''}, found in the ledger rather than assumed.`
         : '',
     ].filter(Boolean).join('\n\n')
 

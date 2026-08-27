@@ -375,6 +375,54 @@ call `effectiveCloseDate()` / `isPeriodClosed()` before the write — this org's
 carries no lock date of its own, so nothing else will refuse it. Previews stay
 allowed and carry `closed_period_warning`; only writes 409.
 
+### "These documents cannot say" is a scope error, not an answer (session 242)
+
+David, pushing back on the bundle's fee question: *"The $20,875.00 fee was
+established in Xero around the time of the loan. This is knowable information. If
+there is no stated link to Stripe, the amount of the fee should be enough for the
+system to deduce that it is the missing fee. It can then be presented as a 'change
+to make' to the CPA."*
+
+He was right, and **the phrasing gave the mistake away.** The plan said "these
+documents cannot say" — true of the upload, and beside the point, because the
+system has `xero-read` and the ledger holds the answer. The question had been
+scoped to the four files on screen when the evidence was one call away.
+
+**The general rule this establishes: before the module raises a question, it must
+have looked everywhere it can reach.** "Nothing in this set answers it" is only
+worth saying once the ledger, the loan's own history and the contract terms have
+all been asked. A question the system could have answered is worse than no
+question, because it teaches people the queue is not worth reading.
+
+`_shared/origination-fee.ts` does this for the capitalised fee. What it takes to
+propose a change to a financial record off a pattern match:
+
+* the amount matches **to the cent** — a fee is contractual, and anything needing
+  a tolerance is a different entry;
+* it **credits** the loan's own account (Xero: negative is a credit). A debit of
+  the same amount is a repayment and answers another question;
+* **exactly one** journal qualifies; two is a question, not an answer;
+* **the search was complete.** A journal that could not be read is not a journal
+  that does not exist, so every failure path — Xero down, rate limited, truncated,
+  unparseable — returns `incomplete`, never `not_found`. **An outage must never
+  become "no fee entry exists".**
+
+Reads go through `xero-read` and not Xero directly, because that function is
+read-only by construction. *Do not reach past it to save a hop: that would put a
+Xero-writing capability inside an intake function that has no business having one.*
+Two calls, because ManualJournals LIST returns no JournalLines (session 241) —
+list the ±21-day window, then fetch each by id.
+
+The answer is folded into the loan's **structure note**, not given its own action.
+The note is already the designated home for "record it so nobody has to ask
+again", and a second action writing the same column is a clobber waiting for the
+day both get ticked.
+
+`classifyFeeDebit` names which of the three cases it is — expensed, capitalised,
+or parked in suspense — keyed on the account TYPE Xero reports and **never on its
+name**: "Loan Fees" can be an expense or an asset depending on how the chart was
+built, and guessing from a label is how a prepaid gets recorded as expensed.
+
 ### Settlement lag: on a payment-provider loan the balances are SUPPOSED to differ (session 242)
 
 David, on Stripe Capital: *"the lender calculates the payback at the time of a
@@ -1719,6 +1767,32 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 242 (cont. 7, 2026-08-27) — asking the ledger
+
+David pushed back on the fee question and was right; the reasoning is now a
+standing invariant above ("These documents cannot say" is a scope error). This
+entry is just what shipped: `_shared/origination-fee.ts` (new, 36 assertions),
+a bounded read-only ledger search in `loan-bundle/index.ts` via `xero-read`,
+`PlanContext.feeSearch`, and the fee treatment folded into the structure note.
+
+When the ledger answers, the question disappears and becomes an established fact
+plus a line in the note. When it cannot — ambiguous, not found, or unreachable —
+the question stays, but now **says what was searched and what came back**, which
+is the part that was actually missing. "These documents cannot say" told a person
+nothing about whether it was worth their afternoon.
+
+**Files:** `_shared/origination-fee.ts` (new), `_shared/loan-bundle-plan.ts`,
+`loan-bundle/index.ts`, `tests/origination-fee.test.mts` (new).
+
+**Test totals: 68 + 29 + 95 + 47 + 36 = 275 assertions, all passing.**
+
+**Where to pick up:** deploy and re-run. On this loan the fee question should be
+replaced by "Where the fee was booked" naming the account journal #52168 debited,
+and the structure note should carry that sentence. If it still asks, read the
+question — it now names the window it searched and why it came back empty, and
+`incomplete` vs `not_found` is the difference between "Xero was unreachable" and
+"the fee was not capitalised by a journal at all".
 
 ### Session 242 (cont. 6, 2026-08-27) — the sibling check that was still hand-waving
 
