@@ -3595,11 +3595,38 @@
                 </div>
                 <span style="display:flex;gap:10px;align-items:center">
                   <button class="btn btn-primary" id="bk-batch-fileall" style="display:none" onclick="bkFileAllBatch()">File all</button>
+                  <button class="btn btn-secondary" id="bk-batch-bundle" style="display:none" onclick="bkStartBundle()" title="Read every one of these documents together and cross-check them against each other before anything is filed">Read together</button>
                   <button class="btn btn-ghost" id="bk-batch-clear" onclick="bkClearBatch()">Clear</button>
                 </span>
               </div>
               <div id="bk-batch-list"></div>
               <div id="bk-batch-notes" style="display:none;padding:10px 20px 14px;border-top:1px solid var(--gray-100);font-size:12.5px;color:var(--gray-600)"></div>
+            </div>
+
+            <!-- Multi-document intake (session 242). Several files about ONE loan,
+                 read as a single piece of evidence rather than one at a time.
+                 The interesting things live in the JOINS between documents: an
+                 agreement's fee-over-total ratio reproducing a transaction
+                 export's per-payment split proves the split rule instead of
+                 assuming it, and a portal screenshot's "amount remaining" is what
+                 says which of two possible meanings the books' balance carries.
+                 Nothing here writes until the tickboxes are approved. -->
+            <div class="modal-backdrop" id="modal-loan-bundle" style="display:none">
+              <div class="modal" style="max-width:920px;max-height:88vh;display:flex;flex-direction:column">
+                <div class="modal-header">
+                  <div>
+                    <div class="modal-title" id="lb-title">Reading these together…</div>
+                    <div class="card-sub" id="lb-sub"></div>
+                  </div>
+                  <button class="modal-close" onclick="closeLoanBundleModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="lb-body" style="overflow:auto;flex:1"></div>
+                <div class="modal-footer">
+                  <div id="lb-error" style="color:var(--danger);font-size:13px;flex:1"></div>
+                  <button class="btn btn-ghost" onclick="closeLoanBundleModal()">Cancel</button>
+                  <button class="btn btn-primary" id="lb-apply" style="display:none" onclick="bkApplyBundle()">Apply selected</button>
+                </div>
+              </div>
             </div>
 
             <!-- Document peek (session 224 cont., per David: "I wish I could see
@@ -9700,6 +9727,21 @@
       fileAllBtn.style.display = canFile ? '' : 'none';
       fileAllBtn.textContent = `File all ${nReady}`;
     }
+    // "Read together" is offered whenever there are at least two readable files
+    // still unfiled. Deliberately NOT gated on them already agreeing about which
+    // loan they belong to: half the value is that the AGREEMENT often names the
+    // loan when a screenshot cannot, so requiring agreement first would hide the
+    // feature exactly when it is most useful.
+    const bundleBtn = document.getElementById('bk-batch-bundle');
+    if (bundleBtn) {
+      const readable = items.filter(i => ['ready', 'manual'].includes(i.status) && i.base64);
+      // Reading a set together stores the files and creates a bundle record, so
+      // it needs the same write access filing does.
+      const canBundle = !sorting && !nFiling && readable.length >= 2 && currentUserRole !== 'cpa';
+      bundleBtn.style.display = canBundle ? '' : 'none';
+      bundleBtn.disabled = !!_lbRunning;
+      bundleBtn.textContent = _lbRunning ? 'Reading…' : `Read ${readable.length} together`;
+    }
     const clearBtn = document.getElementById('bk-batch-clear');
     if (clearBtn) clearBtn.disabled = !!(sorting || nFiling);
 
@@ -10219,6 +10261,246 @@
   }
 
   // ── Batch filing: ONE tap, same review-gated doors as the modals ───────────
+  // ══ Multi-document intake ═══════════════════════════════════════════════
+  // Session 242. `loan-bundle` reads the whole set server-side and returns a PLAN:
+  // what the documents establish, what they corroborate, what they contradict,
+  // what it proposes to change, and — the part that matters most — what they
+  // prove is a problem WITHOUT proving the remedy. The plan is stored verbatim on
+  // the server; approving applies THAT stored plan, not a freshly-recomputed one,
+  // so what was on screen and what got written can never be two different things.
+  let _lbPlan = null, _lbBundleId = null, _lbRunning = false, _lbGeneration = 0;
+
+  // Escape closes the bundle review screen. Registered at load, NOT inside
+  // _bkPeekWire() — that only runs the first time somebody previews a document,
+  // so on the ordinary path (drop files, read together, change your mind) the
+  // listener would not have existed. The global [id$="-modal"] handler does not
+  // cover this one either: its id is `modal-loan-bundle`, the wrong way round.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const lb = document.getElementById('modal-loan-bundle');
+    if (lb && lb.style.display !== 'none') closeLoanBundleModal();
+  });
+
+  async function bkStartBundle(loanAccountId) {
+    const batch = _bkBatch;
+    if (!batch) return;
+    const items = batch.items.filter(i => ['ready', 'manual'].includes(i.status) && i.base64);
+    if (items.length < 2) { showToast('Reading documents together needs at least two of them.', 'error'); return; }
+
+    if (_lbRunning) return;
+    // A generation guard, same shape as onLoanIntakeFileSelected's: cancelling
+    // mid-read must not let a late response repopulate _lbBundleId and render
+    // into a closed modal.
+    //
+    // It does NOT abort the request — the server finishes, stores the files and
+    // writes a 'planned' bundle row nobody will look at. Harmless (a planned
+    // bundle writes nothing to the loan and nothing financial anywhere) but
+    // worth knowing rather than assuming the guard cleans up after itself.
+    const gen = ++_lbGeneration;
+    _lbRunning = true; _lbPlan = null; _lbBundleId = null;
+    const modal = document.getElementById('modal-loan-bundle');
+    modal.style.display = 'flex';
+    document.getElementById('lb-title').textContent = 'Reading these together…';
+    document.getElementById('lb-sub').textContent = `${items.length} documents. Nothing is filed yet.`;
+    document.getElementById('lb-error').textContent = '';
+    document.getElementById('lb-apply').style.display = 'none';
+    document.getElementById('lb-body').innerHTML =
+      `<div style="padding:40px;text-align:center;color:var(--gray-500)">
+         Reading ${items.length} documents and cross-checking them against each other…<br>
+         <span style="font-size:12px">This takes longer than filing one file, because it compares them.</span>
+       </div>`;
+
+    const body = {
+      documents: items.map(i => ({ filename: i.name, base64: i.base64 })),
+      ...(loanAccountId ? { loan_account_id: loanAccountId } : {}),
+    };
+    // 90s, not the 25s default: a bundle parses a PDF, a several-thousand-row CSV
+    // and reads screenshots. The default timeout kills it mid-read.
+    const { ok, data } = await _loanFn('loan-bundle', body, 90000);
+    _lbRunning = false; renderBkBatch();
+    if (gen !== _lbGeneration) return;   // superseded or cancelled while we waited
+
+    if (!ok || !data || data.error) {
+      // The one recoverable failure: the documents do not say which loan they are
+      // about. Ask, rather than making the person start over.
+      if (data && /which loan/i.test(String(data.error || ''))) { _lbAskForLoan(items.length); return; }
+      document.getElementById('lb-body').innerHTML =
+        `<div style="padding:30px;color:var(--gray-700)">${esc(String((data && data.error) || 'Could not read these documents together.'))}</div>`;
+      return;
+    }
+    _lbPlan = data.plan; _lbBundleId = data.bundle_id;
+    _lbRenderPlan();
+  }
+
+  function _lbAskForLoan(count) {
+    document.getElementById('lb-title').textContent = 'Which loan are these about?';
+    document.getElementById('lb-sub').textContent = 'None of these documents names a loan account we recognise.';
+    const active = (_allLoanAccounts || []).filter(a => a.status === 'active');
+    if (!active.length) {
+      document.getElementById('lb-body').innerHTML =
+        `<div style="padding:30px;color:var(--gray-700)">The loan list has not loaded, so there is nothing to choose from.
+           Close this, let the page finish loading, and try again.</div>`;
+      return;
+    }
+    const opts = active
+      .map(a => `<option value="${esc(a.id)}">${esc(a.xero_account_name || a.lender_account_number)} — ${esc(a.lender)}</option>`).join('');
+    document.getElementById('lb-body').innerHTML =
+      `<div style="padding:24px">
+         <p style="color:var(--gray-600);font-size:13px;margin-bottom:14px">
+           Pick the loan and these ${count} documents will be read against it.</p>
+         <select id="lb-loan-pick" class="form-input" style="width:100%">${opts}</select>
+         <button class="btn btn-primary" style="margin-top:16px"
+           onclick="bkStartBundle(document.getElementById('lb-loan-pick').value)">Read them together</button>
+       </div>`;
+  }
+
+  function closeLoanBundleModal() {
+    document.getElementById('modal-loan-bundle').style.display = 'none';
+    _lbGeneration++;              // anything still in flight is now stale
+    _lbPlan = null; _lbBundleId = null;
+  }
+
+  function _lbRenderPlan() {
+    const p = _lbPlan; if (!p) return;
+    // Object.create(null): a plain literal answers truthily to 'constructor' and
+    // '__proto__', so `sev[c.severity] || sev.info` would not fall through and the
+    // destructure would throw, killing the whole render.
+    const sev = Object.assign(Object.create(null), {
+      error: ['#b91c1c', '#fef2f2', 'Needs attention'],
+      warn:  ['#b45309', '#fffbeb', 'Worth a look'],
+      info:  ['#1d4ed8', '#eff6ff', 'Good to know'],
+    });
+    document.getElementById('lb-title').textContent = p.loan.xero_account_name || p.loan.lender;
+    document.getElementById('lb-sub').textContent = p.summary;
+
+    const block = (title, inner, note) => !inner ? '' :
+      `<div style="padding:16px 22px;border-bottom:1px solid var(--gray-100)">
+         <div style="font-weight:600;font-size:13px;margin-bottom:${note ? '4' : '10'}px">${esc(title)}</div>
+         ${note ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">${esc(note)}</div>` : ''}
+         ${inner}</div>`;
+
+    const established = (p.established || []).map(e =>
+      `<div style="margin-bottom:12px">
+         <div style="font-size:13px"><strong>${esc(e.value)}</strong></div>
+         <div style="font-size:12.5px;color:var(--gray-600);line-height:1.55;margin-top:3px">${esc(e.how)}</div>
+       </div>`).join('');
+
+    const corro = (p.corroborations || []).map(c =>
+      `<div style="font-size:12.5px;color:var(--gray-700);line-height:1.55;margin-bottom:7px">
+         <span style="color:#15803d">✓</span> ${esc(c.statement)}</div>`).join('');
+
+    const conflicts = (p.conflicts || []).map(c => {
+      const [fg, bg, lbl] = sev[c.severity] || sev.info;
+      return `<div style="border-left:3px solid ${fg};background:${bg};padding:10px 14px;margin-bottom:10px;border-radius:0 6px 6px 0">
+        <div style="font-size:11px;font-weight:600;color:${fg};text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
+        <div style="font-size:13px;margin-top:3px">${esc(c.statement)}</div>
+        <div style="font-size:12.5px;color:var(--gray-600);margin-top:5px">
+          <strong>Expected:</strong> ${esc(c.expected)}<br><strong>Found:</strong> ${esc(c.found)}</div>
+        ${c.caveat ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:6px;line-height:1.55;font-style:italic">${esc(c.caveat)}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    // The questions the documents raise and cannot answer. Deliberately given the
+    // same visual weight as the proposals, because "here is what I don't know" is
+    // as much of a result as "here is what I'll change".
+    const unresolved = (p.unresolved || []).map(u =>
+      `<div style="border-left:3px solid #7c3aed;background:#faf5ff;padding:10px 14px;margin-bottom:10px;border-radius:0 6px 6px 0">
+         <div style="font-size:13px;font-weight:600">${esc(u.question)}</div>
+         <div style="font-size:12.5px;color:var(--gray-700);margin-top:6px;line-height:1.55">${esc(u.why_it_matters)}</div>
+         <div style="font-size:12.5px;color:var(--gray-600);margin-top:6px;line-height:1.55">
+           <strong>What would answer it:</strong> ${esc(u.what_would_answer_it)}</div>
+       </div>`).join('');
+
+    const actions = (p.actions || []).map(a =>
+      `<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--gray-50);${a.blocked_reason ? 'opacity:.55' : 'cursor:pointer'}">
+         <input type="checkbox" class="lb-act" value="${esc(a.id)}" ${a.default_checked ? 'checked' : ''} ${a.blocked_reason ? 'disabled' : ''} style="margin-top:3px">
+         <span style="flex:1">
+           <span style="font-size:13px;font-weight:500">${esc(a.title)}</span>
+           <span style="display:block;font-size:12.5px;color:var(--gray-600);line-height:1.55;margin-top:2px">${esc(a.plain_english)}</span>
+           ${a.blocked_reason ? `<span style="display:block;font-size:12px;color:#b45309;margin-top:4px">${esc(a.blocked_reason)}</span>` : ''}
+         </span>
+       </label>`).join('');
+
+    const docs = (p.documents || []).map(d =>
+      `<div style="font-size:12.5px;color:var(--gray-700);margin-bottom:6px;line-height:1.5">
+         <strong>${esc(d.filename)}</strong>${d.duplicate_of ? ' <span style="color:var(--gray-500)">(already on this loan)</span>' : ''}
+         <span style="display:block;color:var(--gray-600)">${esc(d.role)}</span></div>`).join('');
+
+    document.getElementById('lb-body').innerHTML =
+      block('The documents', docs) +
+      block('What these documents establish', established, 'Facts none of them could have shown on its own.') +
+      block('Checked against each other', corro) +
+      block('Disagreements', conflicts) +
+      block('Questions these documents cannot answer', unresolved,
+            'Raised rather than guessed. Each needs evidence that is not in this set.') +
+      block('Changes to make', actions, 'Nothing is written until you apply. No payment entries are created either way.');
+
+    const applyBtn = document.getElementById('lb-apply');
+    applyBtn.style.display = (p.actions || []).length && currentUserRole !== 'cpa' ? '' : 'none';
+    applyBtn.disabled = false;
+    applyBtn.textContent = 'Apply selected';
+  }
+
+  async function bkApplyBundle() {
+    if (!_lbBundleId) return;
+    if (currentUserRole === 'cpa') { showToast('Your account has read-only access.', 'error'); return; }
+    // :not(:disabled) matters — :checked is orthogonal to disabled, so a blocked
+    // action that shipped pre-checked would be submitted and 409 the whole apply.
+    const approve = Array.from(document.querySelectorAll('.lb-act:checked:not(:disabled)')).map(c => c.value);
+    const btn = document.getElementById('lb-apply');
+    btn.disabled = true; btn.textContent = approve.length ? `Applying ${approve.length}…` : 'Closing…';
+    document.getElementById('lb-error').textContent = '';
+
+    const { ok, data } = await _loanFn('loan-bundle', { bundle_id: _lbBundleId, approve }, 60000);
+    if (!data || data.error) {
+      document.getElementById('lb-error').textContent = String((data && data.error) || 'Could not apply.');
+      btn.disabled = false; btn.textContent = 'Apply selected';
+      return;
+    }
+    // A partial apply is reported, never smoothed over: some of these writes
+    // succeeded and the person needs to know which.
+    if ((data.failed || []).length) {
+      document.getElementById('lb-error').textContent =
+        `${data.applied.length} applied, ${data.failed.length} failed: ` +
+        data.failed.map(f => `${f.kind} (${f.error})`).join('; ');
+      // The server now allows re-entry from partially_applied and skips whatever
+      // already landed, so this button genuinely does retry the remainder.
+      btn.disabled = false; btn.textContent = 'Apply the rest';
+    } else {
+      closeLoanBundleModal();
+      showToast(approve.length ? `${data.applied.length} change${data.applied.length === 1 ? '' : 's'} applied.` : 'Nothing was applied.', 'success');
+    }
+    // Mark filed EXACTLY the files the server says it attached — matched by sha,
+    // from `applied`, not re-derived from a status predicate.
+    //
+    // The first version marked every ready/manual item whenever `approve.length`
+    // was non-zero, outside the success branch. Untick the attach boxes and tick
+    // only the basis change, and all four files flipped to "filed" having never
+    // been attached to the loan — gone from the batch card, invisible on the loan
+    // page, sitting in storage under a bundle prefix. Every action failing did the
+    // same. And because it re-evaluated the predicate up to 150 seconds after the
+    // bundle was assembled, anything that finished classifying in between was
+    // marked filed without having been in the bundle at all.
+    const filedShas = new Set((data.applied || [])
+      .filter(a => a.kind === 'attach_document' && a.sha256).map(a => a.sha256));
+    if (_bkBatch && filedShas.size) {
+      for (const i of _bkBatch.items) {
+        if (filedShas.has(i.sha)) {
+          i.status = 'filed';
+          i.proposal = (i.proposal || '') + ' Filed as part of a document set.';
+        }
+      }
+      // Deliberately NOT calling _bkWriteBatchReceipt() here. It latches on
+      // b.receiptWritten, so an intermediate receipt would permanently suppress
+      // the one bkFileAllBatch writes when the batch actually finishes — and the
+      // bundle already has a far richer receipt of its own in intake_bundles,
+      // holding the plan as presented, what was ticked and what was written.
+      renderBkBatch();
+    }
+    await loadLoans();
+    renderBookkeepingOverview();
+  }
+
   async function bkFileAllBatch() {
     const batch = _bkBatch;
     if (!batch || batch.running) return;

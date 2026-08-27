@@ -1,203 +1,106 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 242 (left by session 241, 2026-08-26 late)
+> ## ⏭️ START HERE — first thing, session 243 (left by session 242, 2026-08-27)
 >
-> ### 1. 🔴 FUNDING CIRCLE HAS EVERY PAYMENT ON FILE TWICE — needs a decision, not a guess
+> ### 1. 🚀 NOTHING FROM THIS SESSION IS DEPLOYED
 >
-> Eight months of it, 2025-11 through 2026-06. The page now REFUSES to publish figures
-> built on it (see §2), so nothing wrong leaves the building — but the rows are still
-> there and the repair needs a human.
->
-> Two parallel series exist for the same payments:
->
-> | | label | source | status | in Xero? |
-> |---|---|---|---|---|
-> | the card | `2026-04` | `explicit_split` | `already_in_xero` / `closed_period` | **no journal, no bank txn** |
-> | the ledger row | `2026-04-20` | `statement_delta` | `posted` | `matched_xero_bank_transaction_id` set |
->
-> **The day-labelled rows are the ledger** — every one carries a matched bank transaction.
-> **The cards carry nothing from Xero at all**, so they are the duplicates.
->
-> But do not just void the cards, because the cards hold the BETTER decomposition and the
-> day rows hold a wrong one. Measured against Funding Circle's own portal balances (dated
-> the 1st of each month, so each payment sits in exactly one interval):
+> The migrations ARE applied (both of them, via MCP). The code is committed and not shipped:
 >
 > ```
-> payment      true principal (lender)     what the day row says
-> 2026-03-18   980.93   (3/1 -> 4/1)       966.45
-> 2026-04-20   995.65   (4/1 -> 5/1)       2,033.77   <- ALL principal, zero interest
-> 2026-05-18   1,010.57 (5/1 -> 6/1)       980.93
-> 2026-06-18   1,025.71 (6/1 -> 7/1)       995.65
+> npx supabase@latest functions deploy loan-bundle       --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> git push          # 8 files, admin-dashboard/index.html among them
 > ```
 >
-> The day rows are consistently **two cycles behind**; the cards are **one cycle behind**
-> (a card labelled `2026-04` holds the 3/1→4/1 movement — it is labelled by the month of
-> the STATEMENT that reported it, not the month of the payment). Neither series is simply
-> right, which is why this is not a script.
+> `loan-bundle` is NEW. `reconciliation-run` gained one check. The dashboard gained a
+> "Read together" button and a review modal. **`loan_contract_terms` and `intake_bundles`
+> are both empty — nothing in this feature has yet run against real data.**
 >
-> **The materially wrong one, and the reason this is red:** `2026-04-20`
-> (`dcd896b3-643a-4032-b145-28211daff980`) is booked as $2,033.77 principal / $0.00
-> interest. About **$1,038 of interest expense is sitting in the loan account** for that
-> month, and it is posted.
+> Plus whatever is still outstanding from session 241's list (§3 of the previous START
+> HERE — now preserved as the session 241 log entry below, which session 241 never wrote).
+> **Those deploys are still listed as pending there: `loan-ingest-statement`, its migration
+> `20260826_interest_arrives_as_fee.sql`, and session 240's five. Confirm what actually went
+> out before re-running any of them.**
 >
-> The order to work it in:
-> 1. Read Xero's actual journals for Funding Circle, 2025-11 → 2026-06. Establish which
->    series is really in the books. Everything below depends on that answer and nothing
->    else does.
-> 2. Void the duplicates through `void_loan_split` — never a direct UPDATE. (Note the
->    standing tech debt: `markSplitAlreadyInXero` is one-way, so an `already_in_xero`
->    card cannot currently reach the RPC. That gap is now blocking a real repair.)
-> 3. Correct the surviving rows' principal/interest to the lender's stated figures.
-> 4. Re-run `_loanPrincipalReconciliation` — it should go to $0.00 and Funding Circle
->    should reappear in the tiles and on the schedule on its own.
+> ### 2. 🔴 FUNDING CIRCLE — STILL UNRESOLVED, STILL THE OLDEST OPEN THING
 >
-> The check that found it is live and will keep watching: `_loanWindowRecon(a)`.
+> Session 241 left it and session 242 did not touch it. Eight months of every payment on
+> file twice, 2025-11 → 2026-06, and one materially wrong row: `2026-04-20`
+> (`dcd896b3-643a-4032-b145-28211daff980`) booked $2,033.77 principal / $0.00 interest,
+> with about **$1,038 of interest expense sitting in the loan account**, posted. The page
+> refuses to publish figures built on it, so nothing wrong leaves the building — but the
+> repair still needs a human. **Full working notes are in the session 241 entry below;
+> read them before touching it.** The order is unchanged: read Xero's journals first,
+> then void through `void_loan_split`, then correct the survivors, then re-run
+> `_loanPrincipalReconciliation`.
 >
-> ### 2. ✅ THE LENDER'S BALANCES ARE NOW A CONTROL — `e715a1e`, `59d9575`
+> ### 3. ⚠️ THREE DUPLICATE DOCUMENTS BLOCK A GUARD WE WANT
 >
-> **The lesson worth keeping from this session: never infer from shape what a document can
-> be asked directly.**
+> E-Transit Loan 4140 carries the same screenshot **three times** — `861b6093`, `49f93485`,
+> `029f7439`, all `679ff195…`, uploaded 2026-08-24 within 37 minutes of each other. Almost
+> certainly a retry that succeeded more than once.
 >
-> Two independent audits — an execution harness and a red team, working from different
-> angles — both reported the Funding Circle doubling and both proposed the same fix:
-> deduplicate rows that share a month bucket. That fix would have been WRONG. BayFirst SBA
-> 2 has the identical shape in 2026-07 and both of its rows are real: its draft date
-> drifts backwards (6/03, 7/02, 7/31), so July genuinely carries two payments. Dropping
-> one would have punched a $2,108.25 hole in the close the CPA signs on 1 September.
+> Because of them this index will not create:
 >
-> Nothing structural separates the two cases. The lender's own balances separate them
-> instantly:
->
-> ```
-> BayFirst   137,568.21 -> 135,901.60 = 1,666.61 moved, 1,666.61 recorded.  ties
-> Funding C.  67,240.74 ->  66,215.03 = 1,025.71 moved, 2,006.22 recorded.  2x
+> ```sql
+> create unique index loan_documents_loan_sha_uniq
+>   on public.loan_documents (loan_account_id, file_sha256) where file_sha256 is not null;
 > ```
 >
-> `_loanPrincipalReconciliation(a, fromMonth, toMonth)` runs that per loan across the whole
-> measurement window rather than one month — over a span a drifting draft date cancels and
-> a duplicated payment does not. `over` (recorded MORE than the lender moved) means
-> something is on file twice and must not be published. `under` means incomplete history
-> and must NOT exclude, or an understated total gets more understated — the first cut got
-> this wrong and dropped $15,099 of genuine obligation out of "Committed each month".
+> It is the structural guard against attaching the same file twice, and it is written out
+> at the bottom of `migrations/session_242b_bundle_upsert_arbiter.sql` ready to run. Delete
+> two of the three and apply it. Not done unasked — they are real documents.
 >
-> ### 3. 🚀 TWO THINGS ARE COMMITTED AND WAITING ON YOU
+> ### 4. ⚖️ THE STRIPE CAPITAL FEE: A QUESTION FOR RAMONA, NOT A BUG
 >
-> ```
-> # (a) Rapid ingestion — see §4
-> npx supabase@latest functions deploy loan-ingest-statement --project-ref umjpbuxrdydwejqtensq
-> # (b) and its migration
-> psql "$DATABASE_URL" -f supabase/migrations/20260826_interest_arrives_as_fee.sql
-> ```
+> The $20,875 fixed fee was expensed **in one lump on 2026-06-30**, journal `#52168`:
+> `DR 264 Loan Fees / CR 304 Stripe Capital Loan`. That is why the loan sits at gross
+> payback, and it is why every payment being 100% principal is **correct**.
 >
-> Plus everything session 240 left in §1 of the previous START HERE (payroll-ingest,
-> payroll-xero-post, xero-payout-sync, xero-payout-watchdog, loan-find-difference) — those
-> deploys appear to have gone out at 21:30 UTC from a parallel session; confirm before
-> re-running.
+> The open question is timing, not correctness. All of it landed in June; July 2026 →
+> December 2027 each look about **$1,160/month cheaper** than they are. Spreading it in
+> proportion to repayments is the alternative, and the July CSV already IS that schedule
+> ($1,601.68 for July, from the lender's own fee column). **June is closed**, so it is a
+> prior-period adjustment and Ramona's call. Worth raising at the next close.
 >
-> ### 4. ✅ RAPID — `b3ea38a`, committed, NOT deployed
+> **If she does reverse it, the order matters:** reverse in Xero → flip `carrying_basis` to
+> `net_principal` → then rebuild July/August splits. The other way round leaves a window
+> where the books and the tool disagree and `balance_vs_lender` screams. The detector in §5
+> catches the state either way.
 >
-> David: *"the interest is show as a fee. To calculate the principal, deduct the
-> interest/fee portion from the PAYMENT."*
+> ### 5. ✅ WHAT SESSION 242 BUILT — read `DESIGN-LOAN-BUNDLE-INTAKE.md`
 >
-> `loan-ingest-statement` has computed exactly that since v20 — written for this lender,
-> tested against this lender's real PDF — and **has never run for this lender**. The block
-> is gated on `direct_split_enabled`, which is `false` on Rapid Credit Line.
+> Multi-document intake: several files about ONE loan, read as a single piece of evidence.
+> Plus `carrying_basis`, which is the fact that decides whether a payment needs splitting
+> at all and which nothing in the schema recorded until now.
 >
-> The gate was the wrong question. `direct_split_enabled` decides how we POST. Whether a
-> fee and a payment are one economic event is a fact about how the LENDER works. Rapid
-> capitalises the weekly fee into the balance and then takes the full payment against it,
-> visible in its own portal figures: 7/07 61,962.76 → 7/13 62,516.85 (+554.09 fee) → 7/14
-> 60,447.96 (−2,068.89 payment); net 1,514.80 = 2,068.89 − 554.09, to the cent.
+> **The near-miss worth knowing about before you touch any of it:** a fee-reclassification
+> for Stripe Capital got as far as a costed, reviewed proposal. It was correct for a
+> net-booked loan and catastrophic for a gross-booked one — over the loan's life it would
+> have credited an extra $20,875 into the liability, leaving a phantom $20,875 owing after
+> Stripe said paid in full. An adversarial pass caught it, and the only reason it was
+> catchable is that somebody asked which basis the loan was on.
 >
-> So the fact has its own column now (`interest_arrives_as_fee`) and the posting preference
-> keeps its own. Default false; only Rapid is set true; no other loan changes.
->
-> **Also fixed, and it was live:** the pairing tracked consumed fees and payments in Sets of
-> DATE STRINGS. Rapid charges draw fees — a $4,000 one on 2025-11-03 is in the code's own
-> comments. A draw fee on the same day as a weekly fee matched `pairedFeeDates.has(f.date)`,
-> was treated as consumed, and was **dropped**: interest expense that never reached the
-> books, silently. Keyed by identity now. No same-day pair exists in Rapid's history today,
-> so it never fired — it was reachable and it lost money when it did.
->
-> `tests/rapid-pairing.test.mjs` — 19 assertions, all passing, against the statement David
-> photographed and against Rapid's portal balances already on file.
->
-> ### 5. 🧪 THE HARNESS IS THE THING THAT ACTUALLY FINDS THESE — `tests/bookkeeping-harness.mjs`
->
-> **474 assertions, 473 passing** (session 240 left it at 433). Run it before shipping
-> anything to this module:
+> ### 6. 🧪 THE TEST SUITE IS THE THING THAT KEEPS THIS HONEST
 >
 > ```
-> npm i -D playwright && npx playwright install chromium
-> node tests/bookkeeping-harness.mjs
+> npx tsx tests/loan-bundle.test.mts        # 68 assertions, fixtures now in fixtures/
+> node tests/bookkeeping-harness.mjs        # 474 from session 241, unchanged
 > ```
 >
-> Everything below was found by RENDERING THE PAGE, and four read-only audit lanes reading
-> the same code missed all of it:
+> Every assertion in the first file is a defect two red teams found and one QA pass
+> confirmed — **30 in the parsers, 22 in the plumbing.** Do not adjust an expected value to
+> make it pass; every number came off a real document or an independent calculation.
 >
-> - `−$-1,008.06` in the Variance column, live for months, and `$-3,326.23` in the close
->   band. `money2()` rendered the sign and the caller prepended another.
-> - "Last payment" was the newest split of ANY kind: a staged 2026-09 projection on ten of
->   fourteen loans, and on Dexter 2 a VOIDED row dated **2099-01**.
-> - The Type column printed raw database enums at a business owner (`pending_review`).
-> - `_bkDataReady()` had one definition and **zero call sites** — written in session 240
->   for exactly this and never wired. On a cold load failure the page rendered a green
->   "All clear — every issue is handled" over no data at all.
-> - A failed `loan_tie_outs` read relabelled every loan "not checked" and said so only to
->   the console. `loadBookkeepingKpis` never checked its error at all.
-> - The nav badge was order-dependent — it subtracts dismissals, which `loadReconciliation`
->   reads, and that loader never poked it. Sidebar 3, Approvals tab 1.
+> ### 7. 📋 STILL OPEN FROM SESSION 241's AUDITS
 >
-> The one remaining failure is a data question: four loans carry
-> `balance_basis = 'unknown'` (Dexter 2, E-Transit E5, E-Transit E6, Stripe Capital) and
-> nobody can say whether those figures are principal or payoff. They are inside the
-> published debt total.
->
-> ### 6. ⚠️ `loan_amortization_rows` IS 74 ROWS FROM A SILENT CLIFF
->
-> 926 rows against PostgREST's 1000-row `db-max-rows`. At the cap it returns **HTTP 200
-> with a partial body and no error** — `_bkFirstError` sees nothing, `_bkLoansLoaded` goes
-> true. It is now ordered newest-first (so truncation is deterministic rather than
-> arbitrary) and `_bkCheckRowCap` logs when it happens, but the real fix is pagination or a
-> server-side aggregate. One more schedule the size of Verdant's (85 rows) crosses it.
->
-> ### 7. 📋 THE TWO AUDITS' REMAINING FINDINGS — not yet worked
->
-> Angle 3 (deploy-only edge functions) found **57** functions deployed with no source in
-> git, not the ~18 estimated; 33 are already-neutered stubs. Unworked, ranked:
->
-> 1. `retail-cash-reclass-monthly` — duplicate guard fails open TWICE, on a live
->    "Approve & Post to Xero" button, while its own comment claims it copies
->    `payroll-fix-668-misroute`'s pattern. It does not. Also has **no close-period guard**
->    and accepts an arbitrary `{year, month}` from the body.
-> 2. `xero-payout-reallocate` — no duplicate guard of any kind; writes
->    `xero_payout_syncs` after posting and never reads it on entry.
-> 3. `create-driver` — `verify_jwt:false`, no auth check, creates a pre-confirmed account
->    with `role:'driver'`. Every sibling (`create-staff`, `invite-staff`,
->    `provision-device-account`) gates on admin. This one does not.
-> 4. `remove-card` / `set-default-card` / `save-payment-method` / `create-setup-intent` —
->    unauthenticated, service-role, trust a `customer_id` from the body.
-> 5. `send-invoice` — unauthenticated relay, arbitrary recipients and attachments, fixed
->    `From: Family Laundry <info@familylaundry.com>`.
-> 6. `on-customer-created` — unauthenticated; sends a real SMS to any number, in a loop.
-> 7. `cloudprnt-setting.json` — **never reviewed by anything.** The MCP tool rejects the dot
->    in the slug, so it cannot be fetched. Pull it from the Supabase dashboard.
->
-> Angle 4 (red team) — still open from its list:
-> - **`loan-xero-post` checks the split's period LABEL and never the journal's DATE.**
->   `_shared/close-date.ts` already exports `isProtectedDate()` and its own test asserts
->   this exact case; `grep` says `loan-find-difference` is its only caller. Put it at the
->   convergence point so all three write paths get it at once.
-> - No optimistic-concurrency predicate on any status transition — every post ends in
->   `.eq('id', id)` with no expected-status check and no rowcount assertion.
-> - The close band's OPENING has no recency floor. EIDL's opening is a **2024-03-31**
->   figure in a column headed 6/30. `short()` now prints the year, which makes it visible;
->   the floor itself is not built.
-> - 70 future-dated Verdant projection rows sit in `loan_statements`, kept out of published
->   balances only by `'amortization_schedule'` not being in `_VARIANCE_REAL_ANCHORS`. Real
->   anchors get a 31-day forward grace, so one mislabelled source flips a projection into a
->   published, "authoritative" balance.
->
+> Unchanged and unworked: the 57 deploy-only edge functions (`retail-cash-reclass-monthly`'s
+> duplicate guard failing open twice on a live Approve button is still the worst),
+> `loan-xero-post` checking a period LABEL and never the journal DATE, no
+> optimistic-concurrency predicate on any status transition **except** `loan-bundle`'s —
+> which is now the module's working reference implementation for that fix — the close
+> band's missing recency floor, and the 70 future-dated Verdant projection rows. Full list
+> in the session 241 log entry.
 
 ## Why this file exists (session 217)
 
@@ -1758,6 +1661,316 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 242 (2026-08-27) — several documents about one loan, and the fact that decides how a payment is booked
+
+David: *"I want to be able to upload multiple documents at once for same loan… teach the
+loan ingestion engine to read all these documents, save them where appropriate, learn from
+them, and make filing decisions on that loan based on them."* Four real files: the Stripe
+Capital agreement, a July transaction export, a funding confirmation and a portal screenshot.
+
+**The feature is the JOINS between documents, not the documents.** Read together they
+answered things no single one could: the agreement's fee-over-total ratio reproduced the
+export's per-transaction split on all 1,352 rows to the cent, which turned an assumption
+into a measurement; and the portal's "amount remaining" matched total-repayment-less-paid,
+which is what proved the books carry this loan at payoff rather than at principal.
+
+#### 🔴 The near-miss, which became the design
+
+The first proposal was a monthly fee reclassification: move the fee portion out of loan
+principal into interest expense. It was costed, reviewed, and put to David, who approved it.
+**It was wrong, and an adversarial pass caught it before anything was posted.**
+
+The loan is carried GROSS — $145,875, the whole payback, fee capitalised at origination.
+On that basis a $100 withholding correctly reduces the balance by $100 and carries no
+interest of its own. Reclassifying anyway would have credited an extra $20,875 into the
+liability across the loan's life, leaving **a phantom $20,875 still owing after Stripe said
+paid in full.** It would have looked right for months.
+
+Two things came out of that:
+
+1. **`loan_accounts.carrying_basis`** — `gross_payback` / `net_principal` / `unknown`, with
+   provenance. The fact that decides whether a payment needs splitting at all, and nothing
+   in the schema recorded it. `loan_statements.balance_basis` is a property of ONE
+   statement; this is a property of the loan. Confusing the two is what nearly shipped.
+2. **The rule the planner now enforces**: when the documents establish a PROBLEM but not
+   its REMEDY, name the missing evidence and propose nothing. Here the documents proved no
+   financing cost was reaching the P&L and could not say whether the fix was amortisation,
+   a reversal of a double-expensed fee, or a suspense clean-up — three mutually exclusive
+   answers, all reasonable-looking. The answer was in a June journal none of the four
+   documents contained (`#52168`, `DR 264 Loan Fees / CR 304`, which David found).
+
+#### What shipped
+
+| | |
+|---|---|
+| `loan-bundle` | NEW edge function, plan → confirm. The confirm applies the STORED plan, never a re-derived one, so what was approved and what was written cannot diverge. **Creates no `loan_splits`, ever** — establishing facts and creating money entries stay in different hands. |
+| `_shared/stripe-capital.ts` | Deterministic readers. The agreement's page-1 summary is emitted by pdf.js as all LABELS then all VALUES in arbitrary order, so `/Loan Amount\s*\$([\d,]+\.\d{2})/` returns the *Minimum Payment Amount* with total confidence. Terms are recovered by solving the identities the document itself states, and refused unless unique. |
+| `_shared/carrying-basis-drift.ts` | The detector David asked for. Fits the balance against three models and reports which one the numbers actually behave like. |
+| `_shared/loan-bundle-plan.ts` | Pure planner. Establishes / corroborates / conflicts / actions / **unresolved**. |
+| `reconciliation-run` | `checkCarryingBasis`, so the same judgement runs on a schedule and not only on upload. |
+| `admin-dashboard` | "Read together" + the review modal. |
+| migrations 242, 242b | `carrying_basis`, `loan_contract_terms`, `intake_bundles`. |
+
+#### 🧪 The three models, and why the third one matters most
+
+`gross_payback` = total − paid. `net_principal` = borrowed − principal portion. And
+`net_principal_unsplit` = borrowed − ALL paid — which is not a basis, it is a basis plus a
+mistake. It is exactly what a loan looks like the day after someone reverses the entry that
+capitalised the fee: the liability is now net, every payment needs splitting, and none is
+being split. A two-model check reports "fits neither" and sends somebody hunting a rogue
+journal that does not exist. With the third model the answer is
+`payments_unsplit`, severity error, naming the amount — $2,950.37 on Stripe Capital today,
+14.3102% of every payment, growing with each one.
+
+#### 🔬 52 defects, found by review, not by luck
+
+**Two red teams on the parsers: 30.** Worth remembering by name — a fee LARGER than the loan
+silently swapped Loan Amount and Fixed Fee at high confidence, and the cross-check
+*certified* the swap because it included the loan amount in its own candidate list (870 of
+4,000 fuzzed agreements confidently wrong). A newline inside a quoted CSV description
+FABRICATED a payment: one real $10.00 charge parsed as $510.00, `ok:true`, zero rejections.
+An unterminated quote did the mirror — $28.84 reported against a true $11,192.29. A reversal
+exported as a positive paydown was counted as another payment. `cents()` double-rounded.
+
+**A QA pass on the plumbing: 22 more, across three rounds.** Two were blockers that would
+have made the whole feature inert. `loan_contract_terms` shipped with a PARTIAL unique index
+as its upsert arbiter — Postgres will not infer one unless the statement repeats the
+predicate, and PostgREST only emits column names, so **every terms write would have raised
+42P10**, and the reconciliation check that reads that table would have stayed silent
+forever. And the review screen marked files "filed" whenever anything was approved, outside
+the success branch: untick the attach boxes, tick the basis change, and four documents
+vanished from the batch card having never reached the loan.
+
+**A general lesson worth keeping: a partial unique index cannot back a PostgREST upsert.**
+If a table will be written through the data API, give it a real UNIQUE constraint.
+
+#### The reconciliation check is quiet by construction
+
+Every loan carries `carrying_basis = 'unknown'` and `loan_contract_terms` is empty, so a
+check that fired on "unknown" would have fired on all 22 loans at once. It returns `[]` when
+a loan has no terms — no prediction is possible, so there is nothing to say. It also refuses
+to speak about a loan whose splits carry undated labels (Verdant's `Period 84`), and cuts
+balances and splits **at the same date**, which the first version did not: comparing a
+past-dated balance against every non-voided split subtracts the staged future projections
+that sit on ten of fourteen loans, and reports it as a rogue journal.
+
+#### Where to pick up
+
+Deploy (START HERE §1). Then run a real bundle through the UI — nothing in this feature has
+executed against live data yet. Funding Circle (§2) is still the oldest open thing and is
+untouched by any of this.
+
+
+### Session 241 (2026-08-26) — recovered notes: lender balances as a control, Rapid's fee pairing, the harness
+
+**This entry was reconstructed by session 242.** Session 241 recorded its work only in the
+START HERE block and never wrote a log entry, so replacing that block would have destroyed
+it. Everything below is that block, preserved verbatim. Session 242 caught this only because
+it went looking for the entry it had just referenced — worth remembering: **if you replace
+START HERE, check first that what it says lives somewhere else.**
+
+**This is session 241's START HERE block, preserved verbatim when session 242 replaced it.**
+Everything below was live and unfinished as of 2026-08-26. Items 1, 6 and 7 are still open;
+items 3 and 4 are deploys that may or may not have gone out — confirm before re-running.
+
+#### 1. 🔴 FUNDING CIRCLE HAS EVERY PAYMENT ON FILE TWICE — needs a decision, not a guess
+
+Eight months of it, 2025-11 through 2026-06. The page now REFUSES to publish figures
+built on it (see §2), so nothing wrong leaves the building — but the rows are still
+there and the repair needs a human.
+
+Two parallel series exist for the same payments:
+
+| | label | source | status | in Xero? |
+|---|---|---|---|---|
+| the card | `2026-04` | `explicit_split` | `already_in_xero` / `closed_period` | **no journal, no bank txn** |
+| the ledger row | `2026-04-20` | `statement_delta` | `posted` | `matched_xero_bank_transaction_id` set |
+
+**The day-labelled rows are the ledger** — every one carries a matched bank transaction.
+**The cards carry nothing from Xero at all**, so they are the duplicates.
+
+But do not just void the cards, because the cards hold the BETTER decomposition and the
+day rows hold a wrong one. Measured against Funding Circle's own portal balances (dated
+the 1st of each month, so each payment sits in exactly one interval):
+
+```
+payment      true principal (lender)     what the day row says
+2026-03-18   980.93   (3/1 -> 4/1)       966.45
+2026-04-20   995.65   (4/1 -> 5/1)       2,033.77   <- ALL principal, zero interest
+2026-05-18   1,010.57 (5/1 -> 6/1)       980.93
+2026-06-18   1,025.71 (6/1 -> 7/1)       995.65
+```
+
+The day rows are consistently **two cycles behind**; the cards are **one cycle behind**
+(a card labelled `2026-04` holds the 3/1→4/1 movement — it is labelled by the month of
+the STATEMENT that reported it, not the month of the payment). Neither series is simply
+right, which is why this is not a script.
+
+**The materially wrong one, and the reason this is red:** `2026-04-20`
+(`dcd896b3-643a-4032-b145-28211daff980`) is booked as $2,033.77 principal / $0.00
+interest. About **$1,038 of interest expense is sitting in the loan account** for that
+month, and it is posted.
+
+The order to work it in:
+1. Read Xero's actual journals for Funding Circle, 2025-11 → 2026-06. Establish which
+   series is really in the books. Everything below depends on that answer and nothing
+   else does.
+2. Void the duplicates through `void_loan_split` — never a direct UPDATE. (Note the
+   standing tech debt: `markSplitAlreadyInXero` is one-way, so an `already_in_xero`
+   card cannot currently reach the RPC. That gap is now blocking a real repair.)
+3. Correct the surviving rows' principal/interest to the lender's stated figures.
+4. Re-run `_loanPrincipalReconciliation` — it should go to $0.00 and Funding Circle
+   should reappear in the tiles and on the schedule on its own.
+
+The check that found it is live and will keep watching: `_loanWindowRecon(a)`.
+
+#### 2. ✅ THE LENDER'S BALANCES ARE NOW A CONTROL — `e715a1e`, `59d9575`
+
+**The lesson worth keeping from this session: never infer from shape what a document can
+be asked directly.**
+
+Two independent audits — an execution harness and a red team, working from different
+angles — both reported the Funding Circle doubling and both proposed the same fix:
+deduplicate rows that share a month bucket. That fix would have been WRONG. BayFirst SBA
+2 has the identical shape in 2026-07 and both of its rows are real: its draft date
+drifts backwards (6/03, 7/02, 7/31), so July genuinely carries two payments. Dropping
+one would have punched a $2,108.25 hole in the close the CPA signs on 1 September.
+
+Nothing structural separates the two cases. The lender's own balances separate them
+instantly:
+
+```
+BayFirst   137,568.21 -> 135,901.60 = 1,666.61 moved, 1,666.61 recorded.  ties
+Funding C.  67,240.74 ->  66,215.03 = 1,025.71 moved, 2,006.22 recorded.  2x
+```
+
+`_loanPrincipalReconciliation(a, fromMonth, toMonth)` runs that per loan across the whole
+measurement window rather than one month — over a span a drifting draft date cancels and
+a duplicated payment does not. `over` (recorded MORE than the lender moved) means
+something is on file twice and must not be published. `under` means incomplete history
+and must NOT exclude, or an understated total gets more understated — the first cut got
+this wrong and dropped $15,099 of genuine obligation out of "Committed each month".
+
+#### 3. 🚀 TWO THINGS ARE COMMITTED AND WAITING ON YOU
+
+```
+# (a) Rapid ingestion — see §4
+npx supabase@latest functions deploy loan-ingest-statement --project-ref umjpbuxrdydwejqtensq
+# (b) and its migration
+psql "$DATABASE_URL" -f supabase/migrations/20260826_interest_arrives_as_fee.sql
+```
+
+Plus everything session 240 left in §1 of the previous START HERE (payroll-ingest,
+payroll-xero-post, xero-payout-sync, xero-payout-watchdog, loan-find-difference) — those
+deploys appear to have gone out at 21:30 UTC from a parallel session; confirm before
+re-running.
+
+#### 4. ✅ RAPID — `b3ea38a`, committed, NOT deployed
+
+David: *"the interest is show as a fee. To calculate the principal, deduct the
+interest/fee portion from the PAYMENT."*
+
+`loan-ingest-statement` has computed exactly that since v20 — written for this lender,
+tested against this lender's real PDF — and **has never run for this lender**. The block
+is gated on `direct_split_enabled`, which is `false` on Rapid Credit Line.
+
+The gate was the wrong question. `direct_split_enabled` decides how we POST. Whether a
+fee and a payment are one economic event is a fact about how the LENDER works. Rapid
+capitalises the weekly fee into the balance and then takes the full payment against it,
+visible in its own portal figures: 7/07 61,962.76 → 7/13 62,516.85 (+554.09 fee) → 7/14
+60,447.96 (−2,068.89 payment); net 1,514.80 = 2,068.89 − 554.09, to the cent.
+
+So the fact has its own column now (`interest_arrives_as_fee`) and the posting preference
+keeps its own. Default false; only Rapid is set true; no other loan changes.
+
+**Also fixed, and it was live:** the pairing tracked consumed fees and payments in Sets of
+DATE STRINGS. Rapid charges draw fees — a $4,000 one on 2025-11-03 is in the code's own
+comments. A draw fee on the same day as a weekly fee matched `pairedFeeDates.has(f.date)`,
+was treated as consumed, and was **dropped**: interest expense that never reached the
+books, silently. Keyed by identity now. No same-day pair exists in Rapid's history today,
+so it never fired — it was reachable and it lost money when it did.
+
+`tests/rapid-pairing.test.mjs` — 19 assertions, all passing, against the statement David
+photographed and against Rapid's portal balances already on file.
+
+#### 5. 🧪 THE HARNESS IS THE THING THAT ACTUALLY FINDS THESE — `tests/bookkeeping-harness.mjs`
+
+**474 assertions, 473 passing** (session 240 left it at 433). Run it before shipping
+anything to this module:
+
+```
+npm i -D playwright && npx playwright install chromium
+node tests/bookkeeping-harness.mjs
+```
+
+Everything below was found by RENDERING THE PAGE, and four read-only audit lanes reading
+the same code missed all of it:
+
+- `−$-1,008.06` in the Variance column, live for months, and `$-3,326.23` in the close
+  band. `money2()` rendered the sign and the caller prepended another.
+- "Last payment" was the newest split of ANY kind: a staged 2026-09 projection on ten of
+  fourteen loans, and on Dexter 2 a VOIDED row dated **2099-01**.
+- The Type column printed raw database enums at a business owner (`pending_review`).
+- `_bkDataReady()` had one definition and **zero call sites** — written in session 240
+  for exactly this and never wired. On a cold load failure the page rendered a green
+  "All clear — every issue is handled" over no data at all.
+- A failed `loan_tie_outs` read relabelled every loan "not checked" and said so only to
+  the console. `loadBookkeepingKpis` never checked its error at all.
+- The nav badge was order-dependent — it subtracts dismissals, which `loadReconciliation`
+  reads, and that loader never poked it. Sidebar 3, Approvals tab 1.
+
+The one remaining failure is a data question: four loans carry
+`balance_basis = 'unknown'` (Dexter 2, E-Transit E5, E-Transit E6, Stripe Capital) and
+nobody can say whether those figures are principal or payoff. They are inside the
+published debt total.
+
+#### 6. ⚠️ `loan_amortization_rows` IS 74 ROWS FROM A SILENT CLIFF
+
+926 rows against PostgREST's 1000-row `db-max-rows`. At the cap it returns **HTTP 200
+with a partial body and no error** — `_bkFirstError` sees nothing, `_bkLoansLoaded` goes
+true. It is now ordered newest-first (so truncation is deterministic rather than
+arbitrary) and `_bkCheckRowCap` logs when it happens, but the real fix is pagination or a
+server-side aggregate. One more schedule the size of Verdant's (85 rows) crosses it.
+
+#### 7. 📋 THE TWO AUDITS' REMAINING FINDINGS — not yet worked
+
+Angle 3 (deploy-only edge functions) found **57** functions deployed with no source in
+git, not the ~18 estimated; 33 are already-neutered stubs. Unworked, ranked:
+
+1. `retail-cash-reclass-monthly` — duplicate guard fails open TWICE, on a live
+   "Approve & Post to Xero" button, while its own comment claims it copies
+   `payroll-fix-668-misroute`'s pattern. It does not. Also has **no close-period guard**
+   and accepts an arbitrary `{year, month}` from the body.
+2. `xero-payout-reallocate` — no duplicate guard of any kind; writes
+   `xero_payout_syncs` after posting and never reads it on entry.
+3. `create-driver` — `verify_jwt:false`, no auth check, creates a pre-confirmed account
+   with `role:'driver'`. Every sibling (`create-staff`, `invite-staff`,
+   `provision-device-account`) gates on admin. This one does not.
+4. `remove-card` / `set-default-card` / `save-payment-method` / `create-setup-intent` —
+   unauthenticated, service-role, trust a `customer_id` from the body.
+5. `send-invoice` — unauthenticated relay, arbitrary recipients and attachments, fixed
+   `From: Family Laundry <info@familylaundry.com>`.
+6. `on-customer-created` — unauthenticated; sends a real SMS to any number, in a loop.
+7. `cloudprnt-setting.json` — **never reviewed by anything.** The MCP tool rejects the dot
+   in the slug, so it cannot be fetched. Pull it from the Supabase dashboard.
+
+Angle 4 (red team) — still open from its list:
+- **`loan-xero-post` checks the split's period LABEL and never the journal's DATE.**
+  `_shared/close-date.ts` already exports `isProtectedDate()` and its own test asserts
+  this exact case; `grep` says `loan-find-difference` is its only caller. Put it at the
+  convergence point so all three write paths get it at once.
+- No optimistic-concurrency predicate on any status transition — every post ends in
+  `.eq('id', id)` with no expected-status check and no rowcount assertion.
+- The close band's OPENING has no recency floor. EIDL's opening is a **2024-03-31**
+  figure in a column headed 6/30. `short()` now prints the year, which makes it visible;
+  the floor itself is not built.
+- 70 future-dated Verdant projection rows sit in `loan_statements`, kept out of published
+  balances only by `'amortization_schedule'` not being in `_VARIANCE_REAL_ANCHORS`. Real
+  anchors get a 31-day forward grace, so one mislabelled source flips a projection into a
+  published, "authoritative" balance.
+
+---
 
 ### Session 240 (2026-08-26) — a four-lane audit, and the payroll money path has no source in git
 

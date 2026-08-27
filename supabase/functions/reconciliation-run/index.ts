@@ -6,6 +6,12 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // double-reallocation.test.ts -- the ±40-day pairing bug it guards against produced 33
 // false 'corrected twice' findings in one run, and nothing here could have caught it.
 import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './double-reallocation.ts'
+// The carrying-basis detector is a PURE module in _shared so that the same
+// judgement runs here (on a schedule) and inside loan-bundle (when documents
+// arrive). Session 242's lesson, learned twice in one day: a guard is only as
+// good as the branch it sits on, so the two paths that need this answer must
+// read it from one place rather than each growing their own copy.
+import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -1016,6 +1022,157 @@ function renderReport(run: any, findings: any[], loansById: Record<string, any>,
 </div></body></html>`
 }
 
+/**
+ * Does this loan still behave like the kind of loan we have it recorded as?
+ *
+ * The question nothing asked before session 242, and the one that decides
+ * whether every payment on a loan needs splitting into principal and financing
+ * cost. A loan's carrying basis can change under you — reversing the entry that
+ * capitalised a fee at origination converts a payoff-basis loan into a
+ * principal-basis one in a single journal, with no announcement — and from that
+ * moment every payment needs a split and none is getting one.
+ *
+ * Deliberately DIFFERENT from the two checks already in this file that mention
+ * "basis", and worded so nobody has to work out which is which:
+ *   - intake's `basis_conflict` is about statements disagreeing with each other
+ *     about what THEY measure.
+ *   - `no_principal_only_basis` is a tie-out reason code meaning "I had nothing
+ *     principal-only to compare against".
+ *   - this is about the LOAN: given the agreement's own figures and the payments
+ *     recorded, does the balance still behave the way we think it does.
+ *
+ * Silent when there is nothing to say, which matters: every loan carries
+ * `carrying_basis = 'unknown'` until a bundle establishes it, and a check that
+ * fired on all 22 would bury the ones that mean something. No agreement terms on
+ * file means no prediction is possible, so this returns nothing at all rather
+ * than 21 findings saying "upload a document".
+ */
+function checkCarryingBasis(loan: any, terms: any[], balances: any[], mySplits: any[], today: string): Finding[] {
+  if (loan.status !== 'active') return []
+
+  const mine = terms.filter((t: any) => t.loan_account_id === loan.id)
+
+  // Two live rows for one term_key is not a bug — migration 242 says so out
+  // loud: "a DIFFERENT document stating the same term is a separate row on
+  // purpose, because two documents disagreeing is exactly the thing worth
+  // seeing." So the consumer must not quietly pick one. `find()` did, taking
+  // whatever the scan yielded first, which is not even STABLE: applying a term
+  // UPDATEs those rows, an UPDATE relocates the tuple, and the answer changes.
+  // A drift error could appear one run and resolve itself the next with nothing
+  // about the loan having changed.
+  const disagreements: string[] = []
+  const val = (k: string) => {
+    const rows = mine.filter((x: any) => x.term_key === k && x.value_numeric != null)
+    if (!rows.length) return null
+    const distinct = [...new Set(rows.map((r: any) => Number(r.value_numeric)))]
+    if (distinct.length > 1) {
+      disagreements.push(`${k}: ${distinct.map(v => money(Number(v))).join(' vs ')}`)
+      return null
+    }
+    return distinct[0]
+  }
+  const loanTerms = {
+    loan_amount: val('loan_amount'),
+    fixed_fee: val('fixed_fee'),
+    total_repayment_amount: val('total_repayment_amount'),
+  }
+  // Documents on file contradict each other about this loan's own terms. That is
+  // worth saying, and it is emphatically NOT the moment to predict a balance
+  // from one of them.
+  if (disagreements.length) {
+    return [{
+      fingerprint: `carrying_basis:${loan.xero_account_code}`,
+      check_key: 'contract_terms_disagree',
+      severity: 'warn',
+      loan_account_id: loan.id,
+      title: `${loan.xero_account_name || loan.lender} — two documents state different terms for this loan`,
+      plain_english:
+        `More than one document on file states this loan's terms, and they do not match: ${disagreements.join('; ')}. ` +
+        `Until it is clear which is current, nothing can check that this loan's balance behaves the way it should — so that check is switched off for this loan rather than run against a guess.\n\n` +
+        `Open the loan's documents, decide which agreement is the operative one, and remove or supersede the other.`,
+      detail: { code: loan.xero_account_code, disagreements },
+      proposed_action: { kind: 'resolve_contract_terms', note: 'Decide which document states the current terms.' },
+    }]
+  }
+
+  // Nothing to predict from. Stay quiet -- see the note above.
+  if (loanTerms.loan_amount === null && loanTerms.total_repayment_amount === null) return []
+
+  // Only real, past-dated balances. A future-dated row is a projection, and
+  // treating one as a live balance is the exact bug session 196 shipped.
+  const live = balances
+    .filter((b: any) => b.statement_date <= today && b.principal_balance != null)
+    .slice().sort((a: any, b: any) => a.statement_date.localeCompare(b.statement_date))
+  if (!live.length) return []
+
+  // BOTH SIDES MUST BE CUT AT THE SAME DATE.
+  // The balance is a point in time; the payments are a sum of movements. Compare
+  // a past-dated balance against every non-voided split and the staged, future-
+  // dated projections that sit on ten of fourteen loans get subtracted from a
+  // balance that has not seen them yet. The models then miss by exactly the
+  // staged amount, nothing fits, and the check reports 'the balance does not
+  // match any expected shape' at severity error — sending someone hunting for a
+  // rogue journal that does not exist. Same shape as the bug session 196 shipped,
+  // pointed the other way.
+  const asOf = live[live.length - 1].statement_date
+  const alive = mySplits.filter((s: any) => !s.voided_at)
+
+  // A label that names no date (Verdant's 'Period 84') cannot be placed on either
+  // side of that line. Excluding it understates payments; including it overstates
+  // them. Neither is a judgement worth making, so a loan carrying any such label
+  // is not one this check can speak about at all.
+  if (alive.some((s: any) => !/^\d{4}-\d{2}(-\d{2})?$/.test(String(s.period_label || '')))) return []
+
+  // A month label carries no day, so a '2026-08' split cannot be placed against a
+  // balance dated 2026-08-12: including it subtracts a whole month of payments
+  // the balance has only seen half of. Only months that CLOSED before the balance
+  // date count — unless the balance itself sits on the month end, in which case
+  // its own month is complete and counts too.
+  const asOfMonth = asOf.slice(0, 7)
+  const asOfIsMonthEnd = (() => {
+    const [y, m] = asOfMonth.split('-').map(Number)
+    return asOf === new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+  })()
+  const inWindow = alive.filter((s: any) => {
+    const label = String(s.period_label)
+    if (label.length === 7) return asOfIsMonthEnd ? label <= asOfMonth : label < asOfMonth
+    return label <= asOf
+  })
+
+  const r = detectCarryingBasisDrift({
+    loan_id: loan.id,
+    loan_label: loan.xero_account_name || loan.lender,
+    recorded_basis: (loan.carrying_basis ?? 'unknown'),
+    terms: loanTerms,
+    balances: live.map((b: any) => ({
+      statement_date: b.statement_date, principal_balance: Number(b.principal_balance),
+      balance_basis: b.balance_basis, source: b.source,
+    })),
+    splits: inWindow.map((s: any) => ({
+      period_label: s.period_label,
+      principal_amount: Number(s.principal_amount), interest_amount: Number(s.interest_amount),
+      total_amount: Number(s.total_amount), source: s.source, voided_at: s.voided_at,
+    })),
+  })
+
+  // 'consistent' and 'not_enough_evidence' are both "nothing to do". Returning
+  // them would put a permanent info row on every healthy loan, and the resolve
+  // sweep closes a finding by ABSENCE, so silence here is also what marks a
+  // previously-drifting loan fixed.
+  if (r.verdict === 'consistent' || r.verdict === 'not_enough_evidence') return []
+
+  return [{
+    fingerprint: `carrying_basis:${loan.xero_account_code}`,
+    check_key: r.verdict === 'payments_unsplit' ? 'carrying_basis_payments_unsplit' : 'carrying_basis_drift',
+    severity: r.severity,
+    loan_account_id: loan.id,
+    title: r.title,
+    plain_english: `${r.plain_english}\n\n${r.suggested_next_step}`,
+    detail: { code: loan.xero_account_code, ...r.detail },
+    proposed_action: { kind: 'confirm_carrying_basis', note: r.suggested_next_step },
+  }]
+}
+
 // ── Runner ──────────────────────────────────────────────────────────────
 
 async function handle(req: Request): Promise<Response> {
@@ -1055,7 +1212,7 @@ async function handle(req: Request): Promise<Response> {
   }).select().single()
 
   try {
-    const [{ data: loans }, { data: statements }, { data: splits }, { data: amortRows }] = await Promise.all([
+    const [{ data: loans }, { data: statements }, { data: splits }, { data: amortRows }, { data: contractTerms }] = await Promise.all([
       supa.from('loan_accounts').select('*'),
       supa.from('loan_statements').select('*').order('statement_date', { ascending: false }),
       supa.from('loan_splits').select('*'),
@@ -1067,7 +1224,17 @@ async function handle(req: Request): Promise<Response> {
       supa.from('loan_amortization_rows')
         .select('row_date, balance, loan_amortization_schedules!inner(loan_account_id, balance_basis)')
         .not('balance', 'is', null),
+      // Terms as the LENDER stated them (session 242). Only live rows: a superseded
+      // term is history, and predicting a balance from a superseded agreement would
+      // report drift that is really just an old contract.
+      // A failed read here is indistinguishable from an empty table, and an empty
+      // table makes checkCarryingBasis silent. Logged so a broken read cannot
+      // masquerade as "no loan has terms yet".
+      supa.from('loan_contract_terms')
+        .select('loan_account_id, term_key, value_numeric, superseded_at')
+        .is('superseded_at', null),
     ])
+    if (!contractTerms) console.error('reconciliation-run: loan_contract_terms read returned no data; the carrying-basis check will stay silent this run')
     const active = (loans || []).filter(l => l.xero_account_code)
     const codes = active.map(l => l.xero_account_code)
 
@@ -1170,6 +1337,10 @@ async function handle(req: Request): Promise<Response> {
       findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor))
       findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), mySplits))
       findings.push(...checkUnexplainedLedgerAdjustment(loan, ledger, mySplits, windowFrom))
+      // Window-independent by construction: reads loan_accounts, loan_contract_terms,
+      // loan_statements and loan_splits, none of which are windowed. So it cannot go
+      // stale the way a ledger-derived finding can.
+      findings.push(...checkCarryingBasis(loan, contractTerms || [], mine, mySplits, today))
     }
 
     // ── new / still-open / resolved, by fingerprint ──
@@ -1270,7 +1441,7 @@ async function handle(req: Request): Promise<Response> {
     await supa.from('reconciliation_runs').update({
       status: 'complete', finished_at: new Date().toISOString(),
       period_from: windowFrom, period_to: today,
-      checks_run: 7, loans_checked: active.length, ...counts,
+      checks_run: 9, loans_checked: active.length, ...counts,
       summary: {
         checkpoint: newCheckpoint,
         xero_entries_scanned: allEntries.length,
