@@ -8297,7 +8297,23 @@
     if (wantsDriver && !_tmHasDriverRow) {
       // UPSERT — drivers.profile_id has UNIQUE constraint, race-safe (session 111)
       const { error: dErr } = await db.from('drivers').upsert({ profile_id: _tmProfileId, is_active: true }, { onConflict: 'profile_id' });
-      if (dErr) { console.warn('Driver row upsert:', dErr.message); }
+      // Session 231: trg_prevent_duplicate_driver_identity blocks a SECOND driver
+      // record for a person who already has one (same phone or email on another
+      // login). This used to console.warn and show a cheerful "Team member updated"
+      // — which is how Aracely Cruzado ended up with two driver records and a
+      // driver app that showed her an empty route on the days her stops were
+      // scheduled on the other one. Show the real reason.
+      if (dErr) {
+        console.error('Driver row upsert:', dErr);
+        const dup = /DUPLICATE_DRIVER_IDENTITY/.test(dErr.message || '');
+        errEl.textContent = dup
+          ? (dErr.message.split('DUPLICATE_DRIVER_IDENTITY: ')[1] || dErr.message)
+          : 'Saved, but could not turn on driver access: ' + dErr.message;
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Save';
+        loadTeamPage();
+        return;
+      }
     } else if (!wantsDriver && _tmHasDriverRow) {
       const { error: dErr } = await db.from('drivers').delete().eq('profile_id', _tmProfileId);
       if (dErr) { console.warn('Driver row delete:', dErr.message); }

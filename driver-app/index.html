@@ -2587,6 +2587,19 @@ async function _loadDriverDataInner() {
         setTimeout(() => db.auth.signOut(), 2500);
         return;
       }
+      // Session 231: this login and a second account are both set up as drivers for
+      // the same person. The link can't merge them (drivers.profile_id is UNIQUE), and
+      // whichever record admin scheduled the route on decides whether this login sees
+      // any stops at all. Aracely Cruzado lost most of a day to this failing SILENTLY —
+      // it used to arrive as a bare 23505 and get console.warn'd away, leaving her
+      // staring at an empty route with nothing to report. Never swallow it again.
+      if (linkErr?.message?.includes('DUPLICATE_DRIVER_RECORD') || linkErr?.code === '23505') {
+        toast('Your account is set up twice — your stops may be on the other one. Contact admin.', 8000);
+        console.error('Duplicate driver record for this login:', linkErr);
+      } else if (linkErr) {
+        toast('Could not finish signing you in. If your route looks empty, contact admin.', 8000);
+        console.error('Driver phone account link failed:', linkErr);
+      }
       if (linked?.length > 0) {
         // Re-fetch profile — it's now updated with the driver's real name/email
         const { data: refreshedProf } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
@@ -2594,7 +2607,8 @@ async function _loadDriverDataInner() {
         linkedDrv = linked[0];
       }
     } catch (e) {
-      console.warn('Driver phone account link check failed:', e.message);
+      toast('Could not finish signing you in. If your route looks empty, contact admin.', 8000);
+      console.error('Driver phone account link check failed:', e.message);
     }
   }
 
@@ -2623,10 +2637,21 @@ async function _loadDriverDataInner() {
   }
   if (!drv) {
     // UPSERT with DB-level UNIQUE constraint on profile_id — race-safe (session 111)
-    const { data: nd } = await db.from('drivers')
+    const { data: nd, error: ndErr } = await db.from('drivers')
       .upsert({ profile_id: currentUser.id, is_active: true }, { onConflict: 'profile_id' })
       .select()
       .single();
+    // Session 231: trg_prevent_duplicate_driver_identity refuses to mint a second
+    // driver record for someone who already has one under a different login. That's
+    // the right answer — but it has to be SAID, not swallowed into a generic throw.
+    if (ndErr?.message?.includes('DUPLICATE_DRIVER_IDENTITY')) {
+      showLoading(false);
+      toast('You already have a driver account under a different login. Contact admin.', 8000);
+      console.error('Duplicate driver identity on auto-provision:', ndErr);
+      setTimeout(() => db.auth.signOut(), 4000);
+      return;
+    }
+    if (ndErr) console.error('Driver auto-provision failed:', ndErr);
     drv = nd;
   }
   currentDriver = drv;
