@@ -35330,9 +35330,14 @@ ${oneCopy}
   }
 
   async function loadAllDriversCache() {
+    // Session 231: this used to filter `.eq('is_active', true)` in the QUERY, so an
+    // inactive driver was never fetched at all — and every surface that names an
+    // existing assignment from this cache (`driverMap[id] || 'Driver'`) fell back to
+    // the anonymous "Driver" label for their routes. The cache names WHO IS ASSIGNED,
+    // which is a question about the past and present, not about who is still employed;
+    // it must contain everyone. Pickers narrow to active via activeDriverOptions().
     const { data, error } = await db.from('drivers')
-      .select('id, profiles(first_name, last_name, role, square_employee_name)')
-      .eq('is_active', true);
+      .select('id, is_active, profiles(first_name, last_name, role, square_employee_name)');
     if (error) {
       console.warn('drivers table unavailable:', error.message);
       allDriversCache = [];
@@ -35347,8 +35352,16 @@ ${oneCopy}
       .map(d => ({
         id: d.id,
         name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver',
+        isActive: d.is_active !== false,
         squareName: d.profiles?.square_employee_name || null,
       }));
+  }
+
+  // Options for any driver PICKER: active drivers only, but never hide whoever is
+  // already assigned — otherwise the control opens with a blank selection and an
+  // innocent save silently reassigns the route (session 231).
+  function activeDriverOptions(keepId) {
+    return (allDriversCache || []).filter(d => d.isActive !== false || d.id === keepId);
   }
 
   // ── DRIVERS PAGE ──
@@ -35382,10 +35395,18 @@ ${oneCopy}
       createdAt:  d.created_at
     }));
 
-    // Keep allDriversCache in sync (used by Routes page)
+    // Keep allDriversCache in sync (used by Routes page).
+    // Session 231: this used to `.filter(d => d.isActive)`, which quietly made the
+    // Routes > Schedule grid LIE. The grid names an existing assignment via
+    // `driverMap[drvId] || 'Driver'` — so once you visited the Drivers page and this
+    // line rebuilt the cache without inactive drivers, every cell still assigned to an
+    // inactive driver rendered as the anonymous fallback "Driver". Nathie Lemus was
+    // marked inactive after being let go but still held 48 upcoming stops, and the
+    // schedule showed "Driver" on them instead of her name, so there was nothing to
+    // notice. The cache is the NAMING source and must contain everyone; it is the
+    // PICKERS that should exclude inactive drivers — see activeDriverOptions().
     allDriversCache = allDriversList
-      .filter(d => d.isActive)
-      .map(d => ({ id: d.id, name: `${d.firstName} ${d.lastName}`.trim() || 'Driver' }));
+      .map(d => ({ id: d.id, name: `${d.firstName} ${d.lastName}`.trim() || 'Driver', isActive: d.isActive }));
 
     const activeCount = allDriversList.filter(d => d.isActive).length;
     const sub = document.getElementById('drivers-subtitle');
@@ -36425,7 +36446,7 @@ ${oneCopy}
     if (!opts) return;
     const selectedId = popoverCtx.scope === 'forward' ? popoverCtx.weeklyDriverId : popoverCtx.currentDriverId;
     const disabled = !!popoverCtx.disabled;
-    opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...allDriversCache].map(d => {
+    opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...activeDriverOptions(selectedId)].map(d => {
       const selected = d.id === selectedId || (!d.id && !selectedId);
       const opacity  = disabled ? 'opacity:.4;pointer-events:none;' : '';
       return `<div onclick="${disabled ? '' : `assignDriverOverride('${d.id}')`}"
@@ -38626,7 +38647,7 @@ ${oneCopy}
     document.getElementById('reassign-bag-callout').style.display = isBagMissing ? 'block' : 'none';
     const sel = document.getElementById('reassign-driver-select');
     sel.innerHTML = `<option value="">— Route's default driver —</option>` +
-      allDriversCache.map(d => {
+      activeDriverOptions(currentDriverId).map(d => {
         const isDefault = d.id === routeLiveDefaultDriverId;
         // Session 187 pt 2 QA fix: was interpolated unescaped, inconsistent with esc()
         // usage elsewhere in this file.
