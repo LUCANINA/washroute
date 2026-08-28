@@ -2,41 +2,45 @@
 
 > ## ⏭️ START HERE — first thing, session 248 (left by session 247, 2026-08-28)
 >
-> ### 1. 🔴 THE DEPLOY — `reconciliation-run` IS NOT DEPLOYED, AND THAT IS WHAT MAKES THE CLOSE BAND HALF-BUILT
+> ### 1. 🟠 THE DEPLOY — HALF DONE. `reconciliation-run` IS LIVE; THE RUN IS STILL OWED
 >
-> **Checked live, not inferred (2026-08-28):** `reconciliation-run` is **v49,
-> deployed 2026-08-27 23:41:20, byte-identical to HEAD**. Session 246's change to
-> it — **+325/−13** — is committed and **not shipped**. `loan-bundle` is still
-> **v21** (23:41:16), so session 245's `ead8a11` is *also* still undeployed.
+> **Re-checked live 2026-08-28 (session 247), superseding what session 246 wrote here:**
 >
-> **The sandbox cannot do this deploy, and it is worth knowing why so nobody burns
-> an hour rediscovering it.** The payload is **212 KB across 5 files**
+> * ✅ **`reconciliation-run` is now v52, deployed 2026-08-28 08:01 PT.** David ran
+>   the deploy this morning (v49 → v52). Session 246's +325/−13 IS shipped.
+> * ❌ **`loan-bundle` is still v21, 2026-08-27 16:41 PT.** That second deploy did
+>   NOT take — session 245's `ead8a11` remains unshipped. Re-run it.
+> * ✅ `git push` landed (`9bb2310..1308a12 main -> main`).
+>
+> **CORRECTION — `loan_book_balances` is NOT empty.** Session 246 wrote "verified,
+> 0 rows"; it holds **44 rows (22 loans × 2), all written by run
+> `61870f48-4b46-4a42-be9d-f92475b786e6` at 2026-08-27 19:48 PT** — which ran on
+> **v49, the code BEFORE session 246's change**. So the close band on screen right
+> now is populated, but with pre-session-246 output. Do not read it as the new
+> behaviour.
+>
+> **What is still owed is one click.** The newest reconciliation run predates the
+> deploy, so nothing has yet exercised v52. **Click "Run Reconciliation Check"
+> once** — that is the acceptance test. It should replace the 44 rows with a v52
+> rebuild and turn Verdant's *"agrees by construction — not an independent check"*
+> into the real tie (`loan_tie_outs` already holds **−$1,835.75** for it).
+>
+> **David runs, from his own terminal:**
+>
+> ```
+> npx supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt   # ead8a11, session 245 — still owed
+> ```
+>
+> **Why the sandbox cannot do these deploys** (kept so nobody re-derives it): the
+> `reconciliation-run` payload is **212 KB across 5 files**
 > (`reconciliation-run/index.ts` 127 KB, `_shared/settlement-lag.ts` 49 KB,
 > `_shared/carrying-basis-drift.ts` 23 KB, `double-reallocation.ts` 8 KB,
 > `_shared/xero-auth.ts` 5 KB) and the MCP deploy tool wants every file inline in
 > one call. Running the function afterwards needs a logged-in admin session too —
 > it has `callerRole(req)` and **no `x-wr-internal` branch**, so unlike `xero-read`
-> it cannot be poked from SQL.
->
-> **David runs, from his own terminal:**
->
-> ```
-> npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> npx supabase@latest functions deploy loan-bundle        --project-ref umjpbuxrdydwejqtensq --no-verify-jwt   # ead8a11, session 245
-> git push          # unpushed commits — the sandbox has no network and will 403
-> ```
->
-> …and then **clicks "Run Reconciliation Check" once.**
->
-> **Until he does: `loan_book_balances` is EMPTY (verified, 0 rows), and BOTH
-> grade-B loans — Dexter Loan 2 and Verdant Capital — read *"agrees by
-> construction — not an independent check"*.** That is the close band being
-> honest: with no books-side balance on file, the opening and the closing both
-> trace to the same amortization schedule, and a check that cannot fail must not
-> look like a check that passed. But it is not yet the thing the session built.
-> The independent opening is what turns Verdant's tie into the real number
-> (`loan_tie_outs` already holds **−$1,835.75** for it), and one run produces it.
-> **The first run is the acceptance test, and it is still owed.**
+> it cannot be poked from SQL. Also note David has **no Homebrew and no write
+> access to `~/.zshrc`** on that Mac, so `npx supabase@latest` (plus a keychain
+> "Always Allow") is the working path; do not suggest `brew install`.
 >
 > ### 2. 🟠 STRIPE'S LENDER ANCHOR — STILL BLOCKED ON THE SAME SCHEMA DECISION
 >
