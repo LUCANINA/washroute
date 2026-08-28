@@ -2106,6 +2106,33 @@ FinSimple", asserts they stay orphans, then reverts the id guard and asserts eve
 one of them gets swallowed. A guard nothing exercises is a guard nobody knows is
 broken.
 
+**And the statusline went from seven numbers to three.** David: *"Too many numbers
+and exceptions. Consolidate into 3 categories, max."* It read *"5 of 14 loans
+reconciled · 6 need attention · 1 waiting on a statement · 1 closed on their payment
+schedule · 1 off by a rounding amount · 2 ready to post · 9 staged"* — and five of
+those were exceptions carved out of one another. "Waiting on a statement", "closed on
+their payment schedule" and "off by a rounding amount" are three different reasons a
+loan is **not work today**, and scoring them separately made a settled book look like
+a mess.
+
+The three are now **exactly the roster's three bands, in the same order**:
+`5 of 14 loans reconciled · 6 need attention · 3 settled or waiting`. That is not
+cosmetic — this module's history is largely two surfaces disagreeing about one
+number, and the cheapest guarantee against it is that the sentence and the list
+beneath it read the same partition. **The denominator still adds up** (5 + 6 + 3 =
+14): every loan is in exactly one of the three, and the code comment says plainly
+that a new roster state must be assigned to one of these buckets in the same edit, or
+the line silently stops summing — which is how it once described 13 of 14 loans.
+
+**Approvals and Staged left the Issues line and moved onto their own tabs**, where
+each now states its own figure when selected ("3 ready to post", "10 staged, waiting
+on the bank"). For Staged this is the line the session-231 seg-button comment
+promised — *"the figure is in the tab's own subtitle instead, phrased as a state"* —
+and never actually had. **The one real consequence: the staged count is no longer
+visible from the Issues view.** That is deliberate (staged work needs nothing done)
+but it IS a number that used to be on screen and now is one click away, so it is
+recorded here rather than left to be noticed as a regression.
+
 **Harness work (tests/bookkeeping-harness.mjs).** `READ_QUEUE` was taught the new DOM
 and now flattens lender rows and per-loan blocks into one addressable list, so a test
 can name either. It still reads `textContent`, never `innerText`, so *"every item

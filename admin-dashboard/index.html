@@ -10964,37 +10964,49 @@
       else if (!issues.length && !approvals.length && !staged.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
       else {
         const parts = [];
-        // The roster's headline: a bounded score, not an unbounded pile. "6 of 14
-        // reconciled" says you are most of the way there; "13 issues" says you
-        // are losing. Same books, and only one of them is a position you can
-        // finish. Counts come from _bkRosterCounts (tie-outs), never from
-        // counting findings — see _bkRosterHtml.
+        // ── THREE NUMBERS, AND THEY ARE THE THREE BANDS BELOW (session 247) ──
+        // David: "Too many numbers and exceptions. Consolidate into 3 categories,
+        // max." It was seven, and five of them were exceptions carved out of one
+        // another — "waiting on a statement", "closed on their payment schedule",
+        // "off by a rounding amount" are three different reasons a loan is not
+        // work today, and reading them as separate scores made a settled book
+        // look like a mess.
+        //
+        // The three are now EXACTLY the roster's three bands, in the same order,
+        // so the sentence and the list underneath it cannot describe the book
+        // differently. That is not a cosmetic choice: this module's history is
+        // largely two surfaces disagreeing about one number, and the cheapest
+        // guarantee against it is that both read the same partition.
+        //
+        // THE DENOMINATOR STILL HAS TO ADD UP. The first version of this line
+        // omitted `immaterial` and quietly described 13 of 14 loans. Every loan
+        // is still in exactly one of these three, so reconciled + variance +
+        // settled === total, always. If you add a fourth roster state, put it in
+        // one of these three buckets in the SAME edit — a state that falls
+        // through lands nowhere and the line silently stops summing.
         const rc = _bkOverviewSeg === 'issues' ? _bkRosterCounts() : null;
         if (rc && rc.total) {
-          // Every loan must appear in this line. The first version omitted
-          // `immaterial` and quietly described 13 of 14 loans — a denominator
-          // that does not add up is the same lie the roster exists to prevent,
-          // just in one sentence instead of a list.
+          // Reconciled leads: a bounded score, not an unbounded pile. "5 of 14
+          // reconciled" is a position you can finish; "13 issues" is one you are
+          // losing.
           parts.push(`${rc.reconciled} of ${rc.total} loans reconciled`);
           if (rc.variance) parts.push(`${rc.variance} need attention`);
-          const waiting = rc.unverified + rc.na + rc.unchecked;
-          if (waiting) parts.push(`${waiting} waiting on a statement`);
-          // Session 246: a loan settled against its own contractual schedule is
-          // neither reconciled nor waiting for anything, and folding it into
-          // either would put a number on this line that nobody could act on.
-          // Every loan must still appear — see the note above.
-          if (rc.byschedule) parts.push(`${rc.byschedule} closed on their payment schedule`);
-          if (rc.immaterial) parts.push(`${rc.immaterial} off by a rounding amount`);
+          const settled = rc.unverified + rc.na + rc.unchecked + rc.byschedule + rc.immaterial;
+          if (settled) parts.push(`${settled} settled or waiting`);
+        } else if (_bkOverviewSeg === 'approvals') {
+          parts.push(approvals.length ? `${approvals.length} ready to post` : 'nothing waiting on you');
+        } else if (_bkOverviewSeg === 'staged') {
+          // Stated as a state, never as a backlog — these need nothing done. This
+          // is the line the seg-button note above promised and never had.
+          parts.push(staged.length
+            ? (stagedFlagged ? `${staged.length} staged — ${stagedFlagged} need a look`
+                             : `${staged.length} staged, waiting on the bank`)
+            : 'nothing staged right now');
         } else {
           if (t1.length) parts.push(`${t1.length} to fix first`);
           if (t2.length + t3.length) parts.push(`${t2.length + t3.length} worth a look`);
           if (!issues.length) parts.push('no issues');
         }
-        if (approvals.length) parts.push(`${approvals.length} ready to post`);
-        // Staged is stated, never counted as work -- see the seg-button note above.
-        if (staged.length) parts.push(stagedFlagged
-          ? `${staged.length} staged (${stagedFlagged} need a look)`
-          : `${staged.length} staged, waiting on the bank`);
         const bounce = _bkPrevIssueCount != null && issues.length < _bkPrevIssueCount;
         statusEl.innerHTML = `<span${bounce ? ' class="bk-count-bounce"' : ''}>${esc(parts.join(' · '))}</span>`;
       }
