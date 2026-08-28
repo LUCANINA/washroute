@@ -10945,6 +10945,11 @@
           if (rc.variance) parts.push(`${rc.variance} need attention`);
           const waiting = rc.unverified + rc.na + rc.unchecked;
           if (waiting) parts.push(`${waiting} waiting on a statement`);
+          // Session 246: a loan settled against its own contractual schedule is
+          // neither reconciled nor waiting for anything, and folding it into
+          // either would put a number on this line that nobody could act on.
+          // Every loan must still appear — see the note above.
+          if (rc.byschedule) parts.push(`${rc.byschedule} closed on their payment schedule`);
           if (rc.immaterial) parts.push(`${rc.immaterial} off by a rounding amount`);
         } else {
           if (t1.length) parts.push(`${t1.length} to fix first`);
@@ -11499,6 +11504,15 @@
   let _allLoanStatements = [];
   let _allLoanSplits = [];
   let _allLoanAmortRows = [];       // amortization rows, each carrying its parent schedule's storage_path
+  // Session 246. OUR OWN balance for a loan on a date, rebuilt from Xero
+  // (BankTransactions + ManualJournals) by reconciliation-run and stored per
+  // loan per date. It is a SEPARATE table from loan_statements deliberately:
+  // loan_statements means WHAT THE LENDER SAID, and Stripe's sweep writing our
+  // own arithmetic into it -- colliding with a lender figure on the same date --
+  // is what has START HERE 3.2 blocked right now. Do not repeat that here.
+  // The close rollforward reads this for its OPENING balance so that Verdant's
+  // walk stops being the amortization schedule compared with itself.
+  let _allLoanBookBalances = [];
   let _loanUploadFile = null;       // { base64, filename }
   let _loanUploadParsedAcctNum = null;
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
@@ -12745,10 +12759,26 @@
   // the failure mode being closed here — the API returns 200 with a short body.
   const PGRST_MAX_ROWS = 1000;
   let _bkRowCapHit = [];
+  // Plain English for the one place a table name would otherwise reach a CPA.
+  // A close banner that says `loan_amortization_rows` is a banner nobody acts on.
+  const _BK_TABLE_ENGLISH = {
+    loan_amortization_rows: 'amortization schedule rows',
+    loan_statements:        'lender statements',
+    loan_splits:            'loan payment splits',
+    loan_book_balances:     'book balances',
+  };
   function _bkCheckRowCap(label, rows) {
     if (Array.isArray(rows) && rows.length >= PGRST_MAX_ROWS && !_bkRowCapHit.includes(label)) {
       _bkRowCapHit.push(label);
       console.warn(`[bookkeeping] ${label} came back at the ${PGRST_MAX_ROWS}-row cap — figures derived from it may be incomplete.`);
+      // Session 246: a console.warn is a silence with extra steps. Until now the
+      // only consequence of a truncated table was a line in devtools nobody has
+      // open, while the figures on screen carried on looking complete. A closing
+      // balance can now be taken from a SCHEDULE (grade B), so a short read of
+      // that table is a wrong balance on the one screen whose job is to say
+      // "ready for your accountant". Say it where the reader is.
+      _bkNoteLoadError('rowcap-' + label,
+        `Only the first ${PGRST_MAX_ROWS} ${_BK_TABLE_ENGLISH[label] || 'records'} could be read and there are more. Anything derived from them may be incomplete \u2014 do not close a period on it.`);
     }
     return rows;
   }
@@ -12756,6 +12786,55 @@
   function _bkFirstError(results) {
     for (const r of results) if (r && r.error) return r.error;
     return null;
+  }
+
+  // ── loan_amortization_rows, PAGED (session 246) ───────────────────
+  // A closing balance may now be taken from the contractual schedule (grade B),
+  // so this table stopped being decoration and became evidence. It stood at 926
+  // rows the day that was written, against PostgREST's db-max-rows of 1,000 —
+  // one more schedule the size of Verdant's (85 rows) crosses it.
+  //
+  // "Raise the cap" is not available to this file: db-max-rows is a SERVER
+  // setting and a client .limit() above it is clamped, silently, with HTTP 200
+  // and a short body. Paging is available, so we page.
+  //
+  // ORDER BY id is the paging key, not decoration. row_date has duplicates —
+  // Dexter carries a rate_change row AND a payment row both dated 2026-08-31 —
+  // and a range() boundary landing inside a tie can repeat one row and drop
+  // another. Every consumer re-sorts by date for itself, so a second sort key
+  // costs nothing downstream and makes the page boundaries deterministic.
+  //
+  // AMORT_MAX_PAGES is a stop, not a budget: five pages is 5,000 rows, about
+  // fifty Verdant-sized schedules. Reaching it means something is wrong, and the
+  // banner says so rather than the figures quietly going short.
+  const AMORT_MAX_PAGES = 5;
+  const AMORT_SELECT = 'id, schedule_id, row_date, row_type, balance, principal, interest, payment, rate, loan_amt, '
+    // created_at joins the embedded select because "newest schedule, tie-broken
+    // by created_at" is otherwise not implementable: Verdant holds two schedules
+    // (generated 2026-08-25 and 2025-06-12) with overlapping rows and duplicate
+    // dates, and BayFirst SBA 2 holds two generated a day apart. Without this
+    // column the tie-break has nothing to read and the pick becomes sort order,
+    // which is to say luck.
+    + 'loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, created_at, loan_account_id, balance_basis, amort_type)';
+
+  async function _loadAmortRowsPaged() {
+    const out = [];
+    for (let page = 0; page < AMORT_MAX_PAGES; page++) {
+      const from = page * PGRST_MAX_ROWS;
+      const { data, error } = await db.from('loan_amortization_rows')
+        .select(AMORT_SELECT)
+        .order('row_date', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, from + PGRST_MAX_ROWS - 1);
+      if (error) return { data: null, error };
+      const rows = data || [];
+      out.push(...rows);
+      if (rows.length < PGRST_MAX_ROWS) return { data: out, error: null };
+    }
+    // Every page came back full, so there is more we never asked for.
+    _bkNoteLoadError('amort_rows',
+      `Only the first ${AMORT_MAX_PAGES * PGRST_MAX_ROWS} amortization schedule rows could be read and there are more. A closing balance taken from a schedule may be wrong \u2014 do not close a period on it.`);
+    return { data: out, error: null };
   }
 
   async function loadLoans() {
@@ -12771,20 +12850,31 @@
       // loan's current balance the same way it reads a statement-sourced loan's.
       // ORDER BY is not cosmetic here. PostgREST truncates at db-max-rows (1000)
       // and returns HTTP 200 with a partial body and NO error — nothing
-      // downstream can tell. This table is at 926 rows; one more schedule the
-      // size of Verdant's (85 rows) crosses it. Unordered, the rows that
-      // survive truncation are arbitrary, so _loanOutstandingBalance and
-      // _loanBalanceAsOf would silently start resolving a different, older row
-      // for whichever loans happened to land past the cut. Newest-first at
-      // least means the rows we lose are the ones we care about least — and
-      // _bkCheckRowCap below turns the silence into a visible error.
-      db.from('loan_amortization_rows').select('id, schedule_id, row_date, row_type, balance, principal, interest, payment, rate, loan_amt, loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, loan_account_id, balance_basis, amort_type)').order('row_date', { ascending: false }).limit(PGRST_MAX_ROWS),
+      // downstream can tell. Unordered, the rows that survive truncation are
+      // arbitrary, so _loanOutstandingBalance and _loanBalanceAsOf would
+      // silently start resolving a different, older row for whichever loans
+      // happened to land past the cut. Session 246 stopped losing rows at all:
+      // _loadAmortRowsPaged walks past the cap instead of accepting it, because
+      // a grade-B close reads this table for its closing balance.
+      _loadAmortRowsPaged(),
       // Generic per-loan document attachments (Aug 2026) -- payoff letters, transaction
       // histories, amortization schedules, correspondence, anything worth keeping on file
       // that isn't part of the structured statement/schedule ingestion pipelines above.
       db.from('loan_documents').select('*').order('created_at', { ascending: false }),
+      // Session 246: our own books-side balance per loan per date, written by
+      // reconciliation-run from Xero itself. The close rollforward reads it for
+      // the OPENING balance so the walk stops borrowing the same document its
+      // CLOSING comes from. See _allLoanBookBalances for why it is not in
+      // loan_statements.
+      db.from('loan_book_balances').select('*').order('as_of', { ascending: false }),
     ]);
-    const _err = _bkFirstError(_res);
+    // The first five reads are the loan data. The sixth is an IMPROVEMENT to the
+    // opening balance, and it must not be able to take the other five down with
+    // it: without it the rollforward falls back to the behaviour it had before
+    // this session and says so on the row, which is a worse answer, not a blank
+    // page. (A missing table on a stale deploy, or an RLS grant that has not
+    // been applied yet, are both real ways for this one read to fail alone.)
+    const _err = _bkFirstError(_res.slice(0, 5));
     if (_err) {
       console.error('loadLoans failed:', _err.message || _err);
       showToast('Could not reach your books — the figures on screen may be out of date.', 'error');
@@ -12803,10 +12893,21 @@
         try { renderLoansPeriodBar(); } catch (_) {}
       })
       .catch(() => {});
-    const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }] = _res;
-    _bkCheckRowCap('loan_amortization_rows', amortRows);
+    const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }, bookRes] = _res;
+    // loan_amortization_rows is deliberately NOT cap-checked any more: it is
+    // paged now, so a full first page is normal rather than a truncation, and
+    // _loadAmortRowsPaged raises its own banner if it ever runs out of pages.
     _bkCheckRowCap('loan_statements', statements);
     _bkCheckRowCap('loan_splits', splits);
+    if (bookRes && bookRes.error) {
+      console.error('loan_book_balances read failed (page continues):', bookRes.error.message || bookRes.error);
+      _bkNoteLoadError('book_balances', 'Your books-side loan balances could not be read, so the close rollforward opens each loan from the best statement we hold instead. Where that statement is our own schedule, the row says so and its variance is not an independent check.');
+      _allLoanBookBalances = [];
+    } else {
+      _bkClearLoadError('book_balances');
+      _allLoanBookBalances = (bookRes && bookRes.data) || [];
+      _bkCheckRowCap('loan_book_balances', _allLoanBookBalances);
+    }
     _bkLoansLoaded = true;
     _allLoanAccounts   = accounts || [];
     _allLoanStatements = statements || [];
@@ -12983,6 +13084,11 @@
     // entirely. Deliberately NOT in _VARIANCE_REAL_ANCHORS: it can open a
     // rollforward, never close one.
     contract_origination: 'signed agreement',
+    // Session 246: loan_book_balances.basis. Not a statement source at all --
+    // it is what OUR books say, rebuilt from Xero. It appears in this map
+    // because the close band renders it through the same provenance line as
+    // everything else, and a raw slug must never reach the screen.
+    xero_rebuild: 'our books, rebuilt from Xero',
   };
   function _anchorSourceLabel(src) { return _ANCHOR_SOURCE_LABEL[src] || src || 'unknown'; }
 
@@ -13519,28 +13625,57 @@
   //
   // EXPECTED is every active loan EXCEPT the automatic ones: Stripe Capital's
   // balance IS the Xero sweep, so there is no outside party that could disagree
-  // with it and nothing to chase. Everything else stays in the denominator on
-  // purpose — Dexter and Verdant have never sent a statement, and that is the
-  // problem to fix, not a reason to stop counting. A denominator you can never
-  // reach is a progress bar people learn to ignore.
+  // with it and nothing to chase. Reporting it as "no evidence" would reverse a
+  // considered decision (amendment A2). Everything else stays in the
+  // denominator on purpose — a denominator you can never reach is a progress
+  // bar people learn to ignore.
   //
-  // RECEIVED counts only real lender documents. A xero_derived or
-  // amortization_schedule row is our own arithmetic wearing a statement's
-  // clothes; counting one here would mark a loan verified against itself.
-  // Same list as _VARIANCE_REAL_ANCHORS, deliberately.
+  // Session 246 EXTENDS this rather than replacing it. `expected`, `received`,
+  // `missing` and `naCount` all still mean what they meant; what changed is that
+  // "did a statement arrive" is no longer the same question as "can this month
+  // be closed", so the loans in between get their own buckets instead of being
+  // filed under a chase that will never end:
+  //
+  //   received     a real lender document dated INSIDE the month  (grade A)
+  //   rolledBack   a real lender document dated after it, walked back to month
+  //                end by the principal booked in between          (grade A)
+  //   perSchedule  no document, but a recorded per-loan policy says the
+  //                contractual schedule is the accepted basis      (grade B)
+  //   missing      nothing that can establish this month's balance (grade C)
+  //
+  // The four partition `expected`, and EVERY BUCKET IS DECIDED BY
+  // _loanClosingAnchor — the same function the rollforward asks. That is not
+  // tidiness: this gate and the close band disagreeing about one loan is the
+  // exact two-numbers-one-page failure this module's history is made of, and the
+  // only durable fix any previous session found was one function, many callers.
+  //
+  // A real lender document still outranks the policy: Dexter with a statement
+  // closes at grade A that month, because _loanClosingAnchor tries the document
+  // first. A loan carrying the policy with NO usable schedule row stays in
+  // `missing` — a stated policy does not conjure a document.
   function _bkStatementCoverage(monthLabel) {
+    const monthEnd = _lastDayOfMonth(monthLabel);
+    const priorEnd = _priorMonthEnd(monthLabel);
     const expected = (_allLoanAccounts || []).filter(a =>
       a.status === 'active' && a.ingestion_method !== 'automatic');
-    const received = [], missing = [];
+    const received = [], rolledBack = [], perSchedule = [], missing = [];
     for (const a of expected) {
+      const anchor = _loanClosingAnchor(a, monthEnd, priorEnd);
+      // The document itself, for the callers that show a date. Looked up by the
+      // anchor's own as-of so a rolled-back loan names the statement that
+      // actually answered the month, not the one that did not arrive.
       const doc = (_allLoanStatements || []).find(st =>
-        st.loan_account_id === a.id &&
-        _VARIANCE_REAL_ANCHORS.includes(String(st.source || '')) &&
-        (st.statement_date || '').slice(0, 7) === monthLabel);
-      (doc ? received : missing).push({ account: a, statement: doc || null });
+        st.loan_account_id === a.id && st.statement_date === anchor.asOf &&
+        _VARIANCE_REAL_ANCHORS.includes(String(st.source || ''))) || null;
+      const entry = { account: a, statement: anchor.grade === 'A' ? doc : null, anchor };
+      if (anchor.grade === 'A') (anchor.derivation === 'direct' ? received : rolledBack).push(entry);
+      else if (anchor.grade === 'B') perSchedule.push(entry);
+      else missing.push(entry);
     }
     return {
-      month: monthLabel, expected, received, missing,
+      month: monthLabel, monthEnd, priorEnd, expected, received, rolledBack, perSchedule, missing,
+      // Everything whose closing balance can be established, whatever its grade.
+      covered: received.length + rolledBack.length + perSchedule.length,
       naCount: (_allLoanAccounts || []).filter(a => a.status === 'active' && a.ingestion_method === 'automatic').length,
     };
   }
@@ -13587,11 +13722,49 @@
     const count = document.getElementById('cv-checklist-count');
     if (count) {
       const n = cov.missing.length;
+      // "Everything is fine" is a claim about the books, and it is only true if
+      // we managed to READ them. renderBookkeepingOverview has said so since
+      // session 240; this line never had to, because until session 246 there
+      // were always statements outstanding and the green branch was
+      // unreachable in practice. Now that a month can genuinely come out clean,
+      // a failed loader elsewhere in Bookkeeping must not be allowed to render
+      // as a green light — the banner above already says a read failed, and this
+      // sentence must not contradict it.
+      const unread = !_bkDataReady() || (_bkLoadErrors && _bkLoadErrors.size > 0);
+      // ── ONE VERDICT, TWO SURFACES (review F2) ─────────────────────────────
+      // "Ready for your accountant" is the SAME claim the close band's strip
+      // makes, so it must be the same computation. Gating this line on statement
+      // coverage alone let it go green for July while Funding Circle's 2026-07
+      // split sat in pending_review and the band two clicks away read "Not ready
+      // to close" — this module's signature failure, in the one place a client
+      // actually looks. _loansCloseBlockers is the shared function that already
+      // decides it for the tab badge and the tiles; the checklist now asks it too.
+      const blockers = _loansCloseBlockers(month);
+      const otherWork = blockers ? blockers.count - blockers.missing : 0;
+      // Session 246: the all-clear used to read "All 13 statements in", and with
+      // two loans closing on their contractual schedule and one answered by a
+      // later statement rolled back, that sentence would be a lie — only ten
+      // statements arrived. The headline now counts what is OUTSTANDING, and the
+      // rows below say how each of the others was established. The bare month
+      // name (not "July 2026") keeps this line free of any number that is not a
+      // count — the card's own title already carries the year, and a stray
+      // "2026" here reads as a quantity to anything scanning the sentence.
       count.textContent = n
         ? `${n} of ${cov.expected.length} statement${n === 1 ? '' : 's'} outstanding`
-        : `All ${cov.expected.length} statements in — ${monthName} is ready for your accountant`;
-      count.style.color = n ? '' : 'var(--green)';
-      count.style.fontWeight = n ? '' : '700';
+        : unread
+        ? `Some of your books could not be read — the ${_cvMonthShort(month)} position below is incomplete`
+        // Deliberately free of digits. The only number this line is ever
+        // allowed to lead with is the count of statements outstanding — the
+        // close band's coverage gate is read against it, and a count of some
+        // OTHER thing appearing first would make two surfaces disagree about
+        // which quantity they are naming. The remaining work is itemised as a
+        // row below, where a client can act on it.
+        : otherWork
+        ? `All statements are in — ${_cvMonthShort(month)} is not ready to close yet`
+        : `Nothing outstanding — ${_cvMonthShort(month)} is ready for your accountant`;
+      const amber = n || unread || otherWork;
+      count.style.color = amber ? '' : 'var(--green)';
+      count.style.fontWeight = amber ? '' : '700';
     }
 
     const row = (mark, cls, name, why, who, note) => `
@@ -13603,18 +13776,68 @@
 
     const rows = cov.missing.map(({ account: a }) => {
       const ever = _cvEverSentStatement(a.id);
-      const name = ever
+      // A loan carrying the schedule policy but holding no usable schedule row
+      // is grade C, and asking for a statement is only half the ask — the
+      // schedule itself would answer it too. EIDL is the loan this sentence is
+      // written for: it has no schedule at all, and handing it the policy would
+      // make a number appear rather than find one.
+      const policy = _loanCloseBasis(a) === 'amortization_schedule';
+      const name = policy
+        ? `${a.xero_account_name || a.lender_account_number} — a statement or the payment schedule`
+        : ever
         ? `${a.xero_account_name || a.lender_account_number} — ${monthName} statement`
         : `${a.xero_account_name || a.lender_account_number} — any statement`;
-      const why = ever
+      // The anchor's own refusal, where it has one — "the later statement does
+      // not say what its balance measures" is a different job from "nothing has
+      // arrived", and the person doing the chasing needs to know which.
+      const entry = cov.missing.find(x => x.account.id === a.id);
+      const refused = entry && entry.anchor && entry.anchor.note ? ` ${entry.anchor.note.charAt(0).toUpperCase()}${entry.anchor.note.slice(1)}.` : '';
+      const why = (policy
+        ? `This loan is set to close on ${_closeBasisLabel('amortization_schedule')}, but no schedule covering ${monthName} is on file — so there is nothing to close it against.`
+        : ever
         ? `Nothing on file for ${monthName} yet. Until it arrives this balance is carried forward rather than confirmed.`
-        : `${a.lender} has never sent one, so this balance is our own arithmetic rather than theirs.`;
+        : `${a.lender} has never sent one, so this balance is our own arithmetic rather than theirs.`) + refused;
       return row('·', 'open', name, why, ever ? `${a.lender}` : `Ask ${a.lender}`, null);
     });
 
+    // ── what is blocking the close that is NOT a statement (review F2) ─────
+    // Read from _loansCloseBlockers, the same function the Loans tab badge and
+    // the close band's strip read, so this card can never say "ready" while the
+    // band says "Not ready to close".
+    {
+      const b2 = _loansCloseBlockers(month);
+      if (b2 && b2.unposted) {
+        rows.push(row('·', 'open', `${b2.unposted} payment${b2.unposted === 1 ? '' : 's'} not yet in Xero`,
+          `${monthName} has ${b2.unposted === 1 ? 'a payment' : 'payments'} totalling ${fmtMoney(b2.unpostedTotal)} that ${b2.unposted === 1 ? 'has' : 'have'} not been booked. Until ${b2.unposted === 1 ? 'it is' : 'they are'} posted, the month is not complete.`,
+          'Bookkeeping', null));
+      }
+      if (b2 && b2.off) {
+        rows.push(row('·', 'open', `${b2.off} loan${b2.off === 1 ? '' : 's'} disagree with the lender`,
+          `${fmtMoney(b2.rf.varianceToResolve)} of ${monthName} variance still has no explanation. Small differences are excluded — these are the ones worth chasing.`,
+          'Bookkeeping', null));
+      }
+    }
+
+    // ── The loans that are settled WITHOUT a statement for this month ───────
+    // These used to sit in the list above, asking for documents that are never
+    // coming. They are not hidden now, they are DE-ESCALATED: each says how its
+    // month-end balance was established, so a reader can disagree with the
+    // method rather than discovering later that a figure appeared from nowhere.
+    for (const { account: a, anchor } of cov.rolledBack) {
+      rows.push(row('✓', 'done', `${a.xero_account_name || a.lender_account_number} — answered by a later statement`,
+        `${a.lender} dates its statements mid-cycle, so none falls inside ${monthName}. The ${_bkPlainDate(anchor.asOf)} ${_anchorSourceLabel(anchor.source)} has been walked back to month end using only the principal booked in between.`,
+        '', 'Nothing to do'));
+    }
+    for (const { account: a, anchor } of cov.perSchedule) {
+      rows.push(row('✓', 'done', `${a.xero_account_name || a.lender_account_number} — closes on its payment schedule`,
+        `${a.lender} does not issue a statement we can close against, so this loan is set to close on ${_closeBasisLabel('amortization_schedule')}. ${monthName} uses the schedule's ${_bkPlainDate(anchor.asOf)} balance. A real statement would still outrank it.`,
+        '', 'Nothing to do'));
+    }
+
+
     rows.push(row('✓', 'done', `Everything else for ${monthName} is in`,
       `${cov.received.length} of ${cov.expected.length} loan statements received.` +
-      (cov.naCount ? ` ${cov.naCount} more ${cov.naCount === 1 ? 'loan reconciles' : 'loans reconcile'} automatically and never need one.` : ''),
+      (cov.naCount ? ` ${cov.naCount} more ${cov.naCount === 1 ? 'loan reconciles' : 'loans reconcile'} automatically and never need${cov.naCount === 1 ? 's' : ''} one.` : ''),
       '', 'Nothing to do'));
 
     el.innerHTML = `<div class="cv-list">${rows.join('')}</div>`;
@@ -14335,10 +14558,18 @@
   // standing in would make the check circular.
   function _loanBalanceAsOf(a, asOfIso, opts) {
     const realOnly = !!(opts && opts.realOnly);
+    // labelledOnly (session 246, F7): additionally drop rows whose
+    // balance_basis is null or 'unknown'. Strictly opt-in, because
+    // _loanPrincipalReconciliation and the roster read this function too and
+    // their behaviour is deliberately unchanged — only the CLOSING anchor asks
+    // for it. See _loanClosingAnchor for why an unlabelled balance cannot be
+    // graded "confirmed by lender".
+    const labelledOnly = !!(opts && opts.labelledOnly);
     const rows = (_allLoanStatements || []).filter(s =>
       s.loan_account_id === a.id && s.principal_balance != null &&
       s.statement_date <= asOfIso &&
-      (!realOnly || _VARIANCE_REAL_ANCHORS.includes(String(s.source || ''))));
+      (!realOnly || _VARIANCE_REAL_ANCHORS.includes(String(s.source || ''))) &&
+      (!labelledOnly || _balanceBasisIsLabelled(s)));
     const ranked = _rankByAuthority(rows);
     if (ranked.length) {
       const r = ranked[0];
@@ -14355,6 +14586,484 @@
       ? { amount: Number(arows[0].balance), asOf: arows[0].row_date,
           source: 'amortization_schedule', authoritative: false }
       : null;
+  }
+
+  // ══ CLOSING EVIDENCE — how a month-end balance is established (s246) ═════
+  //
+  // David: "some lenders do not give us statements on a monthly basis (Dexter),
+  // while others share statements with payment amounts and no splits (Verdant).
+  // In this case, we need to be able to say: rely on the amortization schedule
+  // for the true number. That's all we can do."
+  //
+  // Before this, a closing balance had exactly two states: a lender document
+  // covering the month, or "not checkable". Three active loans landed in the
+  // second bucket for July 2026 and the band reported "3 statements outstanding"
+  // as though those statements were late. TWO OF THEM ARE NEVER COMING. A gate
+  // that waits for something that will never arrive is not a gate, it is a queue
+  // people learn to ignore — the same failure the close date fixed in session
+  // 230, wearing a different costume.
+  //
+  // So a closing balance now carries a GRADE, and the grade is stated on the
+  // screen. It is never inferred from silence and never folded into a total that
+  // implies a higher grade than it has:
+  //
+  //   A  confirmed by lender        a real lender document — dated inside the
+  //                                 month, or a later one rolled back to month
+  //                                 end by the principal booked in between
+  //   B  per amortization schedule  the lender's contractual schedule, where a
+  //                                 recorded per-loan policy
+  //                                 (loan_accounts.close_basis) says no usable
+  //                                 statement exists
+  //   C  no evidence                nothing available
+  //
+  // Grade B is a PARALLEL TRACK, not a new member of _VARIANCE_REAL_ANCHORS.
+  // That list still means "the lender speaking" and nothing in this session
+  // touches it, on either side of the wire.
+  //
+  // _loanClosingAnchor IS THE ONLY PLACE A CLOSING FIGURE IS CHOSEN. The close
+  // band, the statement gate and the Client View checklist all ask it, so the
+  // three surfaces cannot drift apart — the one-shared-function rule this module
+  // is largely made of.
+
+  // ── ONE PREDICATE, ASKED ONCE (session 246 review, F1/F6/F7) ─────────────
+  //
+  // The first cut of this file expressed three separate rules as string
+  // comparisons against one enumerated value, each sitting on one of several
+  // branches that reach the same number, and all three were wrong in the same
+  // way. The circularity guard tested `opening.source === 'amortization_schedule'`
+  // — so Dexter, whose opening is 'xero_derived', slipped past it and printed a
+  // green tie. But all 61 of those xero_derived rows are a FROZEN ONE-TIME
+  // BACKFILL (written 2026-08-06 to 08-15, nothing has written that source
+  // since, every one carrying balance_basis='unknown') and they agree with the
+  // contractual schedule to the cent on every same-dated row. Opening, movement
+  // and closing were all the contract. Acceptance criterion #1 was shipping as a
+  // tautology.
+  //
+  // So the question is asked ONCE, and it is not "which source string is this":
+  //
+  //     IS THIS OPENING INDEPENDENT OF THE DOCUMENT THE CLOSING CAME FROM?
+  //
+  // An opening is independent only when someone outside our own records
+  // produced it: a books-side rebuild from Xero (loan_book_balances), or a real
+  // lender document. 'xero_derived', 'amortization_schedule' and
+  // 'contract_origination' are all OUR record — a schedule, a backfill computed
+  // from a schedule, and a figure typed off a contract — and none of them can
+  // independently confirm a closing balance that is itself the contract.
+  const _INDEPENDENT_OPENING_SOURCES = ['xero_rebuild'];
+  function _openingIsIndependent(opening) {
+    if (!opening) return false;
+    const s = String(opening.source || '');
+    return _INDEPENDENT_OPENING_SOURCES.includes(s) || _VARIANCE_REAL_ANCHORS.includes(s);
+  }
+
+  // An unlabelled balance is an UNKNOWN quantity: we do not know what it
+  // measures, so it can neither be walked back to another date NOR compared
+  // against our own. reconciliation-run refuses to compare against these rows at
+  // all; this file used to refuse them on the roll-back branch and accept them
+  // on the direct one, which would have graded E-Transit E5-4751 (2026-08-23)
+  // and E6-7410 (2026-08-20) "confirmed by lender" into the subtotal the CPA
+  // signs. Same test, both branches.
+  function _balanceBasisIsLabelled(st) {
+    const b = st && st.balance_basis;
+    return b != null && String(b) !== 'unknown';
+  }
+
+  // 60 days: about two statement cycles. Beyond that too much can have happened
+  // between month end and the document for the walk to be worth trusting.
+  const ROLLBACK_WINDOW_DAYS = 60;
+  // A split that has not reached the books is not a fact, so it cannot be added
+  // to a lender's balance. 'staged' especially: that is money which has NOT
+  // moved (a transaction sitting in Xero waiting for a bank line), and the
+  // rollforward already excludes it from the month — adding it back here would
+  // double-count it in the opposite direction.
+  const ROLLBACK_BLOCKING_STATUSES = ['pending_review', 'needs_attention', 'staged'];
+  // Payment rows only. See _loanScheduleBalanceAsOf for why this is an explicit
+  // allowlist and why 'balance != null' is not a substitute for it.
+  const CLOSE_SCHEDULE_ROW_TYPES = ['payment'];
+
+  // close_basis arrives free (loan_accounts is select('*')), but it is undefined
+  // anywhere the column has not been pulled yet — read it through here, never
+  // directly.
+  function _loanCloseBasis(a) { return String((a && a.close_basis) || 'lender_statement'); }
+
+  // Plain English for the policy. A close_basis value must never reach the DOM
+  // any more than a statement source may.
+  const _CLOSE_BASIS_LABEL = {
+    lender_statement:      'a statement from the lender',
+    amortization_schedule: 'the contractual amortization schedule',
+    none:                  'nothing outside our own books',
+  };
+  function _closeBasisLabel(b) { return _CLOSE_BASIS_LABEL[String(b || '')] || 'a statement from the lender'; }
+
+  // ONE schedule per loan, chosen deterministically.
+  //
+  // Verdant holds two (generated 2026-08-25 and 2025-06-12) with overlapping
+  // rows and DUPLICATE DATES; BayFirst SBA 2 holds two generated a day apart.
+  // Mixing rows from two schedules into one walk produces a balance that belongs
+  // to neither. Newest schedule_generated_date wins, created_at breaks the tie
+  // (which is why loadLoans now selects it), and the schedule id is the last
+  // resort so the answer is stable rather than merely arbitrary.
+  //
+  // THE PICK IS MADE FROM PAYMENT ROWS ONLY, which matters and is not the
+  // obvious reading. The server's pickScheduleId does the same, with a comment
+  // warning why: choose from unfiltered rows and a newer schedule carrying
+  // nothing but annual_total / grand_total rows wins the pick, is then filtered
+  // down to nothing by the row_type test below, and the loan is stranded at
+  // grade C while a perfectly good older schedule sits on file. Pick from the
+  // rows you are actually going to read.
+  function _loanScheduleRows(a) {
+    const mine = (_allLoanAmortRows || []).filter(r =>
+      r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === a.id &&
+      CLOSE_SCHEDULE_ROW_TYPES.includes(String(r.row_type || '')) && r.balance != null);
+    if (!mine.length) return [];
+    let bestKey = null, bestId = null;
+    for (const r of mine) {
+      const s = r.loan_amortization_schedules;
+      const key = String(s.schedule_generated_date || '') + ' '
+                + String(s.created_at || '') + ' '
+                + String(r.schedule_id || '');
+      if (bestKey === null || key > bestKey) { bestKey = key; bestId = r.schedule_id; }
+    }
+    return mine.filter(r => r.schedule_id === bestId);
+  }
+
+  // The schedule's balance as at a date: the latest PAYMENT row on or before it.
+  //
+  // row_type is load-bearing here, not defensive. Dexter's schedule carries
+  // annual_total rows with POPULATED balances (2025-12-31 -> 112,314.00,
+  // 2026-12-31 -> 72,415.24), a grand_total at 0.00, and a rate_change dated
+  // 2026-08-31 with balance 0.00 SHARING THAT DATE with the real payment row at
+  // 86,066.61. Sorting by date alone makes the August close a coin flip decided
+  // by sort stability, and a December close reads the annual total. A
+  // `balance != null` test is NOT a substitute: Verdant's totals are null and
+  // Dexter's are not, so generalising from Verdant would have shipped this.
+  //
+  // 'initial' is excluded on purpose. It is an origination balance, not a
+  // month-end position the amortization walk produced. A loan whose closing
+  // month predates its first payment has no schedule-derived movement to check
+  // and the honest answer there is grade C. A day-one balance that really is
+  // evidence has its own home: loan_statements with source 'contract_origination'
+  // (session 245), which may OPEN a rollforward and may never CLOSE one.
+  function _loanScheduleBalanceAsOf(a, asOfIso) {
+    const rows = _loanScheduleRows(a).filter(r =>
+      CLOSE_SCHEDULE_ROW_TYPES.includes(String(r.row_type || '')) &&
+      r.balance != null && r.row_date && r.row_date <= asOfIso);
+    if (!rows.length) return null;
+    rows.sort((x, y) => (x.row_date < y.row_date ? 1 : x.row_date > y.row_date ? -1 : 0));
+    return { amount: Number(rows[0].balance), asOf: rows[0].row_date,
+             scheduleId: rows[0].schedule_id || null };
+  }
+
+  // Principal booked between month end and a later lender document, for the
+  // roll-back walk. Returns { principal } or { refuse: <why, in English> }.
+  //
+  // PRINCIPAL ONLY. Interest never moves a principal balance.
+  //
+  // A month-labelled split ('2026-08') carries no day, so it can be placed only
+  // when its WHOLE month sits inside the window or wholly outside it. When the
+  // month straddles an edge we refuse — unless its principal is zero, in which
+  // case it cannot move the balance either way and the ambiguity is harmless.
+  // That is the same rule as "principal only", applied to a date instead of a
+  // column.
+  function _loanRollbackWalk(a, monthEndIso, docIso) {
+    let principal = 0;
+    for (const sp of (_allLoanSplits || [])) {
+      if (sp.loan_account_id !== a.id) continue;
+      if (sp.status === 'voided') continue;
+      const label = String(sp.period_label || '');
+      const p = Number(sp.principal_amount || 0);
+      let inWindow = false;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
+        inWindow = label > monthEndIso && label <= docIso;
+      } else if (CV_MONTH_RE.test(label.slice(0, 7))) {
+        const m = label.slice(0, 7), mStart = m + '-01', mEnd = _lastDayOfMonth(m);
+        if (mEnd <= monthEndIso || mStart > docIso) inWindow = false;
+        else if (mStart > monthEndIso && mEnd <= docIso) inWindow = true;
+        else if (Math.abs(p) < 0.005) continue;
+        else return { refuse: 'a payment labelled by month, not by date, straddles the edge of the roll-back window' };
+      } else {
+        continue;   // undateable ('Period 14') — surfaced separately, see _undatedSplits
+      }
+      if (!inWindow) continue;
+      if (ROLLBACK_BLOCKING_STATUSES.includes(String(sp.status || ''))) {
+        return { refuse: 'a payment between month end and that statement has not reached the books yet' };
+      }
+      principal += p;
+    }
+    return { principal };
+  }
+
+  // THE closing figure for one loan and one month. Returns
+  // { amount, asOf, grade, source, derivation, note } — amount null at grade C.
+  function _loanClosingAnchor(a, monthEndIso, priorEndIso) {
+    // ── 1. a real lender document dated INSIDE the month ──────────────────
+    // _loanBalanceAsOf(realOnly) is reused rather than reimplemented, so the
+    // authority ranking (session 239) still decides which document wins. The
+    // `asOf > priorEnd` test is coversMonth and it is not optional: without it a
+    // late lender means one statement answers BOTH ends of the walk, and
+    // computed - closing collapses to exactly $0.00 in a month with no payment.
+    // BayFirst SBA 2's August close did precisely that before session 239.
+    //
+    // labelledOnly is the F7 fix. Without it E-Transit E5-4751 and E6-7410 —
+    // both real portal_manual_pull documents, both carrying
+    // balance_basis='unknown' — grade A, "confirmed by lender", straight into
+    // the subtotal the CPA signs, while reconciliation-run refuses to compare
+    // against those very rows. The refusal is RECORDED rather than swallowed:
+    // `directAny` re-asks without the filter purely so the screen can say which
+    // of the two things happened.
+    const direct = _loanBalanceAsOf(a, monthEndIso, { realOnly: true, labelledOnly: true });
+    // A DOCUMENT SET ASIDE IS STILL NEWS, even when a labelled one was found
+    // behind it. E-Transit E5-4751's newest August statement (2026-08-23) says
+    // nothing about what its balance measures, so the close falls back to the
+    // 8/12 one — a better answer, and the reader is told rather than left to
+    // wonder why the newest document on file is not the one on screen.
+    let unlabelled = null;
+    const directAny = _loanBalanceAsOf(a, monthEndIso, { realOnly: true });
+    if (directAny && directAny.asOf > priorEndIso && !(direct && direct.asOf === directAny.asOf)) {
+      unlabelled = `the ${_bkPlainDate(directAny.asOf)} statement does not say what its balance measures, so it was not used`;
+    }
+    if (direct && direct.asOf > priorEndIso) {
+      return { amount: direct.amount, asOf: direct.asOf, grade: 'A', derivation: 'direct',
+               source: direct.source, note: unlabelled };
+    }
+
+    // ── 2. the EARLIEST real document AFTER month end, rolled back ─────────
+    // EIDL SBA does not issue at month end; it issues on the 25th. We hold a
+    // real statement dated 2026-08-25 saying $960,005.00 and no principal was
+    // booked between 2026-07-31 and that date, so the SBA's OWN figure for
+    // 2026-07-31 is $960,005.00:
+    //
+    //     monthEndBalance = laterBalance + principal booked in (monthEnd, docDate]
+    //
+    // That is arithmetic on lender evidence, not a projection, and it is
+    // strictly better than a schedule.
+    //
+    // EARLIEST, not newest: the shorter the walk, the less can have happened in
+    // it. Exactly one document is considered — falling through to the next when
+    // the first refuses would be shopping for a number that agrees, which is the
+    // thing this whole design exists to stop. A refusal is recorded and shown,
+    // never silently upgraded to a tie.
+    //
+    // <= TODAY IS NOT OPTIONAL (F8). The window reaches sixty days FORWARD from
+    // month end, which is unbounded relative to now — and this module's
+    // invariants say in as many words that no new "latest row" lookup may skip
+    // the future-date filter. EIDL's 2026-08-25 statement was UPLOADED on
+    // 2026-08-05: for twenty days it described a date that had not happened, and
+    // without this clamp the July close would have been anchored to it. A
+    // document dated in the future is a projection whoever printed it.
+    let refusal = unlabelled;
+    const todayIso = today();
+    const later = (_allLoanStatements || []).filter(s =>
+      s.loan_account_id === a.id && s.principal_balance != null &&
+      _VARIANCE_REAL_ANCHORS.includes(String(s.source || '')) &&
+      s.statement_date > monthEndIso && s.statement_date <= todayIso &&
+      _daysBetweenIso(s.statement_date, monthEndIso) <= ROLLBACK_WINDOW_DAYS)
+      .sort((x, y) => (x.statement_date < y.statement_date ? -1 : x.statement_date > y.statement_date ? 1 : 0));
+    if (!later.length) {
+      // Nothing to roll back FROM — but say which kind of nothing. A statement
+      // on file that describes a date which has not happened is a projection,
+      // and a reader who uploaded it three weeks early deserves to be told that
+      // rather than to see an empty cell.
+      const future = (_allLoanStatements || []).some(s =>
+        s.loan_account_id === a.id && s.principal_balance != null &&
+        _VARIANCE_REAL_ANCHORS.includes(String(s.source || '')) &&
+        s.statement_date > todayIso &&
+        _daysBetweenIso(s.statement_date, monthEndIso) <= ROLLBACK_WINDOW_DAYS);
+      if (future && !refusal) {
+        refusal = 'the only statement after month end is dated in the future, so it describes a balance that has not happened yet';
+      }
+    } else {
+      const doc = later[0];
+      // Same labelling test as the direct branch above — one rule, both places.
+      if (!_balanceBasisIsLabelled(doc)) {
+        refusal = 'the later statement does not say what its balance measures, so it cannot be walked back to month end';
+      } else {
+        const walk = _loanRollbackWalk(a, monthEndIso, doc.statement_date);
+        if (walk.refuse) refusal = walk.refuse;
+        else return { amount: Number(doc.principal_balance) + walk.principal,
+                      asOf: doc.statement_date, grade: 'A', derivation: 'rolled_back',
+                      source: doc.source, rolledPrincipal: walk.principal, note: null };
+      }
+    }
+
+    // ── 3. the contractual schedule, if a recorded policy admits it ────────
+    if (_loanCloseBasis(a) === 'amortization_schedule') {
+      const sched = _loanScheduleBalanceAsOf(a, monthEndIso);
+      // coversMonth applies to grade B IDENTICALLY. A schedule row dated
+      // 2026-06-10 may not close July, for the same reason a June statement
+      // may not: one document answering both ends of a walk is not a check.
+      if (sched && sched.asOf > priorEndIso) {
+        return { amount: sched.amount, asOf: sched.asOf, grade: 'B', derivation: 'schedule',
+                 source: 'amortization_schedule', scheduleId: sched.scheduleId, note: refusal };
+      }
+      // A STATED POLICY DOES NOT CONJURE A DOCUMENT. close_basis on a loan with
+      // no usable schedule row is grade C, not grade B — EIDL has no schedule at
+      // all and must never be handed this policy as a way of making a number
+      // appear.
+      return { amount: null, asOf: null, grade: 'C', derivation: 'none', source: null,
+               note: refusal || (sched
+                 ? 'the contractual schedule has no payment row inside this month'
+                 : 'no amortization schedule is on file for this loan') };
+    }
+
+    // ── 4. nothing ────────────────────────────────────────────────────────
+    return { amount: null, asOf: null, grade: 'C', derivation: 'none', source: null, note: refusal };
+  }
+
+  // What OUR books say a loan was worth on a date — rebuilt from Xero
+  // (BankTransactions + ManualJournals) by reconciliation-run and stored per
+  // loan per date in loan_book_balances.
+  //
+  // WHY THIS EXISTS. The rollforward's check is opening - principal = closing.
+  // For Verdant, all 85 loan_statements rows ARE the amortization schedule
+  // mirrored in, every split is schedule-generated, and the closing figure would
+  // be the schedule too: opening, movement and closing all the same document.
+  // The variance is then identically zero by construction, for every month,
+  // forever. It cannot fail, so it is not a test — session 245's "an average is
+  // not a test" in a new costume — and it would have printed silence (which on
+  // this table means agreement) beside a loan whose books actually differ from
+  // the schedule by $1,835.75, a figure loan_tie_outs already holds.
+  //
+  // A6: staged Xero transactions are AUTHORISED and dated on the schedule row's
+  // own due date, routinely a month end, so this balance INCLUDES payments that
+  // have not happened. They are not netted out — Xero's own balance sheet
+  // includes them and this table means what Xero says — but the count travels
+  // with the figure and the row says so.
+  //
+  // THE DATE MUST MATCH EXACTLY (F4). The first cut took the newest row with
+  // as_of <= the date asked for and let it win unconditionally, which turns one
+  // missed reconciliation-run month into a wrong, material, BLOCKING variance on
+  // every loan at once: August's principal subtracted from June's balance, on a
+  // screen whose job is to say "ready for your accountant". BayFirst SBA 2
+  // carries a real portal_manual_pull dated exactly 2026-07-31 and would have
+  // lost to a stale June books row for an invented $858.66. A rebuild for
+  // another date is not a rebuild for this one; when there is none, fall through
+  // to the best statement we hold and mark the row.
+  function _loanBookBalanceAsOf(a, asOfIso) {
+    const rows = (_allLoanBookBalances || []).filter(b =>
+      b.loan_account_id === a.id && String(b.basis || '') === 'xero_rebuild' &&
+      b.balance != null && b.as_of === asOfIso);
+    if (!rows.length) return null;
+    // Same date, more than one row: newest measurement wins. computed_at is set
+    // explicitly by the writer precisely because a column default does not fire
+    // on an upsert onto an existing row (amendment A5).
+    rows.sort((x, y) => String(y.computed_at || '').localeCompare(String(x.computed_at || '')));
+    const r = rows[0];
+    const staged = r.detail && r.detail.staged_entries_at_or_before;
+    return { amount: Number(r.balance), asOf: r.as_of, source: 'xero_rebuild',
+             authoritative: false, fromBooks: true, staged: Number(staged || 0) };
+  }
+
+  // A period_label that carries no date at all.
+  //
+  // _monthSplits places a split by period_label.slice(0, 7), so Verdant's
+  // 'Period 14' becomes 'Period ' and the split is invisible to EVERY month.
+  // Its principal and interest match the 2026-08-10 schedule row exactly, so
+  // August's Verdant principal reads $0.00 while a posted split for it exists —
+  // and a grade-B close would then print a variance of exactly one payment,
+  // attributed to nothing. Seven such splits are on file, all posted, all
+  // Verdant. Guessing a month for them is not available, so the band SAYS SO on
+  // the row rather than closing over them quietly. It does not block: a
+  // permanent blocker on seven historical rows is a gate that never opens, which
+  // is the failure this session set out to remove.
+  function _undatedSplits(loanId) {
+    return (_allLoanSplits || []).filter(sp =>
+      sp.loan_account_id === loanId && sp.status !== 'voided' &&
+      !CV_MONTH_RE.test(String(sp.period_label || '').slice(0, 7)));
+  }
+
+  // ── MATERIALITY, MIRRORED FROM THE SERVER (amendment A1) ─────────────────
+  // Rolling EIDL back produces a $5.00 variance on a $960,005 balance. Under the
+  // old two-state rule that lands in `off` and the band reads "Not ready to
+  // close" — a five-dollar gate on a million-dollar loan, which is exactly how a
+  // close checklist becomes something people click past.
+  //
+  // reconciliation-run already decided this question once, and the roster's
+  // "Small differences, not worth chasing" group already reads its verdict out
+  // of loan_tie_outs.detail.material. This is NOT a new policy; it is the
+  // existing one applied to one more surface, so the two constants are MIRRORED
+  // rather than re-invented.
+  //
+  //   SERVER COPY: supabase/functions/reconciliation-run/index.ts
+  //                MATERIAL_FLOOR / MATERIAL_SHARE / isMaterialGap()
+  //
+  // The client cannot import from supabase/functions/_shared, which is why two
+  // copies exist at all. Change one, change both.
+  const MATERIAL_FLOOR = 25;        // dollars
+  const MATERIAL_SHARE = 0.0025;    // 0.25% of the balance being checked
+
+  // A date-only string, formatted WITHOUT a timezone round-trip.
+  //
+  // The app's shared fmtDate() anchors 'YYYY-MM-DD' at LOCAL midnight and then
+  // renders it in BIZ_TZ, which is correct on a Pacific machine and one day
+  // early on every other one — the offline harness runs in UTC and renders the
+  // 2026-08-25 SBA statement as "Aug 24, 2026". That is a pre-existing defect in
+  // a helper the whole app shares (orders, routes, drivers), so it is not being
+  // changed from here. But a close screen may not print the wrong day for the
+  // document it is closing on, so the sentences added in session 246 format
+  // their own dates from the string's own parts and never construct a Date.
+  const _CLOSE_MONTH_NAME = ['January','February','March','April','May','June',
+                             'July','August','September','October','November','December'];
+  function _bkPlainDate(iso) {
+    if (!iso || typeof iso !== 'string' || iso.length < 10) return String(iso || '');
+    const [y, m, d] = iso.slice(0, 10).split('-');
+    const mi = Number(m) - 1;
+    if (!(mi >= 0 && mi < 12)) return iso.slice(0, 10);
+    return `${_CLOSE_MONTH_NAME[mi].slice(0, 3)} ${Number(d)}, ${y}`;
+  }
+
+  // Four bands. An immaterial variance is DE-ESCALATED, never hidden: the figure
+  // is printed, in grey, and it does not block the close.
+  function _closeVarianceBand(variance, closingAmount) {
+    const v = Math.abs(Number(variance || 0));
+    if (v < 0.005) return 'tie';
+    const base = Math.abs(Number(closingAmount || 0));
+    const share = base > 0 ? v / base : 1;
+    return (v >= MATERIAL_FLOOR && share >= MATERIAL_SHARE) ? 'material' : 'immaterial';
+  }
+
+  // ── THE FOURTH BAND: 'unbooked' (session 246 review, F3) ─────────────────
+  //
+  // Dexter's August close, three days from now: its 2026-08 split is STAGED, so
+  // _monthSplits excludes it and the month's principal reads $0.00 — while the
+  // grade-B closing anchor takes the schedule's 8/31 row (86,066.61), which
+  // assumes that payment happened. The variance is then exactly the staged
+  // principal, $3,344.64, banded material, red, blocking. The SAME staged split
+  // is reported one chip to the left by the posting gate at $3,839.38. One
+  // event, two blockers, two different figures — which is the two-numbers-one-
+  // page failure this module's whole history is made of.
+  //
+  // So a variance that is FULLY accounted for by money the month deliberately
+  // left out is its own band: shown, explained, counted in neither the ties nor
+  // the offs, and not blocking. The posting gate already owns the work.
+  //
+  // Two shapes qualify, and only these two:
+  //   * a STAGED split in the month — money that has not moved, excluded from
+  //     the month's principal on purpose (CLOSE_EXCLUDED_STATUSES).
+  //   * ONE undated split whose principal alone closes the remaining gap —
+  //     Verdant's 'Period 14' (A10), which _monthSplits can place in no month at
+  //     all. Matching a single split by amount is shape-matching and it is only
+  //     acceptable here because it DE-ESCALATES rather than concludes: the row
+  //     still shows the split, still shows the figure, and still says the
+  //     payment has no date. It never turns anything green.
+  function _closeUnbookedExplanation(variance, stagedSplits, undatedSplits) {
+    if (variance == null) return null;
+    const staged = (stagedSplits || []).reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
+    let explained = staged;
+    const parts = [];
+    if (Math.abs(staged) >= 0.005) parts.push({ kind: 'staged', amount: staged, n: stagedSplits.length });
+    let residual = Number(variance) - explained;
+    if (Math.abs(residual) >= 0.005) {
+      const hit = (undatedSplits || []).find(sp =>
+        Math.abs(residual - Number(sp.principal_amount || 0)) < 0.005);
+      if (hit) {
+        explained += Number(hit.principal_amount || 0);
+        parts.push({ kind: 'undated', amount: Number(hit.principal_amount || 0), label: hit.period_label });
+        residual = Number(variance) - explained;
+      }
+    }
+    if (!parts.length || Math.abs(residual) >= 0.005) return null;
+    return { principal: explained, parts };
   }
 
   // Day 0 of a month is the last day of the one before it — the same trick
@@ -14405,38 +15114,137 @@
     const active = (_allLoanAccounts || []).filter(a => a.status === 'active');
 
     const rows = active.map(a => {
-      const opening = _loanBalanceAsOf(a, priorEnd);
-      const perLender = _loanBalanceAsOf(a, monthEnd, { realOnly: true });
+      // ── OPENING: THE BOOKS FIRST, THE BEST STATEMENT SECOND ─────────────
+      // loan_book_balances is our own balance rebuilt from Xero, which is
+      // genuinely independent of any schedule. Without it Verdant's opening
+      // resolves out of the 85-row schedule mirror in loan_statements and the
+      // whole walk becomes one document compared with itself. When it is absent
+      // we fall back to the pre-session-246 behaviour and MARK THE ROW, because
+      // a fallback nobody can see is the same as no fallback at all.
+      const book = _loanBookBalanceAsOf(a, priorEnd);
+      const opening = book || _loanBalanceAsOf(a, priorEnd);
+      const openingFromBooks = !!book;
+
+      const anchor = _loanClosingAnchor(a, monthEnd, priorEnd);
+      // `perLender` keeps its name because every column, tile and subtotal below
+      // it does — but it is now the CLOSING figure, and its grade says whose
+      // figure it is.
+      const perLender = anchor.amount == null ? null
+        : { amount: anchor.amount, asOf: anchor.asOf, source: anchor.source,
+            authoritative: anchor.grade === 'A' };
+
       const splits = _monthSplits(a.id, monthLabel);
       const principal = splits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
       const interest  = splits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
       const computed  = opening ? opening.amount - principal : null;
 
-      // The closing anchor must be a document that COVERS the month. Without
-      // this, a late lender means the same statement row answers both ends:
-      // computed − perLender collapses to −(month's principal), or to exactly
-      // $0.00 when the month had no payment — rendered as a green tie against a
-      // document that predates the period entirely. Verified before it shipped:
-      // BayFirst SBA 2's August close resolved both anchors to the same
-      // 2026-07-31 row and would have printed "$0.00 ✓" on the one screen whose
-      // job is to say "ready for your accountant".
-      const coversMonth = !!perLender && perLender.asOf > priorEnd;
-      const variance  = (computed != null && coversMonth) ? computed - perLender.amount : null;
+      // coversMonth now lives inside _loanClosingAnchor and applies to grade A
+      // and grade B identically. A closing figure exists only if it covers the
+      // month, so the two questions are the same question.
+      const coversMonth = !!perLender;
+      const rawVariance = (computed != null && perLender) ? computed - perLender.amount : null;
+
+      // ── THE CIRCULARITY GUARD (amendment A4, corrected by review F1) ────
+      //
+      // NOT a schedule id: Verdant's opening resolves from the 85-row
+      // loan_statements mirror, whose rows carry no schedule_id at all, so an
+      // id-based guard could not fire on the one loan it exists for.
+      //
+      // NOT a source name either, which is where the first cut went wrong.
+      // Dexter's opening is 'xero_derived' and sailed past a
+      // `=== 'amortization_schedule'` test — yet those 61 rows are a frozen
+      // backfill that equals the contract on every same-dated row, so opening,
+      // movement and closing were all the same document and the row printed a
+      // green tie that could not fail.
+      //
+      // One question, asked once: is the opening INDEPENDENT of the document the
+      // closing came from? Against a grade-B closing only a books-side rebuild or
+      // a real lender document is. Everything else agrees by construction.
+      const circular = anchor.grade === 'B' && !_openingIsIndependent(opening);
+      const variance = circular ? null : rawVariance;
+      // Money the month deliberately left out, which can make the arithmetic
+      // disagree without anything being wrong. See _closeUnbookedExplanation.
+      const stagedSplits = (_allLoanSplits || []).filter(sp =>
+        sp.loan_account_id === a.id && sp.status === 'staged' &&
+        (sp.period_label || '').slice(0, 7) === monthLabel);
+      const undatedAll = _undatedSplits(a.id);
+      const unbooked = variance == null ? null
+        : _closeUnbookedExplanation(variance, stagedSplits, undatedAll);
+      const band = variance == null ? null
+        : (Math.abs(variance) < 0.005 ? 'tie'
+          : unbooked ? 'unbooked'
+          : _closeVarianceBand(variance, perLender.amount));
 
       const automatic = a.ingestion_method === 'automatic';
       const unposted  = _monthUnpostedSplits(a.id, monthLabel);
-      return { a, opening, perLender, splits, principal, interest, computed, variance,
-               automatic, unposted, coversMonth };
+      const undated   = undatedAll;
+      return { a, opening, openingFromBooks, openingStaged: (book && book.staged) || 0,
+               anchor, grade: anchor.grade, perLender, splits, principal, interest,
+               computed, variance, band, circular, rawVariance, unbooked, stagedSplits,
+               automatic, unposted, undated, coversMonth };
     });
 
-    const checkable = rows.filter(r => r.variance != null);
+    // Grade A and grade B are BOTH checkable now — that is the point of the
+    // session — but they never share a subtotal. A circular row rolls forward
+    // like any other (its money columns are real) and is excluded from the
+    // variance arithmetic, because a check that cannot fail must not be counted
+    // among the checks that passed.
+    const checkable = rows.filter(r => r.computed != null && r.perLender);
+    const gradeA    = checkable.filter(r => r.grade === 'A');
+    const gradeB    = checkable.filter(r => r.grade === 'B');
+    const judged    = checkable.filter(r => !r.circular);
+
+    const subtotal = (set) => ({
+      opening:   set.reduce((n, r) => n + r.opening.amount, 0),
+      principal: set.reduce((n, r) => n + r.principal, 0),
+      interest:  set.reduce((n, r) => n + r.interest, 0),
+      computed:  set.reduce((n, r) => n + r.computed, 0),
+      perLender: set.reduce((n, r) => n + r.perLender.amount, 0),
+      // ABSOLUTE, never signed. Session 236 fixed exactly this in the table
+      // below ("makes real work look like a rounding error"); with one loan
+      // +$415.88 and another −$415.88 the signed total reads $0.00.
+      //
+      // UNEXPLAINED only: a variance the posting gate already accounts for
+      // ('unbooked') is not money to resolve here, and adding it would put a
+      // second figure for one event on the same screen. Circular rows carry no
+      // variance at all.
+      variance:  set.reduce((n, r) => n + ((r.band === 'immaterial' || r.band === 'material') ? Math.abs(r.variance) : 0), 0),
+      count:     set.length,
+      circular:  set.filter(r => r.circular).length,
+      unbooked:  set.filter(r => r.band === 'unbooked').length,
+      // A subtotal made entirely of immaterial differences must not print in
+      // red. The colour is a verdict, and the verdict here is "shown, not
+      // chased" — the same three bands the rows use.
+      material:  set.filter(r => r.band === 'material').length,
+    });
+
     return {
       monthLabel, monthEnd, priorEnd, rows,
-      checkable,
-      ties:      checkable.filter(r => Math.abs(r.variance) < 0.005),
-      off:       checkable.filter(r => Math.abs(r.variance) >= 0.005),
+      checkable, gradeA, gradeB, judged,
+      // Four bands (amendment A1 + review F3). A tie prints nothing; an
+      // 'unbooked' difference is fully accounted for by a staged or undated
+      // payment and is owned by the posting gate; an immaterial difference
+      // prints its figure in grey and does NOT block; a material one is red and
+      // blocks.
+      ties:       judged.filter(r => r.band === 'tie'),
+      immaterial: judged.filter(r => r.band === 'immaterial'),
+      off:        judged.filter(r => r.band === 'material'),
+      // Explained by money the month left out, and owned by the posting gate.
+      // Never in `off`, never blocking, always shown with its explanation.
+      unbookedRows: judged.filter(r => r.band === 'unbooked'),
+      circularRows: checkable.filter(r => r.circular),
+      // ONE quantity per claim, so the tile, the chip and the footer cannot
+      // print different money for the same question (review F15).
+      varianceToResolve: judged.filter(r => r.band === 'material').reduce((n, r) => n + Math.abs(r.variance), 0),
+      varianceSmall:     judged.filter(r => r.band === 'immaterial').reduce((n, r) => n + Math.abs(r.variance), 0),
+      varianceUnbooked:  judged.filter(r => r.band === 'unbooked').reduce((n, r) => n + Math.abs(r.variance), 0),
+      // Grade C among the loans anybody could ever hold a document for. Stripe
+      // Capital is ingestion_method 'automatic' — its balance IS the Xero sweep,
+      // so there is no outside party who could disagree with it. Reporting it as
+      // "no evidence" reverses a considered decision (amendment A2).
       noEvidence: rows.filter(r => !r.coversMonth && !r.automatic),
       unpostedRows: rows.filter(r => r.unposted.length),
+      undatedRows:  rows.filter(r => r.undated.length),
       // ── EVERY FOOTER FIGURE OVER THE SAME POPULATION ────────────────────
       // The first version summed opening/principal/computed over ALL rows and
       // perLender/variance over the checkable ones. Two consequences, both
@@ -14449,23 +15257,24 @@
       // A rollforward subtotal is only meaningful across rows that roll
       // forward. Everything else gets its own line rather than being folded in.
       //
-      // Variance is ABSOLUTE, never signed. Session 236 fixed exactly this in
-      // the table below ("makes real work look like a rounding error") and this
-      // band, added three sessions later, did the signed thing anyway. With one
-      // loan +$415.88 and another −$415.88 the signed total reads $0.00.
-      totals: {
-        opening:   checkable.reduce((n, r) => n + r.opening.amount, 0),
-        principal: checkable.reduce((n, r) => n + r.principal, 0),
-        interest:  checkable.reduce((n, r) => n + r.interest, 0),
-        computed:  checkable.reduce((n, r) => n + r.computed, 0),
-        perLender: checkable.reduce((n, r) => n + r.perLender.amount, 0),
-        variance:  checkable.reduce((n, r) => n + Math.abs(r.variance), 0),
-      },
+      // Session 246 splits it once more, by GRADE. Lender-confirmed money and
+      // schedule-derived money are different claims and a reader must be able to
+      // see which subtotal the CPA is actually signing. `totals` stays as the
+      // combined figure for the tiles above, which ask "what moved in July" —
+      // a question the grade does not change.
+      totals:  subtotal(checkable),
+      totalsA: subtotal(gradeA),
+      totalsB: subtotal(gradeB),
       // The rows a rollforward subtotal cannot speak for, shown separately.
       excluded: {
         count:     rows.length - checkable.length,
-        principal: rows.filter(r => r.variance == null).reduce((n, r) => n + r.principal, 0),
-        interest:  rows.filter(r => r.variance == null).reduce((n, r) => n + r.interest, 0),
+        // Stripe Capital lands here because its balance IS the Xero sweep, not
+        // because evidence is missing. The row must SAY that (amendment A2) —
+        // the first cut's label, "N with no closing balance", counted it exactly
+        // the way A2 forbids while the sentence underneath excluded it.
+        automatic: rows.filter(r => !(r.computed != null && r.perLender) && r.automatic).length,
+        principal: rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + r.principal, 0),
+        interest:  rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + r.interest, 0),
       },
     };
   }
@@ -14493,8 +15302,24 @@
       n + r.unposted.reduce((m, sp) => m + Number(sp.total_amount || 0), 0), 0);
     return {
       rf, cov, unpostedTotal,
+      // `missing` is grade C now: loans whose month-end balance cannot be
+      // established at all. A loan closing on its contractual schedule, or one
+      // answered by a later statement rolled back to month end, is not work and
+      // has stopped being counted as though it were — that was the queue nobody
+      // could ever finish (see _bkStatementCoverage).
       missing: cov.missing.length,
+      perSchedule: cov.perSchedule.length,
+      rolledBack: cov.rolledBack.length,
       off: rf.off.length,
+      // Shown, never counted. A real difference too small to be worth chasing is
+      // de-escalated, not hidden — the same call reconciliation-run already makes
+      // (amendment A1).
+      immaterial: rf.immaterial.length,
+      // Explained by a staged or undated payment the month left out. The posting
+      // gate below already counts the work; counting it twice would report one
+      // event as two blockers with two different figures (review F3).
+      unbooked: rf.unbookedRows.length,
+      circular: rf.circularRows.length,
       unposted: rf.unpostedRows.length,
       // The number of THINGS to deal with, not the number of kinds of thing.
       // Three missing statements plus one unposted split is 4 pieces of work;
@@ -14582,9 +15407,13 @@
       ${extra || ''}
       ${sub ? `<div class="bk-tile-delta flat">${sub}</div>` : ''}</div>`;
 
-    const received = b.cov.expected.length - b.cov.missing.length;
+    // Session 246: the meter used to fill for "statement received" and left
+    // Dexter and Verdant permanently empty, because their statements are never
+    // coming. It now fills for "this month's closing balance can be established"
+    // — the question the close actually asks — and the sub-line says how.
+    const covered = b.cov.covered;
     const meter = '<div class="lct-meter">'
-      + b.cov.expected.map((_, i) => `<i class="${i < received ? 'in' : 'out'}"></i>`).join('')
+      + b.cov.expected.map((_, i) => `<i class="${i < covered ? 'in' : 'out'}"></i>`).join('')
       + '</div>';
     // _bkStatementCoverage returns [{account, statement}], not bare accounts.
     // Reading it as accounts printed "Missing: , , " — three empty names and no
@@ -14592,22 +15421,34 @@
     const missingNames = b.cov.missing
       .map(m => (m.account || m).xero_account_name || (m.account || m).lender_account_number)
       .filter(Boolean).join(', ');
+    const howParts = [`${b.cov.received.length} by statement`];
+    if (b.cov.rolledBack.length) howParts.push(`${b.cov.rolledBack.length} rolled back to month end`);
+    if (b.cov.perSchedule.length) howParts.push(`${b.cov.perSchedule.length} per schedule`);
 
     // Paid in the closing month, from the same rollforward the table foots to.
     const paidP = b.rf.totals.principal + b.rf.excluded.principal;
     const paidI = b.rf.totals.interest  + b.rf.excluded.interest;
 
     el.innerHTML = '<div class="lct"><div class="bk-tiles">'
-      + tile(`${name} statements received`,
-          `${received} <span style="font-size:.6em;color:var(--gray-400);font-weight:500">of ${b.cov.expected.length}</span>`,
-          b.missing ? `Missing: ${esc(missingNames)}` : 'Every expected statement is in.',
+      + tile(`${name} balances established`,
+          `${covered} <span style="font-size:.6em;color:var(--gray-400);font-weight:500">of ${b.cov.expected.length}</span>`,
+          b.missing ? `Still needed: ${esc(missingNames)}` : esc(howParts.join(' · ')),
           null, meter)
-      + tile(`${name} rollforward variance`,
-          b.rf.totals.variance < 0.005 ? '$0.00' : money(b.rf.totals.variance),
-          b.rf.totals.variance < 0.005
-            ? `All ${b.rf.checkable.length} checkable loans tie to the cent.`
-            : `${b.off} loan${b.off === 1 ? '' : 's'} disagree with the lender.`,
-          b.rf.totals.variance < 0.005 ? null : '#b3382c')
+      // ONE QUANTITY, ONE CLAIM (review F15). This tile used to show every band
+      // added together ($5.00) while the gate chip a foot away showed only what
+      // blocks ($0.00) — two numbers for one question on one screen. The tile
+      // now answers the same question the chip does, says so in its label, and
+      // decomposes the rest underneath instead of summing it into the headline.
+      + tile(`${name} variance to resolve`,
+          b.rf.varianceToResolve < 0.005 ? '$0.00' : money(b.rf.varianceToResolve),
+          // "All N tie to the cent" is a claim the other three bands make false:
+          // a $5.00 difference is a real difference, shown and not chased.
+          [b.rf.ties.length ? `${b.rf.ties.length} tie to the cent` : '',
+           b.immaterial ? `${money(b.rf.varianceSmall)} too small to chase` : '',
+           b.unbooked ? `${money(b.rf.varianceUnbooked)} not booked yet` : '',
+           b.off ? `${b.off} loan${b.off === 1 ? '' : 's'} disagree with the lender` : ''
+          ].filter(Boolean).join(' · ') + '.',
+          b.off ? '#b3382c' : null)
       + tile('Not yet in Xero',
           b.unposted ? money(b.unpostedTotal) : '$0.00',
           b.unposted
@@ -14656,21 +15497,67 @@
     const cov = _bkStatementCoverage(month);
     const unpostedTotal = rf.unpostedRows.reduce((n, r) =>
       n + r.unposted.reduce((m, sp) => m + Number(sp.total_amount || 0), 0), 0);
+    // Judged, per grade — NOT rf.gradeA.length / rf.gradeB.length, which include
+    // the rows excluded from the variance arithmetic. "12 loans checked — 11
+    // confirmed by lender, 2 per schedule" adds up to thirteen and asks the
+    // reader to spot the difference.
+    const judgedA = rf.judged.filter(r => r.grade === 'A').length;
+    const judgedB = rf.judged.filter(r => r.grade === 'B').length;
 
-    // ── the three gates, in the order they have to clear ──
+    // ── the gates, in the order they have to clear ────────────────────────
+    //
+    // Session 246 adds two chips and changes what the first one counts. The old
+    // strip read "3 statements outstanding" for July, of which two were never
+    // coming — a gate that waits for something that will never arrive is not a
+    // gate. Coverage is now about EVIDENCE, and the grade chips say what kind:
+    //
+    //   Ready for your accountant · 11 confirmed by lender · 2 per schedule
+    //
+    // Each chip carries data-gate so anything reading this strip selects by NAME
+    // rather than by index. The order of these chips is a reading decision and
+    // it will change again; what they MEAN should not have to move with it.
     const gates = [];
     gates.push(cov.missing.length
-      ? { bad: true, text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding` }
-      : { bad: false, text: `all ${cov.expected.length} statements in` });
+      ? { key: 'coverage', bad: true, n: cov.missing.length,
+          text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding` }
+      : { key: 'coverage', bad: false, n: 0, text: `all ${cov.expected.length} accounted for` });
+    if (cov.received.length + cov.rolledBack.length) {
+      gates.push({ key: 'lender-confirmed', bad: false, n: cov.received.length + cov.rolledBack.length,
+        text: `${cov.received.length + cov.rolledBack.length} confirmed by lender` });
+    }
+    if (cov.perSchedule.length) {
+      gates.push({ key: 'per-schedule', bad: false, n: cov.perSchedule.length,
+        text: `${cov.perSchedule.length} per schedule` });
+    }
+    // Every money figure on this strip comes from the rollforward's own named
+    // quantities, never from a reduce written here — the tile above and the
+    // footer below read the same ones, so the three cannot print different money
+    // for the same question (review F15).
     gates.push(rf.off.length
-      ? { bad: true, text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off — ${money(rf.totals.variance)} to resolve` }
-      : { bad: false, text: `${rf.ties.length} loan${rf.ties.length === 1 ? '' : 's'} tie exactly` });
+      ? { key: 'variance', bad: true, n: rf.off.length,
+          text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off — ${money(rf.varianceToResolve)} to resolve` }
+      : { key: 'variance', bad: false, n: rf.ties.length,
+          text: `${rf.ties.length} loan${rf.ties.length === 1 ? '' : 's'} tie exactly` });
+    // Shown, and deliberately not a blocker. A real gap below the materiality
+    // line is de-escalated, never hidden — the figure is right there in the chip.
+    if (rf.immaterial.length) {
+      gates.push({ key: 'immaterial', bad: false, n: rf.immaterial.length,
+        text: `${rf.immaterial.length} small difference${rf.immaterial.length === 1 ? '' : 's'} — ${money(rf.varianceSmall)}` });
+    }
+    // NO CHIP FOR 'unbooked', on purpose. The posting gate immediately below
+    // already reports exactly this money as work to do; a second chip would be
+    // the same event counted twice with two different figures, which is the
+    // failure the band was built to remove. The explanation lives on the row.
     gates.push(rf.unpostedRows.length
-      ? { bad: true, text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}` }
-      : { bad: false, text: 'everything booked' });
+      ? { key: 'posting', bad: true, n: rf.unpostedRows.length,
+          text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}` }
+      : { key: 'posting', bad: false, n: 0, text: 'everything booked' });
     const blocked = gates.some(g => g.bad);
 
-    const chip = (g) => `<span class="lcb-gate${g.bad ? '' : ' ok'}">${g.bad ? '' : '✓ '}${esc(g.text)}</span>`;
+    // No tick on the immaterial chip. It is not bad enough to block and not good
+    // enough to congratulate — a real difference nobody is chasing today, and a
+    // ✓ in front of it would be the tool agreeing with itself.
+    const chip = (g) => `<span class="lcb-gate${g.bad ? '' : ' ok'}" data-gate="${esc(g.key)}" data-count="${g.n == null ? '' : g.n}">${(g.bad || g.key === 'immaterial') ? '' : '✓ '}${esc(g.text)}</span>`;
 
     // Bare figures in the body; the currency symbol survives only on the total,
     // which is the anchor a reader checks. Fourteen dollar signs down a column
@@ -14682,44 +15569,117 @@
     const STATUS_WORD = { pending_review: 'Pending review', closed_period: 'In a closed month',
                           needs_attention: 'Needs attention', staged: 'Staged' };
 
+    // How a closing figure was arrived at, in the reader's language. The GRADE
+    // is carried in data-grade for anything counting; the words are what a CPA
+    // has to be able to disagree with.
+    const closingWhy = (r) => {
+      if (!r.perLender) return '';
+      if (r.anchor.derivation === 'rolled_back') {
+        return `${short(r.perLender.asOf)} · rolled back from ${esc(_anchorSourceLabel(r.perLender.source))}`;
+      }
+      if (r.anchor.derivation === 'schedule') {
+        return `${short(r.perLender.asOf)} · ${esc(_anchorSourceLabel(r.perLender.source))}`;
+      }
+      return short(r.perLender.asOf);
+    };
+
     const row = (r) => {
       const a = r.a;
+      // .lcb-sub.soft means "our own arithmetic, not the lender's" and it is the
+      // only warm colour left in this table. It is correct for a books-side
+      // opening and for a schedule-derived closing; a lender document gets the
+      // plain grey footnote.
       const openCell = r.opening
-        ? `${bare(r.opening.amount)}<span class="lcb-sub${r.opening.authoritative ? '' : ' soft'}">${short(r.opening.asOf)} · ${esc(_anchorSourceLabel(r.opening.source))}</span>`
+        ? `${bare(r.opening.amount)}<span class="lcb-sub${r.opening.authoritative ? '' : ' soft'}">${short(r.opening.asOf)} · ${esc(_anchorSourceLabel(r.opening.source))}${r.openingStaged ? ` · includes ${r.openingStaged} staged` : ''}</span>`
         : '<span class="lcb-none">no opening balance</span>';
+      // A REFUSAL IS AN ANSWER AND IT HAS TO BE READABLE. _loanClosingAnchor
+      // declines a roll-back for stated reasons — an unlabelled balance, an
+      // unposted payment in the window — and a blank cell with the reason known
+      // only to the code is the same silence this session came to remove.
+      const why = r.anchor.note ? ` title="${esc(r.anchor.note)}"` : '';
       const lenderCell = r.perLender
-        ? `${bare(r.perLender.amount)}<span class="lcb-sub">${short(r.perLender.asOf)}</span>`
+        ? `${bare(r.perLender.amount)}<span class="lcb-sub${r.perLender.authoritative ? '' : ' soft'}"${why}>${closingWhy(r)}</span>`
         : (r.automatic
+            // Stripe Capital's balance IS the Xero sweep. There is no outside
+            // party who could disagree with it, so it is reported as swept —
+            // never as "no evidence" (amendment A2).
             ? '<span class="lcb-na">n/a — swept from Xero</span>'
-            : '<span class="lcb-none">not received</span>');
+            : `<span class="lcb-none"${why}>not received</span>`);
       // A tie prints NOTHING. data-tie carries the fact for anything that needs
       // to count them — a data hook outlives a glyph, and the harness was
       // asserting on "$0.00 ✓" as a string.
-      const ties = r.variance != null && Math.abs(r.variance) < 0.005;
-      const varCell = r.variance == null
+      //
+      // Three outcomes now, not two (amendment A1): tie (silence), immaterial
+      // (grey, figure shown, does not block) and material (red, blocks). An
+      // immaterial difference is DE-ESCALATED, never hidden.
+      const ties = r.band === 'tie';
+      const signed = (n2) => `${n2 > 0 ? '+' : '−'}${bare(Math.abs(n2))}`;
+      // An 'unbooked' gap is stated WITH its cause, in the same grey as an
+      // immaterial one, because the reader must not have to guess which of the
+      // two de-escalations they are looking at.
+      const unbookedWhy = r.unbooked
+        ? r.unbooked.parts.map(p => p.kind === 'staged'
+            ? `${p.n} staged payment${p.n === 1 ? '' : 's'} not yet booked`
+            : `a payment whose period label carries no date`).join(' and ')
+        : '';
+      const varCell = r.circular
+        // A check that cannot fail must never look like a check that passed.
+        // Opening, movement and closing all trace to the same document here, so
+        // the agreement is arithmetic rather than evidence about the world. No
+        // data-tie, no variance, counted in neither column.
+        ? '<span class="lcb-sub soft" style="display:inline">agrees by construction — not an independent check</span>'
+        : r.variance == null
         ? '<span class="lcb-na">—</span>'
-        : (ties ? '' : `<span class="lcb-off">${r.variance > 0 ? '+' : '−'}${bare(Math.abs(r.variance))}</span>`);
+        : ties ? ''
+        : r.band === 'unbooked'
+        ? `<span class="lcb-na">${signed(r.variance)}<span class="lcb-sub">${esc(unbookedWhy)}</span></span>`
+        : r.band === 'immaterial'
+        ? `<span class="lcb-na">${signed(r.variance)}</span>`
+        : `<span class="lcb-off">${signed(r.variance)}</span>`;
       const booked = r.unposted.length
         ? `<span class="lcb-flag">${r.unposted.length === 1
             ? esc(STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
             : esc(r.unposted.length + ' unposted')}</span>`
         : (r.splits.length ? 'Booked' : '<span class="lcb-na">No payment</span>');
-      return `<tr>
+      // A payment whose period_label carries no date is in no month at all, so
+      // it is in no rollforward either. Said out loud rather than closed over.
+      const undatedFlag = r.undated.length
+        ? `<span class="lcb-flag" title="A payment whose period label carries no date cannot be placed in a month, so it is not counted in any rollforward.">${r.undated.length} undated</span>`
+        : '';
+      return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''}>
         <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span><span class="lcb-lender">${esc(a.lender)}</span></td>
         <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}">${openCell}</td>
         <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
-        <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}">${lenderCell}</td>
-        <td class="lcb-n"${ties ? ' data-tie="1"' : ''} data-variance="${r.variance == null ? '' : r.variance}">${varCell}</td>
-        <td style="white-space:nowrap">${booked}</td>
+        <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''}>${lenderCell}</td>
+        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}">${varCell}</td>
+        <td style="white-space:nowrap">${booked}${undatedFlag ? ' ' + undatedFlag : ''}</td>
       </tr>`;
     };
+
+    // ── SUBTOTALS BY GRADE ───────────────────────────────────────────────
+    // Lender-confirmed money and schedule-derived money are different claims,
+    // and a reader has to be able to see which subtotal the CPA is actually
+    // signing. Folding grade B into one line would make the total imply a higher
+    // grade than half of it has — the one thing this session exists to stop.
+    // Within EACH line opening − principal = computed still holds, which is the
+    // property session 245 established and the harness checks.
+    const subtotalRow = (grade, label, st) => `<tr data-subtotal="${grade}" data-count="${st.count}"${st.circular ? ` data-circular-count="${st.circular}"` : ''}>
+      <td>${esc(label)}${st.circular ? ` <span class="lcb-sub soft" style="display:inline">${st.circular} not independently checked</span>` : ''}</td>
+      <td class="lcb-n" data-amount="${st.opening}">${money(st.opening)}</td>
+      <td class="lcb-n" data-amount="${st.principal}">${money(st.principal)}</td>
+      <td class="lcb-n" data-amount="${st.interest}">${money(st.interest)}</td>
+      <td class="lcb-n" data-amount="${st.computed}">${money(st.computed)}</td>
+      <td class="lcb-n" data-amount="${st.perLender}">${money(st.perLender)}</td>
+      <td class="lcb-n" data-variance="${st.variance}" data-material="${st.material}"${st.count && st.variance < 0.005 ? ' data-tie="1"' : ''}>${st.variance < 0.005 ? '<span class="lcb-na">$0.00</span>' : `<span class="${st.material ? 'lcb-off' : 'lcb-na'}">${money(st.variance)}</span>`}</td>
+      <td></td>
+    </tr>`;
 
     el.innerHTML = `
       <div class="lcb-head">
         <h3>Rollforward</h3>
-        <span class="lcb-why">Opening balance minus principal paid must equal what the lender says.</span>
+        <span class="lcb-why">Opening balance minus principal paid must equal the closing balance on file — the lender's where there is one, the contractual schedule where a recorded policy says so.</span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}">
         <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
@@ -14733,32 +15693,24 @@
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n">Computed</th>
-              <th class="lcb-n">Per lender · ${esc(short(rf.monthEnd))}</th>
+              <th class="lcb-n">Closing · ${esc(short(rf.monthEnd))}</th>
               <th class="lcb-n">Variance</th><th>Status</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
-              <tr>
-                <td>${rf.checkable.length} checkable loan${rf.checkable.length === 1 ? '' : 's'}</td>
-                <td class="lcb-n">${money(rf.totals.opening)}</td>
-                <td class="lcb-n">${money(rf.totals.principal)}</td>
-                <td class="lcb-n">${money(rf.totals.interest)}</td>
-                <td class="lcb-n">${money(rf.totals.computed)}</td>
-                <td class="lcb-n">${money(rf.totals.perLender)}</td>
-                <td class="lcb-n" data-variance="${rf.totals.variance}"${rf.totals.variance < 0.005 ? ' data-tie="1"' : ''}>${rf.totals.variance < 0.005 ? '<span class="lcb-na">$0.00</span>' : '<span class="lcb-off">' + money(rf.totals.variance) + '</span>'}</td>
-                <td></td>
-              </tr>
-              ${rf.excluded.count ? `<tr class="lcb-excluded">
-                <td>Not checkable — ${rf.excluded.count} without a statement</td>
+              ${rf.gradeA.length ? subtotalRow('A', `${rf.gradeA.length} confirmed by lender`, rf.totalsA) : ''}
+              ${rf.gradeB.length ? subtotalRow('B', `${rf.gradeB.length} per amortization schedule`, rf.totalsB) : ''}
+              ${rf.excluded.count ? `<tr class="lcb-excluded" data-subtotal="none" data-automatic="${rf.excluded.automatic}">
+                <td>Not checkable — ${rf.excluded.count} loan${rf.excluded.count === 1 ? '' : 's'}${rf.excluded.automatic ? ` · ${rf.excluded.automatic} swept from Xero` : ''}${rf.excluded.count - rf.excluded.automatic ? ` · ${rf.excluded.count - rf.excluded.automatic} with nothing to close against` : ''}</td>
                 <td class="lcb-n">—</td>
-                <td class="lcb-n">${money(rf.excluded.principal)}</td>
-                <td class="lcb-n">${money(rf.excluded.interest)}</td>
+                <td class="lcb-n" data-amount="${rf.excluded.principal}">${money(rf.excluded.principal)}</td>
+                <td class="lcb-n" data-amount="${rf.excluded.interest}">${money(rf.excluded.interest)}</td>
                 <td class="lcb-n">—</td><td class="lcb-n">—</td><td class="lcb-n">—</td><td></td>
               </tr>` : ''}
             </tfoot>
           </table>
         </div>
-        <div class="lcb-foot">Variance covers the ${rf.checkable.length} loan${rf.checkable.length === 1 ? '' : 's'} with a lender statement for ${esc(name)}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} have none and cannot be checked` : ''}. Extra principal payments are included — a rollforward measures how far the balance actually moved.</div>
+        <div class="lcb-foot">Variance covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} actually checked for ${esc(name)} — ${judgedA} confirmed by lender${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? ` · ${rf.unbookedRows.length} differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments this month has not booked yet, which the posting gate above already counts` : ''}${rf.circularRows.length ? ` · ${rf.circularRows.length} more agree${rf.circularRows.length === 1 ? 's' : ''} by construction, because nothing independent of the schedule opens the walk, and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}${rf.undatedRows.length ? ` · ${rf.undatedRows.length} carr${rf.undatedRows.length === 1 ? 'ies' : 'y'} payments whose period label has no date, so they fall in no month at all and no rollforward can see them` : ''}. Extra principal payments are included — a rollforward measures how far the balance actually moved.</div>
       </div>`;
   }
 
@@ -15016,6 +15968,14 @@
   const _BK_ROSTER_GROUPS = [
     { key: 'variance',   label: 'Needs attention',   tone: 't1' },
     { key: 'unverified', label: 'Needs a statement', tone: 't2' },
+    // Session 246. A loan whose books agree with its own amortization schedule
+    // has NOT been reconciled — nothing outside our records has confirmed
+    // anything, and Dexter 2 sat under "Reconciled" on exactly that basis. It is
+    // not "Needs a statement" either, because on a loan with
+    // close_basis = 'amortization_schedule' no statement is coming and a queue
+    // that cannot be emptied is the thing this session set out to delete. It is
+    // its own state: settled, on a stated basis, by a check that cannot fail.
+    { key: 'byschedule', label: 'Closed on the contractual schedule', tone: 't2' },
     { key: 'na',         label: 'Nothing to compare against yet', tone: 't2' },
     { key: 'unchecked',  label: 'Not checked yet',   tone: 't2' },
     // A real but immaterial gap. NOT filed under Reconciled — the books and the
@@ -15030,7 +15990,48 @@
 
   function _bkRosterState(a) {
     const v = _loanVariance(a) || {};
-    if (v.state === 'ties' || v.state === 'explained') return { ...v, group: 'reconciled' };
+    // ── THE POLICY (session 246, amendment A8) ───────────────────────────
+    // Two surfaces outside the close band kept nagging about documents that are
+    // never coming. Ship grade B without this and the close band says "Verdant:
+    // per schedule, accepted" two clicks from a queue saying "waiting on a
+    // statement" — the exact two-numbers-one-page failure this module's history
+    // is made of.
+    const policy = _loanCloseBasis(a) === 'amortization_schedule';
+    const anchorIsReal = _VARIANCE_REAL_ANCHORS.includes(String(v.anchorSource || ''));
+    // WHAT THE COMPARISON WAS AGAINST, decided here rather than in the renderer
+    // (review F9). Verdant's −$1,835.75 is measured against the amortization
+    // schedule; there is NO lender figure, and the roster was telling a CPA the
+    // lender had said something it never said. Every surface that prints a
+    // direction now reads this one word, so none of them can invent a
+    // counterparty that does not exist.
+    const against = anchorIsReal ? 'the lender'
+      : policy ? 'the contractual schedule'
+      : 'our own projection';
+    v.against = against;
+    if (v.state === 'ties' || v.state === 'explained') {
+      // A TIE AGAINST OUR OWN ARITHMETIC IS NOT A RECONCILIATION. Dexter 2's
+      // tie-out is `tied` at $0.00 with anchor_source = the amortization
+      // schedule: the books were compared with the document they were built
+      // from. _loanVariance already draws this distinction for an EXCEPTION
+      // (real anchor -> variance, our own -> unverified) and drew none for a
+      // TIE, which is how the agreement half went unexamined. Same rule, both
+      // directions.
+      // KEYED ON THE RECORDED POLICY, not merely on the anchor (review F6).
+      // "Closed on the contractual schedule" is a claim that somebody DECIDED
+      // that — it is a sentence a CPA reads as policy. A loan whose winning
+      // anchor merely happened to be our own ledger has had no such decision
+      // made about it, and printing one would invent a governance fact. That
+      // case is a tie nothing outside our records has confirmed, which is
+      // exactly what "Needs a statement" already means.
+      if (!anchorIsReal) {
+        return policy
+          ? { ...v, group: 'byschedule', policy,
+              reason: 'agrees with the contractual schedule this loan is set to close on — the same document the balance was built from, so it is settled rather than independently confirmed' }
+          : { ...v, group: 'unverified', policy,
+              reason: 'agrees with our own record rather than a lender document — nothing outside our books has confirmed this balance, so a statement would turn it into a real check' };
+      }
+      return { ...v, group: 'reconciled' };
+    }
     if (v.state === 'variance' || v.state === 'unverified') {
       const t = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
       // detail.material is written by computeTieOut. `undefined` (an older run,
@@ -15049,7 +16050,17 @@
       // surface that re-read the raw column.
       const resid = t && t.detail && t.detail.residual_after_later;
       const shown = (resid == null || !Number.isFinite(Number(resid))) ? v.difference : Number(resid);
-      if (v.state === 'unverified') return { ...v, difference: shown, group: 'unverified' };
+      if (v.state === 'unverified') {
+        // "Needs a statement" is a lie on a loan whose lender does not issue
+        // one. Verdant's tie-out is an exception of −$1,835.75 measured against
+        // the amortization schedule, and the schedule IS this loan's recorded
+        // closing basis — so that gap is not "unverified pending a document",
+        // it is the books disagreeing with the accepted basis, which is real
+        // work. Finding out what it is was the whole point of the exercise.
+        if (policy) return { ...v, difference: shown, group: material ? 'variance' : 'immaterial', material, policy,
+          reason: 'the books disagree with the contractual schedule this loan is set to close on — no statement is coming, so this gap is the answer rather than a placeholder' };
+        return { ...v, difference: shown, group: 'unverified' };
+      }
       return { ...v, difference: shown, group: material ? 'variance' : 'immaterial', material };
     }
     if (v.state === 'na') return { ...v, group: 'na' };
@@ -15073,7 +16084,9 @@
 
   function _bkRosterCounts() {
     const loans = (_allLoanAccounts || []).filter(a => a.status === 'active');
-    const c = { total: loans.length, reconciled: 0, variance: 0, unverified: 0, na: 0, unchecked: 0, immaterial: 0 };
+    // Every key _bkRosterState can return must exist here, or c[group]++ makes
+    // it NaN and the headline silently stops adding up.
+    const c = { total: loans.length, reconciled: 0, variance: 0, unverified: 0, na: 0, unchecked: 0, immaterial: 0, byschedule: 0 };
     loans.forEach(a => { c[_bkRosterState(a).group]++; });
     return c;
   }
@@ -15166,7 +16179,7 @@
         }
 
         const sub = g.key === 'variance'
-          ? `${diff != null ? esc(fmtMoney(Math.abs(diff))) + (diff < 0 ? ' below' : ' above') + ' the lender' : 'variance against the lender'}${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''}${r.items.length ? ` · ${r.items.length} thing${r.items.length === 1 ? '' : 's'} to look at` : ''}`
+          ? `${diff != null ? esc(fmtMoney(Math.abs(diff))) + (diff < 0 ? ' below ' : ' above ') + esc(r.st.against || 'the lender') : 'variance against ' + esc(r.st.against || 'the lender')}${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''}${r.items.length ? ` · ${r.items.length} thing${r.items.length === 1 ? '' : 's'} to look at` : ''}${r.st.reason ? ` — ${esc(r.st.reason)}` : ''}`
           : esc(r.st.reason || 'not compared against a lender document');
 
         html += `<div class="bk-queue-row ${g.key === 'variance' ? 'bk-t1' : 'bk-t2'}" style="cursor:default">
@@ -15714,7 +16727,14 @@
       // projection. One row, one payment. Anything newer and still in flight is
       // called out separately below.
       const inFlight = newestLive && newestLive !== lastSplit ? newestLive : null;
-      return { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a), v: _loanVariance(a) };
+      // `st` is _bkRosterState — the SAME classification the roster and the
+      // Overview statusline read (review F5). This table used to re-derive its
+      // own verdict from _loanVariance's raw state, so Dexter rendered a green
+      // "$0.00 ✓ Xero matches the lender exactly" (there is no lender) and
+      // counted toward "3 tie exactly", two feet from a roster filing it under
+      // "Closed on the contractual schedule" — three characterisations of one
+      // loan on one page. One function decides; this table displays.
+      return { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a), v: _loanVariance(a), st: _bkRosterState(a) };
     });
     const f = _loansTableFilters;
     const filtered = rowData.filter(r =>
@@ -15750,23 +16770,46 @@
     // `unverified` and `not checked` block it for a different reason — nobody can
     // say whether they are right — and the strip names that separately, because
     // "upload a statement" and "fix a $415.88 misallocation" are different jobs.
-    const varianceRows = sorted.filter(r => r.v.state === 'variance');
-    const unverifiedRows = sorted.filter(r => r.v.state === 'unverified' || r.v.state === 'unchecked');
-    const explainedRows = sorted.filter(r => r.v.state === 'explained');
-    const tiedRows = sorted.filter(r => r.v.state === 'ties');
+    //
+    // Session 246 review (F5): every one of these now reads r.st.group, the
+    // shared roster classification, instead of r.v.state. Three consequences,
+    // all of them the point: a tie against our own record no longer counts as a
+    // loan that "ties exactly"; a loan closing on a recorded schedule policy
+    // gets its own bit rather than being called reconciled; and an immaterial
+    // difference is de-escalated here exactly as it is in the roster and the
+    // close band, instead of being counted as work on one screen and not on the
+    // other two.
+    const varianceRows = sorted.filter(r => r.st.group === 'variance');
+    const unverifiedRows = sorted.filter(r => r.st.group === 'unverified' || r.st.group === 'unchecked');
+    const explainedRows = sorted.filter(r => r.st.group === 'reconciled' && r.v.state === 'explained');
+    const tiedRows = sorted.filter(r => r.st.group === 'reconciled' && r.v.state === 'ties');
+    const byScheduleRows = sorted.filter(r => r.st.group === 'byschedule');
+    const immaterialRows = sorted.filter(r => r.st.group === 'immaterial');
     // ABSOLUTE, not signed. 4140 +$415.88, 9744 +$182.00, 4751 +$266.42, EIDL
     // −$5.00 and Funding Circle −$1,008.06 sum to −$148.76 signed — a number that
     // makes $1,877.36 of real work look like a rounding error, on the one screen
     // whose job is to say how much is left to do. Direction is per-row; the total
     // is how much has to be resolved.
-    const totalVariance = varianceRows.reduce((sum, r) => sum + Math.abs(r.v.difference || 0), 0);
+    // r.st.difference, not r.v.difference: the roster already learned (session
+    // 231) that the raw anchor-date figure overstated four loans of ten and that
+    // what a person acts on is the residual once later entries are counted. Two
+    // surfaces printing different money for the same loan is the bug this whole
+    // review is about.
+    const totalVariance = varianceRows.reduce((sum, r) => sum + Math.abs(r.st.difference || 0), 0);
     const totalXero = sorted.reduce((sum, r) => sum + (r.v.xero != null ? r.v.xero : 0), 0);
     const totalStatement = sorted.reduce((sum, r) => sum + (r.v.lender != null ? r.v.lender : (r.bal ? r.bal.amount : 0)), 0);
 
-    const readyToClose = varianceRows.length === 0 && unverifiedRows.length === 0 && (tiedRows.length + explainedRows.length) > 0;
+    // "Every loan ties to its lender" may only be said when every loan really
+    // was compared against one. A loan settled on its contractual schedule was
+    // not, however satisfactory that settlement is, so it keeps the strip in its
+    // ordinary state and gets its own sentence.
+    const readyToClose = varianceRows.length === 0 && unverifiedRows.length === 0
+      && byScheduleRows.length === 0 && (tiedRows.length + explainedRows.length) > 0;
     const bits = [];
     if (varianceRows.length) bits.push(`<span><strong>${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'} to fix</strong> — ${money2(totalVariance)} of variance to resolve.</span>`);
     if (unverifiedRows.length) bits.push(`<span style="color:#92400e">${unverifiedRows.length} with no lender statement to check against.</span>`);
+    if (byScheduleRows.length) bits.push(`<span style="color:var(--gray-500)">${byScheduleRows.length} closed on the contractual schedule, not against a lender document.</span>`);
+    if (immaterialRows.length) bits.push(`<span style="color:var(--gray-500)">${immaterialRows.length} off by an amount too small to chase.</span>`);
     if (explainedRows.length) bits.push(`<span style="color:var(--gray-500)">${explainedRows.length} explained by later payments.</span>`);
     if (tiedRows.length) bits.push(`<span style="color:#166534">${tiedRows.length} tie${tiedRows.length === 1 ? 's' : ''} exactly.</span>`);
     const closeStripHtml = readyToClose
@@ -15815,10 +16858,23 @@
         ? `<span class="td-mono" style="font-size:12.5px" title="Xero's rebuilt balance as of ${esc(v.asOf || '')}">${money2(v.xero)}</span>`
         : dash;
 
+      // The cell follows r.st.group, the shared classification, for exactly the
+      // reasons in the note above the strip. `v` still supplies the numbers.
+      const st = r.st;
+      const againstWord = st.against || 'the lender';
       let varianceCell;
-      if (v.state === 'variance') {
-        const dir = v.difference > 0 ? 'Xero is ABOVE the lender' : 'Xero is BELOW the lender';
-        varianceCell = `<span class="td-mono" style="font-size:12.5px;font-weight:700;color:#dc2626" title="${dir} as of ${esc(v.asOf || '')} — this one blocks the close">${v.difference > 0 ? '+' : ''}${money2(v.difference)}</span>`;
+      if (st.group === 'byschedule') {
+        // NOT green, and never "matches the lender" — there is no lender figure
+        // here. Dexter's tie-out is the books compared with the document the
+        // books were built from.
+        varianceCell = `<span style="font-size:11.5px;color:var(--gray-500)" title="${esc(st.reason || '')}">agrees with the schedule — not an outside check</span>`;
+      } else if (st.group === 'immaterial') {
+        const d2 = st.difference;
+        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:var(--gray-500)" title="A real difference, too small to be worth chasing on its own — it turns red if it grows.">${d2 > 0 ? '+' : ''}${money2(d2)} <span style="font-size:11px">small</span></span>`;
+      } else if (st.group === 'variance') {
+        const d2 = st.difference;
+        const dir = d2 > 0 ? `Xero is ABOVE ${againstWord}` : `Xero is BELOW ${againstWord}`;
+        varianceCell = `<span class="td-mono" style="font-size:12.5px;font-weight:700;color:#dc2626" title="${esc(dir)} as of ${esc(v.asOf || '')} — this one blocks the close">${d2 > 0 ? '+' : ''}${money2(d2)}</span>`;
       } else if (v.state === 'ties') {
         varianceCell = `<span class="td-mono" style="font-size:12.5px;color:#166534" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">$0.00 ✓</span>`;
       } else if (v.state === 'explained') {

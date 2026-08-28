@@ -1,168 +1,203 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 246 (left by session 245, 2026-08-27)
+> ## ⏭️ START HERE — first thing, session 247 (left by session 246, 2026-08-28)
 >
-> ### 1. 🚀 DEPLOY STATE — CHECKED, NOT ASSUMED (2026-08-27 23:52 UTC)
+> ### 1. 🔴 THE DEPLOY — `reconciliation-run` IS NOT DEPLOYED, AND THAT IS WHAT MAKES THE CLOSE BAND HALF-BUILT
 >
-> **Most of it IS deployed.** Verified against the live project, not inferred:
+> **Checked live, not inferred (2026-08-28):** `reconciliation-run` is **v49,
+> deployed 2026-08-27 23:41:20, byte-identical to HEAD**. Session 246's change to
+> it — **+325/−13** — is committed and **not shipped**. `loan-bundle` is still
+> **v21** (23:41:16), so session 245's `ead8a11` is *also* still undeployed.
 >
-> | | |
-> |---|---|
-> | `loan-bundle` **v21** | deployed 23:41:16 |
-> | `reconciliation-run` **v49** | deployed 23:41:20 |
-> | `fdebe50` committed 23:37:36 | **in v21** |
-> | `ead8a11` committed 23:49:44 | **NOT deployed** |
+> **The sandbox cannot do this deploy, and it is worth knowing why so nobody burns
+> an hour rediscovering it.** The payload is **212 KB across 5 files**
+> (`reconciliation-run/index.ts` 127 KB, `_shared/settlement-lag.ts` 49 KB,
+> `_shared/carrying-basis-drift.ts` 23 KB, `double-reallocation.ts` 8 KB,
+> `_shared/xero-auth.ts` 5 KB) and the MCP deploy tool wants every file inline in
+> one call. Running the function afterwards needs a logged-in admin session too —
+> it has `callerRole(req)` and **no `x-wr-internal` branch**, so unlike `xero-read`
+> it cannot be poked from SQL.
 >
-> So everything through `fdebe50` is live. **One commit is outstanding —
-> `ead8a11`**, which stops the apply step emitting a raw Postgres constraint name
-> at a person when a statement date is already taken. It changes no verdict and
-> files nothing new; it only improves a failure message. Deploy it when convenient:
+> **David runs, from his own terminal:**
 >
 > ```
-> npx supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> git push          # SIX commits are unpushed — the sandbox cannot push
+> npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> npx supabase@latest functions deploy loan-bundle        --project-ref umjpbuxrdydwejqtensq --no-verify-jwt   # ead8a11, session 245
+> git push          # unpushed commits — the sandbox has no network and will 403
 > ```
 >
-> **Do NOT blanket-redeploy on the assumption that nothing shipped.** The previous
-> version of this block said exactly that, hours after it had stopped being true,
-> and it was written by the session that then deployed. Before trusting any deploy
-> claim here — including this one — run `mcp__Supabase__list_edge_functions` and
-> compare `updated_at` against `git log --date=format:'%Y-%m-%d %H:%M:%S'`. It takes
-> one minute and this block has now been wrong once.
+> …and then **clicks "Run Reconciliation Check" once.**
 >
-> ### 2. 🟠 STRIPE'S LENDER ANCHOR — BLOCKED ON A SCHEMA DECISION
+> **Until he does: `loan_book_balances` is EMPTY (verified, 0 rows), and BOTH
+> grade-B loans — Dexter Loan 2 and Verdant Capital — read *"agrees by
+> construction — not an independent check"*.** That is the close band being
+> honest: with no books-side balance on file, the opening and the closing both
+> trace to the same amortization schedule, and a check that cannot fail must not
+> look like a check that passed. But it is not yet the thing the session built.
+> The independent opening is what turns Verdant's tie into the real number
+> (`loan_tie_outs` already holds **−$1,835.75** for it), and one run produces it.
+> **The first run is the acceptance test, and it is still owed.**
 >
-> **What landed:** the 6/30 opening balance IS filed — `contract_origination`,
-> `total_payback`, **$145,875.00**. Stripe rolls forward now. The 12 terms and the
-> structure note applied too. Bundle sits at `partially_applied`, receipt intact.
+> ### 2. 🟠 STRIPE'S LENDER ANCHOR — STILL BLOCKED ON THE SAME SCHEMA DECISION
 >
-> **What did not:** `record_lender_balance` failed —
-> `duplicate key value violates unique constraint
-> "loan_statements_loan_account_id_statement_date_key"`.
+> Unchanged and re-verified today: `loan_statements` still carries **UNIQUE
+> (loan_account_id, statement_date)** — one balance per loan per day, whatever its
+> source — and Stripe Capital still has **0 `portal_manual_pull` rows** against
+> **36 `xero_balance_snapshot` rows** (35 in session 245; the sweep adds one a
+> day). The 6/30 opening is filed and correct; the lender anchor still cannot be.
 >
-> That constraint is **UNIQUE (loan_account_id, statement_date)** — one balance per
-> loan per day, *whatever its source*. The module had assumed (loan, date, source),
-> by inference rather than by reading the schema, and the assumption reached David
-> as raw Postgres. The apply path now looks up on (loan, date) and refuses with a
-> `date_taken` verdict that explains itself; it will no longer emit SQL at anyone.
-> **But the anchor still cannot be filed.**
+> The decision has not moved: relax the constraint to (loan, date, source) **and**
+> audit every latest-row lookup to be source-aware and deterministic, or stop the
+> sweep writing into the lender's table at all. Do not overwrite the books row.
+> **Session 246 added a reason to prefer the second option:** `loan_book_balances`
+> now exists and is exactly where a books-side figure belongs. Stripe's 36 sweep
+> rows are our own arithmetic sitting in the lender's table; that is the shape the
+> new table was created to stop. Full working notes in the session 245 entry.
 >
-> **Why it is not a one-liner.** Stripe is the ONLY loan whose books-side sweep
-> writes into the lender's table: `ingestion_method='automatic'`, so
-> `xero-payout-sync` puts 35 daily snapshots of OUR OWN BOOKS into `loan_statements`
-> — and they sit on exactly the days a lender figure needs. On 2026-08-26 the books
-> say $125,257.71 and the lender says $123,091.66. **That pair IS the variance.**
-> The table can hold one of them; the whole point is to hold both. Overwriting is
-> not an escape — it leaves an anchor with nothing to compare against, which is the
-> self-agreeing loop this loan is already stuck in.
+> ### 3. 🟠 UNLABELLED BALANCES — AND A CORRECTION TO WHAT SESSION 245 WROTE HERE
 >
-> **Three ways out, in the order I would consider them:**
-> 1. **Relax to (loan_account_id, statement_date, source).** Correct in principle.
->    But "the balance on day D" becomes ambiguous for every existing lookup —
->    `_loanBalanceAsOf` takes the latest row ≤ D, and two rows on one date make the
->    winner order-dependent. That is the "two numbers on one page, no way to tell
->    which is real" bug this module's whole history is made of. So: migration
->    (use `washroute-migration-review`) PLUS an audit of every latest-row lookup to
->    make it source-aware and deterministic. Do not do one without the other.
-> 2. **Stop the sweep writing into the lender's table at all.** Most correct, since
->    `loan_statements` means "what the lender said". Largest blast radius: those 35
->    rows are currently Stripe's ONLY balances, so moving them carelessly blanks its
->    debt schedule.
-> 3. **Overwrite the books row.** Rejected above — recorded so nobody re-proposes it.
+> Still **11 `portal_manual_pull` rows with `balance_basis='unknown'`**, verified
+> today. Still a real-anchor source, still silently excluded from the
+> lender-comparison checks. E-Transit **E5-4751 (2026-08-23)** and **E6-7410
+> (2026-08-20)** each carry one and it is still their NEWEST row. Find the writer
+> before labelling, or they come back.
 >
-> Everything else about the loan is filed and correct. This is the last step.
+> **The correction: Dexter Loan 2's 61 unlabelled rows are `xero_derived`, NOT
+> `portal_manual_pull`.** Session 245's block put them in the wrong bucket and the
+> remedy is completely different. `xero_derived` is **our own books**, not the
+> lender speaking, and it is a **frozen one-time backfill** — written 2026-08-06
+> to 08-15, nothing has written that source since. **Labelling a books row does not
+> create a lender anchor.** What Dexter needs is a lender balance or a books-side
+> rebuild, and the second one is now automatic the moment §1's deploy happens.
 >
-> ### 3. 🟠 UNLABELLED LENDER BALANCES ARE BEING WRITTEN RIGHT NOW
->
-> 11 `portal_manual_pull` rows carry `balance_basis = 'unknown'`, most recently
-> **2026-08-25**. That is a real-anchor source, and an unlabelled balance is
-> silently excluded from the lender-comparison checks — so a real discrepancy in
-> one of those rows would never be reported. E-Transit E5-4751 and E6-7410 each
-> carry one and it is their NEWEST row; **Dexter Loan 2 has 61 rows and none is
-> labelled.** Find the writer first — labelling the rows without fixing it just
-> means they come back. E5/E6 can then be fixed by the bundle's
-> `correct_statement_basis` action; Dexter 2 has nothing to infer from and needs
-> a human decision about what its balances measure.
+> This mattered more than a filing error: those 61 rows agree with the contractual
+> schedule **to the cent on every same-dated row**, which is why they could pose as
+> an independent opening and nearly shipped acceptance criterion #1 as a tautology.
+> See the session 246 entry.
 >
 > ### 4. 🔴 FUNDING CIRCLE — STILL UNRESOLVED, STILL THE OLDEST OPEN THING
 >
-> Session 241 left it and session 242 did not touch it. Eight months of every payment on
-> file twice, 2025-11 → 2026-06, and one materially wrong row: `2026-04-20`
-> (`dcd896b3-643a-4032-b145-28211daff980`) booked $2,033.77 principal / $0.00 interest,
-> with about **$1,038 of interest expense sitting in the loan account**, posted. The page
-> refuses to publish figures built on it, so nothing wrong leaves the building — but the
-> repair still needs a human. **Full working notes are in the session 241 entry below;
-> read them before touching it.** The order is unchanged: read Xero's journals first,
-> then void through `void_loan_split`, then correct the survivors, then re-run
-> `_loanPrincipalReconciliation`.
+> Sessions 241 through 246 have all left it. Re-verified today: split
+> `dcd896b3-643a-4032-b145-28211daff980` (2026-04-20) is still **posted** at
+> **$2,033.77 principal / $0.00 interest**, with about $1,038 of interest expense
+> sitting in the loan account. Eight months of every payment on file twice,
+> 2025-11 → 2026-06. The page still refuses to publish figures built on it, so
+> nothing wrong leaves the building, but the repair still needs a human. **Read the
+> session 241 entry before touching it.** Order unchanged: read Xero's journals
+> first, then void through `void_loan_split`, then correct the survivors, then
+> re-run `_loanPrincipalReconciliation`.
 >
-> ### 5. ⚠️ THREE DUPLICATE DOCUMENTS BLOCK A GUARD WE WANT
+> ### 5. ⚠️ THREE DUPLICATE DOCUMENTS STILL BLOCK A GUARD WE WANT
 >
-> E-Transit Loan 4140 carries the same screenshot **three times** — `861b6093`, `49f93485`,
-> `029f7439`, all `679ff195…`, uploaded 2026-08-24 within 37 minutes of each other. Almost
-> certainly a retry that succeeded more than once.
->
-> Because of them this index will not create:
->
-> ```sql
-> create unique index loan_documents_loan_sha_uniq
->   on public.loan_documents (loan_account_id, file_sha256) where file_sha256 is not null;
-> ```
->
-> It is the structural guard against attaching the same file twice, and it is written out
-> at the bottom of `migrations/session_242b_bundle_upsert_arbiter.sql` ready to run. Delete
+> Re-verified today: E-Transit Loan 4140 still carries the same screenshot three
+> times — `861b6093`, `49f93485`, `029f7439`, all sha `679ff195…`. Because of them
+> the unique index at the bottom of
+> `migrations/session_242b_bundle_upsert_arbiter.sql` still will not create. Delete
 > two of the three and apply it. Not done unasked — they are real documents.
 >
-> ### 6. ⚖️ THE STRIPE CAPITAL FEE: A QUESTION FOR RAMONA, NOT A BUG
+> ### 6. ⚖️ THE STRIPE CAPITAL FEE: STILL A QUESTION FOR RAMONA
 >
-> The $20,875 fixed fee was expensed **in one lump on 2026-06-30**, journal `#52168`:
-> `DR 264 Loan Fees / CR 304 Stripe Capital Loan`. That is why the loan sits at gross
-> payback, and it is why every payment being 100% principal is **correct**.
+> Unchanged. The $20,875 fixed fee was expensed in one lump on 2026-06-30 (journal
+> `#52168`), which is why `carrying_basis='gross_payback'` — verified still — and
+> why every payment being 100% principal is **correct**. The open question is
+> timing: June is closed, so spreading it is a prior-period adjustment and Ramona's
+> call. **Session 246 gives this a second reason to be asked** — see §7: that same
+> gross basis is what puts $125,257.71 of non-principal into a published total.
+> If she does reverse it, the order matters: reverse in Xero → flip
+> `carrying_basis` to `net_principal` → then rebuild July/August splits.
 >
-> The open question is timing, not correctness. All of it landed in June; July 2026 →
-> December 2027 each look about **$1,160/month cheaper** than they are. Spreading it in
-> proportion to repayments is the alternative, and the July CSV already IS that schedule
-> ($1,601.68 for July, from the lender's own fee column). **June is closed**, so it is a
-> prior-period adjustment and Ramona's call. Worth raising at the next close.
+> ### 7. 🔴 NEW — $266,140.40 OF "TOTAL OUTSTANDING" IS NOT MEASURED IN PRINCIPAL
 >
-> **If she does reverse it, the order matters:** reverse in Xero → flip `carrying_basis` to
-> `net_principal` → then rebuild July/August splits. The other way round leaves a window
-> where the books and the tool disagree and `balance_vs_lender` screams. The detector in §5
-> catches the state either way.
+> **Tech Debt #19, now with a number on it.** A harness assertion is **deliberately
+> red** and that red assertion IS the finding — do not tune it green. Four active
+> loans, measured against the 2026-08-26 fixture:
 >
-> ### 7. ✅ WHAT SESSION 242 BUILT — read `DESIGN-LOAN-BUNDLE-INTAKE.md`
+> | | | |
+> |---|---|---|
+> | Stripe Capital | $125,257.71 | `total_payback` |
+> | Dexter Loan 2 | $89,411.25 | `unknown` |
+> | E-Transit E5-4751 | $29,302.52 | `unknown` |
+> | E-Transit E6-7410 | $22,168.92 | `unknown` |
 >
-> Multi-document intake: several files about ONE loan, read as a single piece of evidence.
-> Plus `carrying_basis`, which is the fact that decides whether a payment needs splitting
-> at all and which nothing in the schema recorded until now.
+> Stripe is the sharp one: `total_payback` is principal **plus the whole remaining
+> fee**, and it is being summed into the "Total outstanding" on the Debt Schedule
+> the CPA exports. The other three are §3's unlabelled-balance problem seen from
+> the other side — a balance nobody has said what it measures, published as though
+> it measured principal. Verified against HEAD and the previous fixture: a real
+> open defect, not fixture fallout. Full next step in Tech Debt #19.
 >
-> **The near-miss worth knowing about before you touch any of it:** a fee-reclassification
-> for Stripe Capital got as far as a costed, reviewed proposal. It was correct for a
-> net-booked loan and catastrophic for a gross-booked one — over the loan's life it would
-> have credited an extra $20,875 into the liability, leaving a phantom $20,875 owing after
-> Stripe said paid in full. An adversarial pass caught it, and the only reason it was
-> catchable is that somebody asked which basis the loan was on.
+> ### 8. 🟠 NEW — FOUR SMALLER THINGS SESSION 246 TURNED UP, EACH WITH A NEXT STEP
 >
-> ### 8. 🧪 THE TEST SUITE IS THE THING THAT KEEPS THIS HONEST
+> * **PayPal 2's August close misses the `unbooked` band by $44.70.** A $3,120.60
+>   variance against a staged split carrying $3,165.30 of principal. The band
+>   requires the staged principal to close the gap to the half-cent, so it does not
+>   fire and the variance bands **material** and blocks August. That $44.70 is the
+>   same figure the `CLOSE_EXCLUDED_STATUSES` comment already records. It is one
+>   week's interest drift, not a mystery — but decide deliberately whether the band
+>   gets a tolerance or the split gets corrected. **Do not widen the tolerance
+>   without a reason you would say out loud to a CPA:** a band that de-escalates on
+>   an approximate match is a band that hides real money.
+> * **Dexter Loan 2 has three `payment` rows sharing 2021-09-30 in one schedule**
+>   (`866e60ac…`, generated 2021-10-13) with balances 254,962.56 / 258,022.52 /
+>   258,197.52 and payments 3,059.96 / 175.00 / 604.42. "The balance on this date"
+>   is currently decided by **sort stability**, and `loan_amortization_rows` has no
+>   ordinal column to resolve it. Harmless today (the date is five years old);
+>   structural. See Tech Debt #22.
+> * **`carrying_basis` is `'unknown'` on both grade-B loans** — Dexter 2 and
+>   Verdant — verified today. Grade B's entire walk is *opening minus PRINCIPAL*,
+>   and session 242's rule is "never propose a split while this is unknown". The
+>   grade-B figures are the schedule's own balances so they are not wrong, but the
+>   loans are being closed on a basis nobody has recorded. Ask David. (It is
+>   `'unknown'` on most of the book, not just these two — Stripe is the only loan
+>   with a recorded basis. Session 242 set the column; nobody has filled it in.)
+> * **`REAL_ANCHOR_SOURCES` had nine live copies; session 246 removed two.** Both
+>   were re-declarations **inside `reconciliation-run` itself**, 549 and 893 lines
+>   below the constant already in scope. **Seven remain** and they are the cheapest
+>   safety win on the board. See Tech Debt #23.
+>
+> ### 9. ✅ WHAT SESSION 246 BUILT — read `DESIGN-CLOSING-EVIDENCE.md`
+>
+> A three-grade closing-evidence model: **A** confirmed by lender (a real document,
+> dated in the month or rolled back from a later one), **B** per amortization
+> schedule under a recorded per-loan `close_basis` policy, **C** no evidence.
+> Grades partition the **13 non-automatic active loans**; Stripe is reported
+> separately as *swept from Xero*, never as *no evidence*. `_loanClosingAnchor` is
+> the single place a closing figure is chosen, so the close band, the statement
+> gate and the Client View checklist cannot drift apart.
+>
+> **Read the AMENDMENTS section of the design doc, not just the spec above it** —
+> where the two disagree the amendments win, and they are where the live-data traps
+> are written down.
+>
+> The migration is **APPLIED and verified** —
+> `migrations/session_246_closing_evidence.sql` is the file of record and its
+> header now states the applied state and the follow-up `revoke` the default ACL
+> made necessary.
+>
+> ### 10. 🧪 THE TEST SUITE
 >
 > ```
-> npx tsx tests/loan-bundle.test.mts        # 68 assertions, fixtures now in fixtures/
-> node tests/bookkeeping-harness.mjs        # 474 from session 241, unchanged
+> PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/bookkeeping-harness.mjs
+> PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/bookkeeping-harness.mjs --only=closing-evidence
+> npx tsx tests/loan-bundle.test.mts        # 68 assertions
 > ```
 >
-> Every assertion in the first file is a defect two red teams found and one QA pass
-> confirmed — **30 in the parsers, 22 in the plumbing.** Do not adjust an expected value to
-> make it pass; every number came off a real document or an independent calculation.
+> **1,216 assertions, one deliberately red (§7).** The `closing-evidence` group is
+> 340 of them, and **every one was proved to discriminate** — 25 revert anchors
+> that apply the inverse of each fix to the shipped function's own `.toString()`
+> in page context and confirm the assertion goes red. Never by editing
+> `index.html`. **An assertion that passes against both the fixed and the broken
+> code is decoration**, and this module has shipped 52 of those before.
 >
-> ### 9. 📋 STILL OPEN FROM SESSION 241's AUDITS
+> ### 11. 📋 STILL OPEN FROM SESSION 241's AUDITS
 >
-> Unchanged and unworked: the 57 deploy-only edge functions (`retail-cash-reclass-monthly`'s
-> duplicate guard failing open twice on a live Approve button is still the worst),
-> `loan-xero-post` checking a period LABEL and never the journal DATE, no
-> optimistic-concurrency predicate on any status transition **except** `loan-bundle`'s —
-> which is now the module's working reference implementation for that fix — the close
-> band's missing recency floor, and the 70 future-dated Verdant projection rows. Full list
-> in the session 241 log entry.
+> Unchanged and unworked: the 57 deploy-only edge functions
+> (`retail-cash-reclass-monthly`'s duplicate guard failing open twice on a live
+> Approve button is still the worst), `loan-xero-post` checking a period LABEL and
+> never the journal DATE, no optimistic-concurrency predicate on any status
+> transition **except** `loan-bundle`'s, the close band's missing recency floor,
+> and the 70 future-dated Verdant projection rows. Full list in the session 241 log
+> entry.
 
 ## Why this file exists (session 217)
 
@@ -1592,6 +1627,36 @@ one of the three sites in isolation is how this recurs a fourth time.
 *Do this after the CPA answers the draw-fee question (item 16), because that determines what Xero
 should hold for Rapid and therefore which basis is correct.*
 
+**UPDATE session 246 (2026-08-28) — the abstraction is still missing and the exposure is now
+measured: $266,140.40.** A harness assertion in the `history` group (`s240 #10`) walks every active
+loan's published balance, finds the `loan_statements` row it came from, and fails on any whose
+`balance_basis` is not `principal_only`. Four loans, against the 2026-08-26 fixture:
+
+| Loan | Amount | `balance_basis` |
+|---|---|---|
+| Stripe Capital | $125,257.71 | `total_payback` |
+| Dexter Loan 2 | $89,411.25 | `unknown` |
+| E-Transit E5-4751 | $29,302.52 | `unknown` |
+| E-Transit E6-7410 | $22,168.92 | `unknown` |
+
+Stripe is the sharp one and it is item 18's PayPal 2 problem an order of magnitude larger:
+`total_payback` is principal **plus the whole remaining fee**, on a loan whose own `carrying_basis`
+says `gross_payback`, summed into the "Total outstanding" on the Debt Schedule **the CPA exports**.
+The other three are START HERE §3's unlabelled-balance problem seen from the other side — a balance
+nobody has said what it measures, published as though it measured principal. Note the two halves
+need different remedies: Stripe's basis is *known and wrong for this use*, the other three are
+*unknown*, and only the first can be converted by arithmetic.
+
+**The assertion is deliberately RED and must stay red until the defect is fixed**, on the same
+precedent as `dismissal-fail-open` and `substance-key-substance`: a red assertion here IS the
+finding, and tuning it green deletes the only place this is written down. Session 246 verified it
+fails identically against the previous fixture and against HEAD's `index.html`, so it is neither
+fixture-refresh fallout nor a stale expectation.
+
+*Next step is unchanged and now has a test to close: build the one shared basis-aware helper that
+takes a balance and its basis and either returns a comparable figure or refuses, and route every
+consumer through it. When the red assertion goes green on its own, the abstraction landed.*
+
 ---
 
 **20. 🔭 Find-the-difference deep walk — the 18-month window cap (session 225).**
@@ -1609,6 +1674,76 @@ Xero rate-limit math for the worst-case loan. Also from the same session: 4140's
 $1,180.32 (per the lender's own transaction history) — correct the row; the
 fingerprint hunt uses split amounts too, so it still matched, but stale config
 shouldn't linger in a matching input.
+
+---
+
+**22. ⚠️ `loan_amortization_rows` has no ordinal column, so "the balance on this date" can be
+decided by sort stability (session 246).**
+
+Dexter Loan 2's schedule (`866e60ac…`, generated 2021-10-13) carries **three `payment` rows sharing
+2021-09-30**, verified live:
+
+| balance | payment |
+|---|---|
+| 254,962.56 | 3,059.96 |
+| 258,022.52 | 175.00 |
+| 258,197.52 | 604.42 |
+
+Any "latest row on or before date D" lookup — which is what grade B's closing figure is, and what
+`reconciliation-run`'s `schedAnchors` is — sorts by `row_date` and takes the first. On a date with
+three payment rows the winner is whichever the sort happened to leave on top, and the three answers
+here differ by **$3,234.96**. The table has `id, schedule_id, row_date, row_type, source_label,
+loan_amt, rate, payment, interest, principal, balance, addl_info, created_at` — **nothing that
+orders rows within a date**, and `created_at` is an ingest timestamp, not the lender's sequence.
+
+Harmless *today*: the date is five years old, well behind any month being closed, and session 246's
+`row_type` allowlist already removed the far more dangerous version of this (Dexter's `rate_change`
+row dated 2026-08-31 with `balance = 0.00` sharing that date with the real payment row at
+$86,066.61 — that one was live, and it would have read the loan as paid off).
+
+*Next step: add an ordinal (`period_number` or `row_index`, populated at ingest from the document's
+own row order) to `loan_amortization_rows`, backfill it from `id` order within
+`(schedule_id, row_date)`, and make every same-date tiebreak read it. Do it before any close depends
+on a schedule with intra-month rows — PayPal 2's weekly drafts are the loan most likely to produce
+one. Until then, do not add a new latest-row lookup over this table without deciding explicitly what
+it does with a duplicate date.*
+
+---
+
+**23. 🔭 `REAL_ANCHOR_SOURCES` has seven live copies, down from nine (session 246).**
+
+The list of sources that count as **the lender speaking** —
+`['lender_statement', 'email_pdf_upload', 'portal_manual_pull']` — is duplicated across the
+codebase under five different names. Session 246 deleted two of the nine: both were re-declarations
+**inside `reconciliation-run` itself**, at lines 607 and 951, **549 and 893 lines below the
+constant already in scope at line 58**. Nobody had noticed because they agreed.
+
+The seven that remain, verified 2026-08-28:
+
+| File | Name |
+|---|---|
+| `admin-dashboard/index.html:12949` | `_VARIANCE_REAL_ANCHORS` |
+| `supabase/functions/reconciliation-run/index.ts:58` | `REAL_ANCHOR_SOURCES` |
+| `supabase/functions/_shared/settlement-lag.ts:753` | `RATE_SOURCES` |
+| `supabase/functions/_shared/derive-schedule.ts:32` | `REAL_SOURCES` |
+| `supabase/functions/loan-cross-check/index.ts:58` | `REAL_STATEMENT_SOURCES` |
+| `supabase/functions/loan-record-principal-payment/index.ts:83` | `REAL` (function-local) |
+| `supabase/functions/loan-xero-post/index.ts:1349` | inline array literal in a `.in()` |
+
+`_shared/loan-bundle-plan.ts` is the one that got it right: it re-exports
+`RATE_SOURCES` rather than restating it.
+
+This is an **allowlist**, and that is what makes the duplication dangerous in a specific way: adding
+a source is fail-safe (an unlisted source is simply not treated as the lender speaking), but
+**adding a genuine lender source and missing one of seven copies is fail-silent** — that surface
+alone stops counting real lender evidence, with no error anywhere. Session 245's
+`contract_origination` was added deliberately *outside* the list; the next one may not be.
+`tests/loan-bundle-balances.test.mts` pins exactly one copy, by regex, on the dashboard.
+
+*Next step: everything under `supabase/functions/` imports the single `_shared` export, as
+`loan-bundle-plan.ts` already does — that collapses six to one. The dashboard cannot import from
+`_shared/`, so its copy stays and gets a comment naming the export it must track, plus a test that
+reads both and fails when they diverge. Cheapest safety win on the board.*
 
 ## Next Up — THE INGESTION ENGINE (Aug 21, first thing — David: "this will set us apart from everyone else")
 
@@ -1864,6 +1999,252 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 246 (2026-08-28) — a grade for every closing balance, and the test that agreed with itself twice
+
+David, on the July rollforward: *"we're missing a few balances because there are
+no statements to compare Xero to lender balances. The reality is that some lenders
+do not give us statements on a monthly basis (Dexter), while others share
+statements with payment amounts and no splits (Verdant). In this case, we need to
+be able to say: rely on the amortization schedule for the true number. That's all
+we can do."*
+
+The band said **"3 statements outstanding"** — Dexter Loan 2, EIDL SBA, Verdant.
+Two of those statements are not late. **They are never coming:** Dexter Financial
+issues no periodic statements at all, and Verdant's monthly notice carries a
+payment amount with no balance and no principal/interest split. A gate that waits
+for something that will never arrive is not a gate, it is a queue people learn to
+ignore — which is the same failure the close date fixed in session 230, wearing
+different clothes.
+
+#### The model: a closing balance has a GRADE, and the grade is stated
+
+Written as a design document (`DESIGN-CLOSING-EVIDENCE.md`) **before any code**,
+which is the only reason the audits below had something to be measured against.
+
+| Grade | On screen | What establishes it |
+|---|---|---|
+| **A** | *confirmed by lender* | a real lender document — dated in the month, or **rolled back** from a later one |
+| **B** | *per amortization schedule* | the contractual schedule, admissible only under a recorded per-loan policy |
+| **C** | *no evidence* | nothing |
+
+`_loanClosingAnchor` is **the only place a closing figure is chosen**. The close
+band, the statement gate and the Client View checklist all ask it, so the three
+surfaces cannot drift apart — this module's standing rule, and the thing sessions
+214–217 were substantially made of.
+
+**Grade A extended — the roll-back.** EIDL does not issue at month end; it issues
+on the 25th. We hold a real `email_pdf_upload` dated **2026-08-25** saying
+**$960,005.00**, `balance_basis='principal_only'`, and no principal was booked
+between 7/31 and that date. So the SBA's own figure for 7/31 *is* $960,005.00.
+That is arithmetic on lender evidence, not a projection, and it surfaces the
+**$5.00** the books are out by rather than nothing. It refuses rather than guesses:
+grade-A source, a labelled basis, inside 60 days, every split in the window posted
+(`staged` especially — that is money which has not moved), principal only, and a
+`<= today` clamp. The screen says *"rolled back from lender statement"*, never just
+the date. **A refused roll-back is never silently upgraded to a tie.**
+
+**Grade B is a recorded decision, not an absence.** New on `loan_accounts`:
+`close_basis` / `_reason` / `_set_at` / `_set_by`, mirroring session 242's
+`carrying_basis` quartet, with a CHECK on three values. Dexter 2 and Verdant carry
+`amortization_schedule` with a sentence a CPA would accept, a timestamp, and a
+name. **Absence is the thing this whole mechanism exists to stop reading as a
+fact**, so the admissibility of a schedule has to be something a person recorded.
+A real lender document always outranks the policy; the policy only ever speaks to
+the absence of one. And `amortization_schedule` on a loan with **no** schedule is
+grade C — a stated policy does not conjure a document, which is exactly why EIDL
+must never be given it.
+
+Grades partition the **13 non-automatic active loans**. Stripe Capital is
+`ingestion_method='automatic'` and is reported separately as *swept from Xero* —
+never as *no evidence*, because there is no outside party who could disagree with a
+balance that IS the Xero sweep.
+
+#### The lesson worth writing down properly: grade B is worthless if the opening is not independent
+
+The rollforward's check is `opening − principal paid = closing`. For **Verdant**,
+all 85 `loan_statements` rows ARE the schedule, every split is schedule-generated,
+and the closing would be the schedule too. Opening, movement and closing: one
+document. **The variance is identically zero by construction, for every month,
+forever.** It cannot fail. It is not a test.
+
+That is session 245's *an average is not a test* in a new costume — a document
+compared with itself. Shipping grade B on top of it would have printed a green tick
+beside Verdant while `loan_tie_outs` already holds **−$1,835.75** for that loan and
+the rollforward was structurally incapable of showing it.
+
+**The fix is an independent books-side balance.** `reconciliation-run`'s
+`balance_vs_lender` *already* rebuilds each loan's balance from Xero
+(BankTransactions plus ManualJournals) and then throws it away except for the one
+anchor date. It now retains it per month end in a new table, **`loan_book_balances`**.
+
+**A separate table, deliberately.** `loan_statements` means *what the lender said*.
+START HERE §2 is blocked right now precisely because Stripe's sweep writes our own
+books into that table and collides with a lender figure on the same date. Nothing
+about our own arithmetic belongs in there.
+
+The walk itself is free — 44 in-memory array scans over a ledger already pulled, no
+Xero calls, against an ~18-second run. The hazard is not cost, it is silence:
+**outside the pulled window `balanceAt()` returns the checkpoint wearing the target
+date's label** — a confident wrong number with nothing on the row to distinguish it
+from a real one. So `priorMonthEnd` was folded into the `windowFrom` candidate list
+(the first line of defence, and the reason the guard rarely fires), and every write
+**refuses rather than guesses**, with three named reasons — `no_checkpoint`,
+`before_window`, `checkpoint_before_window` — recorded in `book_balance_skips` on
+the run summary. **An absence the summary explains beats a number nobody can
+trust.** `computed_at` is set explicitly in the payload, because a column default
+does not fire on an upsert onto an existing row and "when was this measured" is the
+table's whole value.
+
+#### The same defect, one level deeper — and the reason it is a predicate now
+
+The first cut expressed the circularity guard as
+`opening.source === 'amortization_schedule'`. Verdant was caught. **Dexter was
+not** — its opening is `xero_derived`, which *looks* like our Xero ledger and
+therefore looks independent.
+
+It is not. All **61** of those rows are a **frozen one-time backfill** (written
+2026-08-06 to 08-15; nothing has written that source since; every one carrying
+`balance_basis='unknown'`), and **they agree with the contractual schedule to the
+cent on every same-dated row.** Opening, movement and closing were all the
+contract. **Acceptance criterion #1 — the flagship test of the whole design — was
+shipping as a tautology.**
+
+The first fix was another string comparison against another source name. The
+durable fix is to ask the question **once**, and to ask the right question:
+
+> **Is this opening independent of the document the closing came from?**
+
+`_openingIsIndependent` answers it. An opening is independent only when someone
+outside our own records produced it: a books-side rebuild (`xero_rebuild`) or a
+real lender document. `xero_derived`, `amortization_schedule` and
+`contract_origination` are all **our record** — a schedule, a backfill computed
+from a schedule, and a figure typed off a contract.
+
+**Why one predicate and not three fixes: F1, F6 and F7 were the same mistake.** A
+rule expressed as a source-name test, placed on one of several branches that reach
+the same displayed number. That is session 231's *a guard is only as good as the
+branch it sits on*, reproduced three times **in a diff whose own comments cite
+it**. Knowing the rule and applying it are different acts.
+
+The clearest of the three: `balance_basis='unknown'` was refused on the roll-back
+branch and **accepted on the direct one**, which would have graded E-Transit
+E5-4751 and E6-7410 *"confirmed by lender"* — into the subtotal the CPA signs — on
+a balance nobody can interpret. Same test, both branches, one function.
+
+#### Twelve defects from an adversarial review, after the implementation looked done
+
+All fixed. Beyond the three above:
+
+* **The Client View checklist printed "ready for your accountant" while the close
+  band said "Not ready to close."** Two surfaces, one question, opposite answers —
+  the failure this module's history is largely made of.
+* **A phantom $3,344.64 material variance on Dexter's August close.** The closing
+  anchor assumed a staged payment had happened while the principal column correctly
+  excluded it; the *same* staged split was already reported one chip to the left by
+  the posting gate at $3,839.38. **One event must not be two blockers at two
+  figures.** Fixed with a fourth band, `unbooked`: a variance fully accounted for by
+  money the month deliberately left out is shown, explained, counted in neither the
+  ties nor the offs, and does not block. The posting gate already owns that work.
+* **A stale books balance beating an exact lender statement.** The first cut took
+  the newest `loan_book_balances` row with `as_of <=` the date asked for and let it
+  win unconditionally — so one missed reconciliation run turns into August's
+  principal subtracted from June's balance, on every loan at once, on the screen
+  whose job is to say "ready for your accountant". BayFirst SBA 2 holds a real
+  portal pull dated *exactly* 2026-07-31 and would have lost to a stale June books
+  row for an invented $858.66. **A rebuild for another date is not a rebuild for
+  this one.** The date must match exactly, or fall through and mark the row.
+* **A roll-back with no `<= today` clamp** — the window reaches 60 days *forward*.
+* **A roster group keyed on the anchor rather than the recorded policy**, which
+  would tell a CPA a decision was made that nobody made.
+* Plus an empty grade-A subtotal rendering `data-tie` over zero loans (a $0.00
+  "tie" nobody earned, in the one column a reader scans for verdicts), the
+  `row_type` allowlist sitting below the schedule *picker* instead of above it, and
+  a tile claiming one quantity while the band beside it claimed another.
+
+Also fixed additively, per the amendments: `checkStaleAnchor` now reads
+`close_basis`, so Dexter and Verdant stop raising `stale_anchor` **forever** for a
+statement that is never coming; `schedAnchors` in `reconciliation-run` gained the
+`row_type` filter and schedule de-duplication it never had (without them the August
+tie-out reads Dexter as **paid off**, from a `rate_change` row dated 2026-08-31
+with `balance = 0.00` sharing that date with the real payment row at $86,066.61 —
+sorting by date alone is a coin flip decided by sort stability); and
+`_bkStatementCoverage` gained a `perSchedule` bucket without disturbing
+`expected` / `received` / `missing` / `naCount`.
+
+#### The tests, and the test that was itself the tautology
+
+`tests/bookkeeping-harness.mjs`: **1,216 assertions, one deliberately red.** A new
+`closing-evidence` group of **340**, and **every one proved to discriminate** — 25
+revert anchors that apply the inverse of the fix to the shipped function's own
+`.toString()` in page context, rebuild it with `new Function()`, and confirm the
+assertion goes red. All 25 anchors found; all 25 flipped the property under test.
+`index.html` is never edited by the harness.
+
+**The test agent's own first version asserted Dexter's tie — and was itself the
+tautology.** It proved the schedule agreed with the schedule, in 340 assertions, at
+the exact spot the design document had warned about in prose. The repair is not a
+better single assertion; it is a **PAIR**: with no books balance the row must read
+*circular*, and with one it must tie **for real**. Either half alone is satisfied by
+a guard that checks nothing. That is worth remembering next time a test is written
+for a check whose whole point is that it can fail.
+
+#### Deliberately left red: `history` → s240 #10
+
+**$266,140.40 of the published "Total outstanding" is measured on a basis that is
+not principal.** Stripe Capital **$125,257.71** at `total_payback` — principal plus
+the whole remaining fee, on an account whose own `carrying_basis` says
+`gross_payback` — plus Dexter 2 ($89,411.25), E5-4751 ($29,302.52) and E6-7410
+($22,168.92) at `unknown`. That is the number on the Debt Schedule the CPA exports.
+
+Checked before deciding: it fails identically against the **previous fixture** and
+against **HEAD's `index.html`**, so it is neither fixture-refresh fallout nor a
+stale expectation. It is **Tech Debt #19**, still open, now with a figure attached.
+Kept red on the `dismissal-fail-open` precedent — **a red assertion there is where
+the finding is written down**, and tuning it green would delete the only place this
+is recorded.
+
+#### The migration
+
+Applied 2026-08-28 and then read back from the catalog rather than assumed:
+columns, CHECK, `loan_book_balances`, both indexes, the unique constraint, RLS, the
+read policy, and both policy UPDATEs are live. **One thing was not in the file: a
+follow-up `revoke all … from authenticated` and `from anon`.** The default ACL had
+granted both roles INSERT/UPDATE/DELETE at CREATE TABLE time — **exactly what the
+file's own grants comment predicted, in writing, for anon** — and a GRANT cannot
+take back what a default ACL already gave. The prediction was correct and the file
+still shipped without the statement that acted on it. It is now in the grants block
+and in the header. RLS was never the thing at risk; the file of record describing a
+weaker ACL than the live one was.
+
+The header also no longer says **"NOT YET APPLIED"** or describes a two-push
+ordering that has already happened. **A stale header on the file of record is how a
+future session re-derives the wrong plan** — and this file had already been wrong
+once about a deploy, in session 245's own START HERE block.
+
+#### Where to pick up
+
+**The deploy is the whole story.** `reconciliation-run` is **v49, not deployed**
+(verified live, byte-identical to HEAD), so `loan_book_balances` is **empty** and
+both grade-B loans read *"agrees by construction — not an independent check"*. The
+close band is telling the truth — with no independent opening, a tie would be a lie
+— but it cannot yet do the one thing it was built for. David deploys
+`reconciliation-run` (and session 245's `loan-bundle` `ead8a11`), clicks **Run
+Reconciliation Check** once, and Verdant's variance becomes a real number for the
+first time. `loan_tie_outs` says it should be around **−$1,835.75**; the point of
+the whole exercise is that we find out. **That first run is the acceptance test and
+it is still owed.** The sandbox cannot do it: 212 KB across 5 files for a deploy
+tool that wants everything inline, and a function with `callerRole` and no
+`x-wr-internal` branch to call from SQL.
+
+After that, in order: **§7's $266,140.40** is the largest untrue number the module
+publishes and it now has a red test naming it; **PayPal 2's $44.70** wants a
+deliberate decision rather than a widened tolerance; **§3's unlabelled balances**
+still need their writer found before anyone labels a row; and **Funding Circle**
+remains the oldest open thing, untouched by five consecutive sessions. Tech Debt
+#22 (Dexter's three same-dated schedule rows, resolved by sort stability) and #23
+(seven surviving copies of `REAL_ANCHOR_SOURCES`) are both small, both structural,
+and neither is urgent.
 
 ### Session 245 (2026-08-27) — the rate that was never a rate
 

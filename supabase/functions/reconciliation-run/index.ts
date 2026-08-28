@@ -108,6 +108,13 @@ const addDays = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:0
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000)
 // Pacific business date. Never toISOString() — after 5pm PT that rolls to tomorrow.
 const todayPacific = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+// The last day of the month before the one `iso` falls in. Used to derive the two
+// month ends this run measures a books balance at, and derived FROM TODAY — never
+// from effectiveCloseDate(). A measurement of what Xero said on 31 July must not
+// move because the CPA has or has not finished closing July; if it did, the figure
+// the rollforward opens on would change shape mid-close and `computed_at` would
+// stop meaning anything.
+const monthEndBefore = (iso: string) => addDays(iso.slice(0, 8) + '01', -1)
 
 function admin() {
   return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
@@ -326,6 +333,66 @@ function balanceAt(code: string, D: string, ledger: Record<string, any[]>, check
     for (const r of rows) if (r.date > D && r.date <= checkpointDate) b -= effect(r, code)
   }
   return Math.round(b * 100) / 100
+}
+
+/** How many ledger entries balanceAt() actually walked to reach D. Exists only so a
+ *  stored books balance can say in `detail.entries_counted` how much evidence sits
+ *  behind it — "0 entries" and "31 entries" are very different claims to have made
+ *  about the same figure. The predicate is a line-for-line mirror of the walk above
+ *  and the two are deliberately adjacent: if they ever disagree, this one is the one
+ *  that is wrong, and a reader has to be able to see both at once to notice. */
+function entriesWalked(code: string, D: string, ledger: Record<string, any[]>, checkpointDate: string): number {
+  const rows = ledger[code] || []
+  return D >= checkpointDate
+    ? rows.filter((r: any) => r.date > checkpointDate && r.date <= D).length
+    : rows.filter((r: any) => r.date > D && r.date <= checkpointDate).length
+}
+
+/** The Xero ledger date of a STAGED split's pre-created transaction, or null when
+ *  the record does not state one. loan-xero-post writes the reference as
+ *  `WR-STAGE <code> <rowDate>` and creates the BankTransaction with Date = that same
+ *  rowDate, so the reference IS the date the entry sits on in Xero — which is the
+ *  date balanceAt() counted it on, since a staged transaction is AUTHORISED and
+ *  isLive() returns true for it. period_label is the fallback and ONLY when it is a
+ *  full date: weekly cadences label 'YYYY-MM-DD', monthly ones label 'YYYY-MM', and
+ *  a month names no day. Guessing one would be inventing the very thing this count
+ *  exists to state honestly. */
+function stagedLedgerDate(split: any): string | null {
+  const m = String(split?.stage_reference ?? '').match(/(\d{4}-\d{2}-\d{2})\s*$/)
+  if (m) return m[1]
+  const label = String(split?.period_label ?? '')
+  return /^\d{4}-\d{2}-\d{2}$/.test(label) ? label : null
+}
+
+// Rows on an amortization schedule that state a balance you may anchor to. A payment
+// row states the balance AFTER that payment; `initial` states the day-one balance.
+// Everything else — annual_total, grand_total, rate_change — carries a number whose
+// meaning is not "what is owed on this date", and Dexter proves all three of those can
+// carry a POPULATED one. Mirrors loan-cross-check's filter, which has carried a comment
+// since session 221 saying this engine omitted it.
+const SCHEDULE_ANCHOR_ROW_TYPES = ['payment', 'initial']
+
+/** Which of a loan's schedules to read, when it has more than one. Newest
+ *  schedule_generated_date, tie-broken by created_at, tie-broken by id — the same
+ *  rule and the same reasoning as _shared/staging-next.ts. The last key is not
+ *  decoration: two schedules generated on one day with the same stated generation
+ *  date is a real shape (derive a projection at 10am, ingest a statement at 2pm,
+ *  re-derive), and without a total order the choice falls back to whatever order
+ *  PostgREST happened to return the rows in. A null date sorts lowest, so a schedule
+ *  that states when it was generated always beats one that does not — matching
+ *  staging-next's `nullsFirst: false` on a descending sort. */
+function pickScheduleId(rows: any[]): string | null {
+  const keyOf = (s: any, r: any) => [String(s?.schedule_generated_date ?? ''), String(s?.created_at ?? ''), String(s?.id ?? r?.schedule_id ?? '')]
+  const cmp = (a: string[], b: string[]) => a[0] !== b[0] ? a[0].localeCompare(b[0]) : (a[1] !== b[1] ? a[1].localeCompare(b[1]) : a[2].localeCompare(b[2]))
+  let bestKey: string[] | null = null
+  let bestId: string | null = null
+  for (const r of rows) {
+    const s = r.loan_amortization_schedules
+    if (!s) continue
+    const k = keyOf(s, r)
+    if (!bestKey || cmp(k, bestKey) > 0) { bestKey = k; bestId = s.id ?? r.schedule_id ?? null }
+  }
+  return bestId
 }
 
 // Tech Debt follow-up (shipped session 222, 2026-08-19, same day as v14): this check
@@ -604,8 +671,7 @@ function checkBalanceVsLender(
   // re-derived. The REAL problem there is that no lender document exists to check
   // against -- and checkStaleAnchor owns exactly that, says it in one actionable
   // sentence, and does not attach a spurious dollar figure to it.
-  const REAL = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
-  if (!REAL.includes(String(tie.anchor_source ?? ''))) return []
+  if (!REAL_ANCHOR_SOURCES.includes(String(tie.anchor_source ?? ''))) return []
 
   const code = loan.xero_account_code
   const diff = tie.difference as number
@@ -934,12 +1000,46 @@ function checkFutureDatedStatements(loan: any, statements: any[], today: string)
   }]
 }
 
-function checkStaleAnchor(loan: any, anchors: any[], today: string, futureOnlyAnchor: boolean): Finding[] {
+function checkStaleAnchor(loan: any, anchors: any[], today: string, futureOnlyAnchor: boolean, scheduleOnFile = false): Finding[] {
   if (loan.status !== 'active') return []
   // Stripe Capital repays automatically out of each payout and has no statement to
   // chase — its balance is a live Xero snapshot by design. Asking for a document
   // that will never exist is not a finding.
   if (loan.ingestion_method === 'automatic') return []
+
+  // ── THE RECORDED CLOSING POLICY (session 246, DESIGN-CLOSING-EVIDENCE A8) ────
+  // `close_basis = 'amortization_schedule'` is a named, dated, human decision that
+  // this lender issues no usable statement: Dexter Financial issues none at all, and
+  // Verdant's monthly notice carries a payment amount with no balance and no
+  // principal/interest split. Chasing a document that is never coming is not a gate,
+  // it is a queue people learn to ignore — the same failure the close date fixed in
+  // session 230, in a third costume. Without this gate the close band would read
+  // "Verdant: per schedule, accepted" two clicks from this queue saying "no lender
+  // document on file", which is the two-numbers-on-one-page failure this module's
+  // whole history is made of.
+  //
+  // BUT ONLY WHEN A SCHEDULE ACTUALLY EXISTS. A stated policy does not conjure a
+  // document (draft §"Three rules the policy must obey", rule 3). A loan carrying
+  // this policy with no usable schedule behind it is grade C, and going quiet about
+  // it would hide the one loan the policy failed to cover — so it still reports, it
+  // just reports the truth, which is that the policy has nothing to stand on.
+  //
+  // Nothing here suppresses a real lender document: rule 1 is that a document always
+  // wins, and the exemption is a decision not to ASK for one, not a decision to
+  // ignore one that arrives. A Dexter statement landing tomorrow closes Dexter at
+  // grade A and is compared exactly as it is today.
+  //
+  // `loan_accounts` is read with select('*') at the call site, so close_basis arrives
+  // here for free; a row written before the column existed, or a harness fixture
+  // pulled before it, reads as the 'lender_statement' default and behaves as today.
+  const closeBasis = String(loan.close_basis || 'lender_statement')
+  const perSchedule = closeBasis === 'amortization_schedule'
+  if (perSchedule && scheduleOnFile) return []
+  // 'none' is deliberately NOT given a branch. It says no month-end balance is
+  // expected at all, which is a different question from whether a lender document is
+  // on file; no loan in production carries it; and inventing behaviour for an unused
+  // value is untested surface on a check that decides what a CPA is asked to chase.
+  // Raise it with David rather than guess.
   // Age is measured from the newest LENDER document, never from a projected schedule
   // row (session 231). A derived schedule regenerates a row dated today every time it
   // is re-derived, so counting one as an anchor would keep all eleven pre-staging
@@ -948,8 +1048,7 @@ function checkStaleAnchor(loan: any, anchors: any[], today: string, futureOnlyAn
   // it is the thing most in need of an independent figure. This check now carries the
   // whole job of saying "nothing has confirmed this loan lately", because
   // checkBalanceVsLender no longer reports gaps against a projection.
-  const REAL = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
-  const anchor = anchors.find((a: any) => REAL.includes(String(a.source ?? '')))
+  const anchor = anchors.find((a: any) => REAL_ANCHOR_SOURCES.includes(String(a.source ?? '')))
   const age = anchor ? daysBetween(anchor.statement_date, today) : null
   if (anchor && age !== null && age <= STALE_ANCHOR_DAYS) return []
   return [{
@@ -957,17 +1056,26 @@ function checkStaleAnchor(loan: any, anchors: any[], today: string, futureOnlyAn
     check_key: 'stale_anchor',
     severity: age === null || age > 365 ? 'warn' : 'info',
     loan_account_id: loan.id,
-    title: anchor
+    // Reaching here WITH the policy means the schedule it names is not on file — the
+    // exemption above already returned for every loan whose policy is backed. So the
+    // headline is the missing schedule, not the missing statement: asking for a
+    // statement is asking for the wrong thing on a loan whose recorded answer is that
+    // no statement is coming.
+    title: perSchedule
+      ? `${loan.xero_account_name} — set to close on its amortization schedule, and no schedule is on file`
+      : anchor
       ? `${loan.xero_account_name} — newest lender document is ${age} days old`
       : futureOnlyAnchor
         ? `${loan.xero_account_name} — the only lender document on file is dated in the future`
         : `${loan.xero_account_name} — no lender document on file`,
-    plain_english: anchor
+    plain_english: perSchedule
+      ? `This loan's recorded closing policy is "per amortization schedule", so a lender statement is not what it is waiting for.${loan.close_basis_reason ? ` The recorded reason: ${loan.close_basis_reason}` : ''} But there is no usable amortization schedule on file for it either${anchor ? `, and the newest lender document is dated ${anchor.statement_date}, ${age} days ago` : ''} — which leaves nothing at all to establish a month-end balance against. Upload the contractual amortization schedule, or change the closing policy to say what should establish this loan's balance instead.`
+      : anchor
       ? `The most recent statement from this lender is dated ${anchor.statement_date}, ${age} days ago. Everything since is our own arithmetic with nothing independent to check it against. A current document is what turns this loan from "probably right" into "verified".`
       : futureOnlyAnchor
         ? `Every lender document on file for this loan is dated ahead of today, so none of them can confirm what the balance is now. A current statement would fix that.`
         : `No statement or portal pull from this lender is on file, so this loan's balance has never been checked against anything outside Xero. A projected schedule is not a substitute — it is our own arithmetic, so comparing the books to it cannot catch an error in the books.`,
-    detail: { code: loan.xero_account_code, latest_anchor: anchor?.statement_date ?? null, anchor_source: anchor?.source ?? null, age_days: age, future_only: futureOnlyAnchor },
+    detail: { code: loan.xero_account_code, latest_anchor: anchor?.statement_date ?? null, anchor_source: anchor?.source ?? null, age_days: age, future_only: futureOnlyAnchor, close_basis: closeBasis, schedule_on_file: scheduleOnFile },
   }]
 }
 
@@ -1407,8 +1515,24 @@ async function handle(req: Request): Promise<Response> {
       // monthly statement, and the first live version of this check told David they
       // had "never been checked against anything outside Xero" — flatly untrue, and
       // the kind of wrong that erodes trust in every other finding on the page.
+      // v20 (session 246): schedule_id + the schedule's own id / generated date /
+      // created_at ride along so ONE schedule can be chosen deterministically
+      // (Verdant holds two, with overlapping rows and duplicate dates), and row_type
+      // rides along so totals and rate-change rows can be excluded (Dexter's carry
+      // POPULATED balances). The row_type filter is applied HERE as well as at the
+      // point of use: server-side it buys headroom under PostgREST's row cap, and
+      // client-side it keeps the invariant visible at the line that depends on it.
+      //
+      // THE HEADROOM IS THIN AND SHOULD NOT BE MISTAKEN FOR SAFETY. Measured
+      // 2026-08-28: loan_amortization_rows holds 926 rows against a 1,000 cap, and
+      // this filter takes the read to 886 — forty rows, not a margin. One more
+      // Verdant-sized schedule crosses it, and a silently truncated read here would
+      // decide which schedule wins and which balance answers a date, with no error
+      // anywhere. That is why the count is checked below rather than assumed; raising
+      // the cap is the real fix and is A9's open item.
       supa.from('loan_amortization_rows')
-        .select('row_date, balance, loan_amortization_schedules!inner(loan_account_id, balance_basis)')
+        .select('row_date, row_type, balance, schedule_id, loan_amortization_schedules!inner(id, loan_account_id, balance_basis, schedule_generated_date, created_at)')
+        .in('row_type', SCHEDULE_ANCHOR_ROW_TYPES)
         .not('balance', 'is', null),
       // Terms as the LENDER stated them (session 242). Only live rows: a superseded
       // term is history, and predicting a balance from a superseded agreement would
@@ -1421,17 +1545,48 @@ async function handle(req: Request): Promise<Response> {
         .is('superseded_at', null),
     ])
     if (!contractTerms) console.error('reconciliation-run: loan_contract_terms read returned no data; the carrying-basis check will stay silent this run')
+    // A truncated amortization read is not a smaller answer, it is a DIFFERENT one:
+    // the schedule chosen below and the balance answering a date both come from these
+    // rows, and PostgREST truncates at its cap without an error. Never let that decide
+    // a closing balance silently. 1,000 is the project's configured cap; anything at
+    // or above it means the pick was made from a partial set.
+    if ((amortRows?.length ?? 0) >= 1000) {
+      console.error(`reconciliation-run: loan_amortization_rows returned ${amortRows!.length} rows — at or above the PostgREST cap. The schedule choice and every schedule anchor this run may be made from a PARTIAL set. Raise the cap or page this read before trusting a close.`)
+    }
     const active = (loans || []).filter(l => l.xero_account_code)
     const codes = active.map(l => l.xero_account_code)
+
+    // ── THE TWO MONTH ENDS THIS RUN MEASURES (session 246) ──────────────────
+    // The month being closed, and the month the rollforward OPENS on. Derived from
+    // `today`, NOT from effectiveCloseDate(): a measurement must not depend on the
+    // CPA's progress through the close, or the opening balance moves under her while
+    // she works and `computed_at` stops meaning anything. On 2026-08-28 these are
+    // 2026-07-31 and 2026-06-30.
+    const closingMonthEnd = monthEndBefore(today)
+    const priorMonthEnd = monthEndBefore(closingMonthEnd)
 
     // Window: far enough back to cover every lender anchor we need to compare against,
     // plus the checkpoint, plus a small buffer. Anchors on active loans are recent, so
     // this stays cheap — a normal run pulls ~60 days, not ten years.
+    //
+    // ── priorMonthEnd IS A CANDIDATE, AND THIS IS THE LOAD-BEARING LINE ──────
+    // balanceAt() walks an in-memory ledger from a checkpoint. Ask it for a date
+    // OUTSIDE the pulled window and it finds nothing to walk, so it hands back the
+    // CHECKPOINT wearing the target date's label — a confident wrong number, with no
+    // error and nothing on the row to distinguish it from a real one. Without this
+    // candidate, a run whose newest checkpoint is yesterday opens the window at
+    // yesterday-5 and every stored "balance at 30 June" would be June's label on
+    // August's figure. The refusal guard in the loan loop is the second line of
+    // defence; this is the first, and the one that means the guard rarely fires.
+    // Cost: the window floor moves from ~5 days to ~35-67 days on runs that would
+    // otherwise have been short — inside the "~60 days" this comment already
+    // budgeted for, and pullXero slices it a month at a time so the page cap is
+    // untouched.
     const anchorDates = (statements || [])
       .filter(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date <= today)
       .map(s => s.statement_date)
     let windowFrom = body.from_date
-      || [checkpointDate, ...anchorDates.slice().sort()].filter(Boolean).sort()[0]
+      || [checkpointDate, priorMonthEnd, ...anchorDates.slice().sort()].filter(Boolean).sort()[0]
       || addDays(today, -120)
     windowFrom = addDays(windowFrom, -5)
     // Floor at 120 days. Without this, one loan holding an old lender statement
@@ -1474,6 +1629,9 @@ async function handle(req: Request): Promise<Response> {
 
     const findings: Finding[] = []
     const tieOuts: TieOut[] = []
+    // Month-end books balances, and the refusals. See the block beside tieOuts.push().
+    const bookBalances: any[] = []
+    const bookBalanceSkips: Array<{ loan_account_id: string; code: string; as_of: string; reason: string }> = []
     for (const loan of active) {
       const code = loan.xero_account_code
       // v19: Trial Balance first (a code absent from the report is a genuine
@@ -1488,8 +1646,38 @@ async function handle(req: Request): Promise<Response> {
         // statement_id + storage_path ride along so a tie-out row can link straight to the
         // actual document, and keep linking after the statement row is gone.
         .map(s => ({ statement_date: s.statement_date, principal_balance: s.principal_balance, source: s.source, balance_basis: s.balance_basis, statement_id: s.id, storage_path: s.storage_path }))
-      const schedAnchors = (amortRows || [])
-        .filter((r: any) => r.loan_amortization_schedules?.loan_account_id === loan.id && r.row_date <= today)
+      // ── ONE SCHEDULE, PAYMENT-BEARING ROWS ONLY (session 246, amendment A3) ──
+      // Two live hazards this walked straight into, both silent, both worse than the
+      // draft design assumed:
+      //
+      //  1. NO row_type FILTER. Dexter's schedule carries an `initial` row, eight
+      //     `annual_total` rows with POPULATED balances (2025-12-31 -> 112,314.00;
+      //     2026-12-31 -> 72,415.24), a `grand_total` at 0.00, and a `rate_change`
+      //     dated 2026-08-31 with balance 0.00 SHARING THAT DATE with the real
+      //     payment row at 86,066.61. Which of those two won was decided by
+      //     Array.prototype.sort stability — i.e. by luck — and the losing coin flip
+      //     reads Dexter as paid off. A `balance != null` test does NOT catch this:
+      //     Verdant's total rows are null but Dexter's are not, so do not generalise
+      //     from Verdant. loan-cross-check has filtered correctly since session 221
+      //     and left a comment saying this engine did not; that ends here.
+      //
+      //  2. NO SCHEDULE DE-DUPLICATION. Verdant holds TWO schedules (generated
+      //     2026-08-25 and 2025-06-12) with overlapping rows and duplicate dates, and
+      //     all 168 rows were merged into one walk — so which row answered "the
+      //     balance on this date" depended on which schedule PostgREST returned
+      //     first. Pick ONE deterministically and read only its rows.
+      //
+      // The winner is chosen from rows that have ALREADY passed the row_type and
+      // balance filters, and before the `<= today` cut. Choosing after the date cut
+      // would let a loan's schedule identity change as time passes; choosing from
+      // unfiltered rows would let a schedule made only of totals rows win and leave
+      // the loan with no anchor at all rather than the older, usable one.
+      const myAmortRows = (amortRows || []).filter((r: any) =>
+        r.loan_amortization_schedules?.loan_account_id === loan.id &&
+        SCHEDULE_ANCHOR_ROW_TYPES.includes(String(r.row_type ?? '')))
+      const chosenScheduleId = pickScheduleId(myAmortRows)
+      const schedAnchors = myAmortRows
+        .filter((r: any) => r.schedule_id === chosenScheduleId && r.row_date <= today)
         .map((r: any) => ({ statement_date: r.row_date, principal_balance: r.balance, source: 'amortization_schedule', balance_basis: r.loan_amortization_schedules?.balance_basis ?? null }))
       // ── AUTHORITY RANKING (session 239) ──────────────────────────────────
       // Was: sort the merged list by DATE alone. Both halves are individually
@@ -1523,6 +1711,87 @@ async function handle(req: Request): Promise<Response> {
       // point of the tie-out. checkBalanceVsLender then derives its finding from it.
       const tie = computeTieOut(loan, ledger, cp, cpDate, anchors, windowFrom, haveCheckpoint, today)
       tieOuts.push(tie)
+
+      // ── MONTH-END BOOKS BALANCE (session 246, DESIGN-CLOSING-EVIDENCE) ────────
+      // The same Xero rebuild computeTieOut() just did, snapshotted at two fixed
+      // dates instead of one anchor date, and RETAINED. This is the whole reason
+      // grade B is worth shipping: for Verdant, every loan_statements row IS the
+      // schedule, every split is schedule-generated, and the closing figure would be
+      // the schedule too — opening, movement and closing all one document, so the
+      // variance is identically zero by construction, for every month, forever. That
+      // is not a test. A books-side opening from Xero is independent of any schedule,
+      // so opening − principal versus closing becomes a check that can actually fail.
+      //
+      // It is a pure in-memory walk over an already-sorted ledger: no Xero call, no
+      // extra read, ~44 array scans and one batched upsert against an ~18-second run.
+      for (const asOf of [closingMonthEnd, priorMonthEnd]) {
+        // ── REFUSE RATHER THAN WRITE ────────────────────────────────────────────
+        // Outside the pulled window balanceAt() has nothing to walk and returns the
+        // CHECKPOINT wearing the target date's label. Nothing about the stored row
+        // would show it: same shape, same precision, same confident two decimals.
+        // The rollforward would then open July on August's balance and report a
+        // variance attributed to nothing. An absence the run summary explains beats
+        // a number nobody can trust, so refuse and say why.
+        //
+        // The bound is `windowFrom - 1`, not `windowFrom`: the checkpoint sits a day
+        // before the window opens (v19's Trial Balance date), and a walk that starts
+        // exactly there needs no ledger row at all. Below it, the backward walk needs
+        // entries the pull never fetched.
+        if (!haveCheckpoint) {
+          bookBalanceSkips.push({ loan_account_id: loan.id, code, as_of: asOf, reason: 'no_checkpoint' })
+          continue
+        }
+        if (asOf < addDays(windowFrom, -1)) {
+          bookBalanceSkips.push({ loan_account_id: loan.id, code, as_of: asOf, reason: 'before_window' })
+          continue
+        }
+        // The walk covers (min(asOf, cpDate), max(asOf, cpDate)], so BOTH ends have to
+        // sit inside the pull, not just the target date. On the Trial Balance path
+        // cpDate IS windowFrom - 1 and this can never fire. It exists for the rolled
+        // fallback: a failed report fetch puts the checkpoint at the PREVIOUS run's
+        // period_to, and an operator passing an explicit `from_date` later than that
+        // leaves the forward walk missing every entry between them — the same silent
+        // wrong number from the other direction.
+        if (cpDate < addDays(windowFrom, -1)) {
+          bookBalanceSkips.push({ loan_account_id: loan.id, code, as_of: asOf, reason: 'checkpoint_before_window' })
+          continue
+        }
+        // ── STAGED SPLITS ARE COUNTED, AND SAID SO (amendment A6) ───────────────
+        // loan-xero-post creates pre-staged SPEND transactions with Status
+        // 'AUTHORISED', dated on the schedule row's own due date — routinely a month
+        // end. isLive() returns true for those, so balanceAt() includes them, while
+        // the rollforward deliberately excludes staged splits from the month's
+        // principal. DO NOT net them out: Xero's own balance sheet includes them and
+        // this table means "what Xero says". Record the count instead, so the
+        // rollforward can explain the difference rather than report a variance equal
+        // to a payment that has not happened, attributed to nothing.
+        const stagedDates: Array<string | null> = mySplits.filter((s: any) => s.status === 'staged').map(stagedLedgerDate)
+        bookBalances.push({
+          loan_account_id: loan.id,
+          as_of: asOf,
+          balance: balanceAt(code, asOf, ledger, cp, cpDate),
+          basis: 'xero_rebuild',
+          run_id: run.id,
+          // EXPLICIT, not the column default. A default does not fire on an upsert
+          // that lands on an existing row, so a re-run would silently keep the first
+          // run's timestamp beside a freshly recomputed balance — and "when was this
+          // measured" is this table's whole value.
+          computed_at: new Date().toISOString(),
+          detail: {
+            code,
+            checkpoint: cp,
+            checkpoint_date: cpDate,
+            checkpoint_basis: tb ? 'trial_balance' : 'rolled_fallback',
+            window_from: windowFrom,
+            entries_counted: entriesWalked(code, asOf, ledger, cpDate),
+            staged_entries_at_or_before: stagedDates.filter(d => d !== null && d <= asOf).length,
+            // Staged splits whose record states no ledger date (no stage_reference and
+            // a month-only period_label). Never guessed at; counted, so a reader can
+            // see the count above is complete rather than assume it.
+            staged_entries_undated: stagedDates.filter(d => d === null).length,
+          },
+        })
+      }
       findings.push(...checkBalanceVsLender(loan, tie, mine, contractTerms || [], today,
                                             priorBalanceGap(existing || [], loan.id, tie.as_of)))
 
@@ -1533,7 +1802,11 @@ async function handle(req: Request): Promise<Response> {
       findings.push(...checkLumpedPayments(loan, ledger, today, mine))
       findings.push(...checkDoubleReallocation(loan, ledger, mySplits))
       findings.push(...checkFutureDatedStatements(loan, mine, today))
-      findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor))
+      // A recorded 'amortization_schedule' close policy only exempts a loan from the
+      // stale-anchor nag when a usable schedule actually stands behind it: at least
+      // one payment-bearing row, from the ONE chosen schedule, dated on or before
+      // today. A policy with nothing behind it is grade C and must still report.
+      findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor, schedAnchors.length > 0))
       findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), mySplits))
       findings.push(...checkUnexplainedLedgerAdjustment(loan, ledger, mySplits, windowFrom))
       // Window-independent by construction: reads loan_accounts, loan_contract_terms,
@@ -1626,6 +1899,34 @@ async function handle(req: Request): Promise<Response> {
       if (tieErr) console.error('loan_tie_outs write failed (run continues):', tieErr.message)
     }
 
+    // Persist the month-end books balances. Same discipline as the tie-outs above:
+    // ONE batched upsert, non-fatal, keyed on the slot (loan, date, basis) so a
+    // re-run of the same month end UPDATES that month end rather than stacking a
+    // second opinion beside the first. Deliberately NOT the sequential per-row await
+    // the findings loop uses — that shape exists there because each finding needs its
+    // own previous row read first, which these do not, and ~44 round-trips inside an
+    // ~18-second run would be pure cost.
+    //
+    // onConflict names bare columns because that is all PostgREST ever emits;
+    // loan_book_balances_slot_uniq is a real UNIQUE CONSTRAINT for exactly that
+    // reason (session 242: a partial or expression index raises 42P10 and every
+    // upsert fails, leaving the table permanently empty with the error visible
+    // nowhere but a per-action line).
+    let bookBalancesWritten = bookBalances.length
+    let bookBalanceWriteError: string | null = null
+    if (bookBalances.length) {
+      const { error: bbErr } = await supa.from('loan_book_balances')
+        .upsert(bookBalances, { onConflict: 'loan_account_id,as_of,basis' })
+      if (bbErr) {
+        // The summary must never claim a write that did not land: a reader has no
+        // other way to tell an empty table from a silent failure, and the rollforward
+        // falls back to the possibly-circular opening when a row is missing.
+        console.error('loan_book_balances write failed (run continues):', bbErr.message)
+        bookBalancesWritten = 0
+        bookBalanceWriteError = bbErr.message
+      }
+    }
+
     const meta = { loansChecked: active.length, previousRunAt: prev?.started_at ?? null, changedOldCount: relevantChangedOld.length }
     const html = renderReport({ ...run, mode, period_from: windowFrom, period_to: today }, enriched, {}, meta)
     const reportPath = `reconciliation/${today}-${run.id}.html`
@@ -1641,6 +1942,15 @@ async function handle(req: Request): Promise<Response> {
         changed_old_entries: relevantChangedOld.length,
         checkpoint_trusted: tb != null || checkpointDate != null,
         checkpoint_basis: tb ? 'trial_balance' : (checkpointDate != null ? 'rolled_fallback' : 'none'),
+        // What this run measured for the close, and what it REFUSED to measure. The
+        // skip list is not decoration: two counts alone would say a number is missing
+        // without saying why, and "an absence the summary explains" is the whole
+        // reason the guard refuses instead of writing.
+        book_balance_month_ends: { closing: closingMonthEnd, prior: priorMonthEnd },
+        book_balances_written: bookBalancesWritten,
+        book_balances_skipped: bookBalanceSkips.length,
+        book_balance_skips: bookBalanceSkips,
+        ...(bookBalanceWriteError ? { book_balance_write_error: bookBalanceWriteError } : {}),
       },
       narrative_source: 'template',
       report_path: reportPath,
@@ -1650,6 +1960,8 @@ async function handle(req: Request): Promise<Response> {
       ok: true, run_id: run.id, mode, period_from: windowFrom, period_to: today,
       ...counts, report_path: reportPath,
       changed_old_entries: relevantChangedOld.length,
+      book_balances_written: bookBalancesWritten,
+      book_balances_skipped: bookBalanceSkips.length,
       findings: enriched.map(f => ({ state: f._state, severity: f.severity, check: f.check_key, title: f.title })),
     }, null, 2), { headers: { 'Content-Type': 'application/json' } })
   } catch (err: any) {

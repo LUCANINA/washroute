@@ -9,6 +9,16 @@
 -- The two joined shapes matter: the page's own selects embed a child object,
 -- and the stub serves rows verbatim, so the fixture has to carry the same
 -- shape or the page reads `undefined` where it expects a join.
+--
+-- Every ORDER BY carries a unique tiebreak (usually the id). Without one,
+-- jsonb_agg's row order is whatever the plan happened to produce, so two
+-- refreshes of unchanged data give two different fixtures and the diff
+-- cannot be read. The ONE deliberate exception is loan_amortization_rows,
+-- which is pulled unordered on purpose: the page orders it row_date desc and
+-- the stub's sort is stable, so the fixture's own order is what decides the
+-- Dexter 2026-08-31 tie between the rate_change row (balance 0.00) and the
+-- real payment row (86,066.61). Imposing an order here would quietly resolve
+-- a coin flip that production leaves open, and hide the hazard from the test.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- → "loan_accounts"
@@ -35,9 +45,15 @@ select jsonb_agg(to_jsonb(x))
 from (
   select r.id, r.schedule_id, r.row_date, r.row_type, r.balance, r.principal,
          r.interest, r.payment, r.rate, r.loan_amt,
-         jsonb_build_object('storage_path',            sc.storage_path,
+         -- id + created_at are the deterministic tiebreak when a loan has two
+         -- schedules (Verdant has two, with overlapping rows and duplicate
+         -- dates): newest schedule_generated_date, tie-broken by created_at.
+         -- Without them "pick the newest schedule" is not implementable.
+         jsonb_build_object('id',                      sc.id,
+                            'storage_path',            sc.storage_path,
                             'contract_id',             sc.contract_id,
                             'schedule_generated_date', sc.schedule_generated_date,
+                            'created_at',              sc.created_at,
                             'loan_account_id',         sc.loan_account_id,
                             'balance_basis',           sc.balance_basis,
                             'amort_type',              sc.amort_type) as loan_amortization_schedules
@@ -45,18 +61,29 @@ from (
   left join loan_amortization_schedules sc on sc.id = r.schedule_id
 ) x;
 
+-- → "loan_book_balances"
+--   The books-side (Xero-rebuilt) balance per loan per date. Independent of any
+--   amortization schedule, which is the whole point: without it a schedule-based
+--   closing balance compared against a schedule-based opening agrees by
+--   construction and tests nothing. reconciliation-run writes it; until it does
+--   this comes back EMPTY, and an empty array is the correct fixture value —
+--   the table must still be registered so the harness fails loudly if the key
+--   disappears rather than silently serving [].
+select coalesce(jsonb_agg(to_jsonb(x) order by x.as_of desc, x.loan_account_id), '[]'::jsonb)
+from (select * from loan_book_balances) x;
+
 -- → the remaining flat tables, one object, one key per table
 select jsonb_build_object(
   'loan_documents',                (select jsonb_agg(to_jsonb(x) order by x.created_at desc)  from (select * from loan_documents) x),
-  'payroll_imports',               (select jsonb_agg(to_jsonb(x) order by x.pay_period_end desc) from (select * from payroll_imports) x),
-  'payroll_import_employee_lines', (select jsonb_agg(to_jsonb(x)) from (
+  'payroll_imports',               (select jsonb_agg(to_jsonb(x) order by x.pay_period_end desc, x.id) from (select * from payroll_imports) x),
+  'payroll_import_employee_lines', (select jsonb_agg(to_jsonb(x) order by x.id) from (
       select id, import_id, raw_full_name, department_key, matched_employee_id, wage_amount,
              er_tax_amount, er_health_amount, er_401k_amount, paycheck_tips_amount, line_type
       from payroll_import_employee_lines) x),
   'payroll_departments',           (select jsonb_agg(to_jsonb(x) order by x.sort_order) from (select * from payroll_departments) x),
   'payroll_employees',             (select jsonb_agg(to_jsonb(x) order by x.full_name)  from (select * from payroll_employees) x),
   'payroll_notices',               (select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) from (select * from payroll_notices where active) x),
-  'bk_issue_dismissals',           (select jsonb_agg(to_jsonb(x)) from (select * from bk_issue_dismissals) x),
+  'bk_issue_dismissals',           (select jsonb_agg(to_jsonb(x) order by x.item_key) from (select * from bk_issue_dismissals) x),
   'bookkeeping_kpi_snapshots',     (select jsonb_agg(to_jsonb(x)) from (
       select captured_at, payload from bookkeeping_kpi_snapshots where error is null
       order by captured_at desc limit 1) x)
@@ -72,10 +99,10 @@ with newest as (
 select jsonb_build_object(
   'reconciliation_runs',     (select jsonb_agg(to_jsonb(x) order by x.started_at desc)
                               from (select * from reconciliation_runs order by started_at desc limit 10) x),
-  'reconciliation_findings', (select jsonb_agg(to_jsonb(x) order by x.last_seen_at desc)
+  'reconciliation_findings', (select jsonb_agg(to_jsonb(x) order by x.last_seen_at desc, x.id)
                               from (select * from reconciliation_findings where status in ('open','resolved')) x),
-  'loan_tie_outs',           (select jsonb_agg(to_jsonb(x)) from (
+  'loan_tie_outs',           (select jsonb_agg(to_jsonb(x) order by x.loan_account_id) from (
                                 select loan_account_id, status, difference, xero_balance, lender_balance,
-                                       as_of, anchor_source, run_id
+                                       as_of, anchor_source, run_id, detail
                                 from loan_tie_outs where run_id = (select id from newest)) x)
 );
