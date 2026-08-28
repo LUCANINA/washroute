@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 247 (left by session 246, 2026-08-28)
+> ## ⏭️ START HERE — first thing, session 248 (left by session 247, 2026-08-28)
 >
 > ### 1. 🔴 THE DEPLOY — `reconciliation-run` IS NOT DEPLOYED, AND THAT IS WHAT MAKES THE CLOSE BAND HALF-BUILT
 >
@@ -128,15 +128,17 @@
 >
 > ### 8. 🟠 NEW — FOUR SMALLER THINGS SESSION 246 TURNED UP, EACH WITH A NEXT STEP
 >
-> * **PayPal 2's August close misses the `unbooked` band by $44.70.** A $3,120.60
->   variance against a staged split carrying $3,165.30 of principal. The band
->   requires the staged principal to close the gap to the half-cent, so it does not
->   fire and the variance bands **material** and blocks August. That $44.70 is the
->   same figure the `CLOSE_EXCLUDED_STATUSES` comment already records. It is one
->   week's interest drift, not a mystery — but decide deliberately whether the band
->   gets a tolerance or the split gets corrected. **Do not widen the tolerance
->   without a reason you would say out loud to a CPA:** a band that de-escalates on
->   an approximate match is a band that hides real money.
+> * **PayPal 2's August close misses the `unbooked` band by $44.70 — SESSION 247
+>   DIAGNOSED THIS, AND THE ANSWER IS NOT A TOLERANCE.** A $3,120.60 variance
+>   against a staged split carrying $3,165.30 of principal. The cause: the module
+>   has **no split rows for periods 2026-08-05, -12 and -19**, though all three
+>   feed lines are reconciled in Xero and were coded correctly by hand (08-20
+>   verified: $3,150.32 to 284 + $264.39 to 800). The ledger jumps 2026-07-29 →
+>   2026-08-26. So the band measures the gap left by the **08-05** payment and
+>   tries to close it with the **08-26** split — two different weeks, $44.70 apart.
+>   **Backfill the three missing splits as `already_in_xero`; do not widen the
+>   tolerance.** A band that de-escalates on an approximate match is a band that
+>   hides real money. Full detail in the session 247 entry.
 > * **Dexter Loan 2 has three `payment` rows sharing 2021-09-30 in one schedule**
 >   (`866e60ac…`, generated 2021-10-13) with balances 254,962.56 / 258,022.52 /
 >   258,197.52 and payments 3,059.96 / 175.00 / 604.42. "The balance on this date"
@@ -198,6 +200,22 @@
 > transition **except** `loan-bundle`'s, the close band's missing recency floor,
 > and the 70 future-dated Verdant projection rows. Full list in the session 241 log
 > entry.
+>
+> ### 12. ✅ NEW — THE STAGING ENGINE CLOSED ITS FIRST LIVE LOOP (session 247)
+>
+> PayPal 2 `2026-08-26` went stage → match → post → next card on real money, and
+> the lender's own portal confirms the split to the cent ($3,165.30 principal /
+> $249.41 fee). Next card `2026-09-02` is on the board in `pending_review`. Nothing
+> to fix here — recorded because the auto-stage cron (Task 7) has been parked
+> pending exactly this proof. **Enabling it is still a separate decision** and
+> should not be taken as done.
+>
+> One thing it turned up that IS a small open item: a **DELETED** Xero transaction
+> `3c507a68…` carries the *same* reference `WR-STAGE 284 2026-08-26` as the live
+> one — a leftover from an earlier unstage. Any lookup of a stage **by reference**
+> must filter `status != 'DELETED'`. Check the sweep's lookup before the next
+> unstage.
+>
 
 ## Why this file exists (session 217)
 
@@ -1999,6 +2017,74 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 247 (2026-08-28) — the Staging Engine closed its first loop, live
+
+**The headline: stage → match → post → next card ran end to end on real money for
+the first time.** PayPal 2, period `2026-08-26`, split
+`4e78086c-aced-4ad8-88aa-c262791d9e73`. Every step verified against Xero and the
+lender, not inferred.
+
+**What happened, in order:**
+
+1. Session 226's staging engine created the SPEND transaction in Xero ahead of the
+   payment — `WR-STAGE 284 2026-08-26`, $3,414.71, staged 2026-08-25 15:07 UTC,
+   pre-split $3,165.30 to Paypal 2 (284) / $249.41 to Interest Expense (800).
+2. The Wells Fargo feed line landed **2026-08-27** ("BUSINESS TO BUSINESS ACH Pay…",
+   $3,414.71). David matched it 2026-08-28 10:45 Pacific. Xero now shows the
+   transaction `0d3dce31-b0fe-4fdd-88ff-662130ddc1bb` AUTHORISED + reconciled.
+3. `sweep_stages` was run manually this session (same call `wr-loan-stage-sweep`
+   makes; cron is `0 16 * * *` = 09:00 Pacific and had last run 08-27 before the
+   match). Result: `checked: 10, matched: 1, flagged: 0`.
+4. The split moved `staged → posted`, `posting_method='pre_staged'`,
+   `xero_posted_at` 2026-08-28 14:49 UTC, `stage_sweep_flag` null.
+5. `ensureUpcomingSplit()` created the next card: **`2026-09-02`**, split
+   `732552ee-f5c4-4ed7-978d-48d106920609`, $3,414.71 = $3,180.34 principal /
+   $234.37 interest, `pending_review`.
+
+**The date direction was the safe one.** Stage dated 08-26, feed line 08-27 — the
+ACH settling the next day. This is the mirror of the 2026-08-21 trap (Xero offering
+the 08-20 line against this same stage); an EARLIER line is the dangerous shape, a
+one-day-LATER settlement is not, and `matched_early_suspect` correctly stayed
+silent.
+
+**The independent confirmation that matters most:** PayPal's own portal detail for
+Aug 26 reads **Principal −$3,165.30 / Fee −$249.41 / Other $0.00**. Our staged split
+was computed from the amortization schedule days *before* the payment and agrees
+with the lender **to the cent on both lines**. The projection was not merely
+plausible — it was right, and the lender says so independently.
+
+**Two things found while verifying, neither blocking:**
+
+* **A ghost stage transaction.** `3c507a68-c93c-4d0f-a312-2745e283f756`, dated
+  2026-08-26, reference `WR-STAGE 284 2026-08-26`, status **DELETED** — a
+  leftover from an earlier stage/unstage cycle, sitting beside the live one under
+  the *same reference*. Harmless today (DELETED, unreconciled) but it means a
+  reference is not unique in Xero across voided attempts. Anything that ever looks
+  a stage up **by reference** must filter `status != 'DELETED'`. Worth a check of
+  the sweep's lookup before the next unstage.
+* **August's first three drafts are booked in Xero but invisible to the module.**
+  Feed lines 08-06, 08-13 and 08-20 are all AUTHORISED + reconciled to contact
+  "Paypal Loan", and they were coded **correctly by hand** — 08-20 verified:
+  $3,150.32 to 284 + $264.39 to 800. But `loan_splits` has **no rows** for periods
+  2026-08-05 / -12 / -19; the ledger jumps 2026-07-29 → 2026-08-26. These are
+  `already_in_xero` in substance and nothing in the DB says so. **This is the
+  backlog behind START HERE §8's $44.70:** the module measures August's variance
+  against the newest lender anchor (08-05, principal $58,775.97) and tries to close
+  it with the 08-26 staged split's $3,165.30, when the gap it is actually looking at
+  ($3,120.60) belongs to the 08-05 payment. The band misses by $44.70 not because
+  the tolerance is wrong but because it is closing the gap with **the wrong week's
+  split**. Do not widen the tolerance. Backfill the three missing splits as
+  `already_in_xero` against the transactions above, and the arithmetic should land
+  on its own.
+
+**Where to pick up:** the deploy in START HERE §1 is still owed and unchanged —
+nothing this session touched `reconciliation-run` or `loan-bundle`. The new work
+this session leaves is the three-split backfill just above (which should clear §8
+without a tolerance change) and the DELETED-reference check on stage lookups. The
+staging engine itself now has a proven live loop; the auto-stage cron (Task 7) has
+its precondition met for the first time, though enabling it is still a separate
+decision.
 
 ### Session 246 (2026-08-28) — a grade for every closing balance, and the test that agreed with itself twice
 
