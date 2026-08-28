@@ -2,45 +2,40 @@
 
 > ## ⏭️ START HERE — first thing, session 248 (left by session 247, 2026-08-28)
 >
-> ### 1. 🟠 BOTH FUNCTIONS ARE DEPLOYED. WHAT IS OWED IS ONE CLICK.
+> ### 1. ✅ CLOSED — DEPLOYED AND THE ACCEPTANCE RUN PASSED (session 247, 2026-08-28)
 >
-> **Verified live 2026-08-28 08:09 PT (session 247), superseding session 246's block:**
+> `reconciliation-run` **v52** (08:01 PT) and `loan-bundle` **v22** (08:09 PT) are
+> both live. David clicked **Run Reconciliation Check** at **08:11:24 PT**: run
+> `2690e2ef-95dd-4354-bcdc-2124771ea9c3`, complete in 17.7s, 22 loans, 9 checks,
+> **0 new findings, 15 open (down from 16), 2 resolved.**
 >
-> * ✅ **`reconciliation-run` v52**, deployed 08:01 PT. Session 246's +325/−13 is shipped.
-> * ✅ **`loan-bundle` v22**, deployed 08:09 PT. Session 245's `ead8a11` is shipped.
-> * ✅ `git push` landed (`9bb2310..1308a12`). Session 247's own commits still need one.
+> **The acceptance criterion hit its predicted number.** `loan_book_balances` was
+> fully rebuilt by this run — all 44 rows carry basis `xero_rebuild`, from a
+> **trial-balance checkpoint at 2026-04-29** plus counted Xero entries, which is
+> what makes the books side independent of the amortization schedule. Verdant
+> Capital's tie-out came out at **−$1,835.75**, exactly what `loan_tie_outs`
+> predicted. Nothing to do here; this block can be deleted next session.
 >
-> **CORRECTION — `loan_book_balances` was never empty.** Session 246 wrote
-> "verified, 0 rows"; it holds **44 rows (22 loans × 2), all written by run
-> `61870f48-4b46-4a42-be9d-f92475b786e6` at 2026-08-27 19:48 PT** — on **v49, the
-> code BEFORE session 246's change**. The close band is populated with
-> pre-session-246 output. Do not read it as the new behaviour.
+> **One caveat to carry forward, because it is easy to misread as a pass.**
+> Dexter Loan 2 now reads **`tied`, difference $0.00** ($89,411.25 both sides at
+> 2026-07-31). The books half is genuinely independent now — that half of the
+> tautology is broken. But its `anchor_source` is still **`amortization_schedule`**,
+> not a lender source, so what this proves is *"our Xero books agree with the
+> contract schedule to the cent"* — a real check that really passed — and **not**
+> *"the lender confirmed the balance."* Dexter still has no lender balance on
+> file. **§3 stands unchanged.**
 >
-> **THE ACCEPTANCE TEST IS STILL OWED AND IT IS NOW ONE CLICK.** The newest
-> reconciliation run predates both deploys, so nothing has exercised v52. **Click
-> "Run Reconciliation Check" once.** It should replace the 44 rows with a v52
-> rebuild and turn Verdant's *"agrees by construction — not an independent check"*
-> into the real tie (`loan_tie_outs` already holds **−$1,835.75** for it). If a
-> session opens and this block is still here, check
-> `select max(started_at) from reconciliation_runs` against the deploy times above
-> before assuming anything on the close band is current.
->
-> **Deploy mechanics, kept so nobody re-derives them.** The sandbox cannot deploy
-> `reconciliation-run`: the payload is **212 KB across 5 files**
-> (`reconciliation-run/index.ts` 127 KB, `_shared/settlement-lag.ts` 49 KB,
-> `_shared/carrying-basis-drift.ts` 23 KB, `double-reallocation.ts` 8 KB,
-> `_shared/xero-auth.ts` 5 KB) and the MCP deploy tool wants every file inline in
-> one call. Running it afterwards needs a logged-in admin session — it has
-> `callerRole(req)` and **no `x-wr-internal` branch**, so unlike `xero-read` it
-> cannot be poked from SQL.
->
-> **David's Mac: `npx supabase@latest` is the only working path.** No Homebrew
-> installed, and `~/.zshrc` is not writable by his user (permission denied —
-> likely root-owned from an old `sudo`). Do NOT suggest `brew install`. The CLI
-> reads its token from the macOS keychain, which raises a "supabase wants to use
-> your confidential information" dialog on each fresh `npx` binary; **Always
-> Allow**, or `export SUPABASE_ACCESS_TOKEN=...` in that terminal window first,
-> which skips the keychain entirely.
+> **Deploy mechanics for David's Mac, kept because they cost an hour today.**
+> `npx supabase@latest` is the only working path: no Homebrew installed, and
+> `~/.zshrc` is not writable by his user (permission denied — likely root-owned
+> from an old `sudo`). Do NOT suggest `brew install`. The CLI reads its token from
+> the macOS keychain, which raises a "supabase wants to use your confidential
+> information" dialog for each fresh `npx` binary; **Always Allow**, or
+> `export SUPABASE_ACCESS_TOKEN=...` in that terminal window first, which skips the
+> keychain entirely. The sandbox cannot deploy `reconciliation-run` itself: 212 KB
+> across 5 files, and the MCP deploy tool wants every file inline in one call.
+> Running it also needs a logged-in admin session — `callerRole(req)` with **no
+> `x-wr-internal` branch**, so unlike `xero-read` it cannot be poked from SQL.
 >
 > ### 2. 🟠 STRIPE'S LENDER ANCHOR — STILL BLOCKED ON THE SAME SCHEMA DECISION
 >
@@ -2082,13 +2077,36 @@ plausible — it was right, and the lender says so independently.
   `already_in_xero` against the transactions above, and the arithmetic should land
   on its own.
 
-**Where to pick up:** the deploy in START HERE §1 is still owed and unchanged —
-nothing this session touched `reconciliation-run` or `loan-bundle`. The new work
-this session leaves is the three-split backfill just above (which should clear §8
-without a tolerance change) and the DELETED-reference check on stage lookups. The
-staging engine itself now has a proven live loop; the auto-stage cron (Task 7) has
-its precondition met for the first time, though enabling it is still a separate
-decision.
+**Then the deploy and the acceptance run, later the same morning.**
+`reconciliation-run` went **v49 → v52** (08:01 PT) and `loan-bundle` **v21 → v22**
+(08:09 PT). David clicked Run Reconciliation Check at **08:11:24 PT** — run
+`2690e2ef-95dd-4354-bcdc-2124771ea9c3`, 17.7s, 22 loans, 9 checks, **0 new
+findings, 15 open, 2 resolved**. `loan_book_balances` was rebuilt in full (44 rows,
+basis `xero_rebuild`, from a **trial-balance checkpoint at 2026-04-29** plus counted
+Xero entries). **Verdant's tie-out landed on −$1,835.75, the predicted number.**
+Session 246's close band is now doing the thing it was built to do. Read Dexter
+Loan 2's new `tied / $0.00` carefully though — see START HERE §1's caveat; the
+books half is independent now, but the anchor is still the schedule, not the lender.
+
+**A correction to the $44.70 diagnosis above, from that run.** `balance_vs_lender`
+puts PayPal 2 at **`tied`, $0.00** — books $58,775.97 against the lender's
+2026-08-05 `portal_manual_pull` of $58,775.97. So **Xero is complete**: the three
+August payments really are booked there, and the gap is entirely in the module's
+own `loan_splits` ledger, not in the books. The run corroborates it from the other
+side, flagging *"Paypal 2 — 4 hand-posted corrections totalling $18,922.10 since
+2026-04-30"* — the module can see those entries and cannot attribute them to any
+split. **The remedy is unchanged and now better evidenced: backfill the missing
+splits as `already_in_xero`, do not widen the close band's tolerance.** What is no
+longer supported is the specific claim that the band is closing the 08-05 gap with
+the 08-26 split — that was inference from the split ledger alone, and the tie-out
+does not corroborate it. Diagnose the $44.70 against the close band's own
+arithmetic before assuming a cause.
+
+**Where to pick up:** the three-split backfill (2026-08-05 / -12 / -19), the
+DELETED-reference check on stage lookups, and START HERE §3's unlabelled balances,
+which the Dexter caveat above makes newly concrete. The staging engine now has a
+proven live loop; the auto-stage cron (Task 7) has its precondition met for the
+first time, though enabling it is still a separate decision.
 
 ### Session 246 (2026-08-28) — a grade for every closing balance, and the test that agreed with itself twice
 
