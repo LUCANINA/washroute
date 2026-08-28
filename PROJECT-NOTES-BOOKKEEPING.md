@@ -2,45 +2,45 @@
 
 > ## ⏭️ START HERE — first thing, session 248 (left by session 247, 2026-08-28)
 >
-> ### 1. 🟠 THE DEPLOY — HALF DONE. `reconciliation-run` IS LIVE; THE RUN IS STILL OWED
+> ### 1. 🟠 BOTH FUNCTIONS ARE DEPLOYED. WHAT IS OWED IS ONE CLICK.
 >
-> **Re-checked live 2026-08-28 (session 247), superseding what session 246 wrote here:**
+> **Verified live 2026-08-28 08:09 PT (session 247), superseding session 246's block:**
 >
-> * ✅ **`reconciliation-run` is now v52, deployed 2026-08-28 08:01 PT.** David ran
->   the deploy this morning (v49 → v52). Session 246's +325/−13 IS shipped.
-> * ❌ **`loan-bundle` is still v21, 2026-08-27 16:41 PT.** That second deploy did
->   NOT take — session 245's `ead8a11` remains unshipped. Re-run it.
-> * ✅ `git push` landed (`9bb2310..1308a12 main -> main`).
+> * ✅ **`reconciliation-run` v52**, deployed 08:01 PT. Session 246's +325/−13 is shipped.
+> * ✅ **`loan-bundle` v22**, deployed 08:09 PT. Session 245's `ead8a11` is shipped.
+> * ✅ `git push` landed (`9bb2310..1308a12`). Session 247's own commits still need one.
 >
-> **CORRECTION — `loan_book_balances` is NOT empty.** Session 246 wrote "verified,
-> 0 rows"; it holds **44 rows (22 loans × 2), all written by run
-> `61870f48-4b46-4a42-be9d-f92475b786e6` at 2026-08-27 19:48 PT** — which ran on
-> **v49, the code BEFORE session 246's change**. So the close band on screen right
-> now is populated, but with pre-session-246 output. Do not read it as the new
-> behaviour.
+> **CORRECTION — `loan_book_balances` was never empty.** Session 246 wrote
+> "verified, 0 rows"; it holds **44 rows (22 loans × 2), all written by run
+> `61870f48-4b46-4a42-be9d-f92475b786e6` at 2026-08-27 19:48 PT** — on **v49, the
+> code BEFORE session 246's change**. The close band is populated with
+> pre-session-246 output. Do not read it as the new behaviour.
 >
-> **What is still owed is one click.** The newest reconciliation run predates the
-> deploy, so nothing has yet exercised v52. **Click "Run Reconciliation Check"
-> once** — that is the acceptance test. It should replace the 44 rows with a v52
+> **THE ACCEPTANCE TEST IS STILL OWED AND IT IS NOW ONE CLICK.** The newest
+> reconciliation run predates both deploys, so nothing has exercised v52. **Click
+> "Run Reconciliation Check" once.** It should replace the 44 rows with a v52
 > rebuild and turn Verdant's *"agrees by construction — not an independent check"*
-> into the real tie (`loan_tie_outs` already holds **−$1,835.75** for it).
+> into the real tie (`loan_tie_outs` already holds **−$1,835.75** for it). If a
+> session opens and this block is still here, check
+> `select max(started_at) from reconciliation_runs` against the deploy times above
+> before assuming anything on the close band is current.
 >
-> **David runs, from his own terminal:**
->
-> ```
-> npx supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt   # ead8a11, session 245 — still owed
-> ```
->
-> **Why the sandbox cannot do these deploys** (kept so nobody re-derives it): the
-> `reconciliation-run` payload is **212 KB across 5 files**
+> **Deploy mechanics, kept so nobody re-derives them.** The sandbox cannot deploy
+> `reconciliation-run`: the payload is **212 KB across 5 files**
 > (`reconciliation-run/index.ts` 127 KB, `_shared/settlement-lag.ts` 49 KB,
 > `_shared/carrying-basis-drift.ts` 23 KB, `double-reallocation.ts` 8 KB,
 > `_shared/xero-auth.ts` 5 KB) and the MCP deploy tool wants every file inline in
-> one call. Running the function afterwards needs a logged-in admin session too —
-> it has `callerRole(req)` and **no `x-wr-internal` branch**, so unlike `xero-read`
-> it cannot be poked from SQL. Also note David has **no Homebrew and no write
-> access to `~/.zshrc`** on that Mac, so `npx supabase@latest` (plus a keychain
-> "Always Allow") is the working path; do not suggest `brew install`.
+> one call. Running it afterwards needs a logged-in admin session — it has
+> `callerRole(req)` and **no `x-wr-internal` branch**, so unlike `xero-read` it
+> cannot be poked from SQL.
+>
+> **David's Mac: `npx supabase@latest` is the only working path.** No Homebrew
+> installed, and `~/.zshrc` is not writable by his user (permission denied —
+> likely root-owned from an old `sudo`). Do NOT suggest `brew install`. The CLI
+> reads its token from the macOS keychain, which raises a "supabase wants to use
+> your confidential information" dialog on each fresh `npx` binary; **Always
+> Allow**, or `export SUPABASE_ACCESS_TOKEN=...` in that terminal window first,
+> which skips the keychain entirely.
 >
 > ### 2. 🟠 STRIPE'S LENDER ANCHOR — STILL BLOCKED ON THE SAME SCHEMA DECISION
 >
