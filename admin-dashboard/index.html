@@ -15034,8 +15034,68 @@
     rows.sort((x, y) => String(y.computed_at || '').localeCompare(String(x.computed_at || '')));
     const r = rows[0];
     const staged = r.detail && r.detail.staged_entries_at_or_before;
+    // `detail` travels with the figure because the CLOSING month-end row also
+    // carries how the balance MOVED during the month (session 247) — see
+    // _loanMonthMovement. Returning the balance without it would leave the
+    // caller to re-find the row.
     return { amount: Number(r.balance), asOf: r.as_of, source: 'xero_rebuild',
-             authoritative: false, fromBooks: true, staged: Number(staged || 0) };
+             authoritative: false, fromBooks: true, staged: Number(staged || 0),
+             detail: r.detail || null };
+  }
+
+  // ══ WHAT MOVED IN THE MONTH, AND WHETHER ANYONE MEASURED IT (s247) ═══════
+  //
+  // David's catch: `opening − principal = closing` is only true if nothing was
+  // BORROWED. Stripe Capital drew $125,000 in July — books 6/30 $20,875.00,
+  // books 7/31 $136,578.25, July principal $9,296.75 — so the walk computed
+  // $11,578.25, short by exactly the drawdown, and the row sat in "Not
+  // checkable" where nothing looked at it. The formula is:
+  //
+  //     opening  +  drawn  −  principal  =  computed
+  //
+  // `drawn` is MEASURED by reconciliation-run from the Xero ledger entries in
+  // (priorMonthEnd, monthEnd], never inferred from the balances: deriving it as
+  // closeBooks − openBooks + principal makes the walk foot by construction and
+  // prints a tie for any input whatsoever, which is the tautology this whole
+  // sequence of sessions has been spent removing.
+  //
+  // ── A NULL IS NOT A ZERO, AND THIS IS THE LOAD-BEARING RULE ─────────────
+  // Every loan_book_balances row written before that deploy carries no movement
+  // detail at all. Substituting 0 for an unmeasured drawdown does not produce a
+  // cautious answer, it produces a CONFIDENT WRONG one — on Stripe it would
+  // manufacture $125,000 of "unexplained" out of nothing, and on a loan that
+  // really did borrow it would hide the borrowing inside the variance. So an
+  // unmeasured month is its own state: it is named on the row, it carries its
+  // own data attribute, and the ledger check below refuses to run on it. This is
+  // the same discipline as the roll-back's refusals — say why, and decline.
+  function _loanMonthMovement(bookClose) {
+    const d = (bookClose && bookClose.detail) || null;
+    const num = (x) => (x == null ? null : Number(x));
+    // movement_measured true AND a real number for `drawn`. The server writes
+    // every figure as an explicit null when it cannot measure, and a truthy flag
+    // beside a null figure is exactly the shape a "|| 0" would swallow.
+    const measured = !!(d && d.movement_measured === true && d.drawn != null);
+    return {
+      measured,
+      drawn:    measured ? num(d.drawn) : null,
+      reduced:  measured ? num(d.reduced) : null,
+      drawnEntries:   measured ? num(d.drawn_entries) : null,
+      reducedEntries: measured ? num(d.reduced_entries) : null,
+      // A single journal that both debits and credits the loan account nets into
+      // one bucket, so its gross halves are invisible in `drawn` and `reduced`.
+      // That is not wrong, but a reader comparing this row to the ledger will
+      // not find the two figures, so the row says so.
+      mixedSign: measured ? (num(d.mixed_sign_entries) || 0) : null,
+      // A staged Xero transaction is AUTHORISED, so the ledger already carries
+      // its reduction while the rollforward deliberately excludes the split from
+      // the month's principal. That gap is explained, not unexplained.
+      stagedReduction: measured ? num(d.staged_reduction_in_month) : null,
+      stagedEntries:   measured ? num(d.staged_entries_in_month) : null,
+      stagedRefsNotInLedger: measured ? num(d.staged_refs_not_in_ledger) : null,
+      from: (d && d.movement_from) || null,
+      to:   (d && d.movement_to) || null,
+      skipReason: (d && d.movement_skip_reason) || null,
+    };
   }
 
   // A period_label that carries no date at all.
@@ -15217,10 +15277,20 @@
         : { amount: anchor.amount, asOf: anchor.asOf, source: anchor.source,
             authoritative: anchor.grade === 'A' };
 
+      // The CLOSING month-end books row. It carries two different things: what
+      // the ledger said on that date, and how it got there during the month.
+      const bookClose = _loanBookBalanceAsOf(a, monthEnd);
+      const movement  = _loanMonthMovement(bookClose);
+      const drawn     = movement.measured ? movement.drawn : null;
+
       const splits = _monthSplits(a.id, monthLabel);
       const principal = splits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
       const interest  = splits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
-      const computed  = opening ? opening.amount - principal : null;
+      // opening + drawn − principal = computed. `drawn || 0` is deliberate and
+      // it is safe ONLY because movement.measured travels with it: the row, the
+      // subtotal and the ledger check below all read that flag, so nothing here
+      // presents an unmeasured month as a measured zero.
+      const computed  = opening ? opening.amount + (drawn || 0) - principal : null;
 
       // coversMonth now lives inside _loanClosingAnchor and applies to grade A
       // and grade B identically. A closing figure exists only if it covers the
@@ -15259,10 +15329,91 @@
           : unbooked ? 'unbooked'
           : _closeVarianceBand(variance, perLender.amount));
 
+      // ══ THE SECOND CHECK: DOES THE LEDGER FOOT? ═══════════════════════════
+      //
+      // This is NOT the variance and the two must never be merged:
+      //
+      //   variance    computed vs the LENDER (or the contractual schedule)
+      //               → do the books agree with the outside world
+      //   unexplained booksClosing vs computed
+      //               → do our splits, plus the movement we measured, account
+      //                 for everything the ledger actually did
+      //
+      // Both books balances are already on hand, so this costs nothing, and it
+      // is what makes Paypal 2's −$3,142.26 visible: that much principal came
+      // off the ledger in July with no split behind it. A loan can pass one
+      // check and fail the other, which is precisely why they are separate.
+      //
+      // IT REFUSES TO RUN ON AN UNMEASURED MONTH. Without `drawn` the
+      // subtraction is not a check, it is the drawdown wearing an accusation's
+      // clothes.
+      const booksClosing = bookClose ? bookClose.amount : null;
+      // Rounded to cents at source. Both of these are a difference of two money
+      // figures, so IEEE noise lands in them at the 1e-12 scale — harmless in
+      // the banding, which tests against half a cent, but it reaches the DOM as
+      // data-unattributed="-3.637978807091713e-12" and anything reading that
+      // attribute sees a non-zero where the screen correctly shows nothing.
+      const cents = (x) => (x == null ? null : Math.round(x * 100) / 100);
+      const unexplained = cents((movement.measured && booksClosing != null && computed != null)
+        ? booksClosing - computed : null);
+      // ── THE SAME SUBTRACTION, WITHOUT THE RIGHT TO CALL IT A FINDING ─────
+      // When the month's movement was never measured we still hold both books
+      // balances, so we can see THAT the walk and the ledger differ; what we
+      // cannot say is why, because the difference is a drawdown and a missing
+      // split wearing the same clothes. Stripe Capital is the case that proves
+      // the point: $125,000 of it is a drawdown and none of it is an error.
+      //
+      // Refusing to subtract at all would be the wrong kind of caution — the
+      // figure is real and it is the only thing on this screen that catches a
+      // Computed describing nothing. So it is STATED and never diagnosed: no
+      // band, no gate, no blocking, and the words say the cause is unmeasured.
+      // That is the same move as the roll-back's refusals and as
+      // "agrees by construction" — name the limit, show the number.
+      const unattributed = cents((!movement.measured && booksClosing != null && computed != null)
+        ? booksClosing - computed : null);
+      // A staged transaction is in the ledger and out of the month's principal
+      // by design, so the gap it opens is already owned by the posting gate.
+      // The server writes staged_reduction_in_month as a MAGNITUDE, so the
+      // comparison is on absolute value and the direction is asserted
+      // separately: a reduction can only pull the ledger BELOW our walk.
+      const stagedExplains = unexplained != null && movement.stagedReduction != null
+        && Math.abs(movement.stagedReduction) >= 0.005
+        && unexplained < 0
+        && Math.abs(Math.abs(unexplained) - Math.abs(movement.stagedReduction)) < 0.005;
+      const unexplainedBand = unexplained == null ? null
+        : (Math.abs(unexplained) < 0.005 ? 'tie'
+          : stagedExplains ? 'unbooked'
+          : _closeVarianceBand(unexplained, booksClosing));
+
+      // ── AN ORIGINATION THAT STRADDLES THE PERIOD BOUNDARY ────────────────
+      // Written generically, not as a Stripe special case: any loan whose signed
+      // agreement states a day-one balance on or before the prior month end
+      // while the BOOKS carry a different figure on that date has part of its
+      // origination recognised in a later period. The tool states the two
+      // numbers and the difference; it does not pick a winner, because which
+      // period the recognition belongs in is a question for the accountant and
+      // not for a dashboard.
+      let originationGap = null;
+      if (book) {
+        const orig = (_allLoanStatements || [])
+          .filter(s => s.loan_account_id === a.id && s.principal_balance != null &&
+                       String(s.source || '') === 'contract_origination' &&
+                       s.statement_date <= priorEnd)
+          .sort((x, y) => (x.statement_date < y.statement_date ? 1 : -1))[0];
+        if (orig && Math.abs(Number(orig.principal_balance) - book.amount) > RECON_TOLERANCE) {
+          originationGap = {
+            agreement: Number(orig.principal_balance), books: book.amount,
+            difference: Number(orig.principal_balance) - book.amount, asOf: orig.statement_date,
+          };
+        }
+      }
+
       const automatic = a.ingestion_method === 'automatic';
       const unposted  = _monthUnpostedSplits(a.id, monthLabel);
       const undated   = undatedAll;
       return { a, opening, openingFromBooks, openingStaged: (book && book.staged) || 0,
+               bookClose, booksClosing, movement, drawn,
+               unexplained, unexplainedBand, stagedExplains, unattributed, originationGap,
                anchor, grade: anchor.grade, perLender, splits, principal, interest,
                computed, variance, band, circular, rawVariance, unbooked, stagedSplits,
                automatic, unposted, undated, coversMonth };
@@ -15294,6 +15445,13 @@
     // fewer rows than `count` must print that fact beside it.
     const subtotal = (set) => ({
       opening:   set.reduce((n, r) => n + (r.opening ? r.opening.amount : 0), 0),
+      // `r.drawn || 0` keeps opening + drawn − principal = computed exact across
+      // the sum, because the per-row computed used the same coercion. What it
+      // must never do is imply the column was measured: drawnMeasured says over
+      // how many rows this figure is a measurement rather than an absence, and
+      // the renderer prints that count whenever it is short of the row count.
+      drawn:     set.reduce((n, r) => n + (r.drawn || 0), 0),
+      drawnMeasured: set.filter(r => r.movement && r.movement.measured).length,
       principal: set.reduce((n, r) => n + r.principal, 0),
       interest:  set.reduce((n, r) => n + r.interest, 0),
       computed:  set.reduce((n, r) => n + (r.computed || 0), 0),
@@ -15338,6 +15496,27 @@
       varianceToResolve: judged.filter(r => r.band === 'material').reduce((n, r) => n + Math.abs(r.variance), 0),
       varianceSmall:     judged.filter(r => r.band === 'immaterial').reduce((n, r) => n + Math.abs(r.variance), 0),
       varianceUnbooked:  judged.filter(r => r.band === 'unbooked').reduce((n, r) => n + Math.abs(r.variance), 0),
+      // ── THE LEDGER CHECK, AS A POPULATION ────────────────────────────────
+      // `ledgerChecked` is every row the check could actually run on; the three
+      // bands below partition it. `ledgerUnmeasured` is the rest — rows with a
+      // books balance on both ends but no measured movement, which is the state
+      // every loan is in until reconciliation-run ships. It is reported, never
+      // counted as agreement.
+      ledgerChecked:    rows.filter(r => r.unexplained != null),
+      ledgerOff:        rows.filter(r => r.unexplainedBand === 'material'),
+      ledgerSmall:      rows.filter(r => r.unexplainedBand === 'immaterial'),
+      ledgerUnbooked:   rows.filter(r => r.unexplainedBand === 'unbooked'),
+      ledgerUnmeasured: rows.filter(r => r.unexplained == null && r.computed != null),
+      // Stated, never diagnosed — see `unattributed` above. Reported so the
+      // reader knows the walk and the ledger part company on these rows even
+      // though nobody can yet say why.
+      ledgerUnattributed: rows.filter(r => r.unattributed != null && Math.abs(r.unattributed) >= 0.005),
+      ledgerUnattributedTotal: rows.reduce((n, r) => n + (r.unattributed == null ? 0 : Math.abs(r.unattributed)), 0),
+      ledgerToResolve:  rows.filter(r => r.unexplainedBand === 'material').reduce((n, r) => n + Math.abs(r.unexplained), 0),
+      // A single journal that both debits and credits the loan account nets into
+      // one bucket, so `drawn` and `reduced` understate the gross movement.
+      mixedSignRows:    rows.filter(r => r.movement && r.movement.mixedSign > 0),
+      originationRows:  rows.filter(r => r.originationGap),
       // Grade C among the loans anybody could ever hold a document for. Stripe
       // Capital is ingestion_method 'automatic' — its balance IS the Xero sweep,
       // so there is no outside party who could disagree with it. Reporting it as
@@ -15397,7 +15576,8 @@
         const ro = subtotal(rollable), cl = subtotal(closable);
         return {
           count: rows.length,
-          opening: ro.opening, principal: ro.principal, interest: ro.interest, computed: ro.computed,
+          opening: ro.opening, drawn: ro.drawn, drawnMeasured: ro.drawnMeasured,
+          principal: ro.principal, interest: ro.interest, computed: ro.computed,
           perLender: cl.perLender, variance: cl.variance, material: cl.material,
           rollCount: rollable.length, rollCovers: rollable.length === rows.length,
           closingCount: closable.length, closingCovers: closable.length === rows.length,
@@ -15418,6 +15598,8 @@
         // unheckable composition is how $20,875.00 went missing from a page
         // calling itself a debt schedule.
         opening:   rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + (r.opening ? r.opening.amount : 0), 0),
+        drawn:     rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + (r.drawn || 0), 0),
+        drawnMeasured: rows.filter(r => !(r.computed != null && r.perLender) && r.movement && r.movement.measured).length,
         computed:  rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + (r.computed || 0), 0),
         principal: rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + r.principal, 0),
         interest:  rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + r.interest, 0),
@@ -15465,12 +15647,17 @@
       // gate below already counts the work; counting it twice would report one
       // event as two blockers with two different figures (review F3).
       unbooked: rf.unbookedRows.length,
+      // The ledger check (session 247). Real work, and a separate question from
+      // the lender variance: these are loans whose own Xero movement our splits
+      // do not account for.
+      ledgerOff: rf.ledgerOff.length,
+      ledgerToResolve: rf.ledgerToResolve,
       circular: rf.circularRows.length,
       unposted: rf.unpostedRows.length,
       // The number of THINGS to deal with, not the number of kinds of thing.
       // Three missing statements plus one unposted split is 4 pieces of work;
       // reporting "2" because they fall in two categories reads as two items.
-      count: cov.missing.length + rf.off.length + rf.unpostedRows.length,
+      count: cov.missing.length + rf.off.length + rf.ledgerOff.length + rf.unpostedRows.length,
     };
   }
 
@@ -15595,6 +15782,20 @@
            b.off ? `${b.off} loan${b.off === 1 ? '' : 's'} disagree with the lender` : ''
           ].filter(Boolean).join(' · ') + '.',
           b.off ? '#b3382c' : null)
+      // The ledger check gets its own tile rather than sharing the variance one.
+      // "Does the ledger agree with the lender" and "do our splits explain what
+      // the ledger did" are different questions with different answers, and a
+      // loan can pass one while failing the other.
+      + tile(`${name} ledger unexplained`,
+          b.ledgerOff ? money(b.ledgerToResolve) : '$0.00',
+          b.ledgerOff
+            ? `${b.ledgerOff} loan${b.ledgerOff === 1 ? '' : 's'} moved in Xero without a split behind it.`
+            : b.rf.ledgerUnattributed.length
+            ? `${b.rf.ledgerUnattributed.length} loan${b.rf.ledgerUnattributed.length === 1 ? '' : 's'} differ from the ledger by ${money(b.rf.ledgerUnattributedTotal)} in total — stated, not diagnosed, until the month’s movement is measured.`
+            : b.rf.ledgerChecked.length
+            ? `All ${b.rf.ledgerChecked.length} measured ledger${b.rf.ledgerChecked.length === 1 ? '' : 's'} are fully explained.`
+            : 'Not measured yet — this check needs the month’s ledger movement.',
+          b.ledgerOff ? '#b3382c' : null)
       + tile('Not yet in Xero',
           b.unposted ? money(b.unpostedTotal) : '$0.00',
           b.unposted
@@ -15694,16 +15895,38 @@
     // already reports exactly this money as work to do; a second chip would be
     // the same event counted twice with two different figures, which is the
     // failure the band was built to remove. The explanation lives on the row.
+    //
+    // THE LEDGER CHECK IS A DIFFERENT QUESTION AND GETS ITS OWN CHIP (s247).
+    // The variance chip beside it asks whether the books agree with the lender.
+    // This one asks whether our splits explain what the ledger itself did, and a
+    // loan can pass one and fail the other — Paypal 2 ties against PayPal to the
+    // cent while $3,142.26 of principal came off the Xero ledger with nothing
+    // behind it. Folding the two into one number would hide exactly that.
+    if (rf.ledgerOff.length) {
+      gates.push({ key: 'ledger', bad: true, n: rf.ledgerOff.length,
+        text: `${rf.ledgerOff.length} loan${rf.ledgerOff.length === 1 ? '' : 's'} the ledger does not explain — ${money(rf.ledgerToResolve)}` });
+    } else if (rf.ledgerUnattributed.length) {
+      // Not bad, and deliberately so: a difference whose cause has not been
+      // measured is not yet work, and calling it work would put a number on the
+      // blocking line that nobody can act on.
+      gates.push({ key: 'ledger', bad: false, tick: false, n: rf.ledgerUnattributed.length,
+        text: `${rf.ledgerUnattributed.length} differ from the ledger — ${money(rf.ledgerUnattributedTotal)}, cause not measured` });
+    } else if (rf.ledgerChecked.length) {
+      gates.push({ key: 'ledger', bad: false, n: rf.ledgerChecked.length,
+        text: `${rf.ledgerChecked.length} ledger${rf.ledgerChecked.length === 1 ? '' : 's'} fully explained` });
+    }
     gates.push(rf.unpostedRows.length
       ? { key: 'posting', bad: true, n: rf.unpostedRows.length,
           text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}` }
       : { key: 'posting', bad: false, n: 0, text: 'everything booked' });
     const blocked = gates.some(g => g.bad);
 
-    // No tick on the immaterial chip. It is not bad enough to block and not good
-    // enough to congratulate — a real difference nobody is chasing today, and a
-    // ✓ in front of it would be the tool agreeing with itself.
-    const chip = (g) => `<span class="lcb-gate${g.bad ? '' : ' ok'}" data-gate="${esc(g.key)}" data-count="${g.n == null ? '' : g.n}">${(g.bad || g.key === 'immaterial') ? '' : '✓ '}${esc(g.text)}</span>`;
+    // No tick on the immaterial chip, nor on any chip that opts out with
+    // tick:false. Such a chip is not bad enough to block and not good enough to
+    // congratulate — a real difference nobody is chasing today, or a difference
+    // whose cause has not been measured — and a ✓ in front of either would be
+    // the tool agreeing with itself.
+    const chip = (g) => `<span class="lcb-gate${g.bad ? '' : ' ok'}" data-gate="${esc(g.key)}" data-count="${g.n == null ? '' : g.n}">${(g.bad || g.tick === false || g.key === 'immaterial') ? '' : '✓ '}${esc(g.text)}</span>`;
 
     // Bare figures in the body; the currency symbol survives only on the total,
     // which is the anchor a reader checks. Fourteen dollar signs down a column
@@ -15803,25 +16026,63 @@
             ? esc(STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
             : esc(r.unposted.length + ' unposted')}</span>`
         : (r.splits.length ? 'Booked' : '<span class="lcb-na">No payment</span>');
+      // ── DRAWN ─────────────────────────────────────────────────────────────
+      // Anything that INCREASED the balance in the month, which is broader than
+      // borrowing: a new draw, a capitalised fee, an accrual journal. The word
+      // on the header is "Drawn" because that is what it usually is; the footer
+      // sentence says what it actually measures.
+      //
+      // Unmeasured is not zero and must not render as one. A dash would read as
+      // "nothing was borrowed" — the exact substitution that hid $125,000.
+      const drawnCell = r.movement.measured
+        ? (Math.abs(r.drawn) >= 0.005 ? bare(r.drawn) : '<span class="lcb-na">—</span>')
+        : `<span class="lcb-none" title="${esc(r.movement.skipReason || 'The month’s ledger movement has not been measured for this loan, so the walk below assumes nothing was borrowed. It is an assumption, not a measurement.')}">not measured</span>`;
+
+      // ── THE NOTES COLUMN ─────────────────────────────────────────────────
+      // The ledger check, the mixed-sign warning and the origination straddle
+      // all land here rather than becoming a fourteenth column. The table is
+      // already wide; a flag with a tooltip is a column a reader can ignore.
+      const notes = [];
+      if (r.unexplainedBand === 'material') {
+        notes.push(`<span class="lcb-flag" title="${esc(`Our splits plus the measured movement do not account for what the ledger did. ${r.unexplained > 0 ? 'The ledger is higher than our walk' : 'The ledger fell further than our splits explain'} by this much.`)}">ledger off ${signed(r.unexplained)}</span>`);
+      } else if (r.unexplainedBand === 'immaterial') {
+        notes.push(`<span class="lcb-na" title="A real difference between our walk and the ledger, too small to be worth chasing on its own.">ledger ${signed(r.unexplained)}</span>`);
+      } else if (r.unexplainedBand === 'unbooked') {
+        notes.push(`<span class="lcb-na" title="The ledger already carries a staged transaction whose split this month deliberately excludes, and the gap is exactly that amount. The posting gate above owns it.">ledger ${signed(r.unexplained)} — staged</span>`);
+      } else if (r.unattributed != null && Math.abs(r.unattributed) >= 0.005) {
+        // NOT a finding, and it must not read as one. The walk and the ledger
+        // differ; without the month's measured movement nobody can say whether
+        // that is money borrowed or a payment nobody recorded.
+        notes.push(`<span class="lcb-na" title="${esc(`The Xero ledger closes at ${money(r.booksClosing)} and this walk computes ${money(r.computed)}. Until the month's movement is measured there is no way to tell a drawdown from a missing split, so this states the difference rather than calling it an error.`)}">ledger ${signed(r.unattributed)} — cause not measured</span>`);
+      }
+      if (r.movement.mixedSign > 0) {
+        notes.push(`<span class="lcb-flag" title="${r.movement.mixedSign} journal entr${r.movement.mixedSign === 1 ? 'y both debits and credits' : 'ies both debit and credit'} this loan account. Each nets into one bucket, so the gross halves do not appear in Drawn or in the principal.">mixed-sign journal</span>`);
+      }
+      if (r.originationGap) {
+        const g = r.originationGap;
+        notes.push(`<span class="lcb-na" title="${esc(`The signed agreement states ${money(g.agreement)} at ${short(g.asOf)}; the books carry ${money(g.books)} on that date. ${money(Math.abs(g.difference))} of the origination reaches the books after it. Which period that belongs in is a question for your accountant — this only states the difference.`)}">origination straddles the period</span>`);
+      }
       // A payment whose period_label carries no date is in no month at all, so
       // it is in no rollforward either. Said out loud rather than closed over.
       const undatedFlag = r.undated.length
         ? `<span class="lcb-flag" title="A payment whose period label carries no date cannot be placed in a month, so it is not counted in any rollforward.">${r.undated.length} undated</span>`
         : '';
-      return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''}>
+      if (undatedFlag) notes.push(undatedFlag);
+      return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}>
         <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span></td>
         <td class="lcb-src">${esc(a.lender || '')}</td>
         <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}">${openCell}</td>
         <td class="lcb-src${r.opening && !r.opening.authoritative ? ' soft' : ''}" data-source="${esc((r.opening && r.opening.source) || '')}">${openSrcCell}</td>
+        <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
         <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
-        <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''}>${lenderCell}</td>
         <td class="lcb-src">${r.perLender && r.perLender.asOf ? esc(short(r.perLender.asOf)) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-src${r.perLender && !r.perLender.authoritative ? ' soft' : ''}" data-derivation="${esc(r.anchor.derivation)}"${why}>${closeSrcCell}</td>
         <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}">${varCell}</td>
         <td style="white-space:nowrap">${booked}</td>
-        <td style="white-space:nowrap">${undatedFlag || '<span class="lcb-na">—</span>'}</td>
+        <td style="white-space:nowrap" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}>${notes.length ? notes.join(' ') : '<span class="lcb-na">—</span>'}</td>
       </tr>`;
     };
 
@@ -15838,11 +16099,17 @@
     // Every footer row carries all twelve cells. A short row would slide its
     // figures under the wrong headings in a CSV, which is the whole reason this
     // table was flattened.
-    const subtotalRow = (grade, label, st) => `<tr data-subtotal="${grade}" data-count="${st.count}"${st.circular ? ` data-circular-count="${st.circular}"` : ''}>
+    // Drawn's own coverage marker. A subtotal whose Drawn column is $0.00 across
+    // rows nobody measured is not a statement that nothing was borrowed, and the
+    // count says which it is.
+    const drawnMark = (st) => st.drawnMeasured === st.count ? ''
+      : `<span class="lcb-sub soft" style="display:inline"> ${st.drawnMeasured} of ${st.count} measured</span>`;
+    const subtotalRow = (grade, label, st) => `<tr data-subtotal="${grade}" data-count="${st.count}"${st.circular ? ` data-circular-count="${st.circular}"` : ''} data-drawn-measured="${st.drawnMeasured}">
       <td>${esc(label)}${st.circular ? ` <span class="lcb-sub soft" style="display:inline">${st.circular} not independently checked</span>` : ''}</td>
       <td></td>
       <td class="lcb-n" data-amount="${st.opening}">${money(st.opening)}</td>
       <td></td>
+      <td class="lcb-n" data-amount="${st.drawn}">${money(st.drawn)}${drawnMark(st)}</td>
       <td class="lcb-n" data-amount="${st.principal}">${money(st.principal)}</td>
       <td class="lcb-n" data-amount="${st.interest}">${money(st.interest)}</td>
       <td class="lcb-n" data-amount="${st.computed}">${money(st.computed)}</td>
@@ -15863,11 +16130,12 @@
     const mark = (n) => `<span class="lcb-sub soft" style="display:inline"> ${n} of ${ta.count}</span>`;
     const rollMark = ta.rollCovers ? '' : mark(ta.rollCount);
     const closingMark = ta.closingCovers ? '' : mark(ta.closingCount);
-    const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" class="lcb-total">
+    const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" data-drawn-measured="${ta.drawnMeasured}" class="lcb-total">
       <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}</td>
       <td></td>
       <td class="lcb-n" data-amount="${ta.opening}">${money(ta.opening)}${rollMark}</td>
       <td></td>
+      <td class="lcb-n" data-amount="${ta.drawn}">${money(ta.drawn)}${ta.drawnMeasured === ta.rollCount ? '' : `<span class="lcb-sub soft" style="display:inline"> ${ta.drawnMeasured} of ${ta.rollCount} measured</span>`}</td>
       <td class="lcb-n" data-amount="${ta.principal}">${money(ta.principal)}</td>
       <td class="lcb-n" data-amount="${ta.interest}">${money(ta.interest)}</td>
       <td class="lcb-n" data-amount="${ta.computed}">${money(ta.computed)}${rollMark}</td>
@@ -15881,7 +16149,7 @@
     el.innerHTML = `
       <div class="lcb-head">
         <h3>Rollforward</h3>
-        <span class="lcb-why">Opening balance minus principal paid must equal the closing balance on file — the lender's where there is one, the contractual schedule where a recorded policy says so.</span>
+        <span class="lcb-why">Opening balance, plus anything drawn, minus principal paid must equal the closing balance on file — the lender's where there is one, the contractual schedule where a recorded policy says so.</span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}">
         <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
@@ -15894,6 +16162,7 @@
               <th>Loan</th><th>Lender</th>
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
               <th>Opening source</th>
+              <th class="lcb-n">Drawn</th>
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n">Computed</th>
               <th class="lcb-n">Closing</th>
@@ -15906,20 +16175,24 @@
               <tr class="lcb-ofwhich"><td colspan="13">of which</td></tr>
               ${rf.gradeA.length ? subtotalRow('A', `${rf.gradeA.length} confirmed by lender`, rf.totalsA) : ''}
               ${rf.gradeB.length ? subtotalRow('B', `${rf.gradeB.length} per amortization schedule`, rf.totalsB) : ''}
-              ${rf.excluded.count ? `<tr class="lcb-excluded" data-subtotal="none" data-automatic="${rf.excluded.automatic}">
+              ${rf.excluded.count ? `<tr class="lcb-excluded" data-subtotal="none" data-automatic="${rf.excluded.automatic}" data-drawn-measured="${rf.excluded.drawnMeasured}">
                 <td>${rf.excluded.count} with no closing balance${rf.excluded.automatic ? ` · ${rf.excluded.automatic} swept from Xero` : ''}${rf.excluded.count - rf.excluded.automatic ? ` · ${rf.excluded.count - rf.excluded.automatic} with nothing to close against` : ''}</td>
                 <td></td>
                 <td class="lcb-n" data-amount="${rf.excluded.opening}">${money(rf.excluded.opening)}</td>
                 <td></td>
+                <td class="lcb-n" data-amount="${rf.excluded.drawn}">${money(rf.excluded.drawn)}${rf.excluded.drawnMeasured === rf.excluded.count ? '' : `<span class="lcb-sub soft" style="display:inline"> ${rf.excluded.drawnMeasured} of ${rf.excluded.count} measured</span>`}</td>
                 <td class="lcb-n" data-amount="${rf.excluded.principal}">${money(rf.excluded.principal)}</td>
                 <td class="lcb-n" data-amount="${rf.excluded.interest}">${money(rf.excluded.interest)}</td>
                 <td class="lcb-n" data-amount="${rf.excluded.computed}">${money(rf.excluded.computed)}</td>
                 <td class="lcb-n">—</td><td></td><td></td><td class="lcb-n">—</td><td></td><td></td>
               </tr>` : ''}
+              <tr class="lcb-excluded" data-subtotal="drawn-note">
+                <td colspan="14">Drawn is anything that increased the balance in the month — a new draw, a capitalised fee, an accrual journal — measured from the Xero ledger entries between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))}, never inferred from the balances themselves. Where it reads <em>not measured</em> the walk on that row assumes nothing was borrowed; that is an assumption, and the ledger check in Notes is withheld rather than guessed.</td>
+              </tr>
             </tfoot>
           </table>
         </div>
-        <div class="lcb-foot">Variance covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} actually checked for ${esc(name)} — ${judgedA} confirmed by lender${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? ` · ${rf.unbookedRows.length} differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments this month has not booked yet, which the posting gate above already counts` : ''}${rf.circularRows.length ? ` · ${rf.circularRows.length} more agree${rf.circularRows.length === 1 ? 's' : ''} by construction, because nothing independent of the schedule opens the walk, and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}${rf.undatedRows.length ? ` · ${rf.undatedRows.length} carr${rf.undatedRows.length === 1 ? 'ies' : 'y'} payments whose period label has no date, so they fall in no month at all and no rollforward can see them` : ''}. Extra principal payments are included — a rollforward measures how far the balance actually moved.</div>
+        <div class="lcb-foot">Variance covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} actually checked for ${esc(name)} — ${judgedA} confirmed by lender${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? ` · ${rf.unbookedRows.length} differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments this month has not booked yet, which the posting gate above already counts` : ''}${rf.circularRows.length ? ` · ${rf.circularRows.length} more agree${rf.circularRows.length === 1 ? 's' : ''} by construction, because nothing independent of the schedule opens the walk, and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}${rf.undatedRows.length ? ` · ${rf.undatedRows.length} carr${rf.undatedRows.length === 1 ? 'ies' : 'y'} payments whose period label has no date, so they fall in no month at all and no rollforward can see them` : ''}. Extra principal payments are included — a rollforward measures how far the balance actually moved. Notes carries a SECOND and separate check: whether our splits plus the measured movement account for everything the Xero ledger itself did${rf.ledgerChecked.length ? ` — run on ${rf.ledgerChecked.length} loan${rf.ledgerChecked.length === 1 ? '' : 's'}` : ''}${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose month's movement has not been measured` : ''}.</div>
       </div>`;
   }
 

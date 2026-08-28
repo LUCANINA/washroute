@@ -2,40 +2,70 @@
 
 > ## ⏭️ START HERE — first thing, session 248 (left by session 247, 2026-08-28)
 >
-> ### 1. ✅ CLOSED — DEPLOYED AND THE ACCEPTANCE RUN PASSED (session 247, 2026-08-28)
+> ### 1. 🔴 A SECOND DEPLOY IS PENDING — THE LEDGER CHECK IS DARK UNTIL IT SHIPS
 >
-> `reconciliation-run` **v52** (08:01 PT) and `loan-bundle` **v22** (08:09 PT) are
-> both live. David clicked **Run Reconciliation Check** at **08:11:24 PT**: run
+> **The balances half is done and proven (record kept below). The DRAWS half is
+> written, committed, and NOT deployed.** Until it ships, every row on the
+> rollforward reads **"not measured"** on the ledger check, and the three findings
+> it already surfaces are invisible on screen.
+>
+> ```
+> npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> # then click Run Reconciliation Check once
+> git push          # MANY commits unpushed — the sandbox has no network and will 403
+> ```
+>
+> **What each unshipped piece costs, precisely:**
+>
+> * **`measureMovement` is not in the live function.** Verified, not assumed: the 44
+>   stored `loan_book_balances` rows carry `detail` keys `checkpoint`,
+>   `checkpoint_basis`, `checkpoint_date`, `code`, `entries_counted`,
+>   `staged_entries_at_or_before`, `staged_entries_undated`, `window_from` — and **no
+>   `drawn`, `reduced` or `mixed_sign_entries`.** That absence IS the deploy state;
+>   check it the same way rather than trusting this block.
+> * **So `movement.measured` is false on every row**, every row is `unattributed`,
+>   and the ledger check states its subtraction without diagnosing it — by design.
+>   **This is the correct behaviour for missing data, not a bug to work around.**
+> * **Three real findings are waiting behind that deploy:** PayPal 2
+>   **−$3,142.26**, BayFirst SBA 2 **+$858.66**, Funding Circle **+$15.14**. See §8b.
+> * **The fixture cannot exercise it either.** `tests/fixtures/bookkeeping-fixture.json`
+>   now carries the 44 real rows, but they are pre-draws rows, so Drawn is unmeasured
+>   on all of them. The harness proves the *logic* by reverting shipped functions in
+>   page context; it cannot prove the *pipeline* until a run writes a `drawn`.
+>
+> **After the deploy, the first thing to check is Stripe Capital.** Its row is the
+> reason this work exists: books 6/30 **$20,875.00** → 7/31 **$136,578.25**, July
+> principal **$9,296.75**, and a **$125,000** July drawdown. Expect
+> `20,875.00 + 125,000.00 − 9,296.75 = 136,578.25`, exact, with Drawn measured and
+> `unexplained` at $0.00. If Drawn comes back $0.00 instead, the deploy did not take.
+>
+> #### The record of the first deploy, which IS closed (session 247)
+>
+> `reconciliation-run` **v52** (08:01 PT) and `loan-bundle` **v22** (08:09 PT) went
+> live and David clicked Run at **08:11:24 PT**: run
 > `2690e2ef-95dd-4354-bcdc-2124771ea9c3`, complete in 17.7s, 22 loans, 9 checks,
-> **0 new findings, 15 open (down from 16), 2 resolved.**
+> **0 new findings, 15 open (down from 16), 2 resolved.** All 44 `loan_book_balances`
+> rows carry basis `xero_rebuild` from a **trial-balance checkpoint at 2026-04-29**,
+> **0 refusals**, which is what makes the books side independent of the schedule.
+> Verdant's tie-out came out at **−$1,835.75**, exactly as predicted.
 >
-> **The acceptance criterion hit its predicted number.** `loan_book_balances` was
-> fully rebuilt by this run — all 44 rows carry basis `xero_rebuild`, from a
-> **trial-balance checkpoint at 2026-04-29** plus counted Xero entries, which is
-> what makes the books side independent of the amortization schedule. Verdant
-> Capital's tie-out came out at **−$1,835.75**, exactly what `loan_tie_outs`
-> predicted. Nothing to do here; this block can be deleted next session.
+> **The caveat that is easy to misread as a pass, restated because it still holds.**
+> Dexter Loan 2 reads **`tied`, difference $0.00** ($89,411.25 both sides at
+> 2026-07-31), and its books half is genuinely independent now — half the tautology
+> is broken. But `anchor_source` is still **`amortization_schedule`**, so what this
+> proves is *"our Xero books agree with the contract to the cent"*, **not** *"the
+> lender confirmed the balance."* Dexter still has no lender balance. **§3 stands.**
 >
-> **One caveat to carry forward, because it is easy to misread as a pass.**
-> Dexter Loan 2 now reads **`tied`, difference $0.00** ($89,411.25 both sides at
-> 2026-07-31). The books half is genuinely independent now — that half of the
-> tautology is broken. But its `anchor_source` is still **`amortization_schedule`**,
-> not a lender source, so what this proves is *"our Xero books agree with the
-> contract schedule to the cent"* — a real check that really passed — and **not**
-> *"the lender confirmed the balance."* Dexter still has no lender balance on
-> file. **§3 stands unchanged.**
->
-> **Deploy mechanics for David's Mac, kept because they cost an hour today.**
-> `npx supabase@latest` is the only working path: no Homebrew installed, and
-> `~/.zshrc` is not writable by his user (permission denied — likely root-owned
-> from an old `sudo`). Do NOT suggest `brew install`. The CLI reads its token from
-> the macOS keychain, which raises a "supabase wants to use your confidential
-> information" dialog for each fresh `npx` binary; **Always Allow**, or
-> `export SUPABASE_ACCESS_TOKEN=...` in that terminal window first, which skips the
-> keychain entirely. The sandbox cannot deploy `reconciliation-run` itself: 212 KB
-> across 5 files, and the MCP deploy tool wants every file inline in one call.
-> Running it also needs a logged-in admin session — `callerRole(req)` with **no
-> `x-wr-internal` branch**, so unlike `xero-read` it cannot be poked from SQL.
+> **Deploy mechanics for David's Mac, kept because they cost an hour.**
+> `npx supabase@latest` is the only working path: no Homebrew, and `~/.zshrc` is not
+> writable by his user (likely root-owned from an old `sudo`). Do NOT suggest
+> `brew install`. The CLI reads its token from the macOS keychain, raising a
+> "supabase wants to use your confidential information" dialog for each fresh `npx`
+> binary; **Always Allow**, or `export SUPABASE_ACCESS_TOKEN=...` in that terminal
+> first. The sandbox cannot deploy it: 212 KB across 5 files against a deploy tool
+> that wants every file inline, and running it needs a logged-in admin session —
+> `callerRole(req)` with **no `x-wr-internal` branch**, so unlike `xero-read` it
+> cannot be poked from SQL.
 >
 > ### 1b. 🎨 NEW — THE OVERVIEW IS ONE ROW PER LENDER NOW (session 247)
 >
@@ -124,6 +154,21 @@
 > If she does reverse it, the order matters: reverse in Xero → flip
 > `carrying_basis` to `net_principal` → then rebuild July/August splits.
 >
+> **NEW — the SAME journal carries a second, separate question: the origination
+> straddle.** Journal `#52168` recognised the $20,875 fee on **30 June**; the
+> $125,000 principal was not advanced until **1 July**. So at 6/30 the books carry a
+> liability and an expense **for a loan that had not been advanced** — $20,875.00,
+> a figure describing neither the loan ($145,875 per the agreement) nor zero. David's
+> decision was **option C: change no journals, have the tool state the difference** —
+> the rollforward opens from the books, shows the measured $125,000 draw, closes at
+> $136,578.25, and a generic rule (any `contract_origination` anchor at or before the
+> prior month end disagreeing with the books opening beyond tolerance) notes the
+> straddle on the row. **Option A — reversing #52168 into July — is the correct
+> accounting and goes to Ramona at the next close, alongside the spreading question
+> above. One journal, two questions; ask both at once.** Option B (accruing the
+> principal at 6/30) was **rejected and should not be re-proposed**: the cash did not
+> move until 7/1, so it would recognise a $125,000 asset the business did not hold.
+>
 > ### 7. 🔴 NEW — $266,140.40 OF "TOTAL OUTSTANDING" IS NOT MEASURED IN PRINCIPAL
 >
 > **Tech Debt #19, now with a number on it.** A harness assertion is **deliberately
@@ -175,6 +220,34 @@
 >   below the constant already in scope. **Seven remain** and they are the cheapest
 >   safety win on the board. See Tech Debt #23.
 >
+> ### 8b. 🔴 NEW — THREE LEDGER FINDINGS, AND A VERDANT PAYMENT POSTED WHOLE TO PRINCIPAL
+>
+> These come from the **second** check the rollforward now runs. The variance asks
+> *do the books agree with the lender*; this one asks *do our splits explain what
+> the ledger actually did*. **All four are real and none is visible on screen until
+> §1's deploy happens.**
+>
+> * **Verdant Capital — August's payment was posted entirely to principal, with
+>   nothing split out for interest.** This is the −$1,835.75 relocated from a
+>   standing gap to a single dated event, and it is now fully explained: the books
+>   track the contract to **four cents** through July (books 7/31 $250,894.29 vs the
+>   schedule's $250,894.33), then fall the **whole $4,543.32** payment between 7/31
+>   and 8/10, while the contract reduces principal by only **$2,707.61**. The
+>   difference is **$1,835.71 — August's scheduled interest** — plus the four cents.
+>   There is no posted August split behind it (the splits jump from `Period 6` to a
+>   staged `2026-09`). **Fix the posting, then re-run.** Do not "correct" the
+>   tie-out; the tie-out is right.
+> * **PayPal 2 — `unexplained` −$3,142.26.** Principal came off the ledger with no
+>   split behind it. Note this loan already appears in §8 for a $44.70 band miss;
+>   check whether these are one event before treating them as two.
+> * **BayFirst SBA 2 — `unexplained` +$858.66.** Same figure as its tie-out
+>   difference, and the same $858.66 session 246's `_loanBookBalanceAsOf` comment
+>   names as the invented variance a stale books row would have produced. Same money,
+>   now measured rather than hypothesised.
+> * **Funding Circle — `unexplained` +$15.14.** Derived by hand from SQL one round
+>   before the check found it independently, which is the useful part: the check
+>   reproduced a human result it was not fitted to.
+>
 > ### 9. ✅ WHAT SESSION 246 BUILT — read `DESIGN-CLOSING-EVIDENCE.md`
 >
 > A three-grade closing-evidence model: **A** confirmed by lender (a real document,
@@ -202,12 +275,21 @@
 > npx tsx tests/loan-bundle.test.mts        # 68 assertions
 > ```
 >
-> **1,216 assertions, one deliberately red (§7).** The `closing-evidence` group is
-> 340 of them, and **every one was proved to discriminate** — 25 revert anchors
+> **1,399 assertions, one deliberately red (§7).** The `closing-evidence` group is
+> **565** of them, and **every one was proved to discriminate** — 34 revert anchors
 > that apply the inverse of each fix to the shipped function's own `.toString()`
 > in page context and confirm the assertion goes red. Never by editing
 > `index.html`. **An assertion that passes against both the fixed and the broken
 > code is decoration**, and this module has shipped 52 of those before.
+>
+> **Three pre-existing assertions were fixed PRE-EMPTIVELY and this is worth
+> copying.** They asserted `opening − principal = computed`, which is only true
+> when nothing was borrowed, and passed solely because Drawn is $0.00 on every
+> fixture row today. They would have gone red **on deploy**, for a reason that is
+> not a bug — the most expensive kind of red, because it arrives when attention is
+> on the deploy and it teaches people that red means "ignore me". When you change
+> an invariant, grep the suite for assertions that encode the OLD one and fix them
+> in the same commit, even where they are still green.
 >
 > ### 11. 📋 STILL OPEN FROM SESSION 241's AUDITS
 >
@@ -1781,6 +1863,54 @@ alone stops counting real lender evidence, with no error anywhere. Session 245's
 `_shared/`, so its copy stays and gets a comment naming the export it must track, plus a test that
 reads both and fails when they diverge. Cheapest safety win on the board.*
 
+---
+
+**24. ⚠️ `data-subtotal` is doing two jobs on the rollforward footer (session 247 cont. 3).**
+
+The footer's subtotal rows are addressed by `data-subtotal`, whose values are the GRADES the
+subtotal covers — `A`, `B`, `none`, plus `all` for the grand total added in session 247 cont. 2.
+The draws work then added an explanatory footnote row as
+`<tr class="lcb-excluded" data-subtotal="drawn-note">` (index.html:16189). It is not a subtotal. It
+carries no count, no money, and nothing sums it.
+
+**Why this is filed rather than fixed on the spot:** nothing is wrong today, because every current
+reader selects a specific value (`[data-subtotal="all"]`, `[data-subtotal="A"]`). The hazard is the
+obvious next reader — *"enumerate the subtotal rows and check they compose"* — which is precisely
+what `s236` already does one level up, and which would silently take in a row that is not a
+subtotal. That is a **namespace collision**, and it is the same shape as session 245's
+`_bkSubstanceKey`: two different things sharing a key because the key was never defined tightly
+enough to exclude one of them.
+
+*Next step: give the note row its own attribute (`data-rollnote="drawn"`) and leave `data-subtotal`
+meaning exactly one thing — a row that sums a population. One-line change in `index.html` plus the
+harness selector beside it. Do it before anyone writes a `querySelectorAll('[data-subtotal]')`.*
+
+---
+
+**25. 🔭 `measureMovement` classifies per ENTRY, so a mixed-sign journal hides its gross halves
+(session 247 cont. 3).**
+
+The month's movement is measured by summing `effect()` — the signed movement of one ledger entry on
+one account — into `drawn` (positive) and `reduced` (negative). That is the right unit: it is what
+`effect()` means and what Xero's own balance sheet moves by. But **a single manual journal that
+both debits and credits the loan account nets to one number and lands wholly in one bucket.** A
+journal drawing $10,000 and repaying $3,000 on the same account reports `drawn 7,000` and no
+reduction, and the two gross figures are not recoverable from the output.
+
+**This is a real limit, not a rounding one, and it is COUNTED rather than left to be discovered** —
+`mixed_sign_entries` travels in the same `detail` payload as the figures it qualifies, alongside
+`drawn_entries` and `reduced_entries`. That is the module's standing pattern (`staged_entries_undated`,
+the roll-back refusals): when a measurement has a blind spot, ship the blind spot's size next to
+the measurement.
+
+It is also why `unexplained` stays trustworthy in the meantime — a mixed-sign journal misdescribes
+the *composition* of the movement, not its *net*, and `unexplained` is computed from the net.
+
+*Next step: only if a non-zero `mixed_sign_entries` ever shows up on a real run — check it before
+building anything. If it does, classify per LINE for the gross halves while keeping the per-entry
+net as the figure the walk uses, and report both. Do not switch the walk itself to per-line: the
+net is what the balance actually moved by.*
+
 ## Next Up — THE INGESTION ENGINE (Aug 21, first thing — David: "this will set us apart from everyone else")
 
 > **STATUS (session 224): largely BUILT — see the Session 224 entry in the Session Log.**
@@ -2035,6 +2165,186 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 247 (cont. 3, 2026-08-28) — the rollforward was subtracting from a balance nobody had borrowed into
+
+*(Numbered as a session 247 continuation because it builds directly on cont. 2's
+13-column table and its `data-subtotal` namespace. The deploy and the acceptance
+run it opens with happened earlier the same day and are recorded in START HERE §1
+and the cont. entries above — repeated here only where this work depends on them.)*
+
+#### The books side paid for itself within one run
+
+The first run after the balances deploy wrote **44 `loan_book_balances` rows, 22
+loans, both month ends, 0 refusals** — the refusal guard never fired, which is what
+folding `priorMonthEnd` into the `windowFrom` candidates was for. Three results
+landed immediately:
+
+* **Dexter's books opening at 6/30 came out at exactly $92,737.48**, so amendment
+  **A7's prediction resolved in the code's favour**: the frozen `xero_derived`
+  backfill and an independent Xero rebuild agree, and Dexter's tie is now a real
+  check rather than the schedule agreeing with itself. A7 was written as *"this may
+  be the schedule under another name; if Xero's true 6/30 is not $92,737.48, that is
+  a finding, not a failure"* — the honest form of a prediction, and it is the reason
+  the answer means anything.
+* **Verdant's books track the contract to four cents through July** (books 7/31
+  $250,894.29 against the schedule's $250,894.33), which **relocates the −$1,835.75
+  from a standing gap to a single dated August event.** See below.
+* **Three E-Transit loans began showing real July variances** — 4140 **$415.88**,
+  E4-9744 **$182.00**, E5-4751 **$266.42**, each matching its tie-out to the cent —
+  **where they had printed $0.00.** The opening moved from a lender statement to the
+  books, and the books had never been in the check at all. Both `stale_anchor`
+  findings (Dexter and Verdant, the two `close_basis='amortization_schedule'` loans)
+  resolved at **02:48:52**.
+
+**Verdant's August payment was posted entirely to principal, with nothing split out
+for interest.** The books fall the whole **$4,543.32** between 7/31 and 8/10 while
+the contract reduces principal by only **$2,707.61**; the difference is
+**$1,835.71 — August's scheduled interest** — plus the four cents of drift, which is
+the −$1,835.75 exactly. There is no posted August split behind it: the splits jump
+from `Period 6` to a staged `2026-09`. A gap that had been a standing mystery since
+session 246 is now a dated, named, fixable posting error. **That is what an
+independent opening buys**, and it is the whole argument for the table.
+
+#### Then David said the total was way off, and he was right
+
+> **`opening − principal = closing` is only true if nothing was BORROWED.**
+
+Stripe Capital drew **$125,000 in July**. Books 6/30 **$20,875.00** (the fee journal
+alone), books 7/31 **$136,578.25**, July principal **$9,296.75** — so its row
+computed **$11,578.25** and sat in *"Not checkable"*, where nothing looked at it.
+**Six figures of difference, silent.**
+
+This is the session's **third instance of one shape: not a wrong answer, an unasked
+question.** The first was grade B (a variance that could not fail), the second was
+Dexter's opening (an independence nobody had tested), and this is the third — a
+walk that was arithmetically correct and structurally incomplete. All three
+produced numbers that looked fine.
+
+#### The fix, and the constraint that made it non-trivial
+
+`reconciliation-run` now measures the month's movement **from the Xero ledger
+entries directly** — `measureMovement` sums `effect()` into `drawn` (positive) and
+`reduced` (negative), with `drawn_entries`, `reduced_entries` and
+`mixed_sign_entries` travelling beside them.
+
+**It is MEASURED, never derived, and that distinction is the whole design.**
+`drawn = closeBooks − openBooks + principal` is the equation rearranged: it would
+make the walk foot **for any input** and could only ever print a tie. That is
+session 245's `gap / mean` again, and it is the same tautology this session spent
+its first half removing from Verdant. Summing the ledger rows that actually fall in
+the month means the rollforward **can still fail**, which is the only property that
+makes it worth having.
+
+The dashboard now walks **`opening + drawn − principal = computed`** and adds a
+**second, separate check**:
+
+    unexplained = booksClosing − (opening + drawn − principal)
+
+The two ask different questions. The variance asks *do the books agree with the
+lender*; `unexplained` asks *do our splits explain what the ledger actually did*.
+It surfaces **PayPal 2 −$3,142.26** (principal off the ledger with no split behind
+it), **BayFirst SBA 2 +$858.66** — the same $858.66 session 246's
+`_loanBookBalanceAsOf` comment names as the invented variance a stale books row
+would have produced, now measured rather than hypothesised — and **Funding Circle
++$15.14**, which I had derived by hand from SQL the round before and which the
+check then found on its own.
+
+#### Three states, and the middle one is the lesson
+
+A row is **`measured`** (banded, gated, can block), **`unattributed`** (the same
+subtraction, stated and never diagnosed — no band, no gate, never blocking, and the
+words say the cause was not measured), or has a **measured zero** (renders `—`).
+
+**The unmeasured case must never substitute 0.** A missing `drawn` makes `computed`
+too low by exactly the amount drawn, so on the ledger side the error lands
+**directly in the answer**, and the check would accuse a loan of precisely the thing
+it legitimately did. On Stripe that is a $125,000 accusation manufactured out of a
+missing input.
+
+**Deliberately asymmetric, and the asymmetry is the point.** The variance tie is
+**not** suppressed on unmeasured rows. There the same understatement produces a
+false *difference* — shown, investigable, and self-announcing — and it could only
+produce a false *tie* by a drawdown exactly cancelling a real variance. So:
+suppressing the ledger check avoids a guaranteed wrong answer; suppressing the
+variance would discard thirteen true results to avoid a coincidence. **Two checks
+reading one missing input, two different correct responses.** Symmetry would have
+been the easy call and the wrong one.
+
+#### Stripe's origination straddle, and David's decision
+
+The agreement says **$145,875 at 6/30**; Xero says **$20,875**, because the fee was
+recognised 30 June (journal `#52168`) and the $125,000 principal 1 July. At 6/30 the
+books therefore carry a liability and an expense **for a loan not yet advanced** — a
+balance describing neither the loan nor zero.
+
+David chose **option C: change no journals, have the tool state the difference.**
+The rollforward opens from the books, shows the measured draw, closes at
+$136,578.25, and a **generic** rule — any `contract_origination` anchor at or before
+`priorEnd` disagreeing with the books opening beyond tolerance — notes the straddle
+on the row. Generic, not Stripe-specific: the next loan whose paperwork and cash
+land in different months gets the same note without new code.
+
+**Option A — reversing #52168 into July — is the correct accounting and goes to
+Ramona at the next close**, alongside the existing question about whether the
+$20,875 should be spread over the repayments rather than expensed in one June lump.
+**One journal, two questions**; they should be asked together. **Option B — accruing
+the principal at 6/30 — was rejected**: the cash did not move until 7/1, so it would
+recognise a $125,000 asset the business did not hold. Recorded so nobody
+re-proposes it.
+
+#### "Did yesterday's Stripe intake disappear?" — no, and the answer is worth keeping
+
+David thought it had. It had not: bundle `6d20c11d`, **10 actions, 0 failed**, all
+still on file — 4 documents, 12 terms, `carrying_basis=gross_payback`,
+`original_amount` $125,000, the structure note, the 6/30 `contract_origination`
+anchor, and 5 balances relabelled `total_payback`. What changed was **which number
+the rollforward opens with**, not what was stored. Worth recording because "the data
+is gone" and "the view changed" feel identical from the screen, and only one of them
+is a problem.
+
+**One thing genuinely never landed and still cannot:** the lender balance from the
+overview screenshot, because `loan_statements` carries `UNIQUE (loan_account_id,
+statement_date)` and Stripe is the one loan whose books sweep writes a row **every
+day**, on exactly the dates a lender figure needs. That is START HERE §2 and it
+remains the oldest blocker on this loan.
+
+#### Tests
+
+**1,399 assertions, one deliberately red** (Tech Debt #19, untouched).
+`closing-evidence` is now **565**. Every new assertion was proved to discriminate by
+inverting the shipped function's own `.toString()` in page context.
+
+**Three pre-existing assertions were fixed *pre-emptively*, and that is the part to
+copy.** They asserted `opening − principal = computed` and passed **only because
+Drawn is $0.00 on every fixture row today**. They would have gone red **on deploy**,
+for a reason that is not a bug — the most expensive kind of red, because it arrives
+exactly when attention is on the deploy and it teaches people that red means
+"ignore me". When an invariant changes, grep the suite for assertions encoding the
+old one and fix them in the same commit, even where they are still green.
+
+#### Where to pick up
+
+**The draws work is committed and NOT deployed, and the deploy is the next action.**
+Verified rather than assumed: the 44 stored `loan_book_balances` rows carry no
+`drawn`, `reduced` or `mixed_sign_entries` key in `detail`, so `measureMovement` is
+not in the live function. **Until it ships, every row reads "not measured" on the
+ledger check and all three findings above are invisible on screen** — which is the
+correct behaviour for missing data and is also why nobody will see them. David runs
+the deploy in START HERE §1, clicks Run check once, and the first thing to look at
+is Stripe: expect `20,875.00 + 125,000.00 − 9,296.75 = 136,578.25` with Drawn
+measured. **If Drawn comes back $0.00, the deploy did not take.**
+
+Then, in order: **Verdant's August posting** is a real, dated, fixable error and the
+only one of the four that is a mistake rather than a measurement (fix the posting,
+then re-run — do not "correct" the tie-out, which is right); **PayPal 2's
+−$3,142.26** should be checked against its existing $44.70 band miss from §8 before
+treating them as two events; **BayFirst SBA 2** and **Funding Circle** are smaller
+and now have exact figures. **Tech Debt #24** (the `data-subtotal` namespace
+collision) is a one-line fix worth doing before anyone writes a
+`querySelectorAll('[data-subtotal]')`; **#25** (`mixed_sign_entries`) needs nothing
+until a real run reports a non-zero count. And **§2 — Stripe's lender anchor —
+remains the oldest blocker**, untouched by five consecutive sessions.
 
 ### Session 247 (cont. 2, 2026-08-28) — the rollforward: one fact per cell, and a total that means all the loans
 

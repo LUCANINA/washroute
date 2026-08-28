@@ -449,3 +449,77 @@ not touched — that document leaves the building.
   — two of them re-declared inside `reconciliation-run` itself, 549 and 893 lines
   below the constant already in scope. Consolidating is the cheapest safety win
   available, and `tests/loan-bundle-balances.test.mts` pins only one of them.
+
+---
+
+# AMENDMENTS after the first live run (2026-08-28)
+
+The balances half shipped (`reconciliation-run` v52), David ran it, and 44
+`loan_book_balances` rows landed. Two things above are now settled by measurement
+rather than argument, and one is simply wrong. **This section wins over both
+sections above it.**
+
+## A11. A7 is RESOLVED, and it resolved in the code's favour
+
+A7 downgraded acceptance #1 from an assertion to a prediction: Dexter's
+`xero_derived` opening might be the schedule under another name, so the honest form
+was *"the books-side opening at 2026-06-30 is computed from Xero and the variance
+reported, whatever it turns out to be."*
+
+**It was computed, and it is $92,737.48** — the figure acceptance #1 named. The
+frozen backfill and an independent Xero rebuild agree, so Dexter's tie is a real
+check that really passed. Acceptance #1 stands as originally written.
+
+**The caveat A7 did not cover, and it matters more now that the number is green:**
+Dexter's `anchor_source` is still `amortization_schedule`. What the tie proves is
+*"our Xero books agree with the contract to the cent"* — not *"the lender confirmed
+the balance."* Dexter still has no lender balance on file. A grade-B tie is a real
+result about a real question; it is not grade A, and the roster must never let it
+read as one.
+
+## A12. Acceptance #5's formula is superseded — the walk has a Drawn term
+
+**`opening − principal = computed` is only true if nothing was BORROWED.** Stripe
+Capital drew $125,000 in July: books 6/30 $20,875.00, books 7/31 $136,578.25, July
+principal $9,296.75, so the old walk computed $11,578.25 and the row sat in "Not
+checkable" where nothing looked at it. Six figures of difference, silent.
+
+The walk is now:
+
+    opening + drawn − principal = computed
+
+and a second, separate check asks whether our splits explain what the ledger did:
+
+    unexplained = booksClosing − (opening + drawn − principal)
+
+**`drawn` is MEASURED from the ledger entries in the month, never derived.**
+`drawn = closeBooks − openBooks + principal` is the equation rearranged — it makes
+the walk foot for any input and can only ever print a tie, which is session 245's
+`gap / mean` and the tautology this document was written to remove from Verdant.
+
+**Read acceptance #5 as: the lender-confirmed subtotal contains only grade-A loans,
+and `opening + drawn − principal` equals computed within each subtotal.** The
+subtotals sum `drawn` too, and a subtotal whose rows are not all measured says so
+rather than implying a total that was never measured.
+
+**Three states, and the middle one is load-bearing.** A row is `measured` (banded,
+gated, can block), `unattributed` (the same subtraction, stated and never
+diagnosed — no band, no gate, never blocking), or has a measured zero (renders
+`—`). **An unmeasured `drawn` must never be substituted with 0:** the error would
+land directly in the answer and accuse a loan of exactly what it legitimately did.
+The variance tie is deliberately NOT suppressed on those rows — there the same
+missing input produces a visible, investigable *difference*, and could only produce
+a false *tie* by coincidence. Two checks, one missing input, two different correct
+responses; the asymmetry is deliberate.
+
+## A13. Verdant's −$1,835.75 has a cause, and it is a posting error
+
+The independent opening did what it was built to do. Verdant's books track the
+contract to **four cents** through July (books 7/31 $250,894.29 against the
+schedule's $250,894.33), then fall the **whole $4,543.32** payment between 7/31 and
+8/10 while the contract reduces principal by only **$2,707.61**. The difference is
+**$1,835.71 — August's scheduled interest** — plus the four cents.
+
+**Verdant's August payment was posted entirely to principal, with nothing split out
+for interest**, and there is no posted August split behind it. Fix the posting and
+re-run; the tie-out is not the thing that is wrong.

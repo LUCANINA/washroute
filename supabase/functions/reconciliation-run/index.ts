@@ -348,6 +348,53 @@ function entriesWalked(code: string, D: string, ledger: Record<string, any[]>, c
     : rows.filter((r: any) => r.date > D && r.date <= checkpointDate).length
 }
 
+/** ── WHAT MOVED THE BALANCE THIS MONTH, MEASURED (session 246 follow-up) ──────
+ *  The rollforward's formula is `opening - principal paid = closing`, which is only
+ *  true if nothing was BORROWED during the month. Stripe Capital drew $125,000 in
+ *  July: 6/30 books $20,875.00, 7/31 books $136,578.25, principal booked $9,296.75.
+ *  20,875.00 - 9,296.75 = 11,578.25 against a real $136,578.25, short by exactly the
+ *  drawdown. Three more loans move in ways the splits do not account for (PayPal 2
+ *  -$3,142.26, BayFirst SBA 2 +$858.66, Funding Circle +$15.14).
+ *
+ *  THE DRAW IS MEASURED FROM THE ENTRIES, NEVER DERIVED FROM THE BALANCES.
+ *  `drawn = closeBooks - openBooks + principal` would make the rollforward foot for
+ *  ANY input -- it is the equation rearranged, so it can only ever print a tie. That
+ *  is the same tautology as session 245's `gap / mean` and the same one this whole
+ *  session was spent removing from Verdant. This sums `effect()` over the ledger rows
+ *  that actually fall in the month, so a rollforward built on it can still fail, which
+ *  is the only property that makes it worth having.
+ *
+ *  Window is (from, to] -- half-open at the start, because the opening balance is
+ *  stated AS OF `from` and already contains everything dated on that day.
+ *
+ *  `effect()` is the signed movement of ONE entry on ONE account: positive grew the
+ *  liability, negative paid it down. Classification is therefore per ENTRY, which is
+ *  what `effect()` means and what Xero's balance sheet moves by. An entry whose lines
+ *  on this code carry BOTH signs (a manual journal that debits and credits the same
+ *  account) nets to one number and lands wholly in one bucket, so its gross halves are
+ *  invisible here. That is a real limit, not a rounding one, so it is COUNTED
+ *  (`mixed_sign_entries`) rather than left to be discovered later. */
+function measureMovement(code: string, from: string, to: string, ledger: Record<string, any[]>) {
+  let drawn = 0, reduced = 0, drawnEntries = 0, reducedEntries = 0, mixed = 0
+  for (const r of ledger[code] || []) {
+    if (!(r.date > from && r.date <= to)) continue
+    const amounts = (r.lines || []).filter((l: any) => l.c === code).map((l: any) => Number(l.a || 0))
+    if (amounts.some((a: number) => a > 0) && amounts.some((a: number) => a < 0)) mixed++
+    const e = effect(r, code)
+    if (e > 0) { drawn += e; drawnEntries++ }
+    else if (e < 0) { reduced += -e; reducedEntries++ }
+    // e === 0 is a real entry that moved nothing; it belongs in neither bucket, and
+    // inflating either count with it would misdescribe the evidence behind a figure.
+  }
+  return {
+    drawn: Math.round(drawn * 100) / 100,
+    reduced: Math.round(reduced * 100) / 100,
+    drawn_entries: drawnEntries,
+    reduced_entries: reducedEntries,
+    mixed_sign_entries: mixed,
+  }
+}
+
 /** The Xero ledger date of a STAGED split's pre-created transaction, or null when
  *  the record does not state one. loan-xero-post writes the reference as
  *  `WR-STAGE <code> <rowDate>` and creates the BankTransaction with Date = that same
@@ -362,6 +409,50 @@ function stagedLedgerDate(split: any): string | null {
   if (m) return m[1]
   const label = String(split?.period_label ?? '')
   return /^\d{4}-\d{2}-\d{2}$/.test(label) ? label : null
+}
+
+/** How much of a month's measured movement is money that has NOT moved.
+ *
+ *  loan-xero-post pre-creates staged SPEND transactions with Status 'AUTHORISED', so
+ *  isLive() returns true and measureMovement() counts them in `reduced` exactly like a
+ *  real payment -- while the rollforward deliberately excludes staged splits from the
+ *  month's principal. Left unstated, the rollforward absorbs the difference as an
+ *  unexplained variance the size of a payment. As with the balances, the answer is to
+ *  SAY SO, not to net it out: Xero's own balance sheet includes these, and this row
+ *  means "what Xero says".
+ *
+ *  MEASURED FROM THE LEDGER, GATED ON THE SPLIT RECORD. The amount is the entry's own
+ *  effect(), not the split's stored principal_amount, so it is the same arithmetic as
+ *  everything else on the row. But the SELECTION cannot be the `WR-STAGE` reference
+ *  alone: a stage that the CPA has matched goes staged -> posted in loan_splits
+ *  (loan-xero-post handleStageSweep) and BOTH the reference on the Xero transaction and
+ *  loan_splits.stage_reference SURVIVE that transition -- verified in the source, not
+ *  assumed. Matching on the prefix would therefore count real, settled payments as
+ *  money that has not moved. Only a split whose status is CURRENTLY 'staged' says the
+ *  payment has not happened, so that is the gate. */
+function stagedMovementInWindow(code: string, from: string, to: string, ledger: Record<string, any[]>, mySplits: any[]) {
+  const refs = new Set(mySplits
+    .filter((s: any) => s.status === 'staged' && s.stage_reference)
+    .map((s: any) => String(s.stage_reference)))
+  if (!refs.size) return { staged_reduction_in_month: 0, staged_entries_in_month: 0, staged_refs_not_in_ledger: 0 }
+  let amount = 0, count = 0
+  const seen = new Set<string>()
+  for (const r of ledger[code] || []) {
+    if (!(r.date > from && r.date <= to)) continue
+    const ref = String(r.ref ?? '')
+    if (!refs.has(ref)) continue
+    seen.add(ref)
+    amount += -effect(r, code)   // a staged SPEND reduces the liability; report it positive
+    count++
+  }
+  return {
+    staged_reduction_in_month: Math.round(amount * 100) / 100,
+    staged_entries_in_month: count,
+    // A staged split whose transaction is NOT in the window's ledger rows. Usually it
+    // is simply dated outside the month and means nothing; it is recorded so that
+    // "0 staged in this month" can be told apart from "we looked in the wrong place".
+    staged_refs_not_in_ledger: [...refs].filter(x => !seen.has(x)).length,
+  }
 }
 
 // Rows on an amortization schedule that state a balance you may anchor to. A payment
@@ -1632,6 +1723,11 @@ async function handle(req: Request): Promise<Response> {
     // Month-end books balances, and the refusals. See the block beside tieOuts.push().
     const bookBalances: any[] = []
     const bookBalanceSkips: Array<{ loan_account_id: string; code: string; as_of: string; reason: string }> = []
+    // The month's measured movement, and its refusals. Kept separate from the balance
+    // skips because the two can diverge: an explicit `from_date` inside the closing
+    // month leaves the closing BALANCE measurable while the movement window is not.
+    const drawSkips: Array<{ loan_account_id: string; code: string; month: string; reason: string }> = []
+    let drawsMeasured = 0
     for (const loan of active) {
       const code = loan.xero_account_code
       // v19: Trial Balance first (a code absent from the report is a genuine
@@ -1724,6 +1820,26 @@ async function handle(req: Request): Promise<Response> {
       //
       // It is a pure in-memory walk over an already-sorted ledger: no Xero call, no
       // extra read, ~44 array scans and one batched upsert against an ~18-second run.
+      // ── WHAT MOVED THE BALANCE IN THE CLOSING MONTH ────────────────────────────
+      // Its own coverage test, deliberately NOT inherited from the closing balance's.
+      // The movement window opens the day after priorMonthEnd, so it needs the ledger
+      // back to priorMonthEnd + 1, while the closing BALANCE only needs it back to the
+      // checkpoint. An explicit `from_date` of 2026-07-15 leaves 7/31's balance
+      // perfectly measurable and the July movement window half-missing — and a
+      // half-summed month is not a smaller draw, it is a WRONG one.
+      //
+      // A ZERO DRAW AND AN UNMEASURABLE DRAW MUST NOT LOOK ALIKE. Eight of these
+      // loans genuinely drew nothing in July, and the rollforward will subtract that
+      // zero and foot. If an unmeasurable month also came back 0.00 the rollforward
+      // would subtract that too and print a confident tie over a month it never read.
+      // So `movement_measured` is an explicit flag, `drawn`/`reduced` are null when it
+      // is false, and the refusal is counted in the run summary.
+      const movementCovered = priorMonthEnd >= addDays(windowFrom, -1)
+      const movement = movementCovered
+        ? { ...measureMovement(code, priorMonthEnd, closingMonthEnd, ledger),
+            ...stagedMovementInWindow(code, priorMonthEnd, closingMonthEnd, ledger, mySplits) }
+        : null
+
       for (const asOf of [closingMonthEnd, priorMonthEnd]) {
         // ── REFUSE RATHER THAN WRITE ────────────────────────────────────────────
         // Outside the pulled window balanceAt() has nothing to walk and returns the
@@ -1789,8 +1905,37 @@ async function handle(req: Request): Promise<Response> {
             // a month-only period_label). Never guessed at; counted, so a reader can
             // see the count above is complete rather than assume it.
             staged_entries_undated: stagedDates.filter(d => d === null).length,
+            // ── THE MONTH'S MOVEMENT, ON THE CLOSING ROW ONLY ──────────────────
+            // It describes the interval (priorMonthEnd, closingMonthEnd], which is the
+            // month this row CLOSES. Repeating it on the opening row would attach the
+            // same figures to a date they do not describe.
+            ...(asOf === closingMonthEnd ? {
+              movement_from: priorMonthEnd,
+              movement_to: closingMonthEnd,
+              movement_measured: movement != null,
+              ...(movement ?? {
+                // Explicit nulls, not absent keys and not zeros. A reader branching on
+                // movement_measured gets the right answer either way; a reader that
+                // forgets to branch gets null and an arithmetic error, which is loud.
+                // A zero here would be silently subtracted and print a tie.
+                drawn: null, reduced: null, drawn_entries: null, reduced_entries: null,
+                mixed_sign_entries: null, staged_reduction_in_month: null,
+                staged_entries_in_month: null, staged_refs_not_in_ledger: null,
+                movement_skip_reason: 'window_not_covered',
+              }),
+            } : {}),
           },
         })
+        if (asOf === closingMonthEnd) {
+          if (movement) drawsMeasured++
+          else drawSkips.push({ loan_account_id: loan.id, code, month: closingMonthEnd, reason: 'window_not_covered' })
+        }
+      }
+      // The closing balance row itself was refused, so there is nowhere to record the
+      // month's movement. Counted here so that measured + skipped always equals one
+      // per loan — a total that silently falls short is how a missing month hides.
+      if (!bookBalances.some(b => b.loan_account_id === loan.id && b.as_of === closingMonthEnd)) {
+        drawSkips.push({ loan_account_id: loan.id, code, month: closingMonthEnd, reason: 'no_closing_balance_row' })
       }
       findings.push(...checkBalanceVsLender(loan, tie, mine, contractTerms || [], today,
                                             priorBalanceGap(existing || [], loan.id, tie.as_of)))
@@ -1950,6 +2095,11 @@ async function handle(req: Request): Promise<Response> {
         book_balances_written: bookBalancesWritten,
         book_balances_skipped: bookBalanceSkips.length,
         book_balance_skips: bookBalanceSkips,
+        // The month's movement, measured or refused. draws_measured + draws_skipped is
+        // one per loan by construction; if it is not, a month went missing quietly.
+        draws_measured: drawsMeasured,
+        draws_skipped: drawSkips.length,
+        draw_skips: drawSkips,
         ...(bookBalanceWriteError ? { book_balance_write_error: bookBalanceWriteError } : {}),
       },
       narrative_source: 'template',
@@ -1962,6 +2112,8 @@ async function handle(req: Request): Promise<Response> {
       changed_old_entries: relevantChangedOld.length,
       book_balances_written: bookBalancesWritten,
       book_balances_skipped: bookBalanceSkips.length,
+      draws_measured: drawsMeasured,
+      draws_skipped: drawSkips.length,
       findings: enriched.map(f => ({ state: f._state, severity: f.severity, check: f.check_key, title: f.title })),
     }, null, 2), { headers: { 'Content-Type': 'application/json' } })
   } catch (err: any) {

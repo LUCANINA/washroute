@@ -338,7 +338,7 @@ function readSurfaces() {
       return i;
     };
     const C = { loan: colIx('Loan'), lender: colIx('Lender'), opening: colIx('Opening'),
-                openingSrc: colIx('Opening source'), principal: colIx('Principal'),
+                openingSrc: colIx('Opening source'), drawn: colIx('Drawn'), principal: colIx('Principal'),
                 interest: colIx('Interest'), computed: colIx('Computed'),
                 closing: colIx('Closing'), closingDate: colIx('Closing date'),
                 closingSrc: colIx('Closing source'), variance: colIx('Variance'),
@@ -353,12 +353,38 @@ function readSurfaces() {
       return { loan: c[C.loan], name: nameEl ? nameEl.textContent.replace(/\s+/g, ' ').trim() : c[C.loan],
                lender: c[C.lender],
                opening: c[C.opening], openingSource: c[C.openingSrc],
-               principal: c[C.principal], interest: c[C.interest],
+               drawn: c[C.drawn], principal: c[C.principal], interest: c[C.interest],
                computed: c[C.computed], perLender: c[C.closing],
                closingDate: c[C.closingDate], closingSource: c[C.closingSrc],
                variance: c[C.variance], inXero: c[C.status], notes: c[C.notes],
                openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
                computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
+               // ══ SESSION 247: DRAWN, AND THE SECOND CHECK ════════════════
+               // `opening − principal = closing` is only true if nothing was
+               // BORROWED. Stripe drew $125,000 in July. `drawn` is measured
+               // server-side from the ledger entries and is DELIBERATELY not
+               // derived from the balances — deriving it would make the walk
+               // foot by construction, which is the tautology this whole
+               // sequence of sessions has been spent removing.
+               //
+               // measured/unmeasured is read from its own attribute and NEVER
+               // inferred from the figure: a null drawn and a measured zero are
+               // different claims and the entire design turns on the difference.
+               drawnN: num(tds[C.drawn]),
+               drawnMeasured: att(tds[C.drawn], 'data-drawn-measured') === '1',
+               skipReason: att(tds[C.drawn], 'data-skip-reason'),
+               // Does the walk actually land on what the ledger says?
+               reachesBooks: att(tds[C.computed], 'data-reaches-books'),
+               // The ledger check lives in Notes. Three states, and they are not
+               // interchangeable: 'measured' can band and block; 'unmeasured'
+               // states the same subtraction and refuses to diagnose it.
+               unexplainedN:     numA(tds[C.notes], 'data-unexplained'),
+               unexplainedBand:  att(tds[C.notes], 'data-unexplained-band') || null,
+               unexplainedState: att(tds[C.notes], 'data-unexplained-state'),
+               unattributedN:    numA(tds[C.notes], 'data-unattributed'),
+               mixedSignN:       numA(tds[C.notes], 'data-mixed-sign'),
+               originationGapN:  numA(tds[C.notes], 'data-origination-gap'),
+               rowDrawnMeasured: att(tr, 'data-drawn-measured') === '1',
                // ── SESSION 246 ─────────────────────────────────────────────
                // A closing balance now carries a GRADE, a DERIVATION and, when
                // a roll-back was refused, the REASON it was refused. All three
@@ -403,6 +429,13 @@ function readSurfaces() {
         label: tds[0] ? tds[0].textContent.replace(/\s+/g, ' ').trim() : '',
         count: numA(tr, 'data-count'),
         circularCount: numA(tr, 'data-circular-count') || 0,
+        // How many of the rows behind this line actually had their movement
+        // measured. A Drawn subtotal of $0.00 over rows nobody measured is not a
+        // statement that nothing was borrowed, and this is what says which.
+        drawnN: num(tds[C.drawn]),
+        drawnMeasured: numA(tr, 'data-drawn-measured'),
+        rollCount: numA(tr, 'data-roll-count'),
+        closingCount: numA(tr, 'data-closing-count'),
         openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
         computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
         varianceN: numA(tds[C.variance], 'data-variance'),
@@ -533,7 +566,11 @@ function readSurfaces() {
 // and the ORDER of what is on it both vary by month. Nothing may index into
 // gates[]; everything looks up data-gate. This list exists so a chip added or
 // renamed in the page turns into a loud failure instead of a quiet mismatch.
-const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'posting'];
+// 'ledger' (session 247) is the SECOND check and deliberately a separate chip:
+// the variance chip asks whether the books agree with the lender, this one asks
+// whether our splits explain what the ledger itself did, and a loan can pass one
+// while failing the other. Folding them into one number would hide exactly that.
+const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting'];
 
 /* ── phrases that claim "everything is fine" ──────────────────────────────── */
 const ALL_CLEAR = /(Everything is reconciled|nothing needs you right now|ready for your accountant|all \d+ statements in|Nothing outstanding|nothing needs doing|you're all caught up|no issues found)/i;
@@ -611,6 +648,7 @@ GROUPS.push({
       if (VERBOSE) console.log(C.d + '     cold: ' + String(pane).slice(0, 400) + C.x);
       await p.close();
     }
+
   },
 });
 
@@ -913,10 +951,14 @@ GROUPS.push({
     // (f) close band arithmetic must tie WITHIN EACH GRADE's own footer line.
     // Session 245 established the property; session 246 gave it two rows to hold
     // on, and it has to hold on both or a subtotal is mixing populations.
+    // Session 247 put DRAWN in the middle of it. Today every row is unmeasured
+    // so Drawn is $0.00 and the old two-term form still passes — which is
+    // exactly why it has to be written the new way NOW, before the draws work
+    // deploys and thirty assertions go red for a reason that is not a bug.
     for (const k of ['A', 'B']) {
       if (!sub[k]) continue;
-      t.eq(money(at(k, 'opening') - at(k, 'principal')), money(at(k, 'computed')),
-           `close band footer: opening − principal = computed within the grade-${k} subtotal`);
+      t.eq(money(at(k, 'opening') + at(k, 'drawn') - at(k, 'principal')), money(at(k, 'computed')),
+           `close band footer: opening + drawn − principal = computed within the grade-${k} subtotal`);
     }
 
     // ── (f2) THE GRAND TOTAL (session 247) ────────────────────────────────
@@ -936,9 +978,9 @@ GROUPS.push({
     if (sub.all) {
       t.eq(sub.all.count, cb.rows.length,
            'close band total: covers every row on the table, not just the checkable ones');
-      t.eq(money(at('all', 'opening') - at('all', 'principal')), money(at('all', 'computed')),
-           'close band total: opening − principal = computed');
-      for (const col of ['opening', 'principal', 'interest', 'computed']) {
+      t.eq(money(at('all', 'opening') + at('all', 'drawn') - at('all', 'principal')), money(at('all', 'computed')),
+           'close band total: opening + drawn − principal = computed');
+      for (const col of ['opening', 'drawn', 'principal', 'interest', 'computed']) {
         t.eq(money(at('all', col)),
              money(at('A', col) + at('B', col) + at('none', col)),
              `close band total: ${col} equals grade A + grade B + the loans with no closing balance`);
@@ -1063,8 +1105,8 @@ GROUPS.push({
       t.ok(!!all, `close band — ${c.name}: the footer carries a grand total`);
       if (all) {
         const cellE = (name) => parseMoney(all.cells[CIe[name]]) || 0;
-        t.eq(money(cellE('opening') - cellE('principal')), money(cellE('computed')),
-             `close band — ${c.name}: footer opening − principal = computed`);
+        t.eq(money(cellE('opening') + cellE('drawn') - cellE('principal')), money(cellE('computed')),
+             `close band — ${c.name}: footer opening + drawn − principal = computed`);
       }
       // The band's own headline must not contradict its gates.
       const anyBad = cb.gates.some(g => !g.ok);
@@ -2623,6 +2665,38 @@ const CLOSE_REVERTS = {
     ['if (b2 && b2.unposted) {', 'if (false) {'],
     ['if (b2 && b2.off) {', 'if (false) {'],
   ],
+  // ══ SESSION 247 ═════════════════════════════════════════════════════════
+  // The walk forgets that anything can be borrowed — the defect David caught.
+  'walk-ignores-drawn': ['const computed  = opening ? opening.amount + (drawn || 0) - principal : null;',
+                         'const computed  = opening ? opening.amount - principal : null;'],
+  // THE HIGHEST-VALUE ONE. A truthy movement_measured beside a NULL drawn is
+  // accepted as measured, so `drawn || 0` turns "nobody looked" into "nothing
+  // was borrowed" and the row starts accusing the loan of exactly the drawdown.
+  'null-drawn-is-zero': ['const measured = !!(d && d.movement_measured === true && d.drawn != null);',
+                         'const measured = !!(d && d.movement_measured === true);'],
+  // The ledger check stops refusing to run on an unmeasured month.
+  'ledger-runs-unmeasured': ['const unexplained = cents((movement.measured && booksClosing != null && computed != null)',
+                             'const unexplained = cents((true && booksClosing != null && computed != null)'],
+  // Unmeasured renders as a dash — which reads as "nothing was borrowed", the
+  // exact substitution that hid the $125,000 in the first place.
+  'unmeasured-renders-dash': ['const drawnCell = r.movement.measured', 'const drawnCell = true'],
+  // A staged reduction stops explaining the gap it opens, so one event is
+  // counted by the posting gate AND accused by the ledger gate.
+  'staged-not-explained': ['const stagedExplains = unexplained != null && movement.stagedReduction != null',
+                           'const stagedExplains = false && movement.stagedReduction != null'],
+  // The origination straddle becomes a Stripe special case instead of a rule.
+  'origination-is-stripe-only': ["String(s.source || '') === 'contract_origination' &&",
+                                 "String(s.source || '') === 'contract_origination' && a.xero_account_name === 'Stripe Capital Loan' &&"],
+  // A journal that both debits and credits the account stops saying so.
+  'mixed-sign-invisible': ['if (r.movement.mixedSign > 0) {', 'if (false) {'],
+  // The variance tie is suppressed on unmeasured months too — the symmetric
+  // treatment the implementing agent deliberately did NOT adopt.
+  'variance-suppressed-when-unmeasured': ['const variance = circular ? null : rawVariance;',
+                                          'const variance = (circular || !movement.measured) ? null : rawVariance;'],
+  // The subtotal drops Drawn, so opening + drawn − principal = computed stops
+  // footing on every line at once.
+  'subtotal-drops-drawn': ['drawn:     set.reduce((n, r) => n + (r.drawn || 0), 0),', 'drawn:     0,'],
+
   // Review F14: an empty grade-A subtotal renders anyway, and prints data-tie
   // over zero loans.
   'empty-subtotal-renders': [
@@ -3378,8 +3452,8 @@ GROUPS.push({
         if (!st) continue;
         const mine = cb.rows.filter(r => r.grade === grade && r.perLenderN != null && r.computedN != null);
         t.eq(st.count, mine.length, `ce8: the grade-${grade} subtotal counts exactly the grade-${grade} rows that roll forward`);
-        t.close(st.openingN - st.principalN, st.computedN, 0.02,
-                `ce8: grade-${grade}: opening − principal = computed`);
+        t.close(st.openingN + (st.drawnN || 0) - st.principalN, st.computedN, 0.02,
+                `ce8: grade-${grade}: opening + drawn − principal = computed`);
         const sum = (f) => mine.reduce((n, r) => n + (r[f] || 0), 0);
         t.close(st.openingN,   sum('openingN'),   0.02, `ce8: grade-${grade} opening is the sum of its own rows, nobody else's`);
         t.close(st.principalN, sum('principalN'), 0.02, `ce8: grade-${grade} principal likewise`);
@@ -4235,9 +4309,25 @@ GROUPS.push({
       t.eq(r.band, null, 'ce20: ...in no band');
       t.eq(r.ties, false, 'ce20: ...and certainly no tie');
       t.ok(/swept from Xero/.test(r.perLender || ''), 'ce20: ...the closing cell still reads "swept from Xero"');
-      // The number itself must appear nowhere on the surface.
-      t.notMatch(cb.text, /125,000/, 'ce20: $125,000 appears nowhere in the close band');
-      t.notMatch(s.loans.paneText, /125,000\.00/, 'ce20: ...nor anywhere on the Loans tab');
+      // ── AND THE $125,000 IS NOW THE POINT (session 247) ─────────────────
+      // These two assertions used to require that $125,000 appeared NOWHERE.
+      // They were right about the danger and wrong about the remedy: the figure
+      // was not leaking into a variance, it was being SWALLOWED. Stripe drew
+      // $125,000 in July, `opening − principal` computed $11,578.25 against
+      // books of $136,578.25, and the row sat in "Not checkable" where nothing
+      // looked at it. Silence about a six-figure difference is not safety.
+      //
+      // It is stated now, in the Notes cell, as a difference whose cause has not
+      // been measured — shown without being diagnosed.
+      t.ok(/125,000/.test(cb.text || ''),
+           'ce20: $125,000 IS on the close band — a six-figure gap the walk could not explain is stated, not swallowed');
+      t.close(r.unattributedN, 125000, 0.005,
+              'ce20: ...carried on the row as data-unattributed');
+      t.ok(/cause not measured/.test(r.notes || ''),
+           'ce20: ...and worded so it reads as an unmeasured difference rather than an accusation',
+           `notes=${JSON.stringify(r.notes)}`);
+      t.eq(r.unexplainedBand, null, 'ce20: ...with NO band, because nobody measured what moved');
+      t.eq(r.reachesBooks, '0', 'ce20: ...and the Computed cell says plainly that it does not reach the books');
       t.eq(cb.subtotals.none && cb.subtotals.none.automatic, 1,
            'ce20: ...and the excluded line declares it as the one loan swept from Xero');
       t.ok(/swept from Xero/.test((cb.subtotals.none || {}).cells[0] || ''),
@@ -4245,8 +4335,510 @@ GROUPS.push({
       t.noBadMoney(cb.text, 'ce20: close band with Stripe opening on the books');
       await p.close();
     }
+
+    /* ══ SESSION 247 — DRAWN, AND THE SECOND CHECK ═══════════════════════════
+       `opening − principal = closing` is only true if nothing was BORROWED.
+       Stripe drew $125,000 in July, so its row computed $11,578.25 against
+       books of $136,578.25 and sat in "Not checkable" where nothing looked at
+       it. The walk is now `opening + drawn − principal = computed`, and there
+       are TWO checks rather than one:
+
+         variance     computed vs the LENDER  — do the books agree with outside
+         unexplained  booksClosing vs computed — do our splits explain what the
+                                                 ledger itself actually did
+
+       reconciliation-run's draws work is written but NOT DEPLOYED, so every row
+       on today's fixture is unmeasured. That is why the measured path below is
+       reached through `mutate` — and why the unmeasured path is not a corner
+       case to be tolerated but the live state of every loan on the screen.  */
+
+    // Movement detail lives on the CLOSING month-end books row, which is where
+    // _loanMonthMovement reads it.
+    const setMovement = (d, loanName, detail) => {
+      const a = d.loan_accounts.find(x => x.xero_account_name === loanName);
+      if (!a) throw new Error('setMovement: no such loan ' + loanName);
+      const row = d.loan_book_balances.find(b => b.loan_account_id === a.id && b.as_of === '2026-07-31');
+      if (!row) throw new Error('setMovement: no 2026-07-31 books row for ' + loanName);
+      row.detail = detail === null ? null : Object.assign({}, row.detail || {}, detail);
+    };
+    const MEASURED = (over) => Object.assign({
+      movement_measured: true, drawn: 0, reduced: 0, drawn_entries: 0, reduced_entries: 0,
+      mixed_sign_entries: 0, staged_reduction_in_month: 0, staged_entries_in_month: 0,
+      movement_from: '2026-07-01', movement_to: '2026-07-31',
+    }, over || {});
+
+    /* ── 21 ── THE WALK FOOTS ONCE DRAWN IS MEASURED ─────────────────────── */
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) =>
+        setMovement(d, 'Stripe Capital Loan', MEASURED({ drawn: 125000, reduced: 9296.75, drawn_entries: 1, reduced_entries: 1 })) });
+      const cb = (await p.surfaces()).loans.closeBand;
+      const r = cb.rows.find(x => x.name === 'Stripe Capital Loan');
+      t.eq(r.drawnMeasured, true, 'ce21: Stripe’s July movement is measured');
+      t.close(r.drawnN, 125000, 0.005, 'ce21: ...at $125,000.00 drawn');
+      t.close(r.openingN, 20875, 0.005, 'ce21: ...opening $20,875.00');
+      t.close(r.principalN, 9296.75, 0.005, 'ce21: ...principal $9,296.75');
+      // 20,875.00 + 125,000.00 − 9,296.75 = 136,578.25
+      t.close(r.computedN, 136578.25, 0.005,
+              'ce21: ...so opening + drawn − principal computes $136,578.25');
+      t.close(r.openingN + r.drawnN - r.principalN, r.computedN, 0.005,
+              'ce21: ...and the three columns on screen really do produce the fourth');
+      t.eq(r.reachesBooks, '1', 'ce21: ...which REACHES the books');
+      t.close(r.unexplainedN, 0, 0.005, 'ce21: ...leaving nothing unexplained');
+      t.eq(r.unexplainedBand, 'tie', 'ce21: ...so the ledger check ties');
+      t.eq(r.unexplainedState, 'measured', 'ce21: ...as a measurement, not an assumption');
+      t.eq(r.unattributedN, null, 'ce21: ...and there is no unattributed difference left to state');
+      t.notMatch(r.notes, /cause not measured/, 'ce21: ...nor any "cause not measured" wording');
+
+      // ── CONTROL ── the walk forgets that anything can be borrowed
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('walk-ignores-drawn'));
+      t.ok(rev.ok, 'ce21 CONTROL: a walk that ignores Drawn could be rebuilt', JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await p.surfaces()).loans.closeBand.rows.find(x => x.name === 'Stripe Capital Loan');
+        t.close(b.computedN, 11578.25, 0.005,
+                'ce21 CONTROL: without Drawn the walk computes $11,578.25 — the defect exactly');
+        t.eq(b.reachesBooks, '0', 'ce21 CONTROL: ...missing the books by the whole drawdown');
+        t.close(b.unexplainedN, 125000, 0.005,
+                'ce21 CONTROL: ...and $125,000 of borrowing is reported as unexplained');
+        t.eq(b.unexplainedBand, 'material', 'ce21 CONTROL: ...material, and blocking');
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ── 22 ── A NULL IS NOT A ZERO ──────────────────────────────────────── */
+    // Three shapes of "nobody measured this", and all three must land in the
+    // same place: stated, never diagnosed. The third is the one a `|| 0`
+    // swallows in silence — a truthy flag sitting beside a null figure.
+    {
+      const SHAPES = [
+        ['movement_measured is false', MEASURED({ movement_measured: false, drawn: 125000 })],
+        ['no movement detail at all', null],
+        ['movement_measured TRUE beside a null drawn', MEASURED({ movement_measured: true, drawn: null })],
+      ];
+      for (const [why, detail] of SHAPES) {
+        const p = await newHarnessPage({ tab: 'loans', mutate: (d) =>
+          setMovement(d, 'Stripe Capital Loan', detail) });
+        const cb = (await p.surfaces()).loans.closeBand;
+        const r = cb.rows.find(x => x.name === 'Stripe Capital Loan');
+        t.eq(r.drawnMeasured, false, `ce22: ${why} — the row does not claim a measurement`);
+        t.eq(r.drawnN, null, `ce22: ${why} — and carries no Drawn figure`);
+        t.ok(/not measured/.test(r.drawn || ''),
+             `ce22: ${why} — the cell says "not measured", never a dash`, `cell=${JSON.stringify(r.drawn)}`);
+        t.eq(r.unexplainedN, null, `ce22: ${why} — the ledger check REFUSES to run`);
+        t.eq(r.unexplainedBand, null, `ce22: ${why} — no band`);
+        t.eq(r.unexplainedState, 'unmeasured', `ce22: ${why} — and says so in its own attribute`);
+        t.close(r.unattributedN, 125000, 0.005,
+                `ce22: ${why} — the difference is still STATED, at $125,000.00`);
+        t.ok(/cause not measured/.test(r.notes || ''),
+             `ce22: ${why} — worded as an unmeasured difference, not a finding`, `notes=${JSON.stringify(r.notes)}`);
+        t.notMatch(r.notes, /ledger off/, `ce22: ${why} — and never as "ledger off"`);
+        // Not work, not blocking.
+        const lg = cb.gateByKey['ledger'];
+        t.ok(!!lg, `ce22: ${why} — the ledger chip is on the strip`, JSON.stringify(cb.gates.map(g => g.key)));
+        t.eq(lg && lg.ok, true, `ce22: ${why} — and it is NOT a blocking gate`);
+        t.ok(/cause not measured/.test((lg || {}).text || ''),
+             `ce22: ${why} — the chip says the same thing the row does`, `chip=${JSON.stringify((lg || {}).text)}`);
+        const off = await p.evaluate(() => _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
+        t.ok(!off.includes('Stripe Capital Loan'), `ce22: ${why} — and it is not in ledgerOff`, JSON.stringify(off));
+        await p.close();
+      }
+
+      // ── CONTROL ── the `|| 0` that swallows a truthy flag beside a null
+      const pC = await newHarnessPage({ tab: 'loans', mutate: (d) =>
+        setMovement(d, 'Stripe Capital Loan', MEASURED({ movement_measured: true, drawn: null })) });
+      const rev = await revertFn(pC, '_loanMonthMovement', EDITS('null-drawn-is-zero'));
+      t.ok(rev.ok, 'ce22 CONTROL: a measured-flag test that ignores the null figure could be rebuilt',
+           JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const cb = (await pC.surfaces()).loans.closeBand;
+        const b = cb.rows.find(x => x.name === 'Stripe Capital Loan');
+        t.eq(b.drawnMeasured, true,
+             'ce22 CONTROL: pre-fix, a truthy flag beside a null figure counts as measured');
+        t.close(b.unexplainedN, 125000, 0.005,
+                'ce22 CONTROL: ...so `drawn || 0` turns "nobody looked" into "nothing was borrowed"');
+        t.eq(b.unexplainedBand, 'material',
+             'ce22 CONTROL: ...and the row ACCUSES the loan of exactly the drawdown');
+        t.eq(cb.gateByKey['ledger'].ok, false, 'ce22 CONTROL: ...which blocks the close');
+      }
+      await restoreFns(pC);
+      await pC.close();
+
+      // ── CONTROL ── and the dash that reads as "nothing was borrowed"
+      const pD = await newHarnessPage({ tab: 'loans' });
+      const revD = await revertFn(pD, 'renderLoansCloseBand', EDITS('unmeasured-renders-dash'));
+      t.ok(revD.ok, 'ce22 CONTROL: a Drawn cell that renders unmeasured as a dash could be rebuilt',
+           JSON.stringify(revD.missing));
+      if (revD.ok) {
+        const b = (await pD.surfaces()).loans.closeBand.rows.find(x => x.name === 'Stripe Capital Loan');
+        t.notMatch(b.drawn, /not measured/,
+                   'ce22 CONTROL: pre-fix, an unmeasured month rendered as “—”');
+        t.ok(/^—$/.test((b.drawn || '').trim()),
+             'ce22 CONTROL: ...which a reader reads as "nothing was borrowed" — the substitution that hid $125,000',
+             `cell=${JSON.stringify(b.drawn)}`);
+      }
+      await restoreFns(pD);
+      await pD.close();
+    }
+
+    /* ── 23 ── THE FOUR LIVE DIFFERENCES, AND WHAT THEY BECOME ───────────── */
+    {
+      const LIVE = [['Stripe Capital Loan', 125000], ['Paypal 2', -3142.26],
+                    ['BayFirst SBA 2', 858.66], ['Funding Circle Loan', 15.14]];
+      const p = await newHarnessPage({ tab: 'loans' });
+      const cb = (await p.surfaces()).loans.closeBand;
+      for (const [name, want] of LIVE) {
+        const r = cb.rows.find(x => x.name === name);
+        t.close(r.unattributedN, want, 0.005, `ce23: ${name} differs from the ledger by $${want}`);
+        t.eq(r.unexplainedState, 'unmeasured', `ce23: ...and today nobody has measured why`);
+        t.eq(r.reachesBooks, '0', `ce23: ...so its walk does not reach the books`);
+      }
+      // Every other row reaches the books exactly, which is what makes these four
+      // a signal rather than noise.
+      const notReaching = cb.rows.filter(x => x.reachesBooks === '0').map(x => x.name).sort();
+      t.eq(JSON.stringify(notReaching), JSON.stringify(LIVE.map(x => x[0]).sort()),
+           'ce23: ...and they are the ONLY four rows whose walk misses the ledger', JSON.stringify(notReaching));
+      const lg = cb.gateByKey['ledger'];
+      t.eq(lg.count, 4, 'ce23: the ledger chip counts exactly those four');
+      t.ok(/129,016\.06/.test(lg.text || ''),
+           'ce23: ...and totals them at $129,016.06', `chip=${JSON.stringify(lg.text)}`);
+      t.eq(lg.ok, true, 'ce23: ...without blocking, because none of it has been diagnosed');
+      await p.close();
+
+      // ── ONCE reconciliation-run's DRAWS WORK DEPLOYS ─────────────────────
+      // Same four differences, now measured. Stripe's is a real drawdown and
+      // ties; the other three are real findings and band by size. This is the
+      // post-deploy screen, simulated by supplying the measurement the server
+      // will supply.
+      const pM = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        setMovement(d, 'Stripe Capital Loan', MEASURED({ drawn: 125000, reduced: 9296.75 }));
+        setMovement(d, 'Paypal 2', MEASURED({ drawn: 0, reduced: 18525.29 }));
+        setMovement(d, 'BayFirst SBA 2', MEASURED({ drawn: 0, reduced: 807.95, mixed_sign_entries: 1 }));
+        setMovement(d, 'Funding Circle Loan', MEASURED({ drawn: 0, reduced: 1010.57 }));
+      } });
+      const cbM = (await pM.surfaces()).loans.closeBand;
+      const band = (n) => cbM.rows.find(x => x.name === n);
+      t.eq(band('Stripe Capital Loan').unexplainedBand, 'tie',
+           'ce23: measured — Stripe’s $125,000 was a drawdown and the ledger ties');
+      t.eq(band('Paypal 2').unexplainedBand, 'material',
+           'ce23: measured — Paypal 2’s −$3,142.26 is material: principal left the ledger with no split behind it');
+      t.close(band('Paypal 2').unexplainedN, -3142.26, 0.005, 'ce23: ...at its real size');
+      t.eq(band('BayFirst SBA 2').unexplainedBand, 'material',
+           'ce23: measured — BayFirst SBA 2’s +$858.66 is material');
+      t.eq(band('Funding Circle Loan').unexplainedBand, 'immaterial',
+           'ce23: measured — Funding Circle’s +$15.14 is a small difference, shown and not chased');
+      // And that $15.14 is the same figure section 19 decomposed by hand: the
+      // gap between the principal our July split claims and what the ledger
+      // actually moved. The ledger check now surfaces it directly.
+      t.close(band('Funding Circle Loan').unexplainedN, 15.14, 0.005,
+              'ce23: ...the very figure the rollforward and the tie-out differed by');
+      const lgM = cbM.gateByKey['ledger'];
+      t.eq(lgM.ok, false, 'ce23: measured — the ledger chip now BLOCKS');
+      t.eq(lgM.count, 2, 'ce23: ...counting the two material ones only');
+      t.notMatch(lgM.text, /cause not measured/, 'ce23: ...and no longer says the cause is unmeasured');
+
+      // ── CONTROL ── the ledger check loses its materiality band, and a
+      // $15.14 rounding difference blocks a close alongside a $3,142.26 one.
+      const rev = await revertFn(pM, '_closeVarianceBand', EDITS('no-materiality-band'));
+      t.ok(rev.ok, 'ce23 CONTROL: a two-band ledger test could be rebuilt', JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await pM.surfaces()).loans.closeBand;
+        t.eq(b.rows.find(x => x.name === 'Funding Circle Loan').unexplainedBand, 'material',
+             'ce23 CONTROL: without materiality, $15.14 is "material"');
+        t.eq(b.gateByKey['ledger'].count, 3,
+             'ce23 CONTROL: ...and the ledger gate blocks on three loans instead of two');
+      }
+      await restoreFns(pM);
+      await pM.close();
+    }
+
+    /* ── 24 ── THE TWO CHECKS ARE INDEPENDENT, IN BOTH DIRECTIONS ────────── */
+    // A loan can agree with its lender to the cent while the ledger underneath
+    // it moved money nobody split, and it can disagree with its lender while the
+    // ledger foots perfectly. Folding the two into one number hides whichever
+    // one happens to be smaller.
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        setMovement(d, 'BayFirst SBA 2', MEASURED({ drawn: 0, reduced: 807.95 }));
+        setMovement(d, 'E-Transit Loan - 4140', MEASURED({ drawn: 0, reduced: 1058.94 }));
+      } });
+      const cb = (await p.surfaces()).loans.closeBand;
+
+      // Direction 1: ties on the lender, off on the ledger.
+      const bf = cb.rows.find(x => x.name === 'BayFirst SBA 2');
+      t.eq(bf.ties, true, 'ce24: BayFirst SBA 2 agrees with its lender exactly');
+      t.eq(bf.band, 'tie', 'ce24: ...variance ties');
+      t.eq(bf.unexplainedBand, 'material', 'ce24: ...while the LEDGER underneath it is off by a material amount');
+      t.close(bf.unexplainedN, 858.66, 0.005, 'ce24: ...$858.66 that no split explains');
+
+      // Direction 2: off on the lender, ties on the ledger.
+      const ford = cb.rows.find(x => x.name === 'E-Transit Loan - 4140');
+      t.eq(ford.band, 'material', 'ce24: E-Transit 4140 disagrees with its lender by a material amount');
+      t.close(ford.varianceN, 415.88, 0.005, 'ce24: ...$415.88');
+      t.eq(ford.unexplainedBand, 'tie', 'ce24: ...while its ledger foots exactly');
+      t.close(ford.unexplainedN, 0, 0.005, 'ce24: ...at $0.00 unexplained');
+
+      // The two chips must not be reporting the same money twice.
+      const vg = cb.gateByKey['variance'], lg = cb.gateByKey['ledger'];
+      const moneyOf = (g) => (String((g || {}).text || '').match(/\$[\d,]+\.\d\d/) || [''])[0];
+      t.ok(!!vg && !!lg, 'ce24: both chips are on the strip', JSON.stringify(cb.gates.map(g => g.key)));
+      t.ok(moneyOf(vg) !== moneyOf(lg),
+           'ce24: ...and they report different money — neither is the other under a new name',
+           `variance ${moneyOf(vg)} vs ledger ${moneyOf(lg)}`);
+      const sets = await p.evaluate(() => {
+        const rf = _loanCloseRollforward('2026-07');
+        return { off: rf.off.map(x => x.a.xero_account_name), ledgerOff: rf.ledgerOff.map(x => x.a.xero_account_name),
+                 vRes: rf.varianceToResolve, lRes: rf.ledgerToResolve };
+      });
+      t.ok(sets.off.includes('E-Transit Loan - 4140') && !sets.ledgerOff.includes('E-Transit Loan - 4140'),
+           'ce24: a loan can be in `off` and not in `ledgerOff`', JSON.stringify(sets));
+      t.ok(sets.ledgerOff.includes('BayFirst SBA 2') && !sets.off.includes('BayFirst SBA 2'),
+           'ce24: ...and in `ledgerOff` and not in `off`', JSON.stringify(sets));
+      t.ok(Math.abs(sets.vRes - sets.lRes) > 1,
+           'ce24: ...so the two totals are genuinely different quantities',
+           `variance ${sets.vRes} vs ledger ${sets.lRes}`);
+
+      // ── CONTROL ── run the ledger check on unmeasured months too, and the
+      // two questions collapse into one wrong number.
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('ledger-runs-unmeasured'));
+      t.ok(rev.ok, 'ce24 CONTROL: a ledger check that runs on unmeasured months could be rebuilt',
+           JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = await p.evaluate(() => _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
+        t.ok(b.includes('Stripe Capital Loan'),
+             'ce24 CONTROL: ...and Stripe’s $125,000 drawdown is reported as money nobody can explain',
+             JSON.stringify(b));
+        t.ok(b.length > sets.ledgerOff.length,
+             'ce24 CONTROL: ...along with every other loan whose movement was never measured');
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ── 25 ── A STAGED PAYMENT IS NOT COUNTED TWICE ─────────────────────── */
+    // A staged Xero transaction is AUTHORISED, so the ledger already carries its
+    // reduction while the rollforward deliberately excludes the split from the
+    // month's principal. Both checks therefore see a gap of exactly the staged
+    // principal, and BOTH must de-escalate: the posting gate already owns it.
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const dex = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
+        // August's month-end books row, carrying the staged reduction the ledger
+        // already reflects. 89,411.25 − 3,344.64 = 86,066.61.
+        d.loan_book_balances.push({
+          id: 'harness-dex-0831', loan_account_id: dex.id, as_of: '2026-08-31', balance: 86066.61,
+          basis: 'xero_rebuild', run_id: null, computed_at: '2026-09-01T00:00:00Z',
+          detail: MEASURED({ drawn: 0, reduced: 3344.64, staged_reduction_in_month: 3344.64,
+                             staged_entries_in_month: 1, movement_from: '2026-08-01', movement_to: '2026-08-31' }),
+        });
+      } });
+      const aug = await p.evaluate(() => {
+        const rf = _loanCloseRollforward('2026-08');
+        const r = rf.rows.find(x => x.a.xero_account_name === 'Dexter Loan 2');
+        return { variance: r.variance, band: r.band, unexplained: r.unexplained,
+                 unexplainedBand: r.unexplainedBand, stagedExplains: r.stagedExplains,
+                 inOff: rf.off.some(x => x.a.xero_account_name === 'Dexter Loan 2'),
+                 inLedgerOff: rf.ledgerOff.some(x => x.a.xero_account_name === 'Dexter Loan 2'),
+                 ledgerToResolve: rf.ledgerToResolve };
+      });
+      t.close(aug.variance, 3344.64, 0.005, 'ce25: the variance is the staged principal, $3,344.64');
+      t.eq(aug.band, 'unbooked', 'ce25: ...de-escalated on the variance side');
+      t.close(aug.unexplained, -3344.64, 0.005,
+              'ce25: ...and the LEDGER sees the same event from the other side, −$3,344.64');
+      t.eq(aug.stagedExplains, true, 'ce25: ...recognised as the staged reduction it is');
+      t.eq(aug.unexplainedBand, 'unbooked', 'ce25: ...so it is de-escalated on the ledger side too');
+      t.eq(aug.inOff, false, 'ce25: ...not in `off`');
+      t.eq(aug.inLedgerOff, false, 'ce25: ...not in `ledgerOff` either');
+      t.close(aug.ledgerToResolve, 0, 0.005, 'ce25: ...and contributes nothing to the ledger money to resolve');
+
+      // ── CONTROL ── the staged reduction stops explaining itself
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('staged-not-explained'));
+      t.ok(rev.ok, 'ce25 CONTROL: a rollforward blind to the staged reduction could be rebuilt',
+           JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = await p.evaluate(() => {
+          const rf = _loanCloseRollforward('2026-08');
+          const r = rf.rows.find(x => x.a.xero_account_name === 'Dexter Loan 2');
+          return { band: r.unexplainedBand, inLedgerOff: rf.ledgerOff.some(x => x.a.xero_account_name === 'Dexter Loan 2') };
+        });
+        t.eq(b.band, 'material', 'ce25 CONTROL: pre-fix, one staged payment reads as a material ledger gap');
+        t.eq(b.inLedgerOff, true,
+             'ce25 CONTROL: ...blocking the close a second time, for an event the posting gate already counts');
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ── 26 ── THE ORIGINATION STRADDLE IS A RULE, NOT A STRIPE CASE ─────── */
+    // Stripe is the loan it was found on, so the danger is a check that only
+    // ever fires there. Point the same shape at a different loan and it must
+    // fire there too.
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const bf = d.loan_accounts.find(x => x.xero_account_name === 'BayFirst SBA 2');
+        d.loan_statements.push({
+          id: 'harness-orig-bf2', loan_account_id: bf.id, statement_date: '2026-06-30',
+          principal_balance: 150000, source: 'contract_origination', balance_basis: 'principal_only',
+          total_amount_due: null, payment_due_date: null, storage_path: null, payoff_amount: null,
+          payoff_good_thru: null, pulled_at: null, pulled_by: null, created_at: null, file_sha256: null,
+        });
+      } });
+      const cb = (await p.surfaces()).loans.closeBand;
+      const bf = cb.rows.find(x => x.name === 'BayFirst SBA 2');
+      // 150,000.00 agreement vs 137,568.21 books at 6/30.
+      t.close(bf.originationGapN, 12431.79, 0.005,
+              'ce26: the straddle fires on a loan that is not Stripe, from the rule alone');
+      t.ok(/origination straddles the period/.test(bf.notes || ''),
+           'ce26: ...and says so on the row', `notes=${JSON.stringify(bf.notes)}`);
+      // …and still fires on the loan it was found on.
+      const st = cb.rows.find(x => x.name === 'Stripe Capital Loan');
+      t.close(st.originationGapN, 125000, 0.005, 'ce26: ...while still firing on Stripe');
+      // It states the two figures and picks no winner — which period the
+      // recognition belongs in is the accountant's question, not a dashboard's.
+      t.notMatch(bf.notes, /error|wrong|incorrect/i,
+                 'ce26: ...and calls neither figure wrong');
+
+      // ── CONTROL ── make it a Stripe special case again
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('origination-is-stripe-only'));
+      t.ok(rev.ok, 'ce26 CONTROL: a Stripe-only straddle check could be rebuilt', JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await p.surfaces()).loans.closeBand;
+        t.eq(b.rows.find(x => x.name === 'BayFirst SBA 2').originationGapN, null,
+             'ce26 CONTROL: keyed on the loan instead of the shape, the other loan’s straddle vanishes');
+        t.close(b.rows.find(x => x.name === 'Stripe Capital Loan').originationGapN, 125000, 0.005,
+                'ce26 CONTROL: ...while Stripe still fires, so the test would have passed on a special case');
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ── 27 ── A MIXED-SIGN JOURNAL IS INVISIBLE UNLESS THE ROW SAYS SO ──── */
+    // A single journal that both debits and credits the loan account nets into
+    // one bucket, so its gross halves never appear in Drawn or in the principal.
+    // Nothing else on the screen can reveal that; the flag is the only thing
+    // standing between a reader and two figures they will never find in Xero.
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) =>
+        setMovement(d, 'BayFirst SBA 2', MEASURED({ drawn: 0, reduced: 807.95, mixed_sign_entries: 2 })) });
+      const cb = (await p.surfaces()).loans.closeBand;
+      const r = cb.rows.find(x => x.name === 'BayFirst SBA 2');
+      t.eq(r.mixedSignN, 2, 'ce27: the row carries data-mixed-sign="2"');
+      t.ok(/mixed-sign journal/.test(r.notes || ''),
+           'ce27: ...and says so in Notes', `notes=${JSON.stringify(r.notes)}`);
+      // A measured zero must not flag.
+      const other = cb.rows.find(x => x.name === 'Paypal 2');
+      t.eq(other.mixedSignN, null, 'ce27: ...and a loan with no such journal carries no flag');
+
+      // ── CONTROL ── the flag disappears
+      const rev = await revertFn(p, 'renderLoansCloseBand', EDITS('mixed-sign-invisible'));
+      t.ok(rev.ok, 'ce27 CONTROL: a renderer that never flags mixed-sign entries could be rebuilt',
+           JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await p.surfaces()).loans.closeBand.rows.find(x => x.name === 'BayFirst SBA 2');
+        t.notMatch(b.notes, /mixed-sign/,
+                   'ce27 CONTROL: pre-fix, two journals netting to nothing left no trace on the row');
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ── 28 ── EVERY SUBTOTAL FOOTS WITH DRAWN IN IT ─────────────────────── */
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        setMovement(d, 'Stripe Capital Loan', MEASURED({ drawn: 125000, reduced: 9296.75 }));
+        setMovement(d, 'Dexter Loan 2', MEASURED({ drawn: 0, reduced: 3326.23 }));
+      } });
+      const cb = (await p.surfaces()).loans.closeBand;
+      for (const k of ['all', 'A', 'B', 'none']) {
+        const st = cb.subtotals[k];
+        t.ok(!!st, `ce28: the ${k} subtotal row is on screen`);
+        if (!st) continue;
+        t.close(st.openingN + (st.drawnN || 0) - st.principalN, st.computedN, 0.02,
+                `ce28: ${k}: opening + drawn − principal = computed`,
+                `${st.openingN} + ${st.drawnN} − ${st.principalN} vs ${st.computedN}`);
+      }
+      // The excluded line carries Stripe's drawdown, so the identity is only
+      // satisfiable WITH Drawn — which is what makes this a test.
+      t.close(cb.subtotals.none.drawnN, 125000, 0.005,
+              'ce28: the excluded line carries the $125,000 that made the old identity fail');
+      t.close(cb.subtotals.all.drawnN, 125000, 0.005, 'ce28: ...and so does the Total');
+      // Coverage is declared, never implied: a $0.00 Drawn over rows nobody
+      // measured is not a statement that nothing was borrowed.
+      t.eq(cb.subtotals.all.drawnMeasured, 2, 'ce28: the Total declares how many rows were measured');
+      t.ok(cb.subtotals.all.cells.some(c => /2 of 14 measured/.test(c)),
+           'ce28: ...in words beside the figure', JSON.stringify(cb.subtotals.all.cells));
+
+      // ── CONTROL ── drop Drawn from the subtotal
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('subtotal-drops-drawn'));
+      t.ok(rev.ok, 'ce28 CONTROL: a subtotal that omits Drawn could be rebuilt', JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await p.surfaces()).loans.closeBand;
+        t.ok(Math.abs(b.subtotals.all.openingN + (b.subtotals.all.drawnN || 0) - b.subtotals.all.principalN
+                      - b.subtotals.all.computedN) > 1000,
+             'ce28 CONTROL: without Drawn the Total stops footing, by the whole drawdown',
+             `${b.subtotals.all.openingN} + ${b.subtotals.all.drawnN} − ${b.subtotals.all.principalN} vs ${b.subtotals.all.computedN}`);
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ── 29 ── THE ASYMMETRY BETWEEN THE TWO CHECKS IS DELIBERATE ────────── */
+    // An unmeasured month suppresses the LEDGER check but NOT the variance tie,
+    // and that asymmetry is a decision rather than an oversight, so it is pinned
+    // here in both directions.
+    //
+    // The reasoning, stated precisely because the precision is the point. A
+    // missing `drawn` can only make `computed` too LOW, by exactly the amount
+    // drawn. On the LEDGER side that error lands directly and deterministically
+    // in the answer: unexplained becomes the drawdown itself, every time, so the
+    // check would accuse a loan of precisely the thing it did legitimately. On
+    // the VARIANCE side the same understatement produces a false DIFFERENCE —
+    // which is shown, and which a reader can investigate. It could in principle
+    // also produce a false tie, but only by the coincidence of the drawdown
+    // exactly cancelling a real variance; it is not the systematic result the
+    // ledger side suffers. So: suppressing the ledger check avoids a wrong
+    // answer that is guaranteed and indistinguishable from a true one;
+    // suppressing the variance tie would discard thirteen true results to avoid
+    // a coincidence. I agree with the call, and this pins it either way.
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const cb = (await p.surfaces()).loans.closeBand;
+      const unmeasured = cb.rows.filter(x => !x.drawnMeasured);
+      t.eq(unmeasured.length, cb.rows.length,
+           'ce29: today every row is unmeasured — the draws work is written but not deployed');
+      const tiesAnyway = unmeasured.filter(x => x.ties);
+      t.ok(tiesAnyway.length >= 5,
+           'ce29: ...and the VARIANCE tie is still allowed to stand on those rows',
+           `${tiesAnyway.length} rows tie`);
+      t.eq(unmeasured.filter(x => x.unexplainedBand != null).length, 0,
+           'ce29: ...while the LEDGER check is suppressed on every one of them');
+      // The two are asymmetric on purpose, and the row records both facts.
+      for (const r of tiesAnyway.slice(0, 3)) {
+        t.eq(r.band, 'tie', `ce29: ${r.name} ties against its lender`);
+        t.eq(r.unexplainedState, 'unmeasured', `ce29: ...and declines to judge its ledger`);
+      }
+
+      // ── CONTROL ── treat the two checks symmetrically and suppress the
+      // variance too. Nothing false appears; what disappears is every TRUE
+      // result on thirteen loans, replaced by a column of dashes on the one
+      // screen whose job is to say whether the month can be closed. That is the
+      // cost of the symmetric choice, and it is why the asymmetry is right.
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('variance-suppressed-when-unmeasured'));
+      t.ok(rev.ok, 'ce29 CONTROL: a symmetric suppression could be rebuilt', JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await p.surfaces()).loans.closeBand;
+        t.eq(b.rows.filter(x => x.ties).length, 0,
+             'ce29 CONTROL: symmetric suppression erases every variance tie on the board');
+        t.eq(b.rows.filter(x => x.band === 'material').length, 0,
+             'ce29 CONTROL: ...and every material variance with them — including four real findings');
+        t.eq(b.gateByKey['variance'].count, 0,
+             'ce29 CONTROL: ...leaving the variance gate with nothing to say');
+      }
+      await restoreFns(p);
+      await p.close();
+    }
   },
 });
+
 
 
 

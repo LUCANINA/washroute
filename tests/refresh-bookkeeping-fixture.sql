@@ -65,10 +65,23 @@ from (
 --   The books-side (Xero-rebuilt) balance per loan per date. Independent of any
 --   amortization schedule, which is the whole point: without it a schedule-based
 --   closing balance compared against a schedule-based opening agrees by
---   construction and tests nothing. reconciliation-run writes it; until it does
---   this comes back EMPTY, and an empty array is the correct fixture value —
---   the table must still be registered so the harness fails loudly if the key
---   disappears rather than silently serving [].
+--   construction and tests nothing.
+--
+--   NO LONGER EMPTY. reconciliation-run v50 (2026-08-28) writes it: 44 rows,
+--   22 loans x the closing and prior month ends. Two consequences for anyone
+--   refreshing this fixture. First, several loans that printed a $0.00 tie now
+--   report a real variance, because the opening moved from a lender statement
+--   to Xero's own rebuilt ledger and the books are finally inside the check —
+--   that is the design working, not a regression (see the closing-evidence
+--   group, section 19, which cross-checks each one against loan_tie_outs).
+--   Second, any harness scenario that plants a books balance must REPLACE the
+--   loan's rows rather than append to them, or it lands beside a real row and
+--   _loanBookBalanceAsOf picks whichever was computed later.
+--
+--   The coalesce stays: an empty array is still the correct fixture value if
+--   this is ever pulled against a project where the run has not happened, and
+--   the table must stay registered in FIXTURE_TABLES so the harness fails
+--   loudly if the key disappears rather than silently serving [].
 select coalesce(jsonb_agg(to_jsonb(x) order by x.as_of desc, x.loan_account_id), '[]'::jsonb)
 from (select * from loan_book_balances) x;
 
