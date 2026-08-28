@@ -323,18 +323,42 @@ function readSurfaces() {
     };
     const att  = (el, k) => (el && el.getAttribute ? el.getAttribute(k) : null);
     const numA = (el, k) => { const v = att(el, k); return v === null || v === '' ? null : Number(v); };
+    // ── COLUMNS ARE ADDRESSED BY HEADER, NEVER BY INDEX (session 247) ─────
+    // The rollforward was flattened to one fact per cell so it can export to CSV
+    // — Lender, Opening source, Closing date and Closing source became columns
+    // of their own. Every fixed index in this reader shifted at once and thirty
+    // assertions went red for a reason that had nothing to do with the code
+    // under test. A reader that positions itself off the headings survives the
+    // next column too, and a heading that disappears now fails loudly here
+    // instead of silently reading the neighbouring column's money.
+    const heads = [...cb.querySelectorAll('thead th')].map(th => th.textContent.replace(/\s+/g, ' ').trim());
+    const colIx = (label) => {
+      const i = heads.findIndex(h => h === label || h.startsWith(label + ' ·'));
+      if (i < 0) throw new Error(`close band: no "${label}" column — headers are ${JSON.stringify(heads)}`);
+      return i;
+    };
+    const C = { loan: colIx('Loan'), lender: colIx('Lender'), opening: colIx('Opening'),
+                openingSrc: colIx('Opening source'), principal: colIx('Principal'),
+                interest: colIx('Interest'), computed: colIx('Computed'),
+                closing: colIx('Closing'), closingDate: colIx('Closing date'),
+                closingSrc: colIx('Closing source'), variance: colIx('Variance'),
+                status: colIx('Status'), notes: colIx('Notes') };
     const rows = [...cb.querySelectorAll('tbody tr')].map(tr => {
       const tds = [...tr.children];
       const c = tds.map(td => td.textContent.replace(/\s+/g, ' ').trim());
       // The loan cell concatenates the account name and the lender, so the
       // account name is read from its own span rather than by prefix-matching a
       // run-together string ("BayFirst SBA 2BayFirst National").
-      const nameEl = tds[0] && tds[0].querySelector ? tds[0].querySelector('.td-name') : null;
-      return { loan: c[0], name: nameEl ? nameEl.textContent.replace(/\s+/g, ' ').trim() : c[0],
-               opening: c[1], principal: c[2], interest: c[3],
-               computed: c[4], perLender: c[5], variance: c[6], inXero: c[7],
-               openingN: num(tds[1]), principalN: num(tds[2]), interestN: num(tds[3]),
-               computedN: num(tds[4]), perLenderN: num(tds[5]),
+      const nameEl = tds[C.loan] && tds[C.loan].querySelector ? tds[C.loan].querySelector('.td-name') : null;
+      return { loan: c[C.loan], name: nameEl ? nameEl.textContent.replace(/\s+/g, ' ').trim() : c[C.loan],
+               lender: c[C.lender],
+               opening: c[C.opening], openingSource: c[C.openingSrc],
+               principal: c[C.principal], interest: c[C.interest],
+               computed: c[C.computed], perLender: c[C.closing],
+               closingDate: c[C.closingDate], closingSource: c[C.closingSrc],
+               variance: c[C.variance], inXero: c[C.status], notes: c[C.notes],
+               openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
+               computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
                // ── SESSION 246 ─────────────────────────────────────────────
                // A closing balance now carries a GRADE, a DERIVATION and, when
                // a roll-back was refused, the REASON it was refused. All three
@@ -346,22 +370,22 @@ function readSurfaces() {
                circular: tr.hasAttribute('data-circular'),
                openingFromBooks: tr.hasAttribute('data-opening-books'),
                undatedN: numA(tr, 'data-undated') || 0,
-               closingGrade: att(tds[5], 'data-grade'),
-               derivation: att(tds[5], 'data-derivation'),
-               note: att(tds[5], 'data-note'),
-               band: att(tds[6], 'data-band') || null,
+               closingGrade: att(tds[C.closing], 'data-grade'),
+               derivation: att(tds[C.closing], 'data-derivation'),
+               note: att(tds[C.closing], 'data-note'),
+               band: att(tds[C.variance], 'data-band') || null,
                // A circular row carries data-circular on the variance cell and
                // deliberately NO data-tie. Reading them separately is the whole
                // point: "agrees by construction" must never be counted as a tie.
-               varianceCircular: tds[6] ? tds[6].hasAttribute('data-circular') : false,
+               varianceCircular: tds[C.variance] ? tds[C.variance].hasAttribute('data-circular') : false,
                // The fourth band (review F3). A variance fully accounted for by
                // money the month deliberately left out — a staged split, or one
                // undated payment — carries its explained principal here. It is
                // shown, never blocking, and owned by the posting gate.
-               unbookedN: numA(tds[6], 'data-unbooked'),
-               ties: tds[6] ? tds[6].hasAttribute('data-tie') : false,
-               varianceN: tds[6] && tds[6].getAttribute('data-variance')
-                 ? Number(tds[6].getAttribute('data-variance')) : (tds[6] && tds[6].hasAttribute('data-tie') ? 0 : null) };
+               unbookedN: numA(tds[C.variance], 'data-unbooked'),
+               ties: tds[C.variance] ? tds[C.variance].hasAttribute('data-tie') : false,
+               varianceN: tds[C.variance] && tds[C.variance].getAttribute('data-variance')
+                 ? Number(tds[C.variance].getAttribute('data-variance')) : (tds[C.variance] && tds[C.variance].hasAttribute('data-tie') ? 0 : null) };
     });
     const footTr = [...cb.querySelectorAll('tfoot tr')];
     const foot = footTr.map(tr =>
@@ -379,15 +403,21 @@ function readSurfaces() {
         label: tds[0] ? tds[0].textContent.replace(/\s+/g, ' ').trim() : '',
         count: numA(tr, 'data-count'),
         circularCount: numA(tr, 'data-circular-count') || 0,
-        openingN: num(tds[1]), principalN: num(tds[2]), interestN: num(tds[3]),
-        computedN: num(tds[4]), perLenderN: num(tds[5]),
-        varianceN: numA(tds[6], 'data-variance'),
-        material: numA(tds[6], 'data-material'),
+        openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
+        computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
+        varianceN: numA(tds[C.variance], 'data-variance'),
+        material: numA(tds[C.variance], 'data-material'),
         // Review F14: an EMPTY subtotal must not exist at all, and must never
         // carry data-tie. A $0.00 "tie" over zero loans is a claim nobody
         // earned, printed in the one column a reader scans for verdicts.
-        ties: tds[6] ? tds[6].hasAttribute('data-tie') : false,
+        ties: tds[C.variance] ? tds[C.variance].hasAttribute('data-tie') : false,
         automatic: numA(tr, 'data-automatic'),
+        // Session 247: the grand total. rollCount / closingCount say how many
+        // rows each half of it covers — a total whose Opening covers 14 loans
+        // and whose Closing covers 13 must SAY so, and the assertions check the
+        // marker rather than trusting the figure.
+        rollCount: numA(tr, 'data-roll-count'),
+        closingCount: numA(tr, 'data-closing-count'),
       };
     };
     const subtotals = {};
@@ -407,7 +437,7 @@ function readSurfaces() {
       head: txt('#loans-close-band .lcb-head h3'),
       lead: txt('#loans-close-band .lcb-lead'),
       gates, gateByKey,
-      headers: [...cb.querySelectorAll('thead th')].map(th => th.textContent.replace(/\s+/g, ' ').trim()),
+      headers: heads, columnIndex: C,
       rows, foot, subtotals,
       foot0: foot[0] || null,
       footVarianceN: (() => {
@@ -838,13 +868,18 @@ GROUPS.push({
     // ($6,014.17 of real July principal). The invariant is not "foot0 is the
     // month"; it is A + B + excluded = the month, and it is asserted as such.
     const sub  = cb.subtotals || {};
+    // Indexed through the column map, not by a literal. When the rollforward was
+    // flattened for CSV export these four numbers all shifted at once, and every
+    // assertion below silently read the neighbouring column's money.
+    const CI = cb.columnIndex;
     const cell = (k, i) => (sub[k] && sub[k].cells[i] != null ? parseMoney(sub[k].cells[i]) : 0) || 0;
+    const at = (k, name) => cell(k, CI[name]);
     t.ok(!!sub.A, 'close band footer carries a grade-A (lender-confirmed) subtotal, addressed by data-subtotal',
          `subtotal rows on screen: ${JSON.stringify(Object.keys(sub))}`);
     t.ok(!!sub.B, 'close band footer carries a grade-B (per-schedule) subtotal — the two schedule-closed loans are not folded into A',
          `subtotal rows on screen: ${JSON.stringify(Object.keys(sub))}`);
-    const bandPrincipal = cell('A', 2) + cell('B', 2) + cell('none', 2);
-    const bandInterest  = cell('A', 3) + cell('B', 3) + cell('none', 3);
+    const bandPrincipal = at('A', 'principal') + at('B', 'principal') + at('none', 'principal');
+    const bandInterest  = at('A', 'interest')  + at('B', 'interest')  + at('none', 'interest');
     // The partition itself, stated: every row's principal lands in exactly one
     // of the three footer lines. A fourth subtotal added later, or a row that
     // falls into none of them, breaks this rather than going unnoticed.
@@ -880,8 +915,50 @@ GROUPS.push({
     // on, and it has to hold on both or a subtotal is mixing populations.
     for (const k of ['A', 'B']) {
       if (!sub[k]) continue;
-      t.eq(money(cell(k, 1) - cell(k, 2)), money(cell(k, 4)),
+      t.eq(money(at(k, 'opening') - at(k, 'principal')), money(at(k, 'computed')),
            `close band footer: opening − principal = computed within the grade-${k} subtotal`);
+    }
+
+    // ── (f2) THE GRAND TOTAL (session 247) ────────────────────────────────
+    // David: "resolve the fact that the total does not compute amortized loans.
+    // We want to see ALL loans here." Three subtotals and no total is a debt
+    // schedule that never states the debt. The properties that make it safe to
+    // print are asserted here, because a total is the one figure a reader will
+    // not re-derive:
+    //   1. it covers EVERY row, not the checkable ones;
+    //   2. it still foots — opening − principal = computed;
+    //   3. it equals its own composition, so "of which" really is of which;
+    //   4. where it covers fewer rows in a column than in the rest of the row,
+    //      it SAYS SO on screen. That marker is the whole reason the total is
+    //      allowed to exist beside a loan with no closing balance.
+    t.ok(!!sub.all, 'close band footer carries a grand total across every loan',
+         `subtotal rows on screen: ${JSON.stringify(Object.keys(sub))}`);
+    if (sub.all) {
+      t.eq(sub.all.count, cb.rows.length,
+           'close band total: covers every row on the table, not just the checkable ones');
+      t.eq(money(at('all', 'opening') - at('all', 'principal')), money(at('all', 'computed')),
+           'close band total: opening − principal = computed');
+      for (const col of ['opening', 'principal', 'interest', 'computed']) {
+        t.eq(money(at('all', col)),
+             money(at('A', col) + at('B', col) + at('none', col)),
+             `close band total: ${col} equals grade A + grade B + the loans with no closing balance`);
+      }
+      // Closing and variance legitimately cover fewer rows — and must announce it.
+      t.eq(money(at('all', 'closing')), money(at('A', 'closing') + at('B', 'closing')),
+           'close band total: closing is the sum of the grades that HAVE a closing balance');
+      const closable = cb.rows.filter(r => r.perLenderN != null && r.computedN != null).length;
+      t.eq(sub.all.closingCount, closable,
+           'close band total: the closing column reports how many rows it actually covers');
+      const closingCell = sub.all.cells[CI.closing] || '';
+      if (closable < cb.rows.length) {
+        t.ok(new RegExp(`${closable} of ${cb.rows.length}`).test(closingCell),
+             'close band total: ...and prints that count beside the figure, so no reader takes it for all of them',
+             `closing cell = ${JSON.stringify(closingCell)}`);
+      } else {
+        t.ok(!/ of /.test(closingCell),
+             'close band total: ...and prints no count when it does cover every row',
+             `closing cell = ${JSON.stringify(closingCell)}`);
+      }
     }
 
     // (g) the debt schedule's own total vs Client View's "Total owed"
@@ -977,9 +1054,18 @@ GROUPS.push({
         }
       }
       // Footer arithmetic has to hold on every edge.
-      const f = cb.foot0;
-      t.eq(money(parseMoney(f[1]) - parseMoney(f[2])), money(parseMoney(f[4])),
-           `close band — ${c.name}: footer opening − principal = computed`);
+      // Session 247: foot0 is the GRAND TOTAL now, and the grades are its
+      // composition below it. Read the row by data-subtotal and the columns by
+      // header — an index into foot0 was reading grade A before this and the
+      // total after it, silently changing what the assertion meant.
+      const CIe = cb.columnIndex;
+      const all = (cb.subtotals || {}).all;
+      t.ok(!!all, `close band — ${c.name}: the footer carries a grand total`);
+      if (all) {
+        const cellE = (name) => parseMoney(all.cells[CIe[name]]) || 0;
+        t.eq(money(cellE('opening') - cellE('principal')), money(cellE('computed')),
+             `close band — ${c.name}: footer opening − principal = computed`);
+      }
       // The band's own headline must not contradict its gates.
       const anyBad = cb.gates.some(g => !g.ok);
       // Case-insensitive on purpose: the assertion's job is "the headline says
@@ -1279,11 +1365,17 @@ GROUPS.push({
       // line only — which happens to be right today because both grade-B rows
       // are a tie and a circular row, and would silently under-report the moment
       // a schedule-closed loan carried a real variance.
+      // 'none' has no variance to give, and 'all' is the grand total ADDED in
+      // session 247 — summing it alongside the grades it is made of counts every
+      // variance twice. The composition is what is being checked here; the total
+      // itself is checked against that composition in two-surfaces (f2).
       const footSum = Object.keys(cbx.subtotals)
-        .filter(k => k !== 'none')
+        .filter(k => k !== 'none' && k !== 'all')
         .reduce((n, k) => n + Math.abs(Number(cbx.subtotals[k].varianceN || 0)), 0);
       t.close(footSum, absSum, 0.05,
         's236: the close-band variance total is the sum of ABSOLUTE row variances, across every grade subtotal');
+      t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceN || 0)), footSum, 0.05,
+        's236 (s247): ...and the grand total reports exactly that same sum, not a second opinion');
       await p.close();
     }
     // ── s240 #21: an "all clear" has to say as of when ──
@@ -2561,7 +2653,12 @@ const CLOSE_REVERTS = {
   'stripe-reads-as-no-evidence': [
     ["noEvidence: rows.filter(r => !r.coversMonth && !r.automatic),", 'noEvidence: rows.filter(r => !r.coversMonth),'],
   ],
-  'stripe-cell-reads-not-received': ['(r.automatic', '(false'],
+  // Anchored on the rendered string rather than on '(r.automatic', which since
+  // session 247 appears TWICE — once in the closing figure and once in the
+  // Closing source column — so a first-match replace reverted the wrong branch
+  // and the control quietly stopped reproducing the defect.
+  'stripe-cell-reads-not-received': ['<span class="lcb-na">n/a — swept from Xero</span>',
+                                     '<span class="lcb-none">not received</span>'],
   // The provenance label stops labelling: every source renders as its raw slug.
   'label-returns-slug': ['return _ANCHOR_SOURCE_LABEL[src] || src || \'unknown\';', 'return src;'],
   // Undated splits stop being reported, so seven posted Verdant payments that
@@ -2681,19 +2778,23 @@ GROUPS.push({
       // not evidence, and where it came from is.
       t.eq(r.openingFromBooks, true,
            'ce1: the opening comes from the books-side rebuild reconciliation-run wrote');
-      t.ok(/our books, rebuilt from Xero/.test(r.opening || ''),
-           'ce1: ...and the row says so, in English', `cell=${JSON.stringify(r.opening)}`);
+      // Session 247: provenance is its own column, so the claim is asserted
+      // where it now lives. Reading it off the money cell would pass only for as
+      // long as the two were concatenated.
+      t.ok(/our books, rebuilt from Xero/.test(r.openingSource || ''),
+           'ce1: ...and the row says so, in English, in the Opening source column',
+           `cell=${JSON.stringify(r.openingSource)}`);
       t.eq(r.circular, false,
            'ce1: ...so the walk is NOT circular — Xero opens it and the contract closes it');
       t.eq(r.ties, true, 'ce1: ...and the row TIES');
       t.eq(r.band, 'tie', 'ce1: ...in the tie band');
       t.close(r.varianceN, 0, 0.005,
               'ce1: ...at $0.00 — acceptance #1, at last as a measurement rather than a prediction');
-      t.notMatch(r.perLender, /amortization_schedule/,
-                 'ce1: the closing cell names the schedule in English, never as a slug');
-      t.ok(/amortization schedule/i.test(r.perLender || ''),
+      t.notMatch(r.closingSource, /amortization_schedule/,
+                 'ce1: the Closing source column names the schedule in English, never as a slug');
+      t.ok(/amortization schedule/i.test(r.closingSource || ''),
            'ce1: ...and it does name it, so a reader can disagree with the basis',
-           `cell=${JSON.stringify(r.perLender)}`);
+           `cell=${JSON.stringify(r.closingSource)}`);
 
       // The chip and the subtotal agree with the row.
       const g = cb.gateByKey['per-schedule'];
@@ -2930,7 +3031,7 @@ GROUPS.push({
            'ce3: the grade-B subtotal declares the one loan that is not independently checked');
       // Verdant's seven undated splits are stated rather than closed over.
       t.eq(rn.undatedN, 7, 'ce3: ...and its seven undated splits are declared on the row (A10)');
-      t.ok(/7 undated/.test(rn.inXero || ''), 'ce3: ...visibly, in the status column',
+      t.ok(/7 undated/.test(rn.notes || ''), 'ce3: ...visibly, in the Notes column',
            `status=${JSON.stringify(rn.inXero)}`);
       {
         const revU = await revertFn(pNo, '_undatedSplits', EDITS('undated-invisible'));
@@ -2991,15 +3092,17 @@ GROUPS.push({
       const red = await p.evaluate(() => {
         const tr = [...document.querySelectorAll('#loans-close-band tbody tr')]
           .find(x => /Verdant/.test(x.textContent));
-        const td = tr && tr.children[6];
+        // Addressed by the attribute the renderer writes, not by an index that
+        // moved when the table was flattened for export.
+        const td = tr && tr.querySelector('td[data-variance]');
         return { html: td ? td.innerHTML : null, off: !!(td && td.querySelector('.lcb-off')) };
       });
       t.eq(red.off, true, 'ce4: ...and it renders RED (.lcb-off), not grey',
            `variance cell html=${JSON.stringify(red.html)}`);
-      t.ok(/our books, rebuilt from Xero/.test(r.opening || ''),
-           'ce4: ...and the opening cell names its provenance in English',
-           `cell=${JSON.stringify(r.opening)}`);
-      t.notMatch(r.opening, /xero_rebuild/, 'ce4: ...never as a slug');
+      t.ok(/our books, rebuilt from Xero/.test(r.openingSource || ''),
+           'ce4: ...and the Opening source column names its provenance in English',
+           `cell=${JSON.stringify(r.openingSource)}`);
+      t.notMatch(r.openingSource, /xero_rebuild/, 'ce4: ...never as a slug');
       // The close is now genuinely blocked, by a real number.
       t.eq(cb.gateByKey['variance'].ok, false, 'ce4: the variance chip goes bad');
       t.eq(cb.gateByKey['variance'].count, 1, 'ce4: ...counting exactly this one loan');
@@ -3034,10 +3137,12 @@ GROUPS.push({
       t.close(r.varianceN, -5, 0.005, 'ce5: ...reporting the $5.00 the books are out by rather than nothing');
       t.eq(r.band, 'immaterial', 'ce5: ...in the immaterial band: $5.00 on $960,005 is under both thresholds');
       t.eq(r.ties, false, 'ce5: ...so it is NOT a tie — an immaterial gap is de-escalated, never hidden');
-      t.ok(/rolled back from/.test(r.perLender || ''),
-           'ce5: ...and the cell says the figure was DERIVED, and from what',
-           `cell=${JSON.stringify(r.perLender)}`);
-      t.ok(/8\/25/.test(r.perLender || ''), 'ce5: ...naming the document’s own date, not month end');
+      t.ok(/rolled back from/.test(r.closingSource || ''),
+           'ce5: ...and the Closing source column says the figure was DERIVED, and from what',
+           `cell=${JSON.stringify(r.closingSource)}`);
+      t.ok(/8\/25/.test(r.closingDate || ''),
+           'ce5: ...and the Closing date column carries the document’s own date, not month end',
+           `cell=${JSON.stringify(r.closingDate)}`);
       // …and it does not block.
       const im = cb.gateByKey['immaterial'];
       t.ok(!!im, 'ce5: the immaterial chip is on the strip', JSON.stringify(cb.gates.map(x => x.key)));
@@ -3605,7 +3710,7 @@ GROUPS.push({
       t.close(ru.unbookedN, 2707.61, 0.005, 'ce12: ...with that principal named on the row');
       t.eq(ru.ties, false, 'ce12: ...and NOTHING turns green');
       t.eq(ru.undatedN, 7, 'ce12: ...the seven undated splits are still declared');
-      t.ok(/7 undated/.test(ru.inXero || ''), 'ce12: ...still visibly, in the status column');
+      t.ok(/7 undated/.test(ru.notes || ''), 'ce12: ...still visibly, in the Notes column');
       t.ok(/no date/.test(ru.variance || ''), 'ce12: ...and the variance cell still says the payment has no date',
            `cell=${JSON.stringify(ru.variance)}`);
       await pU.close();

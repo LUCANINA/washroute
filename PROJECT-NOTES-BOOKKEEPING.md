@@ -2036,6 +2036,85 @@ to "what is running".
 
 ## Session Log
 
+### Session 247 (cont. 2, 2026-08-28) — the rollforward: one fact per cell, and a total that means all the loans
+
+David, on the Loans tab: *"when a second line is required for details (such as
+'6/30 · our books, rebuilt from Xero'), suggest a column instead (e.g 'Source').
+Only one item per line in case we need to export to CSV or PDF. Second: resolve the
+fact that the total does not compute amortized loans. We want to see ALL loans
+here."*
+
+**Part one — the table is flat.** Four facts that were stacked as second lines got
+columns of their own, taking the table from 8 to 13: **Lender**, **Opening source**,
+**Closing date**, **Closing source**, plus **Notes** for the undated-payment flag.
+Nothing is concatenated any more, so a CSV row is a CSV row and no parser has to
+split `6/30 · our books, rebuilt from Xero` back into a date and a provenance.
+
+Two consequences worth recording:
+
+* **`closingWhy` no longer emits the date.** It has its own column; printing it in
+  both would put one fact in two cells of a row, which is the thing an export must
+  not do.
+* **The rows got TALLER, not shorter, and the reason is a trap.** Thirteen columns
+  at `width:100%` squeezed the text columns until *"Dexter Loan 2"* wrapped onto two
+  lines — the flattening removed the second lines and the layout put them straight
+  back, at 58–84 px a row. `min-width: 1240px` + `white-space: nowrap` on cells,
+  against the wrapper's existing `overflow-x:auto`, takes every row to a uniform
+  **39 px**. Also switched `vertical-align` from `baseline` to `middle`: baseline was
+  right when a cell stacked a figure over its provenance, and is wrong when every
+  cell is one line at three different font sizes.
+
+**Part two — the grand total, and why it is safe to print.** There were three
+subtotals and no total: a debt schedule that never stated the debt, with $346,319.71
+of schedule-closed loans and $20,875.00 of Stripe sitting outside every figure on the
+page. The footer is now **Total · 14 loans** with the three old lines beneath it under
+an *"of which"* rule.
+
+**`subtotal()` had to be made null-safe first, and that is the dangerous half.** It
+dereferenced `r.opening.amount` and `r.perLender.amount` with no guard — safe only
+because it was called on three sets DEFINED by having those fields. The first total
+over every row threw. But coercing a missing opening to 0 is how you get a footer
+that looks fine and is wrong: a row with principal and no opening silently breaks
+opening − principal = computed, which is the exact $9,296.75 defect recorded in that
+function's own comment. So the guards went in **and the counts came out** —
+`openingCount` / `closingCount` — and the four walk columns are summed over
+`rollable` (an opening AND a computed) rather than over everything.
+
+**The two columns that legitimately cover fewer rows say so on screen.** Stripe
+Capital has no closing balance — its balance IS the Xero sweep, so no outside party
+can confirm it — and Closing and Variance therefore print `13 of 14` beside the
+figure. A Closing total quietly covering 13 rows next to an Opening covering 14 is
+the population mismatch that once printed *"$1,300,305.58 of apparent gap directly
+beside a Variance of $0.00"*. **Never delete that marker to tidy the row — delete the
+mismatch.**
+
+It all foots, on the live fixture:
+
+| | Opening | Principal | Interest | Computed | Closing |
+|---|---|---|---|---|---|
+| **Total · 14** | 2,314,970.88 | 48,239.29 | 17,905.17 | 2,266,731.59 | 2,255,295.62 *(13 of 14)* |
+| 11 confirmed by lender | 1,947,776.17 | 32,928.37 | 15,536.64 | 1,914,847.80 | 1,914,990.04 |
+| 2 per schedule | 346,319.71 | 6,014.17 | 2,368.53 | 340,305.54 | 340,305.58 |
+| 1 with no closing balance | 20,875.00 | 9,296.75 | 0.00 | 11,578.25 | — |
+
+…and the "Paid in July $66,144.46 = $48,239.29 principal + $17,905.17 interest" tile
+now agrees with the footer it sits above, which it did not before.
+
+**Harness (tests/bookkeeping-harness.mjs).** Thirty assertions went red on the column
+shift alone, so **the close-band reader now addresses columns by HEADER and never by
+index** — `colIx()` throws with the header list if a column disappears, instead of
+silently reading the neighbouring column's money. `foot0` is the grand total now, so
+the per-scenario footing check reads the row by `data-subtotal="all"` rather than by
+position. `s236` had to exclude `'all'` from its composition sum (summing the total
+alongside the grades it is made of double-counts every variance) and gained an
+assertion that the total reports exactly that sum rather than a second opinion. Six
+new assertions cover the total itself: it covers every row, it foots, each of its
+four walk columns equals A + B + none, its closing equals the grades that have one,
+and the `13 of 14` marker is present exactly when the coverage is short.
+
+**All 1220 assertions pass; the single red one is Tech Debt #19's deliberate failure
+(START HERE §7), untouched.**
+
 ### Session 247 (cont., 2026-08-28) — the Overview page, cut from three screens to one
 
 David: *"time to declutter the Overview/Dashboard page. It has become unwieldy and

@@ -3325,18 +3325,40 @@
                Proportional faces have had tabular figures for twenty years:
                font-variant-numeric does the aligning, and the table can speak
                in the same voice as the rest of the interface. */
-            .lcb-table { width: 100%; border-collapse: collapse; font-size: 13px;
+            /* THIRTEEN COLUMNS NEED A FLOOR (session 247). At width:100% alone the
+               browser squeezed the text columns until "Dexter Loan 2" wrapped onto
+               two lines, which is what made every row 58-84px of mostly whitespace
+               — the flattening had removed the second lines and the layout put
+               them straight back. The wrapper already has overflow-x:auto, so a
+               min-width costs a horizontal scrollbar on narrow screens and buys a
+               table that reads one row per loan on any screen wide enough. */
+            .lcb-table { width: 100%; min-width: 1240px; border-collapse: collapse; font-size: 13px;
                          font-variant-numeric: tabular-nums; }
+            .lcb-table td, .lcb-table th { white-space: nowrap; }
             .lcb-table thead th { text-align: left; padding: 11px 14px 8px; font-size: 11px; font-weight: 600;
                                   color: var(--gray-400); border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
             .lcb-table thead th.lcb-n { text-align: right; }
-            .lcb-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--gray-100); vertical-align: baseline; }
+            /* Session 247: every cell is a single line now, so the rows align on
+               their middles. `baseline` was right when a cell stacked a figure
+               over its provenance — it lined the FIGURES up — but with one line
+               per cell and three different font sizes across a row it inflated
+               every row to 64-84px of mostly whitespace. */
+            .lcb-table tbody td { padding: 9px 14px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
             .lcb-table tbody tr:hover { background: var(--gray-50, #fafbfd); }
             /* No font-family override. That line was the whole problem. */
             .lcb-table td.lcb-n { text-align: right; white-space: nowrap; }
             /* The lender is context for the loan, not a column competing for
                width. Paired under the name, the two read as one identity. */
             .lcb-lender { display: block; font-size: 11.5px; color: var(--gray-400); font-weight: 400; margin-top: 1px; }
+            /* Session 247: one fact per cell, so the table exports cleanly. The
+               provenance columns are quiet — they are context for a figure, not
+               figures themselves — and .soft keeps its old meaning: our own
+               arithmetic rather than the lender's word. */
+            .lcb-src { font-size: 11.5px; color: var(--gray-400); font-weight: 400; white-space: nowrap; }
+            .lcb-src.soft { color: #b45309; }
+            .lcb-total > td { border-top: 2px solid var(--gray-300); font-weight: 700; }
+            .lcb-ofwhich > td { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+                                color: var(--gray-400); font-weight: 700; padding-top: 10px; border: 0; }
             /* Provenance is a footnote. It was bold rust monospace and it was
                the loudest thing in the cell, fourteen times over. */
             .lcb-sub { display: block; font-size: 11px; color: var(--gray-400); font-weight: 400; margin-top: 2px; }
@@ -15256,12 +15278,28 @@
     const gradeB    = checkable.filter(r => r.grade === 'B');
     const judged    = checkable.filter(r => !r.circular);
 
+    // NULL-SAFE, AND IT REPORTS ITS OWN COVERAGE (session 247).
+    //
+    // This used to dereference r.opening.amount and r.perLender.amount without a
+    // guard, which was safe only because it was called on `checkable`, `gradeA`
+    // and `gradeB` — three sets defined by HAVING those fields. The first
+    // grand total over every row threw on the loan that has no closing balance.
+    //
+    // Coercing a missing opening to 0 is the dangerous half of the fix, because
+    // a row with principal and no opening quietly breaks
+    // opening − principal = computed and the footer looks fine while being
+    // wrong — that is the $9,296.75 defect recorded in the note below. So the
+    // guards go in AND the counts come out: openingCount / closingCount say how
+    // many rows actually contributed, and any caller printing a figure over
+    // fewer rows than `count` must print that fact beside it.
     const subtotal = (set) => ({
-      opening:   set.reduce((n, r) => n + r.opening.amount, 0),
+      opening:   set.reduce((n, r) => n + (r.opening ? r.opening.amount : 0), 0),
       principal: set.reduce((n, r) => n + r.principal, 0),
       interest:  set.reduce((n, r) => n + r.interest, 0),
-      computed:  set.reduce((n, r) => n + r.computed, 0),
-      perLender: set.reduce((n, r) => n + r.perLender.amount, 0),
+      computed:  set.reduce((n, r) => n + (r.computed || 0), 0),
+      perLender: set.reduce((n, r) => n + (r.perLender ? r.perLender.amount : 0), 0),
+      openingCount: set.filter(r => r.opening && r.computed != null).length,
+      closingCount: set.filter(r => r.computed != null && r.perLender).length,
       // ABSOLUTE, never signed. Session 236 fixed exactly this in the table
       // below ("makes real work look like a rounding error"); with one loan
       // +$415.88 and another −$415.88 the signed total reads $0.00.
@@ -15327,6 +15365,44 @@
       totals:  subtotal(checkable),
       totalsA: subtotal(gradeA),
       totalsB: subtotal(gradeB),
+      // ── THE GRAND TOTAL (session 247) ─────────────────────────────────────
+      // David: "resolve the fact that the total does not compute amortized
+      // loans. We want to see ALL loans here." Three subtotals and no total is a
+      // debt schedule that never states the debt.
+      //
+      // It is safe to sum opening/principal/interest/computed over EVERY row,
+      // and it is the reason this is possible at all: `computed` is
+      // opening − principal on the SAME row, so the identity that session 245
+      // established survives summation whatever the closing evidence looks like.
+      // Stripe Capital is excluded from `checkable` for having no CLOSING
+      // balance, not for having no opening — it carries both an opening and a
+      // computed, so leaving it out of those four columns understated the book
+      // by $20,875.00 while the page claimed to be a debt schedule.
+      //
+      // CLOSING AND VARIANCE ARE A DIFFERENT MATTER AND MUST NOT BE FOLDED IN.
+      // A loan with no closing figure cannot contribute one, and a Closing total
+      // that quietly covers 13 rows while the Opening beside it covers 14 is
+      // precisely the population mismatch that printed "$1,300,305.58 of
+      // apparent gap directly beside a Variance of $0.00" (see the note above).
+      // So those two cells carry their own count and the renderer prints it.
+      // NEVER remove that marker to make the row look tidier.
+      totalsAll: (() => {
+        // The four walk columns are summed over the rows that can actually walk
+        // — an opening AND a computed. A row with principal but no opening
+        // cannot join them without breaking opening − principal = computed, and
+        // a total that does not foot is worse than a total that says who it
+        // covers.
+        const rollable = rows.filter(r => r.opening && r.computed != null);
+        const closable = rows.filter(r => r.computed != null && r.perLender);
+        const ro = subtotal(rollable), cl = subtotal(closable);
+        return {
+          count: rows.length,
+          opening: ro.opening, principal: ro.principal, interest: ro.interest, computed: ro.computed,
+          perLender: cl.perLender, variance: cl.variance, material: cl.material,
+          rollCount: rollable.length, rollCovers: rollable.length === rows.length,
+          closingCount: closable.length, closingCovers: closable.length === rows.length,
+        };
+      })(),
       // The rows a rollforward subtotal cannot speak for, shown separately.
       excluded: {
         count:     rows.length - checkable.length,
@@ -15335,6 +15411,14 @@
         // the first cut's label, "N with no closing balance", counted it exactly
         // the way A2 forbids while the sentence underneath excluded it.
         automatic: rows.filter(r => !(r.computed != null && r.perLender) && r.automatic).length,
+        // Opening and computed too, as of session 247: this line is no longer a
+        // footnote beside three subtotals, it is one term of a composition that
+        // has to add back to the Total row above it. A term that reports only
+        // two of the four columns cannot be checked against the total, and an
+        // unheckable composition is how $20,875.00 went missing from a page
+        // calling itself a debt schedule.
+        opening:   rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + (r.opening ? r.opening.amount : 0), 0),
+        computed:  rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + (r.computed || 0), 0),
         principal: rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + r.principal, 0),
         interest:  rows.filter(r => !(r.computed != null && r.perLender)).reduce((n, r) => n + r.interest, 0),
       },
@@ -15634,15 +15718,18 @@
     // How a closing figure was arrived at, in the reader's language. The GRADE
     // is carried in data-grade for anything counting; the words are what a CPA
     // has to be able to disagree with.
+    // How a closing figure was arrived at, WITHOUT its date — the date is its
+    // own column as of session 247, and repeating it here would put the same
+    // fact in two cells of one row, which is the thing an export must not do.
     const closingWhy = (r) => {
       if (!r.perLender) return '';
       if (r.anchor.derivation === 'rolled_back') {
-        return `${short(r.perLender.asOf)} · rolled back from ${esc(_anchorSourceLabel(r.perLender.source))}`;
+        return `rolled back from ${_anchorSourceLabel(r.perLender.source)}`;
       }
       if (r.anchor.derivation === 'schedule') {
-        return `${short(r.perLender.asOf)} · ${esc(_anchorSourceLabel(r.perLender.source))}`;
+        return _anchorSourceLabel(r.perLender.source);
       }
-      return short(r.perLender.asOf);
+      return _anchorSourceLabel(r.perLender.source);
     };
 
     const row = (r) => {
@@ -15652,15 +15739,28 @@
       // opening and for a schedule-derived closing; a lender document gets the
       // plain grey footnote.
       const openCell = r.opening
-        ? `${bare(r.opening.amount)}<span class="lcb-sub${r.opening.authoritative ? '' : ' soft'}">${short(r.opening.asOf)} · ${esc(_anchorSourceLabel(r.opening.source))}${r.openingStaged ? ` · includes ${r.openingStaged} staged` : ''}</span>`
+        ? bare(r.opening.amount)
         : '<span class="lcb-none">no opening balance</span>';
+      // ONE FACT PER CELL (session 247). David asked for this so the table can
+      // go to CSV or PDF without a parser having to split "6/30 · our books,
+      // rebuilt from Xero" back into a date and a provenance. The date the
+      // opening was struck is the same for every row — it is in the column
+      // header — so only the provenance needs a cell of its own. The closing
+      // date is NOT: every row closes on its own evidence date, so that gets a
+      // column too.
+      const openSrcCell = r.opening
+        ? `${esc(_anchorSourceLabel(r.opening.source))}${r.openingStaged ? ` · includes ${r.openingStaged} staged` : ''}`
+        : '<span class="lcb-na">—</span>';
       // A REFUSAL IS AN ANSWER AND IT HAS TO BE READABLE. _loanClosingAnchor
       // declines a roll-back for stated reasons — an unlabelled balance, an
       // unposted payment in the window — and a blank cell with the reason known
       // only to the code is the same silence this session came to remove.
       const why = r.anchor.note ? ` title="${esc(r.anchor.note)}"` : '';
+      const closeSrcCell = r.perLender
+        ? esc(closingWhy(r))
+        : (r.automatic ? 'swept from Xero' : '<span class="lcb-na">—</span>');
       const lenderCell = r.perLender
-        ? `${bare(r.perLender.amount)}<span class="lcb-sub${r.perLender.authoritative ? '' : ' soft'}"${why}>${closingWhy(r)}</span>`
+        ? bare(r.perLender.amount)
         : (r.automatic
             // Stripe Capital's balance IS the Xero sweep. There is no outside
             // party who could disagree with it, so it is reported as swept —
@@ -15709,14 +15809,19 @@
         ? `<span class="lcb-flag" title="A payment whose period label carries no date cannot be placed in a month, so it is not counted in any rollforward.">${r.undated.length} undated</span>`
         : '';
       return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''}>
-        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span><span class="lcb-lender">${esc(a.lender)}</span></td>
+        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span></td>
+        <td class="lcb-src">${esc(a.lender || '')}</td>
         <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}">${openCell}</td>
+        <td class="lcb-src${r.opening && !r.opening.authoritative ? ' soft' : ''}" data-source="${esc((r.opening && r.opening.source) || '')}">${openSrcCell}</td>
         <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''}>${lenderCell}</td>
+        <td class="lcb-src">${r.perLender && r.perLender.asOf ? esc(short(r.perLender.asOf)) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-src${r.perLender && !r.perLender.authoritative ? ' soft' : ''}" data-derivation="${esc(r.anchor.derivation)}"${why}>${closeSrcCell}</td>
         <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}">${varCell}</td>
-        <td style="white-space:nowrap">${booked}${undatedFlag ? ' ' + undatedFlag : ''}</td>
+        <td style="white-space:nowrap">${booked}</td>
+        <td style="white-space:nowrap">${undatedFlag || '<span class="lcb-na">—</span>'}</td>
       </tr>`;
     };
 
@@ -15727,15 +15832,50 @@
     // grade than half of it has — the one thing this session exists to stop.
     // Within EACH line opening − principal = computed still holds, which is the
     // property session 245 established and the harness checks.
+    const varianceCell = (st) => st.variance < 0.005
+      ? '<span class="lcb-na">$0.00</span>'
+      : `<span class="${st.material ? 'lcb-off' : 'lcb-na'}">${money(st.variance)}</span>`;
+    // Every footer row carries all twelve cells. A short row would slide its
+    // figures under the wrong headings in a CSV, which is the whole reason this
+    // table was flattened.
     const subtotalRow = (grade, label, st) => `<tr data-subtotal="${grade}" data-count="${st.count}"${st.circular ? ` data-circular-count="${st.circular}"` : ''}>
       <td>${esc(label)}${st.circular ? ` <span class="lcb-sub soft" style="display:inline">${st.circular} not independently checked</span>` : ''}</td>
+      <td></td>
       <td class="lcb-n" data-amount="${st.opening}">${money(st.opening)}</td>
+      <td></td>
       <td class="lcb-n" data-amount="${st.principal}">${money(st.principal)}</td>
       <td class="lcb-n" data-amount="${st.interest}">${money(st.interest)}</td>
       <td class="lcb-n" data-amount="${st.computed}">${money(st.computed)}</td>
       <td class="lcb-n" data-amount="${st.perLender}">${money(st.perLender)}</td>
-      <td class="lcb-n" data-variance="${st.variance}" data-material="${st.material}"${st.count && st.variance < 0.005 ? ' data-tie="1"' : ''}>${st.variance < 0.005 ? '<span class="lcb-na">$0.00</span>' : `<span class="${st.material ? 'lcb-off' : 'lcb-na'}">${money(st.variance)}</span>`}</td>
       <td></td>
+      <td></td>
+      <td class="lcb-n" data-variance="${st.variance}" data-material="${st.material}"${st.count && st.variance < 0.005 ? ' data-tie="1"' : ''}>${varianceCell(st)}</td>
+      <td></td><td></td>
+    </tr>`;
+
+    // ── THE GRAND TOTAL ───────────────────────────────────────────────────
+    // Opening / Principal / Interest / Computed cover EVERY loan and foot to the
+    // cent. Closing and Variance carry an explicit count whenever they cover
+    // fewer rows than the four beside them, because a total whose columns
+    // describe different populations is the defect this footer was rebuilt to
+    // remove. Do not delete the marker to tidy the row — delete the mismatch.
+    const ta = rf.totalsAll;
+    const mark = (n) => `<span class="lcb-sub soft" style="display:inline"> ${n} of ${ta.count}</span>`;
+    const rollMark = ta.rollCovers ? '' : mark(ta.rollCount);
+    const closingMark = ta.closingCovers ? '' : mark(ta.closingCount);
+    const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" class="lcb-total">
+      <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}</td>
+      <td></td>
+      <td class="lcb-n" data-amount="${ta.opening}">${money(ta.opening)}${rollMark}</td>
+      <td></td>
+      <td class="lcb-n" data-amount="${ta.principal}">${money(ta.principal)}</td>
+      <td class="lcb-n" data-amount="${ta.interest}">${money(ta.interest)}</td>
+      <td class="lcb-n" data-amount="${ta.computed}">${money(ta.computed)}${rollMark}</td>
+      <td class="lcb-n" data-amount="${ta.perLender}">${money(ta.perLender)}${closingMark}</td>
+      <td></td>
+      <td></td>
+      <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}">${varianceCell(ta)}${closingMark}</td>
+      <td></td><td></td>
     </tr>`;
 
     el.innerHTML = `
@@ -15751,23 +15891,30 @@
         <div style="overflow-x:auto">
           <table class="lcb-table">
             <thead><tr>
-              <th>Loan</th>
+              <th>Loan</th><th>Lender</th>
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
+              <th>Opening source</th>
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n">Computed</th>
-              <th class="lcb-n">Closing · ${esc(short(rf.monthEnd))}</th>
-              <th class="lcb-n">Variance</th><th>Status</th>
+              <th class="lcb-n">Closing</th>
+              <th>Closing date</th><th>Closing source</th>
+              <th class="lcb-n">Variance</th><th>Status</th><th>Notes</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
+              ${totalRow}
+              <tr class="lcb-ofwhich"><td colspan="13">of which</td></tr>
               ${rf.gradeA.length ? subtotalRow('A', `${rf.gradeA.length} confirmed by lender`, rf.totalsA) : ''}
               ${rf.gradeB.length ? subtotalRow('B', `${rf.gradeB.length} per amortization schedule`, rf.totalsB) : ''}
               ${rf.excluded.count ? `<tr class="lcb-excluded" data-subtotal="none" data-automatic="${rf.excluded.automatic}">
-                <td>Not checkable — ${rf.excluded.count} loan${rf.excluded.count === 1 ? '' : 's'}${rf.excluded.automatic ? ` · ${rf.excluded.automatic} swept from Xero` : ''}${rf.excluded.count - rf.excluded.automatic ? ` · ${rf.excluded.count - rf.excluded.automatic} with nothing to close against` : ''}</td>
-                <td class="lcb-n">—</td>
+                <td>${rf.excluded.count} with no closing balance${rf.excluded.automatic ? ` · ${rf.excluded.automatic} swept from Xero` : ''}${rf.excluded.count - rf.excluded.automatic ? ` · ${rf.excluded.count - rf.excluded.automatic} with nothing to close against` : ''}</td>
+                <td></td>
+                <td class="lcb-n" data-amount="${rf.excluded.opening}">${money(rf.excluded.opening)}</td>
+                <td></td>
                 <td class="lcb-n" data-amount="${rf.excluded.principal}">${money(rf.excluded.principal)}</td>
                 <td class="lcb-n" data-amount="${rf.excluded.interest}">${money(rf.excluded.interest)}</td>
-                <td class="lcb-n">—</td><td class="lcb-n">—</td><td class="lcb-n">—</td><td></td>
+                <td class="lcb-n" data-amount="${rf.excluded.computed}">${money(rf.excluded.computed)}</td>
+                <td class="lcb-n">—</td><td></td><td></td><td class="lcb-n">—</td><td></td><td></td>
               </tr>` : ''}
             </tfoot>
           </table>
