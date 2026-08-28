@@ -326,7 +326,12 @@ function readSurfaces() {
     const rows = [...cb.querySelectorAll('tbody tr')].map(tr => {
       const tds = [...tr.children];
       const c = tds.map(td => td.textContent.replace(/\s+/g, ' ').trim());
-      return { loan: c[0], opening: c[1], principal: c[2], interest: c[3],
+      // The loan cell concatenates the account name and the lender, so the
+      // account name is read from its own span rather than by prefix-matching a
+      // run-together string ("BayFirst SBA 2BayFirst National").
+      const nameEl = tds[0] && tds[0].querySelector ? tds[0].querySelector('.td-name') : null;
+      return { loan: c[0], name: nameEl ? nameEl.textContent.replace(/\s+/g, ' ').trim() : c[0],
+               opening: c[1], principal: c[2], interest: c[3],
                computed: c[4], perLender: c[5], variance: c[6], inXero: c[7],
                openingN: num(tds[1]), principalN: num(tds[2]), interestN: num(tds[3]),
                computedN: num(tds[4]), perLenderN: num(tds[5]),
@@ -1360,21 +1365,28 @@ const LOAN_TABLES = ['loan_accounts', 'loan_statements', 'loan_splits', 'loan_am
 /* The inverse edits: shipped source → pre-fix source. Keyed by the defect they
    re-introduce. Applied to _bkRosterHtml.toString() inside the page. */
 const ROSTER_REVERTS = {
-  // #1a A finding on a RECONCILED loan rendered nowhere: `continue` came before
-  //     the children block, and the dot was green regardless.
-  'reconciled-children': [
-    ['<span class="bk-dot ${r.items.length ? \'amber\' : \'green\'}"></span>',
-     '<span class="bk-dot green"></span>'],
-    ['Agrees with the lender${asOf}${how}${still}',
-     'Agrees with the lender${asOf}${how}'],
-    ['          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`\n            + r.items.map(_bkQueueRowHtml).join(\'\') + `</div>`;\n          continue;\n        }\n\n        if (g.key === \'immaterial\') {',
-     '          continue;\n        }\n\n        if (g.key === \'immaterial\') {'],
-  ],
-  // #1b Same defect on the IMMATERIAL group.
-  'immaterial-children': [
-    ['${r.items.length ? `. ${r.items.length} other thing${r.items.length === 1 ? \'\' : \'s\'} on this loan still need${r.items.length === 1 ? \'s\' : \'\'} a look` : \'\'}', ''],
-    ['          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`\n            + r.items.map(_bkQueueRowHtml).join(\'\') + `</div>`;\n          continue;\n        }\n\n        const sub = g.key === \'variance\'',
-     '          continue;\n        }\n\n        const sub = g.key === \'variance\''],
+  // ── A NOTE ON WHY THERE ARE NOW THREE OF THESE AND NOT FOUR ─────────────
+  // Sessions 242-246 carried TWO separate copy-paste branches that each had to
+  // remember to render a loan's findings — one for `reconciled`, one for
+  // `immaterial` — and the historical defect was that neither of them did. That
+  // is the session-231 shape exactly: the right code, one branch away from the
+  // path that needed it. The session-247 roster has ONE children path serving
+  // every state, so the two defects are no longer independently expressible.
+  // `no-children` therefore reverts one line and the control asserts the
+  // findings vanish from BOTH a reconciled loan and an immaterial one — which is
+  // a stronger claim than the pair it replaces, because it proves the single
+  // path is genuinely shared rather than duplicated somewhere out of sight.
+
+  // #1a A reconciled loan carrying open findings showed a plain green dot — an
+  //     all-clear the roster was never told it could give.
+  'reconciled-dot': { fn: '_bkLenderSummary', edits: [
+    ["dot = itemCount ? 'amber' : 'green'; tone = 't3';",
+     "dot = 'green'; tone = 't3';"],
+  ] },
+  // #1b A loan's findings rendered nowhere at all.
+  'no-children': [
+    ['          if (r.items.length) html += r.items.map(_bkQueueRowHtml).join(\'\');',
+     '          if (false) html += r.items.map(_bkQueueRowHtml).join(\'\');'],
   ],
   // #2 A finding whose loan is not ACTIVE went into byLoan under an id nothing
   //    ever read back, and was not an orphan either, because it HAD an id.
@@ -1387,6 +1399,14 @@ const ROSTER_REVERTS = {
     ["if (!loans.length) return (issues || []).map(_bkQueueRowHtml).join('');",
      "if (!loans.length) return '';"],
   ],
+  // #5 (session 247) A lender-level finding — Ford's "3 loans disagree", which
+  //    reconciliation-run raises with a NULL loan_account_id — is filed under
+  //    the lender it names. The eligibility test must be the ABSENT ID and never
+  //    the name, or a finding orphaned because its loan went inactive gets
+  //    swallowed into a collapsed panel of loans that are fine.
+  'orphan-by-name': [
+    ['      if (_bkIssueLoanId(it)) return true;\n', '      \n'],
+  ],
 };
 
 // #4 The confetti gate lives inside renderBookkeepingOverview, not in its own
@@ -1398,59 +1418,117 @@ const CONFETTI_PREFIX =
   "const _rcNow = _bkOverviewSeg === 'issues' ? _bkRosterCounts().reconciled : null;";
 
 /* Install the pre-fix roster in the page. Returns {ok, missing:[...]}. */
+// A revert set is either a bare list of [from, to] pairs (applied to
+// _bkRosterHtml) or { fn, edits } naming another shipped function — the roster's
+// status sentences and dot colours live in _bkLenderSummary now, and a
+// discrimination test that could only rewrite one function would silently stop
+// discriminating the moment a branch moved into the other.
+const REVERT_ARGS = { _bkRosterHtml: ['issues'], _bkLenderSummary: ['rows'] };
 async function revertRoster(p, names, edits) {
-  return p.evaluate(({ names, edits }) => {
-    let src = window._bkRosterHtml.toString();
+  return p.evaluate(({ names, edits, argNames }) => {
+    const byFn = new Map();
     const missing = [];
-    for (const n of names) for (const [from, to] of edits[n]) {
-      if (!src.includes(from)) { missing.push(n + ' :: ' + from.slice(0, 60)); continue; }
-      src = src.replace(from, to);
+    for (const n of names) {
+      const spec = Array.isArray(edits[n]) ? { fn: '_bkRosterHtml', edits: edits[n] } : edits[n];
+      if (!byFn.has(spec.fn)) byFn.set(spec.fn, []);
+      byFn.get(spec.fn).push([n, spec.edits]);
+    }
+    for (const [fn, sets] of byFn) {
+      if (typeof window[fn] !== 'function') { missing.push('no such function: ' + fn); continue; }
+      let src = window[fn].toString();
+      for (const [n, pairs] of sets) for (const [from, to] of pairs) {
+        if (!src.includes(from)) { missing.push(n + ' :: ' + from.slice(0, 60)); continue; }
+        src = src.replace(from, to);
+      }
+      if (missing.length) continue;
+      const body = src.slice(src.indexOf('{') + 1, src.lastIndexOf('}'));
+      try { window[fn] = new Function(...(argNames[fn] || []), body); }
+      catch (e) { missing.push('compile ' + fn + ': ' + e.message); }
     }
     if (missing.length) return { ok: false, missing };
-    const body = src.slice(src.indexOf('{') + 1, src.lastIndexOf('}'));
-    try { window._bkRosterHtml = new Function('issues', body); }
-    catch (e) { return { ok: false, missing: ['compile: ' + e.message] }; }
     renderBookkeepingOverview();
     return { ok: true, missing: [] };
-  }, { names, edits });
+  }, { names, edits, argNames: REVERT_ARGS });
 }
 
-/* The queue card, read the way a person reads it: rows in order, each with the
-   dot colour, the reason, and whatever is indented underneath it. */
+/* The queue card, read the way a person reads it.
+
+   Session 247: the roster is one row per LENDER, with each loan's findings in a
+   panel below it. The panel is display:none until clicked but is in the DOM from
+   the first paint, and this reader uses textContent (never innerText) precisely
+   so that "every item reaches the DOM" keeps meaning what it meant — a finding
+   behind a click with a count on the face of its row is on the screen; a finding
+   that never rendered is not, and only the second is a bug.
+
+   `rows` is flattened so a test can name either a lender row or an individual
+   loan inside a group and get the same shape back. */
 const READ_QUEUE = () => {
   const list = document.getElementById('bk-ov-queue-list');
   if (!list) return null;
   const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const rows = [];
+  for (const el of list.children) {
+    if (el.classList && el.classList.contains('bk-lender-row')) {
+      const panel = el.nextElementSibling && el.nextElementSibling.classList.contains('bk-lr-panel')
+        ? el.nextElementSibling : null;
+      const subs = panel ? [...panel.querySelectorAll('.bk-lr-sub')] : [];
+      rows.push({
+        kind: 'lender', cls: el.className,
+        name: norm((el.querySelector('.bk-lr-name') || {}).childNodes ? el.querySelector('.bk-lr-name').childNodes[0].textContent : ''),
+        dot: norm((el.querySelector('.bk-dot') || {}).className).replace('bk-dot ', ''),
+        reason: norm(((el.querySelector('.bk-lr-sum') || {}).textContent || '') + ' '
+                   + ((el.querySelector('.bk-lr-meta') || {}).textContent || '')),
+        detail: norm(panel ? (panel.querySelector('.bk-lr-detail') || {}).textContent : ''),
+        loanCount: subs.length || 1,
+        childRows: panel ? panel.querySelectorAll('.bk-queue-row').length : 0,
+        childNames: panel ? [...panel.querySelectorAll('.bk-queue-row .bk-queue-name')].map(n => norm(n.textContent)) : [],
+      });
+      // Every loan inside the group, addressable by its own name.
+      if (panel) for (const blk of panel.querySelectorAll('.bk-lr-loan')) {
+        const sub = blk.querySelector('.bk-lr-sub');
+        rows.push({
+          kind: 'loan', cls: 'bk-lr-loan', name: norm(blk.getAttribute('data-loan') || ''),
+          dot: sub ? norm((sub.querySelector('.bk-dot') || {}).className).replace('bk-dot ', '')
+                   : norm((el.querySelector('.bk-dot') || {}).className).replace('bk-dot ', ''),
+          reason: sub ? norm(((sub.querySelector('.bk-lr-sub-sum') || {}).textContent || '') + ' '
+                           + ((sub.querySelector('.bk-lr-meta') || {}).textContent || ''))
+                      : norm(((el.querySelector('.bk-lr-sum') || {}).textContent || '') + ' '
+                           + ((el.querySelector('.bk-lr-meta') || {}).textContent || '')),
+          childRows: blk.querySelectorAll('.bk-queue-row').length,
+          childNames: [...blk.querySelectorAll('.bk-queue-row .bk-queue-name')].map(n => norm(n.textContent)),
+        });
+      }
+    } else if (el.classList && el.classList.contains('bk-queue-row')) {
+      // The fallback flat list (no roster) and the orphan group.
+      rows.push({
+        kind: 'item', cls: el.className,
+        name: norm((el.querySelector('.bk-queue-name') || {}).textContent),
+        dot: norm((el.querySelector('.bk-dot') || {}).className).replace('bk-dot ', ''),
+        reason: norm((el.querySelector('.bk-queue-reason') || {}).textContent),
+        childRows: 0, childNames: [],
+      });
+    }
+  }
   return {
     counts: _bkRosterCounts(),
     dataReady: _bkDataReady(),
-    // Every item the queue believes it is showing. If one of these never
-    // reaches `text` below, the page dropped a finding.
     itemNames: _bkIssueQueueItems().map(i => norm(i.name)),
     heads: [...list.querySelectorAll('.bk-tier-head')].map(e => norm(e.textContent)),
-    rows: [...list.children].map(e => ({
-      cls: e.className,
-      name: norm((e.querySelector('.bk-queue-name') || {}).textContent),
-      dot: norm((e.querySelector('.bk-dot') || {}).className).replace('bk-dot ', ''),
-      reason: norm((e.querySelector('.bk-queue-reason') || {}).textContent),
-      // A child block is a bare <div> sibling holding the loan's own findings.
-      childRows: e.className ? 0 : e.querySelectorAll('.bk-queue-row').length,
-      childNames: e.className ? [] : [...e.querySelectorAll('.bk-queue-name')].map(n => norm(n.textContent)),
-    })),
+    rows,
+    lenderRows: rows.filter(r => r.kind === 'lender').length,
     text: norm(list.textContent),
     allClear: !!list.querySelector('.bk-allclear'),
     statusline: norm((document.getElementById('bk-ov-statusline') || {}).textContent),
   };
 };
 
-/* Find the roster row for a loan (the header row, not a child). */
-const rowFor = (q, name) => q.rows.find(r => /bk-queue-row/.test(r.cls) && r.name === name) || null;
-/* The child block that immediately follows a loan's row. */
-const kidsFor = (q, name) => {
-  const i = q.rows.findIndex(r => /bk-queue-row/.test(r.cls) && r.name === name);
-  const nxt = i >= 0 ? q.rows[i + 1] : null;
-  return nxt && !nxt.cls ? nxt : { childRows: 0, childNames: [] };
-};
+/* Find the roster entry for a loan — the lender row on a single-loan lender,
+   the loan's own block inside a group otherwise. Never a finding row. */
+const rowFor = (q, name) => q.rows.find(r => r.kind === 'loan' && r.name === name)
+                         || q.rows.find(r => r.kind === 'lender' && r.name === name)
+                         || null;
+/* The findings that belong to that loan. */
+const kidsFor = (q, name) => rowFor(q, name) || { childRows: 0, childNames: [] };
 
 /* ── R0 ── WHAT THE ROSTER REFUSES TO CALL RECONCILED ─────────────────────── */
 // This group owns everything tests/loan-roster.test.mts used to claim. That file
@@ -1611,8 +1689,10 @@ GROUPS.push({
       };
       to.detail = { residual_after_later: -1802.58 };
       renderBookkeepingOverview();
-      const row = [...document.querySelectorAll('#bk-ov-queue-list .bk-queue-row')]
-        .find(e => (e.querySelector('.bk-queue-name') || {}).textContent === 'PCV Good and Green Loan');
+      // Session 247: the roster row is a lender row. PCV has one loan, so its
+      // lender row IS the loan and carries the figure.
+      const row = [...document.querySelectorAll('#bk-ov-queue-list .bk-lender-row')]
+        .find(e => ((e.querySelector('.bk-lr-name') || {}).childNodes || [{}])[0].textContent === 'PCV Good and Green Loan');
       out.rendered = row ? row.textContent.replace(/\s+/g, ' ').trim() : null;
       return out;
     });
@@ -1677,15 +1757,32 @@ GROUPS.push({
     // Dexter's findings have not stopped mattering and are asserted below, in
     // the group it actually landed in.
     t.eq(q.counts.reconciled, 5, 'r1: the five reconciled loans are still reconciled');
-    t.ok(q.heads.includes('Reconciled (5)'), 'r1: the Reconciled group is on screen', JSON.stringify(q.heads));
+    // Session 247: the roster is one row per LENDER, so the band's parenthesis
+    // counts lender rows while counts.reconciled still counts LOANS. Those two
+    // numbers are allowed to differ and the reason must be visible, not assumed:
+    // E-Transit E6-7410 is reconciled but sits inside Ford Pro FinSimple, whose
+    // other three loans are not — so its lender row is red and the loan's own
+    // green line lives one click down, inside the group. Asserted explicitly
+    // here because a silent discrepancy between a headline and a list is the
+    // exact failure this module keeps re-learning.
+    t.ok(q.heads.some(h => /^Reconciled \(/.test(h)), 'r1: the Reconciled band is on screen', JSON.stringify(q.heads));
+    const cleanLenders = q.rows.filter(r => r.kind === 'lender' && /agrees with the lender/.test(r.reason));
+    t.eq(cleanLenders.length, 3,
+         'r1: three LENDERS are wholly reconciled — BayFirst (both loans), PayPal, Rapid',
+         JSON.stringify(cleanLenders.map(r => r.name)));
+    const e6 = rowFor(q, 'E-Transit Loan E6-7410');
+    t.ok(!!e6 && /agrees with the lender/.test(e6.reason),
+         'r1: ...and the fifth, E6-7410, still reads as reconciled inside the Ford group',
+         `reason=${JSON.stringify((e6 || {}).reason)}`);
+    t.eq(e6 && e6.dot, 'green', 'r1: ...with its own green dot, not its group\'s red one');
 
     // A reconciled loan that carries open findings.
     const RCL = 'Rapid Credit Line';
     const dex = rowFor(q, RCL);
     t.ok(!!dex, `r1: ${RCL} (tied, but carrying findings) renders in the roster`);
     t.eq(dex && dex.dot, 'amber', 'r1: a reconciled loan with open findings gets an AMBER dot, not a plain green one');
-    t.ok(/still need/.test((dex || {}).reason || ''),
-         'r1: ...and says so — "still need a look" rather than an unqualified all-clear',
+    t.ok(/to look at/.test((dex || {}).reason || ''),
+         'r1: ...and says so — a visible count of outstanding work rather than an unqualified all-clear',
          `reason=${JSON.stringify((dex || {}).reason)}`);
     const dexKids = kidsFor(q, RCL);
     t.eq(dexKids.childRows, 1, `r1: ${RCL}'s open finding renders UNDER it`);
@@ -1702,20 +1799,48 @@ GROUPS.push({
     // contractual schedule"; both of its open findings must still be on screen,
     // under it, or session 246 has re-created the very defect this group exists
     // to catch in a new group.
-    t.ok(q.heads.some(h => /Closed on the contractual schedule \(1\)/.test(h)),
-         'r1: Dexter Loan 2 landed in the per-schedule group', JSON.stringify(q.heads));
+    // Session 247 replaced seven group headings with three bands, and the
+    // precise status moved INTO each row's own sentence. That is the thing to
+    // guard now: "settled on the contractual schedule" must still be said, in
+    // those words, about this loan — a band label reading "Settled or waiting"
+    // is a sort order and would let a check that cannot fail pose as one that
+    // passed, which is the defect session 246 existed to remove.
     const dx = rowFor(q, 'Dexter Loan 2');
-    t.ok(!!dx, 'r1: ...and still renders as its own row');
+    t.ok(!!dx, 'r1: Dexter Loan 2 still renders as its own row');
+    t.ok(/settled on the contractual schedule/.test((dx || {}).reason || ''),
+         'r1: ...and still says so in its own words, not by inheriting a band label',
+         `reason=${JSON.stringify((dx || {}).reason)}`);
+    t.notMatch((dx || {}).reason, /agrees with the lender/,
+               'r1: ...and never claims a lender confirmed it');
     const dxKids = kidsFor(q, 'Dexter Loan 2');
-    t.eq(dxKids.childRows, 2, 'r1: ...with BOTH of its open findings still underneath it');
-    t.ok(dxKids.childNames.some(n => /no lender document on file/.test(n)),
-         'r1: ...including the stale_anchor finding by name', JSON.stringify(dxKids.childNames));
+    t.eq(dxKids.childRows, 1, 'r1: ...with its open finding still underneath it');
+    t.ok(dxKids.childNames.some(n => /hand-posted corrections/.test(n)),
+         'r1: ...by name, not as a count', JSON.stringify(dxKids.childNames));
+
+    // ── AND THE QUEUE THAT COULD NEVER BE FINISHED IS GONE (A8) ───────────
+    // checkStaleAnchor exempted only ingestion_method 'automatic', so the two
+    // loans whose lenders issue nothing raised "no lender document on file"
+    // every run, forever — the close band saying "accepted, per schedule" two
+    // clicks from a queue demanding the document. Gating it on close_basis was
+    // the fix, and reconciliation-run v50 resolved both findings on 2026-08-28.
+    // Dexter's second child row is gone because that work is genuinely done.
+    const stale = await p.evaluate(() => (_reconFindings || [])
+      .filter(f => /no lender document on file/.test(f.title || ''))
+      .map(f => ({ title: f.title, status: f.status })));
+    t.ok(stale.length >= 2, 'r1: the stale-anchor findings are still on file, not deleted', JSON.stringify(stale));
+    for (const n of ['Dexter Loan 2', 'Verdant Capital Loan']) {
+      const f = stale.find(x => x.title.startsWith(n));
+      t.eq(f && f.status, 'resolved',
+           `r1: ...and ${n}'s is RESOLVED — a gate that waits for a document nobody is going to send has stopped asking`);
+    }
+    t.ok(!q.text.includes('Dexter Loan 2 — no lender document on file'),
+         'r1: ...so it no longer reaches the queue at all');
 
     // ...and a reconciled loan with nothing outstanding still reads green, so
     // the amber above is a distinction the renderer actually draws.
     const bay = rowFor(q, 'BayFirst SBA 2');
     t.eq(bay && bay.dot, 'green', 'r1: a reconciled loan with NOTHING outstanding is still plain green');
-    t.notMatch((bay || {}).reason, /still need/, 'r1: ...and makes no "still need a look" claim');
+    t.notMatch((bay || {}).reason, /to look at/, 'r1: ...and names no outstanding work');
 
     // The whole-card property: nothing the queue believes it is showing is missing.
     const missing = q.itemNames.filter(n => !q.text.includes(n));
@@ -1723,7 +1848,7 @@ GROUPS.push({
     if (missing.length) console.log('        missing: ' + JSON.stringify(missing));
 
     // ── does the assertion discriminate? put the pre-fix branch back ──
-    const rev = await revertRoster(p, ['reconciled-children'], ROSTER_REVERTS);
+    const rev = await revertRoster(p, ['reconciled-dot', 'no-children'], ROSTER_REVERTS);
     t.ok(rev.ok, 'r1: the pre-fix reconciled branch could be re-applied in page context',
          JSON.stringify(rev.missing));
     if (rev.ok) {
@@ -1734,6 +1859,12 @@ GROUPS.push({
       const gone = b.itemNames.filter(n => !b.text.includes(n));
       t.ok(gone.length >= 2, 'r1 CONTROL: pre-fix, findings on reconciled loans vanished from the page',
            `${gone.length} dropped: ${JSON.stringify(gone.slice(0, 4))}`);
+      // The point of collapsing two branches into one: reverting the SINGLE
+      // children line must empty a variance loan too. If it does not, some other
+      // branch is still rendering children on its own and the shared path is a
+      // fiction — which is the session-231 defect in its dormant form.
+      t.eq(kidsFor(b, 'Funding Circle Loan').childRows, 0,
+           'r1 CONTROL: ...and so did a NEEDS-ATTENTION loan\'s — proving one shared path, not two copies');
     }
     await p.close();
 
@@ -1760,20 +1891,18 @@ GROUPS.push({
          'r1: ...so the two groups together are unchanged — the loan moved, it did not vanish');
     const et = rowFor(q2, 'E-Transit Loan - 4140');
     t.eq(et && et.dot, 'gray', 'r1: a small-difference loan is gray, not red');
-    t.ok(/3 other things on this loan still need a look/.test((et || {}).reason || ''),
+    t.ok(/3 to look at/.test((et || {}).reason || ''),
          'r1: ...and still names the work outstanding on it',
          `reason=${JSON.stringify((et || {}).reason)}`);
     t.eq(kidsFor(q2, 'E-Transit Loan - 4140').childRows, 3,
          'r1: all three of its findings render under it');
 
-    const rev2 = await revertRoster(p2, ['immaterial-children'], ROSTER_REVERTS);
+    const rev2 = await revertRoster(p2, ['no-children'], ROSTER_REVERTS);
     t.ok(rev2.ok, 'r1: the pre-fix immaterial branch could be re-applied', JSON.stringify(rev2.missing));
     if (rev2.ok) {
       const b2 = await p2.evaluate(READ_QUEUE);
       t.eq(kidsFor(b2, 'E-Transit Loan - 4140').childRows, 0,
            'r1 CONTROL: pre-fix, an immaterial loan\'s findings rendered nowhere');
-      t.notMatch((rowFor(b2, 'E-Transit Loan - 4140') || {}).reason, /still need a look/,
-                 'r1 CONTROL: pre-fix, it did not mention them either');
     }
     await p2.close();
   },
@@ -1804,24 +1933,66 @@ GROUPS.push({
     const derived = await p.evaluate(() => {
       const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
       const items = _bkIssueQueueItems();
+      // Session 247: a finding with NO loan id that NAMES a lender on the
+      // roster is filed under that lender's row — Ford's "3 loans disagree with
+      // the lender" is about the tangle, not about any one vehicle, and burying
+      // it in an orphan bin was where it went to be ignored. So the orphan group
+      // holds the unplaceable findings that name nobody, plus everything
+      // stranded by an inactive loan. Both halves derived, neither typed.
+      const lenders = new Set((_allLoanAccounts || []).filter(a => a.status === 'active')
+        .map(a => String(a.lender || a.xero_account_name || 'Unknown lender')));
+      const unplaceable = items.filter(it => !_bkIssueLoanId(it));
+      const claimed = unplaceable.filter(it =>
+        [...lenders].some(k => String(it.name || it.title || '').indexOf(k) === 0));
       return {
         fcStatus: fc.status,
-        unplaceable: items.filter(it => !_bkIssueLoanId(it)).length,
+        unplaceable: unplaceable.length,
+        claimedByLender: claimed.length,
+        claimedNames: claimed.map(it => it.name),
         onFc: items.filter(it => _bkIssueLoanId(it) === fc.id).length,
+        onFcNames: items.filter(it => _bkIssueLoanId(it) === fc.id).map(it => it.name),
       };
     });
     t.eq(derived.fcStatus, 'paid_off', 'r2: the scenario really did take Funding Circle off the active roster');
     t.ok(derived.onFc >= 2, 'r2: ...and it really is carrying findings that must not vanish with it',
          `${derived.onFc} findings on the inactive loan`);
     const orphanHead = q.heads.find(h => /Not tied to one loan/.test(h));
-    t.eq(orphanHead, `Not tied to one loan (${derived.unplaceable + derived.onFc})`,
+    t.eq(orphanHead,
+         `Not tied to one loan (${derived.unplaceable - derived.claimedByLender + derived.onFc})`,
          'r2: every finding on the now-inactive loan joins the orphan group');
+    // The invariant that actually matters, asserted by NAME rather than by a
+    // total that a fixture refresh can move: each of the stranded loan's
+    // findings is in that group, individually.
+    const orphanNames = q.rows.filter(r => r.kind === 'item').map(r => r.name);
+    for (const n of derived.onFcNames) {
+      t.ok(orphanNames.includes(n), `r2: ...including "${String(n).slice(0, 48)}"`);
+    }
+    // And a lender-level finding is not lost by being claimed — it is on screen,
+    // inside the row of the lender it names.
+    for (const n of derived.claimedNames) {
+      t.ok(q.text.includes(n), `r2: a lender-level finding is on screen under its lender, not dropped`);
+      t.ok(!orphanNames.includes(n), `r2: ...and no longer sits in the orphan bin`);
+    }
 
     const fcErr = 'Funding Circle Loan — Xero is $3,041.83 below the lender';
-    const fcInfo = 'Funding Circle Loan — 2026-08-18 payment of $2,033.77 has no interest split';
     t.ok(q.text.includes(fcErr), 'r2: the $3,041.83 ERROR on the inactive loan is still on screen');
-    t.ok(q.text.includes(fcInfo), 'r2: ...and so is its lumped-payment finding');
     t.ok(q.rows.some(r => r.name === fcErr), 'r2: the error renders as its own row, not as buried text');
+    // The loan's OTHER findings are named from the data rather than typed.
+    // Which are open, and at what severity, is reconciliation-run's business and
+    // it moves every run (this one demoted the 2026-08-18 lumped payment to
+    // info). What must not move is that every finding the queue holds still
+    // reaches the screen.
+    const fcOpen = await p.evaluate(() => {
+      const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
+      return (_reconFindings || [])
+        .filter(f => f.loan_account_id === fc.id && f.status === 'open' &&
+                     (f.severity === 'error' || f.severity === 'warn'))
+        .map(f => f.title);
+    });
+    t.ok(fcOpen.length >= 2, 'r2: the inactive loan really is carrying more than one open finding', JSON.stringify(fcOpen));
+    for (const title of fcOpen) {
+      t.ok(q.text.includes(title), `r2: ...and "${title.slice(0, 56)}" is on screen too`);
+    }
 
     const missing = q.itemNames.filter(n => !q.text.includes(n));
     t.eq(missing.length, 0, 'r2: every item the queue holds reaches the DOM');
@@ -1835,13 +2006,62 @@ GROUPS.push({
       t.ok(!b.text.includes(fcErr),
            'r2 CONTROL: pre-fix, a $3,041.83 error on a non-active loan rendered NOWHERE',
            b.text.includes(fcErr) ? 'still present — the revert did not reproduce the defect' : '');
-      t.eq(b.heads.find(h => /Not tied to one loan/.test(h)), `Not tied to one loan (${derived.unplaceable})`,
-           'r2 CONTROL: pre-fix, it was not counted as an orphan either');
+      // Stated as a count rather than as a heading string: once the lender-level
+      // findings are claimed by their lender rows, the pre-fix orphan group can
+      // be EMPTY, and an empty group renders no heading — asserting on the
+      // heading's text would then compare undefined against a sentence and fail
+      // for a reason that has nothing to do with the defect under test.
+      const bOrphanCount = b.rows.filter(r => r.kind === 'item').length;
+      t.eq(bOrphanCount, derived.unplaceable - derived.claimedByLender,
+           'r2 CONTROL: pre-fix, the stranded findings were not counted as orphans either',
+           `heading=${JSON.stringify(b.heads.find(h => /Not tied to one loan/.test(h)) || null)}`);
       t.eq(b.itemNames.filter(n => !b.text.includes(n)).length, derived.onFc,
            'r2 CONTROL: pre-fix, exactly the findings on that loan were dropped',
            JSON.stringify(b.itemNames.filter(n => !b.text.includes(n))));
     }
     await p.close();
+
+    // ── R2b (session 247) ── THE LENDER CLAIM MUST KEY ON THE ABSENT ID ────
+    // A finding stranded by an inactive loan still HAS a loan id; a finding
+    // about a lender's whole tangle has none. Only the second may be filed under
+    // a lender row. If the rule keyed on the NAME instead, a paid-off loan's
+    // live error would be swallowed into a collapsed panel belonging to loans
+    // that are fine — visible nowhere a person is looking. The real fixture
+    // never produces that collision, which is exactly why it is constructed
+    // here: a guard nothing exercises is a guard nobody knows is broken.
+    const p3 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      const fc = d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan');
+      fc.status = 'paid_off';
+      // Give its findings titles that BEGIN with an active lender's key.
+      d.reconciliation_findings.filter(f => f.loan_account_id === fc.id && f.status === 'open')
+        .forEach(f => { f.title = 'Ford Pro FinSimple ' + f.title; });
+    } });
+    const q3 = await p3.evaluate(READ_QUEUE);
+    const stranded = await p3.evaluate(() => {
+      const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
+      return _bkIssueQueueItems().filter(it => _bkIssueLoanId(it) === fc.id).map(it => it.name);
+    });
+    t.ok(stranded.length >= 2, 'r2b: the collision scenario really did build itself',
+         JSON.stringify(stranded.slice(0, 3)));
+    const orphanNames3 = q3.rows.filter(r => r.kind === 'item').map(r => r.name);
+    for (const n of stranded) {
+      t.ok(orphanNames3.includes(n),
+           `r2b: a finding whose loan is inactive stays an orphan even when its title names a live lender`,
+           JSON.stringify(orphanNames3.slice(0, 4)));
+    }
+
+    const rev3 = await revertRoster(p3, ['orphan-by-name'], ROSTER_REVERTS);
+    t.ok(rev3.ok, 'r2b: the name-only rule could be re-applied', JSON.stringify(rev3.missing));
+    if (rev3.ok) {
+      const b3 = await p3.evaluate(READ_QUEUE);
+      const bOrphans = b3.rows.filter(r => r.kind === 'item').map(r => r.name);
+      t.ok(stranded.every(n => !bOrphans.includes(n)),
+           'r2b CONTROL: keyed on the name, every one of them was swallowed into the Ford row',
+           JSON.stringify(bOrphans.slice(0, 4)));
+      t.ok(stranded.every(n => b3.text.includes(n)),
+           'r2b CONTROL: ...still in the DOM, but filed under loans that are fine — which is the bug');
+    }
+    await p3.close();
   },
 });
 
@@ -2236,6 +2456,14 @@ async function revertFn(p, name, edits, opts) {
       src = src.replace(from, to);
     }
     if (missing.length) return { ok: false, missing };
+    // A REVERT THAT CHANGES NOTHING IS A CONTROL THAT PROVES NOTHING. If an
+    // anchor still matches but the edit is a no-op — a from/to pair that became
+    // identical, or a replacement the shipped source already contains — the
+    // control would pass against unmodified code and quietly certify a test that
+    // does not discriminate. Refuse loudly instead.
+    if (src === window.__WR_ORIG[name].toString()) {
+      return { ok: false, missing: ['the edit produced identical source — this revert is a no-op'] };
+    }
     let rebuilt;
     try { rebuilt = new Function('return (' + src + ')')(); }
     catch (e) { return { ok: false, missing: ['compile: ' + e.message] }; }
@@ -2371,6 +2599,50 @@ GROUPS.push({
     // round-tripping through a timezone to check a string.
     const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const plainDate = (iso) => `${MON[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}`;
+    // ── loan_book_balances IS NO LONGER EMPTY ────────────────────────────
+    // reconciliation-run v50 wrote 44 rows (22 loans x 6/30 and 7/31), so a
+    // scenario that PUSHES a books row now lands beside a real one and
+    // _loanBookBalanceAsOf picks whichever has the newer computed_at. Every
+    // plant therefore REPLACES the loan's rows outright, and every scenario that
+    // wants the no-books fallback has to say so explicitly.
+    const setBooks = (d, loanName, rows) => {
+      const a = d.loan_accounts.find(x => x.xero_account_name === loanName);
+      if (!a) throw new Error('setBooks: no such loan ' + loanName);
+      d.loan_book_balances = d.loan_book_balances.filter(b => b.loan_account_id !== a.id);
+      (rows || []).forEach((r, i) => d.loan_book_balances.push({
+        id: `harness-bb-${a.id}-${i}`, loan_account_id: a.id, as_of: r.as_of,
+        balance: r.balance, basis: 'xero_rebuild', run_id: null,
+        detail: { staged_entries_at_or_before: r.staged || 0 },
+        computed_at: '2026-08-28T02:48:00Z',
+      }));
+    };
+    const dropBooks = (d, loanName) => setBooks(d, loanName, []);
+
+    // Four loans are genuinely material now that the books open the walk, so
+    // "does an immaterial gap block the close?" needs a July with nothing else
+    // in it. Built by moving each checkable loan's 6/30 books balance to exactly
+    // (closing + principal) — DERIVED from the rendered page, never typed, so
+    // the next reconciliation-run does not turn this into a maintenance chore.
+    // Only the opening is touched; every closing figure stays the real one.
+    const cleanJuly = async (keep) => {
+      const p0 = await newHarnessPage({ tab: 'loans' });
+      const rows = (await p0.surfaces()).loans.closeBand.rows;
+      await p0.close();
+      const targets = rows
+        .filter(r => r.perLenderN != null && r.computedN != null && !(keep || []).includes(r.name))
+        .map(r => ({ name: r.name, want: r.perLenderN + (r.principalN || 0) }));
+      t.ok(targets.length >= 10,
+           `ce: the clean-July scenario found the checkable rows to flatten (keeping ${JSON.stringify(keep || [])})`,
+           `${targets.length} targets`);
+      return (d) => {
+        d.loan_splits.forEach(sp => {
+          if (String(sp.period_label || '').slice(0, 7) === MONTH &&
+              ['pending_review', 'needs_attention'].includes(sp.status)) sp.status = 'posted';
+        });
+        targets.forEach(x => setBooks(d, x.name, [{ as_of: '2026-06-30', balance: x.want }]));
+      };
+    };
+
     const rowOf = (cb, name) => (cb.rows || []).find(r => new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(r.loan)) || null;
 
     /* ── 1 ── DEXTER CLOSES AT GRADE B, AND THE TIE IS A REAL ONE ────────── */
@@ -2392,25 +2664,31 @@ GROUPS.push({
       t.close(r.principalN, 3326.23, 0.005, 'ce1: ...less $3,326.23 of principal booked in July');
       t.close(r.computedN, 89411.25, 0.005, 'ce1: ...which computes to exactly the schedule figure');
 
-      // ── AND THAT ARITHMETIC IS A TAUTOLOGY, SO IT MUST NOT PRINT A TIE ──
-      // This is what the first cut of this group got wrong, and it is the whole
-      // lesson. "Opening − principal = closing" landed on the cent, and I read
-      // that as the flagship acceptance test passing. It is not a check: all 61
-      // of Dexter's 'xero_derived' opening rows are a frozen 2026-08 backfill
-      // that equals the contract on every same-dated row, so the opening, the
-      // movement and the closing are one document. Amendment A7 said this in
-      // as many words — "acceptance #1 was an assertion; it is a prediction" —
-      // and I asserted the prediction anyway.
+      // ── AND NOW THE ARITHMETIC IS EVIDENCE, BECAUSE THE OPENING IS ──────
+      // The first cut of this group asserted that this row ties, and that was a
+      // tautology: Dexter's opening was 'xero_derived', a frozen 2026-08
+      // backfill equal to the contract on every same-dated row, so opening,
+      // movement and closing were one document. Amendment A7 said so in
+      // writing — "acceptance #1 was an assertion; it is a prediction" — and I
+      // asserted the prediction anyway. The review replaced the source-name
+      // guard with a predicate and the row correctly went circular.
       //
-      // The guard is now a PREDICATE, not a source name: an opening counts only
-      // if a books-side Xero rebuild or a real lender document produced it.
-      t.eq(r.circular, true,
-           'ce1: ...and the row is CIRCULAR — a frozen backfill off the same contract cannot confirm it');
-      t.eq(r.ties, false, 'ce1: ...so it does NOT tie, however exactly the arithmetic lands');
-      t.eq(r.varianceN, null, 'ce1: ...and reports no variance at all');
-      t.eq(r.band, null, 'ce1: ...in no band, counted in neither the ties nor the offs');
-      t.ok(/agrees by construction/.test(r.variance || ''),
-           'ce1: ...saying so, in the column a reader looks at', `cell=${JSON.stringify(r.variance)}`);
+      // reconciliation-run v50 has now written the books-side balance, and A7's
+      // prediction resolved in the code's favour: Xero's own rebuilt ledger says
+      // 92,737.48 at 6/30, which is what the backfill said, and 92,737.48 −
+      // 3,326.23 = 89,411.25 = the contract. THE NUMBER IS THE SAME AND THE
+      // CLAIM IS DIFFERENT, which is the whole point — a figure that agrees is
+      // not evidence, and where it came from is.
+      t.eq(r.openingFromBooks, true,
+           'ce1: the opening comes from the books-side rebuild reconciliation-run wrote');
+      t.ok(/our books, rebuilt from Xero/.test(r.opening || ''),
+           'ce1: ...and the row says so, in English', `cell=${JSON.stringify(r.opening)}`);
+      t.eq(r.circular, false,
+           'ce1: ...so the walk is NOT circular — Xero opens it and the contract closes it');
+      t.eq(r.ties, true, 'ce1: ...and the row TIES');
+      t.eq(r.band, 'tie', 'ce1: ...in the tie band');
+      t.close(r.varianceN, 0, 0.005,
+              'ce1: ...at $0.00 — acceptance #1, at last as a measurement rather than a prediction');
       t.notMatch(r.perLender, /amortization_schedule/,
                  'ce1: the closing cell names the schedule in English, never as a slug');
       t.ok(/amortization schedule/i.test(r.perLender || ''),
@@ -2422,66 +2700,53 @@ GROUPS.push({
       t.ok(!!g, 'ce1: the strip carries a per-schedule chip', JSON.stringify(cb.gates.map(x => x.key)));
       t.eq(g && g.count, 2, 'ce1: ...counting the two loans that close on their schedule');
       t.eq(cb.subtotals.B && cb.subtotals.B.count, 2, 'ce1: ...and the grade-B subtotal holds the same two');
+      t.eq(cb.subtotals.B && cb.subtotals.B.circularCount, 0,
+           'ce1: ...neither of which is circular any more, now the books open both walks');
 
-      // ── CONTROL a ── the tautology itself: let anything count as independent
-      const revI = await revertFn(p, '_openingIsIndependent', EDITS('everything-is-independent'));
-      t.ok(revI.ok, 'ce1 CONTROL: an independence test that accepts every source could be rebuilt', JSON.stringify(revI.missing));
-      if (revI.ok) {
-        const b = rowOf((await p.surfaces()).loans.closeBand, 'Dexter Loan 2');
-        t.eq(b.circular, false, 'ce1 CONTROL: pre-review, a frozen backfill counted as an independent opening');
-        t.eq(b.ties, true, 'ce1 CONTROL: ...and Dexter printed a GREEN TIE against the contract it was built from');
-        t.close(b.varianceN, 0, 0.005, 'ce1 CONTROL: ...at exactly $0.00, forever, because it could not fail');
-      }
-      await restoreFns(p);
-
-      // ── CONTROL b ── no grade B at all
+      // ── CONTROL a ── no grade B at all
       const rev = await revertFn(p, '_loanClosingAnchor', EDITS('no-grade-b'));
       t.ok(rev.ok, 'ce1 CONTROL: the pre-grade-B anchor could be rebuilt in page context', JSON.stringify(rev.missing));
       if (rev.ok) {
         const b = rowOf((await p.surfaces()).loans.closeBand, 'Dexter Loan 2');
         t.eq(b.grade, 'C', 'ce1 CONTROL: without the policy branch, Dexter has no closing balance at all');
         t.eq(b.perLenderN, null, 'ce1 CONTROL: ...the closing cell is empty');
-        t.eq(b.circular, false, 'ce1 CONTROL: ...and there is no grade-B row left to call circular');
+        t.eq(b.ties, false, 'ce1 CONTROL: ...and the tie is gone');
       }
       await restoreFns(p);
       await p.close();
 
-      // ── THE OTHER HALF OF THE PAIR, AND IT IS THE ACTUAL TEST ───────────
-      // One half alone is what let the tautology through: asserting only that
-      // Dexter ties proved nothing, and asserting only that it is circular would
-      // be satisfied by a guard that fires on everything and reports no loan at
-      // all. Give the walk a books-side opening that reconciliation-run really
-      // would write, and the SAME row must become independent and tie for real.
-      const pBooks = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        const dex = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
-        d.loan_book_balances.push({
-          id: 'harness-dex-0630', loan_account_id: dex.id, as_of: '2026-06-30',
-          balance: 92737.48, basis: 'xero_rebuild', run_id: null,
-          detail: { staged_entries_at_or_before: 0 }, computed_at: '2026-06-30T12:00:00Z',
-        });
-      } });
-      const rb = rowOf((await pBooks.surfaces()).loans.closeBand, 'Dexter Loan 2');
-      t.eq(rb.openingFromBooks, true, 'ce1: with a 6/30 books rebuild on file the opening comes from OUR BOOKS');
-      t.close(rb.openingN, 92737.48, 0.005, 'ce1: ...at the same $92,737.48, from a genuinely independent measurement');
-      t.eq(rb.circular, false, 'ce1: ...so the row is no longer circular');
-      t.eq(rb.grade, 'B', 'ce1: ...still grade B — the closing is still the contract');
-      t.close(rb.perLenderN, 89411.25, 0.005, 'ce1: ...still closing at $89,411.25');
-      t.eq(rb.ties, true, 'ce1: ...and NOW it ties, and the tie means something');
-      t.eq(rb.band, 'tie', 'ce1: ...in the tie band');
-      t.close(rb.varianceN, 0, 0.005, 'ce1: ...at $0.00 — acceptance #1, finally as a measurement rather than a prediction');
-      t.eq((await pBooks.surfaces()).loans.closeBand.subtotals.B.circularCount, 1,
-           'ce1: ...and the grade-B subtotal now declares one circular row, not two');
+      // ── THE OTHER HALF OF THE PAIR, AND IT IS STILL THE ACTUAL TEST ─────
+      // Take the books rows away and the SAME loan, closing at the SAME
+      // 89,411.25 off the SAME schedule, must stop claiming a tie — because the
+      // opening falls back to the frozen backfill and the walk becomes one
+      // document compared with itself. One half alone is what let the tautology
+      // through the first time.
+      const pNoBooks = await newHarnessPage({ tab: 'loans', mutate: (d) => dropBooks(d, 'Dexter Loan 2') });
+      const cbN = (await pNoBooks.surfaces()).loans.closeBand;
+      const rn = rowOf(cbN, 'Dexter Loan 2');
+      t.eq(rn.openingFromBooks, false, 'ce1: with the books rows gone the opening falls back to our own ledger');
+      t.close(rn.openingN, 92737.48, 0.005,
+              'ce1: ...at the IDENTICAL $92,737.48 — the figure did not change, only its provenance');
+      t.close(rn.perLenderN, 89411.25, 0.005, 'ce1: ...and the closing is still the contract’s $89,411.25');
+      t.eq(rn.circular, true, 'ce1: ...yet the row is now CIRCULAR');
+      t.eq(rn.ties, false, 'ce1: ...prints NO tie, on arithmetic that lands on the cent');
+      t.eq(rn.varianceN, null, 'ce1: ...and reports no variance at all');
+      t.ok(/agrees by construction/.test(rn.variance || ''),
+           'ce1: ...saying so, in the column a reader looks at', `cell=${JSON.stringify(rn.variance)}`);
+      t.eq(cbN.subtotals.B && cbN.subtotals.B.circularCount, 1,
+           'ce1: ...and the grade-B subtotal declares exactly one row not independently checked');
 
-      // ── CONTROL c ── the same row, with the books balance ignored
-      const revB = await revertFn(pBooks, '_loanCloseRollforward', EDITS('ignore-book-balances'));
-      t.ok(revB.ok, 'ce1 CONTROL: a rollforward blind to the books balance could be rebuilt', JSON.stringify(revB.missing));
-      if (revB.ok) {
-        const b = rowOf((await pBooks.surfaces()).loans.closeBand, 'Dexter Loan 2');
-        t.eq(b.circular, true, 'ce1 CONTROL: ignore the books row and the same loan goes back to circular');
-        t.eq(b.ties, false, 'ce1 CONTROL: ...and the real tie disappears — both halves of the pair discriminate');
+      // ── CONTROL b ── the tautology itself, on the half that must refuse it
+      const revI = await revertFn(pNoBooks, '_openingIsIndependent', EDITS('everything-is-independent'));
+      t.ok(revI.ok, 'ce1 CONTROL: an independence test that accepts every source could be rebuilt', JSON.stringify(revI.missing));
+      if (revI.ok) {
+        const b = rowOf((await pNoBooks.surfaces()).loans.closeBand, 'Dexter Loan 2');
+        t.eq(b.circular, false, 'ce1 CONTROL: pre-review, a frozen backfill counted as an independent opening');
+        t.eq(b.ties, true, 'ce1 CONTROL: ...and Dexter printed a GREEN TIE against the contract it was built from');
+        t.close(b.varianceN, 0, 0.005, 'ce1 CONTROL: ...at exactly $0.00, forever, because it could not fail');
       }
-      await restoreFns(pBooks);
-      await pBooks.close();
+      await restoreFns(pNoBooks);
+      await pNoBooks.close();
     }
 
     /* ── 2 ── THE row_type FILTER DISCRIMINATES ──────────────────────────── */
@@ -2535,15 +2800,9 @@ GROUPS.push({
       await p.close();
       const p2 = await newHarnessPage({ tab: 'loans', mutate: (d) => {
         const a = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
-        // The books-side opening goes in too. Without it Dexter's row is
-        // circular and prints no variance at all, so "the closing is still
-        // 89,411.25" would be the only thing left to check and the tie — the
-        // thing a wrong closing balance actually breaks — would be untestable.
-        d.loan_book_balances.push({
-          id: 'harness-dex-0630', loan_account_id: a.id, as_of: '2026-06-30',
-          balance: 92737.48, basis: 'xero_rebuild', run_id: null,
-          detail: { staged_entries_at_or_before: 0 }, computed_at: '2026-06-30T12:00:00Z',
-        });
+        // No books plant is needed any more: reconciliation-run v50 wrote
+        // Dexter's real 6/30 rebuild, so the row already carries an independent
+        // opening and a real tie for a wrong closing balance to break.
         const idx = d.loan_amortization_rows.findIndex(r =>
           (r.loan_amortization_schedules || {}).loan_account_id === a.id && r.row_date === '2026-07-31');
         // loadLoans orders these rows `row_date DESC, id ASC`, so "before the
@@ -2585,12 +2844,18 @@ GROUPS.push({
       await p2.close();
     }
 
-    /* ── 3 ── VERDANT, WITH NO BOOKS BALANCE, AGREES BY CONSTRUCTION ─────── */
-    // All 85 of Verdant's loan_statements rows ARE the schedule, every split is
-    // schedule-generated, and the closing figure would be the schedule too:
-    // opening, movement and closing are one document. The variance is then zero
-    // for every month forever. It cannot fail, so it is not a check, and it must
-    // not be allowed to look like one that passed.
+    /* ── 3 ── VERDANT: WHERE THE −$1,835.75 ACTUALLY IS ─────────────────── */
+    // This was the loan the whole design existed for. All 85 of its
+    // loan_statements rows ARE the schedule, every split is schedule-generated,
+    // and the closing figure is the schedule too — so before reconciliation-run
+    // wrote a books-side balance, opening, movement and closing were one
+    // document and the variance was identically zero by construction, forever.
+    //
+    // Now Xero's own rebuilt ledger opens the walk, and the answer is a
+    // LOCALISATION rather than a number: the books track the contract through
+    // July to FOUR CENTS. So the −$1,835.75 the tie-out reports is not a
+    // standing gap at all — it is an AUGUST event, and this is the single most
+    // valuable thing the change produced.
     {
       const p = await newHarnessPage({ tab: 'loans' });
       const s = await p.surfaces();
@@ -2598,58 +2863,98 @@ GROUPS.push({
       const r = rowOf(cb, 'Verdant Capital Loan');
       t.ok(!!r, 'ce3: Verdant is on the rollforward');
       t.eq(r.grade, 'B', 'ce3: Verdant closes at grade B');
-      t.eq(r.circular, true, 'ce3: ...and the ROW is marked circular');
-      t.eq(r.varianceCircular, true, 'ce3: ...as is the variance cell');
-      t.eq(r.ties, false, 'ce3: ...which carries NO data-tie — this is not a tie');
-      t.eq(r.varianceN, null, 'ce3: ...and no variance figure at all');
-      t.eq(r.band, null, 'ce3: ...and no band, so it is in neither the ties nor the offs');
-      t.ok(/agrees by construction/.test(r.variance || ''),
-           'ce3: ...and it SAYS so, in the column a reader looks at',
-           `cell=${JSON.stringify(r.variance)}`);
-      t.ok(/not an independent check/.test(r.variance || ''),
+      t.eq(r.openingFromBooks, true, 'ce3: ...opened by Xero’s own rebuilt ledger');
+      t.eq(r.circular, false,
+           'ce3: ...so it is NO LONGER circular — the schedule is no longer compared with itself');
+      t.close(r.openingN, 253582.23, 0.005, 'ce3: ...books say $253,582.23 at 6/30');
+      t.close(r.principalN, 2687.94, 0.005, 'ce3: ...less $2,687.94 of July principal');
+      t.close(r.perLenderN, 250894.33, 0.005, 'ce3: ...against the contract’s $250,894.33');
+      t.close(r.varianceN, -0.04, 0.005,
+              'ce3: ...leaves FOUR CENTS — the books track the contract through July');
+      t.eq(r.band, 'immaterial', 'ce3: ...which is immaterial, shown and not chased');
+      t.eq(r.ties, false, 'ce3: ...and not a tie: four cents is a real difference, printed');
+
+      // ── THE LOCALISATION, ASSERTED ──────────────────────────────────────
+      // If July is clean to $0.04 then the tie-out's −$1,835.75 belongs to a
+      // later date, and it does: the tie-out is anchored at 2026-08-10, the
+      // August schedule row. Its size is August's scheduled INTEREST ($1,835.71)
+      // plus that same four cents of standing drift — the shape of a payment
+      // posted whole to principal, with nothing split out for interest.
+      const loc = await p.evaluate(() => {
+        const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Verdant Capital Loan');
+        const to = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+        const rows = _loanScheduleRows(a);
+        const aug = rows.find(x => x.row_date === '2026-08-10');
+        const books = (_allLoanBookBalances || []).filter(b => b.loan_account_id === a.id)
+          .map(b => ({ as_of: b.as_of, balance: Number(b.balance) })).sort((x, y) => x.as_of < y.as_of ? -1 : 1);
+        return { tieDiff: Number(to.difference), tieAsOf: to.as_of, anchor: to.anchor_source,
+                 augInterest: Number(aug.interest), augPrincipal: Number(aug.principal), books };
+      });
+      t.eq(loc.tieAsOf, '2026-08-10',
+           'ce3: the tie-out’s −$1,835.75 is anchored on 2026-08-10 — in AUGUST, not in the month just closed');
+      t.close(loc.tieDiff, -1835.75, 0.005, 'ce3: ...and that is its size');
+      t.close(loc.augInterest, 1835.71, 0.005, 'ce3: ...August’s scheduled interest is $1,835.71');
+      t.close(Math.abs(loc.tieDiff) - loc.augInterest, 0.04, 0.005,
+              'ce3: ...so the gap is August’s interest plus the four cents July already carries');
+      t.close(loc.books[0].balance - 253582.27, -0.04, 0.005,
+              'ce3: ...the four cents being the books’ own drift from the contract at 6/30');
+      t.ok(loc.books.length === 2 && loc.books[1].as_of === '2026-07-31',
+           'ce3: ...and reconciliation-run wrote both month ends, which is what made this visible',
+           JSON.stringify(loc.books));
+      // Said plainly: a July close that reports four cents cannot be hiding
+      // eighteen hundred dollars, so the work is in August.
+      t.ok(Math.abs(r.varianceN) < 1 && Math.abs(loc.tieDiff) > 1000,
+           'ce3: July is clean to the cent and August is not — the gap is LOCATED, not merely reported');
+      await p.close();
+
+      // ── AND THE CIRCULARITY GUARD IS STILL LOAD-BEARING ─────────────────
+      // Take the books rows away and Verdant goes straight back to comparing the
+      // schedule with itself. This is the state the loan was in for its whole
+      // history, so it has to stay reachable and stay refused.
+      const pNo = await newHarnessPage({ tab: 'loans', mutate: (d) => dropBooks(d, 'Verdant Capital Loan') });
+      const cbN = (await pNo.surfaces()).loans.closeBand;
+      const rn = rowOf(cbN, 'Verdant Capital Loan');
+      t.eq(rn.openingFromBooks, false, 'ce3: with no books row the opening falls back to the 85-row schedule mirror');
+      t.eq(rn.circular, true, 'ce3: ...and the ROW is marked circular');
+      t.eq(rn.varianceCircular, true, 'ce3: ...as is the variance cell');
+      t.eq(rn.ties, false, 'ce3: ...which carries NO data-tie — this is not a tie');
+      t.eq(rn.varianceN, null, 'ce3: ...and no variance figure at all');
+      t.eq(rn.band, null, 'ce3: ...and no band, so it is in neither the ties nor the offs');
+      t.ok(/agrees by construction/.test(rn.variance || ''),
+           'ce3: ...and it SAYS so, in the column a reader looks at', `cell=${JSON.stringify(rn.variance)}`);
+      t.ok(/not an independent check/.test(rn.variance || ''),
            'ce3: ...including why that is not the same as agreeing');
-      t.eq(r.openingFromBooks, false,
-           'ce3: ...and the row records that its opening did NOT come from the books');
-      // The footer says it out loud too, and counts it in neither column.
-      t.ok(/agree.? by construction/.test(cb.note || ''),
-           'ce3: the footer sentence accounts for the row it excluded', `note=${JSON.stringify(cb.note)}`);
-      // BOTH grade-B loans are circular on the real book now: Verdant's opening is
-      // the schedule mirror and Dexter's is a frozen backfill off the same
-      // contract. Neither has anything independent opening its walk, and
-      // loan_book_balances is empty in production — which is the finding, not a
-      // gap in the test. ce1 plants the row that fixes one of them.
-      t.eq(cb.subtotals.B && cb.subtotals.B.circularCount, 2,
-           'ce3: the grade-B subtotal declares that NEITHER of its two loans is independently checked');
-      t.eq(cb.subtotals.B && cb.subtotals.B.count, 2, 'ce3: ...out of two');
-      t.eq(cb.rows.filter(r => r.circular).length, 2,
-           'ce3: ...matching the rows that actually carry data-circular');
+      t.ok(/agree.? by construction/.test(cbN.note || ''),
+           'ce3: the footer sentence accounts for the row it excluded', `note=${JSON.stringify(cbN.note)}`);
+      t.eq(cbN.subtotals.B && cbN.subtotals.B.circularCount, 1,
+           'ce3: the grade-B subtotal declares the one loan that is not independently checked');
       // Verdant's seven undated splits are stated rather than closed over.
-      t.eq(r.undatedN, 7, 'ce3: ...and its seven undated splits are declared on the row (A10)');
-      t.ok(/7 undated/.test(r.inXero || ''), 'ce3: ...visibly, in the status column',
-           `status=${JSON.stringify(r.inXero)}`);
+      t.eq(rn.undatedN, 7, 'ce3: ...and its seven undated splits are declared on the row (A10)');
+      t.ok(/7 undated/.test(rn.inXero || ''), 'ce3: ...visibly, in the status column',
+           `status=${JSON.stringify(rn.inXero)}`);
       {
-        const revU = await revertFn(p, '_undatedSplits', EDITS('undated-invisible'));
+        const revU = await revertFn(pNo, '_undatedSplits', EDITS('undated-invisible'));
         t.ok(revU.ok, 'ce3 CONTROL: an _undatedSplits that reports nothing could be rebuilt', JSON.stringify(revU.missing));
         if (revU.ok) {
-          const b = rowOf((await p.surfaces()).loans.closeBand, 'Verdant Capital Loan');
+          const b = rowOf((await pNo.surfaces()).loans.closeBand, 'Verdant Capital Loan');
           t.eq(b.undatedN, 0, 'ce3 CONTROL: seven posted payments that fall in no month are closed over in silence');
           t.notMatch(b.inXero, /undated/, 'ce3 CONTROL: ...with nothing on the row to say so');
         }
-        await restoreFns(p);
+        await restoreFns(pNo);
       }
 
-      // ── CONTROL ── key the guard on a schedule id, as the design draft did
-      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('circular-guard-off'));
-      t.ok(rev.ok, 'ce3 CONTROL: the draft’s id-keyed circularity guard could be rebuilt', JSON.stringify(rev.missing));
+      // ── CONTROL ── the guard never fires
+      const rev = await revertFn(pNo, '_loanCloseRollforward', EDITS('circular-guard-off'));
+      t.ok(rev.ok, 'ce3 CONTROL: a rollforward with no circularity guard could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
-        const b = rowOf((await p.surfaces()).loans.closeBand, 'Verdant Capital Loan');
-        t.eq(b.circular, false, 'ce3 CONTROL: a guard that cannot fire leaves the row unmarked');
+        const b = rowOf((await pNo.surfaces()).loans.closeBand, 'Verdant Capital Loan');
+        t.eq(b.circular, false, 'ce3 CONTROL: a guard that never fires leaves the row unmarked');
         t.eq(b.ties, true, 'ce3 CONTROL: ...and Verdant prints a GREEN TIE against the document it was built from');
         t.notMatch(b.variance, /agrees by construction/,
                    'ce3 CONTROL: ...with no warning of any kind — which is the defect the assertion catches');
       }
-      await restoreFns(p);
-      await p.close();
+      await restoreFns(pNo);
+      await pNo.close();
     }
 
     /* ── 4 ── VERDANT, WITH A BOOKS BALANCE, IS NOT CIRCULAR ─────────────── */
@@ -2737,37 +3042,40 @@ GROUPS.push({
       const im = cb.gateByKey['immaterial'];
       t.ok(!!im, 'ce5: the immaterial chip is on the strip', JSON.stringify(cb.gates.map(x => x.key)));
       t.eq(im && im.ok, true, 'ce5: ...and it is not a blocking gate');
-      t.ok(/\$5\.00/.test((im || {}).text || ''), 'ce5: ...with the figure visible on the chip itself',
-           `chip=${JSON.stringify((im || {}).text)}`);
-      t.eq(cb.gateByKey['variance'].ok, true, 'ce5: the variance gate stays clear');
-      // July IS blocked — by one Funding Circle split still in pending_review,
-      // which is a different kind of work entirely. The claim under test is that
-      // the $5.00 contributes NOTHING to that: no bad gate is about a variance.
-      const bad = cb.gates.filter(g => !g.ok).map(g => g.key);
-      t.eq(JSON.stringify(bad), JSON.stringify(['posting']),
-           'ce5: the only thing blocking July is an unposted split — no gate is bad on account of a variance',
-           `bad gates: ${JSON.stringify(bad)}`);
-      t.eq(cb.subtotals.A && cb.subtotals.A.material, 0,
-           'ce5: ...so grade A’s subtotal reports nothing material, and prints its $5.00 in grey');
+      // The chip counts every small difference, not just this one, so it is
+      // checked against the rows rather than against a typed figure.
+      const smallRows = cb.rows.filter(x => x.band === 'immaterial');
+      t.eq(im && im.count, smallRows.length,
+           'ce5: ...counting exactly the rows in the immaterial band', `chip=${JSON.stringify((im || {}).text)}`);
+      t.ok(smallRows.some(x => /EIDL/.test(x.loan)), 'ce5: ...EIDL among them');
+      t.eq(T.money(smallRows.reduce((n2, x) => n2 + Math.abs(x.varianceN), 0)),
+           (String((im || {}).text || '').match(/\$[\d,]+\.\d\d/) || [''])[0],
+           'ce5: ...and the money on the chip is the sum of those rows, so the two cannot disagree');
+      // July IS blocked — by four loans genuinely off since the books started
+      // opening the walk, and by one unposted split. The claim under test is
+      // that EIDL's $5.00 contributes NOTHING to either.
+      t.ok(!cb.rows.some(x => /EIDL/.test(x.loan) && x.band === 'material'),
+           'ce5: EIDL is not among the loans the variance gate is counting');
+      t.eq(cb.gateByKey['variance'].count, cb.rows.filter(x => x.band === 'material').length,
+           'ce5: ...whose count is exactly the material rows, and EIDL is not one');
 
       // …and with that one split posted, the band reads exactly what acceptance
       // #4 asks for, WITH the $5.00 still on screen. This is the assertion the
       // whole materiality amendment exists for: a five-dollar difference on a
       // million-dollar loan may be shown, and may not stop a close.
-      const pClean = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        d.loan_splits.forEach(sp => {
-          if (String(sp.period_label || '').slice(0, 7) === MONTH &&
-              ['pending_review', 'needs_attention'].includes(sp.status)) sp.status = 'posted';
-        });
-      } });
+      const pClean = await newHarnessPage({ tab: 'loans', mutate: await cleanJuly(['EIDL SBA Loan']) });
       const cb2 = (await pClean.surfaces()).loans.closeBand;
       t.ok(/ready for your accountant/i.test(cb2.lead || ''),
            'ce5: with the unposted split cleared, a $5.00 gap does NOT stop the close',
            `lead=${JSON.stringify(cb2.lead)} · bad gates ${JSON.stringify(cb2.gates.filter(g => !g.ok).map(g => g.key))}`);
       const r2 = rowOf(cb2, 'EIDL SBA Loan');
       t.eq(r2.band, 'immaterial', 'ce5: ...and the $5.00 is still there, still de-escalated');
+      t.close(r2.varianceN, -5, 0.005, 'ce5: ...at its real size');
+      t.eq((cb2.gateByKey['immaterial'] || {}).count, 1,
+           'ce5: ...the only small difference left, and still on the strip');
       t.ok(/\$5\.00/.test((cb2.gateByKey['immaterial'] || {}).text || ''),
-           'ce5: ...still printed on the chip, not hidden');
+           'ce5: ...still printed on the chip, not hidden',
+           `chip=${JSON.stringify((cb2.gateByKey['immaterial'] || {}).text)}`);
       t.ok(/2 per schedule/.test(cb2.text || ''),
            'ce5: ...and the strip reads "N confirmed by lender · 2 per schedule", never "3 statements outstanding"',
            `strip: ${JSON.stringify(cb2.gates.map(g => g.text))}`);
@@ -3060,9 +3368,10 @@ GROUPS.push({
            'ce11: ...with no two chips sharing a name');
       // The strip is genuinely variable-length: three chips are conditional.
       const conditional = ['lender-confirmed', 'per-schedule', 'immaterial'];
+      const flat = await cleanJuly([]);
       const pEmpty = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        d.loan_accounts.forEach(a => { a.close_basis = 'lender_statement'; });
-        d.loan_statements = d.loan_statements.filter(st => st.source !== 'email_pdf_upload');
+        flat(d);                                   // nothing left in the immaterial band
+        d.loan_accounts.forEach(a => { a.close_basis = 'lender_statement'; });   // and nothing at grade B
       } });
       const cbE = (await pEmpty.surfaces()).loans.closeBand;
       t.ok(!cbE.gateByKey['immaterial'],
@@ -3160,14 +3469,9 @@ GROUPS.push({
       //     without an independent opening the row is circular and never reaches
       //     a band at all, which is why loan_book_balances being empty in
       //     production is a finding rather than a gap in this test.
-      const pAug = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        const dex = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
-        d.loan_book_balances.push({
-          id: 'harness-dex-0731', loan_account_id: dex.id, as_of: '2026-07-31',
-          balance: 89411.25, basis: 'xero_rebuild', run_id: null,
-          detail: { staged_entries_at_or_before: 0 }, computed_at: '2026-07-31T12:00:00Z',
-        });
-      } });
+      // No plant at all now: reconciliation-run wrote Dexter's real 7/31 rebuild
+      // at 89,411.25, so August opens independently on Xero's own figure.
+      const pAug = await newHarnessPage({ tab: 'loans' });
       const aug = await pAug.evaluate(() => {
         const rf = _loanCloseRollforward('2026-08');
         const r = rf.rows.find(x => x.a.xero_account_name === 'Dexter Loan 2');
@@ -3227,21 +3531,26 @@ GROUPS.push({
       const pp = aug.otherStaged.find(x => x.n === 'Paypal 2');
       t.ok(!!pp, 'ce12 boundary: Paypal 2 also carries a staged split in August', JSON.stringify(aug.otherStaged));
       if (pp) {
-        t.eq(pp.band, 'material',
-             'ce12 boundary: ...and is NOT de-escalated, because its staged principal does not close the gap exactly');
-        t.close(pp.v - pp.stagedP, -44.70, 0.005,
-                'ce12 boundary: ...$44.70 of it is unaccounted for, so nothing here is "mostly explained"');
+        // AND THE $44.70 IS GONE. Before reconciliation-run wrote the books,
+        // Paypal 2's August opening was a LENDER statement (61,896.57) and the
+        // row sat $44.70 below the all-or-nothing threshold: material, red and
+        // blocking, for a gap that was mostly one staged payment. Xero's own
+        // 7/31 rebuild (58,775.97) opens it now and it ties exactly. The
+        // boundary is unchanged; the live case that was sitting on it was an
+        // artifact of opening the walk from the lender's side.
+        t.eq(pp.band, 'tie',
+             'ce12 boundary: Paypal 2’s August now TIES on a books-side opening — the $44.70 was an artifact',
+             `band=${pp.band} v=${pp.v}`);
+        t.close(pp.v, 0, 0.005, 'ce12 boundary: ...at $0.00');
+        t.ok(Math.abs(pp.stagedP) > 3000,
+             'ce12 boundary: ...with its staged split still on file, so the shape really did resolve rather than vanish',
+             `staged principal ${pp.stagedP}`);
       }
       await pAug.close();
 
       // (b) the same shape rendered, by moving it into the closing month.
       const pDom = await newHarnessPage({ tab: 'loans', mutate: (d) => {
         const dex = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
-        d.loan_book_balances.push({
-          id: 'harness-dex-0630', loan_account_id: dex.id, as_of: '2026-06-30',
-          balance: 92737.48, basis: 'xero_rebuild', run_id: null,
-          detail: { staged_entries_at_or_before: 0 }, computed_at: '2026-06-30T12:00:00Z',
-        });
         const jul = d.loan_splits.find(sp => sp.loan_account_id === dex.id && sp.period_label === '2026-07');
         jul.status = 'staged';
         jul.stage_reference = 'WR-STAGE harness';
@@ -3258,12 +3567,14 @@ GROUPS.push({
            `cell=${JSON.stringify(rd.variance)}`);
       t.ok(/3,326\.23/.test(rd.variance || ''), 'ce12: ...with the figure printed, never hidden');
       // Not blocking, and no chip of its own.
-      t.eq(cbD.gateByKey['variance'].ok, true, 'ce12: the variance gate stays clear');
+      t.ok(!cbD.rows.some(x => /Dexter/.test(x.loan) && x.band === 'material'),
+           'ce12: the variance gate is not counting Dexter');
       t.ok(!cbD.gateByKey['unbooked'], 'ce12: ...and there is NO unbooked chip — the posting gate already counts it',
            JSON.stringify(cbD.gates.map(g => g.key)));
       t.eq(cbD.gateByKey['posting'].ok, false, 'ce12: ...which is the one gate that does report it');
-      t.close(cbD.subtotals.B.varianceN, 0, 0.005,
-              'ce12: ...and the grade-B subtotal counts UNEXPLAINED variance only, so it stays at $0.00');
+      t.ok(cbD.subtotals.B.varianceN < 1 && Math.abs(rd.varianceN) > 3000,
+           'ce12: ...and the grade-B subtotal counts UNEXPLAINED variance only, so $3,326.23 of it stays out',
+           `subtotal ${cbD.subtotals.B.varianceN} vs row ${rd.varianceN}`);
       t.ok(/payments this month has not booked yet/.test(cbD.note || ''),
            'ce12: ...and the footer says so in words', `note=${JSON.stringify(cbD.note)}`);
 
@@ -3284,14 +3595,7 @@ GROUPS.push({
       await pDom.close();
 
       // (c) the undated half: Verdant's 'Period 14' (A10), $2,707.61.
-      const verBooks = (bal) => (d) => {
-        const ver = d.loan_accounts.find(x => x.xero_account_name === 'Verdant Capital Loan');
-        d.loan_book_balances.push({
-          id: 'harness-ver-0630', loan_account_id: ver.id, as_of: '2026-06-30',
-          balance: bal, basis: 'xero_rebuild', run_id: null,
-          detail: { staged_entries_at_or_before: 0 }, computed_at: '2026-06-30T12:00:00Z',
-        });
-      };
+      const verBooks = (bal) => (d) => setBooks(d, 'Verdant Capital Loan', [{ as_of: '2026-06-30', balance: bal }]);
       // 256,289.88 − 2,687.94 booked − 250,894.33 schedule = 2,707.61 exactly.
       const pU = await newHarnessPage({ tab: 'loans', mutate: verBooks(256289.88) });
       const ru = rowOf((await pU.surfaces()).loans.closeBand, 'Verdant Capital Loan');
@@ -3341,14 +3645,12 @@ GROUPS.push({
     // SBA 2 holds a real portal_manual_pull dated exactly 2026-07-31 and would
     // have lost to a stale June books row for an invented $858.66.
     {
-      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        const bf = d.loan_accounts.find(x => x.xero_account_name === 'BayFirst SBA 2');
-        d.loan_book_balances.push({
-          id: 'harness-bf2-stale', loan_account_id: bf.id, as_of: '2026-05-31',
-          balance: 999999, basis: 'xero_rebuild', run_id: null,
-          detail: { staged_entries_at_or_before: 0 }, computed_at: '2026-05-31T12:00:00Z',
-        });
-      } });
+      // The loan's REAL rows are removed and replaced by a single stale one, so
+      // the only books balance on file is for the wrong date. That is the shape
+      // a missed reconciliation-run month produces, and it is the shape the
+      // exact-date test exists to refuse.
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) =>
+        setBooks(d, 'BayFirst SBA 2', [{ as_of: '2026-05-31', balance: 999999 }]) });
       const cb = (await p.surfaces()).loans.closeBand;
       const r = rowOf(cb, 'BayFirst SBA 2');
       t.eq(r.openingFromBooks, false,
@@ -3360,8 +3662,8 @@ GROUPS.push({
       t.eq(r.band, 'tie', 'ce13: ...in the tie band');
       t.eq(cb.rows.filter(x => x.openingN === 999999).length, 0,
            'ce13: ...and the stale figure reaches no row at all');
-      t.ok(/ready for your accountant/i.test(cb.lead || '') || cb.gateByKey['variance'].ok,
-           'ce13: ...so nothing about the close changed', `lead=${JSON.stringify(cb.lead)}`);
+      t.ok(!cb.rows.some(x => /BayFirst SBA 2/.test(x.loan) && x.band === 'material'),
+           'ce13: ...so this loan contributes nothing to the variance gate');
 
       // ── CONTROL ── let the stale row win
       const rev = await revertFn(p, '_loanBookBalanceAsOf', EDITS('stale-books-wins'));
@@ -3430,7 +3732,18 @@ GROUPS.push({
       t.eq(r.grade, 'A', 'ce14: rendered — the July close is still grade A');
       t.close(r.perLenderN, 30094.14, 0.005,
               'ce14: ...at the LABELLED July figure, not the unlabelled $29,302.52 dated three days later');
-      t.eq(r.ties, true, 'ce14: ...and the row still ties');
+      // It does not tie any more, and that is correct: the opening moved to
+      // Xero's own rebuild and this loan is one of the four genuinely off. What
+      // matters here is WHICH document closed the month, so the variance is
+      // checked against the tie-out reconciliation-run computed independently.
+      const e5tie = await pDom.evaluate(() => {
+        const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'E-Transit Loan E5-4751');
+        const to = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+        return Number(to.difference);
+      });
+      t.close(r.varianceN, e5tie, 0.005,
+              'ce14: ...and its variance equals the tie-out reconciliation-run computed independently',
+              `row ${r.varianceN} vs tie-out ${e5tie}`);
       t.ok(/does not say what its balance measures/.test(r.note || ''),
            'ce14: ...with data-note on the closing cell naming the document set aside',
            `note=${JSON.stringify(r.note)}`);
@@ -3444,7 +3757,9 @@ GROUPS.push({
         t.close(b.perLenderN, 29302.52, 0.005,
                 'ce14 CONTROL: pre-review, the unlabelled document closed the month');
         t.eq(b.grade, 'A', 'ce14 CONTROL: ...graded "confirmed by lender", into the subtotal the CPA signs');
-        t.eq(b.ties, false, 'ce14 CONTROL: ...and the tie broke, on a number nobody can interpret');
+        t.ok(Math.abs(b.varianceN - r.varianceN) > 700,
+             'ce14 CONTROL: ...moving the variance by the whole difference between the two documents',
+             `${b.varianceN} vs ${r.varianceN}`);
       }
       await restoreFns(pDom);
       await pDom.close();
@@ -3526,12 +3841,11 @@ GROUPS.push({
            'ce16: ...naming the money that is holding the month open');
 
       // The other direction: clear the blocker and BOTH must go green together.
-      const pOk = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        d.loan_splits.forEach(sp => {
-          if (String(sp.period_label || '').slice(0, 7) === MONTH &&
-              ['pending_review', 'needs_attention'].includes(sp.status)) sp.status = 'posted';
-        });
-      } });
+      // Both blockers have to go, not just the split: four loans are genuinely
+      // off now that the books open the walk. cleanJuly flattens the openings
+      // and posts the split, which is the only state in which "ready" is the
+      // right answer — and the point is that BOTH surfaces reach it together.
+      const pOk = await newHarnessPage({ tab: 'loans', mutate: await cleanJuly([]) });
       const b = await read(pOk);
       t.ok(/ready for your accountant/i.test(b.lead || ''), 'ce16: with the blocker cleared the band is ready');
       t.ok(/ready for your accountant/i.test(b.count || ''),
@@ -3667,8 +3981,168 @@ GROUPS.push({
       await restoreFns(p);
       await p.close();
     }
+
+    /* ── 19 ── THE NEW VARIANCES ARE REAL, NOT A REGRESSION ─────────────── */
+    // Several loans moved from a $0.00 tie to a material variance the moment
+    // reconciliation-run wrote loan_book_balances, and that deserves suspicion
+    // rather than acceptance. It is not a regression, and the reason is
+    // structural: a rollforward ties the LEDGER's opening, less principal per
+    // the ledger, to the LENDER's closing. While the opening came from a lender
+    // statement the check was lender-to-lender with our own principal in the
+    // middle — the books were never in it, so it could only ever catch a split
+    // that disagreed with the lender's own month-over-month movement. Now Xero
+    // opens the walk and the books are on trial, which is the entire point of
+    // the design.
+    //
+    // The claim is checked rather than argued: reconciliation-run computes each
+    // loan's gap INDEPENDENTLY, from BankTransactions plus ManualJournals, and
+    // stores it on loan_tie_outs. Two unrelated constructions agreeing to the
+    // cent is evidence; one construction asserting itself is not.
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const cb = (await p.surfaces()).loans.closeBand;
+      const ties = await p.evaluate(() => {
+        const out = {};
+        (_allLoanAccounts || []).filter(a => a.status === 'active').forEach(a => {
+          const t2 = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
+          if (t2) out[a.xero_account_name] = { status: t2.status, difference: Number(t2.difference),
+                                               asOf: t2.as_of, anchor: t2.anchor_source };
+        });
+        return out;
+      });
+
+      // Every row now opens on the books. That is the precondition for any of
+      // this meaning anything, so it is asserted rather than assumed.
+      const checkable = cb.rows.filter(r => r.perLenderN != null && r.computedN != null);
+      t.eq(checkable.filter(r => !r.openingFromBooks).length, 0,
+           'ce19: every checkable row opens on a books-side rebuild — the books are in the check now',
+           JSON.stringify(checkable.filter(r => !r.openingFromBooks).map(r => r.name)));
+
+      // The three Ford loans that used to print $0.00: each matches its
+      // independently computed tie-out TO THE CENT.
+      for (const [name, want] of [['E-Transit Loan - 4140', 415.88],
+                                  ['E-Transit Loan E4 -9744', 182.00],
+                                  ['E-Transit Loan E5-4751', 266.42]]) {
+        const r = cb.rows.find(x => x.name === name);
+        t.ok(!!r, `ce19: ${name} is on the rollforward`);
+        t.eq(r.band, 'material', `ce19: ${name} is genuinely off, not rounding`);
+        t.close(r.varianceN, want, 0.005, `ce19: ${name} reports $${want}`);
+        t.close(Math.abs(r.varianceN), Math.abs(ties[name].difference), 0.005,
+                `ce19: ...which is what reconciliation-run measured independently from Xero`,
+                `rollforward ${r.varianceN} vs tie-out ${ties[name].difference}`);
+        t.eq(ties[name].status, 'exception', `ce19: ...and the tie-out calls it an exception too`);
+      }
+
+      // The two that STILL tie do so consistently: their tie-outs are
+      // 'explained', meaning payments dated after the statement account for the
+      // gap — so at month end there is none. A tie here is not the old
+      // lender-to-lender tie; it survived the books being added.
+      for (const name of ['E-Transit Loan E6-7410', 'BayFirst SBA 2']) {
+        const r = cb.rows.find(x => x.name === name);
+        t.eq(r.ties, true, `ce19: ${name} still ties with the books opening the walk`);
+        t.eq(ties[name].status, 'explained',
+             `ce19: ...and its tie-out is "explained" — later payments cover the gap, so month end is clean`);
+        t.ok(Math.abs(ties[name].difference) > 100,
+             `ce19: ...even though the tie-out's own snapshot figure is not zero, which is the distinction`,
+             `${ties[name].difference} at ${ties[name].asOf}`);
+      }
+
+      // ── THE ONE THAT DOES NOT MATCH, AND WHY ────────────────────────────
+      // Funding Circle's rollforward says −$1,023.20 and its tie-out says
+      // −$1,008.06. That is not a contradiction, it is a decomposition, and the
+      // $15.14 between them is a finding in its own right:
+      //
+      //   rollforward = (books 6/30) − (principal WE booked in July)  vs lender 7/31
+      //   tie-out     = (books 8/03) vs lender 8/03
+      //
+      // The books moved $1,010.57 across July. Our July split claims $1,025.71.
+      // The rollforward sees both the books-vs-lender gap AND the split that
+      // disagrees with the ledger; the tie-out sees only the first.
+      const fc = cb.rows.find(x => x.name === 'Funding Circle Loan');
+      const fcFacts = await p.evaluate(() => {
+        const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Funding Circle Loan');
+        const bb = (_allLoanBookBalances || []).filter(b => b.loan_account_id === a.id);
+        const at = (d) => { const r = bb.find(b => b.as_of === d); return r ? Number(r.balance) : null; };
+        return { jun: at('2026-06-30'), jul: at('2026-07-31'),
+                 split: (_allLoanSplits || []).filter(sp => sp.loan_account_id === a.id &&
+                          sp.period_label === '2026-07' && sp.status !== 'voided')
+                        .reduce((n, sp) => n + Number(sp.principal_amount || 0), 0) };
+      });
+      t.eq(fc.band, 'material', 'ce19: Funding Circle is material');
+      t.close(fc.varianceN, -1023.20, 0.005, 'ce19: ...at −$1,023.20');
+      t.close(ties['Funding Circle Loan'].difference, -1008.06, 0.005,
+              'ce19: ...while its tie-out independently says −$1,008.06');
+      const ledgerMoved = fcFacts.jun - fcFacts.jul;
+      t.close(ledgerMoved, 1010.57, 0.005,
+              'ce19: ...the books moved $1,010.57 across July');
+      t.close(fcFacts.split, 1025.71, 0.005,
+              'ce19: ...while the July split claims $1,025.71 of principal');
+      t.close(fc.varianceN - ties['Funding Circle Loan'].difference, -(fcFacts.split - ledgerMoved), 0.005,
+              'ce19: ...and the $15.14 between the two figures is EXACTLY that disagreement — a decomposition, not a contradiction');
+      // ── EVERY DISAGREEMENT IS NAMED AND ACCOUNTED FOR ───────────────────
+      // The two constructions agree only where nothing moved between month end
+      // and the tie-out's own anchor date — which is why the three Ford loans
+      // match to the cent despite mid-August anchors. Where they differ, the
+      // difference is EXPLAINED rather than averaged away, so the set is pinned
+      // and each member has its own reason asserted.
+      const mismatched = cb.rows.filter(r => r.varianceN != null && ties[r.name] &&
+        ties[r.name].status === 'exception' &&
+        Math.abs(Math.abs(r.varianceN) - Math.abs(ties[r.name].difference)) > 0.005)
+        .map(r => r.name).sort();
+      t.eq(JSON.stringify(mismatched),
+           JSON.stringify(['Funding Circle Loan', 'PCV Good and Green Loan', 'Verdant Capital Loan']),
+           'ce19: exactly three loans’ two constructions differ, and each difference is accounted for',
+           `mismatched: ${JSON.stringify(mismatched)}`);
+      // Verdant and PCV differ because their tie-out is anchored AFTER month end
+      // and something moved in between — they are not measuring the same day.
+      // In both cases the rollforward's month-end figure is the cleaner one,
+      // which is exactly the localisation a books-side opening buys: it says
+      // WHEN the gap appeared, not merely that it exists.
+      for (const n of ['Verdant Capital Loan', 'PCV Good and Green Loan']) {
+        const r2 = cb.rows.find(x => x.name === n);
+        t.ok(String(ties[n].asOf) > '2026-07-31',
+             `ce19: ${n}'s tie-out is anchored on ${ties[n].asOf}, after the month being closed`);
+        t.ok(Math.abs(r2.varianceN) < Math.abs(ties[n].difference),
+             `ce19: ...and July is the cleaner of the two, so the gap belongs to the later period`,
+             `July ${r2.varianceN} vs ${ties[n].asOf} ${ties[n].difference}`);
+      }
+      await p.close();
+    }
+
+    /* ── 20 ── STRIPE'S $125,000 MUST NOT SURFACE AS A VARIANCE ──────────── */
+    // Stripe's books balance at 6/30 is $20,875.00 — the fee journal alone,
+    // because the $125,000 of principal landed in July — while its
+    // contract_origination anchor says $145,875.00. The books row now wins the
+    // opening, so the two differ by exactly $125,000. Stripe is
+    // ingestion_method 'automatic' and has no closing figure at all, so it can
+    // never be graded or checked; the danger is that a six-figure difference
+    // leaks onto the screen anyway.
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const s = await p.surfaces();
+      const cb = s.loans.closeBand;
+      const r = cb.rows.find(x => x.name === 'Stripe Capital Loan');
+      t.ok(!!r, 'ce20: Stripe Capital is on the rollforward');
+      t.close(r.openingN, 20875, 0.005, 'ce20: ...opening at the books’ $20,875.00, not the contract’s $145,875.00');
+      t.eq(r.openingFromBooks, true, 'ce20: ...because the books row wins the opening');
+      t.eq(r.grade, 'C', 'ce20: ...it has no closing figure, so it is graded C');
+      t.eq(r.varianceN, null, 'ce20: ...and reports NO variance');
+      t.eq(r.band, null, 'ce20: ...in no band');
+      t.eq(r.ties, false, 'ce20: ...and certainly no tie');
+      t.ok(/swept from Xero/.test(r.perLender || ''), 'ce20: ...the closing cell still reads "swept from Xero"');
+      // The number itself must appear nowhere on the surface.
+      t.notMatch(cb.text, /125,000/, 'ce20: $125,000 appears nowhere in the close band');
+      t.notMatch(s.loans.paneText, /125,000\.00/, 'ce20: ...nor anywhere on the Loans tab');
+      t.eq(cb.subtotals.none && cb.subtotals.none.automatic, 1,
+           'ce20: ...and the excluded line declares it as the one loan swept from Xero');
+      t.ok(/swept from Xero/.test((cb.subtotals.none || {}).cells[0] || ''),
+           'ce20: ...in words, not as "no evidence"', JSON.stringify((cb.subtotals.none || {}).cells[0]));
+      t.noBadMoney(cb.text, 'ce20: close band with Stripe opening on the books');
+      await p.close();
+    }
   },
 });
+
 
 
 /* ═══════════════════════════════ RUNNER ═════════════════════════════════ */

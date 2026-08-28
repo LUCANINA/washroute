@@ -37,6 +37,25 @@
 > Running it also needs a logged-in admin session — `callerRole(req)` with **no
 > `x-wr-internal` branch**, so unlike `xero-read` it cannot be poked from SQL.
 >
+> ### 1b. 🎨 NEW — THE OVERVIEW IS ONE ROW PER LENDER NOW (session 247)
+>
+> The queue card is **631 px with ten rows**, down from about three screens.
+> Findings live behind a click; every row carries its own count. **Before editing
+> anything on that page, read the session 247 (cont.) log entry** — in particular
+> why the seven group headings became three bands without losing session 246's
+> distinctions, and why the band count (lenders) legitimately differs from the
+> statusline count (loans).
+>
+> **Two rules that are load-bearing and easy to undo by accident:**
+> * A row's status sentence comes from `_bkLenderSummary` and NOTHING else. Never
+>   let a row inherit its band's label — "Settled or waiting" is a sort order,
+>   "settled on the contractual schedule" is a claim, and session 246 exists
+>   because a check that cannot fail once posed as one that passed.
+> * A lender-level finding is filed under its lender **by the ABSENT loan id,
+>   never by name**. `r2b` in the harness constructs the collision the real data
+>   never produces and proves the guard discriminates; if you touch that filter,
+>   run it.
+>
 > ### 2. 🟠 STRIPE'S LENDER ANCHOR — STILL BLOCKED ON THE SAME SCHEMA DECISION
 >
 > Unchanged and re-verified today: `loan_statements` still carries **UNIQUE
@@ -2016,6 +2035,94 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 247 (cont., 2026-08-28) — the Overview page, cut from three screens to one
+
+David: *"time to declutter the Overview/Dashboard page. It has become unwieldy and
+almost impossible to navigate. First, display only One line per loan (or group of
+loan in the case of Ford Financial)... The main goal of this page is to identify
+variances. Everything else is secondary. All the info should be contained in one
+page max (before opening issues)."*
+
+**Measured result: the queue card is 631 px tall with ten rows, down from roughly
+three screens.** Verified in the headless harness, not estimated.
+
+**WHAT WAS ACTUALLY WRONG, because it was not what it looked like.** Session 242's
+roster was ALREADY one row per loan. The page was unnavigable because every finding
+under every loan rendered EXPANDED, beneath **seven** group headings — fourteen
+loans produced closer to forty rows. Fixing "one line per loan" alone would have
+changed nothing.
+
+**Two changes.**
+
+1. **One row per LENDER.** Fourteen active loans belong to **ten** lenders; only
+   Ford Pro FinSimple (4) and BayFirst (2) have more than one. So "group by lender"
+   is a general rule that happens to produce exactly the Ford grouping David asked
+   for, with no special case to rot the day a fifth E-Transit is financed. A group's
+   state is the WORST of its members and the row says how many disagree
+   ("3 of 4 disagree"), so a clean loan can never launder a dirty one.
+2. **The findings moved behind a click.** Same `_bkQueueRowHtml`, same Got it /
+   Review / peek handlers; the panel is in the DOM from the first paint and merely
+   `display:none`, so collapsing fetches nothing, recomputes nothing and drops
+   nothing. Every row carries its own count ("5 to look at").
+
+**THE SEVEN HEADINGS BECAME THREE BANDS AND THAT IS THE PART TO WATCH.** Session
+246 fought to keep *"Closed on the contractual schedule"*, *"Needs a statement"* and
+*"Nothing to compare against yet"* distinct from *"Reconciled"*, because collapsing
+them lets a check that CANNOT FAIL pose as one that passed — Dexter 2 sat under
+"Reconciled" on exactly that basis. Those distinctions now live in each **row's own
+sentence**, written in one place (`_bkLenderSummary`). The band is a sort order; the
+sentence is the claim. `r1` now asserts that Dexter's row still says *"settled on the
+contractual schedule"* **in those words** and never *"agrees with the lender"* — so
+a future edit cannot quietly let a row inherit its band's label.
+
+**A consequence worth stating out loud: the band count and the headline count differ,
+legitimately.** "Reconciled (3)" counts LENDER rows while the statusline says "5 of 14
+loans reconciled". Both are right: E-Transit E6-7410 is reconciled but sits inside
+Ford Pro FinSimple, whose other three are not, so its lender row is red and its own
+green line is one click down. Given this module's history of two-numbers-one-page
+bugs, that discrepancy is now **asserted explicitly in r1** rather than left to be
+rediscovered as a bug.
+
+**A defect class deleted rather than fixed.** Sessions 242–246 carried TWO copy-paste
+branches that each had to remember to render a loan's findings — one for
+`reconciled`, one for `immaterial` — and the historical bug was that neither did.
+That is the session-231 shape exactly: right code, one branch away from the path
+that needed it. There is now ONE children path serving every state, so the two
+defects are no longer independently expressible. The harness proves it: reverting
+that single line must empty a reconciled loan AND a needs-attention loan, and `r1`
+asserts both — a stronger claim than the pair of tests it replaces.
+
+**Lender-level findings are now filed under their lender** — Ford's *"3 loans
+disagree with the lender"*, which `reconciliation-run` raises with a NULL
+`loan_account_id` because it is about the tangle and not any one vehicle, used to sit
+in an orphan bin under the roster where it went to be ignored. **The eligibility test
+is the ABSENT ID, never the name.** A finding stranded by an inactive loan still HAS
+an id, and filing it by name would bury a paid-off loan's live $3,041.83 error inside
+a collapsed panel belonging to loans that are fine — the session-231 shape again.
+The real fixture never produces that collision, which is precisely why **r2b
+constructs it**: it renames an inactive loan's findings to begin with "Ford Pro
+FinSimple", asserts they stay orphans, then reverts the id guard and asserts every
+one of them gets swallowed. A guard nothing exercises is a guard nobody knows is
+broken.
+
+**Harness work (tests/bookkeeping-harness.mjs).** `READ_QUEUE` was taught the new DOM
+and now flattens lender rows and per-loan blocks into one addressable list, so a test
+can name either. It still reads `textContent`, never `innerText`, so *"every item
+reaches the DOM"* keeps meaning what it meant: a finding behind a click with a count
+on the face of its row is on the screen; one that never rendered is not, and only the
+second is a bug. `revertRoster` can now rewrite `_bkLenderSummary` as well as
+`_bkRosterHtml` — the dot colours and status sentences moved into the former, and a
+discrimination test that could only rewrite one function would have silently stopped
+discriminating. **1214 assertions pass; the single red one is Tech Debt #19's
+deliberate failure (START HERE §7) and was not touched.**
+
+**Sandbox note for next time:** the device VM has no Playwright, so the harness was
+run in the cloud container against staged copies —
+`WR_CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome` with
+`playwright@1.49.1` installed locally (the container's bundled build is 1194 and
+newer Playwright releases look for a different build number). The full suite takes
+about 6 minutes.
 
 ### Session 247 (2026-08-28) — the Staging Engine closed its first loop, live
 

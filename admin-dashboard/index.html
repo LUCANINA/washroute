@@ -3436,6 +3436,40 @@
                              background: var(--gray-50, #f9fafb); border-bottom: 1px solid var(--gray-200, #e5e7eb); }
             /* Session 225: issue hierarchy. Tier 1 ("Fix first") gets weight,
                tier 3 ("Good to know") gets quiet + a one-click archive. */
+            /* ── The lender roster row (session 247) ────────────────────────
+               One row per lender: dot, name (+ how many loans it stands for),
+               the status sentence right-aligned so a column of them scans
+               vertically, and a chevron. The findings live in .bk-lr-panel
+               below it, display:none until clicked — present in the DOM from
+               the first paint so every Got it / Review handler keeps working. */
+            .bk-lender-row { display: flex; align-items: center; gap: 11px; padding: 11px 20px;
+                             border-bottom: 1px solid var(--gray-100); cursor: pointer; }
+            .bk-lender-row:hover { background: var(--gray-50); }
+            .bk-lender-row.bk-t1 { border-left: 3px solid #dc2626; background: #fffbfa; padding-left: 17px; }
+            .bk-lender-row.bk-t1:hover { background: #fff5f4; }
+            .bk-lender-row .bk-dot { margin-top: 0; }
+            .bk-lr-name { font-size: 13.5px; font-weight: 600; color: var(--gray-900); flex: 1 1 auto;
+                          min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .bk-lr-meta { font-size: 11.5px; font-weight: 500; color: var(--gray-400); margin-left: 9px; }
+            .bk-lr-sum { font-size: 12.5px; font-weight: 500; color: var(--gray-500);
+                         flex: 0 1 auto; text-align: right; white-space: nowrap;
+                         overflow: hidden; text-overflow: ellipsis; }
+            .bk-lr-sum.t1 { color: #b91c1c; font-weight: 650; }
+            .bk-lr-sum.t2 { color: #b45309; }
+            .bk-lr-chev { flex: none; width: 12px; text-align: center; font-size: 11px; color: var(--gray-400); }
+            .bk-lr-panel { border-bottom: 1px solid var(--gray-100); background: var(--gray-50, #f9fafb); }
+            .bk-lr-detail { font-size: 12.5px; color: var(--gray-600); line-height: 1.5; padding: 12px 20px 12px 38px; }
+            .bk-lr-sub { display: flex; align-items: center; gap: 10px; padding: 8px 20px 8px 38px;
+                         border-top: 1px solid var(--gray-100); }
+            .bk-lr-sub .bk-dot { margin-top: 0; }
+            .bk-lr-sub-name { font-size: 12.5px; font-weight: 600; color: var(--gray-700); flex: 1 1 auto;
+                              min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .bk-lr-sub-sum { font-size: 12px; color: var(--gray-500); white-space: nowrap; }
+            .bk-lr-sub-sum.t1 { color: #b91c1c; font-weight: 600; }
+            .bk-lr-sub-sum.t2 { color: #b45309; }
+            .bk-lr-none { font-size: 12px; color: var(--gray-400); padding: 0 20px 12px 38px; }
+            .bk-lr-panel .bk-queue-row { background: #fff; padding-left: 38px; }
+            .bk-lr-panel .bk-queue-row.bk-t1 { padding-left: 35px; }
             .bk-tier-head { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 12px 20px 4px; }
             .bk-tier-head.t1 { color: #dc2626; }
             .bk-tier-head.t2 { color: #d97706; }
@@ -15965,28 +15999,16 @@
   // document to compare against. "No open finding" would paint all three green.
   // "Nothing wrong" and "never checked" are different states and the roster must
   // never merge them.
-  const _BK_ROSTER_GROUPS = [
-    { key: 'variance',   label: 'Needs attention',   tone: 't1' },
-    { key: 'unverified', label: 'Needs a statement', tone: 't2' },
-    // Session 246. A loan whose books agree with its own amortization schedule
-    // has NOT been reconciled — nothing outside our records has confirmed
-    // anything, and Dexter 2 sat under "Reconciled" on exactly that basis. It is
-    // not "Needs a statement" either, because on a loan with
-    // close_basis = 'amortization_schedule' no statement is coming and a queue
-    // that cannot be emptied is the thing this session set out to delete. It is
-    // its own state: settled, on a stated basis, by a check that cannot fail.
-    { key: 'byschedule', label: 'Closed on the contractual schedule', tone: 't2' },
-    { key: 'na',         label: 'Nothing to compare against yet', tone: 't2' },
-    { key: 'unchecked',  label: 'Not checked yet',   tone: 't2' },
-    // A real but immaterial gap. NOT filed under Reconciled — the books and the
-    // lender genuinely disagree and saying otherwise would be a lie — but not
-    // work either. This is the group EIDL's $5.00 on $960,005 belongs in, and it
-    // must match what the queue says about the same loan: reconciliation-run
-    // already decided materiality in the tie-out precisely so these two surfaces
-    // cannot drift apart.
-    { key: 'immaterial', label: 'Small differences, not worth chasing', tone: 't3' },
-    { key: 'reconciled', label: 'Reconciled',        tone: 't3' },
-  ];
+  // _BK_ROSTER_GROUPS (sessions 242/246) was the seven-heading version of this
+  // list and is GONE as of session 247 — the headings became three bands and each
+  // row now carries its own status sentence. The labels it held were not
+  // decoration and they were not lost: "Closed on the contractual schedule",
+  // "Needs a statement", "Nothing to compare against yet", "Small differences,
+  // not worth chasing" and "Reconciled" all live on in _bkLenderSummary, which is
+  // now the single place any of that phrasing is written. If you are about to
+  // re-add a group array here, read _bkLenderSummary first — two places writing
+  // the same status is exactly how this module produced its two-numbers-one-page
+  // bugs, and _bkRosterState below is still the one place the STATE is decided.
 
   function _bkRosterState(a) {
     const v = _loanVariance(a) || {};
@@ -16091,6 +16113,138 @@
     return c;
   }
 
+  // ── The lender roster (session 247) ───────────────────────────────────────
+  // David: "display only One line per loan (or group of loan in the case of Ford
+  // Financial) ... The line should show the name of the Lender and a very short
+  // summary of the issue to be resolved or investigate. Clicking opens up details
+  // for that loan. The main goal of this page is to identify variances.
+  // Everything else is secondary. All the info should be contained in one page
+  // max (before opening issues)."
+  //
+  // WHAT WAS ACTUALLY WRONG. Session 242's roster was already one row per loan.
+  // What made the page unnavigable is that every finding under every loan was
+  // rendered EXPANDED, beneath seven separate group headings — fourteen loans
+  // produced closer to forty rows and three screens of scroll. Two changes fix
+  // that without losing a single fact:
+  //
+  //   1. ONE ROW PER LENDER, not per loan. Fourteen active loans belong to TEN
+  //      lenders; only Ford Pro FinSimple (4) and BayFirst (2) have more than
+  //      one. So "group by lender" is a general rule that happens to produce
+  //      exactly the Ford grouping David asked for, with no special case to rot
+  //      the day a fifth E-Transit is financed. A group's state is the WORST of
+  //      its members and its row says how many members disagree, so a clean loan
+  //      can never launder a dirty one.
+  //   2. THE FINDINGS MOVE BEHIND A CLICK. They are still rendered, by the same
+  //      _bkQueueRowHtml, with the same Got it / Review / peek handlers — the
+  //      panel is in the DOM from the first paint and merely display:none, so
+  //      collapsing fetches nothing, recomputes nothing and drops nothing. Every
+  //      row states its own count ("2 things to look at"), so a hidden finding is
+  //      still a visible number. THE RULE IS UNCHANGED: an issue reaches the
+  //      screen or it does not exist. Behind a click with a count on the face of
+  //      the row is on the screen; silently absent is not.
+  //
+  // THE SEVEN HEADINGS BECOME THREE BANDS, AND THAT IS NOT A LOSS — BUT IT IS
+  // THE THING TO BE CAREFUL ABOUT. Session 246 fought to keep "Closed on the
+  // contractual schedule", "Needs a statement" and "Nothing to compare against
+  // yet" distinct from "Reconciled", because collapsing them lets a check that
+  // CANNOT FAIL pose as one that passed — Dexter 2 sat under "Reconciled" on
+  // exactly that basis. Those distinctions now live in each ROW's own sentence
+  // instead of in a heading above it. _bkLenderSummary is the single place that
+  // phrasing is written. Never let a row inherit its band's label as its status:
+  // the band is a sort order, the sentence is the claim.
+  const _BK_GROUP_RANK = { variance: 0, unverified: 1, unchecked: 2, na: 3, byschedule: 4, immaterial: 5, reconciled: 6 };
+  const _BK_ROSTER_BANDS = [
+    { key: 'work',    label: 'Needs attention',    tone: 't1', groups: ['variance'] },
+    { key: 'waiting', label: 'Settled or waiting', tone: 't2', groups: ['unverified', 'unchecked', 'na', 'byschedule', 'immaterial'] },
+    { key: 'clean',   label: 'Reconciled',         tone: 't3', groups: ['reconciled'] },
+  ];
+
+  // Which rows are open. Survives a full re-render (renderBookkeepingOverview
+  // rebuilds innerHTML on every poll); the toggle below also flips the DOM
+  // directly so an open row does not jump the scroll position on a repaint.
+  let _bkRosterOpen = new Set();
+  function _bkLenderKeySlug(lender) {
+    return String(lender || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 60);
+  }
+  function bkToggleLenderRow(lender) {
+    const slug = _bkLenderKeySlug(lender);
+    const panel = document.getElementById('bk-lr-' + slug);
+    const chev = document.getElementById('bk-lc-' + slug);
+    if (!panel) return;
+    const isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : '';
+    if (chev) chev.textContent = isOpen ? '▸' : '▾';
+    if (isOpen) _bkRosterOpen.delete(String(lender)); else _bkRosterOpen.add(String(lender));
+  }
+
+  // THE ONE PLACE A LENDER ROW'S STATUS SENTENCE IS WRITTEN.
+  // Returns { group, dot, tone, headline, detail, loanCount, itemCount }.
+  // `headline` is the short right-hand summary a person scans; `detail` is the
+  // fuller sentence the panel opens with. Both must be true of the SAME facts —
+  // a headline that softens what the detail says is the two-numbers-one-page
+  // failure this module's history is made of.
+  function _bkLenderSummary(rows) {
+    const worst = rows.reduce((w, r) => (_BK_GROUP_RANK[r.st.group] < _BK_GROUP_RANK[w.st.group] ? r : w), rows[0]);
+    const g = worst.st.group;
+    const inState = rows.filter(r => r.st.group === g);
+    const itemCount = rows.reduce((n, r) => n + r.items.length, 0);
+    const multi = rows.length > 1;
+    const asOf = worst.st.asOf ? fmtDate(worst.st.asOf) : null;
+
+    // A combined figure is only honest when every loan in it was measured
+    // against the same kind of counterparty. Ford's three are all lender pulls,
+    // so $864.30 "above the lender" is a real sentence. Mix a schedule-measured
+    // gap into that sum and the sentence names a counterparty that never spoke —
+    // in which case print no total and send the reader into the breakdown.
+    const againstSet = new Set(inState.map(r => String(r.st.against || 'the lender')));
+    const against = againstSet.size === 1 ? [...againstSet][0] : null;
+    const sum = inState.reduce((n, r) => n + Number(r.st.difference || 0), 0);
+    const money = (g === 'variance' || g === 'immaterial') && Number.isFinite(sum) ? sum : null;
+    const spread = multi && inState.length < rows.length ? `${inState.length} of ${rows.length}` : null;
+
+    let dot, tone, headline, detail;
+    if (g === 'variance') {
+      dot = 'red'; tone = 't1';
+      headline = (money != null && against)
+        ? `${fmtMoney(Math.abs(money))} ${money < 0 ? 'below' : 'above'} ${against}`
+        : `${inState.length} loan${inState.length === 1 ? '' : 's'} disagree`;
+      detail = worst.st.reason
+        || `The books and ${against || 'the source they were checked against'} do not agree${asOf ? ` as of ${asOf}` : ''}.`;
+    } else if (g === 'immaterial') {
+      dot = 'gray'; tone = 't3';
+      headline = money != null
+        ? `${fmtMoney(Math.abs(money))} ${money < 0 ? 'below' : 'above'} ${against || 'the lender'} — rounding`
+        : 'a rounding difference';
+      detail = `A real difference, too small to be worth chasing on its own${asOf ? ` (measured ${asOf})` : ''} — it will go red if it grows.`;
+    } else if (g === 'byschedule') {
+      dot = 'amber'; tone = 't2';
+      headline = 'settled on the contractual schedule';
+      detail = worst.st.reason || 'Agrees with the contractual schedule this loan is set to close on — the same document the balance was built from, so it is settled rather than independently confirmed.';
+    } else if (g === 'na') {
+      dot = 'amber'; tone = 't2';
+      headline = 'nothing to compare against yet';
+      detail = worst.st.reason || 'No lender statement or schedule to compare against — this balance is a live Xero snapshot.';
+    } else if (g === 'unchecked') {
+      dot = 'amber'; tone = 't2';
+      headline = 'not checked yet';
+      detail = worst.st.reason || 'The last reconciliation check did not cover this loan.';
+    } else if (g === 'unverified') {
+      dot = 'amber'; tone = 't2';
+      headline = 'needs a lender statement';
+      detail = worst.st.reason || 'Agrees with our own record rather than a lender document — nothing outside our books has confirmed this balance, so a statement would turn it into a real check.';
+    } else {
+      // Reconciled. The dot goes amber, not green, when something on the loan
+      // still needs a look: a tie-out says the BALANCE agrees and says nothing
+      // about the eight other checks. A green dot over an open error would be
+      // the roster claiming an all-clear it was never told.
+      dot = itemCount ? 'amber' : 'green'; tone = 't3';
+      const how = worst.st.state === 'explained' ? ' (later payments account for the gap)' : '';
+      headline = `agrees with the lender${asOf ? ` as of ${asOf}` : ''}${how}`;
+      detail = `Compared against a real lender document${asOf ? ` dated ${asOf}` : ''} and agreed. This is a claim about the BALANCE only — other checks on this loan are listed separately.`;
+    }
+    return { group: g, dot, tone, headline, detail, spread, loanCount: rows.length, itemCount };
+  }
+
   function _bkRosterHtml(issues) {
     const loans = (_allLoanAccounts || []).filter(a => a.status === 'active');
     // Returning '' here discarded EVERY issue — payroll items, loan flags, the
@@ -16103,13 +16257,10 @@
     // issues into `byLoan` keyed by loan id and then only ever read back the keys
     // of ACTIVE loans — so a finding on a loan that had been closed, or was still
     // pending, was placed in the map and never rendered anywhere. It did not reach
-    // `orphans` either, because it HAD an id. Silently dropping a finding from a
-    // financial screen is the worst thing this module can do, and it is the exact
-    // inverse of the rule this session wrote down: suppressing a fact and
-    // de-escalating it are different acts, and only the second is ever right.
+    // `orphans` either, because it HAD an id.
     const onRoster = new Set(loans.map(a => a.id));
     const byLoan = new Map();
-    const orphans = [];
+    let orphans = [];
     (issues || []).forEach(it => {
       const id = _bkIssueLoanId(it);
       if (!id || !onRoster.has(id)) { orphans.push(it); return; }
@@ -16117,85 +16268,110 @@
       byLoan.get(id).push(it);
     });
 
-    const rows = loans.map(a => ({ a, st: _bkRosterState(a), items: byLoan.get(a.id) || [] }));
+    // Group the loans by lender. `lender` is the grouping key rather than a
+    // hand-kept list of lender names, so a new loan from an existing lender
+    // joins its group with no code change.
+    const byLender = new Map();
+    loans.forEach(a => {
+      const key = String(a.lender || a.xero_account_name || 'Unknown lender');
+      if (!byLender.has(key)) byLender.set(key, []);
+      byLender.get(key).push({ a, st: _bkRosterState(a), items: byLoan.get(a.id) || [] });
+    });
+
+    // A finding that names a whole lender rather than one loan — Ford's
+    // "3 loans disagree with the lender", which reconciliation-run raises with a
+    // NULL loan_account_id precisely because it is about the tangle and not any
+    // one vehicle — belongs in that lender's row, not in an orphan bin under it.
+    // Matched by name against the roster's own lender keys; anything that does
+    // not match stays in "Not tied to one loan" rather than being dropped.
+    // ONLY a finding with NO loan id at all is eligible. A finding orphaned
+    // because its loan went inactive still HAS an id, and it must stay in the
+    // orphan group where R2 can see it — filing it under a lender row would put
+    // a paid-off loan's live $3,041.83 error inside a collapsed panel belonging
+    // to loans that are fine. That is the session-231 shape (right check, wrong
+    // branch) waiting to happen, so the eligibility test is the id, not the name.
+    const lenderOrphans = new Map();
+    orphans = orphans.filter(it => {
+      if (_bkIssueLoanId(it)) return true;
+      const hay = String((it && (it.name || it.title)) || '');
+      let hit = null;
+      for (const key of byLender.keys()) if (hay.indexOf(key) === 0) { hit = key; break; }
+      if (!hit) return true;
+      if (!lenderOrphans.has(hit)) lenderOrphans.set(hit, []);
+      lenderOrphans.get(hit).push(it);
+      return false;
+    });
+
+    const groups = [...byLender.entries()].map(([lender, rows]) => {
+      const extra = lenderOrphans.get(lender) || [];
+      const sum = _bkLenderSummary(rows);
+      return { lender, rows, extra, sum: { ...sum, itemCount: sum.itemCount + extra.length } };
+    });
+
     let html = '';
+    for (const band of _BK_ROSTER_BANDS) {
+      const inBand = groups.filter(g => band.groups.includes(g.sum.group));
+      if (!inBand.length) continue;
+      // Work sorts by the size of the gap — the biggest number is the one to
+      // open first. The quiet bands sort by name so the list stops moving under
+      // the cursor between renders.
+      inBand.sort((x, y) => band.key === 'work'
+        ? Math.abs(Number(y.rows.reduce((n, r) => n + Number(r.st.difference || 0), 0)))
+          - Math.abs(Number(x.rows.reduce((n, r) => n + Number(r.st.difference || 0), 0)))
+        : x.lender.localeCompare(y.lender));
 
-    for (const g of _BK_ROSTER_GROUPS) {
-      const inGroup = rows.filter(r => r.st.group === g.key);
-      if (!inGroup.length) continue;
-      // A loan with real work sorts by size of the gap; the quiet groups by name.
-      inGroup.sort((x, y) => g.key === 'variance'
-        ? Math.abs(Number(y.st.difference || 0)) - Math.abs(Number(x.st.difference || 0))
-        : String(x.a.xero_account_name || '').localeCompare(String(y.a.xero_account_name || '')));
+      html += `<div class="bk-tier-head ${band.tone}">${esc(band.label)} (${inBand.length})</div>`;
 
-      html += `<div class="bk-tier-head ${g.tone}">${esc(g.label)} (${inGroup.length})</div>`;
+      for (const grp of inBand) {
+        const slug = _bkLenderKeySlug(grp.lender);
+        const open = _bkRosterOpen.has(String(grp.lender));
+        const s = grp.sum;
+        // On a lender with one loan, show the name David knows it by (the Xero
+        // account, "Paypal 2"); on a group, the lender is the thing the row is
+        // about and the count is how you know it stands for several.
+        const title = grp.rows.length === 1
+          ? (grp.rows[0].a.xero_account_name || grp.lender)
+          : grp.lender;
+        const meta = [];
+        // "4 loans · 3 of 4 disagree" states the denominator twice; the spread
+        // already carries it, so only one of the two is ever printed.
+        if (s.spread) meta.push(`${s.spread} disagree`);
+        else if (grp.rows.length > 1) meta.push(`${grp.rows.length} loans`);
+        if (s.itemCount) meta.push(`${s.itemCount} to look at`);
 
-      for (const r of inGroup) {
-        const name = esc(r.a.xero_account_name || r.a.lender || 'Unnamed loan');
-        const diff = r.st.difference == null ? null : Number(r.st.difference);
+        html += `<div class="bk-lender-row ${s.tone === 't1' ? 'bk-t1' : ''}" onclick="bkToggleLenderRow('${esc(String(grp.lender)).replace(/'/g, "\\'")}')">
+          <span class="bk-dot ${s.dot}"></span>
+          <div class="bk-lr-name">${esc(title)}${meta.length ? `<span class="bk-lr-meta">${esc(meta.join(' · '))}</span>` : ''}</div>
+          <div class="bk-lr-sum ${s.tone}">${esc(s.headline)}</div>
+          <span class="bk-lr-chev" id="bk-lc-${slug}">${open ? '▾' : '▸'}</span>
+        </div>
+        <div class="bk-lr-panel" id="bk-lr-${slug}"${open ? '' : ' style="display:none"'}>`;
 
-        if (g.key === 'reconciled') {
-          // The reward, and it is a CLAIM rather than a compliment: this loan was
-          // compared against a real lender document on a real date and agreed.
-          // "Reconciled as of X" is checkable; "all good" is not.
-          const asOf = r.st.asOf ? ` as of ${esc(fmtDate(r.st.asOf))}` : '';
-          const how = r.st.state === 'explained'
-            ? ' — payments dated after the statement account for the gap exactly'
-            : '';
-          // A tie-out says the BALANCE agrees. It says nothing about the eight
-          // other checks that run on every loan, or about a flag a human wrote by
-          // hand. A loan can tie to the cent and still carry an error finding, so
-          // "Reconciled" must describe the balance and never claim all-clear.
-          const still = r.items.length
-            ? ` — but ${r.items.length} thing${r.items.length === 1 ? '' : 's'} on this loan still need${r.items.length === 1 ? 's' : ''} a look`
-            : '';
-          html += `<div class="bk-queue-row bk-t3" style="cursor:default">
-            <div class="bk-queue-left" style="flex:1;min-width:0">
-              <span class="bk-dot ${r.items.length ? 'amber' : 'green'}"></span>
-              <div style="min-width:0;flex:1">
-                <div class="bk-queue-name">${name}</div>
-                <div class="bk-queue-reason">Agrees with the lender${asOf}${how}${still}</div>
-              </div>
-            </div>
-          </div>`;
-          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`
-            + r.items.map(_bkQueueRowHtml).join('') + `</div>`;
-          continue;
+        html += `<div class="bk-lr-detail">${esc(s.detail)}</div>`;
+
+        // Per-loan breakdown. Each loan gets its own labelled block even when
+        // its sub-row is suppressed, so a finding is always attributable to the
+        // loan it belongs to — by the DOM, not by reading position.
+        for (const r of grp.rows) {
+          const rs = _bkLenderSummary([r]);
+          const loanName = r.a.xero_account_name || r.a.lender_account_number || 'Unnamed loan';
+          html += `<div class="bk-lr-loan" data-loan="${esc(loanName)}">`;
+          // On a single-loan lender the row above already carried the sentence;
+          // repeating it here would be two statements of one fact.
+          if (grp.rows.length > 1) {
+            html += `<div class="bk-lr-sub">
+              <span class="bk-dot ${rs.dot}"></span>
+              <div class="bk-lr-sub-name">${esc(loanName)}${r.items.length ? `<span class="bk-lr-meta">${r.items.length} to look at</span>` : ''}</div>
+              <div class="bk-lr-sub-sum ${rs.tone}">${esc(rs.headline)}</div>
+            </div>`;
+          }
+          if (r.items.length) html += r.items.map(_bkQueueRowHtml).join('');
+          html += `</div>`;
         }
-
-        if (g.key === 'immaterial') {
-          html += `<div class="bk-queue-row bk-t3" style="cursor:default">
-            <div class="bk-queue-left" style="flex:1;min-width:0">
-              <span class="bk-dot gray"></span>
-              <div style="min-width:0;flex:1">
-                <div class="bk-queue-name">${name}</div>
-                <div class="bk-queue-reason">${diff != null ? esc(fmtMoney(Math.abs(diff))) : 'A small amount'} ${diff != null && diff < 0 ? 'below' : 'above'} the lender${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''} — too small to be worth chasing on its own, and it will go red if it grows${r.items.length ? `. ${r.items.length} other thing${r.items.length === 1 ? '' : 's'} on this loan still need${r.items.length === 1 ? 's' : ''} a look` : ''}</div>
-              </div>
-            </div>
-          </div>`;
-          if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`
-            + r.items.map(_bkQueueRowHtml).join('') + `</div>`;
-          continue;
-        }
-
-        const sub = g.key === 'variance'
-          ? `${diff != null ? esc(fmtMoney(Math.abs(diff))) + (diff < 0 ? ' below ' : ' above ') + esc(r.st.against || 'the lender') : 'variance against ' + esc(r.st.against || 'the lender')}${r.st.asOf ? ` at ${esc(fmtDate(r.st.asOf))}` : ''}${r.items.length ? ` · ${r.items.length} thing${r.items.length === 1 ? '' : 's'} to look at` : ''}${r.st.reason ? ` — ${esc(r.st.reason)}` : ''}`
-          : esc(r.st.reason || 'not compared against a lender document');
-
-        html += `<div class="bk-queue-row ${g.key === 'variance' ? 'bk-t1' : 'bk-t2'}" style="cursor:default">
-          <div class="bk-queue-left" style="flex:1;min-width:0">
-            <span class="bk-dot ${g.key === 'variance' ? 'red' : 'amber'}"></span>
-            <div style="min-width:0;flex:1">
-              <div class="bk-queue-name">${name}</div>
-              <div class="bk-queue-reason">${sub}</div>
-            </div>
-          </div>
-        </div>`;
-        // The findings themselves, under the loan they belong to, rendered by the
-        // same row builder as before so Got it / Review / the peek eye all keep
-        // working untouched.
-        if (r.items.length) html += `<div style="padding-left:18px;border-left:2px solid var(--gray-100);margin-left:22px">`
-          + r.items.map(_bkQueueRowHtml).join('') + `</div>`;
+        if (grp.extra.length) html += `<div class="bk-lr-loan" data-loan="${esc(String(grp.lender))}">`
+          + grp.extra.map(_bkQueueRowHtml).join('') + `</div>`;
+        if (!s.itemCount) html += `<div class="bk-lr-none">Nothing open on this ${grp.rows.length > 1 ? 'lender' : 'loan'} beyond what the line above says.</div>`;
+        html += `</div>`;
       }
     }
 
