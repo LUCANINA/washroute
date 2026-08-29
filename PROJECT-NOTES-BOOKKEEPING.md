@@ -81,44 +81,31 @@
 >   never produces and proves the guard discriminates; if you touch that filter,
 >   run it.
 >
-> ### 2. 🟡 STRIPE'S LENDER ANCHOR — SCHEMA UNBLOCKED (session 251), NOT YET DEPLOYED
+> ### 2. ✅ STRIPE'S LENDER ANCHOR — DEPLOYED AND FILED (session 251, closed)
 >
-> **The decision moved.** `loan_statements` is now `UNIQUE (loan_account_id,
-> statement_date, source)`, not just `(loan_account_id, statement_date)` — applied
-> 2026-08-29, migration `session_251_loan_statements_source_scoped_unique.sql`.
-> David asked "if the Stripe balance is in Xero, why aren't we using it", which is
-> what surfaced that our own daily sweep was occupying the only slot a real Stripe
-> figure could ever have used.
+> All three functions are live: `loan-ingest-amortization` v18 (2026-08-29 17:29:46
+> UTC), `loan-ingest-statement` v37 (17:58:19 UTC), `loan-bundle` v32 (21:34:43 UTC,
+> deployed by David from his own terminal — the MCP deploy tool hit a real size
+> ceiling on this one; full story in the session log). All three re-fetched and
+> grepped for the fix after deploying, not just version-checked.
 >
-> Went with relaxing the constraint, NOT the "stop the sweep" alternative session
-> 246 floated: `_rankByAuthority()` (session 239) already prefers a real lender row
-> over our own arithmetic within its 45-day grace window, so the display side
-> needed no changes at all — only the write side was blocking this. Stopping the
-> sweep instead would have meant teaching `loan_book_balances` to compute daily,
-> not just at month-end, which it does not do today. Smaller, safer fix.
+> Stripe's first-ever `portal_manual_pull` row is filed: **2026-08-26, $123,091.66,
+> `total_payback`** — sitting beside the same-date `xero_balance_snapshot` row
+> ($125,257.71) instead of being blocked by it, which is the fix working as
+> intended. Gap between them: $2,166.05, settlement lag, matching session 245's
+> earlier measurement exactly.
 >
-> **Companion code changes, same commit:** `loan-ingest-statement` and
-> `loan-ingest-amortization`'s upsert `onConflict` target updated to match the new
-> constraint; `_shared/loan-bundle-apply.ts`'s `statementRowWrite()` no longer
-> refuses a different-source row on an owned day (`'date_taken'` is dead — a
-> conflict now means only a second row from the SAME source disagreeing).
-> `tests/apply-bundle.test.mts` updated and re-run clean (88/88 + 233/233 in
-> `loan-bundle-balances.test.mts`). Verified before applying: 899 existing rows, 0
-> null sources, zero existing (loan, date) pairs with more than one row — the
-> migration could not fail on existing data.
+> **One loose thread:** that row has no stored evidence file (`storage_path` is
+> null) — it was filed by direct SQL insert because the original Stripe screenshot
+> wasn't available to re-attach this session. If David provides it, re-ingest
+> through the normal upload path so the evidence is on record; the figure itself
+> doesn't need to change.
 >
-> **NOT YET DEPLOYED.** `loan-ingest-statement`, `loan-ingest-amortization` and
-> `loan-bundle` (which imports `loan-bundle-apply.ts`) all still need a redeploy
-> before any of this takes effect live — the migration is applied, the code is
-> committed locally, nothing is pushed or deployed. Check `list_edge_functions`
-> `updated_at` against this commit before trusting either claim.
->
-> **Still open after the deploy:** Stripe Capital still has **0 `portal_manual_pull`
-> rows** on file — there is room for one now, but nothing has filed one yet. The
-> next real step is getting an actual Stripe-confirmed balance in (a portal pull,
-> statement, or a screenshot dated via `ledger-dating.ts` the way 2026-08-26 was
-> worked out in session 245) — that will not backfill 7/31 specifically, only
-> whatever date it's dated.
+> **A limit worth remembering:** `deploy_edge_function` from this sandbox tops out
+> around 100–130KB of literal file content in one call. Six files fit
+> (`loan-ingest-statement`); twelve (`loan-bundle`, ~404KB) did not — hand David
+> the `supabase functions deploy` CLI command for anything that size, per session
+> 232's rule. See the session log for the number.
 >
 > ### 3. 🟠 UNLABELLED BALANCES — AND A CORRECTION TO WHAT SESSION 245 WROTE HERE
 >
@@ -2287,6 +2274,80 @@ exact-amount search is not an existence test when the system aggregates).
 to "what is running".
 
 ---
+
+### Session 251 (cont. 2, 2026-08-29) — deployed all three functions, filed Stripe's first real balance
+
+Continuation of the same day's earlier entry ("one balance per loan per day, per
+source") — this is the deploy-and-file half David asked for: "yes" to deploying the
+three functions, then filing the actual 2026-08-26 Stripe balance so it would show
+on the board.
+
+**Deploys, each verified by re-fetching the live function and grepping for the fix
+itself, not just checking the version number moved:**
+
+- `loan-ingest-amortization` v17 -> **v18**, 2026-08-29 17:29:46 UTC. Clean single
+  deploy through the MCP `deploy_edge_function` tool (2 files, well under any size
+  ceiling).
+- `loan-ingest-statement` -> **v37**, 17:58:19 UTC, also through the MCP tool (6
+  files, ~100KB combined -- fit, but only after trimming the file's own long
+  historical version-note comments out of the deploy payload to make room. The code
+  and the `onConflict` fix are byte-for-byte correct (verified by grep), but the
+  *deployed* copy of `loan-ingest-statement/index.ts` no longer carries the same
+  comments the committed repo file does. Flagged to David; he can ask for a
+  comment-preserving redeploy (via his own CLI, which has no such ceiling) if that
+  matters to him. **Also:** the first attempt at this specific deploy shipped a
+  literal `"PLACEHOLDER"` string as the file content by mistake -- caught
+  immediately by re-fetching and grepping before anything relied on it, corrected
+  with a second deploy in the same turn. Third instance of this exact failure mode
+  in this project's history (see the session 218 and "Housekeeping note" entries
+  above) -- the "always re-fetch and diff after every deploy" convention is the
+  only reason none of the three ever reached a real user.
+- `loan-bundle` v31 -> **v32**, 21:34:43 UTC, deployed by **David**, from his own
+  terminal. This one had a real reason it couldn't go through the MCP tool: its
+  bundle is 12 files, ~404,000 bytes combined, and a single `deploy_edge_function`
+  call from this sandbox tops out somewhere around 100,000-130,000 characters of
+  literal file content before the response itself gets cut off mid-generation --
+  not a Supabase limit, a limit on how much text one tool call in this sandbox can
+  produce in one turn. A subagent spent 84 tool calls, roughly 20 minutes and 322k
+  tokens confirming this empirically (including checking for a bypass via
+  `curl`/the Management API directly -- no credentials available in this sandbox)
+  before reporting back that it genuinely could not be done from here. The actual
+  answer was already written down, word for word, in session 232: *"Deploying from
+  the sandbox is not worth the risk... always hand David the command."* Handed him
+  `npx supabase functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq`
+  from `~/Projects/WashRoute` (after logging in once); he ran it and it worked
+  immediately, full comments intact -- better than the sandbox's own
+  `loan-ingest-statement` deploy, which had to trim them to fit.
+
+  **Rule of thumb for next time, so this isn't rediscovered the hard way again:**
+  if a function's dependency bundle is more than about 5-6 files, or their combined
+  size is anywhere near 100KB, don't attempt the MCP `deploy_edge_function` tool
+  first -- go straight to handing David the CLI command. Below that rough size, the
+  MCP tool is fine and keeps the deploy inside the session without round-tripping
+  through David.
+
+**Filed the Aug 26 balance.** `INSERT` into `loan_statements`: loan_account_id
+`49ee6d50-c5a8-4258-8343-425d91d0f13b` (Stripe Capital), `statement_date =
+'2026-08-26'`, `principal_balance = 123091.66`, `source = 'portal_manual_pull'`,
+`balance_basis = 'total_payback'` (matching every other row already on file for
+this loan). Confirmed first that no `portal_manual_pull` row already existed for
+that date -- that would have been a real conflict under the new constraint, not
+just a different-source coexistence. The new constraint let it sit beside the
+existing `xero_balance_snapshot` row for the same date ($125,257.71) instead of
+being refused, which is the whole point of this fix, now demonstrated on real
+data: **$2,166.05** of real gap between the daily-chain estimate and Stripe's own
+figure, settlement lag, matching session 245's earlier measurement to the cent.
+
+Filed by direct SQL insert rather than through `loan-ingest-statement`'s normal
+upload path, because the original Stripe dashboard screenshot from earlier in the
+session was no longer available in this sandbox to attach as the stored evidence
+file -- `storage_path` is null on this one row as a result, unlike every other
+statement in the table. See START HERE section 2 for the follow-up.
+
+**Not run this session:** `tests/bookkeeping-harness.mjs` against the live
+dashboard render (no live-network path from this sandbox). Asked David to check
+the Loans tab directly instead, which is the real test of whether the display
+picked up the new anchor.
 
 ## Session Log
 
