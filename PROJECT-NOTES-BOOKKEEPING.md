@@ -2,7 +2,7 @@
 
 > ## ⏭️ START HERE — first thing, session 248 (left by session 247, 2026-08-28)
 >
-> ### 1. ✅ DEPLOYED AND RUN — the ledger check is live, and one commit is unpushed
+> ### 1. ✅ DEPLOYED AND RUN — the ledger check is live; only the push is outstanding
 >
 > **Checked against the live project, not inferred (2026-08-29 01:47 UTC).** This
 > block has gone stale three days running, every time written by the session that
@@ -12,12 +12,17 @@
 > |---|---|
 > | `reconciliation-run` | **v58**, deployed 2026-08-28 22:19:37 UTC |
 > | `loan-bundle` | **v26**, deployed 2026-08-29 01:38:53 UTC |
-> | `origin/main` | at `04e0580` |
-> | **unpushed** | **ONE commit — `a661921`** |
+> | `origin/main` | at `04e0580` when this was written |
+> | **unpushed** | `a661921` and everything after it — **count it, do not quote this** |
 >
 > ```
-> git push          # one commit; the sandbox has no network and will 403
+> git log --oneline origin/main..HEAD    # what is actually unpushed, right now
+> git push                               # the sandbox has no network and will 403
 > ```
+>
+> *(The count is deliberately not written as a number. The session that writes this
+> block then commits the block, which changes the count — the same trap as the deploy
+> line above, one notch smaller. State the command, not the answer.)*
 >
 > **The draws work is live and has run three times** (22:20, 00:28, 01:40), each
 > writing **44 `loan_book_balances` rows with 0 refusals**. The proof it is really
