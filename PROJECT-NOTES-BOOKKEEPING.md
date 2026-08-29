@@ -44,6 +44,24 @@
 >
 > **Nothing is pending here except the push.**
 >
+> ### 1c. 🎨 NEW — THE LOANS ROLLFORWARD IS NINE COLUMNS NOW (session 249)
+>
+> David asked for the Client View's voice on the Loans page. Read the session 249
+> log entry before touching that table. Three things are load-bearing and easy to
+> undo by accident:
+>
+> * **Lender / Opening source / Closing date / Closing source are NOT gone.** They
+>   are `data-` attributes on the cell whose figure they describe, read by three
+>   consumers — the CSV export, the harness, and `data-hint`. Do not re-add them as
+>   columns and do not drop an attribute because nothing visible uses it.
+> * **`exportRollforwardCSV()` reads attributes, never rendered text.** A CSV built
+>   from `textContent` exports what the screen chose to show, which is the opposite
+>   of what a workpaper is for. The strip's `·` separators are CSS pseudo-elements
+>   and prove the point.
+> * **One red on the page:** the blocking chips in the status strip. `.lcb-off` is
+>   near-black semibold on purpose — silence around a figure beats colour on it, and
+>   it survives print. The green strip is set by `blocked` and cannot be faked.
+>
 > ### 1b. 🎨 NEW — THE OVERVIEW IS ONE ROW PER LENDER NOW (session 247)
 >
 > The queue card is **631 px with ten rows**, down from about three screens.
