@@ -128,17 +128,27 @@
 > an independent opening and nearly shipped acceptance criterion #1 as a tautology.
 > See the session 246 entry.
 >
-> ### 4. 🔴 FUNDING CIRCLE — STILL UNRESOLVED, STILL THE OLDEST OPEN THING
+> ### 4. 🟠 FUNDING CIRCLE — XERO IS NOW FIXED FOR 2026-04-20; OUR OWN RECORD ISN'T, AND CAN'T BE VOIDED YET
 >
-> Sessions 241 through 246 have all left it. Re-verified today: split
-> `dcd896b3-643a-4032-b145-28211daff980` (2026-04-20) is still **posted** at
-> **$2,033.77 principal / $0.00 interest**, with about $1,038 of interest expense
-> sitting in the loan account. Eight months of every payment on file twice,
-> 2025-11 → 2026-06. The page still refuses to publish figures built on it, so
-> nothing wrong leaves the building, but the repair still needs a human. **Read the
-> session 241 entry before touching it.** Order unchanged: read Xero's journals
-> first, then void through `void_loan_split`, then correct the survivors, then
-> re-run `_loanPrincipalReconciliation`.
+> Sessions 241 through 246 left it unresolved on the Xero side. **Session 252: David fixed
+> the Xero side himself** — split the 2026-04-20 BankTransaction directly to $980.93
+> principal / $1,052.84 interest (confirmed live via `xero-read`, `UpdatedDateUTC`
+> 2026-08-29 17:53:22 UTC) — and separately found + fixed the reason the Overview kept
+> showing the stale "no interest split" finding anyway (a `reconciliation-run` bug: an
+> out-of-window finding could never learn that Xero told the engine it had changed and
+> the engine had already re-checked it clean — see the session 252 log entry for the
+> full mechanism). Code fix is written, `deno check`-clean, committed locally; **not yet
+> deployed** — handed David the CLI command since the bundle is too big for this
+> sandbox's deploy tool.
+>
+> **Still open, and it's a decision, not a code fix:** `loan_splits` `dcd896b3-…`
+> (2026-04-20, `posted`) and the duplicate card `4dfd8dd5-…` (`2026-04`,
+> `already_in_xero`) both still say the OLD, wrong numbers in our own database, and
+> `void_loan_split` refuses to touch either one — it hard-refuses `posted` and
+> `already_in_xero` alike. This is the same `markSplitAlreadyInXero`-is-one-way gap
+> session 231 flagged and nobody has built since. Read the session 252 entry before
+> picking an approach (build the proper un-mark path first, or do the one-off manual
+> SQL correction the way session 231 did once, with the Xero side re-verified first).
 >
 > ### 5. ⚠️ THREE DUPLICATE DOCUMENTS STILL BLOCK A GUARD WE WANT
 >
@@ -2272,6 +2282,108 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 252 (2026-08-29) — the Overview never re-checks a payment once it ages past 120 days, even when Xero fixes it
+
+David: the Overview still showed "Funding Circle Loan — 2026-04-20 payment of $2,033.77 has no
+interest split" after he'd edited the transaction directly in Xero, and it survived two more
+reconciliation runs. "Investigate and solve at source."
+
+**What David actually did, confirmed against Xero, not assumed:** he split the ORIGINAL
+BankTransaction (`868db3ce-…`) itself — not a correction journal. `xero-read`'s `payment_picture`
+(had to raise the timeout to 90s; the default 5s/25s both timed out mid-journal-fetch) shows two
+lines now: `253` (Funding Circle Loan) **$980.93**, `800` (Interest Expense) **$1,052.84** —
+`UpdatedDateUTC` **2026-08-29 17:53:22 UTC**, which the Xero UI confirms as "Edited by David
+Macquart-Moulin on Aug 29, 2026 at 13:53PM" (org timezone is Eastern, UTC−4 — matches exactly).
+Those figures are not new: `loan_splits` `4dfd8dd5-…` (the `2026-04` **card**, `explicit_split`,
+already `already_in_xero`) has carried this exact 980.93/1052.84 decomposition since it was computed
+— David used the app's own already-known-correct split as his guide when editing Xero by hand.
+
+**Root cause, traced through the actual code, not guessed:** `checkLumpedPayments` reads a
+transaction's CURRENT lines live every run — it would have cleared this the moment it looked. It
+never got the chance for months, because `reconciliation-run`'s normal pull only reaches back
+`floorFrom = today − 120 days` (≈2026-05-01), and 2026-04-20 sits outside it. The ONE mechanism that
+can reach an old date anyway — `pullXero`'s `If-Modified-Since` pull, which fetches anything of ANY
+date Xero says changed since the last run (design note 3, session 212) — DID catch this: the edit
+landed at 17:53:22 UTC, the very next run started 17:59:58 UTC with `modifiedSince` = the prior run's
+17:49:44 start, so `relevantChangedOld` picked the transaction up and `checkLumpedPayments` correctly
+found nothing wrong with it (verified: `ledger['253']` for that run would have carried the row with
+its new `800` line, `hasInterestLine` true, skip).
+
+**But `refreshOutOfWindowLumped` and the `resolvedNow` resolve filter never learned that "examined via
+If-Modified-Since" is a thing.** Both only knew two states — "the live check re-raised this
+fingerprint" or "the date is before `windowFrom`, so stay open, don't guess" (the v5 rule, session
+216ish, written to stop `E-Transit 4140`'s 2026-04-17 payment from being wrongly auto-resolved when it
+was simply never looked at). Once Xero told the engine an old transaction changed and the engine
+looked and found it fixed, there was still no code path that could say so — `refreshOutOfWindowLumped`
+saw "out of window, not in `seenFps`" and blindly re-emitted the SAME stale sentence, and the resolve
+block's blanket `d < windowFrom → never resolve` refused to close it out for the same reason. Two
+runs after the fix (18:33, 21:36) hit exactly this, and by then the transaction was no longer in
+*that* run's own `If-Modified-Since` window either (it only changed once, back on 17:53), so simply
+re-running again would never have helped without a code fix.
+
+**This is also exactly why "the Loans page updated but the Overview didn't."** The Loans page and
+the lender-balance figures are built from Xero's own Trial Balance snapshot each run (the v19
+checkpoint fix, session 226) — immune to the 120-day window by construction, since a Trial Balance
+already reflects all of Xero's history to that date. Only the per-transaction line-item checks
+(`checkLumpedPayments` and its stale-finding refresh/resolve machinery) are window-bounded. Two
+different mechanisms, two different blind spots — not the same bug wearing two faces.
+
+**The fix — `supabase/functions/reconciliation-run/index.ts`, three places, verified with
+`deno check` clean (installed deno fresh in the sandbox to run it; not available on the device):**
+
+1. `examinedSrcIds` — a new `Set` built right after `allEntries` (`entries` + `relevantChangedOld`) —
+   every Xero object this run actually looked at, in-window or via `If-Modified-Since`, regardless of
+   its own date.
+2. `refreshOutOfWindowLumped` takes `examinedSrcIds` and skips its blind recycle when the finding's
+   own `detail.bank_transaction_id` is in that set — the live check already looked at it fresh this
+   run; the answer belongs to the resolve block, not to this cosmetic refresher.
+3. The `resolvedNow` filter's `d < windowFrom → never resolve` guard gets one exception:
+   `wasExamined` (the same `bank_transaction_id`-in-`examinedSrcIds` test). Everything else about the
+   v5 safety rule is untouched — a finding whose transaction genuinely was never re-pulled this run
+   (the ordinary case) still cannot be auto-resolved by absence alone.
+
+Scoped deliberately narrow: `bank_transaction_id` only ever appears in `lumpedFinding`'s `detail`
+(grepped the whole file to confirm — one writer, one reader), so no other check type's resolve
+behaviour changes. `balance_vs_lender`, `derived_drift`, etc. key off `detail.anchor_date`, which this
+patch never touches.
+
+**Not yet deployed.** `deno check` passed clean, but the bundle (`index.ts` ~140KB + `double-
+reallocation.ts` + three `_shared/*.ts` files, ~230KB combined) is well past this session's own
+"5-6 files / ~100KB" rule of thumb (see the session 251 cont. 2 entry above) for the sandbox's
+`deploy_edge_function` ceiling — handed David the command rather than risk a truncated deploy or,
+worse, hand-retyping 140KB of financial posting logic into a tool call and hoping nothing drifted:
+
+```
+cd ~/Projects/WashRoute
+supabase functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq
+```
+
+Committed locally (message below); **not pushed** — sandbox has no network for that, same as always.
+
+**Still open, and it's a decision for David, not a code fix:** the `loan_splits` row that actually
+matches this bank transaction (`dcd896b3-…`, period `2026-04-20`, `statement_delta`, `status='posted'`)
+still says principal `$2,033.77` / interest `$0.00` in our own database — untouched by David's Xero
+edit, because that edit went straight into Xero rather than through the app. Session 241's prescribed
+repair (void the duplicate, correct the survivor, re-run) turns out to be blocked by `void_loan_split`
+itself: the RPC refuses to void a split whose status is `posted`, `staged`, `already_in_xero` or
+`closed_period` — which is BOTH candidate rows here (`dcd896b3` is `posted`; the `2026-04` card
+`4dfd8dd5` is `already_in_xero`). This is the same gap session 231's "Funding Circle: the stuck card"
+entry flagged and left as tech debt (`markSplitAlreadyInXero` is one-way, no un-mark action exists)
+— still true, checked today, nothing has built it since. Real options, neither attempted this
+session: build the missing un-mark/revert-to-pending-review path properly (a schema + RPC change,
+needs `washroute-migration-review` first) so the sanctioned path actually works, or do the one-off
+manual SQL correction the way session 231 did once before (verify the Xero side fully first, same as
+that session did). Left for David to choose rather than picking for him — this is money already
+booked, twice, and a fix by direct SQL is the kind of thing this module's own rules say should not be
+someone's unilateral call.
+
+**Where to pick up:** confirm the `supabase functions deploy` ran (`list_edge_functions` `updated_at`
+vs. `git log`, plus — since this fix doesn't write new columns — a live-run test: click Run
+Reconciliation Check and confirm the Funding Circle 2026-04-20 lumped-payment finding actually
+disappears from Issues). Then take David's answer on the `loan_splits` repair above.
 
 ---
 

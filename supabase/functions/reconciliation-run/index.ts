@@ -1050,8 +1050,24 @@ function lumpedFinding(loan: any, p: { date: string, amount: number, srcId: stri
 // statement exists, how old the payment is, what it should now say -- comes from
 // the statements and the finding's own stored detail. So rebuild those from what
 // we already have, using the same builder, and leave the ledger out of it.
+//
+// SESSION 252: "out of window" and "never re-examined" used to be the same fact.
+// They stopped being the same fact the day pullXero started asking Xero for
+// anything MODIFIED since the last run regardless of its date (see allEntries /
+// relevantChangedOld) -- but this function and the resolve block below were never
+// told. Funding Circle's 2026-04-20 payment was hand-split in Xero to the correct
+// principal/interest lines; the very next run's If-Modified-Since pull DID fetch
+// it and checkLumpedPayments DID confirm it was fixed -- but this function had no
+// way to distinguish that from "still haven't looked", so it kept re-printing the
+// stale finding across two more runs. The Loans page and the lender-balance figures
+// never had this problem: they read Xero's Trial Balance / live figures, which are
+// immune to the window by construction (see the v19 checkpoint note above). Fix:
+// examinedSrcIds carries every srcId this run actually pulled (in-window or via
+// If-Modified-Since); a finding whose own transaction is in that set was genuinely
+// looked at, so it is left for the resolve block rather than blindly recycled here.
 function refreshOutOfWindowLumped(existing: any[], loans: any[], statements: any[],
-                                  today: string, windowFrom: string, seenFps: Set<string>): Finding[] {
+                                  today: string, windowFrom: string, seenFps: Set<string>,
+                                  examinedSrcIds: Set<string>): Finding[] {
   const out: Finding[] = []
   for (const f of existing || []) {
     if (f.status !== 'open') continue
@@ -1059,6 +1075,18 @@ function refreshOutOfWindowLumped(existing: any[], loans: any[], statements: any
     if (seenFps.has(f.fingerprint)) continue          // the live check already handled it
     const d = f.detail?.date
     if (!d || d >= windowFrom) continue               // in window: absence means fixed, not stale
+    // Session 252: out-of-window no longer means "never looked at". Xero's own
+    // If-Modified-Since tells this run about an old object that changed since the
+    // last run, regardless of its date (see allEntries/relevantChangedOld and
+    // examinedSrcIds where the window is built). If THIS finding's own transaction
+    // is one of those, checkLumpedPayments already inspected its CURRENT lines this
+    // run -- and since execution reached this point (the fingerprint is not in
+    // seenFps), it found nothing wrong. Recycling the old sentence here would be
+    // worse than doing nothing: it would keep asserting a problem the code just
+    // finished disproving. Leave it alone and let the resolve block (also updated
+    // this session) close it out.
+    const txnId = String(f.detail?.bank_transaction_id || '')
+    if (txnId && examinedSrcIds.has(txnId)) continue
     const loan = loans.find((l: any) => l.id === f.loan_account_id)
     if (!loan) continue
     const realStatementDates = (statements || [])
@@ -1067,7 +1095,7 @@ function refreshOutOfWindowLumped(existing: any[], loans: any[], statements: any
       .sort()
     out.push(lumpedFinding(loan, {
       date: d, amount: Number(f.detail?.amount || 0),
-      srcId: String(f.detail?.bank_transaction_id || ''), contact: f.detail?.contact,
+      srcId: txnId, contact: f.detail?.contact,
     }, today, realStatementDates))
   }
   return out
@@ -1705,6 +1733,14 @@ async function handle(req: Request): Promise<Response> {
     const relevantChangedOld = changedOld.filter(r => r.lines.some((l: any) => codes.includes(l.c)))
     const allEntries = [...entries, ...relevantChangedOld]
     const ledger = buildLedger(allEntries, codes)
+    // Every Xero object this run actually looked at, in-window or not. A row lands
+    // here two ways: it's dated inside [windowFrom, pullTo] (the normal case), or
+    // Xero's own UpdatedDateUTC told us it changed since the last run even though
+    // it's dated earlier (relevantChangedOld). This is what lets an out-of-window
+    // lumped-payment finding tell "genuinely never re-examined" apart from "Xero
+    // says this one changed and the live check just looked at it fresh" (session 252
+    // -- see refreshOutOfWindowLumped and the resolvedNow filter below).
+    const examinedSrcIds = new Set(allEntries.map((r: any) => r.srcId))
 
     // ── new / still-open / resolved, by fingerprint ──
     // Engine-owned rows only. This table is now shared with the intake subsystem
@@ -1966,7 +2002,7 @@ async function handle(req: Request): Promise<Response> {
     // They keep their fingerprints, so this UPDATES the existing rows rather than
     // creating new ones -- the point is to correct text that has gone stale, not
     // to re-raise anything.
-    const refreshed = refreshOutOfWindowLumped(existing || [], active, statements || [], today, windowFrom, seenFps)
+    const refreshed = refreshOutOfWindowLumped(existing || [], active, statements || [], today, windowFrom, seenFps, examinedSrcIds)
     if (refreshed.length) {
       findings.push(...refreshed)
       seenFps = new Set(findings.map(f => f.fingerprint))
@@ -2003,11 +2039,21 @@ async function handle(req: Request): Promise<Response> {
     // payment "resolved" on 2026-08-16 for exactly this reason: the 120-day
     // floor put windowFrom at 2026-04-18, one day after the payment, so the
     // check never even looked at it. A finding that falls off the edge of the
-    // window must stay open, not get swept into "resolved" by default.
+    // window must stay open, not get swept into "resolved" by default --
+    // UNLESS that specific transaction is in examinedSrcIds (session 252): Xero's
+    // own If-Modified-Since told this run the object changed, checkLumpedPayments
+    // read its current lines, and "not re-found" really does mean fixed there.
+    // Funding Circle's 2026-04-20 payment (hand-split in Xero to the correct
+    // principal/interest lines) is the case this closes: the lender-balance and
+    // Loans-page figures updated the moment Xero changed, because they read Xero's
+    // Trial Balance directly; only this window-bounded resolve check could not
+    // tell "never looked" apart from "looked, and it's fine" until now.
     const resolvedNow = (existing || []).filter(f => {
       if (f.status !== 'open' || seenFps.has(f.fingerprint)) return false
       const d = f.detail?.date ?? f.detail?.anchor_date
-      if (d && d < windowFrom) return false
+      const txnId = String(f.detail?.bank_transaction_id || '')
+      const wasExamined = txnId !== '' && examinedSrcIds.has(txnId)
+      if (d && d < windowFrom && !wasExamined) return false
       return true
     })
     for (const f of resolvedNow) {
