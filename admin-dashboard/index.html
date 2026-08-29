@@ -3311,7 +3311,7 @@
                  2. RULES ARE HAIRLINES. --gray-100 between rows, --gray-200
                     at the edges. A table does not need a box per cell to be
                     a table.
-                 3. ONE RED ON THE PAGE. #b3382c is spent on the blocking
+                 3. ONE RED ON THE PAGE. #dc2626 is spent on the blocking
                     chips in the status strip and nowhere else — not on the
                     tiles, not on the row figures, not on the status words.
                     Weight and silence do the rest: when everything settled is
@@ -3346,7 +3346,7 @@
             .lcb-strip.clear .lcb-gate.ok { color: var(--gray-600); }
             .lcb-lead { font-weight: 700; color: var(--gray-900); }
             /* THE one red. Everything else on this page defers to it. */
-            .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; color: #b3382c; }
+            .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; color: #dc2626; }
             .lcb-lead + .lcb-gate::before,
             .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: var(--gray-300);
                                             font-weight: 400; }
@@ -3402,12 +3402,16 @@
                which is darker than the figures beside it. */
             .lcb-none { color: var(--gray-300); }
             .lcb-na { color: var(--gray-300); }
-            /* NO RED HERE any more (session 249). A material variance is the
-               near-black, semibold figure in a column where everything settled
-               prints nothing at all. Silence around it is louder than colour
-               on it, and it survives being printed, photocopied and read by
-               someone who does not see red. */
-            .lcb-off { color: var(--gray-900); font-weight: 650; }
+            /* RED, AND IT MEANS ONE THING (session 250, David: "make variances
+               red"). Session 249 tried near-black on the theory that silence
+               around a figure beats colour on it. It does not, on a column a
+               CPA scans for a verdict — grey everywhere else is what makes red
+               affordable here, not a reason to skip it.
+               What red does NOT mark is as important: an immaterial difference
+               stays grey (.lcb-quiet), because a real gap nobody is chasing is
+               not the same claim, and a status word stays ink. Red on this page
+               means "a figure that has to move". */
+            .lcb-off { color: #dc2626; font-weight: 650; }
             .lcb-flag { color: var(--gray-900); font-weight: 600; }
             .lcb-quiet { color: var(--gray-400); font-weight: 400; }
             .lcb-table tfoot td { padding: 13px 12px; border-top: 1px solid var(--gray-300);
@@ -3416,6 +3420,51 @@
             .lcb-excluded td { color: var(--gray-500); font-weight: 400; border-top: none; }
             .lcb-foot { padding: 14px 18px 18px; font-size: 11.5px; color: var(--gray-400); line-height: 1.65; }
             .lcb-foot b { color: var(--gray-500); font-weight: 600; }
+
+            /* ══ THE IN-FLIGHT (AUGUST) TABLE ════════════════════════════════
+               Session 250 (David): "apply style, including fonts, to the August
+               view." It was the last surface on this page still speaking the old
+               dialect — boxed tiles, a `font-family: monospace` on every figure,
+               an amber banner, and blue pills down two columns.
+
+               MONOSPACE WAS THE LOUDEST OF THOSE and it is worth naming again:
+               session 241 removed it from the rollforward for a reason that
+               applies unchanged here. It earns its place on figures, where digits
+               must align down a column — but proportional faces have had tabular
+               figures for twenty years, so `font-variant-numeric` does the
+               aligning and the table gets to speak in the interface's own voice.
+               Account numbers and dates were in it too, and a date set in
+               monospace has read as mainframe since mainframes.
+
+               `.lit` scopes all of this to this one table: `.td-mono` is shared
+               with Customers, Orders and half the app, and quietly redefining it
+               globally would be a redesign of surfaces nobody asked about. */
+            .lit { font-variant-numeric: tabular-nums; }
+            .lit thead th { padding: 0 12px 10px; font-size: 10.5px; font-weight: 600;
+                            letter-spacing: .055em; text-transform: uppercase;
+                            color: var(--gray-400); background: transparent;
+                            border-bottom: 1px solid var(--gray-200); }
+            .lit thead th.th-sort:hover { color: var(--gray-700); }
+            .lit thead th.th-sort::after { opacity: .25; }
+            .lit thead th.sort-asc::after, .lit thead th.sort-desc::after { color: var(--gray-500); }
+            .lit tbody tr { border-bottom: 1px solid var(--gray-100); }
+            .lit tbody tr:hover { background: var(--gray-50); }
+            .lit td { padding: 11px 12px; font-size: 13px; color: var(--gray-700); }
+            /* The one line that does the work. Everything below it is spacing. */
+            .lit .td-mono { font-family: inherit; font-size: 13px; color: var(--gray-700);
+                            font-variant-numeric: tabular-nums; }
+            .lit .td-name { font-weight: 600; color: var(--gray-900); }
+            .lit .lit-acct { color: var(--gray-400); font-size: 12px; }
+            /* A pill per row per column is a lot of pills. These are context —
+               which lender, what kind of loan, whether a later entry exists —
+               so they read as quiet text with a ground, not as status alarms. */
+            .lit .badge { background: var(--gray-100); color: var(--gray-500); font-weight: 500; }
+            .lit .badge::before { display: none; }
+            .lit .badge.on { background: var(--gray-900); color: #fff; }
+            .lit tfoot td { padding: 13px 12px; border-top: 1px solid var(--gray-300);
+                            font-weight: 650; color: var(--gray-900); font-size: 13px; }
+            .lit-off { color: #dc2626; font-weight: 650; }
+            .lit-quiet { color: var(--gray-400); font-weight: 400; }
 
             /* ── the detail line (session 249) ───────────────────────────────
                David: "no extra tidbits of information crammed underneath an
@@ -3602,7 +3651,7 @@
             .lpb-seg button.on .lpb-k { color:#2563eb; }
             .lpb-v { display:block; font-size:13.5px; font-weight:650; }
             .lpb-pip { width:8px; height:8px; border-radius:50%; flex:none; }
-            .lpb-pip.warn { background:#b3382c; }
+            .lpb-pip.warn { background:#dc2626; }
             .lpb-pip.ok   { background:var(--gray-300); }
             .lpb-pip.live { background:#3b82f6; }
             /* Session 249: this badge counted the SAME blockers the status strip
@@ -3870,8 +3919,8 @@
                header, and the resolved/info/past-reports references sit under
                the Overview queue. Loans is now purely: summary tiles, All
                Loans, Debt Schedule. -->
-          <div class="card" id="loans-all-card">
-            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('loans-table-wrap',this)">
+          <div class="card" id="loans-all-card" style="border-color:var(--gray-200);border-radius:14px;box-shadow:0 1px 2px rgba(15,37,71,.04)">
+            <div class="card-header" style="cursor:pointer;padding:16px 18px 12px;border-bottom:0" onclick="toggleOverviewPanel('loans-table-wrap',this)">
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
                   <div class="card-title">All Loans</div>
@@ -16695,12 +16744,16 @@
       <div class="bk-tile-delta flat">${money(totals.principal)} principal · ${money(totals.interest)} interest</div>
     </div>`;
 
-    el.innerHTML = `<div class="bk-tiles">` +
+    // Session 250: wrapped in .lct so these read exactly like the closing
+    // month's tiles — no box, one hairline between them, grey labels over black
+    // figures. Two tile treatments on one page, switched by a tab, made the tab
+    // look like it changed products rather than periods.
+    el.innerHTML = `<div class="lct"><div class="bk-tiles">` +
       card('Active loans', active, 'var(--gray-900)') +
       card(outstandingLabel, money(totalOutstanding), 'var(--gray-900)', outstandingTitle) +
       breakdownCard(`Paid last month (${lastMonthLabel})`, lastMonth, 'Sum of every loan_splits row for this period, regardless of Xero-posting status -- reflects real payments already shown on a statement or schedule.') +
       breakdownCard(`Paid YTD (${ty})`, ytd, 'Sum of every loan_splits row from Jan through this month, regardless of Xero-posting status.') +
-      `</div>`;
+      `</div></div>`;
   }
 
   // A "needs attention" item is either a static flag set on the loan account
@@ -17839,19 +17892,31 @@
     const readyToClose = varianceRows.length === 0 && unverifiedRows.length === 0
       && byScheduleRows.length === 0 && (tiedRows.length + explainedRows.length) > 0;
     const bits = [];
-    if (varianceRows.length) bits.push(`<span><strong>${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'} to fix</strong> — ${money2(totalVariance)} of variance to resolve.</span>`);
-    if (unverifiedRows.length) bits.push(`<span style="color:#92400e">${unverifiedRows.length} with no lender statement to check against.</span>`);
-    if (byScheduleRows.length) bits.push(`<span style="color:var(--gray-500)">${byScheduleRows.length} closed on the contractual schedule, not against a lender document.</span>`);
-    if (immaterialRows.length) bits.push(`<span style="color:var(--gray-500)">${immaterialRows.length} off by an amount too small to chase.</span>`);
-    if (explainedRows.length) bits.push(`<span style="color:var(--gray-500)">${explainedRows.length} explained by later payments.</span>`);
-    if (tiedRows.length) bits.push(`<span style="color:#166534">${tiedRows.length} tie${tiedRows.length === 1 ? 's' : ''} exactly.</span>`);
+    const chip = (key, n, text, bad) =>
+      `<span class="lcb-gate${bad ? '' : ' ok'}" data-gate="${key}" data-count="${n}">${bad ? '' : '✓ '}${text}</span>`;
+    if (varianceRows.length) bits.push(chip('variance', varianceRows.length,
+      `${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'} to fix — ${money2(totalVariance)} to resolve`, true));
+    if (unverifiedRows.length) bits.push(chip('unverified', unverifiedRows.length,
+      `${unverifiedRows.length} with no lender statement to check against`, true));
+    // Shown and deliberately NOT red: a loan settled on its contractual
+    // schedule, a gap below the materiality line and a gap a later payment
+    // explains are all real facts that nobody has to act on today.
+    if (byScheduleRows.length) bits.push(chip('per-schedule', byScheduleRows.length,
+      `${byScheduleRows.length} closed on the contractual schedule, not against a lender document`));
+    if (immaterialRows.length) bits.push(chip('immaterial', immaterialRows.length,
+      `${immaterialRows.length} off by an amount too small to chase`));
+    if (explainedRows.length) bits.push(chip('explained', explainedRows.length,
+      `${explainedRows.length} explained by later payments`));
+    if (tiedRows.length) bits.push(chip('tie', tiedRows.length,
+      `${tiedRows.length} tie${tiedRows.length === 1 ? 's' : ''} exactly`));
     const closeStripHtml = readyToClose
-      ? `<div style="margin-bottom:10px;padding:9px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534">
-          <strong>Every loan ties to its lender.</strong> Combined variance $0.00 — this section is ready to close and lock.
+      ? `<div class="lcb-strip clear" style="margin-bottom:14px">
+          <span class="lcb-lead">Every loan ties to its lender</span>
+          <span class="lcb-gate ok" data-gate="variance" data-count="0">✓ combined variance $0.00 — ready to close and lock</span>
         </div>`
-      : `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding:9px 12px;background:${varianceRows.length ? '#fffbeb' : 'var(--gray-50,#f9fafb)'};border:1px solid ${varianceRows.length ? '#fde68a' : 'var(--gray-200)'};border-radius:8px;font-size:12.5px;color:${varianceRows.length ? '#92400e' : 'var(--gray-600)'}">
+      : `<div class="lcb-strip" style="margin-bottom:14px">
+          <span class="lcb-lead">${varianceRows.length ? 'Not ready to lock' : 'Nothing to fix'}</span>
           ${bits.join('')}
-          <span style="color:var(--gray-500);margin-left:auto">Lockable when the variance is $0.00 and nothing is unverified.</span>
         </div>`;
 
     const loanRow = (r) => {
@@ -17864,10 +17929,10 @@
       // to "Date"; "Split" now spells out principal/interest instead of relying on
       // a hover tooltip nobody could discover.
       const lastPaymentCell = lastSplit
-        ? `<span class="td-mono" style="font-size:12.5px">${money2(lastSplit.total_amount)}</span>`
+        ? `<span class="td-mono">${money2(lastSplit.total_amount)}</span>`
         : (isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic</span>` : `<span style="color:var(--gray-300)">—</span>`);
       const dateCell = lastSplit
-        ? `<span class="td-mono" style="font-size:12.5px">${esc(lastSplit.period_label)}</span>`
+        ? `<span class="td-mono">${esc(lastSplit.period_label)}</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
       // Session 236: Split became its own Principal and Interest columns. The old
       // cell packed "$X principal + $Y interest = $Z" into one box, which reads
@@ -17875,20 +17940,20 @@
       // interest across fourteen loans when every figure sits at a different
       // indent. Two numeric columns, right-aligned, one number each.
       const dash = `<span style="color:var(--gray-300)">—</span>`;
-      const principalCell = lastSplit ? `<span class="td-mono" style="font-size:12.5px">${money2(lastSplit.principal_amount)}</span>` : dash;
-      const interestCell = lastSplit ? `<span class="td-mono" style="font-size:12.5px">${money2(lastSplit.interest_amount)}</span>` : dash;
+      const principalCell = lastSplit ? `<span class="td-mono">${money2(lastSplit.principal_amount)}</span>` : dash;
+      const interestCell = lastSplit ? `<span class="td-mono">${money2(lastSplit.interest_amount)}</span>` : dash;
       // Prefer the tie-out's own lender figure: it is the number the difference was
       // measured against, so Xero − Statement on screen equals Variance exactly.
       const stmtAmount = v.lender != null ? v.lender : (bal ? bal.amount : null);
       const balCell = stmtAmount != null
-        ? `<span class="td-mono" style="font-size:12.5px" title="as of ${esc(v.asOf || (bal && bal.asOf) || '')}">${money2(stmtAmount)}</span>`
+        ? `<span class="td-mono" title="as of ${esc(v.asOf || (bal && bal.asOf) || '')}">${money2(stmtAmount)}</span>`
         : dash;
 
       // Xero's own balance, and the variance between them. Both read off the
       // loan's tie-out row so the subtraction on screen is always exact —
       // Variance is literally Xero minus Statement on every row that shows both.
       const xeroCell = v.xero != null
-        ? `<span class="td-mono" style="font-size:12.5px" title="Xero's rebuilt balance as of ${esc(v.asOf || '')}">${money2(v.xero)}</span>`
+        ? `<span class="td-mono" title="Xero's rebuilt balance as of ${esc(v.asOf || '')}">${money2(v.xero)}</span>`
         : dash;
 
       // The cell follows r.st.group, the shared classification, for exactly the
@@ -17900,21 +17965,21 @@
         // NOT green, and never "matches the lender" — there is no lender figure
         // here. Dexter's tie-out is the books compared with the document the
         // books were built from.
-        varianceCell = `<span style="font-size:11.5px;color:var(--gray-500)" title="${esc(st.reason || '')}">agrees with the schedule — not an outside check</span>`;
+        varianceCell = `<span class="lit-quiet" style="font-size:11.5px" title="Agrees with the contractual schedule, not with a lender document. This tie-out compares the books with the document the books were built from, so the agreement is arithmetic rather than evidence about the world. ${esc(st.reason || '')}">per schedule</span>`;
       } else if (st.group === 'immaterial') {
         const d2 = st.difference;
-        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:var(--gray-500)" title="A real difference, too small to be worth chasing on its own — it turns red if it grows.">${d2 > 0 ? '+' : ''}${money2(d2)} <span style="font-size:11px">small</span></span>`;
+        varianceCell = `<span class="td-mono lit-quiet" title="A real difference, too small to be worth chasing on its own — it turns red if it grows.">${d2 > 0 ? '+' : ''}${money2(d2)} <span style="font-size:11px">small</span></span>`;
       } else if (st.group === 'variance') {
         const d2 = st.difference;
         const dir = d2 > 0 ? `Xero is ABOVE ${againstWord}` : `Xero is BELOW ${againstWord}`;
-        varianceCell = `<span class="td-mono" style="font-size:12.5px;font-weight:700;color:#dc2626" title="${esc(dir)} as of ${esc(v.asOf || '')} — this one blocks the close">${d2 > 0 ? '+' : ''}${money2(d2)}</span>`;
+        varianceCell = `<span class="td-mono lit-off" title="${esc(dir)} as of ${esc(v.asOf || '')} — this one blocks the close">${d2 > 0 ? '+' : ''}${money2(d2)}</span>`;
       } else if (v.state === 'ties') {
-        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:#166534" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">$0.00 ✓</span>`;
+        varianceCell = `<span class="td-mono lit-quiet" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">$0.00</span>`;
       } else if (v.state === 'explained') {
         // Not red, and deliberately so: the books are right, the gap is timing.
-        varianceCell = `<span class="td-mono" style="font-size:12.5px;color:var(--gray-500)" title="${esc(v.reason || '')} — nothing to fix">${v.difference > 0 ? '+' : ''}${money2(v.difference)} <span style="font-size:11px">explained</span></span>`;
+        varianceCell = `<span class="td-mono lit-quiet" title="${esc(v.reason || '')} — nothing to fix">${v.difference > 0 ? '+' : ''}${money2(v.difference)} <span style="font-size:11px">explained</span></span>`;
       } else if (v.state === 'unverified') {
-        varianceCell = `<span style="font-size:11.5px;color:#92400e" title="${esc(v.reason || '')}">no statement — ${money2(v.difference)} vs our projection</span>`;
+        varianceCell = `<span class="lit-off" style="font-size:11.5px;font-weight:600" title="${esc(v.reason || '')}">no statement — ${money2(v.difference)} vs our projection</span>`;
       } else if (v.state === 'na') {
         varianceCell = `<span style="font-size:11.5px;color:var(--gray-400)" title="${esc(v.reason || '')}">n/a</span>`;
       } else {
@@ -17924,7 +17989,7 @@
       return `<tr onclick="openLoanDetailModal('${a.id}')" style="cursor:pointer">
         <td>${a.lender ? _loansFilterPill('lender', a.lender, esc(a.lender), f.lender === a.lender) : `<span style="color:var(--gray-300)">—</span>`}</td>
         <td class="td-name">${esc(a.xero_account_name || '—')}</td>
-        <td class="td-mono" style="color:var(--gray-500)">#${esc(a.lender_account_number)}</td>
+        <td class="td-mono lit-acct">#${esc(a.lender_account_number)}</td>
         <td style="text-align:right">${lastPaymentCell}</td>
         <td>${dateCell}</td>
         <td style="text-align:right">${principalCell}</td>
@@ -17962,8 +18027,8 @@
     // lender's own figure. Calling it Outstanding while a Xero column sits beside
     // it would invite reading one for the other on the exact screen where the
     // difference between them is the point.
-    el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto"><table style="table-layout:fixed;width:100%;min-width:1560px">
-      <colgroup><col style="width:11%"><col style="width:12%"><col style="width:8%"><col style="width:8%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup>
+    el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto;padding:14px 6px 0"><table class="lit" style="table-layout:fixed;width:100%;min-width:1180px">
+      <colgroup><col style="width:12%"><col style="width:14%"><col style="width:7%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:10%"></colgroup>
       <thead><tr>
         ${thSort('lender', 'Lender')}
         ${thSort('loan', 'Loan')}
@@ -17978,11 +18043,11 @@
         ${thSort('variance', 'Variance', true)}
       </tr></thead>
       <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="11" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--gray-200)">
-        <td colspan="8" style="font-size:12.5px;color:var(--gray-500);font-weight:600">Total${anyFilterActive ? ` (${sorted.length} filtered of ${visibleAccounts.length})` : (known.length < sorted.length ? ` (${known.length} of ${sorted.length} with a balance on file)` : '')}</td>
-        <td style="text-align:right;font-weight:700">${money2(totalXero)}</td>
-        <td style="text-align:right;font-weight:700">${money2(totalStatement)}</td>
-        <td style="text-align:right;font-weight:700;color:${totalVariance < 0.005 ? '#166534' : '#dc2626'}" title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '$0.00' : money2(totalVariance)}</td>
+      <tfoot><tr>
+        <td colspan="8">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
+        <td style="text-align:right">${money2(totalXero)}</td>
+        <td style="text-align:right">${money2(totalStatement)}</td>
+        <td style="text-align:right"${totalVariance < 0.005 ? '' : ' class="lit-off"'} title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '<span class="lit-quiet">$0.00</span>' : money2(totalVariance)}</td>
       </tr></tfoot>
     </table></div>`;
   }

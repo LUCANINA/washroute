@@ -2245,6 +2245,90 @@ to "what is running".
 
 ## Session Log
 
+### Session 250 (2026-08-29) — variances are red again, and August speaks July's language
+
+Two asks, straight after the session 249 pass. Both are corrections to it, and the
+first one is worth writing down properly because I got it wrong on a principle that
+is usually right.
+
+#### "Make variances red. Use a real, bright red — not the darker, smoother red"
+
+Session 249 made a material variance **near-black semibold** on the argument that
+*silence around a figure beats colour on it*: everything settled prints nothing, so
+the four rows that carry a figure are already the finding.
+
+**That argument is sound and it was applied one step too far.** Grey everywhere else
+is what makes red AFFORDABLE on this page — it is not a reason to skip red. On a
+column a CPA scans for a verdict, "which of these fourteen rows do I have to open"
+should be answerable at a glance and from across a desk, and weight alone does not
+carry that at 13px. `.lcb-off` is `#dc2626`.
+
+And `#b3382c` — the brick this module had been using for every red since session 241
+— is gone entirely, in all three places it appeared. At 13px it reads as dark ink and
+loses the argument to the near-black beside it. If a colour is doing the job of an
+alarm it has to look like one.
+
+**What red still does NOT mark, and this is the part that keeps it meaningful:**
+
+| | |
+|---|---|
+| material variance | **red** |
+| immaterial difference (`.lcb-quiet`) | grey — a real gap nobody is chasing is a different claim |
+| a row that agrees by construction | grey |
+| a tie | prints nothing at all |
+| a status word ("Pending review") | near-black ink |
+
+Red on this page means *a figure that has to move*. One meaning, one colour.
+
+#### "Apply the style, including fonts, to the August view"
+
+The In-flight (August) tab was the last surface on this page still speaking the old
+dialect, and side by side with July it made the period toggle look like it switched
+products rather than months. Everything below is the July treatment, applied:
+
+* **`font-family: monospace` is gone from that table.** Session 241 removed it from
+  the rollforward for a reason that applied here unchanged and had simply never been
+  carried across: it earns its place on figures, where digits must align down a
+  column — but proportional faces have had tabular figures for twenty years, so
+  `font-variant-numeric` does the aligning. It was on account numbers and dates too,
+  and **a date set in monospace has read as mainframe since mainframes**.
+* **Scoped, not global.** `.td-mono` is shared with Customers, Orders and half the
+  app. The override lives on `.lit`, this table alone. Quietly redefining a shared
+  class would have been a redesign of surfaces nobody asked about.
+* **The amber banner became the rollforward's status strip** — same `.lcb-strip`,
+  `.lcb-lead`, `.lcb-gate` markup, one red, and the green reserved for the day
+  everything ties. It was previously amber ground + red bold + a green clause: four
+  colours stating one position.
+* **Tiles unboxed** into `.lct`, hairline dividers, grey labels over black figures.
+* **The pills quieted.** A blue "in Xero" and a blue "+1 upcoming" on every row, plus
+  a green "posted", is a lot of colour spent on context. Grey ground, grey text.
+* **Ten green `$0.00 ✓` ties went grey.** Same reason as the rollforward: ten
+  confirmations are what hide the three rows that need a person.
+* **The table now fits.** Proportional figures are narrower than monospace ones, so
+  eleven columns that needed `min-width: 1560px` fit in 1180 — the horizontal
+  scrollbar stops appearing on an ordinary laptop, which was most of what made this
+  table feel unwieldy. The freed width went to Lender and Loan, which had been
+  wrapping "E-Transit Loan E4 -9744" onto two lines and doubling every row's height.
+
+#### THE SUITE CAUGHT THE ONE THING THAT MATTERED (ce17, review F9)
+
+Shortening Dexter's variance cell to *"not an outside check"* fixed a three-line wrap
+in a numeric column and **lost the half that matters: what the row DID agree with.**
+F9 exists because a row must name the counterparty it was checked against, and a
+schedule tie has no lender behind it.
+
+The cell reads **"per schedule"** — three words, one line, names the counterparty,
+full sentence in the title. The assertion now checks both halves separately: the row
+names the schedule, *and* it mentions no lender. **A shorter label is only an
+improvement if it still makes the claim.**
+
+#### State
+
+`1503 assertions · 1502 passing`. The one failure is Tech Debt #19, red on purpose.
+Verified by rendering both period tabs in headless Chromium against the production
+fixture and reading the screenshots.
+
+
 ### Session 249 (2026-08-29) — the rollforward, softened: nine columns, one red, and everything else one hover away
 
 David, looking at the four Bookkeeping tabs: *"the one I prefer in terms of pure

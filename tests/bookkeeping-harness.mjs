@@ -4568,8 +4568,15 @@ GROUPS.push({
           .find(x => /Dexter Loan 2/.test(x.textContent));
         return tr ? tr.textContent.replace(/\s+/g, ' ').trim() : null;
       });
-      t.ok(/agrees with the schedule/.test(varCell || ''),
+      // Session 250: the cell reads "per schedule" — three words instead of a
+      // sentence that wrapped to three lines in a numeric column, with the full
+      // sentence in the title. What F9 requires is unchanged and still asserted:
+      // the row must NAME the counterparty it agreed with, and must not imply a
+      // lender said anything. Both halves are checked, separately.
+      t.ok(/per schedule/.test(varCell || ''),
            'ce17: the All Loans row says it agrees with the SCHEDULE', `row=${JSON.stringify(varCell)}`);
+      t.notMatch(varCell, /lender/i,
+                 'ce17: ...and names no lender, because none was consulted');
       t.notMatch(varCell, /\$0\.00 ✓/,
                  'ce17: ...and never prints the lender-matched tick, because no lender said anything');
 
