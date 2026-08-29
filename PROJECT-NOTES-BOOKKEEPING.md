@@ -453,6 +453,28 @@ session — see the session log below for why).
 
 ## Design conventions
 
+**LESS IS BEST (session 250, David's standing rule).** The existing "keep words at a
+minimum" rule covers copy. This one covers everything else on a surface: columns,
+colours, borders, badges, tiles, sub-lines, footnotes, chrome.
+
+The default answer to "should this be on the screen" is **no**. Removal is the first
+move, not the fallback. Four tests, in order:
+
+1. **Would a reader act differently without it?** If not, cut it.
+2. **Does something else on this screen already say it?** Then this one goes — two
+   statements of one fact is the defect, not the redundancy.
+3. **Can it attach to the figure it describes instead of standing on its own?** A
+   `data-` attribute plus a hover reaches every reader, exports in full, and costs no
+   width. Four provenance columns became four attributes that way (session 249).
+4. **Is colour doing a job that weight, order or silence could do?** Then it is spent,
+   and the one thing that genuinely needs colour has nothing left to spend.
+
+**The limit, and it is not optional: cutting must never drop a CLAIM.** A shorter
+label that stops naming its counterparty is a worse label, not a tighter one — that
+is what ce17 caught in session 250 when "agrees with the schedule" became "not an
+outside check". Cut the words; keep the claim — in the cell, in the export, or one
+hover away.
+
 **Page background contrast — ONE step, not nested (session 219, Xero-inspired; corrected same session).** `#page-bookkeeping` gets its own light grey background (`var(--gray-100)`, via a negative-margin bleed to the `.content` edges) instead of inheriting the shell's near-white `body { background: var(--gray-50) }`, so a white `.card`'s edge actually reads instead of nearly disappearing. **First attempt used `var(--gray-200)` (darker), a stronger card shadow, AND re-ran the same white-card-on-grey trick a level down — a grey wrapper behind individually-boxed white list items inside the already-white, already-elevated card.** David's own screenshot called it what it was: boxes within boxes within boxes. Corrected to exactly one contrast step, page vs. card — nothing inside a card gets its own background/border/shadow to "float" again. Content inside a card is separated by spacing and a hairline `border-bottom` divider (`var(--gray-100)`), not by nesting another nearly-identical elevated surface. Before adding a background/border/shadow to anything, ask whether it's already inside something that has one — if so, use spacing and dividers instead. Scoped to Bookkeeping only, on purpose — this was a request about this module, not a redesign of the whole app.
 
 **Keep words at a minimum (session 229, David's standing guideline — verbatim: "keep words at a minimum").** Applies to ALL user-facing copy this module generates: card text, roadmap steps, conclusions, handoff checklists, notes, warnings. Say the number, the action, and the consequence — then stop. No restating what an adjacent line already says, no "the next bullet explains why", no narrating mechanics. When a template grows, trim it before shipping (v8 was a 50% cut on the per-loan bullets; v15 a ~30% cut across the lender card). Structure survives trims; filler doesn't. This extends the session-219 card-subtitle rule and the Xero Narration rule from copy ABOUT the books to copy IN them and around them.
