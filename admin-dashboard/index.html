@@ -3301,19 +3301,22 @@
                so the interaction is one users already know from Loans. */
             /* ── the close band (session 239) ── */
             .lcb-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-            .lcb-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gray-900); letter-spacing: -.015em; }
-            .lcb-why { font-size: 12px; color: var(--gray-400); }
-            .lcb-right { margin-left: auto; font-size: 11.5px; color: var(--gray-400); }
+            .lcb-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: #000; letter-spacing: -.015em; }
+            .lcb-why { font-size: 12px; color: #000; }
+            .lcb-right { margin-left: auto; font-size: 11.5px; color: #000; }
             .lcb-strip { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; padding: 11px 14px;
                          border-radius: 11px; margin-bottom: 12px; font-size: 12.5px;
-                         border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
-            .lcb-strip.clear { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+                         border: 1px solid #000; background: #fff; color: #000; }
+            .lcb-strip.clear { border-color: #000; background: #fff; color: #000; }
             .lcb-lead { font-weight: 700; }
-            .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; }
+            .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; color: #b3382c; }
             .lcb-lead + .lcb-gate::before,
-            .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: var(--gray-300);
+            .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: #000;
                                             font-weight: 400; }
-            .lcb-gate.ok { color: var(--gray-500); font-weight: 400; }
+            .lcb-gate.ok { color: #166534; font-weight: 600; }
+            /* A real difference nobody is chasing today is not a confirmation, so it
+               does not get the green. Black, and it still carries no tick. */
+            .lcb-gate.ok[data-gate="immaterial"] { color: #000; font-weight: 400; }
             /* ── the rollforward, reset as a document (session 241) ──────────
                David: "this looks circa 2001." The diagnosis was one thing, not
                a list: MONOSPACE WAS DOING A JOB IT WAS NEVER ASKED TO DO. It
@@ -3336,48 +3339,48 @@
                          font-variant-numeric: tabular-nums; }
             .lcb-table td, .lcb-table th { white-space: nowrap; }
             .lcb-table thead th { text-align: left; padding: 9px 9px 7px; font-size: 11px; font-weight: 600;
-                                  color: var(--gray-400); border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+                                  color: #000; border-bottom: 1px solid #000; white-space: nowrap; }
             .lcb-table thead th.lcb-n { text-align: right; }
             /* Session 247: every cell is a single line now, so the rows align on
                their middles. `baseline` was right when a cell stacked a figure
                over its provenance — it lined the FIGURES up — but with one line
                per cell and three different font sizes across a row it inflated
                every row to 64-84px of mostly whitespace. */
-            .lcb-table tbody td { padding: 7px 9px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
-            .lcb-table tbody tr:hover { background: var(--gray-50, #fafbfd); }
+            .lcb-table tbody td { padding: 7px 9px; border-bottom: 1px solid #000; vertical-align: middle; }
+            .lcb-table tbody tr:hover { background: #f2f2f2; }
             /* No font-family override. That line was the whole problem. */
             .lcb-table td.lcb-n { text-align: right; white-space: nowrap; }
             /* The lender is context for the loan, not a column competing for
                width. Paired under the name, the two read as one identity. */
-            .lcb-lender { display: block; font-size: 11.5px; color: var(--gray-400); font-weight: 400; margin-top: 1px; }
+            .lcb-lender { display: block; font-size: 11.5px; color: #000; font-weight: 400; margin-top: 1px; }
             /* Session 247: one fact per cell, so the table exports cleanly. The
                provenance columns are quiet — they are context for a figure, not
                figures themselves — and .soft keeps its old meaning: our own
                arithmetic rather than the lender's word. */
-            .lcb-src { font-size: 11.5px; color: var(--gray-400); font-weight: 400; white-space: nowrap; }
-            .lcb-src.soft { color: #b45309; }
-            .lcb-total > td { border-top: 2px solid var(--gray-300); font-weight: 700; }
+            .lcb-src { font-size: 11.5px; color: #000; font-weight: 400; white-space: nowrap; }
+            .lcb-src.soft { color: #000; font-style: italic; }
+            .lcb-total > td { border-top: 2px solid #000; font-weight: 700; }
             .lcb-ofwhich > td { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
-                                color: var(--gray-400); font-weight: 700; padding-top: 10px; border: 0; }
+                                color: #000; font-weight: 700; padding-top: 10px; border: 0; }
             /* Provenance is a footnote. It was bold rust monospace and it was
                the loudest thing in the cell, fourteen times over. */
-            .lcb-sub { display: block; font-size: 11px; color: var(--gray-400); font-weight: 400; margin-top: 2px; }
+            .lcb-sub { display: block; font-size: 11px; color: #000; font-weight: 400; margin-top: 2px; }
             /* The ONE distinction a reader must not miss: this opening is our
                own arithmetic, not the lender's. The only warm colour left. */
-            .lcb-sub.soft { color: #a1741f; }
-            .lcb-none { color: var(--gray-400); }
-            .lcb-na { color: var(--gray-400); }
+            .lcb-sub.soft { color: #000; font-style: italic; }
+            .lcb-none { color: #4b5563; }
+            .lcb-na { color: #4b5563; }
             /* Agreement is silence. Ten green ticks made the eye filter ten
                confirmations to find the three rows that need a person. A tie
                now prints nothing at all and carries data-tie for the harness,
                which is a sturdier hook than a glyph anyway. */
             .lcb-off { color: #b3382c; font-weight: 600; }
             .lcb-flag { color: #b3382c; font-weight: 600; }
-            .lcb-table tfoot td { padding: 11px 9px; border-top: 1px solid var(--gray-300);
-                                  font-weight: 600; color: var(--gray-900); font-size: 13px; }
+            .lcb-table tfoot td { padding: 11px 9px; border-top: 2px solid #000;
+                                  font-weight: 600; color: #000; font-size: 13px; }
             .lcb-table tfoot td.lcb-n { text-align: right; }
-            .lcb-excluded td { color: var(--gray-500); font-weight: 400; border-top: none; }
-            .lcb-foot { padding: 12px 14px 16px; font-size: 12px; color: var(--gray-400); }
+            .lcb-excluded td { color: #000; font-weight: 400; border-top: none; }
+            .lcb-foot { padding: 12px 14px 16px; font-size: 12px; color: #000; }
 
             .cv-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
             .cv-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
@@ -3515,33 +3518,42 @@
             .bk-confetti-piece { position: absolute; width: 7px; height: 11px; border-radius: 2px; top: -14px; animation: bkConfettiFall 1.5s ease-in forwards; pointer-events: none; }
             @keyframes bkConfettiFall { 0% { transform: translate(0, 0) rotate(0deg); opacity: 1; } 100% { transform: translate(var(--cf-x), 240px) rotate(var(--cf-r)); opacity: 0; } }
             /* ── period bar (session 241) ── */
-            .lpb { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
-                   padding-bottom:16px; margin-bottom:22px; border-bottom:1px solid var(--gray-200); }
-            .lpb-seg { display:inline-flex; background:var(--gray-100); border:1px solid var(--gray-200);
+            /* Session 248: .lpb was written in 241 for exactly this container and
+               never wired onto it. It is now on #loans-period-bar, which has to be
+               a flex row so the close date can sit beside the tab group. No rule
+               under it — the bar is separated from the tiles by space, not by
+               another line. */
+            .lpb { display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+                   margin-bottom:22px; }
+            /* The close date, beside the period tabs. Quiet by construction: no
+               chip, no ground, no accent — it states a standing condition, not an
+               event, and the tab group beside it is what the eye should land on. */
+            .lpb-close { font-size:12px; color:#000; line-height:1.35; }
+            .lpb-close b { font-weight:600; }
+            .lpb-seg { display:inline-flex; background:var(--gray-100); border:1px solid #000;
               border-radius:11px; padding:3px; gap:3px; }
             .lpb-seg button { font:inherit; cursor:pointer; border:0; background:transparent;
-              color:var(--gray-500); padding:7px 15px 7px 13px; border-radius:8px; display:flex;
+              color:#4b5563; padding:7px 15px 7px 13px; border-radius:8px; display:flex;
               align-items:center; gap:9px; text-align:left; line-height:1.15;
               transition:background .12s, color .12s, box-shadow .12s; }
-            .lpb-seg button:hover { color:var(--gray-700); }
+            .lpb-seg button:hover { color:#000; }
             .lpb-seg button:focus-visible { outline:2px solid var(--blue,#3b82f6); outline-offset:2px; }
-            .lpb-seg button.on { background:#fff; color:var(--gray-900);
-              box-shadow:0 1px 2px rgba(15,37,71,.10); }
+            .lpb-seg button.on { background:#fff; color:#000;
+              box-shadow:0 0 0 1px #000; }
             .lpb-k { display:block; font-size:10px; font-weight:700; letter-spacing:.09em;
-              text-transform:uppercase; color:var(--gray-400); }
+              text-transform:uppercase; color:#4b5563; }
             .lpb-seg button.on .lpb-k { color:#2563eb; }
             .lpb-v { display:block; font-size:13.5px; font-weight:650; }
             .lpb-pip { width:8px; height:8px; border-radius:50%; flex:none; }
-            .lpb-pip.warn { background:#f59e0b; }
+            .lpb-pip.warn { background:#b3382c; }
             .lpb-pip.ok   { background:#16a34a; }
             .lpb-pip.live { background:#3b82f6; }
-            .lpb-count { font-size:10.5px; font-weight:700; background:#fffbeb; color:#92400e;
-              border:1px solid #fde68a; border-radius:20px; padding:1px 7px; margin-left:2px; }
-            .lpb-chips { display:flex; gap:0; flex-wrap:wrap; margin-left:auto; align-items:baseline; }
-            @media (max-width: 1100px) { .lpb-chips { margin-left:0; flex-basis:100%; } }
-            .lpb-chip { font-size:12px; color:var(--gray-500); }
-            .lpb-chip + .lpb-chip::before { content:"·"; margin:0 9px; color:var(--gray-300); }
-            .lpb-chip b { font-weight:600; color:var(--gray-700); }
+            .lpb-count { font-size:10.5px; font-weight:700; background:#fff; color:#b3382c;
+              border:1px solid #000; border-radius:20px; padding:1px 7px; margin-left:2px; }
+            /* Session 248 (David): the "Books closed through ... / Xero lock date"
+               chip row is gone from this bar. The close date itself is NOT gone --
+               it is stated in the rollforward's footer, where the workpaper already
+               explains its own method. See renderLoansCloseBand. */
             /* Close tiles reuse the module's bk-tile shell; only the meter is new. */
             /* ── close tiles, unboxed (session 241) ──────────────────────────
                Four bordered cards, a bordered strip, bordered chips and a
@@ -3552,19 +3564,17 @@
             .lct .bk-tile { background: transparent; border: 0; box-shadow: none;
                             border-radius: 0; padding: 0 26px 0 0; min-width: 190px;
                             flex: 1 1 0; align-self: stretch; }
-            .lct .bk-tile + .bk-tile { border-left: 1px solid var(--gray-200); padding-left: 26px; }
+            .lct .bk-tile + .bk-tile { border-left: 1px solid #000; padding-left: 26px; }
             .lct .bk-tiles { gap: 0; align-items: stretch; }
-            .lct .bk-tile-label { font-size: 12.5px; font-weight: 500; color: var(--gray-500);
+            .lct .bk-tile-label { font-size: 12.5px; font-weight: 500; color: #000;
                                   white-space: normal; margin-bottom: 5px; }
             .lct .bk-tile-value { font-size: 27px; font-weight: 650; letter-spacing: -.02em;
-                                  font-variant-numeric: tabular-nums; }
+                                  font-variant-numeric: tabular-nums; color: #000; }
             .lct .bk-tile-delta { font-weight: 400; font-size: 12px; line-height: 1.45;
                                   white-space: normal; }
-            .lct-meter { display:flex; gap:3px; margin-top:9px; }
-            .lct-meter i { height:5px; flex:1; border-radius:2px; background:var(--gray-200); }
-            .lct-meter i.in  { background:var(--gray-300); }
-            .lct-meter i.out { background:#c2892a; }
-            .lct-meter i.na  { background:var(--gray-200); }
+            /* .bk-tile-delta.flat is grey and SHARED with the Overview KPI tiles.
+               Forked here rather than changed globally. */
+            .lct .bk-tile-delta.flat { color: #000; }
             .bk-queue-stale { font-size: 11.5px; color: #92400e; background: #fffbeb;
               border: 1px solid #fde68a; border-radius: 5px; padding: 3px 7px;
               margin-top: 5px; display: inline-block; }
@@ -3778,7 +3788,10 @@
                long, and the reader had to hold "which month am I looking at"
                in their head the whole way down. One question, answered once, at
                the top. -->
-          <div id="loans-period-bar"></div>
+          <!-- Session 248: the chip row that used to sit under these tabs is gone
+               (David: "REMOVE this section ... to add breathing room"), so the
+               spacing it incidentally provided is stated here instead. -->
+          <div id="loans-period-bar" class="lpb"></div>
 
           <div id="loans-period-closing">
             <!-- The rollforward is the workpaper a CPA actually signs: opening
@@ -12974,6 +12987,9 @@
         if (!st) return;
         _bkCloseDate = st.books_closed_through || null;
         _bkXeroLockDate = st.xero_period_lock_date || null;
+        // Session 248: renderLoansPeriodBar is the ONLY surface that reads these
+        // two, and it is the one being re-rendered — the close date sits beside
+        // the period tabs. Nothing else needs waking on this late-arriving read.
         try { renderLoansPeriodBar(); } catch (_) {}
       })
       .catch(() => {});
@@ -15885,6 +15901,37 @@
     const badge = b && b.count
       ? `<span class="lpb-count">${b.count} to clear</span>` : '';
 
+    // ── THE CLOSE DATE, BESIDE THE TABS ──────────────────────────────────
+    // David: "If 'Books closed through 2026-06-30' is load bearing put it to the
+    // right of the inflight toggle." It is load-bearing — it is what stops this
+    // module raising work inside a month the accountant has already settled —
+    // and beside the period tabs is where it belongs, because it is a fact about
+    // WHICH PERIOD IS WHICH. Quiet by construction: small, black, no chip, no
+    // ground. The whole sentence lives in the title; the line beside the tabs
+    // says the date and, when it matters, who set it.
+    //
+    // Effective close is the LATER of the two, never the earlier: a stale manual
+    // entry can only ever close MORE, and must never re-open what Xero locked.
+    const manualClose = _bkCloseDate, xeroLock = _bkXeroLockDate;
+    const effClose = (xeroLock && (!manualClose || xeroLock > manualClose)) ? xeroLock : manualClose;
+    // THE FIVE WORDS THAT MATTER most here are "set here, not in Xero": this org
+    // locks nothing on Xero's side, so a hand-typed date is the only thing
+    // between the tool and a closed month, and a reader should be able to see
+    // that without opening a tooltip.
+    const closeTail = !effClose ? ''
+      : !xeroLock            ? ' \u00b7 set here, not in Xero'
+      : effClose === xeroLock ? ' \u00b7 from Xero\u2019s lock date'
+      :                         ' \u00b7 set here, past Xero\u2019s lock';
+    const closeTitle = !effClose
+      ? 'No close date is set, so every month is treated as open and work can be raised in any of them \u2014 including months your accountant has already settled.'
+      : `Nothing dated on or before ${_bkPlainDate(effClose)} raises new work \u2014 a closed month is a record, not a job. ${
+          !xeroLock             ? 'Xero carries no lock date of its own, so this date, entered by hand, is the only signal there is.'
+          : effClose === xeroLock ? 'That is Xero\u2019s own lock date.'
+          : `That is the date entered here; Xero\u2019s own lock date is ${_bkPlainDate(xeroLock)}, and the later of the two governs.`}`;
+    const closeNote = `<span class="lpb-close" title="${esc(closeTitle)}">${effClose
+      ? `Books closed through <b>${esc(_bkPlainDate(effClose))}</b>${closeTail}`
+      : 'No close date set'}</span>`;
+
     el.innerHTML = `
       <div class="lpb-seg" role="tablist" aria-label="Accounting period">
         <button id="lpb-closing" role="tab" class="${_loansPeriod === 'closing' ? 'on' : ''}"
@@ -15899,12 +15946,12 @@
           <span><span class="lpb-k">In flight</span><span class="lpb-v">${esc(_cvMonthName(liveMonth))}</span></span>
         </button>
       </div>
-      <div class="lpb-chips">
-        <span class="lpb-chip">${_bkCloseDate ? `Books closed through <b>${esc(_bkCloseDate)}</b>` : 'Close date not set'}</span>
-        ${_bkXeroLockDate
-          ? `<span class="lpb-chip">Xero lock date <b>${esc(_bkXeroLockDate)}</b></span>`
-          : `<span class="lpb-chip" style="background:#fffbeb;border-color:#fde68a;color:#92400e" title="Our close date stops US from posting into a closed month. Without a lock date in Xero, nothing stops anyone editing it there directly.">Xero lock date: not set</span>`}
-      </div>`;
+      ${closeNote}`;
+    // The old "Books closed through … · Xero lock date: not set" CHIP ROW is
+    // gone (David, "REMOVE this section ... to add breathing room"). What is
+    // gone is the chip: the ground, the border, the second line, and the amber
+    // on the missing-lock warning. The date itself is one quiet line to the
+    // right of the tabs, above.
   }
 
   // ── The closing month, as four numbers ────────────────────────────────────
@@ -15925,33 +15972,19 @@
       ${extra || ''}
       ${sub ? `<div class="bk-tile-delta flat">${sub}</div>` : ''}</div>`;
 
-    // Session 246: the meter used to fill for "statement received" and left
-    // Dexter and Verdant permanently empty, because their statements are never
-    // coming. It now fills for "this month's closing balance can be established"
-    // — the question the close actually asks — and the sub-line says how.
-    const covered = b.cov.covered;
-    const meter = '<div class="lct-meter">'
-      + b.cov.expected.map((_, i) => `<i class="${i < covered ? 'in' : 'out'}"></i>`).join('')
-      + '</div>';
-    // _bkStatementCoverage returns [{account, statement}], not bare accounts.
-    // Reading it as accounts printed "Missing: , , " — three empty names and no
-    // error anywhere. The harness was green through all of it.
-    const missingNames = b.cov.missing
-      .map(m => (m.account || m).xero_account_name || (m.account || m).lender_account_number)
-      .filter(Boolean).join(', ');
-    const howParts = [`${b.cov.received.length} by statement`];
-    if (b.cov.rolledBack.length) howParts.push(`${b.cov.rolledBack.length} rolled back to month end`);
-    if (b.cov.perSchedule.length) howParts.push(`${b.cov.perSchedule.length} per schedule`);
+    // THE COVERAGE TILE AND ITS METER ARE GONE (session 248, David). It said
+    // "13 of 13" over a row of pips, and the coverage gate chip a few pixels
+    // above says the same thing in words — "all 13 accounted for", or the
+    // count outstanding when there is one. Nothing was lost with it: the chip
+    // carries data-gate="coverage" and its own count, and the missing names
+    // still reach the reader through the Client View checklist. The meter's
+    // amber pips went with it; amber has no place on this surface any more.
 
     // Paid in the closing month, from the same rollforward the table foots to.
     const paidP = b.rf.totals.principal + b.rf.excluded.principal;
     const paidI = b.rf.totals.interest  + b.rf.excluded.interest;
 
     el.innerHTML = '<div class="lct"><div class="bk-tiles">'
-      + tile(`${name} balances established`,
-          `${covered} <span style="font-size:.6em;color:var(--gray-400);font-weight:500">of ${b.cov.expected.length}</span>`,
-          b.missing ? `Still needed: ${esc(missingNames)}` : esc(howParts.join(' · ')),
-          null, meter)
       // ONE QUANTITY, ONE CLAIM (review F15). This tile used to show every band
       // added together ($5.00) while the gate chip a foot away showed only what
       // blocks ($0.00) — two numbers for one question on one screen. The tile
@@ -16160,15 +16193,38 @@
       // stays in data-source and in the title, so nothing is lost to anything
       // that needs it; the column just stops making a reader parse provenance
       // trivia fourteen times to find the two rows that differ.
+      // ── A STRADDLE, OR A LOAN RECOGNISED WHOLLY INSIDE THE MONTH ────────
+      // One rule, two different facts, and calling both a "straddle" made the
+      // second one a lie on a workpaper (session 248, David asked whether
+      // Stripe's origination really straddles: it does not, any more). In both
+      // cases the signed agreement is dated on or before the prior month end.
+      // What differs is what the BOOKS carry on that date:
+      //
+      //   books > 0 : part of the loan was recognised before the month and part
+      //               after. Genuinely split across the boundary — a straddle.
+      //   books = 0 : nothing was recognised before the month at all, so the
+      //               WHOLE loan lands inside it. Nothing is split. (Stripe,
+      //               once the fee journal moved off 6/30 onto 7/1: the books
+      //               now carry $0.00 at 6/30 and Drawn carries all 145,875.)
+      //
+      // Both still SAY something, because both put the same question to the
+      // accountant — whether the recognition belongs in the earlier period —
+      // and on the second the whole loan rides on the answer rather than part
+      // of it. Only the words change. data-origination-gap fires for both,
+      // unchanged, so nothing reading this row by attribute is affected.
+      const origWhole = !!r.originationGap && Math.abs(r.originationGap.books) < 0.005;
       const openTitle = [
         r.opening ? `Taken from ${_anchorSourceLabel(r.opening.source)}, ${_bkPlainDate(r.opening.asOf)}.` : '',
         r.openingStaged ? `Includes ${r.openingStaged} staged Xero transaction${r.openingStaged === 1 ? '' : 's'} dated on or before that date — money that has not moved.` : '',
-        r.originationGap ? `The signed agreement states ${money(r.originationGap.agreement)} at ${short(r.originationGap.asOf)}; the books carry ${money(r.originationGap.books)}. ${money(Math.abs(r.originationGap.difference))} of the origination reaches the books after that date. Which period that belongs in is a question for your accountant.` : '',
+        !r.originationGap ? ''
+          : origWhole
+          ? `The signed agreement is dated ${short(r.originationGap.asOf)} and states ${money(r.originationGap.agreement)}, but the books carry nothing at that date, so the whole loan is recognised inside this month — it is not split across the boundary. Whether the recognition belongs in the earlier period is a question for your accountant.`
+          : `The signed agreement states ${money(r.originationGap.agreement)} at ${short(r.originationGap.asOf)}; the books carry ${money(r.originationGap.books)}. ${money(Math.abs(r.originationGap.difference))} of the origination reaches the books after that date. Which period that belongs in is a question for your accountant.`,
       ].filter(Boolean).join(' ');
       const openSrcCell = r.opening
         ? `<span${openTitle ? ` title="${esc(openTitle)}"` : ''}>${esc(_closeOpeningSourceLabel(r.opening.source))}</span>`
           + (r.openingStaged ? '<span class="lcb-sub">staged included</span>' : '')
-          + (r.originationGap ? '<span class="lcb-sub soft">origination straddles</span>' : '')
+          + (r.originationGap ? `<span class="lcb-sub soft">${origWhole ? 'recognised this month' : 'origination straddles'}</span>` : '')
         : '<span class="lcb-na">—</span>';
       // A REFUSAL IS AN ANSWER AND IT HAS TO BE READABLE. _loanClosingAnchor
       // declines a roll-back for stated reasons — an unlabelled balance, an
@@ -16238,7 +16294,12 @@
         ? `<span class="lcb-flag">${r.unposted.length === 1
             ? esc(STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
             : esc(r.unposted.length + ' unposted')}</span>`
-        : (r.splits.length ? 'Booked' : '<span class="lcb-na">No payment</span>');
+        : (r.splits.length
+            // Green means booked, red means not (the .lcb-flag above). "No
+            // payment" is neither, and stays grey. Inline rather than a new
+            // class: every class and data- hook on this table is asserted on.
+            ? '<span style="color:#166534;font-weight:600">Booked</span>'
+            : '<span class="lcb-na">No payment</span>');
       // ── DRAWN ─────────────────────────────────────────────────────────────
       // Anything that INCREASED the balance in the month, which is broader than
       // borrowing: a new draw, a capitalised fee, an accrual journal. The word
@@ -16351,6 +16412,9 @@
       <td></td>
     </tr>`;
 
+    // The close date is NOT stated here. It moved to the period bar, beside the
+    // tabs, at David's direction — one home, not two (session 248).
+
     el.innerHTML = `
       <div class="lcb-head">
         <h3>Rollforward</h3>
@@ -16360,7 +16424,7 @@
         <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
         ${gates.map(chip).join('')}
       </div>
-      <div class="card" style="overflow:hidden;box-shadow:none;border-color:var(--gray-200)">
+      <div class="card" style="overflow:hidden;box-shadow:none;border-color:#000">
         <div style="overflow-x:auto">
           <table class="lcb-table">
             <thead><tr>
