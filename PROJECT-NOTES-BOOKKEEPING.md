@@ -141,14 +141,16 @@
 > deployed** — handed David the CLI command since the bundle is too big for this
 > sandbox's deploy tool.
 >
-> **Still open, and it's a decision, not a code fix:** `loan_splits` `dcd896b3-…`
+> **Still open, and David has decided the approach:** `loan_splits` `dcd896b3-…`
 > (2026-04-20, `posted`) and the duplicate card `4dfd8dd5-…` (`2026-04`,
 > `already_in_xero`) both still say the OLD, wrong numbers in our own database, and
 > `void_loan_split` refuses to touch either one — it hard-refuses `posted` and
-> `already_in_xero` alike. This is the same `markSplitAlreadyInXero`-is-one-way gap
-> session 231 flagged and nobody has built since. Read the session 252 entry before
-> picking an approach (build the proper un-mark path first, or do the one-off manual
-> SQL correction the way session 231 did once, with the Xero side re-verified first).
+> `already_in_xero` alike. Same `markSplitAlreadyInXero`-is-one-way gap session 231
+> flagged; nobody has built the fix since. **David chose: build the proper un-mark /
+> revert-to-pending-review path first, as its own dedicated session** (schema + RPC
+> change, needs `washroute-migration-review` first) — explicitly NOT a same-session
+> quick SQL patch. Read the session 252 entry for the full detail before starting
+> that session.
 >
 > ### 5. ⚠️ THREE DUPLICATE DOCUMENTS STILL BLOCK A GUARD WE WANT
 >
@@ -2380,10 +2382,16 @@ that session did). Left for David to choose rather than picking for him — this
 booked, twice, and a fix by direct SQL is the kind of thing this module's own rules say should not be
 someone's unilateral call.
 
+**David's answer on the `loan_splits` repair, same session:** build the proper un-mark /
+revert-to-pending-review path first, as its own dedicated session — not a same-session quick
+SQL patch. Deliberately deferred rather than rushed at the tail of this session.
+
 **Where to pick up:** confirm the `supabase functions deploy` ran (`list_edge_functions` `updated_at`
 vs. `git log`, plus — since this fix doesn't write new columns — a live-run test: click Run
 Reconciliation Check and confirm the Funding Circle 2026-04-20 lumped-payment finding actually
-disappears from Issues). Then take David's answer on the `loan_splits` repair above.
+disappears from Issues). Then, in its own session: design the `void_loan_split` un-mark /
+revert-to-pending-review path (`washroute-migration-review` first), and only then correct
+`dcd896b3-…` and void the `4dfd8dd5-…` duplicate card.
 
 ---
 
