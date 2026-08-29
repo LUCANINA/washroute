@@ -154,20 +154,50 @@
 > If she does reverse it, the order matters: reverse in Xero → flip
 > `carrying_basis` to `net_principal` → then rebuild July/August splits.
 >
-> **NEW — the SAME journal carries a second, separate question: the origination
-> straddle.** Journal `#52168` recognised the $20,875 fee on **30 June**; the
-> $125,000 principal was not advanced until **1 July**. So at 6/30 the books carry a
-> liability and an expense **for a loan that had not been advanced** — $20,875.00,
-> a figure describing neither the loan ($145,875 per the agreement) nor zero. David's
-> decision was **option C: change no journals, have the tool state the difference** —
-> the rollforward opens from the books, shows the measured $125,000 draw, closes at
-> $136,578.25, and a generic rule (any `contract_origination` anchor at or before the
-> prior month end disagreeing with the books opening beyond tolerance) notes the
-> straddle on the row. **Option A — reversing #52168 into July — is the correct
-> accounting and goes to Ramona at the next close, alongside the spreading question
-> above. One journal, two questions; ask both at once.** Option B (accruing the
-> principal at 6/30) was **rejected and should not be re-proposed**: the cash did not
-> move until 7/1, so it would recognise a $125,000 asset the business did not hold.
+> **RESOLVED 2026-08-29 — the origination no longer straddles, and this is how it
+> went.** Journal `#52168` had recognised the $20,875 fee on **30 June** while the
+> $125,000 principal was not advanced until **1 July**, so at 6/30 the books carried
+> a liability and an expense **for a loan that had not been advanced** — $20,875.00,
+> describing neither the loan ($145,875 per the agreement) nor zero. The session's
+> first answer was **option C** (change no journals; have the tool state the
+> difference), and it shipped. **David then took option A anyway and re-dated the
+> journal to 7/1** — the correct accounting, and it makes the books say one thing
+> instead of two. Stripe now opens at **$0.00** on 6/30, draws **$145,875.00** in
+> July and closes at **$136,578.25**, footing to the cent.
+>
+> **Two consequences, both handled, both worth knowing:**
+>
+> 1. **A label went stale the moment the journal moved.** The rollforward kept
+> printing *"origination straddles the period"* on Stripe, because the rule compares
+> a `contract_origination` anchor against the books opening and a row was still filed
+> at 6/30 for $145,875. The rule was right; the word had stopped being true. It now
+> tells the two shapes apart — a books opening **between zero and the contract figure**
+> still *straddles*, a **zero** opening reads *recognised this month* — because at a
+> zero opening the whole loan rides on the period question, not part of it. **A rule
+> can outlive the fact it was written for; when a decision changes the books, grep the
+> words the interface says about them.**
+>
+> 2. **That 6/30 anchor row is DELETED** (`68c00b32-…`, `contract_origination`,
+> $145,875.00). It asserted a balance nothing was owed on. Checked first, not
+> assumed: no `loan_splits.prior/current_statement_id`, no `loan_tie_outs.statement_id`
+> and no schedule anchor referenced it. Everything it carried survives elsewhere — the
+> agreement PDF is filed, the 12 terms are in `loan_contract_terms`, and the 7/1
+> `xero_balance_snapshot` holds $145,875.00 — and it is no longer needed to open
+> Stripe's rollforward, because `loan_book_balances` does that now. **There are now
+> ZERO `contract_origination` rows in the database.** The source and its label stay in
+> the code deliberately: the mechanism is right for a loan that genuinely needs a
+> day-one balance from a signed agreement, and session 245's rule still holds — it can
+> OPEN a rollforward and can never CLOSE one.
+>
+> **Root cause note:** intake bundle `6d20c11d` is still marked `applied` and its
+> `attach`/`terms` actions filed that row's siblings. Re-applying that bundle would
+> re-file the 6/30 anchor. Nobody should, but if Stripe's anchor reappears at 6/30,
+> that is where it came from.
+>
+> **Still with Ramona:** whether the $20,875 fee should be spread over the repayments
+> rather than expensed in one lump. Option B (accruing the principal at 6/30) was
+> **rejected and should not be re-proposed**: the cash did not move until 7/1, so it
+> would recognise a $125,000 asset the business did not hold.
 >
 > ### 7. 🔴 NEW — $266,140.40 OF "TOTAL OUTSTANDING" IS NOT MEASURED IN PRINCIPAL
 >
