@@ -2290,6 +2290,43 @@ to "what is running".
 
 ## Session Log
 
+### Session 251 (cont., 2026-08-29) — overview roster: Needs Attention only
+
+David: "show only ISSUES (removed settled or waiting) ... by issues I mean those in
+the NEEDS ATTENTION bucket" — the lender roster on the Bookkeeping Overview page
+(session 247's one-row-per-lender roster, `_bkRosterHtml`) was listing all three
+bands (Needs attention / Settled or waiting / Reconciled). Cut it to Needs attention
+only, and dropped the tier-1 row's red background tint + red left border, leaving
+just the red `bk-dot`.
+
+**Where:** `_BK_ROSTER_BANDS` still defines all three bands (`work` / `waiting` /
+`clean`) and `_bkRosterCounts()` still tallies all three for the statusline sentence
+above the list ("N of 14 loans reconciled · N need attention · N settled or
+waiting") — only the render loop in `_bkRosterHtml` was narrowed, with
+`if (band.key !== 'work') continue;` added right after the band iteration starts.
+This is deliberately a rendering-only cut, not a data change: `_bkRosterHtml` has
+exactly one call site (`renderBookkeepingOverview`'s issues segment), so nothing
+else reads the removed bands' HTML. CSS: `.bk-lender-row.bk-t1` and its `:hover`
+rule (`border-left: 3px solid #dc2626; background: #fffbfa`) were removed outright
+— a needs-attention row now looks like any other row except for its dot.
+
+**Verification gap, stated plainly:** confirmed JS syntax is valid (extracted the
+inline `<script>` and ran `node --check` on it — clean) and traced the single call
+site and every other reference to `_BK_ROSTER_BANDS` / the removed CSS classes (none
+found). Could **not** run `tests/bookkeeping-harness.mjs` against this — it needs a
+real headless Chromium, and this sandbox's Linux VM has no root/sudo (`apt-get`/
+`sudo` both refuse — no dpkg lock access, "no new privileges" flag set), so
+Playwright's browser dependencies (`libXdamage.so.1` and others) can't be installed
+even though Playwright itself and a Chromium binary download fine. This is a real
+gap, not a shortcut taken on purpose — the change should be eyeballed in the live
+app before being called fully verified. Left a gitignored, untracked
+`node_modules/playwright-core` behind from the install attempt; harmless (not
+tracked by git) but David can delete it whenever.
+
+**Housekeeping left behind:** two more stale `.git/*.lock` files landed in
+`_to_delete/` this session (same FUSE-mount issue as before) — still needs a manual
+`rm -rf _to_delete` from Finder or a real terminal.
+
 ### Session 251 (2026-08-29) — one balance per loan per day, per source
 
 David re-uploaded the same four Stripe documents from session 245's intake to ask

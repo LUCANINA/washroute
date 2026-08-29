@@ -3576,8 +3576,6 @@
             .bk-lender-row { display: flex; align-items: center; gap: 11px; padding: 11px 20px;
                              border-bottom: 1px solid var(--gray-100); cursor: pointer; }
             .bk-lender-row:hover { background: var(--gray-50); }
-            .bk-lender-row.bk-t1 { border-left: 3px solid #dc2626; background: #fffbfa; padding-left: 17px; }
-            .bk-lender-row.bk-t1:hover { background: #fff5f4; }
             .bk-lender-row .bk-dot { margin-top: 0; }
             .bk-lr-name { font-size: 13.5px; font-weight: 600; color: var(--gray-900); flex: 1 1 auto;
                           min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -17219,7 +17217,14 @@
     });
 
     let html = '';
+    // Overview roster now shows Needs attention only (David, session 251 cont.:
+    // "show only ISSUES ... by issues I mean those in the NEEDS ATTENTION
+    // bucket"). Settled-or-waiting and Reconciled loans are still counted by
+    // _bkRosterCounts() for the statusline above the list, but no longer get
+    // rendered as their own bands here -- this page's job is the queue of
+    // things to act on, not a full roster of every loan's state.
     for (const band of _BK_ROSTER_BANDS) {
+      if (band.key !== 'work') continue;
       const inBand = groups.filter(g => band.groups.includes(g.sum.group));
       if (!inBand.length) continue;
       // Work sorts by the size of the gap — the biggest number is the one to
