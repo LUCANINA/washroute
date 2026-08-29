@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
             storage_path: storagePath,
             pulled_at: new Date().toISOString(),
             pulled_by: 'derived: initial principal minus the lender file\'s own per-payment principal splits (loan-ingest-amortization v15)',
-          }, { onConflict: 'loan_account_id,statement_date' })
+          }, { onConflict: 'loan_account_id,statement_date,source' })
           if (stmtErr) throw new Error(`loan_statements upsert failed at ${r.row_date}: ${stmtErr.message}`)
           upserted++
         }

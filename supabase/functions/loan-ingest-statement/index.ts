@@ -477,7 +477,7 @@ async function handleRequest(req: Request): Promise<Response> {
         // v22: only the whitelisted value ever lands; everything else keeps the
         // column's default. Never let a caller invent a basis.
         ...(balance_basis === 'principal_only' ? { balance_basis: 'principal_only' } : {}),
-      }, { onConflict: 'loan_account_id,statement_date' })
+      }, { onConflict: 'loan_account_id,statement_date,source' })
       .select()
       .single()
     if (stmtErr) {

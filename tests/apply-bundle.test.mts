@@ -356,28 +356,30 @@ section('the fixes are wired into the function that ships')
      /ok: failed\.length === 0/.test(applySrc) && /failed\.length \? 207 : 200/.test(applySrc))
 }
 
-section('one balance per loan per day, whatever said it')
+section('one balance per loan, per day, per source (session 251)')
 {
-  // THE REAL FAILURE (session 246). loan_statements carries
+  // THE ORIGINAL FAILURE (session 246). loan_statements carried
   // UNIQUE (loan_account_id, statement_date) — not (loan, date, source), which
   // this module had assumed by inference rather than by reading the schema. The
   // lookup asked only about its own source, found nothing, returned 'insert',
   // and Postgres raised the duplicate at David:
   //   duplicate key value violates unique constraint
   //   "loan_statements_loan_account_id_statement_date_key"
+  //
+  // THE FIX (session 251). The constraint is now (loan, date, source), so a
+  // genuine lender figure can be filed on a day our own sweep already wrote —
+  // this is the exact Stripe Capital pair from 2026-08-26 that motivated the
+  // change: books $125,257.71 (xero_balance_snapshot), lender $123,091.66
+  // (portal_manual_pull). Both now belong on file at once; that pair IS the
+  // Variance the rollforward needs.
   const lender = { statement_date: '2026-08-26', principal_balance: 123091.66,
                    balance_basis: 'total_payback', source: 'portal_manual_pull' } as any
   const booksRow = [{ principal_balance: '125257.71', balance_basis: 'total_payback',
                       source: 'xero_balance_snapshot' }]
 
-  const taken = statementRowWrite(booksRow, lender)
-  ok('a day owned by another source is refused, not inserted', taken.verdict === 'date_taken', taken.verdict)
-  ok('...naming who owns it and with what',
-     /xero_balance_snapshot/.test((taken as any).message) && /125,257\.71/.test((taken as any).message))
-  ok('...and saying why overwriting is not the answer',
-     /compared against/.test((taken as any).message))
-  ok('...in English, with no constraint name in sight',
-     !/duplicate key|unique constraint|loan_statements_loan_account/.test((taken as any).message))
+  const filed = statementRowWrite(booksRow, lender)
+  ok('a day owned by another source now inserts alongside it, not refused',
+     filed.verdict === 'insert', filed.verdict)
 
   // The ordinary paths must not have moved.
   ok('an empty day still inserts', statementRowWrite([], lender).verdict === 'insert')

@@ -406,43 +406,24 @@ export function statementRowWrite(
   if (!rows.length) return { verdict: 'insert' }
   const money = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  // ── ONE BALANCE PER LOAN PER DAY, WHATEVER SAID IT (session 246) ──────────
-  // `loan_statements` carries UNIQUE (loan_account_id, statement_date). Not
-  // (loan, date, source) — the module ASSUMED the latter, on inference rather
-  // than on a look at the schema, and the assumption reached a person as a raw
-  // Postgres error: 'duplicate key value violates unique constraint
-  // "loan_statements_loan_account_id_statement_date_key"'.
+  // ── ONE BALANCE PER LOAN, PER DAY, PER SOURCE (session 251) ───────────────
+  // Until session 251, `loan_statements` carried UNIQUE (loan_account_id,
+  // statement_date) -- one balance per loan per day, whatever said it. That
+  // is what forced this function to refuse a lender figure any day our own
+  // xero_balance_snapshot sweep had already written (Stripe Capital, every
+  // day: 35 rows and counting). Session 251 relaxed the constraint to
+  // (loan, date, source), so a different-source row on the same date is no
+  // longer a conflict -- it is exactly the shape this table exists to hold:
+  // our own sweep AND a genuine lender figure for the same day, side by
+  // side, which is what the rollforward's Variance column and
+  // _rankByAuthority() both need in order to compare one against the other.
+  // See PROJECT-NOTES-BOOKKEEPING.md session 251 for the full reasoning.
   //
-  // It bites where it matters most. Stripe Capital is `ingestion_method =
-  // 'automatic'`, so xero-payout-sync writes a daily snapshot of OUR OWN BOOKS
-  // into the lender's table — 35 rows, and the only loan on this book that does
-  // it. Those snapshots sit on exactly the days a lender figure needs. On
-  // 2026-08-26 the books say $125,257.71 and the lender says $123,091.66, and
-  // THAT PAIR IS THE VARIANCE: the table can hold one of them, and the whole
-  // point is to hold both.
-  //
-  // Overwriting is not the escape. Replacing the books row with the lender's
-  // figure would leave an anchor and nothing to compare it against — a check
-  // that agrees with itself, which is the shape this loan was already stuck in.
-  //
-  // So this refuses, and says what it found, in the sentence a person needs. The
-  // real repair is a schema decision (relax the constraint and make every
-  // latest-row lookup source-aware, or stop the sweep writing here at all) and it
-  // is recorded in PROJECT-NOTES-BOOKKEEPING.md rather than guessed at here.
+  // A conflict now means only one thing: a SECOND row from the SAME source
+  // on the SAME day, disagreeing with the first. That is still refused, and
+  // still never overwritten -- a row already on file is somebody else's
+  // evidence, not a stale copy to correct.
   const ours = rows.filter(r => !row.source || !r.source || r.source === row.source)
-  const theirs = rows.filter(r => row.source && r.source && r.source !== row.source)
-  if (!ours.length && theirs.length) {
-    const who = [...new Set(theirs.map(r => String(r.source)))].join(', ')
-    return {
-      verdict: 'date_taken',
-      message:
-        `${row.statement_date} already carries a balance from a different source (${who}: ` +
-        `${theirs.map(r => money(Number(r.principal_balance))).join(', ')}), and this loan can hold only ` +
-        `one balance per day. The lender's ${money(row.principal_balance)} was NOT filed and nothing was ` +
-        `changed — overwriting would replace the books' own figure for that day, which is the very number ` +
-        `the lender's balance has to be compared against.`,
-    }
-  }
 
   const same = ours.find(r => Math.abs(Number(r.principal_balance) - row.principal_balance) <= 0.005)
   if (same) {
@@ -451,11 +432,14 @@ export function statementRowWrite(
       message: `${money(row.principal_balance)} was already on file for ${row.statement_date} from the same place — kept the row already there rather than filing a second one`,
     }
   }
-  return {
-    verdict: 'conflict',
-    message:
-      `a balance is already on file for ${row.statement_date} from the same place, and it is not this one ` +
-      `(${ours.map(r => money(Number(r.principal_balance))).join(', ')} on file, ${money(row.principal_balance)} proposed). ` +
-      `Nothing was changed: overwriting it would destroy the evidence for whichever figure is right.`,
+  if (ours.length) {
+    return {
+      verdict: 'conflict',
+      message:
+        `a balance is already on file for ${row.statement_date} from the same place, and it is not this one ` +
+        `(${ours.map(r => money(Number(r.principal_balance))).join(', ')} on file, ${money(row.principal_balance)} proposed). ` +
+        `Nothing was changed: overwriting it would destroy the evidence for whichever figure is right.`,
+    }
   }
+  return { verdict: 'insert' }
 }
