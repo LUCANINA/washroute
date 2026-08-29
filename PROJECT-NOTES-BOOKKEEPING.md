@@ -81,21 +81,44 @@
 >   never produces and proves the guard discriminates; if you touch that filter,
 >   run it.
 >
-> ### 2. 🟠 STRIPE'S LENDER ANCHOR — STILL BLOCKED ON THE SAME SCHEMA DECISION
+> ### 2. 🟡 STRIPE'S LENDER ANCHOR — SCHEMA UNBLOCKED (session 251), NOT YET DEPLOYED
 >
-> Unchanged and re-verified today: `loan_statements` still carries **UNIQUE
-> (loan_account_id, statement_date)** — one balance per loan per day, whatever its
-> source — and Stripe Capital still has **0 `portal_manual_pull` rows** against
-> **36 `xero_balance_snapshot` rows** (35 in session 245; the sweep adds one a
-> day). The 6/30 opening is filed and correct; the lender anchor still cannot be.
+> **The decision moved.** `loan_statements` is now `UNIQUE (loan_account_id,
+> statement_date, source)`, not just `(loan_account_id, statement_date)` — applied
+> 2026-08-29, migration `session_251_loan_statements_source_scoped_unique.sql`.
+> David asked "if the Stripe balance is in Xero, why aren't we using it", which is
+> what surfaced that our own daily sweep was occupying the only slot a real Stripe
+> figure could ever have used.
 >
-> The decision has not moved: relax the constraint to (loan, date, source) **and**
-> audit every latest-row lookup to be source-aware and deterministic, or stop the
-> sweep writing into the lender's table at all. Do not overwrite the books row.
-> **Session 246 added a reason to prefer the second option:** `loan_book_balances`
-> now exists and is exactly where a books-side figure belongs. Stripe's 36 sweep
-> rows are our own arithmetic sitting in the lender's table; that is the shape the
-> new table was created to stop. Full working notes in the session 245 entry.
+> Went with relaxing the constraint, NOT the "stop the sweep" alternative session
+> 246 floated: `_rankByAuthority()` (session 239) already prefers a real lender row
+> over our own arithmetic within its 45-day grace window, so the display side
+> needed no changes at all — only the write side was blocking this. Stopping the
+> sweep instead would have meant teaching `loan_book_balances` to compute daily,
+> not just at month-end, which it does not do today. Smaller, safer fix.
+>
+> **Companion code changes, same commit:** `loan-ingest-statement` and
+> `loan-ingest-amortization`'s upsert `onConflict` target updated to match the new
+> constraint; `_shared/loan-bundle-apply.ts`'s `statementRowWrite()` no longer
+> refuses a different-source row on an owned day (`'date_taken'` is dead — a
+> conflict now means only a second row from the SAME source disagreeing).
+> `tests/apply-bundle.test.mts` updated and re-run clean (88/88 + 233/233 in
+> `loan-bundle-balances.test.mts`). Verified before applying: 899 existing rows, 0
+> null sources, zero existing (loan, date) pairs with more than one row — the
+> migration could not fail on existing data.
+>
+> **NOT YET DEPLOYED.** `loan-ingest-statement`, `loan-ingest-amortization` and
+> `loan-bundle` (which imports `loan-bundle-apply.ts`) all still need a redeploy
+> before any of this takes effect live — the migration is applied, the code is
+> committed locally, nothing is pushed or deployed. Check `list_edge_functions`
+> `updated_at` against this commit before trusting either claim.
+>
+> **Still open after the deploy:** Stripe Capital still has **0 `portal_manual_pull`
+> rows** on file — there is room for one now, but nothing has filed one yet. The
+> next real step is getting an actual Stripe-confirmed balance in (a portal pull,
+> statement, or a screenshot dated via `ledger-dating.ts` the way 2026-08-26 was
+> worked out in session 245) — that will not backfill 7/31 specifically, only
+> whatever date it's dated.
 >
 > ### 3. 🟠 UNLABELLED BALANCES — AND A CORRECTION TO WHAT SESSION 245 WROTE HERE
 >
@@ -2266,6 +2289,71 @@ to "what is running".
 ---
 
 ## Session Log
+
+### Session 251 (2026-08-29) — one balance per loan per day, per source
+
+David re-uploaded the same four Stripe documents from session 245's intake to ask
+where they'd actually gone (verified: byte-identical, already filed 2026-08-27,
+nothing new happened). That led into the Loans rollforward, and to the question
+that actually moved something: **"if the Stripe balance at closing is in Xero, why
+are we not using it?"**
+
+Answer: the "Closing" figure shown for Stripe is our own books, rebuilt from Xero
+— not Stripe telling us anything. Putting it in the Variance column would compare
+our number to itself, which is the exact shape that already hid a real $1,835.75
+mismatch on Verdant (session 246) and, on Stripe specifically, already let a sign
+bug overstate the balance by $11,720.59 for 13 days with nothing to catch it
+(`xero-payout-sync`'s comments document the incident directly).
+
+**The actual blocker, traced to one line:** `loan_statements` carries `UNIQUE
+(loan_account_id, statement_date)`. Stripe's daily automatic sweep
+(`xero-payout-sync`) fills that one slot every day, so a genuine Stripe-sourced
+balance can never be filed for the same date — `loan-bundle-apply.ts`'s
+`statementRowWrite()` already knew this and refused cleanly (`'date_taken'`)
+rather than overwrite, which is exactly why Stripe has carried 0
+`portal_manual_pull` rows through five sessions of this being flagged as open.
+
+**The fix:** relaxed the constraint to `(loan_account_id, statement_date,
+source)` — migration `session_251_loan_statements_source_scoped_unique.sql`,
+verified safe first (899 rows, 0 null sources, zero existing (loan, date) pairs
+with more than one row, so nothing on file could violate the new constraint).
+Considered the alternative session 246 floated — stop the sweep writing into
+`loan_statements` at all, since `loan_book_balances` exists for exactly this —
+and walked it back after finding two things: `loan_book_balances` only computes
+at month-end today, not daily, so that route would have frozen the live balance
+between month-ends; and `_rankByAuthority()` (session 239) already prefers a real
+lender row over our own arithmetic within a 45-day window, so once a real row
+*can* be filed, the display side needs no further changes. Smaller fix, same
+result, no regression to daily granularity.
+
+Companion changes in the same commit (`fed742a`, not yet pushed): `loan-ingest-
+statement` and `loan-ingest-amortization`'s upsert `onConflict` target moved to
+`loan_account_id,statement_date,source`; `statementRowWrite()`'s `'date_taken'`
+refusal removed (a conflict now means only a second row from the *same* source
+disagreeing — the `ours`/`theirs` split collapses to just `ours`).
+`tests/apply-bundle.test.mts`'s session 246 section — built around the exact
+Stripe 2026-08-26 pair ($125,257.71 books / $123,091.66 lender) — rewritten to
+assert the new insert behavior. Re-run clean: 88/88, and
+`loan-bundle-balances.test.mts` 233/233 (untouched, still wired the same way).
+
+**Not deployed.** Migration is live; `loan-ingest-statement`, `loan-ingest-
+amortization` and `loan-bundle` all still need a redeploy before any of this
+takes effect. Stripe still has 0 `portal_manual_pull` rows — there's room for one
+now, but nothing has been filed. Next real step: get an actual Stripe-confirmed
+balance on file (the 2026-08-26 screenshot's measured $123,091.66 is sitting
+right there from session 245's work and would be the first one, once deployed).
+
+Separately, David clarified that `loan_accounts.scheduled_monthly_payment` =
+$13,000 for Stripe is not a stale contract figure — it's his own tracked estimate
+of the real paydown pace at Stripe's 8% draw rate, not the contract's
+$16,208.34/60-day minimum. Traced where that field is actually read: not just the
+Debt Schedule display, but also `loan-find-difference` (routine-payment transaction
+matching), `loan-record-principal-payment` (fallback amount), and `derive-schedule.ts`
+(fallback payment). Left as-is for now — David wants it replaced with the already-
+measured Xero figure (the rollforward's own Principal+Interest columns) instead of
+a typed number, trailing-averaged for Stripe specifically since its payment isn't
+fixed; not yet implemented.
+
 
 ### Session 250 (2026-08-29) — variances are red again, and August speaks July's language
 
