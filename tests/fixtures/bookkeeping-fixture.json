@@ -1,6 +1,6 @@
 {
  "_meta": {
-  "pulled_at": "2026-08-28T03:09:11.000Z",
+  "pulled_at": "2026-08-28T23:10:31.000Z",
   "project": "umjpbuxrdydwejqtensq",
   "note": "REAL production rows, read-only SELECT. Refresh with tests/refresh-bookkeeping-fixture.sql."
  },
@@ -16661,6 +16661,38 @@
    "matched_xero_bank_transaction_id": null
   },
   {
+   "amortization_row_id": "91415819-ce00-492b-908b-e9af2bf21e52",
+   "computed_at": "2026-08-28T14:49:45.556601+00:00",
+   "current_statement_id": null,
+   "id": "732552ee-f5c4-4ed7-978d-48d106920609",
+   "interest_amount": 234.37,
+   "loan_account_id": "f3aa83c5-6078-4847-ada3-d2214fa07c08",
+   "loan_accounts": {
+    "lender": "PayPal",
+    "lender_account_number": "A00845102",
+    "xero_account_name": "Paypal 2"
+   },
+   "matched_xero_bank_transaction_id": null,
+   "period_label": "2026-09-02",
+   "posting_method": "manual_journal",
+   "principal_amount": 3180.34,
+   "prior_statement_id": null,
+   "review_notes": null,
+   "source": "amortization_schedule",
+   "stage_reference": null,
+   "stage_sweep_checked_at": null,
+   "stage_sweep_flag": null,
+   "staged_at": null,
+   "status": "pending_review",
+   "total_amount": 3414.71,
+   "void_reason": null,
+   "voided_at": null,
+   "voided_by": null,
+   "xero_manual_journal_id": null,
+   "xero_posted_at": null,
+   "xero_posted_by": null
+  },
+  {
    "id": "1a70eb96-ec4e-4c9c-819d-3602318a3fac",
    "source": "amortization_schedule",
    "status": "staged",
@@ -16688,7 +16720,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "8d0035e0-788a-4e6d-9e25-e7a150e46208",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:13.892+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:13.627+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "f5a116a5-c323-4bce-a09f-a5adb2bda258"
   },
@@ -16720,7 +16752,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "ea533675-4025-4d47-acb6-9c3cb94cf685",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:13.238+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:12.909+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "89f417cb-e8c9-4faf-834e-935cfe24f158"
   },
@@ -16784,7 +16816,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "2cc8684d-7e4e-42f8-ad84-31d86262db9f",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:17.529+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:16.538+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "c492c217-4442-4b83-ac7c-b75db56bc676"
   },
@@ -16816,7 +16848,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "8f54b550-3cca-4852-8d9e-1fa97e4ad6eb",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:16.92+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:15.758+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "eb80bf5c-de52-4b44-9389-10c1c2e71e9f"
   },
@@ -16848,7 +16880,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "cc3ca5c1-fa79-4e21-aca4-14b5bc1adb57",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:14.524+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:14.363+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "e9f9537f-5bd8-4af3-8136-7b21fde0f717"
   },
@@ -16880,7 +16912,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "6228ef99-de68-433f-ab6f-a1686d32d03b",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:12.179+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:12.196+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "7575ab83-033f-4233-b677-c7386cc092b5"
   },
@@ -16912,7 +16944,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "46c18290-acba-4991-b331-177e3f6bdb51",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:11.514+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:07.695+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "8f760564-80cd-4aec-8d5d-0a1fa64f6537"
   },
@@ -16944,7 +16976,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "589ea582-0403-4285-b686-ec57f11b1fc8",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:18.092+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:17.184+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "5d5f4778-5b75-4f95-bc58-03cb4ca5f65c"
   },
@@ -16983,14 +17015,14 @@
   {
    "id": "4e78086c-aced-4ad8-88aa-c262791d9e73",
    "source": "amortization_schedule",
-   "status": "staged",
+   "status": "posted",
    "staged_at": "2026-08-25T15:07:35.551+00:00",
    "voided_at": null,
    "voided_by": null,
    "computed_at": "2026-08-21T22:17:09.324214+00:00",
    "void_reason": null,
    "period_label": "2026-08-26",
-   "review_notes": "Pre-staged in Xero 2026-08-21 by David Macquart-Moulin as WR-STAGE 284 2026-08-26. -- Pre-staged transaction removed from Xero 2026-08-25 by David Macquart-Moulin; split returned to review. -- Pre-staged in Xero 2026-08-25 by David Macquart-Moulin as WR-STAGE 284 2026-08-26.",
+   "review_notes": "Pre-staged in Xero 2026-08-21 by David Macquart-Moulin as WR-STAGE 284 2026-08-26. -- Pre-staged transaction removed from Xero 2026-08-25 by David Macquart-Moulin; split returned to review. -- Pre-staged in Xero 2026-08-25 by David Macquart-Moulin as WR-STAGE 284 2026-08-26. -- Pre-staged transaction matched against the bank feed (confirmed reconciled in Xero, sweep of 2026-08-28).",
    "total_amount": 3414.71,
    "loan_accounts": {
     "lender": "PayPal",
@@ -16998,7 +17030,7 @@
     "lender_account_number": "A00845102"
    },
    "posting_method": "pre_staged",
-   "xero_posted_at": null,
+   "xero_posted_at": "2026-08-28T14:49:45.297+00:00",
    "xero_posted_by": null,
    "interest_amount": 249.41,
    "loan_account_id": "f3aa83c5-6078-4847-ada3-d2214fa07c08",
@@ -17008,7 +17040,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "5583afae-ff8b-4fb1-9d3c-be4352fdcc8a",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:10.652+00:00",
+   "stage_sweep_checked_at": "2026-08-28T14:49:45.297+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "0d3dce31-b0fe-4fdd-88ff-662130ddc1bb"
   },
@@ -17936,7 +17968,7 @@
    "prior_statement_id": null,
    "amortization_row_id": "f45345e1-c19a-4275-b359-f157353a2003",
    "current_statement_id": null,
-   "stage_sweep_checked_at": "2026-08-27T16:00:15.362+00:00",
+   "stage_sweep_checked_at": "2026-08-28T16:00:15.042+00:00",
    "xero_manual_journal_id": null,
    "matched_xero_bank_transaction_id": "3de75520-1a3c-4276-847c-ab31df9574d3"
   },
@@ -57282,843 +57314,1085 @@
    "as_of": "2026-07-31",
    "balance": 22639.56,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.461+00:00",
+   "computed_at": "2026-08-28T22:20:47.119+00:00",
    "detail": {
     "checkpoint": 24041.63,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "338",
+    "drawn": 170.77,
+    "drawn_entries": 1,
     "entries_counted": 4,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 643.5,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "837a9118-7c6e-4b3a-9178-e622165b881a",
    "loan_account_id": "0f0c8c63-cb39-4706-bcd6-abfb38db2c2e",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 57377.83,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.452+00:00",
+   "computed_at": "2026-08-28T22:20:47.11+00:00",
    "detail": {
     "checkpoint": 76392.3,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "247",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 13,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 6086.36,
+    "reduced_entries": 4,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "1fc8d992-06b5-4f95-99c5-1f58db9d6244",
    "loan_account_id": "160414bb-c5e4-421b-8f82-0b28a43f5cb2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.454+00:00",
+   "computed_at": "2026-08-28T22:20:47.112+00:00",
    "detail": {
     "checkpoint": 31433.31,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "298",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 3,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "a051a0e3-06fe-47f2-be85-0fd8e33d408e",
    "loan_account_id": "168cfbae-89e1-4760-aaa7-4e48419126a3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 115260.89,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.464+00:00",
+   "computed_at": "2026-08-28T22:20:47.122+00:00",
    "detail": {
     "checkpoint": 118383.91,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "243",
+    "drawn": 937.49,
+    "drawn_entries": 1,
     "entries_counted": 4,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 2065.77,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "843c3b19-1653-4a8b-bdc0-28abef644818",
    "loan_account_id": "28f6c486-1f72-4d80-90de-d5fce3cfd102",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 250894.29,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.462+00:00",
+   "computed_at": "2026-08-28T22:20:47.12+00:00",
    "detail": {
     "checkpoint": 258899.68,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "394",
+    "drawn": 1855.38,
+    "drawn_entries": 1,
     "entries_counted": 8,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 4543.32,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "22216a46-9c7c-4cf6-9ed3-74e517aba8c5",
    "loan_account_id": "2927c59e-1af4-4a60-84dc-cda0819558a3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 136578.25,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.444+00:00",
+   "computed_at": "2026-08-28T22:20:47.1+00:00",
    "detail": {
     "checkpoint": 0,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "304",
+    "drawn": 145875,
+    "drawn_entries": 2,
     "entries_counted": 18,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 9296.75,
+    "reduced_entries": 16,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "bdb05254-f78a-40cb-a2d7-e841815da9d3",
    "loan_account_id": "49ee6d50-c5a8-4258-8343-425d91d0f13b",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.454+00:00",
+   "computed_at": "2026-08-28T22:20:47.111+00:00",
    "detail": {
     "checkpoint": 0,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "280",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 0,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "c1363d23-701a-4da1-be22-fffa6448739f",
    "loan_account_id": "595ecb42-9be2-4b4e-96ee-71b46b36bc82",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 16405.75,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.456+00:00",
+   "computed_at": "2026-08-28T22:20:47.113+00:00",
    "detail": {
     "checkpoint": 22102.76,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "244",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 2,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "e59c06d2-fe74-4218-b779-2322894ea37b",
    "loan_account_id": "5e2ebcdb-2928-49b7-a976-1bc18a01b29d",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.457+00:00",
+   "computed_at": "2026-08-28T22:20:47.115+00:00",
    "detail": {
     "checkpoint": 10484.28,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "303",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 3,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "af371a22-85fd-4da6-af0e-0b7bbd6cc1d7",
    "loan_account_id": "877cd2dc-4eb6-40c6-b5f2-c1aeb600ffa3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.457+00:00",
+   "computed_at": "2026-08-28T22:20:47.114+00:00",
    "detail": {
     "checkpoint": 13588.48,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "238",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 4,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 900.95,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "a0494288-365c-48bb-8310-ffc122b37eb0",
    "loan_account_id": "95a57a86-0a79-4122-b28a-d87b1ce0c06a",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.454+00:00",
+   "computed_at": "2026-08-28T22:20:47.111+00:00",
    "detail": {
     "checkpoint": 0,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "292",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 0,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "454f1771-4ae5-4e89-984a-a8ebf4298049",
    "loan_account_id": "a1a88e88-8571-4b22-a781-a581da1a4a2c",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 960000,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.451+00:00",
+   "computed_at": "2026-08-28T22:20:47.108+00:00",
    "detail": {
     "checkpoint": 960000,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "299",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 0,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "887f5c0c-e487-4cbd-8b2d-fa2f488b4b8c",
    "loan_account_id": "ab74438a-1055-435f-a0a9-637c7dcb96ab",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 432619.86,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.455+00:00",
+   "computed_at": "2026-08-28T22:20:47.112+00:00",
    "detail": {
     "checkpoint": 446662.48,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "254",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 4,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 5313.38,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "d5475ab1-dec3-4bdb-8fa6-12dac1d45f0c",
    "loan_account_id": "ad5dd55d-7b49-44c6-8705-2803a79611c0",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 65206.97,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.458+00:00",
+   "computed_at": "2026-08-28T22:20:47.115+00:00",
    "detail": {
     "checkpoint": 68194.12,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "253",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 3,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 1010.57,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "01faa0e9-8ace-4855-bffa-e18ba9e58b58",
    "loan_account_id": "af4dfd44-ac52-4862-bf0b-d290cd458edf",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 17171.69,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.46+00:00",
+   "computed_at": "2026-08-28T22:20:47.118+00:00",
    "detail": {
     "checkpoint": 19906.94,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "242",
+    "drawn": 121.38,
+    "drawn_entries": 1,
     "entries_counted": 8,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 1180.32,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "445ad39d-658f-4ce8-b4ec-fb5398b39651",
    "loan_account_id": "b1008b4a-8a9e-440b-9efc-55a6b831a001",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.459+00:00",
+   "computed_at": "2026-08-28T22:20:47.116+00:00",
    "detail": {
     "checkpoint": 0,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "239",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 0,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "ab39b9a0-e81a-4872-9afb-18709a9e37c2",
    "loan_account_id": "c57930af-2ce9-4850-8b60-9df25e7c7176",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 89411.25,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.459+00:00",
+   "computed_at": "2026-08-28T22:20:47.117+00:00",
    "detail": {
     "checkpoint": 102606.76,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "233",
+    "drawn": 513.15,
+    "drawn_entries": 1,
     "entries_counted": 7,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 3839.38,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "9b628c33-1063-4639-9670-74f511fd995c",
    "loan_account_id": "cba4240f-08cc-43d7-9d32-d37d695b5e2c",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 136760.26,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.45+00:00",
+   "computed_at": "2026-08-28T22:20:47.107+00:00",
    "detail": {
     "checkpoint": 139119.39,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "251",
+    "drawn": 1300.3,
+    "drawn_entries": 1,
     "entries_counted": 4,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 2108.25,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "e1d7ba06-101d-4ade-9592-302bf06cb9c0",
    "loan_account_id": "e10fa730-203f-436a-8847-b3d5416189cf",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 30360.56,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.464+00:00",
+   "computed_at": "2026-08-28T22:20:47.122+00:00",
    "detail": {
     "checkpoint": 32430.91,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "332",
+    "drawn": 253.62,
+    "drawn_entries": 1,
     "entries_counted": 4,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 1046.95,
+    "reduced_entries": 1,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 1,
+    "window_from": "2026-04-30"
    },
    "id": "02991f10-59b6-4f8d-ac46-850b3e25ea15",
    "loan_account_id": "e31d87ff-541e-4f59-ad89-a4b225e1b57a",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 58775.97,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.463+00:00",
+   "computed_at": "2026-08-28T22:20:47.12+00:00",
    "detail": {
     "checkpoint": 111386.32,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "284",
+    "drawn": 1690.52,
+    "drawn_entries": 5,
     "entries_counted": 30,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 20215.81,
+    "reduced_entries": 6,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "bd435dda-3352-4cc0-b845-5788d2493f89",
    "loan_account_id": "f3aa83c5-6078-4847-ada3-d2214fa07c08",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.459+00:00",
+   "computed_at": "2026-08-28T22:20:47.117+00:00",
    "detail": {
     "checkpoint": 931.74,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "246",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 2,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "f2e7bd6b-2c84-4eeb-a1fe-5a1a7f798b92",
    "loan_account_id": "f6be8bf2-467c-41c7-93bb-7a2fcaba5cc2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-07-31",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.441+00:00",
+   "computed_at": "2026-08-28T22:20:47.097+00:00",
    "detail": {
     "checkpoint": 10932.54,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "234",
+    "drawn": 0,
+    "drawn_entries": 0,
     "entries_counted": 3,
+    "mixed_sign_entries": 0,
+    "movement_from": "2026-06-30",
+    "movement_measured": true,
+    "movement_to": "2026-07-31",
+    "reduced": 0,
+    "reduced_entries": 0,
     "staged_entries_at_or_before": 0,
+    "staged_entries_in_month": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "staged_reduction_in_month": 0,
+    "staged_refs_not_in_ledger": 0,
+    "window_from": "2026-04-30"
    },
    "id": "dd0571e3-14e4-4c93-af4d-458246477d3b",
    "loan_account_id": "fb75f5e1-c90b-4c7c-9866-dc5bc4b2b9a2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 23112.29,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.461+00:00",
+   "computed_at": "2026-08-28T22:20:47.119+00:00",
    "detail": {
     "checkpoint": 24041.63,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "338",
     "entries_counted": 2,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "eaa843c8-eb32-4e43-94cc-92f94200833c",
    "loan_account_id": "0f0c8c63-cb39-4706-bcd6-abfb38db2c2e",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 63464.19,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.452+00:00",
+   "computed_at": "2026-08-28T22:20:47.11+00:00",
    "detail": {
     "checkpoint": 76392.3,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "247",
     "entries_counted": 9,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "81e06e99-f3c0-4c96-87c5-99d1d334cc84",
    "loan_account_id": "160414bb-c5e4-421b-8f82-0b28a43f5cb2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.454+00:00",
+   "computed_at": "2026-08-28T22:20:47.112+00:00",
    "detail": {
     "checkpoint": 31433.31,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "298",
     "entries_counted": 3,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "a997fa26-e749-49fe-b6e2-b33faeb51a56",
    "loan_account_id": "168cfbae-89e1-4760-aaa7-4e48419126a3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 116389.17,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.464+00:00",
+   "computed_at": "2026-08-28T22:20:47.122+00:00",
    "detail": {
     "checkpoint": 118383.91,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "243",
     "entries_counted": 2,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "7e8e3e0e-39d6-4f00-ae33-57723fcd57df",
    "loan_account_id": "28f6c486-1f72-4d80-90de-d5fce3cfd102",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 253582.23,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.462+00:00",
+   "computed_at": "2026-08-28T22:20:47.12+00:00",
    "detail": {
     "checkpoint": 258899.68,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "394",
     "entries_counted": 6,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "0515cfd2-a42d-427d-9062-fe1b08ca4754",
    "loan_account_id": "2927c59e-1af4-4a60-84dc-cda0819558a3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
-  },
-  {
-   "as_of": "2026-06-30",
-   "balance": 20875,
-   "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.444+00:00",
-   "detail": {
-    "checkpoint": 0,
-    "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
-    "code": "304",
-    "entries_counted": 1,
-    "staged_entries_at_or_before": 0,
-    "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
-   },
-   "id": "fc93d2dc-e067-41ba-a36d-672bbeffc819",
-   "loan_account_id": "49ee6d50-c5a8-4258-8343-425d91d0f13b",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.454+00:00",
+   "computed_at": "2026-08-28T22:20:47.1+00:00",
    "detail": {
     "checkpoint": 0,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
+    "code": "304",
+    "entries_counted": 0,
+    "staged_entries_at_or_before": 0,
+    "staged_entries_undated": 0,
+    "window_from": "2026-04-30"
+   },
+   "id": "fc93d2dc-e067-41ba-a36d-672bbeffc819",
+   "loan_account_id": "49ee6d50-c5a8-4258-8343-425d91d0f13b",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
+  },
+  {
+   "as_of": "2026-06-30",
+   "balance": 0,
+   "basis": "xero_rebuild",
+   "computed_at": "2026-08-28T22:20:47.111+00:00",
+   "detail": {
+    "checkpoint": 0,
+    "checkpoint_basis": "trial_balance",
+    "checkpoint_date": "2026-04-29",
     "code": "280",
     "entries_counted": 0,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "37d76843-414f-4c10-b53a-72d26f8da080",
    "loan_account_id": "595ecb42-9be2-4b4e-96ee-71b46b36bc82",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 16405.75,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.456+00:00",
+   "computed_at": "2026-08-28T22:20:47.114+00:00",
    "detail": {
     "checkpoint": 22102.76,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "244",
     "entries_counted": 2,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "7b316704-945b-46e2-a284-40a350e0b688",
    "loan_account_id": "5e2ebcdb-2928-49b7-a976-1bc18a01b29d",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.457+00:00",
+   "computed_at": "2026-08-28T22:20:47.115+00:00",
    "detail": {
     "checkpoint": 10484.28,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "303",
     "entries_counted": 3,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "1757cc69-15af-4563-9fef-44596e7abed5",
    "loan_account_id": "877cd2dc-4eb6-40c6-b5f2-c1aeb600ffa3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 900.95,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.457+00:00",
+   "computed_at": "2026-08-28T22:20:47.114+00:00",
    "detail": {
     "checkpoint": 13588.48,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "238",
     "entries_counted": 3,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "a29419d0-e263-46f8-8a1f-e189ea0b6071",
    "loan_account_id": "95a57a86-0a79-4122-b28a-d87b1ce0c06a",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.454+00:00",
+   "computed_at": "2026-08-28T22:20:47.111+00:00",
    "detail": {
     "checkpoint": 0,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "292",
     "entries_counted": 0,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "d8e4b0ed-7f83-4401-9cc6-51cb14587e87",
    "loan_account_id": "a1a88e88-8571-4b22-a781-a581da1a4a2c",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 960000,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.451+00:00",
+   "computed_at": "2026-08-28T22:20:47.108+00:00",
    "detail": {
     "checkpoint": 960000,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "299",
     "entries_counted": 0,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "aceb8fb1-153b-420b-a9fb-997feadd804e",
    "loan_account_id": "ab74438a-1055-435f-a0a9-637c7dcb96ab",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 437933.24,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.455+00:00",
+   "computed_at": "2026-08-28T22:20:47.112+00:00",
    "detail": {
     "checkpoint": 446662.48,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "254",
     "entries_counted": 3,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "e8e7544b-37bf-4ff5-ba42-7048195a652b",
    "loan_account_id": "ad5dd55d-7b49-44c6-8705-2803a79611c0",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 66217.54,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.458+00:00",
+   "computed_at": "2026-08-28T22:20:47.115+00:00",
    "detail": {
     "checkpoint": 68194.12,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "253",
     "entries_counted": 2,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "e200d82a-b5bb-4fc4-abda-5bddef246c06",
    "loan_account_id": "af4dfd44-ac52-4862-bf0b-d290cd458edf",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 18230.63,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.46+00:00",
+   "computed_at": "2026-08-28T22:20:47.118+00:00",
    "detail": {
     "checkpoint": 19906.94,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "242",
     "entries_counted": 6,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "b689dcf8-c5c2-4925-a208-3b64b02a57e0",
    "loan_account_id": "b1008b4a-8a9e-440b-9efc-55a6b831a001",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.459+00:00",
+   "computed_at": "2026-08-28T22:20:47.116+00:00",
    "detail": {
     "checkpoint": 0,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "239",
     "entries_counted": 0,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "91423244-8d37-4aa8-81d8-2331efd898b7",
    "loan_account_id": "c57930af-2ce9-4850-8b60-9df25e7c7176",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 92737.48,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.459+00:00",
+   "computed_at": "2026-08-28T22:20:47.117+00:00",
    "detail": {
     "checkpoint": 102606.76,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "233",
     "entries_counted": 5,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "ef882e28-7f98-44a9-90a0-b76f17ec3a21",
    "loan_account_id": "cba4240f-08cc-43d7-9d32-d37d695b5e2c",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 137568.21,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.45+00:00",
+   "computed_at": "2026-08-28T22:20:47.107+00:00",
    "detail": {
     "checkpoint": 139119.39,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "251",
     "entries_counted": 2,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "0167b160-a2e8-4199-a7b4-166dff7c6a17",
    "loan_account_id": "e10fa730-203f-436a-8847-b3d5416189cf",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 31153.89,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.464+00:00",
+   "computed_at": "2026-08-28T22:20:47.122+00:00",
    "detail": {
     "checkpoint": 32430.91,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "332",
     "entries_counted": 2,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "1b44829e-8c75-4518-b784-bc8f4d44da94",
    "loan_account_id": "e31d87ff-541e-4f59-ad89-a4b225e1b57a",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 77301.26,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.463+00:00",
+   "computed_at": "2026-08-28T22:20:47.12+00:00",
    "detail": {
     "checkpoint": 111386.32,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "284",
     "entries_counted": 19,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "02265992-644b-4d58-a98e-b293e974ca88",
    "loan_account_id": "f3aa83c5-6078-4847-ada3-d2214fa07c08",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.459+00:00",
+   "computed_at": "2026-08-28T22:20:47.117+00:00",
    "detail": {
     "checkpoint": 931.74,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "246",
     "entries_counted": 2,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "83bd96b6-1c89-4ef4-bee7-21cb1a796dc0",
    "loan_account_id": "f6be8bf2-467c-41c7-93bb-7a2fcaba5cc2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   },
   {
    "as_of": "2026-06-30",
    "balance": 0,
    "basis": "xero_rebuild",
-   "computed_at": "2026-08-28T02:48:51.441+00:00",
+   "computed_at": "2026-08-28T22:20:47.097+00:00",
    "detail": {
     "checkpoint": 10932.54,
     "checkpoint_basis": "trial_balance",
-    "checkpoint_date": "2026-04-28",
+    "checkpoint_date": "2026-04-29",
     "code": "234",
     "entries_counted": 3,
     "staged_entries_at_or_before": 0,
     "staged_entries_undated": 0,
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "id": "b86410d9-3efb-45e2-9b6c-370e62b77ffb",
    "loan_account_id": "fb75f5e1-c90b-4c7c-9866-dc5bc4b2b9a2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6"
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da"
   }
  ],
  "payroll_imports": [
   {
-   "attention_checked_at": "2026-08-28T02:00:09.32+00:00",
-   "attention_detail": "Posting this period would credit $20859.62 out of \"170 Direct Wages\" (net pay + employee federal tax + employer tax) and $639.18 out of \"171 Direct Payroll Taxes\" (employee CA tax). Right now those accounts hold $23679.89 and $-955.80 (after accounting for any earlier periods that would post first). This normally clears on its own once the Square draft, the IRS deposit and the EDD remittance all land in the bank feed -- no action needed unless it's been sitting for a while.",
+   "attention_checked_at": "2026-08-28T22:00:05.557+00:00",
+   "attention_detail": "Posting this period would credit $20859.62 out of \"170 Direct Wages\" (net pay + employee federal tax + employer tax) and $639.18 out of \"171 Direct Payroll Taxes\" (employee CA tax). Right now those accounts hold $41436.25 and $-955.80 (after accounting for any earlier periods that would post first). This normally clears on its own once the Square draft, the IRS deposit and the EDD remittance all land in the bank feed -- no action needed unless it's been sitting for a while.",
    "attention_flag": "insufficient_balance",
    "attention_summary": "Not enough cash landed in Xero yet to post ($1594.98 short in \"171 Direct Payroll Taxes\")",
    "id": "08ea6dc8-b557-4827-9ff9-897aee5deced",
@@ -62282,10 +62556,15 @@
  ],
  "bookkeeping_kpi_snapshots": [
   {
+   "captured_at": "2026-08-28T18:00:08.525436+00:00",
    "payload": {
+    "as_of": "2026-08-28T18:00:08.495Z",
+    "avg_net_cash_flow_3mo": -16948.163333333334,
     "cash": {
+     "current": 51519.54,
+     "month_ago": 136959.69,
      "series": [
-      59420.11,
+      51519.54,
       136959.69,
       42399.01,
       102364.03,
@@ -62294,11 +62573,23 @@
       4849.95,
       23353.47,
       36042.53
-     ],
-     "current": 59420.11,
-     "month_ago": 136959.69
+     ]
     },
-    "as_of": "2026-08-28T00:00:10.262Z",
+    "cashflow": {
+     "avg_3mo": -16948.163333333334,
+     "mtd": -85440.15,
+     "prev_month_end_cash": 136959.69,
+     "series": [
+      -85440.15,
+      94560.68,
+      -59965.02,
+      -133437.91,
+      -199242.65000000002,
+      430194.64,
+      -18503.52,
+      -12689.059999999998
+     ]
+    },
     "months": [
      "2026-07",
      "2026-06",
@@ -62312,40 +62603,10 @@
      "2025-10",
      "2025-09"
     ],
-    "revenue": {
-     "mtd": 181580.17,
-     "series": [
-      251907.26,
-      200439.86,
-      223579.19,
-      229292.11,
-      230214.18,
-      226493.77,
-      228211.52,
-      224137.84,
-      196154.17,
-      225271.98,
-      222985.26
-     ],
-     "prior_mtd": 206103.27
-    },
-    "cashflow": {
-     "mtd": -77539.58,
-     "series": [
-      -77539.58,
-      94560.68,
-      -59965.02,
-      -133437.91,
-      -199242.65000000002,
-      430194.64,
-      -18503.52,
-      -12689.059999999998
-     ],
-     "avg_3mo": -14314.640000000001,
-     "prev_month_end_cash": 136959.69
-    },
     "net_profit": {
-     "mtd": 22643.89,
+     "last_month": 16591.6,
+     "mtd": 11249.32,
+     "prior_month": -121197.43,
      "series": [
       16591.6,
       -121197.43,
@@ -62358,14 +62619,10 @@
       -38266,
       -22829.97,
       -7257.8
-     ],
-     "last_month": 16591.6,
-     "prior_month": -121197.43
+     ]
     },
-    "report_date": "2026-08-27",
-    "runway_months": 4.151002749632544,
     "operating_income": {
-     "ytd": 805420.15,
+     "prior_ytd": 788109.75,
      "series": [
       130983.26,
       69342.83,
@@ -62379,14 +62636,152 @@
       97254.28,
       116472.88
      ],
-     "prior_ytd": 799844.24
+     "ytd": 801495.52
     },
-    "avg_net_cash_flow_3mo": -14314.640000000001
-   },
-   "captured_at": "2026-08-28T00:00:10.290575+00:00"
+    "report_date": "2026-08-28",
+    "revenue": {
+     "mtd": 195637.28,
+     "prior_mtd": 213921.18,
+     "series": [
+      251907.26,
+      200439.86,
+      223579.19,
+      229292.11,
+      230214.18,
+      226493.77,
+      228211.52,
+      224137.84,
+      196154.17,
+      225271.98,
+      222985.26
+     ]
+    },
+    "runway_months": 3.0398302746275947
+   }
   }
  ],
  "reconciliation_runs": [
+  {
+   "checks_run": 9,
+   "created_at": "2026-08-28T22:20:30.847836+00:00",
+   "error_message": null,
+   "findings_new": 0,
+   "findings_open": 15,
+   "findings_resolved": 0,
+   "finished_at": "2026-08-28T22:20:49.145+00:00",
+   "id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
+   "loans_checked": 22,
+   "mode": "incremental",
+   "narrative_md": null,
+   "narrative_source": "template",
+   "period_from": "2026-04-30",
+   "period_to": "2026-08-28",
+   "report_path": "reconciliation/2026-08-28-fb2380ef-60ad-4e27-a710-d0190653f3da.html",
+   "run_by": "David Macquart-Moulin",
+   "started_at": "2026-08-28T22:20:30.847836+00:00",
+   "status": "complete",
+   "summary": {
+    "book_balance_month_ends": {
+     "closing": "2026-07-31",
+     "prior": "2026-06-30"
+    },
+    "book_balance_skips": [],
+    "book_balances_skipped": 0,
+    "book_balances_written": 44,
+    "changed_old_entries": 0,
+    "checkpoint": {
+     "233": 89411.25,
+     "234": 0,
+     "238": 0,
+     "239": 0,
+     "242": 11101.4,
+     "243": 114289.33,
+     "244": 16405.75,
+     "246": 0,
+     "247": 50586.39,
+     "251": 135901.6,
+     "253": 64181.26,
+     "254": 425481.76,
+     "280": 0,
+     "284": 46204.32,
+     "292": 0,
+     "298": 0,
+     "299": 960000,
+     "303": 0,
+     "304": 124785.62,
+     "332": 29568.94,
+     "338": 22168.92,
+     "394": 246350.97
+    },
+    "checkpoint_basis": "trial_balance",
+    "checkpoint_trusted": true,
+    "draw_skips": [],
+    "draws_measured": 22,
+    "draws_skipped": 0,
+    "xero_entries_scanned": 1311
+   },
+   "trigger_source": "manual",
+   "xero_modified_since": "2026-08-28T15:11:24.000261+00:00"
+  },
+  {
+   "checks_run": 9,
+   "created_at": "2026-08-28T15:11:24.000261+00:00",
+   "error_message": null,
+   "findings_new": 0,
+   "findings_open": 15,
+   "findings_resolved": 2,
+   "finished_at": "2026-08-28T15:11:41.755+00:00",
+   "id": "2690e2ef-95dd-4354-bcdc-2124771ea9c3",
+   "loans_checked": 22,
+   "mode": "incremental",
+   "narrative_md": null,
+   "narrative_source": "template",
+   "period_from": "2026-04-30",
+   "period_to": "2026-08-28",
+   "report_path": "reconciliation/2026-08-28-2690e2ef-95dd-4354-bcdc-2124771ea9c3.html",
+   "run_by": "David Macquart-Moulin",
+   "started_at": "2026-08-28T15:11:24.000261+00:00",
+   "status": "complete",
+   "summary": {
+    "book_balance_month_ends": {
+     "closing": "2026-07-31",
+     "prior": "2026-06-30"
+    },
+    "book_balance_skips": [],
+    "book_balances_skipped": 0,
+    "book_balances_written": 44,
+    "changed_old_entries": 0,
+    "checkpoint": {
+     "233": 89411.25,
+     "234": 0,
+     "238": 0,
+     "239": 0,
+     "242": 11101.4,
+     "243": 114289.33,
+     "244": 16405.75,
+     "246": 0,
+     "247": 50586.39,
+     "251": 135901.6,
+     "253": 64181.26,
+     "254": 425481.76,
+     "280": 0,
+     "284": 46204.32,
+     "292": 0,
+     "298": 0,
+     "299": 960000,
+     "303": 0,
+     "304": 124785.62,
+     "332": 29568.94,
+     "338": 22168.92,
+     "394": 246350.97
+    },
+    "checkpoint_basis": "trial_balance",
+    "checkpoint_trusted": true,
+    "xero_entries_scanned": 1308
+   },
+   "trigger_source": "manual",
+   "xero_modified_since": "2026-08-28T02:48:15.322671+00:00"
+  },
   {
    "checks_run": 9,
    "created_at": "2026-08-28T02:48:15.322671+00:00",
@@ -62722,110 +63117,6 @@
    },
    "trigger_source": "manual",
    "xero_modified_since": "2026-08-26T23:11:42.096679+00:00"
-  },
-  {
-   "checks_run": 7,
-   "created_at": "2026-08-26T23:11:42.096679+00:00",
-   "error_message": null,
-   "findings_new": 0,
-   "findings_open": 17,
-   "findings_resolved": 0,
-   "finished_at": "2026-08-26T23:12:06.078+00:00",
-   "id": "cf28ba5f-c6a2-452b-b58d-5c86fabcf4f2",
-   "loans_checked": 22,
-   "mode": "incremental",
-   "narrative_md": null,
-   "narrative_source": "template",
-   "period_from": "2026-04-28",
-   "period_to": "2026-08-26",
-   "report_path": "reconciliation/2026-08-26-cf28ba5f-c6a2-452b-b58d-5c86fabcf4f2.html",
-   "run_by": "David Macquart-Moulin",
-   "started_at": "2026-08-26T23:11:42.096679+00:00",
-   "status": "complete",
-   "summary": {
-    "changed_old_entries": 0,
-    "checkpoint": {
-     "233": 89411.25,
-     "234": 0,
-     "238": 0,
-     "239": 0,
-     "242": 11101.4,
-     "243": 114289.33,
-     "244": 16405.75,
-     "246": 0,
-     "247": 50586.39,
-     "251": 135901.6,
-     "253": 63173.2,
-     "254": 425481.76,
-     "280": 0,
-     "284": 45630.93,
-     "292": 0,
-     "298": 0,
-     "299": 960000,
-     "303": 0,
-     "304": 125257.71,
-     "332": 29568.94,
-     "338": 22168.92,
-     "394": 246350.97
-    },
-    "checkpoint_basis": "trial_balance",
-    "checkpoint_trusted": true,
-    "xero_entries_scanned": 1309
-   },
-   "trigger_source": "manual",
-   "xero_modified_since": "2026-08-26T20:29:14.248665+00:00"
-  },
-  {
-   "checks_run": 7,
-   "created_at": "2026-08-26T20:29:14.248665+00:00",
-   "error_message": null,
-   "findings_new": 1,
-   "findings_open": 16,
-   "findings_resolved": 1,
-   "finished_at": "2026-08-26T20:29:32.045+00:00",
-   "id": "368eacca-02a5-4068-8356-c1c6c62c76ed",
-   "loans_checked": 22,
-   "mode": "incremental",
-   "narrative_md": null,
-   "narrative_source": "template",
-   "period_from": "2026-04-28",
-   "period_to": "2026-08-26",
-   "report_path": "reconciliation/2026-08-26-368eacca-02a5-4068-8356-c1c6c62c76ed.html",
-   "run_by": "David Macquart-Moulin",
-   "started_at": "2026-08-26T20:29:14.248665+00:00",
-   "status": "complete",
-   "summary": {
-    "changed_old_entries": 0,
-    "checkpoint": {
-     "233": 89411.25,
-     "234": 0,
-     "238": 0,
-     "239": 0,
-     "242": 11101.4,
-     "243": 114289.33,
-     "244": 16405.75,
-     "246": 0,
-     "247": 52183.86,
-     "251": 135901.6,
-     "253": 63173.2,
-     "254": 425481.76,
-     "280": 0,
-     "284": 45630.93,
-     "292": 0,
-     "298": 0,
-     "299": 960000,
-     "303": 0,
-     "304": 125257.71,
-     "332": 29568.94,
-     "338": 22168.92,
-     "394": 246350.97
-    },
-    "checkpoint_basis": "trial_balance",
-    "checkpoint_trusted": true,
-    "xero_entries_scanned": 1308
-   },
-   "trigger_source": "manual",
-   "xero_modified_since": "2026-08-26T03:31:11.188674+00:00"
   }
  ],
  "reconciliation_findings": [
@@ -62852,7 +63143,7 @@
    "fingerprint": "intake:off_schedule_principal:b1008b4a-8a9e-440b-9efc-55a6b831a001:2026-08-10",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:57:59.652+00:00",
+   "last_seen_at": "2026-08-28T22:20:50.443+00:00",
    "first_seen_at": "2026-08-24T19:41:49.737+00:00",
    "plain_english": "Between 2026-07-28 and 2026-08-10 this loan's balance fell $5,000.00, but the scheduled payment is only $1,180.32 \u2014 $3,819.68 more principal came off than the regular payment explains. That is almost always a deliberate extra principal payment. It matters because a period's interest is worked out as payment minus principal: with the extra payment folded in, the interest comes out negative, which is impossible and cannot be booked. Two readings fit these numbers and only you can say which is right: either the extra payment was $5,000.00 and the regular payment fell outside this window, or it was $3,819.68 alongside a regular payment inside it.",
    "suppressed_at": null,
@@ -62895,7 +63186,7 @@
    "fingerprint": "intake:derivable_not_derived:160414bb-c5e4-421b-8f82-0b28a43f5cb2",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:57:59.652+00:00",
+   "last_seen_at": "2026-08-28T22:20:50.443+00:00",
    "first_seen_at": "2026-08-25T01:30:13.673+00:00",
    "plain_english": "This loan now has 9 distinct balances straight from the lender, running 2026-07-06 to 2026-08-16. That is enough to measure what rate it is actually charging and project the remaining payments from it, which is what lets a period be staged for approval ahead of the bank feed. Right now it has no schedule with any future payments on it, so nothing can stage and each payment has to be split by hand after the fact. Deriving it is a measurement, not a guess: the projection is only kept if it reproduces every one of this loan's own past periods to within five cents, and it is discarded outright if it does not. If this loan cannot follow a schedule by its nature \u2014 a draw line, or a payment set as a percentage of sales \u2014 suppress this finding and it will stay suppressed.",
    "suppressed_at": null,
@@ -62917,12 +63208,12 @@
    "id": "d211b225-933f-413d-9aaf-e15304f338d9",
    "title": "Funding Circle Loan \u2014 2026-04-20 payment of $2,033.77 has no interest split",
    "detail": {
-    "code": "253",
-    "date": "2026-04-20",
+    "age_days": 130,
     "amount": 2033.77,
-    "contact": "iBusiness Funding",
-    "age_days": 129,
     "bank_transaction_id": "868db3ce-d1b9-4262-98a8-4feb49bddb25",
+    "code": "253",
+    "contact": "iBusiness Funding",
+    "date": "2026-04-20",
     "oldest_statement_on_file": "2025-11-01"
    },
    "source": "engine",
@@ -62935,9 +63226,9 @@
    "fingerprint": "lumped_payment:253:868db3ce-d1b9-4262-98a8-4feb49bddb25",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.377+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.927+00:00",
    "first_seen_at": "2026-08-16T01:04:44.628+00:00",
-   "plain_english": "The whole $2,033.77 was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. This one is 129 days old, so it is genuinely missed rather than pending month-end \u2014 the interest belongs in that month's expense and is not there.",
+   "plain_english": "The whole $2,033.77 was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. This one is 130 days old, so it is genuinely missed rather than pending month-end \u2014 the interest belongs in that month's expense and is not there.",
    "suppressed_at": null,
    "suppressed_by": null,
    "loan_account_id": "af4dfd44-ac52-4862-bf0b-d290cd458edf",
@@ -62946,7 +63237,7 @@
     "note": "Split principal/interest once the lender statement or schedule gives the exact figures, then post via loan-xero-post."
    },
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "69307c77-530b-408b-ba54-103d34a4106a",
    "suppressed_reason": null
   },
@@ -62990,7 +63281,7 @@
    "fingerprint": "balance_vs_lender:332:2026-08-12",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.323+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.882+00:00",
    "first_seen_at": "2026-08-22T23:49:31.204+00:00",
    "plain_english": "Rebuilt from every live entry in Xero, this loan comes to $29,568.94 on 2026-08-12, against $29,302.52 on the lender's own statement for that date. Nothing is dated after that statement, so the whole $266.42 is unexplained. That remainder is either missing from Xero or recorded twice.",
    "suppressed_at": null,
@@ -62998,13 +63289,13 @@
    "loan_account_id": "e31d87ff-541e-4f59-ad89-a4b225e1b57a",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "262119c6-40aa-48ff-9949-1b519cda3b7a",
    "suppressed_reason": null
   },
   {
    "id": "c355f9f6-5b9d-4f41-9658-23cd7a15436a",
-   "title": "Paypal 2 \u2014 4 hand-posted corrections totalling $18,922.10 since 2026-04-29",
+   "title": "Paypal 2 \u2014 4 hand-posted corrections totalling $18,922.10 since 2026-04-30",
    "detail": {
     "code": "284",
     "date": "2026-07-31",
@@ -63043,7 +63334,7 @@
    "fingerprint": "unexplained_ledger_adjustment:284",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.267+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.831+00:00",
    "first_seen_at": "2026-08-19T03:40:54.77+00:00",
    "plain_english": "This loan's ledger has needed 4 manual corrections in this period, moving $18,922.10 in total. The largest was $9,700.61 on 2026-05-31 (\"To reverse part of the adjustment from march (see note)\"). When a loan needs hand-fixing this often it usually means the payment is being recorded wrong in the first place \u2014 typically the bank feed puts the whole payment against the loan and someone has to move the interest back by hand afterwards. That matters beyond the tidying: each correction is a chance for the same payment to end up on the books twice, once when the correction is posted and again when the real payment comes through the bank. Worth fixing where the payment is first recorded, so no correction is needed next time.",
    "suppressed_at": null,
@@ -63051,16 +63342,16 @@
    "loan_account_id": "f3aa83c5-6078-4847-ada3-d2214fa07c08",
    "proposed_action": {
     "kind": "review_manual_adjustments",
-    "note": "Review the 4 manual journals posted against Paypal 2 since 2026-04-29, starting with the $9,700.61 one dated 2026-05-31, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
+    "note": "Review the 4 manual journals posted against Paypal 2 since 2026-04-30, starting with the $9,700.61 one dated 2026-05-31, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
    },
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "45250681-3e65-416b-9567-99afa5847470",
    "suppressed_reason": null
   },
   {
    "id": "f8b7da61-45bc-49bb-9815-79bc0c2e9fd8",
-   "title": "Verdant Capital Loan \u2014 6 hand-posted corrections totalling $572,400.13 since 2026-04-29",
+   "title": "Verdant Capital Loan \u2014 6 hand-posted corrections totalling $572,400.13 since 2026-04-30",
    "detail": {
     "code": "394",
     "date": "2026-08-31",
@@ -63099,7 +63390,7 @@
    "fingerprint": "unexplained_ledger_adjustment:394",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.219+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.73+00:00",
    "first_seen_at": "2026-08-19T03:40:55.079+00:00",
    "plain_english": "This loan's ledger has needed 6 manual corrections in this period, moving $572,400.13 in total. The largest was $284,354.50 on 2026-06-30 (\"New acquired FA Through Loan (Verdant Capital) To reverse the Entry booked in Ac\"). When a loan needs hand-fixing this often it usually means the payment is being recorded wrong in the first place \u2014 typically the bank feed puts the whole payment against the loan and someone has to move the interest back by hand afterwards. That matters beyond the tidying: each correction is a chance for the same payment to end up on the books twice, once when the correction is posted and again when the real payment comes through the bank. Worth fixing where the payment is first recorded, so no correction is needed next time.",
    "suppressed_at": null,
@@ -63107,10 +63398,10 @@
    "loan_account_id": "2927c59e-1af4-4a60-84dc-cda0819558a3",
    "proposed_action": {
     "kind": "review_manual_adjustments",
-    "note": "Review the 6 manual journals posted against Verdant Capital Loan since 2026-04-29, starting with the $284,354.50 one dated 2026-06-30, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
+    "note": "Review the 6 manual journals posted against Verdant Capital Loan since 2026-04-30, starting with the $284,354.50 one dated 2026-06-30, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
    },
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "45250681-3e65-416b-9567-99afa5847470",
    "suppressed_reason": null
   },
@@ -63133,7 +63424,7 @@
    "fingerprint": "future_dated_rows:394",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.167+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.682+00:00",
    "first_seen_at": "2026-08-16T01:04:44.824+00:00",
    "plain_english": "70 rows in the statements table for this loan are dated in the future, the furthest on 2032-06-10. Those are projections, not statements \u2014 they describe what the balance is expected to be, not what a lender has confirmed. They're filtered out of the balance shown on screen, so nothing is wrong today; they just don't belong in a table of statements.",
    "suppressed_at": null,
@@ -63141,13 +63432,13 @@
    "loan_account_id": "2927c59e-1af4-4a60-84dc-cda0819558a3",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "69307c77-530b-408b-ba54-103d34a4106a",
    "suppressed_reason": null
   },
   {
    "id": "229cc346-9aeb-4d5d-a5f1-680ed8158397",
-   "title": "E-Transit Loan - 4140 \u2014 1 hand-posted correction totalling $7,687.53 since 2026-04-29",
+   "title": "E-Transit Loan - 4140 \u2014 1 hand-posted correction totalling $7,687.53 since 2026-04-30",
    "detail": {
     "code": "242",
     "date": "2026-06-01",
@@ -63171,7 +63462,7 @@
    "fingerprint": "unexplained_ledger_adjustment:242",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.121+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.587+00:00",
    "first_seen_at": "2026-08-19T03:40:54.924+00:00",
    "plain_english": "This loan's ledger has needed 1 manual correction in this period, moving $7,687.53 in total. The largest was $7,687.53 on 2026-06-01 (\"To reclass the May 2026 Ford paymentt in May\"). When a loan needs hand-fixing this often it usually means the payment is being recorded wrong in the first place \u2014 typically the bank feed puts the whole payment against the loan and someone has to move the interest back by hand afterwards. That matters beyond the tidying: each correction is a chance for the same payment to end up on the books twice, once when the correction is posted and again when the real payment comes through the bank. Worth fixing where the payment is first recorded, so no correction is needed next time.",
    "suppressed_at": null,
@@ -63179,10 +63470,10 @@
    "loan_account_id": "b1008b4a-8a9e-440b-9efc-55a6b831a001",
    "proposed_action": {
     "kind": "review_manual_adjustments",
-    "note": "Review the 1 manual journal posted against E-Transit Loan - 4140 since 2026-04-29, starting with the $7,687.53 one dated 2026-06-01, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
+    "note": "Review the 1 manual journal posted against E-Transit Loan - 4140 since 2026-04-30, starting with the $7,687.53 one dated 2026-06-01, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
    },
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "45250681-3e65-416b-9567-99afa5847470",
    "suppressed_reason": null
   },
@@ -63213,7 +63504,7 @@
    "fingerprint": "split_collision:242:2f10db32-e8be-43ea-9ed9-692cc696bd57",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.062+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.54+00:00",
    "first_seen_at": "2026-08-26T00:24:11.732+00:00",
    "plain_english": "The splits for 2026-05 and 2026-06 are both recorded against the same bank transaction (2026-05-18, $1,180.32). One payment cannot settle two periods, so $268.45 of interest has been reallocated out of this single payment \u2014 and whichever period's real payment was skipped is still sitting unsplit, counted entirely as principal. Re-match the later split to its own payment.",
    "suppressed_at": null,
@@ -63221,7 +63512,7 @@
    "loan_account_id": "b1008b4a-8a9e-440b-9efc-55a6b831a001",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "6151dc76-488a-4603-bc47-bd96726373a7",
    "suppressed_reason": null
   },
@@ -63265,7 +63556,7 @@
    "fingerprint": "balance_vs_lender:242:2026-08-17",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:52.012+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.493+00:00",
    "first_seen_at": "2026-08-21T03:07:13.935+00:00",
    "plain_english": "Rebuilt from every live entry in Xero, this loan comes to $11,101.40 on 2026-08-17, against $10,685.52 on the lender's own statement for that date. Nothing is dated after that statement, so the whole $415.88 is unexplained. That remainder is either missing from Xero or recorded twice.",
    "suppressed_at": null,
@@ -63273,13 +63564,13 @@
    "loan_account_id": "b1008b4a-8a9e-440b-9efc-55a6b831a001",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "47b5b606-fd98-4d23-aea7-e30e67305265",
    "suppressed_reason": null
   },
   {
    "id": "5d5d352a-b72b-461b-a72e-7e2e4b0a8ed5",
-   "title": "Dexter Loan 2 \u2014 2 hand-posted corrections totalling $6,579.46 since 2026-04-29",
+   "title": "Dexter Loan 2 \u2014 2 hand-posted corrections totalling $6,579.46 since 2026-04-30",
    "detail": {
     "code": "233",
     "date": "2026-06-01",
@@ -63308,7 +63599,7 @@
    "fingerprint": "unexplained_ledger_adjustment:233",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.96+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.443+00:00",
    "first_seen_at": "2026-08-19T03:40:54.821+00:00",
    "plain_english": "This loan's ledger has needed 2 manual corrections in this period, moving $6,579.46 in total. The largest was $3,289.73 on 2026-05-31 (\"To record the Dexter 2 payment for May 2026\"). When a loan needs hand-fixing this often it usually means the payment is being recorded wrong in the first place \u2014 typically the bank feed puts the whole payment against the loan and someone has to move the interest back by hand afterwards. That matters beyond the tidying: each correction is a chance for the same payment to end up on the books twice, once when the correction is posted and again when the real payment comes through the bank. Worth fixing where the payment is first recorded, so no correction is needed next time.",
    "suppressed_at": null,
@@ -63316,53 +63607,16 @@
    "loan_account_id": "cba4240f-08cc-43d7-9d32-d37d695b5e2c",
    "proposed_action": {
     "kind": "review_manual_adjustments",
-    "note": "Review the 2 manual journals posted against Dexter Loan 2 since 2026-04-29, starting with the $3,289.73 one dated 2026-05-31, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
+    "note": "Review the 2 manual journals posted against Dexter Loan 2 since 2026-04-30, starting with the $3,289.73 one dated 2026-05-31, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
    },
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "45250681-3e65-416b-9567-99afa5847470",
    "suppressed_reason": null
   },
   {
-   "id": "bc995f10-cf13-455a-a2f7-87dad8e179d6",
-   "title": "Funding Circle Loan \u2014 2026-08-18 payment of $2,033.77 has no interest split",
-   "detail": {
-    "code": "253",
-    "date": "2026-08-18",
-    "amount": 2033.77,
-    "contact": "iBusiness Funding",
-    "age_days": 9,
-    "bank_transaction_id": "e44f4baf-5e6e-462e-80df-21b9eb8b9990",
-    "oldest_statement_on_file": "2025-11-01"
-   },
-   "source": "engine",
-   "status": "open",
-   "severity": "info",
-   "check_key": "lumped_payment",
-   "pinned_at": null,
-   "pinned_by": null,
-   "created_at": "2026-08-25T19:03:50.867391+00:00",
-   "fingerprint": "lumped_payment:253:e44f4baf-5e6e-462e-80df-21b9eb8b9990",
-   "pinned_note": false,
-   "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.894+00:00",
-   "first_seen_at": "2026-08-25T19:03:50.842+00:00",
-   "plain_english": "The whole $2,033.77 was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. Recent \u2014 most likely just waiting for month-end or the lender statement.",
-   "suppressed_at": null,
-   "suppressed_by": null,
-   "loan_account_id": "af4dfd44-ac52-4862-bf0b-d290cd458edf",
-   "proposed_action": {
-    "kind": "reallocation_journal",
-    "note": "Split principal/interest once the lender statement or schedule gives the exact figures, then post via loan-xero-post."
-   },
-   "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
-   "first_seen_run_id": "6ca07a3c-6cb7-4897-bc9a-690007508ecc",
-   "suppressed_reason": null
-  },
-  {
    "id": "d57e424d-4619-4b8f-936b-30cba8a67f4d",
-   "title": "Funding Circle Loan \u2014 Xero is $3,041.83 below the lender",
+   "title": "Funding Circle Loan \u2014 Xero is $2,033.77 below the lender",
    "detail": {
     "anchor_date": "2026-08-03",
     "anchor_source": "portal_manual_pull",
@@ -63374,8 +63628,8 @@
     ],
     "lender_balance": 66215.03,
     "material": true,
-    "material_share": 0.045939,
-    "net_after_anchor": -2033.77,
+    "material_share": 0.030715,
+    "net_after_anchor": -1025.71,
     "settlement_lag": {
      "export_evidence": "absent",
      "export_through": null,
@@ -63389,7 +63643,7 @@
      "window_from": null,
      "window_withholding": null
     },
-    "still_unexplained": -3041.83,
+    "still_unexplained": -2033.77,
     "xero_balance": 65206.97
    },
    "source": "engine",
@@ -63402,21 +63656,21 @@
    "fingerprint": "balance_vs_lender:253:2026-08-03",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.825+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.394+00:00",
    "first_seen_at": "2026-08-19T12:58:27.036+00:00",
-   "plain_english": "Rebuilt from every live entry in Xero, this loan comes to $65,206.97 on 2026-08-03, against $66,215.03 on the lender's own statement for that date. 1 entry dated after that statement (BankTransaction) move it by $2,033.77, leaving $3,041.83 unexplained. That remainder is either missing from Xero or recorded twice.",
+   "plain_english": "Rebuilt from every live entry in Xero, this loan comes to $65,206.97 on 2026-08-03, against $66,215.03 on the lender's own statement for that date. 1 entry dated after that statement (BankTransaction) move it by $1,025.71, leaving $2,033.77 unexplained. That remainder is either missing from Xero or recorded twice.",
    "suppressed_at": null,
    "suppressed_by": null,
    "loan_account_id": "af4dfd44-ac52-4862-bf0b-d290cd458edf",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "b4c74d57-967a-4bf7-a351-028916d32499",
    "suppressed_reason": null
   },
   {
    "id": "5f59b321-1c21-4323-925b-a90e744870a3",
-   "title": "E-Transit Loan E4 -9744 \u2014 1 hand-posted correction totalling $4,903.20 since 2026-04-29",
+   "title": "E-Transit Loan E4 -9744 \u2014 1 hand-posted correction totalling $4,903.20 since 2026-04-30",
    "detail": {
     "code": "244",
     "date": "2026-06-01",
@@ -63440,7 +63694,7 @@
    "fingerprint": "unexplained_ledger_adjustment:244",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.772+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.342+00:00",
    "first_seen_at": "2026-08-19T03:40:54.5+00:00",
    "plain_english": "This loan's ledger has needed 1 manual correction in this period, moving $4,903.20 in total. The largest was $4,903.20 on 2026-06-01 (\"To reclass the May 2026 Ford paymentt in May\"). When a loan needs hand-fixing this often it usually means the payment is being recorded wrong in the first place \u2014 typically the bank feed puts the whole payment against the loan and someone has to move the interest back by hand afterwards. That matters beyond the tidying: each correction is a chance for the same payment to end up on the books twice, once when the correction is posted and again when the real payment comes through the bank. Worth fixing where the payment is first recorded, so no correction is needed next time.",
    "suppressed_at": null,
@@ -63448,10 +63702,10 @@
    "loan_account_id": "5e2ebcdb-2928-49b7-a976-1bc18a01b29d",
    "proposed_action": {
     "kind": "review_manual_adjustments",
-    "note": "Review the 1 manual journal posted against E-Transit Loan E4 -9744 since 2026-04-29, starting with the $4,903.20 one dated 2026-06-01, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
+    "note": "Review the 1 manual journal posted against E-Transit Loan E4 -9744 since 2026-04-30, starting with the $4,903.20 one dated 2026-06-01, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
    },
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "45250681-3e65-416b-9567-99afa5847470",
    "suppressed_reason": null
   },
@@ -63495,7 +63749,7 @@
    "fingerprint": "balance_vs_lender:244:2026-08-20",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.723+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.293+00:00",
    "first_seen_at": "2026-08-24T21:53:41.084+00:00",
    "plain_english": "Rebuilt from every live entry in Xero, this loan comes to $16,405.75 on 2026-08-20, against $16,223.75 on the lender's own statement for that date. Nothing is dated after that statement, so the whole $182.00 is unexplained. That remainder is either missing from Xero or recorded twice.",
    "suppressed_at": null,
@@ -63503,13 +63757,13 @@
    "loan_account_id": "5e2ebcdb-2928-49b7-a976-1bc18a01b29d",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "9d4c4294-5576-4d52-892e-1c9bafa2df83",
    "suppressed_reason": null
   },
   {
    "id": "b0570452-7def-48e6-80ea-2f31fbf5cf91",
-   "title": "PCV Good and Green Loan \u2014 2 hand-posted corrections totalling $3,634.05 since 2026-04-29",
+   "title": "PCV Good and Green Loan \u2014 2 hand-posted corrections totalling $3,634.05 since 2026-04-30",
    "detail": {
     "code": "254",
     "date": "2026-08-31",
@@ -63538,7 +63792,7 @@
    "fingerprint": "unexplained_ledger_adjustment:254",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.653+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.229+00:00",
    "first_seen_at": "2026-08-19T03:40:54.616+00:00",
    "plain_english": "This loan's ledger has needed 2 manual corrections in this period, moving $3,634.05 in total. The largest was $1,831.47 on 2026-05-31 (\"To adjust understated interest for April 2026\"). When a loan needs hand-fixing this often it usually means the payment is being recorded wrong in the first place \u2014 typically the bank feed puts the whole payment against the loan and someone has to move the interest back by hand afterwards. That matters beyond the tidying: each correction is a chance for the same payment to end up on the books twice, once when the correction is posted and again when the real payment comes through the bank. Worth fixing where the payment is first recorded, so no correction is needed next time.",
    "suppressed_at": null,
@@ -63546,10 +63800,10 @@
    "loan_account_id": "ad5dd55d-7b49-44c6-8705-2803a79611c0",
    "proposed_action": {
     "kind": "review_manual_adjustments",
-    "note": "Review the 2 manual journals posted against PCV Good and Green Loan since 2026-04-29, starting with the $1,831.47 one dated 2026-05-31, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
+    "note": "Review the 2 manual journals posted against PCV Good and Green Loan since 2026-04-30, starting with the $1,831.47 one dated 2026-05-31, and confirm none of them books a payment that the bank feed also recorded. Then fix the posting at source \u2014 split principal and interest on the payment itself \u2014 so the weekly hand-correction is no longer needed."
    },
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "45250681-3e65-416b-9567-99afa5847470",
    "suppressed_reason": null
   },
@@ -63595,7 +63849,7 @@
    "fingerprint": "balance_vs_lender:254:2026-08-01",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.605+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.18+00:00",
    "first_seen_at": "2026-08-26T20:29:30.782+00:00",
    "plain_english": "Rebuilt from every live entry in Xero, this loan comes to $432,619.86 on 2026-08-01, against $427,284.34 on the lender's own statement for that date. 1 entry dated after that statement (BankTransaction) move it by $7,138.10, leaving $1,802.58 unexplained. That remainder is either missing from Xero or recorded twice.",
    "suppressed_at": null,
@@ -63603,7 +63857,7 @@
    "loan_account_id": "ad5dd55d-7b49-44c6-8705-2803a79611c0",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "368eacca-02a5-4068-8356-c1c6c62c76ed",
    "suppressed_reason": null
   },
@@ -63647,7 +63901,7 @@
    "fingerprint": "balance_vs_lender:299:2026-08-25",
    "pinned_note": false,
    "resolved_at": null,
-   "last_seen_at": "2026-08-28T02:48:51.534+00:00",
+   "last_seen_at": "2026-08-28T22:20:47.124+00:00",
    "first_seen_at": "2026-08-25T17:35:05.522+00:00",
    "plain_english": "Rebuilt from every live entry in Xero, this loan comes to $960,000.00 on 2026-08-25, against $960,005.00 on the lender's own statement for that date. Nothing is dated after that statement, so the whole $5.00 is unexplained. At 0.0005% of the lender's balance that is below the level worth chasing on its own, so it is noted rather than raised \u2014 but it is still counted, and it will go red the moment it grows.",
    "suppressed_at": null,
@@ -63655,8 +63909,45 @@
    "loan_account_id": "ab74438a-1055-435f-a0a9-637c7dcb96ab",
    "proposed_action": null,
    "resolved_run_id": null,
-   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "last_seen_run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "first_seen_run_id": "302c3a10-97fd-429b-b770-310b4b3a6431",
+   "suppressed_reason": null
+  },
+  {
+   "id": "bc995f10-cf13-455a-a2f7-87dad8e179d6",
+   "title": "Funding Circle Loan \u2014 2026-08-18 payment of $2,033.77 has no interest split",
+   "detail": {
+    "code": "253",
+    "date": "2026-08-18",
+    "amount": 2033.77,
+    "contact": "iBusiness Funding",
+    "age_days": 9,
+    "bank_transaction_id": "e44f4baf-5e6e-462e-80df-21b9eb8b9990",
+    "oldest_statement_on_file": "2025-11-01"
+   },
+   "source": "engine",
+   "status": "resolved",
+   "severity": "info",
+   "check_key": "lumped_payment",
+   "pinned_at": null,
+   "pinned_by": null,
+   "created_at": "2026-08-25T19:03:50.867391+00:00",
+   "fingerprint": "lumped_payment:253:e44f4baf-5e6e-462e-80df-21b9eb8b9990",
+   "pinned_note": false,
+   "resolved_at": "2026-08-28T15:11:41.394+00:00",
+   "last_seen_at": "2026-08-28T02:48:51.894+00:00",
+   "first_seen_at": "2026-08-25T19:03:50.842+00:00",
+   "plain_english": "The whole $2,033.77 was recorded as paying down the loan, with nothing booked as interest. Until it's split, this loan looks smaller than it is and the month's interest expense is understated. Recent \u2014 most likely just waiting for month-end or the lender statement.",
+   "suppressed_at": null,
+   "suppressed_by": null,
+   "loan_account_id": "af4dfd44-ac52-4862-bf0b-d290cd458edf",
+   "proposed_action": {
+    "kind": "reallocation_journal",
+    "note": "Split principal/interest once the lender statement or schedule gives the exact figures, then post via loan-xero-post."
+   },
+   "resolved_run_id": "2690e2ef-95dd-4354-bcdc-2124771ea9c3",
+   "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "first_seen_run_id": "6ca07a3c-6cb7-4897-bc9a-690007508ecc",
    "suppressed_reason": null
   },
   {
@@ -63669,7 +63960,7 @@
     "future_row_count": 1
    },
    "source": "engine",
-   "status": "open",
+   "status": "resolved",
    "severity": "info",
    "check_key": "future_dated_rows",
    "pinned_at": null,
@@ -63677,7 +63968,7 @@
    "created_at": "2026-08-18T02:15:26.899086+00:00",
    "fingerprint": "future_dated_rows:304",
    "pinned_note": false,
-   "resolved_at": null,
+   "resolved_at": "2026-08-28T15:11:41.324+00:00",
    "last_seen_at": "2026-08-28T02:48:51.465+00:00",
    "first_seen_at": "2026-08-18T02:15:26.87+00:00",
    "plain_english": "One row in the statements table for this loan is dated in the future, the furthest on 2026-08-28. Those are projections, not statements \u2014 they describe what the balance is expected to be, not what a lender has confirmed. They're filtered out of the balance shown on screen, so nothing is wrong today; they just don't belong in a table of statements.",
@@ -63685,7 +63976,7 @@
    "suppressed_by": null,
    "loan_account_id": "49ee6d50-c5a8-4258-8343-425d91d0f13b",
    "proposed_action": null,
-   "resolved_run_id": null,
+   "resolved_run_id": "2690e2ef-95dd-4354-bcdc-2124771ea9c3",
    "last_seen_run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
    "first_seen_run_id": "4fe46e36-a52c-4e79-8b95-7926af14578c",
    "suppressed_reason": null
@@ -66918,7 +67209,7 @@
    "difference": 470.64,
    "lender_balance": 22168.92,
    "loan_account_id": "0f0c8c63-cb39-4706-bcd6-abfb38db2c2e",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "explained",
    "xero_balance": 22639.56
   },
@@ -66939,7 +67230,7 @@
    "difference": 0,
    "lender_balance": 54252.75,
    "loan_account_id": "160414bb-c5e4-421b-8f82-0b28a43f5cb2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "tied",
    "xero_balance": 54252.75
   },
@@ -66950,7 +67241,7 @@
    "difference": null,
    "lender_balance": null,
    "loan_account_id": "168cfbae-89e1-4760-aaa7-4e48419126a3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "not_comparable",
    "xero_balance": null
   },
@@ -66971,7 +67262,7 @@
    "difference": 971.56,
    "lender_balance": 114289.33,
    "loan_account_id": "28f6c486-1f72-4d80-90de-d5fce3cfd102",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "explained",
    "xero_balance": 115260.89
   },
@@ -66990,7 +67281,7 @@
    "difference": -1835.75,
    "lender_balance": 248186.72,
    "loan_account_id": "2927c59e-1af4-4a60-84dc-cda0819558a3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "exception",
    "xero_balance": 246350.97
   },
@@ -67001,7 +67292,7 @@
    "difference": null,
    "lender_balance": null,
    "loan_account_id": "49ee6d50-c5a8-4258-8343-425d91d0f13b",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "not_comparable",
    "xero_balance": null
   },
@@ -67009,12 +67300,12 @@
    "anchor_source": "lender_statement",
    "as_of": "2026-01-22",
    "detail": {
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "difference": null,
    "lender_balance": 0,
    "loan_account_id": "595ecb42-9be2-4b4e-96ee-71b46b36bc82",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "not_comparable",
    "xero_balance": null
   },
@@ -67033,7 +67324,7 @@
    "difference": 182,
    "lender_balance": 16223.75,
    "loan_account_id": "5e2ebcdb-2928-49b7-a976-1bc18a01b29d",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "exception",
    "xero_balance": 16405.75
   },
@@ -67044,7 +67335,7 @@
    "difference": null,
    "lender_balance": null,
    "loan_account_id": "877cd2dc-4eb6-40c6-b5f2-c1aeb600ffa3",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "not_comparable",
    "xero_balance": null
   },
@@ -67066,7 +67357,7 @@
    "difference": 8588.48,
    "lender_balance": 0,
    "loan_account_id": "95a57a86-0a79-4122-b28a-d87b1ce0c06a",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "explained",
    "xero_balance": 8588.48
   },
@@ -67074,12 +67365,12 @@
    "anchor_source": "amortization_schedule",
    "as_of": "2025-09-30",
    "detail": {
-    "window_from": "2026-04-29"
+    "window_from": "2026-04-30"
    },
    "difference": null,
    "lender_balance": 0,
    "loan_account_id": "a1a88e88-8571-4b22-a781-a581da1a4a2c",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "not_comparable",
    "xero_balance": null
   },
@@ -67098,7 +67389,7 @@
    "difference": -5,
    "lender_balance": 960005,
    "loan_account_id": "ab74438a-1055-435f-a0a9-637c7dcb96ab",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "exception",
    "xero_balance": 960000
   },
@@ -67119,7 +67410,7 @@
    "difference": 5335.52,
    "lender_balance": 427284.34,
    "loan_account_id": "ad5dd55d-7b49-44c6-8705-2803a79611c0",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "exception",
    "xero_balance": 432619.86
   },
@@ -67133,14 +67424,14 @@
      "BankTransaction"
     ],
     "material": true,
-    "material_share": 0.045939,
-    "net_after_anchor": -2033.77,
-    "residual_after_later": -3041.83
+    "material_share": 0.030715,
+    "net_after_anchor": -1025.71,
+    "residual_after_later": -2033.77
    },
    "difference": -1008.06,
    "lender_balance": 66215.03,
    "loan_account_id": "af4dfd44-ac52-4862-bf0b-d290cd458edf",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "exception",
    "xero_balance": 65206.97
   },
@@ -67159,7 +67450,7 @@
    "difference": 415.88,
    "lender_balance": 10685.52,
    "loan_account_id": "b1008b4a-8a9e-440b-9efc-55a6b831a001",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "exception",
    "xero_balance": 11101.4
   },
@@ -67170,7 +67461,7 @@
    "difference": null,
    "lender_balance": null,
    "loan_account_id": "c57930af-2ce9-4850-8b60-9df25e7c7176",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "not_comparable",
    "xero_balance": null
   },
@@ -67189,7 +67480,7 @@
    "difference": 0,
    "lender_balance": 89411.25,
    "loan_account_id": "cba4240f-08cc-43d7-9d32-d37d695b5e2c",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "tied",
    "xero_balance": 89411.25
   },
@@ -67210,7 +67501,7 @@
    "difference": 858.66,
    "lender_balance": 135901.6,
    "loan_account_id": "e10fa730-203f-436a-8847-b3d5416189cf",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "explained",
    "xero_balance": 136760.26
   },
@@ -67229,7 +67520,7 @@
    "difference": 266.42,
    "lender_balance": 29302.52,
    "loan_account_id": "e31d87ff-541e-4f59-ad89-a4b225e1b57a",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "exception",
    "xero_balance": 29568.94
   },
@@ -67244,13 +67535,13 @@
     ],
     "material": null,
     "material_share": null,
-    "net_after_anchor": -13145.04,
-    "residual_after_later": -13145.04
+    "net_after_anchor": -12571.65,
+    "residual_after_later": -12571.65
    },
    "difference": 0,
    "lender_balance": 58775.97,
    "loan_account_id": "f3aa83c5-6078-4847-ada3-d2214fa07c08",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "tied",
    "xero_balance": 58775.97
   },
@@ -67261,7 +67552,7 @@
    "difference": null,
    "lender_balance": null,
    "loan_account_id": "f6be8bf2-467c-41c7-93bb-7a2fcaba5cc2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "not_comparable",
    "xero_balance": null
   },
@@ -67282,7 +67573,7 @@
    "difference": 1286.28,
    "lender_balance": 0,
    "loan_account_id": "fb75f5e1-c90b-4c7c-9866-dc5bc4b2b9a2",
-   "run_id": "61870f48-4b46-4a42-be9d-f92475b786e6",
+   "run_id": "fb2380ef-60ad-4e27-a710-d0190653f3da",
    "status": "explained",
    "xero_balance": 1286.28
   }

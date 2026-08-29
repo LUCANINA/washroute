@@ -342,7 +342,17 @@ function readSurfaces() {
                 interest: colIx('Interest'), computed: colIx('Computed'),
                 closing: colIx('Closing'), closingDate: colIx('Closing date'),
                 closingSrc: colIx('Closing source'), variance: colIx('Variance'),
-                status: colIx('Status'), notes: colIx('Notes') };
+                status: colIx('Status') };
+    // ── THE NOTES COLUMN IS GONE (session 247, David's layout pass) ───────
+    // "The variance does the talking." Nothing it carried was dropped; each
+    // flag was FILED into the cell it is about, so this reader follows them
+    // there rather than keeping a column alive that the page no longer has:
+    //   ledger check      → Variance      (a second line under the figure)
+    //   mixed-sign        → Drawn
+    //   origination gap   → Opening source
+    //   N undated         → Status
+    // Reading them from their new homes is not cosmetic: an attribute parked on
+    // the wrong cell would still parse and would silently stop meaning anything.
     const rows = [...cb.querySelectorAll('tbody tr')].map(tr => {
       const tds = [...tr.children];
       const c = tds.map(td => td.textContent.replace(/\s+/g, ' ').trim());
@@ -356,7 +366,7 @@ function readSurfaces() {
                drawn: c[C.drawn], principal: c[C.principal], interest: c[C.interest],
                computed: c[C.computed], perLender: c[C.closing],
                closingDate: c[C.closingDate], closingSource: c[C.closingSrc],
-               variance: c[C.variance], inXero: c[C.status], notes: c[C.notes],
+               variance: c[C.variance], inXero: c[C.status],
                openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
                computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
                // ══ SESSION 247: DRAWN, AND THE SECOND CHECK ════════════════
@@ -371,19 +381,40 @@ function readSurfaces() {
                // inferred from the figure: a null drawn and a measured zero are
                // different claims and the entire design turns on the difference.
                drawnN: num(tds[C.drawn]),
+               // ── NET vs GROSS (session 247, the interest-netting fix) ────
+               // `drawn` was counting the interest half of every payment as new
+               // borrowing: the payment hits the loan account for the full
+               // amount and a reallocation journal adds the interest back, which
+               // measureMovement correctly saw as a positive effect. data-amount
+               // is now the NET figure and the gross survives beside it, so the
+               // row can still show what was measured and what was netted off.
+               drawnGrossN: numA(tds[C.drawn], 'data-drawn-gross'),
+               drawnNettedN: numA(tds[C.drawn], 'data-drawn-netted'),
+               // ── THE OBSERVABLE DIFFERENCE BETWEEN THE TWO FIX ROUTES ────
+               // ce30's defect had two candidate fixes and they are NOT
+               // equivalent on screen. Widening the explanation would have left
+               // `drawn` reading the staged interest as borrowing; netting it
+               // removes it at source. data-staged-interest is the amount the
+               // netting route additionally takes out, so a row that shows a
+               // non-zero staged interest AND a data-drawn-netted that includes
+               // it is proof the netting route is the one that shipped. Reading
+               // it is how a future reader can tell which fix is live without
+               // opening the source.
+               stagedInterestN: numA(tds[C.drawn], 'data-staged-interest'),
                drawnMeasured: att(tds[C.drawn], 'data-drawn-measured') === '1',
                skipReason: att(tds[C.drawn], 'data-skip-reason'),
+               mixedSignN: numA(tds[C.drawn], 'data-mixed-sign'),
+               originationGapN: numA(tds[C.openingSrc], 'data-origination-gap'),
+               openingStagedN: numA(tds[C.openingSrc], 'data-opening-staged'),
                // Does the walk actually land on what the ledger says?
                reachesBooks: att(tds[C.computed], 'data-reaches-books'),
                // The ledger check lives in Notes. Three states, and they are not
                // interchangeable: 'measured' can band and block; 'unmeasured'
                // states the same subtraction and refuses to diagnose it.
-               unexplainedN:     numA(tds[C.notes], 'data-unexplained'),
-               unexplainedBand:  att(tds[C.notes], 'data-unexplained-band') || null,
-               unexplainedState: att(tds[C.notes], 'data-unexplained-state'),
-               unattributedN:    numA(tds[C.notes], 'data-unattributed'),
-               mixedSignN:       numA(tds[C.notes], 'data-mixed-sign'),
-               originationGapN:  numA(tds[C.notes], 'data-origination-gap'),
+               unexplainedN:     numA(tds[C.variance], 'data-unexplained'),
+               unexplainedBand:  att(tds[C.variance], 'data-unexplained-band') || null,
+               unexplainedState: att(tds[C.variance], 'data-unexplained-state'),
+               unattributedN:    numA(tds[C.variance], 'data-unattributed'),
                rowDrawnMeasured: att(tr, 'data-drawn-measured') === '1',
                // ── SESSION 246 ─────────────────────────────────────────────
                // A closing balance now carries a GRADE, a DERIVATION and, when
@@ -409,6 +440,13 @@ function readSurfaces() {
                // undated payment — carries its explained principal here. It is
                // shown, never blocking, and owned by the posting gate.
                unbookedN: numA(tds[C.variance], 'data-unbooked'),
+               // ── THE BANDED FIGURE, WHICH IS NO LONGER THE VARIANCE ──────
+               // The band is now taken on what is LEFT after the explanation,
+               // not on the whole gap. Both numbers are on the cell and the
+               // harness reads both, because the whole safety argument for the
+               // change is that the unexplained remainder stays visible rather
+               // than being absorbed by a de-escalation.
+               varianceResidualN: numA(tds[C.variance], 'data-variance-residual'),
                ties: tds[C.variance] ? tds[C.variance].hasAttribute('data-tie') : false,
                varianceN: tds[C.variance] && tds[C.variance].getAttribute('data-variance')
                  ? Number(tds[C.variance].getAttribute('data-variance')) : (tds[C.variance] && tds[C.variance].hasAttribute('data-tie') ? 0 : null) };
@@ -910,28 +948,61 @@ GROUPS.push({
     // flattened for CSV export these four numbers all shifted at once, and every
     // assertion below silently read the neighbouring column's money.
     const CI = cb.columnIndex;
-    const cell = (k, i) => (sub[k] && sub[k].cells[i] != null ? parseMoney(sub[k].cells[i]) : 0) || 0;
+    const cell = (k, i2) => (sub[k] && sub[k].cells[i2] != null ? parseMoney(sub[k].cells[i2]) : 0) || 0;
     const at = (k, name) => cell(k, CI[name]);
-    t.ok(!!sub.A, 'close band footer carries a grade-A (lender-confirmed) subtotal, addressed by data-subtotal',
+
+    // ── ONE TOTAL LINE NOW (session 247, David's layout pass) ─────────────
+    // The per-grade subtotal rows are gone: Closing source names the grade on
+    // every row and the chips carry the counts, so three footer rows restating
+    // the split were the same arithmetic told twice.
+    //
+    // THE INVARIANT IS NOT DELETED, IT IS RE-ANCHORED. What mattered was never
+    // "three footer rows exist"; it was that the month's money is accounted for
+    // exactly once and that the grade split is still stated somewhere a reader
+    // can check. The first half moves to the Total row, which covers every loan;
+    // the second half moves to the chips, which is where the split now lives.
+    t.ok(!!sub.all, 'close band footer carries a grand total across every loan',
          `subtotal rows on screen: ${JSON.stringify(Object.keys(sub))}`);
-    t.ok(!!sub.B, 'close band footer carries a grade-B (per-schedule) subtotal — the two schedule-closed loans are not folded into A',
+    t.ok(!sub.A && !sub.B, 'close band footer no longer restates the grade split as extra rows',
          `subtotal rows on screen: ${JSON.stringify(Object.keys(sub))}`);
-    const bandPrincipal = at('A', 'principal') + at('B', 'principal') + at('none', 'principal');
-    const bandInterest  = at('A', 'interest')  + at('B', 'interest')  + at('none', 'interest');
-    // The partition itself, stated: every row's principal lands in exactly one
-    // of the three footer lines. A fourth subtotal added later, or a row that
-    // falls into none of them, breaks this rather than going unnoticed.
+    const bandPrincipal = at('all', 'principal');
+    const bandInterest  = at('all', 'interest');
+    // Every row's money lands in the Total exactly once.
     const rowPrincipal = cb.rows.reduce((n, r) => n + (r.principalN || 0), 0);
     const rowInterest  = cb.rows.reduce((n, r) => n + (r.interestN  || 0), 0);
     t.eq(money(rowPrincipal), money(bandPrincipal),
-         'close band footer: grade A + grade B + excluded accounts for every row\'s principal, once each');
+         'close band total: accounts for every row\'s principal, once each');
     t.eq(money(rowInterest), money(bandInterest),
-         'close band footer: ...and for every row\'s interest');
+         'close band total: ...and for every row\'s interest');
     t.eq(money(paidPrincipal), money(bandPrincipal),
          `"Paid last month" principal equals the close band's principal for the same month`);
     t.eq(money(paidInterest), money(bandInterest),
          `"Paid last month" interest equals the close band's interest for the same month`);
     t.eq(money(paidTotal), money(paidPrincipal + paidInterest), '"Paid last month" total equals its own principal + interest');
+
+    // ── THE GRADE SPLIT, WHERE IT LIVES NOW ──────────────────────────────
+    // Asserted against the rows' own data-grade, so the chips cannot drift from
+    // the table they summarise. This is the assertion the deleted footer rows
+    // used to carry, pointed at its new home.
+    {
+      const gradeRows = (g) => cb.rows.filter(r => r.grade === g && r.perLenderN != null);
+      const lc = cb.gateByKey['lender-confirmed'], ps = cb.gateByKey['per-schedule'];
+      t.eq(lc ? lc.count : 0, gradeRows('A').length,
+           'close band: the lender-confirmed chip counts exactly the grade-A rows with a closing balance');
+      t.eq(ps ? ps.count : 0, gradeRows('B').length,
+           'close band: the per-schedule chip counts exactly the grade-B rows');
+      t.eq(gradeRows('A').length + gradeRows('B').length, sub.all.closingCount,
+           'close band: ...and together they are every row the Total\'s closing column covers');
+      // …and each grade still FOOTS, computed from the rows now that no footer
+      // line does it for us. opening + drawn − principal = computed, per grade.
+      for (const g of ['A', 'B']) {
+        const set = gradeRows(g).filter(r => r.openingN != null && r.computedN != null);
+        if (!set.length) continue;
+        const sum = (f) => set.reduce((n, r) => n + (r[f] || 0), 0);
+        t.eq(money(sum('openingN') + sum('drawnN') - sum('principalN')), money(sum('computedN')),
+             `close band: opening + drawn − principal = computed across the grade-${g} rows`);
+      }
+    }
 
     // (e) statement coverage: the close band's gate vs the Client View checklist
     //
@@ -947,19 +1018,6 @@ GROUPS.push({
     const cvOutstanding = Number((cvCount.match(/(\d+)/) || [])[1] ?? (/(nothing|all)/i.test(cvCount) ? 0 : NaN));
     t.eq(gateOutstanding, cvOutstanding,
          'statement coverage: Loans close-band gate equals the Client View checklist count');
-
-    // (f) close band arithmetic must tie WITHIN EACH GRADE's own footer line.
-    // Session 245 established the property; session 246 gave it two rows to hold
-    // on, and it has to hold on both or a subtotal is mixing populations.
-    // Session 247 put DRAWN in the middle of it. Today every row is unmeasured
-    // so Drawn is $0.00 and the old two-term form still passes — which is
-    // exactly why it has to be written the new way NOW, before the draws work
-    // deploys and thirty assertions go red for a reason that is not a bug.
-    for (const k of ['A', 'B']) {
-      if (!sub[k]) continue;
-      t.eq(money(at(k, 'opening') + at(k, 'drawn') - at(k, 'principal')), money(at(k, 'computed')),
-           `close band footer: opening + drawn − principal = computed within the grade-${k} subtotal`);
-    }
 
     // ── (f2) THE GRAND TOTAL (session 247) ────────────────────────────────
     // David: "resolve the fact that the total does not compute amortized loans.
@@ -980,14 +1038,21 @@ GROUPS.push({
            'close band total: covers every row on the table, not just the checkable ones');
       t.eq(money(at('all', 'opening') + at('all', 'drawn') - at('all', 'principal')), money(at('all', 'computed')),
            'close band total: opening + drawn − principal = computed');
-      for (const col of ['opening', 'drawn', 'principal', 'interest', 'computed']) {
-        t.eq(money(at('all', col)),
-             money(at('A', col) + at('B', col) + at('none', col)),
-             `close band total: ${col} equals grade A + grade B + the loans with no closing balance`);
+      // Each of the four walk columns equals the sum of the rows behind it —
+      // the composition check the deleted "of which" rows used to provide, now
+      // done against the table itself, which is a stronger statement anyway.
+      for (const [col, f] of [['opening', 'openingN'], ['drawn', 'drawnN'],
+                              ['principal', 'principalN'], ['interest', 'interestN'],
+                              ['computed', 'computedN']]) {
+        const rows = cb.rows.filter(r => r.openingN != null && r.computedN != null);
+        t.eq(money(at('all', col)), money(rows.reduce((n, r) => n + (r[f] || 0), 0)),
+             `close band total: ${col} is the sum of the rows it covers`);
       }
-      // Closing and variance legitimately cover fewer rows — and must announce it.
-      t.eq(money(at('all', 'closing')), money(at('A', 'closing') + at('B', 'closing')),
-           'close band total: closing is the sum of the grades that HAVE a closing balance');
+      // Closing legitimately covers fewer rows — and must announce it.
+      t.eq(money(at('all', 'closing')),
+           money(cb.rows.filter(r => r.perLenderN != null && r.computedN != null)
+                        .reduce((n, r) => n + r.perLenderN, 0)),
+           'close band total: closing is the sum of the rows that HAVE a closing balance');
       const closable = cb.rows.filter(r => r.perLenderN != null && r.computedN != null).length;
       t.eq(sub.all.closingCount, closable,
            'close band total: the closing column reports how many rows it actually covers');
@@ -1407,17 +1472,26 @@ GROUPS.push({
       // line only — which happens to be right today because both grade-B rows
       // are a tie and a circular row, and would silently under-report the moment
       // a schedule-closed loan carried a real variance.
-      // 'none' has no variance to give, and 'all' is the grand total ADDED in
-      // session 247 — summing it alongside the grades it is made of counts every
-      // variance twice. The composition is what is being checked here; the total
-      // itself is checked against that composition in two-surfaces (f2).
-      const footSum = Object.keys(cbx.subtotals)
-        .filter(k => k !== 'none' && k !== 'all')
-        .reduce((n, k) => n + Math.abs(Number(cbx.subtotals[k].varianceN || 0)), 0);
-      t.close(footSum, absSum, 0.05,
-        's236: the close-band variance total is the sum of ABSOLUTE row variances, across every grade subtotal');
-      t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceN || 0)), footSum, 0.05,
-        's236 (s247): ...and the grand total reports exactly that same sum, not a second opinion');
+      // Session 247 removed the per-grade footer rows, so there is one total to
+      // check and it is checked straight against the table. The footer sums
+      // UNEXPLAINED variance only — a tie contributes nothing and an 'unbooked'
+      // difference is owned by the posting gate — so the row-side sum is taken
+      // over the same two bands rather than over every non-null figure. Reading
+      // it any wider would make this assertion drift the first time an unbooked
+      // row appears, and drift in a test is indistinguishable from a bug.
+      const unexplainedRows = cbx.rows.filter(r => r.band === 'immaterial' || r.band === 'material');
+      const absUnexplained = unexplainedRows.reduce((n, r) => n + Math.abs(r.varianceN), 0);
+      t.ok(unexplainedRows.length >= 2,
+           's236: the scenario really did put a variance on more than one loan',
+           `${unexplainedRows.length} rows carry an unexplained variance`);
+      t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceN || 0)), absUnexplained, 0.05,
+        's236: the close-band variance total is the sum of ABSOLUTE row variances');
+      // The signed sum would cancel the +415.88 against the −415.88 this
+      // scenario plants; the absolute one cannot. That is the whole point.
+      const signedSum = unexplainedRows.reduce((n, r) => n + r.varianceN, 0);
+      t.ok(Math.abs(absUnexplained - Math.abs(signedSum)) > 100,
+           's236: ...and the scenario really would have cancelled under a signed total',
+           `absolute ${absUnexplained} vs signed ${signedSum}`);
       await p.close();
     }
     // ── s240 #21: an "all clear" has to say as of when ──
@@ -2108,9 +2182,21 @@ GROUPS.push({
       t.ok(!orphanNames.includes(n), `r2: ...and no longer sits in the orphan bin`);
     }
 
-    const fcErr = 'Funding Circle Loan — Xero is $3,041.83 below the lender';
-    t.ok(q.text.includes(fcErr), 'r2: the $3,041.83 ERROR on the inactive loan is still on screen');
-    t.ok(q.rows.some(r => r.name === fcErr), 'r2: the error renders as its own row, not as buried text');
+    // The balance finding's FIGURE is reconciliation-run's business and moves
+    // with every run (it was $3,041.83, it is $2,033.77 today). What must not
+    // move is that the balance error on a loan nobody is looking at any more
+    // still reaches the screen as its own row, so the finding is located by its
+    // shape and then asserted on by name.
+    const fcErr = await p.evaluate(() => {
+      const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
+      const f = (_reconFindings || []).find(x => x.loan_account_id === fc.id && x.status === 'open' &&
+                x.severity === 'error' && /below the lender|above the lender/.test(x.title || ''));
+      return f ? f.title : null;
+    });
+    t.ok(!!fcErr, 'r2: the inactive loan really is carrying an open balance ERROR', String(fcErr));
+    t.ok(/\$[\d,]+\.\d\d/.test(fcErr || ''), 'r2: ...naming real money', String(fcErr));
+    t.ok(q.text.includes(fcErr), 'r2: ...and it is still on screen');
+    t.ok(q.rows.some(r => r.name === fcErr), 'r2: ...as its own row, not as buried text');
     // The loan's OTHER findings are named from the data rather than typed.
     // Which are open, and at what severity, is reconciliation-run's business and
     // it moves every run (this one demoted the 2026-08-18 lumped payment to
@@ -2645,7 +2731,32 @@ const CLOSE_REVERTS = {
   'everything-is-independent': ['return _INDEPENDENT_OPENING_SOURCES.includes(s) || _VARIANCE_REAL_ANCHORS.includes(s);', 'return true;'],
   // Review F3: the fourth band never fires, so a variance the posting gate
   // already owns is reported a second time, as red blocking money.
-  'no-unbooked-band': ['if (!parts.length || Math.abs(residual) >= 0.005) return null;', 'return null;'],
+  // The explanation function is portion-based now: it returns whatever it could
+  // place plus the residual, and the caller bands the residual. The early-out
+  // that used to demand an exact match is gone, so the control reverts the ONE
+  // line that still decides whether anything is explained at all.
+  'no-unbooked-band': ['if (!parts.length) return null;', 'return null;'],
+  // ── THE TWO GUARDS THAT MAKE PORTION-MATCHING SAFE, EACH REVERTIBLE ──────
+  // (1) STRICT REDUCTION. A candidate is only taken if it makes the unexplained
+  //     amount smaller. Removing it lets the function subtract a ~$2,500 split
+  //     from a four-cent gap and hand back a residual LARGER than the variance
+  //     it started with — the fishing failure, made visible.
+  'unbooked-accepts-anything': ['const reduces = (amt) => Math.abs(residual - amt) < Math.abs(residual);',
+                                'const reduces = () => true;'],
+  // (2) BAND THE RESIDUAL, NOT THE GAP. Reverting this is the OLD behaviour:
+  //     a partially explained variance goes through materiality at its full
+  //     size, so four cents of origination drift blocks a $2,707.61 close.
+  'band-the-raw-variance': ['          : _closeVarianceBand(varianceResidual, perLender.amount));',
+                            '          : _closeVarianceBand(variance, perLender.amount));'],
+  // (3) …AND TOTAL THE RESIDUAL, NOT THE GAP. Banding and totalling moved to the
+  //     residual together and have to be reverted together: banding alone gives
+  //     a board that was never on anyone's screen — ten rows red, but totalled
+  //     at $7,503.84 because Verdant's row is still counted at its leftover.
+  'totals-on-the-raw-variance': [
+    ["varianceToResolve: judged.filter(r => r.band === 'material').reduce((n, r) => n + Math.abs(r.varianceResidual), 0),",
+     "varianceToResolve: judged.filter(r => r.band === 'material').reduce((n, r) => n + Math.abs(r.variance), 0),"],
+    ["varianceSmall:     judged.filter(r => r.band === 'immaterial').reduce((n, r) => n + Math.abs(r.varianceResidual), 0),",
+     "varianceSmall:     judged.filter(r => r.band === 'immaterial').reduce((n, r) => n + Math.abs(r.variance), 0),"]],
   // Review F4: a books balance for ANOTHER date wins anyway — August's principal
   // subtracted from June's balance, on every loan at once.
   'stale-books-wins': ['b.balance != null && b.as_of === asOfIso);', 'b.balance != null && b.as_of <= asOfIso);'],
@@ -2669,6 +2780,18 @@ const CLOSE_REVERTS = {
   // The walk forgets that anything can be borrowed — the defect David caught.
   'walk-ignores-drawn': ['const computed  = opening ? opening.amount + (drawn || 0) - principal : null;',
                          'const computed  = opening ? opening.amount - principal : null;'],
+  // Drawn goes back to the GROSS measured increase — the bug that shipped. The
+  // interest half of every payment comes back to the loan account as a positive
+  // entry, so `drawn` then equals the month's booked split interest to the cent
+  // and every such loan reads as off by exactly its own interest.
+  'drawn-is-gross': ['const drawn = drawnGross == null ? null : Math.max(0, drawnGross - nettableInterest);',
+                     'const drawn = drawnGross;'],
+  // ce30's fix, isolated. `nettableInterest = interest + stagedInterest` is the
+  // whole of the staged-payment repair: reverting only the stagedInterest term
+  // leaves the ordinary netting intact and re-creates the defect and NOTHING
+  // else, which is what makes it a usable control rather than a demolition.
+  'staged-interest-not-nettable': ['const nettableInterest = interest + stagedInterest;',
+                                   'const nettableInterest = interest;'],
   // THE HIGHEST-VALUE ONE. A truthy movement_measured beside a NULL drawn is
   // accepted as measured, so `drawn || 0` turns "nobody looked" into "nothing
   // was borrowed" and the row starts accusing the loan of exactly the drawdown.
@@ -2688,7 +2811,7 @@ const CLOSE_REVERTS = {
   'origination-is-stripe-only': ["String(s.source || '') === 'contract_origination' &&",
                                  "String(s.source || '') === 'contract_origination' && a.xero_account_name === 'Stripe Capital Loan' &&"],
   // A journal that both debits and credits the account stops saying so.
-  'mixed-sign-invisible': ['if (r.movement.mixedSign > 0) {', 'if (false) {'],
+  'mixed-sign-invisible': ["+ (r.movement.mixedSign > 0 ? '<span class=\"lcb-sub soft\">mixed-sign</span>' : '')", '+ \'\''],
   // The variance tie is suppressed on unmeasured months too — the symmetric
   // treatment the implementing agent deliberately did NOT adopt.
   'variance-suppressed-when-unmeasured': ['const variance = circular ? null : rawVariance;',
@@ -2697,13 +2820,17 @@ const CLOSE_REVERTS = {
   // footing on every line at once.
   'subtotal-drops-drawn': ['drawn:     set.reduce((n, r) => n + (r.drawn || 0), 0),', 'drawn:     0,'],
 
-  // Review F14: an empty grade-A subtotal renders anyway, and prints data-tie
-  // over zero loans.
-  'empty-subtotal-renders': [
-    ['${rf.gradeA.length ? subtotalRow(\'A\', `${rf.gradeA.length} confirmed by lender`, rf.totalsA) : \'\'}',
-     '${subtotalRow(\'A\', `${rf.gradeA.length} confirmed by lender`, rf.totalsA)}'],
-    ['${st.count && st.variance < 0.005 ? \' data-tie="1"\' : \'\'}', '${st.variance < 0.005 ? \' data-tie="1"\' : \'\'}'],
-  ],
+  // Review F14, in its session-247 home: the Total stops announcing that its
+  // closing and variance columns cover fewer rows than the four beside them.
+  'total-hides-its-coverage': ['const closingMark = ta.closingCovers ? \'\' : mark(ta.closingCount);',
+                               'const closingMark = \'\';'],
+  // 'empty-subtotal-renders' (review F14) IS GONE, deliberately. It reverted the
+  // per-grade footer rows, and David's layout pass removed them — there is one
+  // Total row now and `subtotalRow` no longer exists. A revert whose anchor
+  // cannot be found is not coverage; it is a key that looks like coverage and
+  // would only ever fail. The behaviour it guarded (a subtotal claiming a tie
+  // over zero loans) is now carried by 'total-hides-its-coverage', which
+  // reverts the surviving line.
   // The books-side opening is never consulted, so the opening falls back to the
   // schedule mirror and Verdant goes circular again even with a books balance.
   'ignore-book-balances': ['const book = _loanBookBalanceAsOf(a, priorEnd);', 'const book = null;'],
@@ -2731,10 +2858,17 @@ const CLOSE_REVERTS = {
   // session 247 appears TWICE — once in the closing figure and once in the
   // Closing source column — so a first-match replace reverted the wrong branch
   // and the control quietly stopped reproducing the defect.
-  'stripe-cell-reads-not-received': ['<span class="lcb-na">n/a — swept from Xero</span>',
+  'stripe-cell-reads-not-received': ['<span class="lcb-na">swept from Xero</span>',
                                      '<span class="lcb-none">not received</span>'],
   // The provenance label stops labelling: every source renders as its raw slug.
-  'label-returns-slug': ['return _ANCHOR_SOURCE_LABEL[src] || src || \'unknown\';', 'return src;'],
+  // Session 247 gave the two source COLUMNS their own label functions;
+  // _anchorSourceLabel now only reaches a title attribute, so reverting it no
+  // longer puts a slug on screen and the old control had quietly become
+  // vacuous. It failed rather than passing, which is what the "found the
+  // anchor" guards are for. The columns a reader actually sees are these two.
+  'label-returns-slug': ["if (s === 'amortization_schedule') return 'Amortization schedule';", 'return s;'],
+  'closing-label-returns-slug': ["return grade === 'B' ? 'Amortization schedule' : grade === 'A' ? 'Lender statement' : '';",
+                                 'return String(grade || \'\');'],
   // Undated splits stop being reported, so seven posted Verdant payments that
   // sit in no month at all are closed over in silence.
   'undated-invisible': ['return (_allLoanSplits || []).filter(sp =>', 'return [].filter(sp =>'],
@@ -2788,6 +2922,21 @@ GROUPS.push({
       }));
     };
     const dropBooks = (d, loanName) => setBooks(d, loanName, []);
+
+    // Movement detail lives on the CLOSING month-end books row, which is where
+    // _loanMonthMovement reads it.
+    const setMovement = (d, loanName, detail) => {
+      const a = d.loan_accounts.find(x => x.xero_account_name === loanName);
+      if (!a) throw new Error('setMovement: no such loan ' + loanName);
+      const row = d.loan_book_balances.find(b => b.loan_account_id === a.id && b.as_of === '2026-07-31');
+      if (!row) throw new Error('setMovement: no 2026-07-31 books row for ' + loanName);
+      row.detail = detail === null ? null : Object.assign({}, row.detail || {}, detail);
+    };
+    const MEASURED = (over) => Object.assign({
+      movement_measured: true, drawn: 0, reduced: 0, drawn_entries: 0, reduced_entries: 0,
+      mixed_sign_entries: 0, staged_reduction_in_month: 0, staged_entries_in_month: 0,
+      movement_from: '2026-07-01', movement_to: '2026-07-31',
+    }, over || {});
 
     // Four loans are genuinely material now that the books open the walk, so
     // "does an immaterial gap block the close?" needs a July with nothing else
@@ -2855,9 +3004,14 @@ GROUPS.push({
       // Session 247: provenance is its own column, so the claim is asserted
       // where it now lives. Reading it off the money cell would pass only for as
       // long as the two were concatenated.
-      t.ok(/our books, rebuilt from Xero/.test(r.openingSource || ''),
-           'ce1: ...and the row says so, in English, in the Opening source column',
+      // Session 247 collapsed the source columns to two names each — David's
+      // "remove extra words". The claim under test never was the sentence; it is
+      // that the column states PROVENANCE in a reader's language rather than a
+      // slug, and that a books-side opening is not passed off as a lender's.
+      t.eq(r.openingSource, 'Xero',
+           'ce1: ...and the Opening source column names it, in a reader’s language',
            `cell=${JSON.stringify(r.openingSource)}`);
+      t.notMatch(r.openingSource, /xero_rebuild|_/, 'ce1: ...never as a slug');
       t.eq(r.circular, false,
            'ce1: ...so the walk is NOT circular — Xero opens it and the contract closes it');
       t.eq(r.ties, true, 'ce1: ...and the row TIES');
@@ -2874,8 +3028,13 @@ GROUPS.push({
       const g = cb.gateByKey['per-schedule'];
       t.ok(!!g, 'ce1: the strip carries a per-schedule chip', JSON.stringify(cb.gates.map(x => x.key)));
       t.eq(g && g.count, 2, 'ce1: ...counting the two loans that close on their schedule');
-      t.eq(cb.subtotals.B && cb.subtotals.B.count, 2, 'ce1: ...and the grade-B subtotal holds the same two');
-      t.eq(cb.subtotals.B && cb.subtotals.B.circularCount, 0,
+      // The per-grade footer rows are gone (session 247): Closing source names
+      // the grade on every row and the chip carries the count, so the check
+      // moves to the rows themselves — which is a stronger statement than a
+      // footer restating what the chip already said.
+      t.eq(cb.rows.filter(x => x.grade === 'B' && x.perLenderN != null).length, 2,
+           'ce1: ...and exactly two rows carry grade B');
+      t.eq(cb.rows.filter(x => x.grade === 'B' && x.circular).length, 0,
            'ce1: ...neither of which is circular any more, now the books open both walks');
 
       // ── CONTROL a ── no grade B at all
@@ -2908,8 +3067,8 @@ GROUPS.push({
       t.eq(rn.varianceN, null, 'ce1: ...and reports no variance at all');
       t.ok(/agrees by construction/.test(rn.variance || ''),
            'ce1: ...saying so, in the column a reader looks at', `cell=${JSON.stringify(rn.variance)}`);
-      t.eq(cbN.subtotals.B && cbN.subtotals.B.circularCount, 1,
-           'ce1: ...and the grade-B subtotal declares exactly one row not independently checked');
+      t.eq(cbN.rows.filter(x => x.grade === 'B' && x.circular).length, 1,
+           'ce1: ...and exactly one grade-B row is now marked not independently checked');
 
       // ── CONTROL b ── the tautology itself, on the half that must refuse it
       const revI = await revertFn(pNoBooks, '_openingIsIndependent', EDITS('everything-is-independent'));
@@ -3101,11 +3260,14 @@ GROUPS.push({
            'ce3: ...including why that is not the same as agreeing');
       t.ok(/agree.? by construction/.test(cbN.note || ''),
            'ce3: the footer sentence accounts for the row it excluded', `note=${JSON.stringify(cbN.note)}`);
-      t.eq(cbN.subtotals.B && cbN.subtotals.B.circularCount, 1,
-           'ce3: the grade-B subtotal declares the one loan that is not independently checked');
+      t.eq(cbN.rows.filter(x => x.grade === 'B' && x.circular).length, 1,
+           'ce3: exactly one grade-B row is marked not independently checked');
       // Verdant's seven undated splits are stated rather than closed over.
       t.eq(rn.undatedN, 7, 'ce3: ...and its seven undated splits are declared on the row (A10)');
-      t.ok(/7 undated/.test(rn.notes || ''), 'ce3: ...visibly, in the Notes column',
+      // The Notes column is gone; "N undated" was filed into Status, where
+      // posting state belongs. Following it there is the point — an attribute
+      // left on a dead column would still parse and stop meaning anything.
+      t.ok(/7 undated/.test(rn.inXero || ''), 'ce3: ...visibly, in the Status column',
            `status=${JSON.stringify(rn.inXero)}`);
       {
         const revU = await revertFn(pNo, '_undatedSplits', EDITS('undated-invisible'));
@@ -3173,8 +3335,8 @@ GROUPS.push({
       });
       t.eq(red.off, true, 'ce4: ...and it renders RED (.lcb-off), not grey',
            `variance cell html=${JSON.stringify(red.html)}`);
-      t.ok(/our books, rebuilt from Xero/.test(r.openingSource || ''),
-           'ce4: ...and the Opening source column names its provenance in English',
+      t.eq(r.openingSource, 'Xero',
+           'ce4: ...and the Opening source column names its provenance in a reader’s language',
            `cell=${JSON.stringify(r.openingSource)}`);
       t.notMatch(r.openingSource, /xero_rebuild/, 'ce4: ...never as a slug');
       // The close is now genuinely blocked, by a real number.
@@ -3211,8 +3373,15 @@ GROUPS.push({
       t.close(r.varianceN, -5, 0.005, 'ce5: ...reporting the $5.00 the books are out by rather than nothing');
       t.eq(r.band, 'immaterial', 'ce5: ...in the immaterial band: $5.00 on $960,005 is under both thresholds');
       t.eq(r.ties, false, 'ce5: ...so it is NOT a tie — an immaterial gap is de-escalated, never hidden');
-      t.ok(/rolled back from/.test(r.closingSource || ''),
-           'ce5: ...and the Closing source column says the figure was DERIVED, and from what',
+      // The roll-back moved to a sub-line on the Closing DATE cell, beside the
+      // date it was rolled back from — which is where a reader asking "why is
+      // this dated 8/25 when we are closing July?" is already looking.
+      t.ok(/rolled back/.test(r.closingDate || ''),
+           'ce5: ...and the Closing date cell says the figure was DERIVED',
+           `cell=${JSON.stringify(r.closingDate)}`);
+      t.eq(r.derivation, 'rolled_back', 'ce5: ...with the machine-readable derivation to match');
+      t.eq(r.closingSource, 'Lender statement',
+           'ce5: ...while Closing source still names whose figure it is',
            `cell=${JSON.stringify(r.closingSource)}`);
       t.ok(/8\/25/.test(r.closingDate || ''),
            'ce5: ...and the Closing date column carries the document’s own date, not month end',
@@ -3438,48 +3607,72 @@ GROUPS.push({
       await p.close();
     }
 
-    /* ── 8 ── SUBTOTAL INTEGRITY, PER GRADE ──────────────────────────────── */
-    // opening − principal = computed inside EACH subtotal, and grade A's line
-    // contains grade-A loans and nothing else. Folding grade B in would make the
-    // total imply a higher grade than half of it has, which is the one thing
-    // this session exists to stop.
+    /* ── 8 ── GRADE INTEGRITY, NOW THAT THE FOOTER ROWS ARE GONE ────────── */
+    // The property has not changed: opening + drawn − principal = computed
+    // inside each grade, and grade A's total contains grade-A loans and nothing
+    // else. Folding grade B in would make the figure the CPA signs imply a
+    // higher grade than half of it has.
+    //
+    // What changed is where it is checked. David's layout pass removed the
+    // per-grade footer rows — Closing source names the grade on every row and
+    // the chips carry the counts, so restating the split in the footer was the
+    // same arithmetic told twice. rf.totalsA / rf.totalsB are STILL COMPUTED and
+    // still drive the chips, so the exclusivity is asserted against them
+    // directly, and the footing is asserted against the rows.
     {
       const p = await newHarnessPage({ tab: 'loans' });
       const cb = (await p.surfaces()).loans.closeBand;
-      for (const [k, grade] of [['A', 'A'], ['B', 'B']]) {
-        const st = cb.subtotals[k];
-        t.ok(!!st, `ce8: the grade-${grade} subtotal row is on screen`);
-        if (!st) continue;
-        const mine = cb.rows.filter(r => r.grade === grade && r.perLenderN != null && r.computedN != null);
-        t.eq(st.count, mine.length, `ce8: the grade-${grade} subtotal counts exactly the grade-${grade} rows that roll forward`);
-        t.close(st.openingN + (st.drawnN || 0) - st.principalN, st.computedN, 0.02,
-                `ce8: grade-${grade}: opening + drawn − principal = computed`);
+      const totals = await p.evaluate(() => {
+        const rf = _loanCloseRollforward(_cvLastMonth());
+        const slim = (t2, set) => ({ count: t2.count, opening: t2.opening, drawn: t2.drawn,
+                                     principal: t2.principal, computed: t2.computed, perLender: t2.perLender,
+                                     names: set.map(r => r.a.xero_account_name) });
+        return { A: slim(rf.totalsA, rf.gradeA), B: slim(rf.totalsB, rf.gradeB) };
+      });
+
+      for (const g of ['A', 'B']) {
+        const st = totals[g];
+        const mine = cb.rows.filter(r => r.grade === g && r.perLenderN != null && r.computedN != null);
+        t.eq(st.count, mine.length,
+             `ce8: totals${g} counts exactly the grade-${g} rows that roll forward`);
+        t.eq(JSON.stringify(st.names.slice().sort()), JSON.stringify(mine.map(r => r.name).sort()),
+             `ce8: ...and it is the SAME loans, named — not merely the same number of them`,
+             JSON.stringify(st.names));
+        t.close(st.opening + (st.drawn || 0) - st.principal, st.computed, 0.02,
+                `ce8: grade-${g}: opening + drawn − principal = computed`);
         const sum = (f) => mine.reduce((n, r) => n + (r[f] || 0), 0);
-        t.close(st.openingN,   sum('openingN'),   0.02, `ce8: grade-${grade} opening is the sum of its own rows, nobody else's`);
-        t.close(st.principalN, sum('principalN'), 0.02, `ce8: grade-${grade} principal likewise`);
-        t.close(st.computedN,  sum('computedN'),  0.02, `ce8: grade-${grade} computed likewise`);
-        t.close(st.perLenderN, sum('perLenderN'), 0.02, `ce8: grade-${grade} closing likewise`);
+        t.close(st.opening,   sum('openingN'),   0.02, `ce8: grade-${g} opening is the sum of its own rows, nobody else's`);
+        t.close(st.principal, sum('principalN'), 0.02, `ce8: grade-${g} principal likewise`);
+        t.close(st.computed,  sum('computedN'),  0.02, `ce8: grade-${g} computed likewise`);
+        t.close(st.perLender, sum('perLenderN'), 0.02, `ce8: grade-${g} closing likewise`);
       }
+
       // The exclusive part, said directly: no grade-B money is inside grade A.
-      const bMoney = cb.rows.filter(r => r.grade === 'B' && r.perLenderN != null)
-                            .reduce((n, r) => n + r.openingN, 0);
-      t.ok(bMoney > 0, 'ce8: there really is grade-B money to keep out of grade A', `${bMoney}`);
-      t.ok(Math.abs(cb.subtotals.A.openingN - (cb.subtotals.A.openingN + bMoney)) > 1,
-           'ce8: ...and grade A’s opening is smaller than A+B by exactly that amount');
-      t.close(cb.subtotals.A.openingN + cb.subtotals.B.openingN,
+      t.ok(totals.B.opening > 0, 'ce8: there really is grade-B money to keep out of grade A', `${totals.B.opening}`);
+      t.eq(totals.A.names.filter(n => totals.B.names.includes(n)).length, 0,
+           'ce8: no loan appears in both grade totals');
+      t.close(totals.A.opening + totals.B.opening,
               cb.rows.filter(r => r.perLenderN != null && r.computedN != null).reduce((n, r) => n + r.openingN, 0),
               0.02, 'ce8: A + B together account for every checkable row, once each');
+      // The grade split still reaches the screen — through the chips now.
+      t.eq(cb.gateByKey['lender-confirmed'].count, totals.A.count,
+           'ce8: ...and the lender-confirmed chip reports grade A’s count');
+      t.eq(cb.gateByKey['per-schedule'].count, totals.B.count,
+           'ce8: ...and the per-schedule chip reports grade B’s');
 
-      // ── CONTROL ── compute grade A's subtotal over every checkable loan
+      // ── CONTROL ── compute grade A's total over every checkable loan
       const rev = await revertFn(p, '_loanCloseRollforward', EDITS('subtotal-a-mixes-grades'));
       t.ok(rev.ok, 'ce8 CONTROL: a grade-mixing subtotal could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
-        const b = (await p.surfaces()).loans.closeBand;
-        t.eq(b.subtotals.A.count, 13,
-             'ce8 CONTROL: grade A’s line now counts all 13 checkable loans, two of them schedule-derived');
-        t.ok(Math.abs(b.subtotals.A.openingN - cb.subtotals.A.openingN) > 1,
-             'ce8 CONTROL: ...and the money the CPA signs as lender-confirmed grows by grade B’s $346,319.75',
-             `${b.subtotals.A.openingN} vs ${cb.subtotals.A.openingN}`);
+        const b = await p.evaluate(() => {
+          const rf = _loanCloseRollforward(_cvLastMonth());
+          return { count: rf.totalsA.count, opening: rf.totalsA.opening };
+        });
+        t.eq(b.count, 13,
+             'ce8 CONTROL: grade A now counts all 13 checkable loans, two of them schedule-derived');
+        t.ok(Math.abs(b.opening - totals.A.opening) > 1,
+             'ce8 CONTROL: ...and the money the CPA signs as lender-confirmed grows by grade B’s',
+             `${b.opening} vs ${totals.A.opening}`);
       }
       await restoreFns(p);
       await p.close();
@@ -3518,13 +3711,39 @@ GROUPS.push({
         t.ok(v && !/_/.test(v), `ce9: _closeBasisLabel(${k}) is a sentence, not a slug`, JSON.stringify(v));
 
       // ── CONTROL ── make the provenance label hand back the slug
-      const rev = await revertFn(p2, '_anchorSourceLabel', EDITS('label-returns-slug'));
+      const rev = await revertFn(p2, '_closeOpeningSourceLabel', EDITS('label-returns-slug'));
       t.ok(rev.ok, 'ce9 CONTROL: a label function that returns the slug could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
         const b = await p2.surfaces();
-        t.ok(/\b(amortization_schedule|xero_derived|portal_manual_pull)\b/.test(b.loans.paneText || ''),
+        const SLUG = /\b(amortization_schedule|xero_derived|xero_rebuild|portal_manual_pull|contract_origination)\b/;
+        t.ok(SLUG.test(b.loans.paneText || ''),
              'ce9 CONTROL: without the label, raw database slugs reach the close band — so the assertion above is real',
-             `first slug: ${JSON.stringify((b.loans.paneText || '').match(/\b(amortization_schedule|xero_derived|portal_manual_pull)\b/) || [])}`);
+             `first slug: ${JSON.stringify((b.loans.paneText || '').match(SLUG) || [])}`);
+      }
+      await restoreFns(p2);
+
+      // ── AND THE OTHER SOURCE COLUMN, WHICH HAS ITS OWN LABEL FUNCTION ───
+      // Session 247 split one label function into two. Only the opening side
+      // was under control; the closing side names the evidence a CPA signs
+      // against ("Lender statement" vs "Amortization schedule") and is the
+      // difference between grade A and grade B in words. A bare 'A'/'B' in that
+      // column is not a rendering nit — it is the provenance claim disappearing.
+      const rows0 = (await p2.surfaces()).loans.closeBand.rows;
+      t.ok(rows0.some(r => /Lender statement/.test(r.closingSource || '')) &&
+           rows0.some(r => /Amortization schedule/.test(r.closingSource || '')),
+           'ce9: both kinds of closing evidence are named in words on the board',
+           JSON.stringify([...new Set(rows0.map(r => r.closingSource))]));
+      const revC = await revertFn(p2, '_closeClosingSourceLabel', EDITS('closing-label-returns-slug'));
+      t.ok(revC.ok, 'ce9 CONTROL: a closing-source label that hands back the grade could be rebuilt',
+           JSON.stringify(revC.missing));
+      if (revC.ok) {
+        const rowsC = (await p2.surfaces()).loans.closeBand.rows;
+        t.eq(rowsC.filter(r => /Lender statement|Amortization schedule/.test(r.closingSource || '')).length, 0,
+             'ce9 CONTROL: ...and the Closing source column stops naming any evidence at all',
+             JSON.stringify([...new Set(rowsC.map(r => r.closingSource))]));
+        t.ok(rowsC.some(r => /^[AB]$/.test((r.closingSource || '').trim())),
+             'ce9 CONTROL: ...printing the bare grade letter where the provenance used to be',
+             JSON.stringify([...new Set(rowsC.map(r => r.closingSource))]));
       }
       await restoreFns(p2);
       await p2.close();
@@ -3707,29 +3926,31 @@ GROUPS.push({
       // shape F3 was written to remove, surviving just below its threshold. If
       // anyone ever widens the explanation to cover a partial match, this
       // assertion fails and they have to decide that deliberately.
-      const pp = aug.otherStaged.find(x => x.n === 'Paypal 2');
-      t.ok(!!pp, 'ce12 boundary: Paypal 2 also carries a staged split in August', JSON.stringify(aug.otherStaged));
-      if (pp) {
-        // AND THE $44.70 IS GONE. Before reconciliation-run wrote the books,
-        // Paypal 2's August opening was a LENDER statement (61,896.57) and the
-        // row sat $44.70 below the all-or-nothing threshold: material, red and
-        // blocking, for a gap that was mostly one staged payment. Xero's own
-        // 7/31 rebuild (58,775.97) opens it now and it ties exactly. The
-        // boundary is unchanged; the live case that was sitting on it was an
-        // artifact of opening the walk from the lender's side.
-        t.eq(pp.band, 'tie',
-             'ce12 boundary: Paypal 2’s August now TIES on a books-side opening — the $44.70 was an artifact',
-             `band=${pp.band} v=${pp.v}`);
-        t.close(pp.v, 0, 0.005, 'ce12 boundary: ...at $0.00');
-        t.ok(Math.abs(pp.stagedP) > 3000,
-             'ce12 boundary: ...with its staged split still on file, so the shape really did resolve rather than vanish',
-             `staged principal ${pp.stagedP}`);
-      }
+      // ── THE ALL-OR-NOTHING BOUNDARY, AND WHERE ITS LIVE CASE WENT ──────
+      // Paypal 2 used to sit $44.70 below this threshold: a staged August split
+      // whose principal did not quite close the gap, so the row banded material
+      // for something that was mostly one staged payment. Its 2026-08-26 split
+      // is POSTED now and the shape is gone. The boundary itself is unchanged
+      // and is pinned synthetically below (one cent out; two splits summing to
+      // the gap), because a boundary that only has a live case is a boundary
+      // that stops being tested the moment the data moves.
+      const stagedAug = aug.otherStaged.filter(x => Math.abs(x.stagedP) > 0.005);
+      t.eq(JSON.stringify(stagedAug.map(x => x.n)), JSON.stringify([]),
+           'ce12 boundary: Dexter is the only loan still carrying a staged split in the closing month',
+           `other staged: ${JSON.stringify(aug.otherStaged)}`);
       await pAug.close();
 
       // (b) the same shape rendered, by moving it into the closing month.
       const pDom = await newHarnessPage({ tab: 'loans', mutate: (d) => {
         const dex = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
+        // The month's movement is UNMEASURED here, which is what makes the
+        // scenario honest rather than convenient: reconciliation-run measures a
+        // month AFTER it closes, so a month still carrying a staged payment is
+        // exactly a month it has not measured. Leaving July's real measurement
+        // in place beside a staged split would describe a ledger that both did
+        // and did not carry the payment. (What happens when a month IS measured
+        // and still carries a staged split is section 12b, and it is a finding.)
+        setMovement(d, 'Dexter Loan 2', null);
         const jul = d.loan_splits.find(sp => sp.loan_account_id === dex.id && sp.period_label === '2026-07');
         jul.status = 'staged';
         jul.stage_reference = 'WR-STAGE harness';
@@ -3741,20 +3962,38 @@ GROUPS.push({
       t.close(rd.unbookedN, 3326.23, 0.005, 'ce12: ...carrying data-unbooked="3326.23", the principal it left out');
       t.close(rd.varianceN, 3326.23, 0.005, 'ce12: ...and the variance figure is still there, in full');
       t.eq(rd.ties, false, 'ce12: ...no data-tie — an explained difference is not an agreement');
-      t.ok(/staged payment/.test(rd.variance || ''),
+      // The cause is a SUB-LINE under the figure now — `staged 3,326.23` — not a
+      // sentence. Reading the shape rather than the prose is deliberate: David
+      // will edit the wording again, and a test of the wording is a test of the
+      // wording. What must survive is that the cell names the KIND of
+      // de-escalation and prints the amount it is claiming.
+      t.ok(/staged/.test(rd.variance || ''),
            'ce12: ...and the cell says WHY, so the reader is not left to guess which de-escalation this is',
            `cell=${JSON.stringify(rd.variance)}`);
       t.ok(/3,326\.23/.test(rd.variance || ''), 'ce12: ...with the figure printed, never hidden');
+      // Fully explained means nothing is left over, and the cell says so by
+      // saying nothing: no "· left" clause. That is the difference between this
+      // row and the partial cases pinned in the boundary block below.
+      t.close(rd.varianceResidualN, 0, 0.005,
+              'ce12: ...and data-variance-residual is $0.00 — the explanation covers all of it');
+      t.ok(!/left/.test(rd.variance || ''), 'ce12: ...so there is no remainder clause on the cell',
+           `cell=${JSON.stringify(rd.variance)}`);
       // Not blocking, and no chip of its own.
       t.ok(!cbD.rows.some(x => /Dexter/.test(x.loan) && x.band === 'material'),
            'ce12: the variance gate is not counting Dexter');
       t.ok(!cbD.gateByKey['unbooked'], 'ce12: ...and there is NO unbooked chip — the posting gate already counts it',
            JSON.stringify(cbD.gates.map(g => g.key)));
       t.eq(cbD.gateByKey['posting'].ok, false, 'ce12: ...which is the one gate that does report it');
-      t.ok(cbD.subtotals.B.varianceN < 1 && Math.abs(rd.varianceN) > 3000,
-           'ce12: ...and the grade-B subtotal counts UNEXPLAINED variance only, so $3,326.23 of it stays out',
-           `subtotal ${cbD.subtotals.B.varianceN} vs row ${rd.varianceN}`);
-      t.ok(/payments this month has not booked yet/.test(cbD.note || ''),
+      // The per-grade footer rows are gone; the Total sums UNEXPLAINED variance
+      // only, so an 'unbooked' row contributes nothing to it however large.
+      const totalVar = Math.abs(Number((cbD.subtotals.all || {}).varianceN || 0));
+      const unexplainedRows = cbD.rows.filter(x => x.band === 'immaterial' || x.band === 'material');
+      t.close(totalVar, unexplainedRows.reduce((n, x) => n + Math.abs(x.varianceN), 0), 0.05,
+              'ce12: ...and the Total counts UNEXPLAINED variance only');
+      t.ok(Math.abs(rd.varianceN) > 3000 && !unexplainedRows.some(x => /Dexter/.test(x.loan)),
+           'ce12: ...so Dexter’s $3,326.23 stays out of it entirely',
+           `row ${rd.varianceN}, total ${totalVar}`);
+      t.ok(/differs? by exactly the payments not yet booked/.test(cbD.note || ''),
            'ce12: ...and the footer says so in words', `note=${JSON.stringify(cbD.note)}`);
 
       // ── CONTROL ── no fourth band
@@ -3784,12 +4023,19 @@ GROUPS.push({
       t.close(ru.unbookedN, 2707.61, 0.005, 'ce12: ...with that principal named on the row');
       t.eq(ru.ties, false, 'ce12: ...and NOTHING turns green');
       t.eq(ru.undatedN, 7, 'ce12: ...the seven undated splits are still declared');
-      t.ok(/7 undated/.test(ru.notes || ''), 'ce12: ...still visibly, in the Notes column');
-      t.ok(/no date/.test(ru.variance || ''), 'ce12: ...and the variance cell still says the payment has no date',
+      t.ok(/7 undated/.test(ru.inXero || ''), 'ce12: ...still visibly, in the Status column');
+      // Same shape change as above: the cell now carries `undated 2,707.61`
+      // rather than the sentence. The Status column (asserted directly above)
+      // is what still says "7 undated" in words.
+      t.ok(/undated/.test(ru.variance || ''),
+           'ce12: ...and the variance cell still names it as an undated payment',
            `cell=${JSON.stringify(ru.variance)}`);
+      t.ok(/2,707\.61/.test(ru.variance || ''), 'ce12: ...at the amount it is claiming');
+      t.close(ru.varianceResidualN, 0, 0.005, 'ce12: ...with nothing left over');
       await pU.close();
 
-      // ── THE JUDGEMENT CALL, PINNED ──────────────────────────────────────
+      // ══ THE JUDGEMENT CALL, PINNED — AND ONE BOUNDARY DELIBERATELY MOVED ══
+      //
       // _closeUnbookedExplanation matches a single undated split BY AMOUNT, and
       // this module warns against amount-matching everywhere else (session 245:
       // "a typed number is never evidence"; session 232: a transaction is never
@@ -3797,23 +4043,181 @@ GROUPS.push({
       // DE-ESCALATES and never concludes. These assertions fix that boundary so
       // a later change cannot widen it into something that decides.
       //
-      // One cent out, and it must stop explaining.
+      // ── WHAT I PINNED TWO ROUNDS AGO, AND WHY IT IS NOW WRONG ────────────
+      //
+      // The old assertion here was "one cent out → MATERIAL, with no
+      // data-unbooked at all": the explanation had to match the variance TO THE
+      // CENT or explain nothing. I pinned that as the safe side of the line.
+      // It was not, and the reason is Verdant.
+      //
+      // Verdant's books and its contract disagree by four cents AT ORIGINATION
+      // and have ever since — $284,354.46 booked against $284,354.50 on the
+      // schedule (section 31 proves this from the data rather than asserting
+      // it, and shows the thirteen payments since are identical TO THE CENT, so
+      // the four cents is drift at day one and nothing else). Under exactness,
+      // every variance of the form "a real unbooked payment ± that drift" is
+      // refused an explanation and banded at FULL SIZE. Verdant's August close
+      // is exactly that: $2,707.61 of undated principal against a $2,707.57
+      // gap, blocked as a material variance over four cents, for an event the
+      // posting gate already owns and reports. Not once — permanently, because
+      // the drift never goes away. That is the gate-that-never-opens failure
+      // this whole module is built against.
+      //
+      // And exactness was never the safer side. A coincidental exact match
+      // absorbs a real discrepancy IN FULL: if a split's amount happens to
+      // equal variance-plus-error, the error vanishes with it and nothing on
+      // the page says so. Residual banding cannot do that — whatever fails to
+      // match stays on the row, is banded, and still blocks when it matters.
+      // The exact rule traded a loud, permanent false positive for a silent
+      // false negative and called it strictness.
+      //
+      // SO I AGREE WITH THE CHANGE, and what follows re-pins the boundary at
+      // the four things that actually keep it honest, rather than at the
+      // number that moved:
+      //
+      //   1. ONE SPLIT, NEVER A COMBINATION. A combination can be assembled to
+      //      explain almost any figure; that is the step from shape-matching to
+      //      concluding, and it is not taken.
+      //   2. STRICT REDUCTION — the guard nobody named, and the load-bearing
+      //      one. A candidate is only accepted if it makes the unexplained
+      //      amount SMALLER, which guarantees |residual| < |variance| and so
+      //      bounds the damage of any bad match by construction. It is also
+      //      what stops Verdant's own July row (−$0.04 beside seven undated
+      //      splits of ~$2,500) from grabbing one of them.
+      //   3. A MATERIAL RESIDUAL STILL BLOCKS. De-escalation is only ever of
+      //      the named amount; the rest goes through the ordinary bands.
+      //   4. BOTH FIGURES VISIBLE. The gap and the leftover are both on the
+      //      cell. A de-escalation the reader cannot audit is a suppression.
+      //
+      // Each of the four is asserted below, and 2 and 3 have controls, because
+      // "I agree" is not a test.
+
+      // ── 1 cent out: PARTLY explained, and the cent is on the page ────────
       const pOff = await newHarnessPage({ tab: 'loans', mutate: verBooks(256289.89) });
       const ro = rowOf((await pOff.surfaces()).loans.closeBand, 'Verdant Capital Loan');
       t.close(ro.varianceN, 2707.62, 0.005, 'ce12 boundary: one cent more and the gap is $2,707.62');
-      t.eq(ro.band, 'material', 'ce12 boundary: ...which no undated split explains, so it is MATERIAL and blocks');
-      t.eq(ro.unbookedN, null, 'ce12 boundary: ...with no data-unbooked at all');
+      // (4) BOTH FIGURES. The column still prints the raw gap — it is what sits
+      // between Computed and Closing either side of it and a reader checks it by
+      // subtracting those two — while the explanation and the leftover sit under
+      // it. Nothing is rewritten to make the arithmetic agree.
+      t.close(ro.unbookedN, 2707.61, 0.005,
+              'ce12 boundary: ...Period 14 explains $2,707.61 of it, and the row says which part');
+      t.close(ro.varianceResidualN, 0.01, 0.005,
+              'ce12 boundary: ...leaving exactly one cent, measured and carried as data-variance-residual');
+      t.ok(/2,707\.62/.test(ro.variance || '') && /left/.test(ro.variance || ''),
+           'ce12 boundary: ...with the full gap AND the leftover both printed — a de-escalation you can audit',
+           `cell=${JSON.stringify(ro.variance)}`);
+      // (3) The band is taken on the CENT, so this is not material — but it is
+      // also NOT 'unbooked'. The row does not get to claim it was fully
+      // explained when a cent is missing; it goes through the ordinary bands
+      // like any other unexplained money.
+      t.eq(ro.band, 'immaterial',
+           'ce12 boundary: ...so it bands on the CENT, not on the $2,707.62');
+      t.ok(ro.band !== 'unbooked',
+           'ce12 boundary: ...and it is NOT "unbooked" — a partial explanation never claims to be a whole one');
+      t.eq(ro.ties, false, 'ce12 boundary: ...and nothing here turned green');
+      // (2) THE INVARIANT. Whatever the explanation does, it must leave less
+      // unexplained than it found. Asserted on the row and, below, on every
+      // rendered row at once.
+      t.ok(Math.abs(ro.varianceResidualN) < Math.abs(ro.varianceN),
+           'ce12 boundary: ...|residual| < |variance| — the explanation can only ever shrink the gap',
+           `${ro.varianceResidualN} vs ${ro.varianceN}`);
+
+      // ── CONTROL for (3): band the RAW gap instead of the residual ────────
+      // This is the OLD behaviour, and it reproduces the exact failure that
+      // moved the boundary: four cents of origination drift blocking $2,707.62.
+      {
+        const rev = await revertFn(pOff, '_loanCloseRollforward', EDITS('band-the-raw-variance'));
+        t.ok(rev.ok, 'ce12 boundary CONTROL: banding the raw gap could be rebuilt', JSON.stringify(rev.missing));
+        if (rev.ok) {
+          const b = (await pOff.surfaces()).loans.closeBand;
+          const br = rowOf(b, 'Verdant Capital Loan');
+          t.eq(br.band, 'material',
+               'ce12 boundary CONTROL: one cent unexplained makes the whole $2,707.62 material again');
+          t.eq(b.gateByKey['variance'].ok, false,
+               'ce12 boundary CONTROL: ...and the close is blocked, permanently, by a cent');
+        }
+        await restoreFns(pOff);
+      }
       await pOff.close();
 
-      // Two splits summing to the gap must NOT explain it. Matching a COMBINATION
-      // is the step from shape-matching to concluding, and it is not taken.
+      // ── (3) A MATERIAL RESIDUAL STILL BLOCKS ────────────────────────────
+      // $4,000 beyond what any single split can explain. Period 14 is still
+      // named — it really is unbooked — but the de-escalation stops there and
+      // the remainder is treated as exactly what it is.
+      const pBig = await newHarnessPage({ tab: 'loans', mutate: verBooks(256289.88 + 4000) });
+      const sBig = (await pBig.surfaces()).loans.closeBand;
+      const rb = rowOf(sBig, 'Verdant Capital Loan');
+      t.close(rb.varianceN, 6707.61, 0.005, 'ce12 boundary: a $6,707.61 gap');
+      t.close(rb.unbookedN, 2707.61, 0.005, 'ce12 boundary: ...of which Period 14 explains $2,707.61');
+      t.close(rb.varianceResidualN, 4000, 0.005, 'ce12 boundary: ...leaving $4,000.00 that nothing accounts for');
+      t.eq(rb.band, 'material', 'ce12 boundary: ...which is MATERIAL, so the row still blocks');
+      t.ok(sBig.rows.some(x => /Verdant/.test(x.loan) && x.band === 'material'),
+           'ce12 boundary: ...a partial explanation must never let a real discrepancy through');
+      t.eq(sBig.gateByKey['variance'].ok, false, 'ce12 boundary: ...and the variance gate says so');
+      await pBig.close();
+
+      // ── (1) ONE SPLIT, NEVER A COMBINATION ──────────────────────────────
+      // Two splits that sum to the gap EXACTLY. Under the old exact rule this
+      // was pinned as "not explained at all"; under portion matching it is
+      // still not explained by the pair — the residual is the second split, to
+      // the cent, which is the proof that the pair was never assembled. That is
+      // a stronger assertion than the old one, not a weaker one: the old test
+      // could not tell "refused the combination" from "found nothing".
       const pSum = await newHarnessPage({ tab: 'loans', mutate: verBooks(256289.88 + 2554.21) });
       const rs = rowOf((await pSum.surfaces()).loans.closeBand, 'Verdant Capital Loan');
       t.close(rs.varianceN, 5261.82, 0.005,
               'ce12 boundary: a gap equal to Period 14 + Period 6 together is $5,261.82');
+      t.close(rs.unbookedN, 2707.61, 0.005,
+              'ce12 boundary: ...and ONE split is named, the closest single candidate');
+      t.close(rs.varianceResidualN, 2554.21, 0.005,
+              'ce12 boundary: ...leaving the other split entirely unexplained — the combination was never taken');
       t.eq(rs.band, 'material',
-           'ce12 boundary: ...and is NOT explained — one split, never a combination');
+           'ce12 boundary: ...so the row is still material and still blocks');
       await pSum.close();
+
+      // ── (2) STRICT REDUCTION, ON THE LIVE ROW THAT NEEDS IT ─────────────
+      // Verdant's REAL July close, no plant at all. The gap is the four cents
+      // of origination drift; seven undated splits of ~$2,500 sit right beside
+      // it and NOT ONE of them may be claimed, because none of them makes four
+      // cents smaller. This is the row that would be destroyed by a matcher
+      // that took the closest candidate unconditionally.
+      const pReal = await newHarnessPage({ tab: 'loans' });
+      const rr = rowOf((await pReal.surfaces()).loans.closeBand, 'Verdant Capital Loan');
+      t.eq(rr.undatedN, 7, 'ce12 strict: Verdant really is carrying seven undated splits');
+      t.ok(Math.abs(rr.varianceN) < 1,
+           'ce12 strict: ...against a gap under a dollar', `variance ${rr.varianceN}`);
+      t.eq(rr.unbookedN, null,
+           'ce12 strict: ...and NONE of them is claimed as an explanation — no data-unbooked at all');
+      t.close(rr.varianceResidualN, rr.varianceN, 0.005,
+              'ce12 strict: ...so the residual IS the variance; nothing was explained away');
+      // THE INVARIANT, ON EVERY ROW ON THE BOARD AT ONCE. This is the assertion
+      // that would catch a future widening anywhere, not just on Verdant.
+      {
+        const all = (await pReal.surfaces()).loans.closeBand.rows.filter(x => x.varianceN != null && x.unbookedN != null);
+        const bad = all.filter(x => !(Math.abs(x.varianceResidualN) < Math.abs(x.varianceN) + 1e-9));
+        t.eq(bad.length, 0,
+             'ce12 strict: every explained row on the board leaves LESS unexplained than it found',
+             JSON.stringify(bad.map(x => ({ n: x.name, v: x.varianceN, r: x.varianceResidualN }))));
+      }
+
+      // ── CONTROL for (2): a matcher that accepts anything ────────────────
+      const revR = await revertFn(pReal, '_closeUnbookedExplanation', EDITS('unbooked-accepts-anything'));
+      t.ok(revR.ok, 'ce12 strict CONTROL: a matcher without the reduction test could be rebuilt', JSON.stringify(revR.missing));
+      if (revR.ok) {
+        const b = (await pReal.surfaces()).loans.closeBand;
+        const br = rowOf(b, 'Verdant Capital Loan');
+        t.ok(br.unbookedN != null && Math.abs(br.unbookedN) > 1000,
+             'ce12 strict CONTROL: four cents now "explained" by a ~$2,500 split it has nothing to do with',
+             `unbooked ${br.unbookedN}`);
+        t.ok(Math.abs(br.varianceResidualN) > Math.abs(rr.varianceN),
+             'ce12 strict CONTROL: ...leaving MORE unexplained than the gap it started with — the invariant broken',
+             `residual ${br.varianceResidualN} from a ${rr.varianceN} gap`);
+        t.eq(br.band, 'material',
+             'ce12 strict CONTROL: ...and a four-cent row turned into a material, blocking one');
+      }
+      await restoreFns(pReal);
+      await pReal.close();
     }
 
     /* ── 13 ── A STALE BOOKS BALANCE MUST NOT BEAT AN EXACT STATEMENT ────── */
@@ -4129,210 +4533,60 @@ GROUPS.push({
       await p.close();
     }
 
-    /* ── 18 ── AN EMPTY SUBTOTAL DOES NOT EXIST, AND NEVER TIES ──────────── */
-    // A "$0.00" in the variance column of a line counting zero loans is a
-    // verdict nobody earned, printed in the one column a reader scans for them.
+    /* ── 18 ── A TOTAL NEVER CLAIMS MORE COVERAGE THAN IT HAS ───────────── */
+    // This was written for review F14: an empty grade-A subtotal rendering a
+    // "$0.00" variance over zero loans — a verdict nobody earned, in the one
+    // column a reader scans for verdicts.
+    //
+    // Session 247 deleted the per-grade subtotal rows, so that exact shape can
+    // no longer occur. The HAZARD did not go with them: there is still a footer
+    // figure whose columns can cover different populations, and it is now the
+    // Total. Its protection is the coverage marker — "13 of 14" beside the
+    // closing figure — so that is what this section guards. Deleting the test
+    // along with the row would have retired the lesson with the layout.
     {
       const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        // No real lender document anywhere: grade A becomes impossible, grade B
-        // survives on the two loans carrying the recorded policy.
+        // No real lender document anywhere: nothing can be closed against, so
+        // the closing column covers ZERO rows while the four walk columns cover
+        // all fourteen. A bare $0.00 here would be the F14 defect exactly.
         const real = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'];
         d.loan_statements = d.loan_statements.filter(st => !real.includes(String(st.source || '')));
+        d.loan_accounts.forEach(a => { a.close_basis = 'lender_statement'; });
       } });
       const cb = (await p.surfaces()).loans.closeBand;
-      t.eq(cb.rows.filter(r => r.grade === 'A').length, 0, 'ce18: the scenario really does leave no grade-A loan');
-      t.ok(!cb.subtotals.A, 'ce18: ...so no grade-A subtotal row is rendered at all',
+      t.eq(cb.rows.filter(r => r.perLenderN != null).length, 0,
+           'ce18: the scenario really does leave no loan with a closing balance');
+      t.ok(!cb.subtotals.A && !cb.subtotals.B && !cb.subtotals.none,
+           'ce18: ...and the per-grade subtotal rows are gone with the layout pass',
            JSON.stringify(Object.keys(cb.subtotals)));
-      t.ok(!!cb.subtotals.B, 'ce18: ...while grade B, which still has loans, keeps its line');
-      t.eq(Object.keys(cb.subtotals).filter(k => cb.subtotals[k].count === 0 && cb.subtotals[k].ties).length, 0,
-           'ce18: ...and no subtotal claims a tie over zero loans');
+      t.ok(!!cb.subtotals.all, 'ce18: ...leaving one Total');
+      t.eq(cb.subtotals.all.count, cb.rows.length, 'ce18: ...which covers every row');
+      t.eq(cb.subtotals.all.closingCount, 0, 'ce18: ...while its closing column covers none of them');
+      const closingCell = cb.subtotals.all.cells[cb.columnIndex.closing] || '';
+      const varianceCell = cb.subtotals.all.cells[cb.columnIndex.variance] || '';
+      t.ok(new RegExp(`0 of ${cb.rows.length}`).test(closingCell),
+           'ce18: ...and SAYS SO beside the figure rather than printing a confident $0.00',
+           `closing cell = ${JSON.stringify(closingCell)}`);
+      t.ok(new RegExp(`0 of ${cb.rows.length}`).test(varianceCell),
+           'ce18: ...on the variance column too, which is the one a reader reads as a verdict',
+           `variance cell = ${JSON.stringify(varianceCell)}`);
+      t.eq(cb.subtotals.all.ties, false,
+           'ce18: ...and the Total never carries data-tie, so nothing counts it as an agreement');
 
-      // ── CONTROL ── render it anyway
-      const rev = await revertFn(p, 'renderLoansCloseBand', EDITS('empty-subtotal-renders'));
-      t.ok(rev.ok, 'ce18 CONTROL: an always-rendered subtotal could be rebuilt', JSON.stringify(rev.missing));
+      // ── CONTROL ── take the coverage marker away
+      const rev = await revertFn(p, 'renderLoansCloseBand', EDITS('total-hides-its-coverage'));
+      t.ok(rev.ok, 'ce18 CONTROL: a Total that hides its coverage could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
         const b = (await p.surfaces()).loans.closeBand;
-        t.ok(!!b.subtotals.A, 'ce18 CONTROL: pre-review, an empty grade-A line rendered');
-        t.eq(b.subtotals.A.count, 0, 'ce18 CONTROL: ...over zero loans');
-        t.eq(b.subtotals.A.ties, true,
-             'ce18 CONTROL: ...carrying data-tie — a $0.00 agreement nobody earned, in the verdict column');
+        const cc = b.subtotals.all.cells[b.columnIndex.closing] || '';
+        const vc = b.subtotals.all.cells[b.columnIndex.variance] || '';
+        t.ok(!/ of /.test(cc) && !/ of /.test(vc),
+             'ce18 CONTROL: without it the Total prints a bare $0.00 over zero loans',
+             `closing ${JSON.stringify(cc)} variance ${JSON.stringify(vc)}`);
+        t.ok(/\$0\.00/.test(vc),
+             'ce18 CONTROL: ...a verdict nobody earned, in the verdict column');
       }
       await restoreFns(p);
-      await p.close();
-    }
-
-    /* ── 19 ── THE NEW VARIANCES ARE REAL, NOT A REGRESSION ─────────────── */
-    // Several loans moved from a $0.00 tie to a material variance the moment
-    // reconciliation-run wrote loan_book_balances, and that deserves suspicion
-    // rather than acceptance. It is not a regression, and the reason is
-    // structural: a rollforward ties the LEDGER's opening, less principal per
-    // the ledger, to the LENDER's closing. While the opening came from a lender
-    // statement the check was lender-to-lender with our own principal in the
-    // middle — the books were never in it, so it could only ever catch a split
-    // that disagreed with the lender's own month-over-month movement. Now Xero
-    // opens the walk and the books are on trial, which is the entire point of
-    // the design.
-    //
-    // The claim is checked rather than argued: reconciliation-run computes each
-    // loan's gap INDEPENDENTLY, from BankTransactions plus ManualJournals, and
-    // stores it on loan_tie_outs. Two unrelated constructions agreeing to the
-    // cent is evidence; one construction asserting itself is not.
-    {
-      const p = await newHarnessPage({ tab: 'loans' });
-      const cb = (await p.surfaces()).loans.closeBand;
-      const ties = await p.evaluate(() => {
-        const out = {};
-        (_allLoanAccounts || []).filter(a => a.status === 'active').forEach(a => {
-          const t2 = (_loanTieOuts || []).find(x => x.loan_account_id === a.id);
-          if (t2) out[a.xero_account_name] = { status: t2.status, difference: Number(t2.difference),
-                                               asOf: t2.as_of, anchor: t2.anchor_source };
-        });
-        return out;
-      });
-
-      // Every row now opens on the books. That is the precondition for any of
-      // this meaning anything, so it is asserted rather than assumed.
-      const checkable = cb.rows.filter(r => r.perLenderN != null && r.computedN != null);
-      t.eq(checkable.filter(r => !r.openingFromBooks).length, 0,
-           'ce19: every checkable row opens on a books-side rebuild — the books are in the check now',
-           JSON.stringify(checkable.filter(r => !r.openingFromBooks).map(r => r.name)));
-
-      // The three Ford loans that used to print $0.00: each matches its
-      // independently computed tie-out TO THE CENT.
-      for (const [name, want] of [['E-Transit Loan - 4140', 415.88],
-                                  ['E-Transit Loan E4 -9744', 182.00],
-                                  ['E-Transit Loan E5-4751', 266.42]]) {
-        const r = cb.rows.find(x => x.name === name);
-        t.ok(!!r, `ce19: ${name} is on the rollforward`);
-        t.eq(r.band, 'material', `ce19: ${name} is genuinely off, not rounding`);
-        t.close(r.varianceN, want, 0.005, `ce19: ${name} reports $${want}`);
-        t.close(Math.abs(r.varianceN), Math.abs(ties[name].difference), 0.005,
-                `ce19: ...which is what reconciliation-run measured independently from Xero`,
-                `rollforward ${r.varianceN} vs tie-out ${ties[name].difference}`);
-        t.eq(ties[name].status, 'exception', `ce19: ...and the tie-out calls it an exception too`);
-      }
-
-      // The two that STILL tie do so consistently: their tie-outs are
-      // 'explained', meaning payments dated after the statement account for the
-      // gap — so at month end there is none. A tie here is not the old
-      // lender-to-lender tie; it survived the books being added.
-      for (const name of ['E-Transit Loan E6-7410', 'BayFirst SBA 2']) {
-        const r = cb.rows.find(x => x.name === name);
-        t.eq(r.ties, true, `ce19: ${name} still ties with the books opening the walk`);
-        t.eq(ties[name].status, 'explained',
-             `ce19: ...and its tie-out is "explained" — later payments cover the gap, so month end is clean`);
-        t.ok(Math.abs(ties[name].difference) > 100,
-             `ce19: ...even though the tie-out's own snapshot figure is not zero, which is the distinction`,
-             `${ties[name].difference} at ${ties[name].asOf}`);
-      }
-
-      // ── THE ONE THAT DOES NOT MATCH, AND WHY ────────────────────────────
-      // Funding Circle's rollforward says −$1,023.20 and its tie-out says
-      // −$1,008.06. That is not a contradiction, it is a decomposition, and the
-      // $15.14 between them is a finding in its own right:
-      //
-      //   rollforward = (books 6/30) − (principal WE booked in July)  vs lender 7/31
-      //   tie-out     = (books 8/03) vs lender 8/03
-      //
-      // The books moved $1,010.57 across July. Our July split claims $1,025.71.
-      // The rollforward sees both the books-vs-lender gap AND the split that
-      // disagrees with the ledger; the tie-out sees only the first.
-      const fc = cb.rows.find(x => x.name === 'Funding Circle Loan');
-      const fcFacts = await p.evaluate(() => {
-        const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Funding Circle Loan');
-        const bb = (_allLoanBookBalances || []).filter(b => b.loan_account_id === a.id);
-        const at = (d) => { const r = bb.find(b => b.as_of === d); return r ? Number(r.balance) : null; };
-        return { jun: at('2026-06-30'), jul: at('2026-07-31'),
-                 split: (_allLoanSplits || []).filter(sp => sp.loan_account_id === a.id &&
-                          sp.period_label === '2026-07' && sp.status !== 'voided')
-                        .reduce((n, sp) => n + Number(sp.principal_amount || 0), 0) };
-      });
-      t.eq(fc.band, 'material', 'ce19: Funding Circle is material');
-      t.close(fc.varianceN, -1023.20, 0.005, 'ce19: ...at −$1,023.20');
-      t.close(ties['Funding Circle Loan'].difference, -1008.06, 0.005,
-              'ce19: ...while its tie-out independently says −$1,008.06');
-      const ledgerMoved = fcFacts.jun - fcFacts.jul;
-      t.close(ledgerMoved, 1010.57, 0.005,
-              'ce19: ...the books moved $1,010.57 across July');
-      t.close(fcFacts.split, 1025.71, 0.005,
-              'ce19: ...while the July split claims $1,025.71 of principal');
-      t.close(fc.varianceN - ties['Funding Circle Loan'].difference, -(fcFacts.split - ledgerMoved), 0.005,
-              'ce19: ...and the $15.14 between the two figures is EXACTLY that disagreement — a decomposition, not a contradiction');
-      // ── EVERY DISAGREEMENT IS NAMED AND ACCOUNTED FOR ───────────────────
-      // The two constructions agree only where nothing moved between month end
-      // and the tie-out's own anchor date — which is why the three Ford loans
-      // match to the cent despite mid-August anchors. Where they differ, the
-      // difference is EXPLAINED rather than averaged away, so the set is pinned
-      // and each member has its own reason asserted.
-      const mismatched = cb.rows.filter(r => r.varianceN != null && ties[r.name] &&
-        ties[r.name].status === 'exception' &&
-        Math.abs(Math.abs(r.varianceN) - Math.abs(ties[r.name].difference)) > 0.005)
-        .map(r => r.name).sort();
-      t.eq(JSON.stringify(mismatched),
-           JSON.stringify(['Funding Circle Loan', 'PCV Good and Green Loan', 'Verdant Capital Loan']),
-           'ce19: exactly three loans’ two constructions differ, and each difference is accounted for',
-           `mismatched: ${JSON.stringify(mismatched)}`);
-      // Verdant and PCV differ because their tie-out is anchored AFTER month end
-      // and something moved in between — they are not measuring the same day.
-      // In both cases the rollforward's month-end figure is the cleaner one,
-      // which is exactly the localisation a books-side opening buys: it says
-      // WHEN the gap appeared, not merely that it exists.
-      for (const n of ['Verdant Capital Loan', 'PCV Good and Green Loan']) {
-        const r2 = cb.rows.find(x => x.name === n);
-        t.ok(String(ties[n].asOf) > '2026-07-31',
-             `ce19: ${n}'s tie-out is anchored on ${ties[n].asOf}, after the month being closed`);
-        t.ok(Math.abs(r2.varianceN) < Math.abs(ties[n].difference),
-             `ce19: ...and July is the cleaner of the two, so the gap belongs to the later period`,
-             `July ${r2.varianceN} vs ${ties[n].asOf} ${ties[n].difference}`);
-      }
-      await p.close();
-    }
-
-    /* ── 20 ── STRIPE'S $125,000 MUST NOT SURFACE AS A VARIANCE ──────────── */
-    // Stripe's books balance at 6/30 is $20,875.00 — the fee journal alone,
-    // because the $125,000 of principal landed in July — while its
-    // contract_origination anchor says $145,875.00. The books row now wins the
-    // opening, so the two differ by exactly $125,000. Stripe is
-    // ingestion_method 'automatic' and has no closing figure at all, so it can
-    // never be graded or checked; the danger is that a six-figure difference
-    // leaks onto the screen anyway.
-    {
-      const p = await newHarnessPage({ tab: 'loans' });
-      const s = await p.surfaces();
-      const cb = s.loans.closeBand;
-      const r = cb.rows.find(x => x.name === 'Stripe Capital Loan');
-      t.ok(!!r, 'ce20: Stripe Capital is on the rollforward');
-      t.close(r.openingN, 20875, 0.005, 'ce20: ...opening at the books’ $20,875.00, not the contract’s $145,875.00');
-      t.eq(r.openingFromBooks, true, 'ce20: ...because the books row wins the opening');
-      t.eq(r.grade, 'C', 'ce20: ...it has no closing figure, so it is graded C');
-      t.eq(r.varianceN, null, 'ce20: ...and reports NO variance');
-      t.eq(r.band, null, 'ce20: ...in no band');
-      t.eq(r.ties, false, 'ce20: ...and certainly no tie');
-      t.ok(/swept from Xero/.test(r.perLender || ''), 'ce20: ...the closing cell still reads "swept from Xero"');
-      // ── AND THE $125,000 IS NOW THE POINT (session 247) ─────────────────
-      // These two assertions used to require that $125,000 appeared NOWHERE.
-      // They were right about the danger and wrong about the remedy: the figure
-      // was not leaking into a variance, it was being SWALLOWED. Stripe drew
-      // $125,000 in July, `opening − principal` computed $11,578.25 against
-      // books of $136,578.25, and the row sat in "Not checkable" where nothing
-      // looked at it. Silence about a six-figure difference is not safety.
-      //
-      // It is stated now, in the Notes cell, as a difference whose cause has not
-      // been measured — shown without being diagnosed.
-      t.ok(/125,000/.test(cb.text || ''),
-           'ce20: $125,000 IS on the close band — a six-figure gap the walk could not explain is stated, not swallowed');
-      t.close(r.unattributedN, 125000, 0.005,
-              'ce20: ...carried on the row as data-unattributed');
-      t.ok(/cause not measured/.test(r.notes || ''),
-           'ce20: ...and worded so it reads as an unmeasured difference rather than an accusation',
-           `notes=${JSON.stringify(r.notes)}`);
-      t.eq(r.unexplainedBand, null, 'ce20: ...with NO band, because nobody measured what moved');
-      t.eq(r.reachesBooks, '0', 'ce20: ...and the Computed cell says plainly that it does not reach the books');
-      t.eq(cb.subtotals.none && cb.subtotals.none.automatic, 1,
-           'ce20: ...and the excluded line declares it as the one loan swept from Xero');
-      t.ok(/swept from Xero/.test((cb.subtotals.none || {}).cells[0] || ''),
-           'ce20: ...in words, not as "no evidence"', JSON.stringify((cb.subtotals.none || {}).cells[0]));
-      t.noBadMoney(cb.text, 'ce20: close band with Stripe opening on the books');
       await p.close();
     }
 
@@ -4352,32 +4606,23 @@ GROUPS.push({
        reached through `mutate` — and why the unmeasured path is not a corner
        case to be tolerated but the live state of every loan on the screen.  */
 
-    // Movement detail lives on the CLOSING month-end books row, which is where
-    // _loanMonthMovement reads it.
-    const setMovement = (d, loanName, detail) => {
-      const a = d.loan_accounts.find(x => x.xero_account_name === loanName);
-      if (!a) throw new Error('setMovement: no such loan ' + loanName);
-      const row = d.loan_book_balances.find(b => b.loan_account_id === a.id && b.as_of === '2026-07-31');
-      if (!row) throw new Error('setMovement: no 2026-07-31 books row for ' + loanName);
-      row.detail = detail === null ? null : Object.assign({}, row.detail || {}, detail);
-    };
-    const MEASURED = (over) => Object.assign({
-      movement_measured: true, drawn: 0, reduced: 0, drawn_entries: 0, reduced_entries: 0,
-      mixed_sign_entries: 0, staged_reduction_in_month: 0, staged_entries_in_month: 0,
-      movement_from: '2026-07-01', movement_to: '2026-07-31',
-    }, over || {});
 
-    /* ── 21 ── THE WALK FOOTS ONCE DRAWN IS MEASURED ─────────────────────── */
+    /* ── 21 ── THE WALK FOOTS, AND DRAWN IS THE NET FIGURE ───────────────── */
+    // Stripe drew $145,875.00 in July and repaid $9,296.75 of principal. It is
+    // the only genuine drawdown on the book, and the only loan whose measured
+    // increase carries NO interest add-back, so it is the control for the
+    // netting fix below: nothing is netted off it and it survives intact.
     {
-      const p = await newHarnessPage({ tab: 'loans', mutate: (d) =>
-        setMovement(d, 'Stripe Capital Loan', MEASURED({ drawn: 125000, reduced: 9296.75, drawn_entries: 1, reduced_entries: 1 })) });
+      const p = await newHarnessPage({ tab: 'loans' });
       const cb = (await p.surfaces()).loans.closeBand;
       const r = cb.rows.find(x => x.name === 'Stripe Capital Loan');
       t.eq(r.drawnMeasured, true, 'ce21: Stripe’s July movement is measured');
-      t.close(r.drawnN, 125000, 0.005, 'ce21: ...at $125,000.00 drawn');
-      t.close(r.openingN, 20875, 0.005, 'ce21: ...opening $20,875.00');
+      t.close(r.drawnGrossN, 145875, 0.005, 'ce21: ...$145,875.00 of measured increase');
+      t.close(r.drawnNettedN, 0, 0.005, 'ce21: ...none of which is an interest add-back, so nothing is netted');
+      t.close(r.drawnN, 145875, 0.005, 'ce21: ...leaving the whole draw in the Drawn column');
+      t.close(r.openingN, 0, 0.005, 'ce21: ...opening $0.00');
       t.close(r.principalN, 9296.75, 0.005, 'ce21: ...principal $9,296.75');
-      // 20,875.00 + 125,000.00 − 9,296.75 = 136,578.25
+      // 0 + 145,875.00 − 9,296.75 = 136,578.25
       t.close(r.computedN, 136578.25, 0.005,
               'ce21: ...so opening + drawn − principal computes $136,578.25');
       t.close(r.openingN + r.drawnN - r.principalN, r.computedN, 0.005,
@@ -4387,19 +4632,178 @@ GROUPS.push({
       t.eq(r.unexplainedBand, 'tie', 'ce21: ...so the ledger check ties');
       t.eq(r.unexplainedState, 'measured', 'ce21: ...as a measurement, not an assumption');
       t.eq(r.unattributedN, null, 'ce21: ...and there is no unattributed difference left to state');
-      t.notMatch(r.notes, /cause not measured/, 'ce21: ...nor any "cause not measured" wording');
+      t.notMatch(r.variance, /unmeasured/, 'ce21: ...nor any "cause not measured" wording');
 
       // ── CONTROL ── the walk forgets that anything can be borrowed
       const rev = await revertFn(p, '_loanCloseRollforward', EDITS('walk-ignores-drawn'));
       t.ok(rev.ok, 'ce21 CONTROL: a walk that ignores Drawn could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
         const b = (await p.surfaces()).loans.closeBand.rows.find(x => x.name === 'Stripe Capital Loan');
-        t.close(b.computedN, 11578.25, 0.005,
-                'ce21 CONTROL: without Drawn the walk computes $11,578.25 — the defect exactly');
+        t.close(b.computedN, -9296.75, 0.005,
+                'ce21 CONTROL: without Drawn the walk computes a NEGATIVE balance — the defect exactly');
         t.eq(b.reachesBooks, '0', 'ce21 CONTROL: ...missing the books by the whole drawdown');
-        t.close(b.unexplainedN, 125000, 0.005,
-                'ce21 CONTROL: ...and $125,000 of borrowing is reported as unexplained');
+        t.close(b.unexplainedN, 145875, 0.005,
+                'ce21 CONTROL: ...and $145,875 of borrowing is reported as unexplained');
         t.eq(b.unexplainedBand, 'material', 'ce21 CONTROL: ...material, and blocking');
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ══ 21b ══ DRAWN IS NET OF THE INTEREST THAT CAME BACK ══════════════════
+       THE DEFECT THIS FIXES, AND IT SHIPPED. A payment hits the loan account
+       for its full amount and a reallocation journal puts the interest half
+       back, so measureMovement correctly saw a positive effect and called it
+       borrowing. `drawn` then equalled the month's booked split interest TO THE
+       CENT on eight loans, every one of those loans showed a variance exactly
+       equal to its own interest, and the band claimed "10 loans off —
+       $8,751.73" against a book where four are off by $1,887.50.
+       drawn = max(0, drawnGross − interest) is the fix.                     */
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const cb = (await p.surfaces()).loans.closeBand;
+      const row = (n) => cb.rows.find(x => x.name === n);
+
+      // ── THE EIGHT LOANS WHOSE "DRAW" WAS THEIR OWN INTEREST ─────────────
+      // Named, and each checked against its OWN interest cell rather than a
+      // typed constant, because that equality is the whole diagnosis.
+      const NETTED = ['Dexter Loan 2', 'Verdant Capital Loan', 'BayFirst SBA Loan',
+                      'E-Transit Loan - 4140', 'E-Transit Loan E5-4751',
+                      'E-Transit Loan E6-7410', 'Paypal 2'];
+      for (const n of NETTED) {
+        const r = row(n);
+        t.close(r.drawnGrossN, r.interestN, 0.005,
+                `ce21b: ${n}'s measured increase equals its own booked interest, to the cent`,
+                `gross ${r.drawnGrossN} vs interest ${r.interestN}`);
+        t.close(r.drawnNettedN, r.interestN, 0.005, `ce21b: ...so all of it is netted off`);
+        t.close(r.drawnN, 0, 0.005, `ce21b: ...leaving $0.00 of real borrowing`);
+      }
+
+      // ── THE FOUR THAT GO BACK TO AN EXACT TIE ───────────────────────────
+      for (const n of ['Dexter Loan 2', 'BayFirst SBA Loan', 'E-Transit Loan E6-7410', 'BayFirst SBA 2']) {
+        const r = row(n);
+        t.eq(r.ties, true, `ce21b: ${n} ties exactly once its interest is not counted as borrowing`);
+        t.close(r.varianceN, 0, 0.005, `ce21b: ...at $0.00`);
+      }
+      // ── AND THE ONES THAT ARE GENUINELY OFF STAY OFF, UNCHANGED ─────────
+      // The netting must not quietly absolve a real finding.
+      for (const [n, want] of [['E-Transit Loan - 4140', 415.88], ['E-Transit Loan E5-4751', 266.42],
+                               ['Paypal 2', 21.66], ['Verdant Capital Loan', -0.04], ['EIDL SBA Loan', -5]]) {
+        t.close(row(n).varianceN, want, 0.005, `ce21b: ${n} still reports $${want}`);
+      }
+      t.eq(cb.rows.filter(x => x.ties).length, 6, 'ce21b: six loans tie');
+      t.eq(cb.rows.filter(x => x.band === 'immaterial').length, 3, 'ce21b: three are small differences');
+      t.eq(cb.rows.filter(x => x.band === 'material').length, 4, 'ce21b: four are genuinely off');
+      t.ok(/\$1,887\.50/.test(cb.gateByKey['variance'].text || ''),
+           'ce21b: ...totalling $1,887.50 on the chip', `chip=${JSON.stringify(cb.gateByKey['variance'].text)}`);
+
+      // ── THE CLAMP ───────────────────────────────────────────────────────
+      // BayFirst SBA 2 books $2,549.88 of split interest against $1,300.30 of
+      // measured increase, so a naive subtraction goes NEGATIVE. A negative
+      // "drawn" is not a repayment — repayments are already in the principal —
+      // it is the two figures failing to pair, and the honest floor is nothing
+      // borrowed.
+      const bf2 = row('BayFirst SBA 2');
+      t.close(bf2.drawnGrossN, 1300.30, 0.005, 'ce21b clamp: BayFirst SBA 2 measured $1,300.30 of increase');
+      t.close(bf2.interestN, 2549.88, 0.005, 'ce21b clamp: ...against $2,549.88 of booked interest');
+      t.ok(bf2.drawnGrossN - bf2.interestN < 0,
+           'ce21b clamp: ...so the subtraction really would go negative', `${bf2.drawnGrossN - bf2.interestN}`);
+      t.close(bf2.drawnN, 0, 0.005, 'ce21b clamp: ...and Drawn is clamped at $0.00, never below');
+      t.close(bf2.drawnNettedN, 1300.30, 0.005,
+              'ce21b clamp: ...with the netted figure capped at what was actually measured');
+      t.eq(cb.rows.filter(x => x.drawnN != null && x.drawnN < 0).length, 0,
+           'ce21b clamp: no row anywhere reports negative borrowing');
+
+      // ── NETTING CAN ONLY EVER REDUCE A CLAIM OF BORROWING ───────────────
+      // The direction is the safety property: this operation may take a draw
+      // away, and may never invent one.
+      for (const r of cb.rows.filter(x => x.drawnMeasured)) {
+        t.ok(r.drawnN <= r.drawnGrossN + 0.005,
+             `ce21b: ${r.name}'s net draw never exceeds what was measured`,
+             `net ${r.drawnN} vs gross ${r.drawnGrossN}`);
+      }
+      // …and the gross is kept, so nothing is hidden.
+      t.eq(cb.rows.filter(x => x.drawnMeasured && x.drawnGrossN == null).length, 0,
+           'ce21b: every measured row still carries its GROSS figure, so nothing is hidden');
+
+      // ── CONTROL ── use the gross, which is the bug that shipped
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('drawn-is-gross'));
+      t.ok(rev.ok, 'ce21b CONTROL: the pre-fix gross Drawn could be rebuilt', JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await p.surfaces()).loans.closeBand;
+        const brow = (n) => b.rows.find(x => x.name === n);
+        // Every one of the eight starts showing a variance equal to its own
+        // interest — the signature of the bug, and the reason it was findable.
+        let matched = 0;
+        for (const n of NETTED) {
+          const before = row(n), after = brow(n);
+          if (Math.abs((after.varianceN - before.varianceN) - before.interestN) < 0.005) matched++;
+        }
+        t.eq(matched, NETTED.length,
+             'ce21b CONTROL: pre-fix, each of those loans’ variance moves by exactly its own interest',
+             `${matched} of ${NETTED.length}`);
+        t.close(brow('Stripe Capital Loan').drawnN, 145875, 0.005,
+                'ce21b CONTROL: ...while Stripe, the one real draw, is identical either way — the fix touches only the add-backs');
+      }
+      await restoreFns(p);
+
+      // ── THE BOARD EXACTLY AS IT SHIPPED ─────────────────────────────────
+      // "10 loans off — $8,751.73" is the number that was on the screen, and
+      // reproducing it is the point of this control. It takes TWO reverts, not
+      // one, because two fixes have landed since: gross Drawn AND banding on the
+      // raw variance rather than the residual. Reverting only the first would
+      // measure today's banding against yesterday's arithmetic and land on a
+      // figure that was never on anyone's screen — which is exactly what
+      // happened when this assertion first went red, and is why it is spelled
+      // out here rather than quietly renumbered.
+      {
+        const rev2 = await revertFn(p, '_loanCloseRollforward',
+          [...EDITS('drawn-is-gross'), ...EDITS('band-the-raw-variance'), ...EDITS('totals-on-the-raw-variance')]);
+        t.ok(rev2.ok, 'ce21b CONTROL: the board as it shipped — gross Drawn, banded and totalled on the whole gap — could be rebuilt',
+             JSON.stringify(rev2.missing));
+        if (rev2.ok) {
+          const b2 = (await p.surfaces()).loans.closeBand;
+          const mat2 = b2.rows.filter(x => x.band === 'material');
+          t.eq(mat2.length, 10, 'ce21b CONTROL: ...ten loans read as off instead of four');
+          // THE DURABLE FORM OF THIS ASSERTION. The chip is a sentence and the
+          // sentence will be edited; the arithmetic is the finding. Ten rows of
+          // RAW variance summing to $8,751.73 is what the gross-Drawn bug put on
+          // the board, and it is checked here from the rows themselves so it
+          // survives any rewording of the chip.
+          t.close(mat2.reduce((n, x) => n + Math.abs(x.varianceN), 0), 8751.73, 0.005,
+                  'ce21b CONTROL: ...whose raw variances sum to $8,751.73',
+                  JSON.stringify(mat2.map(x => [x.name, x.varianceN])));
+          t.ok(/\$8,751\.73/.test(b2.gateByKey['variance'].text || ''),
+               'ce21b CONTROL: ...and that is what the chip claimed, against a real $1,887.50',
+               `chip=${JSON.stringify(b2.gateByKey['variance'].text)}`);
+        }
+        await restoreFns(p);
+      }
+
+      // ── AND WHAT RESIDUAL BANDING DOES TO THAT SAME BROKEN BOARD ────────
+      // ⚠ THIS IS A FINDING, PINNED WHERE IT WAS FOUND. Revert ONLY the netting
+      // and the board reads "9 loans off — $6,896.39": one of the ten
+      // disappeared. It is Verdant, whose $1,855.34 of phantom variance got
+      // "explained" by an undated split of $2,462.79 — a payment LARGER than the
+      // entire gap — leaving −$607.45, which lands immaterial. Section 32
+      // reproduces that on unmodified code and argues it is a real gap in the
+      // matcher rather than a quirk of this control. It is asserted here so the
+      // control keeps stating what it actually observes.
+      const rev3 = await revertFn(p, '_loanCloseRollforward', EDITS('drawn-is-gross'));
+      t.ok(rev3.ok, 'ce21b CONTROL: gross Drawn alone could be rebuilt', JSON.stringify(rev3.missing));
+      if (rev3.ok) {
+        const b3 = (await p.surfaces()).loans.closeBand;
+        t.eq(b3.rows.filter(x => x.band === 'material').length, 9,
+             'ce21b CONTROL: with today’s banding, only NINE of the ten are still material');
+        t.ok(/\$6,896\.39/.test(b3.gateByKey['variance'].text || ''),
+             'ce21b CONTROL: ...and $1,855.34 of the phantom total has been de-escalated away',
+             `chip=${JSON.stringify(b3.gateByKey['variance'].text)}`);
+        const vr = b3.rows.find(x => x.name === 'Verdant Capital Loan');
+        t.close(vr.varianceN, 1855.34, 0.005, 'ce21b CONTROL: ...on Verdant, whose phantom gap is $1,855.34');
+        t.close(vr.unbookedN, 2462.79, 0.005,
+                'ce21b CONTROL: ...claimed against an undated split of $2,462.79 — LARGER than the whole gap');
+        t.eq(vr.band, 'immaterial',
+             'ce21b CONTROL: ...which is the overshoot reported in section 32');
       }
       await restoreFns(p);
       await p.close();
@@ -4409,9 +4813,13 @@ GROUPS.push({
     // Three shapes of "nobody measured this", and all three must land in the
     // same place: stated, never diagnosed. The third is the one a `|| 0`
     // swallows in silence — a truthy flag sitting beside a null figure.
+    //
+    // reconciliation-run now measures every loan, so the unmeasured state is
+    // reached by mutate. It is not hypothetical: every month before this deploy
+    // is in it, and so is any month the measurement window cannot cover.
     {
       const SHAPES = [
-        ['movement_measured is false', MEASURED({ movement_measured: false, drawn: 125000 })],
+        ['movement_measured is false', MEASURED({ movement_measured: false, drawn: 145875 })],
         ['no movement detail at all', null],
         ['movement_measured TRUE beside a null drawn', MEASURED({ movement_measured: true, drawn: null })],
       ];
@@ -4427,17 +4835,12 @@ GROUPS.push({
         t.eq(r.unexplainedN, null, `ce22: ${why} — the ledger check REFUSES to run`);
         t.eq(r.unexplainedBand, null, `ce22: ${why} — no band`);
         t.eq(r.unexplainedState, 'unmeasured', `ce22: ${why} — and says so in its own attribute`);
-        t.close(r.unattributedN, 125000, 0.005,
-                `ce22: ${why} — the difference is still STATED, at $125,000.00`);
-        t.ok(/cause not measured/.test(r.notes || ''),
-             `ce22: ${why} — worded as an unmeasured difference, not a finding`, `notes=${JSON.stringify(r.notes)}`);
-        t.notMatch(r.notes, /ledger off/, `ce22: ${why} — and never as "ledger off"`);
-        // Not work, not blocking.
-        const lg = cb.gateByKey['ledger'];
-        t.ok(!!lg, `ce22: ${why} — the ledger chip is on the strip`, JSON.stringify(cb.gates.map(g => g.key)));
-        t.eq(lg && lg.ok, true, `ce22: ${why} — and it is NOT a blocking gate`);
-        t.ok(/cause not measured/.test((lg || {}).text || ''),
-             `ce22: ${why} — the chip says the same thing the row does`, `chip=${JSON.stringify((lg || {}).text)}`);
+        t.close(r.unattributedN, 145875, 0.005,
+                `ce22: ${why} — the difference is still STATED, at $145,875.00`);
+        t.ok(/unmeasured/.test(r.variance || ''),
+             `ce22: ${why} — worded as an unmeasured difference, not a finding`,
+             `variance cell=${JSON.stringify(r.variance)}`);
+        t.notMatch(r.variance, /ledger off/, `ce22: ${why} — and never as "ledger off"`);
         const off = await p.evaluate(() => _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
         t.ok(!off.includes('Stripe Capital Loan'), `ce22: ${why} — and it is not in ledgerOff`, JSON.stringify(off));
         await p.close();
@@ -4454,7 +4857,7 @@ GROUPS.push({
         const b = cb.rows.find(x => x.name === 'Stripe Capital Loan');
         t.eq(b.drawnMeasured, true,
              'ce22 CONTROL: pre-fix, a truthy flag beside a null figure counts as measured');
-        t.close(b.unexplainedN, 125000, 0.005,
+        t.close(b.unexplainedN, 145875, 0.005,
                 'ce22 CONTROL: ...so `drawn || 0` turns "nobody looked" into "nothing was borrowed"');
         t.eq(b.unexplainedBand, 'material',
              'ce22 CONTROL: ...and the row ACCUSES the loan of exactly the drawdown');
@@ -4464,7 +4867,8 @@ GROUPS.push({
       await pC.close();
 
       // ── CONTROL ── and the dash that reads as "nothing was borrowed"
-      const pD = await newHarnessPage({ tab: 'loans' });
+      const pD = await newHarnessPage({ tab: 'loans', mutate: (d) =>
+        setMovement(d, 'Stripe Capital Loan', null) });
       const revD = await revertFn(pD, 'renderLoansCloseBand', EDITS('unmeasured-renders-dash'));
       t.ok(revD.ok, 'ce22 CONTROL: a Drawn cell that renders unmeasured as a dash could be rebuilt',
            JSON.stringify(revD.missing));
@@ -4473,82 +4877,52 @@ GROUPS.push({
         t.notMatch(b.drawn, /not measured/,
                    'ce22 CONTROL: pre-fix, an unmeasured month rendered as “—”');
         t.ok(/^—$/.test((b.drawn || '').trim()),
-             'ce22 CONTROL: ...which a reader reads as "nothing was borrowed" — the substitution that hid $125,000',
+             'ce22 CONTROL: ...which a reader reads as "nothing was borrowed" — the substitution that hid the draw',
              `cell=${JSON.stringify(b.drawn)}`);
       }
       await restoreFns(pD);
       await pD.close();
     }
 
-    /* ── 23 ── THE FOUR LIVE DIFFERENCES, AND WHAT THEY BECOME ───────────── */
+    /* ── 23 ── WHAT THE LEDGER CHECK ACTUALLY SAYS TODAY ─────────────────── */
     {
-      const LIVE = [['Stripe Capital Loan', 125000], ['Paypal 2', -3142.26],
-                    ['BayFirst SBA 2', 858.66], ['Funding Circle Loan', 15.14]];
       const p = await newHarnessPage({ tab: 'loans' });
       const cb = (await p.surfaces()).loans.closeBand;
-      for (const [name, want] of LIVE) {
-        const r = cb.rows.find(x => x.name === name);
-        t.close(r.unattributedN, want, 0.005, `ce23: ${name} differs from the ledger by $${want}`);
-        t.eq(r.unexplainedState, 'unmeasured', `ce23: ...and today nobody has measured why`);
-        t.eq(r.reachesBooks, '0', `ce23: ...so its walk does not reach the books`);
-      }
-      // Every other row reaches the books exactly, which is what makes these four
-      // a signal rather than noise.
-      const notReaching = cb.rows.filter(x => x.reachesBooks === '0').map(x => x.name).sort();
-      t.eq(JSON.stringify(notReaching), JSON.stringify(LIVE.map(x => x[0]).sort()),
-           'ce23: ...and they are the ONLY four rows whose walk misses the ledger', JSON.stringify(notReaching));
+      const row = (n) => cb.rows.find(x => x.name === n);
+      // Three loans differ from the ledger, and the bands are by size.
+      t.close(row('Paypal 2').unexplainedN, -3142.26, 0.005,
+              'ce23: Paypal 2 — $3,142.26 of principal left the ledger with no split behind it');
+      t.eq(row('Paypal 2').unexplainedBand, 'material', 'ce23: ...material');
+      t.close(row('BayFirst SBA 2').unexplainedN, 858.66, 0.005, 'ce23: BayFirst SBA 2 — $858.66');
+      t.eq(row('BayFirst SBA 2').unexplainedBand, 'material', 'ce23: ...material');
+      t.close(row('Funding Circle Loan').unexplainedN, 15.14, 0.005, 'ce23: Funding Circle — $15.14');
+      t.eq(row('Funding Circle Loan').unexplainedBand, 'immaterial',
+           'ce23: ...a small difference, shown and not chased');
+      // That $15.14 is the figure section 19 decomposed by hand from SQL: the
+      // gap between the principal July's split claims and what the ledger moved.
+      // The ledger check surfaces it directly now.
+      t.eq(row('Stripe Capital Loan').unexplainedBand, 'tie',
+           'ce23: and Stripe’s $145,875 was a drawdown, so its ledger TIES');
       const lg = cb.gateByKey['ledger'];
-      t.eq(lg.count, 4, 'ce23: the ledger chip counts exactly those four');
-      t.ok(/129,016\.06/.test(lg.text || ''),
-           'ce23: ...and totals them at $129,016.06', `chip=${JSON.stringify(lg.text)}`);
-      t.eq(lg.ok, true, 'ce23: ...without blocking, because none of it has been diagnosed');
-      await p.close();
+      t.eq(lg.ok, false, 'ce23: the ledger chip blocks');
+      t.eq(lg.count, 2, 'ce23: ...counting the two material ones only');
+      t.ok(/4,000\.92/.test(lg.text || ''), 'ce23: ...at $4,000.92', `chip=${JSON.stringify(lg.text)}`);
+      t.notMatch(lg.text, /unmeasured/, 'ce23: ...and no longer says the cause is unmeasured');
+      t.eq(cb.rows.filter(x => x.reachesBooks === '0').length, 3,
+           'ce23: three rows’ walks miss the ledger, and they are exactly the three named above');
 
-      // ── ONCE reconciliation-run's DRAWS WORK DEPLOYS ─────────────────────
-      // Same four differences, now measured. Stripe's is a real drawdown and
-      // ties; the other three are real findings and band by size. This is the
-      // post-deploy screen, simulated by supplying the measurement the server
-      // will supply.
-      const pM = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        setMovement(d, 'Stripe Capital Loan', MEASURED({ drawn: 125000, reduced: 9296.75 }));
-        setMovement(d, 'Paypal 2', MEASURED({ drawn: 0, reduced: 18525.29 }));
-        setMovement(d, 'BayFirst SBA 2', MEASURED({ drawn: 0, reduced: 807.95, mixed_sign_entries: 1 }));
-        setMovement(d, 'Funding Circle Loan', MEASURED({ drawn: 0, reduced: 1010.57 }));
-      } });
-      const cbM = (await pM.surfaces()).loans.closeBand;
-      const band = (n) => cbM.rows.find(x => x.name === n);
-      t.eq(band('Stripe Capital Loan').unexplainedBand, 'tie',
-           'ce23: measured — Stripe’s $125,000 was a drawdown and the ledger ties');
-      t.eq(band('Paypal 2').unexplainedBand, 'material',
-           'ce23: measured — Paypal 2’s −$3,142.26 is material: principal left the ledger with no split behind it');
-      t.close(band('Paypal 2').unexplainedN, -3142.26, 0.005, 'ce23: ...at its real size');
-      t.eq(band('BayFirst SBA 2').unexplainedBand, 'material',
-           'ce23: measured — BayFirst SBA 2’s +$858.66 is material');
-      t.eq(band('Funding Circle Loan').unexplainedBand, 'immaterial',
-           'ce23: measured — Funding Circle’s +$15.14 is a small difference, shown and not chased');
-      // And that $15.14 is the same figure section 19 decomposed by hand: the
-      // gap between the principal our July split claims and what the ledger
-      // actually moved. The ledger check now surfaces it directly.
-      t.close(band('Funding Circle Loan').unexplainedN, 15.14, 0.005,
-              'ce23: ...the very figure the rollforward and the tie-out differed by');
-      const lgM = cbM.gateByKey['ledger'];
-      t.eq(lgM.ok, false, 'ce23: measured — the ledger chip now BLOCKS');
-      t.eq(lgM.count, 2, 'ce23: ...counting the two material ones only');
-      t.notMatch(lgM.text, /cause not measured/, 'ce23: ...and no longer says the cause is unmeasured');
-
-      // ── CONTROL ── the ledger check loses its materiality band, and a
-      // $15.14 rounding difference blocks a close alongside a $3,142.26 one.
-      const rev = await revertFn(pM, '_closeVarianceBand', EDITS('no-materiality-band'));
+      // ── CONTROL ── the ledger check loses its materiality band
+      const rev = await revertFn(p, '_closeVarianceBand', EDITS('no-materiality-band'));
       t.ok(rev.ok, 'ce23 CONTROL: a two-band ledger test could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
-        const b = (await pM.surfaces()).loans.closeBand;
+        const b = (await p.surfaces()).loans.closeBand;
         t.eq(b.rows.find(x => x.name === 'Funding Circle Loan').unexplainedBand, 'material',
              'ce23 CONTROL: without materiality, $15.14 is "material"');
         t.eq(b.gateByKey['ledger'].count, 3,
              'ce23 CONTROL: ...and the ledger gate blocks on three loans instead of two');
       }
-      await restoreFns(pM);
-      await pM.close();
+      await restoreFns(p);
+      await p.close();
     }
 
     /* ── 24 ── THE TWO CHECKS ARE INDEPENDENT, IN BOTH DIRECTIONS ────────── */
@@ -4597,21 +4971,32 @@ GROUPS.push({
            'ce24: ...so the two totals are genuinely different quantities',
            `variance ${sets.vRes} vs ledger ${sets.lRes}`);
 
+      await p.close();
+
       // ── CONTROL ── run the ledger check on unmeasured months too, and the
-      // two questions collapse into one wrong number.
-      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('ledger-runs-unmeasured'));
+      // two questions collapse into one wrong number. reconciliation-run now
+      // measures every loan, so the scenario has to CREATE an unmeasured month —
+      // which is every month before this deploy, and any the window cannot cover.
+      const pU = await newHarnessPage({ tab: 'loans', mutate: (d) =>
+        setMovement(d, 'Stripe Capital Loan', null) });
+      const baseOff = await pU.evaluate(() =>
+        _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
+      t.ok(!baseOff.includes('Stripe Capital Loan'),
+           'ce24: an unmeasured Stripe is not accused of anything', JSON.stringify(baseOff));
+      const rev = await revertFn(pU, '_loanCloseRollforward', EDITS('ledger-runs-unmeasured'));
       t.ok(rev.ok, 'ce24 CONTROL: a ledger check that runs on unmeasured months could be rebuilt',
            JSON.stringify(rev.missing));
       if (rev.ok) {
-        const b = await p.evaluate(() => _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
+        const b = await pU.evaluate(() =>
+          _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
         t.ok(b.includes('Stripe Capital Loan'),
-             'ce24 CONTROL: ...and Stripe’s $125,000 drawdown is reported as money nobody can explain',
+             'ce24 CONTROL: ...and Stripe’s $145,875 drawdown is reported as money nobody can explain',
              JSON.stringify(b));
-        t.ok(b.length > sets.ledgerOff.length,
-             'ce24 CONTROL: ...along with every other loan whose movement was never measured');
+        t.ok(b.length > baseOff.length,
+             'ce24 CONTROL: ...on top of the loans that really are off');
       }
-      await restoreFns(p);
-      await p.close();
+      await restoreFns(pU);
+      await pU.close();
     }
 
     /* ── 25 ── A STAGED PAYMENT IS NOT COUNTED TWICE ─────────────────────── */
@@ -4687,14 +5072,16 @@ GROUPS.push({
       // 150,000.00 agreement vs 137,568.21 books at 6/30.
       t.close(bf.originationGapN, 12431.79, 0.005,
               'ce26: the straddle fires on a loan that is not Stripe, from the rule alone');
-      t.ok(/origination straddles the period/.test(bf.notes || ''),
-           'ce26: ...and says so on the row', `notes=${JSON.stringify(bf.notes)}`);
+      // Filed into the Opening source cell, which is the column it is about.
+      t.ok(/origination straddles/.test(bf.openingSource || ''),
+           'ce26: ...and says so on the Opening source cell it is about',
+           `cell=${JSON.stringify(bf.openingSource)}`);
       // …and still fires on the loan it was found on.
       const st = cb.rows.find(x => x.name === 'Stripe Capital Loan');
-      t.close(st.originationGapN, 125000, 0.005, 'ce26: ...while still firing on Stripe');
+      t.close(st.originationGapN, 145875, 0.005, 'ce26: ...while still firing on Stripe');
       // It states the two figures and picks no winner — which period the
       // recognition belongs in is the accountant's question, not a dashboard's.
-      t.notMatch(bf.notes, /error|wrong|incorrect/i,
+      t.notMatch(bf.openingSource, /error|wrong|incorrect/i,
                  'ce26: ...and calls neither figure wrong');
 
       // ── CONTROL ── make it a Stripe special case again
@@ -4704,7 +5091,7 @@ GROUPS.push({
         const b = (await p.surfaces()).loans.closeBand;
         t.eq(b.rows.find(x => x.name === 'BayFirst SBA 2').originationGapN, null,
              'ce26 CONTROL: keyed on the loan instead of the shape, the other loan’s straddle vanishes');
-        t.close(b.rows.find(x => x.name === 'Stripe Capital Loan').originationGapN, 125000, 0.005,
+        t.close(b.rows.find(x => x.name === 'Stripe Capital Loan').originationGapN, 145875, 0.005,
                 'ce26 CONTROL: ...while Stripe still fires, so the test would have passed on a special case');
       }
       await restoreFns(p);
@@ -4722,8 +5109,9 @@ GROUPS.push({
       const cb = (await p.surfaces()).loans.closeBand;
       const r = cb.rows.find(x => x.name === 'BayFirst SBA 2');
       t.eq(r.mixedSignN, 2, 'ce27: the row carries data-mixed-sign="2"');
-      t.ok(/mixed-sign journal/.test(r.notes || ''),
-           'ce27: ...and says so in Notes', `notes=${JSON.stringify(r.notes)}`);
+      // Filed into the Drawn cell, which is the figure it is about.
+      t.ok(/mixed-sign/.test(r.drawn || ''),
+           'ce27: ...and says so on the Drawn cell it is about', `cell=${JSON.stringify(r.drawn)}`);
       // A measured zero must not flag.
       const other = cb.rows.find(x => x.name === 'Paypal 2');
       t.eq(other.mixedSignN, null, 'ce27: ...and a loan with no such journal carries no flag');
@@ -4734,7 +5122,7 @@ GROUPS.push({
            JSON.stringify(rev.missing));
       if (rev.ok) {
         const b = (await p.surfaces()).loans.closeBand.rows.find(x => x.name === 'BayFirst SBA 2');
-        t.notMatch(b.notes, /mixed-sign/,
+        t.notMatch(b.drawn, /mixed-sign/,
                    'ce27 CONTROL: pre-fix, two journals netting to nothing left no trace on the row');
       }
       await restoreFns(p);
@@ -4748,24 +5136,47 @@ GROUPS.push({
         setMovement(d, 'Dexter Loan 2', MEASURED({ drawn: 0, reduced: 3326.23 }));
       } });
       const cb = (await p.surfaces()).loans.closeBand;
-      for (const k of ['all', 'A', 'B', 'none']) {
-        const st = cb.subtotals[k];
-        t.ok(!!st, `ce28: the ${k} subtotal row is on screen`);
-        if (!st) continue;
-        t.close(st.openingN + (st.drawnN || 0) - st.principalN, st.computedN, 0.02,
-                `ce28: ${k}: opening + drawn − principal = computed`,
-                `${st.openingN} + ${st.drawnN} − ${st.principalN} vs ${st.computedN}`);
+      // One footer line now. The identity is asserted on it, and separately
+      // across each grade's rows, so removing the per-grade rows did not remove
+      // the property they used to carry.
+      const st = cb.subtotals.all;
+      t.ok(!!st, 'ce28: the Total row is on screen', JSON.stringify(Object.keys(cb.subtotals)));
+      t.close(st.openingN + (st.drawnN || 0) - st.principalN, st.computedN, 0.02,
+              'ce28: Total: opening + drawn − principal = computed',
+              `${st.openingN} + ${st.drawnN} − ${st.principalN} vs ${st.computedN}`);
+      for (const g of ['A', 'B']) {
+        const set = cb.rows.filter(r => r.grade === g && r.openingN != null && r.computedN != null);
+        if (!set.length) continue;
+        const sum = (f) => set.reduce((n, r) => n + (r[f] || 0), 0);
+        t.close(sum('openingN') + sum('drawnN') - sum('principalN'), sum('computedN'), 0.02,
+                `ce28: grade ${g}: opening + drawn − principal = computed across its rows`);
       }
-      // The excluded line carries Stripe's drawdown, so the identity is only
-      // satisfiable WITH Drawn — which is what makes this a test.
-      t.close(cb.subtotals.none.drawnN, 125000, 0.005,
-              'ce28: the excluded line carries the $125,000 that made the old identity fail');
-      t.close(cb.subtotals.all.drawnN, 125000, 0.005, 'ce28: ...and so does the Total');
+      // Stripe is not checkable, so its drawdown reaches the Total and no grade
+      // — which is exactly why the Total has to carry Drawn for the identity to
+      // hold at all.
+      t.close(cb.subtotals.all.drawnN, 125000, 0.005,
+              'ce28: the Total carries the $125,000 that made the old identity fail');
+      t.eq(cb.rows.filter(r => r.grade === 'C' && (r.drawnN || 0) > 0).length, 1,
+           'ce28: ...contributed by a row no grade can speak for');
       // Coverage is declared, never implied: a $0.00 Drawn over rows nobody
       // measured is not a statement that nothing was borrowed.
-      t.eq(cb.subtotals.all.drawnMeasured, 2, 'ce28: the Total declares how many rows were measured');
-      t.ok(cb.subtotals.all.cells.some(c => /2 of 14 measured/.test(c)),
-           'ce28: ...in words beside the figure', JSON.stringify(cb.subtotals.all.cells));
+      t.eq(cb.subtotals.all.drawnMeasured, cb.rows.length,
+           'ce28: every row’s movement is measured, so the Total covers all of them');
+      t.ok(!cb.subtotals.all.cells.some(c => / of \d+ measured/.test(c)),
+           'ce28: ...and prints no coverage marker, because there is no shortfall to declare',
+           JSON.stringify(cb.subtotals.all.cells));
+      // …and the marker appears the moment there IS one. A $0.00 Drawn over
+      // rows nobody measured is not a statement that nothing was borrowed.
+      const pPart = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        setMovement(d, 'Dexter Loan 2', null);
+        setMovement(d, 'Paypal 2', null);
+      } });
+      const cbPart = (await pPart.surfaces()).loans.closeBand;
+      t.eq(cbPart.subtotals.all.drawnMeasured, cb.rows.length - 2,
+           'ce28: unmeasure two loans and the Total says so');
+      t.ok(cbPart.subtotals.all.cells.some(c => new RegExp(`${cb.rows.length - 2} of ${cb.rows.length} measured`).test(c)),
+           'ce28: ...in words beside the figure', JSON.stringify(cbPart.subtotals.all.cells));
+      await pPart.close();
 
       // ── CONTROL ── drop Drawn from the subtotal
       const rev = await revertFn(p, '_loanCloseRollforward', EDITS('subtotal-drops-drawn'));
@@ -4800,28 +5211,36 @@ GROUPS.push({
     // suppressing the variance tie would discard thirteen true results to avoid
     // a coincidence. I agree with the call, and this pins it either way.
     {
-      const p = await newHarnessPage({ tab: 'loans' });
+      // Every loan is measured now, so the unmeasured state is created — which
+      // is every month before this deploy, and any month the window cannot
+      // cover, so it is the state the rule is actually for.
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        d.loan_book_balances.forEach(b => { if (b.as_of === '2026-07-31') b.detail = null; });
+      } });
       const cb = (await p.surfaces()).loans.closeBand;
       const unmeasured = cb.rows.filter(x => !x.drawnMeasured);
       t.eq(unmeasured.length, cb.rows.length,
-           'ce29: today every row is unmeasured — the draws work is written but not deployed');
+           'ce29: the scenario really did leave every row unmeasured');
       const tiesAnyway = unmeasured.filter(x => x.ties);
       t.ok(tiesAnyway.length >= 5,
            'ce29: ...and the VARIANCE tie is still allowed to stand on those rows',
            `${tiesAnyway.length} rows tie`);
       t.eq(unmeasured.filter(x => x.unexplainedBand != null).length, 0,
            'ce29: ...while the LEDGER check is suppressed on every one of them');
-      // The two are asymmetric on purpose, and the row records both facts.
       for (const r of tiesAnyway.slice(0, 3)) {
         t.eq(r.band, 'tie', `ce29: ${r.name} ties against its lender`);
         t.eq(r.unexplainedState, 'unmeasured', `ce29: ...and declines to judge its ledger`);
       }
+      // The variance figures survive unchanged where the loan borrowed nothing —
+      // which is why suppressing them would be a loss and not a caution.
+      t.ok(cb.rows.filter(x => x.band === 'material').length >= 4,
+           'ce29: ...and the real findings are still reported', 
+           `${cb.rows.filter(x => x.band === 'material').length} material`);
 
       // ── CONTROL ── treat the two checks symmetrically and suppress the
       // variance too. Nothing false appears; what disappears is every TRUE
-      // result on thirteen loans, replaced by a column of dashes on the one
-      // screen whose job is to say whether the month can be closed. That is the
-      // cost of the symmetric choice, and it is why the asymmetry is right.
+      // result on the board, replaced by a column of dashes on the one screen
+      // whose job is to say whether the month can be closed.
       const rev = await revertFn(p, '_loanCloseRollforward', EDITS('variance-suppressed-when-unmeasured'));
       t.ok(rev.ok, 'ce29 CONTROL: a symmetric suppression could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
@@ -4829,15 +5248,419 @@ GROUPS.push({
         t.eq(b.rows.filter(x => x.ties).length, 0,
              'ce29 CONTROL: symmetric suppression erases every variance tie on the board');
         t.eq(b.rows.filter(x => x.band === 'material').length, 0,
-             'ce29 CONTROL: ...and every material variance with them — including four real findings');
+             'ce29 CONTROL: ...and every material variance with them — including the real findings');
         t.eq(b.gateByKey['variance'].count, 0,
              'ce29 CONTROL: ...leaving the variance gate with nothing to say');
       }
       await restoreFns(p);
       await p.close();
     }
+
+    /* ══ 30 ══ A STAGED PAYMENT IN A MEASURED MONTH — FOUND HERE, NOW FIXED ══
+       This section was written RED. It stated the behaviour the module ought to
+       have, asked the real function, and let the answer stand. The answer was
+       wrong and the defect was real; it has since been fixed and the section is
+       now green. It is kept, in full, because the interaction is subtle enough
+       that someone will one day "simplify" one of the two halves apart.
+
+       THE INTERACTION. A staged Xero transaction is AUTHORISED, so the ledger
+       already carries it: the balance fell by the whole payment and the
+       interest half came back as a positive entry. The rollforward deliberately
+       excludes a staged split from the month's principal AND from its interest.
+       So in a month whose movement is measured, before the fix:
+
+         · the month's interest was $0.00, so NOTHING was netted off the gross;
+         · the gross — which IS the staged payment's own interest add-back —
+           was therefore counted as new BORROWING;
+         · computed rose by that interest, and the variance became the FULL
+           payment, principal AND interest;
+         · _closeUnbookedExplanation compared it against the staged PRINCIPAL
+           only, could not cover the interest, and returned null;
+         · the row banded MATERIAL and blocked the close.
+
+       One staged payment — money that has not moved, which the posting gate
+       already owns — read as a material variance of the whole payment: the
+       "one event, two blockers" failure the unbooked band was built to remove,
+       re-created by the netting fix's interaction with staging.
+
+       ══ TWO ROUTES WERE AVAILABLE, AND THEY ARE NOT EQUIVALENT ═════════════
+       The report named both, because the staged interest is exactly the amount
+       that stopped being netted:
+
+         (a) WIDEN THE EXPLANATION so it covers staged principal AND staged
+             interest, letting the variance stay at the full payment;
+         (b) NET THE STAGED INTEREST, so the add-back never becomes borrowing
+             and the variance is the staged principal, as it always was.
+
+       (b) shipped, and it is the right one. Both would have turned this section
+       green, so the reason is worth recording rather than the number:
+
+         · (a) treats the SYMPTOM. Under (a) the Drawn column would still read
+           $513.15 of borrowing for this loan — a figure that is not true. The
+           month borrowed nothing; a payment moved. Every downstream reader of
+           `drawn` (the walk, the ledger check, the subtotals, anyone reading
+           the screen) would keep being told the loan drew money it did not
+           draw, and the explanation would exist only to forgive the lie.
+         · (b) treats the CAUSE. `drawn` is meant to be new borrowing. An
+           interest add-back is not new borrowing whether its split is posted or
+           staged — the staged case was simply missed. (b) makes the two cases
+           agree instead of adding a second rule for the second case.
+         · Consequently (a) leaves the variance inflated by the interest, so it
+           is a LARGER number to de-escalate, and the de-escalation has to grow
+           to match. (b) leaves less to forgive. Given the choice, prefer the
+           fix that shrinks what the module has to explain away.
+         · (a) also collides with section 12's boundary: it widens
+           _closeUnbookedExplanation, the one function this suite spends most of
+           its effort keeping narrow.
+
+       WHICH ROUTE IS LIVE IS OBSERVABLE, and asserted below rather than
+       inferred: data-staged-interest carries the amount, and it is included in
+       data-drawn-netted. Under (a) the same row would show $0.00 netted and
+       $513.15 drawn. A future reader can tell the two apart from the DOM alone.
+
+       STILL NOT REACHABLE ON TODAY'S SCREEN, AND STILL DATED. July's movement
+       is measured but carries no staged split; August carries two (Dexter
+       $3,344.64/$494.74 and Paypal 2 $3,165.30/$249.41) but has no month-end
+       books row yet. When reconciliation-run writes the 8/31 row and August
+       becomes the closing month, this shape goes live on both.               */
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const dex = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
+        const jul = d.loan_splits.find(sp => sp.loan_account_id === dex.id && sp.period_label === '2026-07');
+        jul.status = 'staged';
+        jul.stage_reference = 'WR-STAGE harness';
+        // The ledger keeps its real measurement — that is the whole point: the
+        // staged transaction IS in Xero, so the month's movement is genuine.
+        setMovement(d, 'Dexter Loan 2', { staged_reduction_in_month: 3326.23, staged_entries_in_month: 1 });
+      } });
+      const r = (await p.surfaces()).loans.closeBand.rows.find(x => x.name === 'Dexter Loan 2');
+
+      // ── THE SETUP IS REAL ────────────────────────────────────────────────
+      // Asserted so the finding cannot be dismissed as a broken fixture, and so
+      // the section keeps describing the same scenario after the fix.
+      t.close(r.drawnGrossN, 513.15, 0.005,
+              'ce30 setup: the ledger measured $513.15 of increase — the staged payment’s interest coming back');
+      // A zero money cell carries no data-amount at all (`${r.interest || ''}`),
+      // so null and zero are the same claim here and the check says so.
+      t.ok((r.interestN || 0) === 0,
+           'ce30 setup: ...while the month books $0.00 of interest, because the split is staged',
+           String(r.interestN));
+
+      // ── ROUTE (b), OBSERVED ──────────────────────────────────────────────
+      // These four are the ones that tell the routes apart. They would ALL read
+      // differently under (a), which is why they are here and not implied.
+      t.close(r.stagedInterestN, 513.15, 0.005,
+              'ce30 fix: the row declares $513.15 of STAGED interest — the amount route (a) would have left in Drawn');
+      t.close(r.drawnNettedN, 513.15, 0.005,
+              'ce30 fix: ...and all of it is netted off, so data-drawn-netted includes the staged half');
+      t.close(r.drawnNettedN, (r.interestN || 0) + r.stagedInterestN, 0.005,
+              'ce30 fix: ...netted = booked interest + staged interest exactly, which is the whole of the fix');
+      t.close(r.drawnN, 0, 0.005,
+              'ce30 fix: ...leaving Drawn at $0.00 — the month borrowed NOTHING, and now says so');
+
+      // ── AND THE CONSEQUENCE THE SECTION WAS WRITTEN FOR ──────────────────
+      t.close(r.varianceN, 3326.23, 0.005,
+              'ce30: the variance is the staged PRINCIPAL alone — the interest never reaches it');
+      t.eq(r.band, 'unbooked',
+           'ce30: a staged payment in a measured month is de-escalated — the posting gate already owns it');
+      t.eq(r.ties, false, 'ce30: (it is not a tie either — the money genuinely has not moved)');
+      const off = await p.evaluate(() =>
+        _loanCloseRollforward('2026-07').off.map(x => x.a.xero_account_name));
+      t.ok(!off.includes('Dexter Loan 2'),
+           'ce30: ...and it does NOT block the close a second time for one event',
+           `off: ${JSON.stringify(off)}`);
+      t.close((r.unbookedN || 0), 3326.23, 0.005,
+              'ce30: ...with the explanation covering exactly the staged principal');
+      t.close(r.varianceResidualN, 0, 0.005,
+              'ce30: ...and nothing left over, because there was nothing else wrong');
+
+      // ══ CONTROL ══ THE DEFECT, REBUILT ═══════════════════════════════════
+      // The two assertions this section used to open with pinned the DEFECTIVE
+      // values ($513.15 counted as borrowing, a $3,839.38 variance). They went
+      // red when the fix landed — correctly. Deleting them would delete the
+      // shape; they belong here instead, as the control that reverts the fix
+      // and demands the old numbers back. The edit is the single term the fix
+      // added, so this reproduces that defect and nothing else.
+      const rev = await revertFn(p, '_loanCloseRollforward', EDITS('staged-interest-not-nettable'));
+      t.ok(rev.ok, 'ce30 CONTROL: a rollforward that does not net staged interest could be rebuilt', JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const b = (await p.surfaces()).loans.closeBand;
+        const br = b.rows.find(x => x.name === 'Dexter Loan 2');
+        t.close(br.drawnN, 513.15, 0.005,
+                'ce30 CONTROL: nothing is netted, so the add-back is counted as BORROWING again');
+        t.close(br.drawnNettedN, 0, 0.005,
+                'ce30 CONTROL: ...with data-drawn-netted back to $0.00 — the state route (a) would have shipped');
+        t.close(br.varianceN, 3839.38, 0.005,
+                'ce30 CONTROL: ...making the variance the FULL payment, principal and interest');
+        // And the reason it mattered: the explanation covers the principal, the
+        // residual is the interest, and the residual is material.
+        t.close(br.unbookedN || 0, 3326.23, 0.005,
+                'ce30 CONTROL: ...which the explanation still only covers to the staged principal');
+        t.close(br.varianceResidualN, 513.15, 0.005,
+                'ce30 CONTROL: ...leaving the interest unexplained');
+        t.eq(br.band, 'material',
+             'ce30 CONTROL: ...so one staged payment blocks the close for money that has not moved');
+        const off2 = await p.evaluate(() =>
+          _loanCloseRollforward('2026-07').off.map(x => x.a.xero_account_name));
+        t.ok(off2.includes('Dexter Loan 2'),
+             'ce30 CONTROL: ...and lands in `off`, beside the posting gate reporting the same event',
+             `off: ${JSON.stringify(off2)}`);
+      }
+      await restoreFns(p);
+      await p.close();
+    }
+
+    /* ══ 31 ══ VERDANT'S FOUR CENTS ARE ORIGINATION DRIFT — PROVED, NOT ASSUMED
+       Section 12's boundary now allows a variance to be PARTLY explained, and
+       the case that justified the change is Verdant: a permanent four-cent
+       disagreement between what Xero booked and what the contract says, which
+       under exact matching turned every unbooked-payment gap on this loan into
+       a material, blocking variance forever.
+
+       That argument is only sound if the four cents really is drift at day one
+       rather than a small real error accumulating. This section proves it from
+       the data the page itself loaded, so the claim is falsifiable: if the
+       payments ever stop agreeing with the schedule, this goes red and whoever
+       sees it has to revisit whether residual banding is still the right call.
+
+       THE PROOF IS A SUBTRACTION IN TWO HALVES:
+         · the contract opens at $284,354.50 (the schedule's own `initial` row);
+         · thirteen scheduled payments through 7/31 retire $33,460.17, so the
+           contract stands at $250,894.33;
+         · Xero's rebuilt 7/31 balance is $250,894.29 — four cents under;
+         · and the thirteen POSTED splits (the fourteen on file less the undated
+           'Period 14') retire $33,460.17, THE SAME FIGURE TO THE CENT.
+       Every payment agrees. The gap is at origination and nowhere else.       */
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const v = await p.evaluate(() => {
+        const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Verdant Capital Loan');
+        const rows = (_allLoanAmortRows || []).filter(r =>
+          r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === a.id);
+        const init = rows.filter(r => r.row_type === 'initial');
+        // The schedule is on file TWICE (a re-issue), so the payment rows are
+        // de-duplicated by date before they are summed. Summing the raw rows
+        // double-counts and reads $66,920.34 — a mistake worth making
+        // impossible rather than merely avoiding.
+        const byDate = new Map();
+        for (const r of rows) if (r.row_type === 'payment' && r.row_date <= '2026-07-31') byDate.set(r.row_date, r);
+        const pay = [...byDate.values()];
+        const posted = (_allLoanSplits || []).filter(s => s.loan_account_id === a.id && s.status === 'posted');
+        // WHICH split is the extra one is DERIVED, not assumed. Seven of the
+        // fourteen carry a 'Period N' label with no date in it, so "the undated
+        // one" does not identify anything — the first cut of this test asked
+        // that question and got all seven back. The right question is which
+        // posted payment has no scheduled row to pair with, so the fourteen are
+        // matched off against the thirteen BY PRINCIPAL, each row consumed once,
+        // and whatever is left over is the extra by construction.
+        const pool = pay.map(r => Math.round(Number(r.principal || 0) * 100));
+        const extra = [];
+        for (const sp of posted) {
+          const c = Math.round(Number(sp.principal_amount || 0) * 100);
+          const i = pool.indexOf(c);
+          if (i >= 0) pool.splice(i, 1); else extra.push(sp);
+        }
+        const undated = extra;
+        const books = (_allLoanBookBalances || []).filter(x => x.loan_account_id === a.id)
+          .sort((x, y) => x.as_of < y.as_of ? 1 : -1);
+        const sum = (xs, k) => Math.round(xs.reduce((n, r) => n + Number(r[k] || 0), 0) * 100) / 100;
+        return {
+          schedules: new Set(rows.map(r => r.schedule_id)).size,
+          initN: init.length, contract: init.length ? Number(init[0].balance) : null,
+          payRows: pay.length, paySchedule: sum(pay, 'principal'),
+          postedN: posted.length, postedAll: sum(posted, 'principal_amount'),
+          undatedLabels: undated.map(s => s.period_label).sort(),
+          undatedPrincipal: sum(undated, 'principal_amount'),
+          unmatchedSchedule: pool.length,
+          // The extra is not merely unmatched — it is the schedule's FOURTEENTH
+          // payment, which is what makes 'Period 14' the right name for it and
+          // an August event rather than a mystery.
+          period14Scheduled: (() => {
+            const after = rows.filter(r => r.row_type === 'payment' && r.row_date > '2026-07-31')
+              .sort((x, y) => x.row_date < y.row_date ? -1 : 1)[0];
+            return after ? { date: after.row_date, principal: Number(after.principal || 0) } : null;
+          })(),
+          books731: books.length ? Number((books.find(x => x.as_of === '2026-07-31') || {}).balance) : null,
+        };
+      });
+
+      // ── THE CONTRACT SIDE ────────────────────────────────────────────────
+      t.eq(v.initN, 1, 'ce31: Verdant has exactly one origination row on file, so "the contract" is unambiguous');
+      t.close(v.contract, 284354.50, 0.005, 'ce31: ...and it says the loan opened at $284,354.50');
+      t.eq(v.payRows, 13, 'ce31: thirteen scheduled payments fall on or before 7/31');
+      t.close(v.paySchedule, 33460.17, 0.005, 'ce31: ...retiring $33,460.17 of principal between them');
+      t.close(v.contract - v.paySchedule, 250894.33, 0.005,
+              'ce31: ...so the contract stands at $250,894.33 on 7/31');
+
+      // ── THE BOOKS SIDE ───────────────────────────────────────────────────
+      t.close(v.books731, 250894.29, 0.005, 'ce31: Xero’s rebuilt 7/31 balance is $250,894.29');
+      t.close((v.contract - v.paySchedule) - v.books731, 0.04, 0.005,
+              'ce31: ...four cents under the contract — the whole of the disagreement');
+
+      // ── AND THE PAYMENTS THEMSELVES AGREE, WHICH IS THE POINT ────────────
+      // If the four cents were accumulating error, this is where it would show.
+      // It does not: the booked payments equal the scheduled payments exactly,
+      // so the gap has been sitting at origination since day one and nothing
+      // since has widened it.
+      t.eq(v.postedN, 14, 'ce31: fourteen splits are posted against thirteen scheduled payments');
+      t.eq(v.unmatchedSchedule, 0,
+           'ce31: ...and every one of the thirteen scheduled payments is matched by a posted split, to the cent',
+           `${v.unmatchedSchedule} scheduled rows left unmatched`);
+      t.eq(JSON.stringify(v.undatedLabels), JSON.stringify(['Period 14']),
+           'ce31: ...leaving exactly ONE extra, and it is "Period 14"',
+           JSON.stringify(v.undatedLabels));
+      t.close(v.undatedPrincipal, 2707.61, 0.005, 'ce31: ...carrying $2,707.61 of principal');
+      t.ok(v.period14Scheduled && v.period14Scheduled.date === '2026-08-10',
+           'ce31: ...which is the schedule’s next payment, 2026-08-10 — an August event, not a mystery',
+           JSON.stringify(v.period14Scheduled));
+      t.close(v.period14Scheduled && v.period14Scheduled.principal, 2707.61, 0.005,
+              'ce31: ...at exactly that principal, so the label means what it says');
+      t.close(v.postedAll - v.undatedPrincipal, 33460.17, 0.005,
+              'ce31: ...so the thirteen matched payments booked $33,460.17');
+      t.close((v.postedAll - v.undatedPrincipal) - v.paySchedule, 0, 0.005,
+              'ce31: ...IDENTICAL to the schedule, to the cent — the four cents is drift at origination, not error since');
+
+      // The consequence, stated on the live row rather than argued: with the
+      // payments agreeing, Verdant's real July variance is the drift and only
+      // the drift.
+      const rr = rowOf((await p.surfaces()).loans.closeBand, 'Verdant Capital Loan');
+      t.close(Math.abs(rr.varianceN), 0.04, 0.005,
+              'ce31: ...which is exactly what the rendered July row shows, and nothing more',
+              `variance ${rr.varianceN}`);
+      await p.close();
+
+      // ── CONTROL ── this section has no function to revert, so the control is
+      // a MUTATION instead: it is evidence about the data, and the thing that
+      // must discriminate is the matching, not a code path. One cent moved on
+      // one posted payment and the whole argument has to collapse — a scheduled
+      // row left unmatched, an extra split that is no longer only 'Period 14',
+      // and the thirteen no longer summing to the schedule. If any of those
+      // three survives a deliberate corruption, the assertions above are not
+      // measuring what they claim to.
+      const pBad = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const a = d.loan_accounts.find(x => x.xero_account_name === 'Verdant Capital Loan');
+        const sp = d.loan_splits.find(x => x.loan_account_id === a.id && x.period_label === '2026-07-10' && x.status === 'posted');
+        sp.principal_amount = Number(sp.principal_amount) + 0.01;
+      } });
+      const vb = await pBad.evaluate(() => {
+        const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Verdant Capital Loan');
+        const rows = (_allLoanAmortRows || []).filter(r =>
+          r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === a.id);
+        const byDate = new Map();
+        for (const r of rows) if (r.row_type === 'payment' && r.row_date <= '2026-07-31') byDate.set(r.row_date, r);
+        const pool = [...byDate.values()].map(r => Math.round(Number(r.principal || 0) * 100));
+        const posted = (_allLoanSplits || []).filter(x => x.loan_account_id === a.id && x.status === 'posted');
+        const extra = [];
+        for (const sp of posted) {
+          const c = Math.round(Number(sp.principal_amount || 0) * 100);
+          const i = pool.indexOf(c);
+          if (i >= 0) pool.splice(i, 1); else extra.push(sp);
+        }
+        return { unmatched: pool.length, extras: extra.map(x => x.period_label).sort() };
+      });
+      t.eq(vb.unmatched, 1,
+           'ce31 CONTROL: move one cent on one posted payment and a scheduled row is left unmatched');
+      t.ok(vb.extras.length === 2 && vb.extras.includes('Period 14') && vb.extras.includes('2026-07-10'),
+           'ce31 CONTROL: ...and the extra is no longer only "Period 14" — so the match above really is doing the work',
+           JSON.stringify(vb.extras));
+      await pBad.close();
+    }
+
+    /* ══ 32 ══ ⚠ REPORTED: AN EXPLANATION MAY OVERSHOOT THE GAP IT EXPLAINS ══
+       ⚠ THIS IS A FINDING, NOT A TEST NEEDING AN UPDATE, and it is written the
+       way section 30 was: state the behaviour, ask the real function, and pin
+       what it actually does so the shape cannot drift while the argument is
+       decided elsewhere. Nothing here is red — the module does what these
+       assertions say. What is wrong is that it should not.
+
+       WHERE IT COMES FROM. Section 12 records why exact matching had to go, and
+       I agree with that. The guard that replaced it is STRICT REDUCTION: a
+       candidate split is accepted only if it makes the unexplained amount
+       smaller, which guarantees |residual| < |variance| and bounds the damage.
+       That guard is real and it does most of the work.
+
+       WHAT IT DOES NOT BOUND is the relationship between the amount CLAIMED and
+       the gap it is claimed against. Strict reduction is satisfied by any split
+       up to twice the size of the gap. So a $2,462.79 undated payment may be
+       offered as the explanation of a $2,000.00 discrepancy — a payment larger
+       than the entire thing it is explaining — and the leftover, being smaller
+       than the gap, can fall under the materiality line the gap itself cleared.
+       A material finding becomes an immaterial one and leaves "to resolve".
+
+       THE CLAIM IS ALSO INCOHERENT ON ITS FACE, which is the part that makes
+       this a defect rather than a tuning preference. "This gap is an unbooked
+       payment" is only a sentence about the world if the payment could account
+       for the gap. A payment BIGGER than the whole discrepancy cannot be the
+       missing piece of it; something else is going on, and that is precisely
+       when the row should stay loud.
+
+       IT IS NOT LIVE TODAY and this section says so honestly: Verdant is the
+       only loan on the book carrying undated splits, and its real July gap is
+       four cents, which no split can reduce. Reaching the shape needs a planted
+       balance — done below — or the gross-Drawn revert in section 21b, where it
+       silently removed a tenth loan from a board of ten.
+
+       THE FIX IS NOT MINE TO MAKE, but the shape is narrow: refuse a candidate
+       that OVERSHOOTS the gap by more than the materiality floor. Falling short
+       is fine and is the whole point of portion matching — the shortfall is
+       banded and still blocks. Overshooting is a different claim and should be
+       refused. That rule keeps Verdant's August case (a $2,707.61 payment
+       against a $2,707.57 gap, four cents over) and refuses this one ($2,462.79
+       against $2,000.00, $462.79 over).                                      */
+    {
+      const verBooks = (bal) => (d) => setBooks(d, 'Verdant Capital Loan', [{ as_of: '2026-06-30', balance: bal }]);
+      // 253,582.27 is the balance at which Verdant's July walk lands exactly on
+      // its closing anchor, so the plant below IS the gap: $2,000.00 of nothing
+      // in particular, unrelated to any payment on file.
+      const p = await newHarnessPage({ tab: 'loans', mutate: verBooks(253582.27 + 2000) });
+      const cb = (await p.surfaces()).loans.closeBand;
+      const r = rowOf(cb, 'Verdant Capital Loan');
+      t.close(r.varianceN, 2000, 0.005, 'ce32: a planted gap of exactly $2,000.00');
+      // On its own that gap is material and blocking — asserted, so the
+      // de-escalation below cannot be mistaken for something that was never
+      // going to matter.
+      t.ok(2000 >= 25 && 2000 / r.perLenderN >= 0.0025,
+           'ce32: ...which clears both materiality tests on its own',
+           `share ${(2000 / r.perLenderN).toFixed(5)}`);
+
+      // ⚠ WHAT ACTUALLY HAPPENS
+      t.close(r.unbookedN, 2462.79, 0.005,
+              'ce32 ⚠ REPORTED: it is "explained" by an undated split of $2,462.79 — larger than the whole gap');
+      t.ok(r.unbookedN > r.varianceN + 25,
+           'ce32 ⚠ REPORTED: ...overshooting it by more than the materiality floor',
+           `claimed ${r.unbookedN} against ${r.varianceN}`);
+      t.close(r.varianceResidualN, -462.79, 0.005,
+              'ce32 ⚠ REPORTED: ...leaving −$462.79, a residual with the OPPOSITE sign to the gap');
+      t.eq(r.band, 'immaterial',
+           'ce32 ⚠ REPORTED: ...which bands immaterial, so a material discrepancy stops blocking the close');
+      t.ok(!cb.rows.some(x => /Verdant/.test(x.loan) && x.band === 'material'),
+           'ce32 ⚠ REPORTED: ...and Verdant contributes nothing to "variance to resolve"');
+
+      // ── WHAT IS STILL TRUE, AND WHY THIS IS A GAP RATHER THAN A HOLE ────
+      // The strict-reduction guard held: less is unexplained than before, and
+      // both figures are on the cell. The failure is a de-escalation across the
+      // materiality line, not a disappearance — which is the difference between
+      // this and the exactness rule's silent absorption that section 12
+      // describes. It is worth fixing; it is not worth panicking about.
+      t.ok(Math.abs(r.varianceResidualN) < Math.abs(r.varianceN),
+           'ce32: the strict-reduction invariant still holds — less is unexplained than before');
+      t.ok(/2,000\.00/.test(r.variance || '') && /462\.79/.test(r.variance || ''),
+           'ce32: and BOTH figures are printed, so a reader can see the claim and reject it',
+           `cell=${JSON.stringify(r.variance)}`);
+
+      // ── THE PROPOSED RULE, TESTED AS ARITHMETIC RATHER THAN ASSERTED ────
+      // If a future change adds the overshoot refusal, this row must go back to
+      // material and Verdant's August case must survive. Both conditions are
+      // stated here as data so the fix has a target to hit.
+      t.ok(2462.79 - 2000 > 25,
+           'ce32: the proposed rule would refuse THIS match — it overshoots by $462.79');
+      t.ok(2707.61 - 2707.57 < 25,
+           'ce32: ...and would keep Verdant’s August case, which overshoots by four cents');
+      await p.close();
+    }
   },
 });
+
 
 
 

@@ -3332,10 +3332,10 @@
                them straight back. The wrapper already has overflow-x:auto, so a
                min-width costs a horizontal scrollbar on narrow screens and buys a
                table that reads one row per loan on any screen wide enough. */
-            .lcb-table { width: 100%; min-width: 1240px; border-collapse: collapse; font-size: 13px;
+            .lcb-table { width: 100%; min-width: 1080px; border-collapse: collapse; font-size: 13px;
                          font-variant-numeric: tabular-nums; }
             .lcb-table td, .lcb-table th { white-space: nowrap; }
-            .lcb-table thead th { text-align: left; padding: 11px 14px 8px; font-size: 11px; font-weight: 600;
+            .lcb-table thead th { text-align: left; padding: 9px 9px 7px; font-size: 11px; font-weight: 600;
                                   color: var(--gray-400); border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
             .lcb-table thead th.lcb-n { text-align: right; }
             /* Session 247: every cell is a single line now, so the rows align on
@@ -3343,7 +3343,7 @@
                over its provenance — it lined the FIGURES up — but with one line
                per cell and three different font sizes across a row it inflated
                every row to 64-84px of mostly whitespace. */
-            .lcb-table tbody td { padding: 9px 14px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
+            .lcb-table tbody td { padding: 7px 9px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
             .lcb-table tbody tr:hover { background: var(--gray-50, #fafbfd); }
             /* No font-family override. That line was the whole problem. */
             .lcb-table td.lcb-n { text-align: right; white-space: nowrap; }
@@ -3373,7 +3373,7 @@
                which is a sturdier hook than a glyph anyway. */
             .lcb-off { color: #b3382c; font-weight: 600; }
             .lcb-flag { color: #b3382c; font-weight: 600; }
-            .lcb-table tfoot td { padding: 14px 14px; border-top: 1px solid var(--gray-300);
+            .lcb-table tfoot td { padding: 11px 9px; border-top: 1px solid var(--gray-300);
                                   font-weight: 600; color: var(--gray-900); font-size: 13px; }
             .lcb-table tfoot td.lcb-n { text-align: right; }
             .lcb-excluded td { color: var(--gray-500); font-weight: 400; border-top: none; }
@@ -14772,6 +14772,42 @@
 
   // Plain English for the policy. A close_basis value must never reach the DOM
   // any more than a statement source may.
+  // ══ TWO SOURCES ON THE CLOSE BAND, NOT SEVEN (session 247, David) ════════
+  //
+  // David: "Reduce the amount of sources to 2: Lender statements (includes CSVs
+  // from Stripe, Paypal, traditional splits like Ford, etc..) and Amortization
+  // docs. That's all. Opening source is either Xero or Amortization doc."
+  //
+  // This is a DISPLAY collapse and nothing more. _ANCHOR_SOURCE_LABEL still
+  // names every source in full everywhere else, `data-source` and
+  // `data-derivation` still carry the exact value, and the A/B GRADE — which is
+  // what actually decides whether a balance counts as confirmed by the lender —
+  // is untouched in the model, the subtotals and the gate chips. A reader
+  // scanning fourteen rows does not need to tell a portal pull from an emailed
+  // PDF; the CPA signing them needs to know it came from the lender at all.
+  //
+  // The roll-back is the one thing a collapse could genuinely cost: "8/25 ·
+  // rolled back" says the figure was DERIVED rather than stated, and that is a
+  // fact a reader has to be able to see. Rather than invent a fourth source
+  // name it moves to the closing DATE cell, where it belongs anyway — the point
+  // of it is that the date on the document is not the date in the column.
+  function _closeOpeningSourceLabel(src) {
+    const s = String(src || '');
+    if (s === 'amortization_schedule') return 'Amortization schedule';
+    // Our own books, however they were rebuilt or backfilled.
+    if (s === 'xero_rebuild' || s === 'xero_derived' || s === 'xero_balance_snapshot') return 'Xero';
+    if (!s) return '';
+    // Everything that is left is a document somebody outside this business
+    // issued. It cannot be called "Xero" — that would be a false statement about
+    // provenance on the one column whose job is provenance — and in the live
+    // data it never appears, because the books balance wins every opening. It is
+    // here for the fallback path, not for the screen David is looking at.
+    return 'Lender statement';
+  }
+  function _closeClosingSourceLabel(grade) {
+    return grade === 'B' ? 'Amortization schedule' : grade === 'A' ? 'Lender statement' : '';
+  }
+
   const _CLOSE_BASIS_LABEL = {
     lender_statement:      'a statement from the lender',
     amortization_schedule: 'the contractual amortization schedule',
@@ -15190,24 +15226,75 @@
   //     acceptable here because it DE-ESCALATES rather than concludes: the row
   //     still shows the split, still shows the figure, and still says the
   //     payment has no date. It never turns anything green.
+  //
+  // ── IT EXPLAINS A PORTION, NOT ALL-OR-NOTHING (session 247) ──────────────
+  //
+  // The first cut demanded the unposted principal match the variance TO THE
+  // CENT or explain nothing at all. That is a false dichotomy, and Verdant's
+  // August close is what exposed it: $2,707.61 of undated principal against a
+  // $2,707.57 variance plainly explains all but four cents, yet the exact test
+  // returned null and the row banded MATERIAL at the full $2,707.57 — blocking
+  // a close over four cents of books-versus-schedule drift.
+  //
+  // So the function now returns what it explained AND what is left, and the
+  // caller bands the LEFTOVER through the ordinary materiality test like any
+  // other unexplained money. Nothing is hidden: the residual is measured, shown
+  // beside the explanation, banded, and still blocks when it is material.
+  //
+  // AND THE EXACTNESS RULE WAS LESS SAFE THAN IT LOOKED. A coincidental exact
+  // match absorbed a real discrepancy in full — the split's amount happening to
+  // equal variance-plus-error swallowed the error with it. Residual banding
+  // leaves whatever does not match sitting in plain sight.
+  //
+  // THE GUARD THAT STOPS FISHING IS "ONE SPLIT", NOT THE EXACTNESS. A single
+  // undated split may be named, never a combination, because a combination can
+  // be assembled to explain almost any number. Two further rules keep even that
+  // one honest:
+  //   * a candidate is only accepted if it STRICTLY REDUCES what is unexplained,
+  //     so the arithmetic can never be made worse to look better — this is also
+  //     what keeps Verdant's JULY row (a −$0.04 variance beside seven undated
+  //     splits of ~$2,500 each) from claiming any of them as an explanation;
+  //   * the same reduction test gates the staged component, so a staged payment
+  //     unrelated to the gap cannot be subtracted from it either.
+  // The pick is the closest candidate, tie-broken on label then id so the answer
+  // is stable rather than merely arbitrary.
   function _closeUnbookedExplanation(variance, stagedSplits, undatedSplits) {
     if (variance == null) return null;
-    const staged = (stagedSplits || []).reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
-    let explained = staged;
+    let residual = Number(variance);
+    let explained = 0;
     const parts = [];
-    if (Math.abs(staged) >= 0.005) parts.push({ kind: 'staged', amount: staged, n: stagedSplits.length });
-    let residual = Number(variance) - explained;
+    const reduces = (amt) => Math.abs(residual - amt) < Math.abs(residual);
+
+    // (1) The month's staged principal — a SET, not a guess. Every one of these
+    //     is excluded from the walk by CLOSE_EXCLUDED_STATUSES on purpose.
+    const staged = (stagedSplits || []).reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
+    if (Math.abs(staged) >= 0.005 && reduces(staged)) {
+      explained += staged; residual -= staged;
+      parts.push({ kind: 'staged', amount: staged, n: stagedSplits.length });
+    }
+
+    // (2) ONE undated split. Verdant's 'Period 14' (A10) is the case: a posted
+    //     payment _monthSplits can place in no month at all.
     if (Math.abs(residual) >= 0.005) {
-      const hit = (undatedSplits || []).find(sp =>
-        Math.abs(residual - Number(sp.principal_amount || 0)) < 0.005);
-      if (hit) {
-        explained += Number(hit.principal_amount || 0);
-        parts.push({ kind: 'undated', amount: Number(hit.principal_amount || 0), label: hit.period_label });
-        residual = Number(variance) - explained;
+      let best = null;
+      for (const sp of (undatedSplits || [])) {
+        const p = Number(sp.principal_amount || 0);
+        if (Math.abs(p) < 0.005 || !reduces(p)) continue;
+        const left = Math.abs(residual - p);
+        const key = `${sp.period_label || ''}|${sp.id || ''}`;
+        if (!best || left < best.left - 1e-9 || (Math.abs(left - best.left) < 1e-9 && key < best.key)) {
+          best = { left, key, p, label: sp.period_label };
+        }
+      }
+      if (best) {
+        explained += best.p; residual -= best.p;
+        parts.push({ kind: 'undated', amount: best.p, label: best.label });
       }
     }
-    if (!parts.length || Math.abs(residual) >= 0.005) return null;
-    return { principal: explained, parts };
+
+    if (!parts.length) return null;
+    // Cents, so IEEE noise never reaches a band boundary or a data attribute.
+    return { principal: explained, parts, residual: Math.round(residual * 100) / 100 };
   }
 
   // Day 0 of a month is the last day of the one before it — the same trick
@@ -15279,13 +15366,97 @@
 
       // The CLOSING month-end books row. It carries two different things: what
       // the ledger said on that date, and how it got there during the month.
-      const bookClose = _loanBookBalanceAsOf(a, monthEnd);
-      const movement  = _loanMonthMovement(bookClose);
-      const drawn     = movement.measured ? movement.drawn : null;
+      const bookClose  = _loanBookBalanceAsOf(a, monthEnd);
+      const movement   = _loanMonthMovement(bookClose);
+      const drawnGross = movement.measured ? movement.drawn : null;
 
       const splits = _monthSplits(a.id, monthLabel);
       const principal = splits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
       const interest  = splits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
+
+      // ══ NETTING THE INTEREST ADD-BACK OUT OF `drawn` (session 247 fix) ═════
+      //
+      // On most of these loans the bank payment hits the LOAN ACCOUNT for the
+      // full amount and a reallocation journal puts the interest portion back —
+      // that is the posting mechanic this whole module was built around
+      // (loan-xero-post's split, and every "reallocation journal" in the session
+      // log). The server's measureMovement sees that add-back as a positive
+      // effect on the loan account, correctly, and so it lands in `drawn`.
+      //
+      // But it is not new borrowing. It is the other half of one payment, and
+      // leaving it in made ten loans that tied yesterday show a variance exactly
+      // equal to their own interest — "10 loans off — $8,751.73 to resolve",
+      // nearly all of it fabricated, on the one screen whose job is to say
+      // "ready for your accountant".
+      //
+      // Measured against the live rows the day this was written, `drawn` equals
+      // the month's booked split interest TO THE CENT on eight loans (Dexter 2
+      // 513.15, Verdant 1,855.38, BayFirst SBA 937.49, 4140 121.38, E5 253.62,
+      // E6 170.77, Paypal 2 1,690.52, and BayFirst SBA 2 partially), and
+      // `reduced − drawn` equals booked principal to the cent on six.
+      //
+      // THIS IS AMOUNT-MATCHING, and this module is rightly wary of it — "never
+      // infer from shape what a document can be asked directly" (session 236).
+      // It is admissible here, and only here, for four reasons worth keeping:
+      //   * the pairing is SAME LOAN, SAME MONTH and exact to the cent;
+      //   * it is the DOCUMENTED posting mechanic of every one of these loans,
+      //     not a coincidence discovered in the data;
+      //   * it can only ever REDUCE a claim of new borrowing, never create one,
+      //     so the failure mode is understating a draw rather than inventing
+      //     debt the business does not owe;
+      //   * the gross figure is kept and shown, so nothing is hidden — the row
+      //     says what was measured and what was netted off it.
+      //
+      // CLAMPED AT ZERO because the subtraction can go negative: BayFirst SBA 2
+      // books $2,549.88 of split interest against $1,300.30 of measured
+      // increase. A negative "drawn" is not a repayment — repayments are already
+      // in `reduced` and in the month's principal — it is simply the two figures
+      // failing to pair, and the honest floor is nothing borrowed.
+      //
+      // Stripe Capital is the control: $145,875.00 measured, $0.00 of split
+      // interest, so nothing is netted and its genuine draw survives intact.
+      //
+      // ── AND IT MUST NET STAGED INTEREST TOO (session 247, and this one bites
+      //    on 2026-09-01) ────────────────────────────────────────────────────
+      //
+      // THE PRINCIPLE: the netting has to be consistent with what the LEDGER
+      // contains, not with what the rollforward books. `drawnGross` is measured
+      // from Xero, and a staged transaction is written AUTHORISED — so Xero
+      // already carries it, balance fallen by the whole payment and the interest
+      // half back as a positive effect.
+      //
+      // THE ASYMMETRY, which looks wrong until you know that: staged PRINCIPAL
+      // stays out of the walk (CLOSE_EXCLUDED_STATUSES) because the money has
+      // not moved — that is correct and load-bearing — while staged INTEREST is
+      // netted off `drawn` because the add-back it is cancelling is sitting in
+      // the ledger figure whether we like it or not. One is about the real
+      // world; the other is about a number we measured from Xero.
+      //
+      // Get it wrong and one staged payment blocks the close TWICE. Dexter's
+      // August: gross 494.74, booked interest 0.00 because the split is staged,
+      // so 494.74 is reported as borrowing; the walk computes 89,411.25 + 494.74
+      // against a schedule closing of 86,066.61 and the variance is 3,839.38 —
+      // the FULL payment. _closeUnbookedExplanation compares that against the
+      // staged PRINCIPAL (3,344.64), cannot cover the extra 494.74, returns
+      // null, and the row bands material and enters `off` — beside a posting
+      // gate already counting the same payment. That is the "one event, two
+      // blockers" failure the unbooked band exists to prevent, arriving from a
+      // new direction.
+      //
+      // Netting it here fixes the CAUSE rather than widening the excuse: the
+      // variance becomes 3,344.64, exactly the staged principal, which
+      // _closeUnbookedExplanation already covers.
+      const stagedSplits = (_allLoanSplits || []).filter(sp =>
+        sp.loan_account_id === a.id && sp.status === 'staged' &&
+        (sp.period_label || '').slice(0, 7) === monthLabel);
+      const stagedInterest = stagedSplits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
+      // Everything whose interest add-back is IN the ledger this month. Voided
+      // splits are in neither, correctly. pending_review and needs_attention are
+      // already inside `interest` — _monthSplits excludes only voided and staged.
+      const nettableInterest = interest + stagedInterest;
+      const drawn = drawnGross == null ? null : Math.max(0, drawnGross - nettableInterest);
+      const drawnNetted = drawnGross == null ? 0 : drawnGross - drawn;
+
       // opening + drawn − principal = computed. `drawn || 0` is deliberate and
       // it is safe ONLY because movement.measured travels with it: the row, the
       // subtotal and the ledger check below all read that flag, so nothing here
@@ -15296,7 +15467,13 @@
       // and grade B identically. A closing figure exists only if it covers the
       // month, so the two questions are the same question.
       const coversMonth = !!perLender;
-      const rawVariance = (computed != null && perLender) ? computed - perLender.amount : null;
+      // Rounded to cents at source. Every figure here is a difference of two
+      // money values, so IEEE noise lands at the 1e-12 scale — harmless in a
+      // band test against half a cent, but it reaches the DOM as
+      // data-variance="3326.229999999996" and anything reading that attribute
+      // then has to know to round before it can compare.
+      const cents = (x) => (x == null ? null : Math.round(x * 100) / 100);
+      const rawVariance = cents((computed != null && perLender) ? computed - perLender.amount : null);
 
       // ── THE CIRCULARITY GUARD (amendment A4, corrected by review F1) ────
       //
@@ -15317,17 +15494,26 @@
       const circular = anchor.grade === 'B' && !_openingIsIndependent(opening);
       const variance = circular ? null : rawVariance;
       // Money the month deliberately left out, which can make the arithmetic
-      // disagree without anything being wrong. See _closeUnbookedExplanation.
-      const stagedSplits = (_allLoanSplits || []).filter(sp =>
-        sp.loan_account_id === a.id && sp.status === 'staged' &&
-        (sp.period_label || '').slice(0, 7) === monthLabel);
+      // disagree without anything being wrong. `stagedSplits` is declared with
+      // the netting above, because the same set answers both questions.
+      // See _closeUnbookedExplanation.
       const undatedAll = _undatedSplits(a.id);
       const unbooked = variance == null ? null
         : _closeUnbookedExplanation(variance, stagedSplits, undatedAll);
+      // WHAT IS ACTUALLY LEFT UNEXPLAINED. `variance` stays the raw figure —
+      // it is what the column prints and what a reader checks against the two
+      // balances either side of it — while every VERDICT is taken on the
+      // residual. Without an explanation the two are the same number.
+      const varianceResidual = variance == null ? null
+        : (unbooked ? unbooked.residual : variance);
       const band = variance == null ? null
         : (Math.abs(variance) < 0.005 ? 'tie'
-          : unbooked ? 'unbooked'
-          : _closeVarianceBand(variance, perLender.amount));
+          // Fully accounted for: nothing is left over at all.
+          : Math.abs(varianceResidual) < 0.005 ? 'unbooked'
+          // Partly accounted for, or not at all: the leftover goes through the
+          // ordinary materiality bands like any other unexplained money, and a
+          // material one still lands in `off` and still blocks.
+          : _closeVarianceBand(varianceResidual, perLender.amount));
 
       // ══ THE SECOND CHECK: DOES THE LEDGER FOOT? ═══════════════════════════
       //
@@ -15348,12 +15534,7 @@
       // subtraction is not a check, it is the drawdown wearing an accusation's
       // clothes.
       const booksClosing = bookClose ? bookClose.amount : null;
-      // Rounded to cents at source. Both of these are a difference of two money
-      // figures, so IEEE noise lands in them at the 1e-12 scale — harmless in
-      // the banding, which tests against half a cent, but it reaches the DOM as
-      // data-unattributed="-3.637978807091713e-12" and anything reading that
-      // attribute sees a non-zero where the screen correctly shows nothing.
-      const cents = (x) => (x == null ? null : Math.round(x * 100) / 100);
+      // `cents` is declared with rawVariance above — same reason, same rounding.
       const unexplained = cents((movement.measured && booksClosing != null && computed != null)
         ? booksClosing - computed : null);
       // ── THE SAME SUBTRACTION, WITHOUT THE RIGHT TO CALL IT A FINDING ─────
@@ -15412,10 +15593,11 @@
       const unposted  = _monthUnpostedSplits(a.id, monthLabel);
       const undated   = undatedAll;
       return { a, opening, openingFromBooks, openingStaged: (book && book.staged) || 0,
-               bookClose, booksClosing, movement, drawn,
+               bookClose, booksClosing, movement, drawn, drawnGross, drawnNetted,
+               stagedInterest, nettableInterest,
                unexplained, unexplainedBand, stagedExplains, unattributed, originationGap,
                anchor, grade: anchor.grade, perLender, splits, principal, interest,
-               computed, variance, band, circular, rawVariance, unbooked, stagedSplits,
+               computed, variance, varianceResidual, band, circular, rawVariance, unbooked, stagedSplits,
                automatic, unposted, undated, coversMonth };
     });
 
@@ -15466,7 +15648,10 @@
       // ('unbooked') is not money to resolve here, and adding it would put a
       // second figure for one event on the same screen. Circular rows carry no
       // variance at all.
-      variance:  set.reduce((n, r) => n + ((r.band === 'immaterial' || r.band === 'material') ? Math.abs(r.variance) : 0), 0),
+      // The RESIDUAL, not the raw variance: on a partly-explained row the raw
+      // figure would put the explained portion into a column headed "still to
+      // resolve", which is the opposite of what the explanation established.
+      variance:  set.reduce((n, r) => n + ((r.band === 'immaterial' || r.band === 'material') ? Math.abs(r.varianceResidual) : 0), 0),
       count:     set.length,
       circular:  set.filter(r => r.circular).length,
       unbooked:  set.filter(r => r.band === 'unbooked').length,
@@ -15493,8 +15678,8 @@
       circularRows: checkable.filter(r => r.circular),
       // ONE quantity per claim, so the tile, the chip and the footer cannot
       // print different money for the same question (review F15).
-      varianceToResolve: judged.filter(r => r.band === 'material').reduce((n, r) => n + Math.abs(r.variance), 0),
-      varianceSmall:     judged.filter(r => r.band === 'immaterial').reduce((n, r) => n + Math.abs(r.variance), 0),
+      varianceToResolve: judged.filter(r => r.band === 'material').reduce((n, r) => n + Math.abs(r.varianceResidual), 0),
+      varianceSmall:     judged.filter(r => r.band === 'immaterial').reduce((n, r) => n + Math.abs(r.varianceResidual), 0),
       varianceUnbooked:  judged.filter(r => r.band === 'unbooked').reduce((n, r) => n + Math.abs(r.variance), 0),
       // ── THE LEDGER CHECK, AS A POPULATION ────────────────────────────────
       // `ledgerChecked` is every row the check could actually run on; the three
@@ -15971,25 +16156,47 @@
       // header — so only the provenance needs a cell of its own. The closing
       // date is NOT: every row closes on its own evidence date, so that gets a
       // column too.
+      // Two names, not seven — see _closeOpeningSourceLabel. The exact source
+      // stays in data-source and in the title, so nothing is lost to anything
+      // that needs it; the column just stops making a reader parse provenance
+      // trivia fourteen times to find the two rows that differ.
+      const openTitle = [
+        r.opening ? `Taken from ${_anchorSourceLabel(r.opening.source)}, ${_bkPlainDate(r.opening.asOf)}.` : '',
+        r.openingStaged ? `Includes ${r.openingStaged} staged Xero transaction${r.openingStaged === 1 ? '' : 's'} dated on or before that date — money that has not moved.` : '',
+        r.originationGap ? `The signed agreement states ${money(r.originationGap.agreement)} at ${short(r.originationGap.asOf)}; the books carry ${money(r.originationGap.books)}. ${money(Math.abs(r.originationGap.difference))} of the origination reaches the books after that date. Which period that belongs in is a question for your accountant.` : '',
+      ].filter(Boolean).join(' ');
       const openSrcCell = r.opening
-        ? `${esc(_anchorSourceLabel(r.opening.source))}${r.openingStaged ? ` · includes ${r.openingStaged} staged` : ''}`
+        ? `<span${openTitle ? ` title="${esc(openTitle)}"` : ''}>${esc(_closeOpeningSourceLabel(r.opening.source))}</span>`
+          + (r.openingStaged ? '<span class="lcb-sub">staged included</span>' : '')
+          + (r.originationGap ? '<span class="lcb-sub soft">origination straddles</span>' : '')
         : '<span class="lcb-na">—</span>';
       // A REFUSAL IS AN ANSWER AND IT HAS TO BE READABLE. _loanClosingAnchor
       // declines a roll-back for stated reasons — an unlabelled balance, an
       // unposted payment in the window — and a blank cell with the reason known
       // only to the code is the same silence this session came to remove.
       const why = r.anchor.note ? ` title="${esc(r.anchor.note)}"` : '';
+      // Nothing is repeated across two cells. The Closing cell already reads
+      // "swept from Xero" on an automatic loan, so the source cell beside it
+      // says nothing rather than saying it twice — David's "remove extra words",
+      // applied where it costs no information.
       const closeSrcCell = r.perLender
-        ? esc(closingWhy(r))
-        : (r.automatic ? 'swept from Xero' : '<span class="lcb-na">—</span>');
+        ? `<span title="${esc(_anchorSourceLabel(r.perLender.source))}">${esc(_closeClosingSourceLabel(r.grade))}</span>`
+        : '<span class="lcb-na">—</span>';
       const lenderCell = r.perLender
         ? bare(r.perLender.amount)
         : (r.automatic
             // Stripe Capital's balance IS the Xero sweep. There is no outside
             // party who could disagree with it, so it is reported as swept —
             // never as "no evidence" (amendment A2).
-            ? '<span class="lcb-na">n/a — swept from Xero</span>'
+            ? '<span class="lcb-na">swept from Xero</span>'
             : `<span class="lcb-none"${why}>not received</span>`);
+      // The roll-back's "derived, not stated" fact, kept as a suffix on the
+      // closing DATE rather than as a fourth source name. It belongs here: the
+      // whole point of a roll-back is that the document's date is not the
+      // column's date, and this is the cell where that shows.
+      const closeDateCell = r.perLender && r.perLender.asOf
+        ? `${esc(short(r.perLender.asOf))}${r.anchor.derivation === 'rolled_back' ? '<span class="lcb-sub soft">rolled back</span>' : ''}`
+        : '<span class="lcb-na">—</span>';
       // A tie prints NOTHING. data-tie carries the fact for anything that needs
       // to count them — a data hook outlives a glyph, and the harness was
       // asserting on "$0.00 ✓" as a string.
@@ -16002,11 +16209,17 @@
       // An 'unbooked' gap is stated WITH its cause, in the same grey as an
       // immaterial one, because the reader must not have to guess which of the
       // two de-escalations they are looking at.
+      // THE SUBTRACTION, NOT JUST ITS VERDICT. A reader has to be able to see
+      // what was covered and what is left over, or "immaterial" on a $2,707.57
+      // figure is a claim they cannot check. Explained parts first, then the
+      // residual when there is one.
       const unbookedWhy = r.unbooked
         ? r.unbooked.parts.map(p => p.kind === 'staged'
-            ? `${p.n} staged payment${p.n === 1 ? '' : 's'} not yet booked`
-            : `a payment whose period label carries no date`).join(' and ')
+            ? `staged ${bare(p.amount)}`
+            : `undated ${bare(p.amount)}`).join(' + ')
+          + (Math.abs(r.unbooked.residual) < 0.005 ? '' : ` · ${signed(r.unbooked.residual)} left`)
         : '';
+      const explainSub = unbookedWhy ? `<span class="lcb-sub">${esc(unbookedWhy)}</span>` : '';
       const varCell = r.circular
         // A check that cannot fail must never look like a check that passed.
         // Opening, movement and closing all trace to the same document here, so
@@ -16016,11 +16229,11 @@
         : r.variance == null
         ? '<span class="lcb-na">—</span>'
         : ties ? ''
-        : r.band === 'unbooked'
-        ? `<span class="lcb-na">${signed(r.variance)}<span class="lcb-sub">${esc(unbookedWhy)}</span></span>`
-        : r.band === 'immaterial'
-        ? `<span class="lcb-na">${signed(r.variance)}</span>`
-        : `<span class="lcb-off">${signed(r.variance)}</span>`;
+        // The figure is always the RAW variance — it is what sits between the
+        // Computed and Closing columns either side of it, and a reader checks it
+        // by subtracting those two. The band, and therefore the colour, come
+        // from the residual; the sub-line shows how one became the other.
+        : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-na'}">${signed(r.variance)}${explainSub}</span>`;
       const booked = r.unposted.length
         ? `<span class="lcb-flag">${r.unposted.length === 1
             ? esc(STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
@@ -16034,91 +16247,83 @@
       //
       // Unmeasured is not zero and must not render as one. A dash would read as
       // "nothing was borrowed" — the exact substitution that hid $125,000.
+      const drawnTitle = r.movement.measured
+        ? [`Measured from the Xero ledger between ${short(rf.priorEnd)} and ${short(rf.monthEnd)}: ${money(r.drawnGross)} of increase.`,
+           r.drawnNetted >= 0.005 ? `${money(r.drawnNetted)} of that is the interest half of this month's payments coming back to the loan account, so it is netted off — it is not new borrowing.${r.stagedInterest >= 0.005 ? ` ${money(r.stagedInterest)} of the interest netted belongs to a staged payment: the money has not moved, but Xero already carries the transaction, so its add-back is in the figure above.` : ''}` : '',
+           r.drawnGross - r.nettableInterest < -0.005 ? `The month's interest in the ledger (${money(r.nettableInterest)}) exceeds the measured increase, so the netting is clamped at nothing borrowed rather than going negative.` : '',
+           r.movement.mixedSign > 0 ? `${r.movement.mixedSign} journal entr${r.movement.mixedSign === 1 ? 'y both debits and credits' : 'ies both debit and credit'} this loan account; each nets into one bucket, so the gross halves are not visible here.` : '',
+          ].filter(Boolean).join(' ')
+        : (r.movement.skipReason || 'The month’s ledger movement has not been measured for this loan, so the walk assumes nothing was borrowed. It is an assumption, not a measurement.');
       const drawnCell = r.movement.measured
-        ? (Math.abs(r.drawn) >= 0.005 ? bare(r.drawn) : '<span class="lcb-na">—</span>')
-        : `<span class="lcb-none" title="${esc(r.movement.skipReason || 'The month’s ledger movement has not been measured for this loan, so the walk below assumes nothing was borrowed. It is an assumption, not a measurement.')}">not measured</span>`;
+        ? `<span title="${esc(drawnTitle)}">${Math.abs(r.drawn) >= 0.005 ? bare(r.drawn) : '<span class="lcb-na">—</span>'}</span>`
+          + (r.movement.mixedSign > 0 ? '<span class="lcb-sub soft">mixed-sign</span>' : '')
+        : `<span class="lcb-none" title="${esc(drawnTitle)}">not measured</span>`;
 
-      // ── THE NOTES COLUMN ─────────────────────────────────────────────────
-      // The ledger check, the mixed-sign warning and the origination straddle
-      // all land here rather than becoming a fourteenth column. The table is
-      // already wide; a flag with a tooltip is a column a reader can ignore.
-      const notes = [];
-      if (r.unexplainedBand === 'material') {
-        notes.push(`<span class="lcb-flag" title="${esc(`Our splits plus the measured movement do not account for what the ledger did. ${r.unexplained > 0 ? 'The ledger is higher than our walk' : 'The ledger fell further than our splits explain'} by this much.`)}">ledger off ${signed(r.unexplained)}</span>`);
-      } else if (r.unexplainedBand === 'immaterial') {
-        notes.push(`<span class="lcb-na" title="A real difference between our walk and the ledger, too small to be worth chasing on its own.">ledger ${signed(r.unexplained)}</span>`);
-      } else if (r.unexplainedBand === 'unbooked') {
-        notes.push(`<span class="lcb-na" title="The ledger already carries a staged transaction whose split this month deliberately excludes, and the gap is exactly that amount. The posting gate above owns it.">ledger ${signed(r.unexplained)} — staged</span>`);
-      } else if (r.unattributed != null && Math.abs(r.unattributed) >= 0.005) {
+      // ── THE LEDGER CHECK, NOW INSIDE THE VARIANCE CELL ───────────────────
+      // David asked for the Notes column to go: "the variance does the talking".
+      // The ledger check is the one thing that column carried which could not
+      // simply be dropped — it is a per-loan finding, and the gate chip alone
+      // would lose WHICH loan. So it becomes a second line under the variance,
+      // where it reads as what it is: the other half of "does this row add up".
+      //
+      // A tying row can still carry one, and that is the point rather than a
+      // contradiction: BayFirst SBA 2 agrees with its lender to the cent while
+      // $858.66 moved in Xero with nothing behind it. Silence in this cell means
+      // "the lender agrees", never "nothing to see".
+      //
+      // Mixed-sign and the origination straddle moved to the cells they are
+      // ABOUT — Drawn and Opening source — as a two-word sub-line plus the full
+      // sentence in the title. Nothing was dropped; it was filed.
+      const ledgerLine = r.unexplainedBand === 'material'
+        ? `<span class="lcb-sub" style="color:#b3382c" title="${esc(`Our splits plus the measured movement do not account for what the ledger did. ${r.unexplained > 0 ? 'The ledger is higher than our walk' : 'The ledger fell further than our splits explain'} by this much.`)}">ledger ${signed(r.unexplained)}</span>`
+        : r.unexplainedBand === 'immaterial'
+        ? `<span class="lcb-sub" title="A real difference between our walk and the ledger, too small to be worth chasing on its own.">ledger ${signed(r.unexplained)}</span>`
+        : r.unexplainedBand === 'unbooked'
+        ? `<span class="lcb-sub" title="The ledger already carries a staged transaction whose split this month deliberately excludes, and the gap is exactly that amount. The posting gate above owns it.">ledger ${signed(r.unexplained)} \u00b7 staged</span>`
+        : (r.unattributed != null && Math.abs(r.unattributed) >= 0.005)
         // NOT a finding, and it must not read as one. The walk and the ledger
         // differ; without the month's measured movement nobody can say whether
         // that is money borrowed or a payment nobody recorded.
-        notes.push(`<span class="lcb-na" title="${esc(`The Xero ledger closes at ${money(r.booksClosing)} and this walk computes ${money(r.computed)}. Until the month's movement is measured there is no way to tell a drawdown from a missing split, so this states the difference rather than calling it an error.`)}">ledger ${signed(r.unattributed)} — cause not measured</span>`);
-      }
-      if (r.movement.mixedSign > 0) {
-        notes.push(`<span class="lcb-flag" title="${r.movement.mixedSign} journal entr${r.movement.mixedSign === 1 ? 'y both debits and credits' : 'ies both debit and credit'} this loan account. Each nets into one bucket, so the gross halves do not appear in Drawn or in the principal.">mixed-sign journal</span>`);
-      }
-      if (r.originationGap) {
-        const g = r.originationGap;
-        notes.push(`<span class="lcb-na" title="${esc(`The signed agreement states ${money(g.agreement)} at ${short(g.asOf)}; the books carry ${money(g.books)} on that date. ${money(Math.abs(g.difference))} of the origination reaches the books after it. Which period that belongs in is a question for your accountant — this only states the difference.`)}">origination straddles the period</span>`);
-      }
-      // A payment whose period_label carries no date is in no month at all, so
-      // it is in no rollforward either. Said out loud rather than closed over.
-      const undatedFlag = r.undated.length
-        ? `<span class="lcb-flag" title="A payment whose period label carries no date cannot be placed in a month, so it is not counted in any rollforward.">${r.undated.length} undated</span>`
+        ? `<span class="lcb-sub soft" title="${esc(`The Xero ledger closes at ${money(r.booksClosing)} and this walk computes ${money(r.computed)}. Until the month's movement is measured there is no way to tell a drawdown from a missing split, so this states the difference rather than calling it an error.`)}">ledger ${signed(r.unattributed)} \u00b7 unmeasured</span>`
         : '';
-      if (undatedFlag) notes.push(undatedFlag);
+      // A payment whose period_label carries no date is in no month at all, so
+      // it is in no rollforward either. Said out loud rather than closed over —
+      // in the Status column, which is where posting state belongs.
+      const undatedFlag = r.undated.length
+        ? `<span class="lcb-sub" style="color:#b3382c" title="A payment whose period label carries no date cannot be placed in a month, so it is not counted in any rollforward.">${r.undated.length} undated</span>`
+        : '';
       return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}>
         <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span></td>
         <td class="lcb-src">${esc(a.lender || '')}</td>
         <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}">${openCell}</td>
-        <td class="lcb-src${r.opening && !r.opening.authoritative ? ' soft' : ''}" data-source="${esc((r.opening && r.opening.source) || '')}">${openSrcCell}</td>
-        <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
+        <td class="lcb-src${r.opening && !r.opening.authoritative ? ' soft' : ''}" data-source="${esc((r.opening && r.opening.source) || '')}"${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}>${openSrcCell}</td>
+        <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
         <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''}>${lenderCell}</td>
-        <td class="lcb-src">${r.perLender && r.perLender.asOf ? esc(short(r.perLender.asOf)) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-src">${closeDateCell}</td>
         <td class="lcb-src${r.perLender && !r.perLender.authoritative ? ' soft' : ''}" data-derivation="${esc(r.anchor.derivation)}"${why}>${closeSrcCell}</td>
-        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}">${varCell}</td>
-        <td style="white-space:nowrap">${booked}</td>
-        <td style="white-space:nowrap" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}>${notes.length ? notes.join(' ') : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}">${varCell}${ledgerLine}</td>
+        <td style="white-space:nowrap">${booked}${undatedFlag}</td>
       </tr>`;
     };
 
-    // ── SUBTOTALS BY GRADE ───────────────────────────────────────────────
-    // Lender-confirmed money and schedule-derived money are different claims,
-    // and a reader has to be able to see which subtotal the CPA is actually
-    // signing. Folding grade B into one line would make the total imply a higher
-    // grade than half of it has — the one thing this session exists to stop.
-    // Within EACH line opening − principal = computed still holds, which is the
-    // property session 245 established and the harness checks.
+    // ── ONE TOTAL LINE (session 247, David) ──────────────────────────────
+    // "Remove the section under the TOTAL line (OF WHICH). Instead, have the
+    // opening and closing source do the talking."
+    //
+    // The per-grade subtotals were the right answer to a table that could not
+    // say, row by row, whose figure each closing balance was. Now that Closing
+    // source names it on every row and the gate chips carry the counts, three
+    // extra footer rows restating the same split were four lines of arithmetic
+    // nobody was adding up. The GRADE SPLIT ITSELF IS NOT GONE — rf.gradeA /
+    // rf.gradeB / rf.totalsA / rf.totalsB are all still computed and still
+    // exported, the chips still count them, and the footer sentence still names
+    // them. What went is the second telling of it in the footer.
     const varianceCell = (st) => st.variance < 0.005
       ? '<span class="lcb-na">$0.00</span>'
       : `<span class="${st.material ? 'lcb-off' : 'lcb-na'}">${money(st.variance)}</span>`;
-    // Every footer row carries all twelve cells. A short row would slide its
-    // figures under the wrong headings in a CSV, which is the whole reason this
-    // table was flattened.
-    // Drawn's own coverage marker. A subtotal whose Drawn column is $0.00 across
-    // rows nobody measured is not a statement that nothing was borrowed, and the
-    // count says which it is.
-    const drawnMark = (st) => st.drawnMeasured === st.count ? ''
-      : `<span class="lcb-sub soft" style="display:inline"> ${st.drawnMeasured} of ${st.count} measured</span>`;
-    const subtotalRow = (grade, label, st) => `<tr data-subtotal="${grade}" data-count="${st.count}"${st.circular ? ` data-circular-count="${st.circular}"` : ''} data-drawn-measured="${st.drawnMeasured}">
-      <td>${esc(label)}${st.circular ? ` <span class="lcb-sub soft" style="display:inline">${st.circular} not independently checked</span>` : ''}</td>
-      <td></td>
-      <td class="lcb-n" data-amount="${st.opening}">${money(st.opening)}</td>
-      <td></td>
-      <td class="lcb-n" data-amount="${st.drawn}">${money(st.drawn)}${drawnMark(st)}</td>
-      <td class="lcb-n" data-amount="${st.principal}">${money(st.principal)}</td>
-      <td class="lcb-n" data-amount="${st.interest}">${money(st.interest)}</td>
-      <td class="lcb-n" data-amount="${st.computed}">${money(st.computed)}</td>
-      <td class="lcb-n" data-amount="${st.perLender}">${money(st.perLender)}</td>
-      <td></td>
-      <td></td>
-      <td class="lcb-n" data-variance="${st.variance}" data-material="${st.material}"${st.count && st.variance < 0.005 ? ' data-tie="1"' : ''}>${varianceCell(st)}</td>
-      <td></td><td></td>
-    </tr>`;
 
     // ── THE GRAND TOTAL ───────────────────────────────────────────────────
     // Opening / Principal / Interest / Computed cover EVERY loan and foot to the
@@ -16143,7 +16348,7 @@
       <td></td>
       <td></td>
       <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}">${varianceCell(ta)}${closingMark}</td>
-      <td></td><td></td>
+      <td></td>
     </tr>`;
 
     el.innerHTML = `
@@ -16167,32 +16372,15 @@
               <th class="lcb-n">Computed</th>
               <th class="lcb-n">Closing</th>
               <th>Closing date</th><th>Closing source</th>
-              <th class="lcb-n">Variance</th><th>Status</th><th>Notes</th>
+              <th class="lcb-n">Variance</th><th>Status</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
               ${totalRow}
-              <tr class="lcb-ofwhich"><td colspan="13">of which</td></tr>
-              ${rf.gradeA.length ? subtotalRow('A', `${rf.gradeA.length} confirmed by lender`, rf.totalsA) : ''}
-              ${rf.gradeB.length ? subtotalRow('B', `${rf.gradeB.length} per amortization schedule`, rf.totalsB) : ''}
-              ${rf.excluded.count ? `<tr class="lcb-excluded" data-subtotal="none" data-automatic="${rf.excluded.automatic}" data-drawn-measured="${rf.excluded.drawnMeasured}">
-                <td>${rf.excluded.count} with no closing balance${rf.excluded.automatic ? ` · ${rf.excluded.automatic} swept from Xero` : ''}${rf.excluded.count - rf.excluded.automatic ? ` · ${rf.excluded.count - rf.excluded.automatic} with nothing to close against` : ''}</td>
-                <td></td>
-                <td class="lcb-n" data-amount="${rf.excluded.opening}">${money(rf.excluded.opening)}</td>
-                <td></td>
-                <td class="lcb-n" data-amount="${rf.excluded.drawn}">${money(rf.excluded.drawn)}${rf.excluded.drawnMeasured === rf.excluded.count ? '' : `<span class="lcb-sub soft" style="display:inline"> ${rf.excluded.drawnMeasured} of ${rf.excluded.count} measured</span>`}</td>
-                <td class="lcb-n" data-amount="${rf.excluded.principal}">${money(rf.excluded.principal)}</td>
-                <td class="lcb-n" data-amount="${rf.excluded.interest}">${money(rf.excluded.interest)}</td>
-                <td class="lcb-n" data-amount="${rf.excluded.computed}">${money(rf.excluded.computed)}</td>
-                <td class="lcb-n">—</td><td></td><td></td><td class="lcb-n">—</td><td></td><td></td>
-              </tr>` : ''}
-              <tr class="lcb-excluded" data-subtotal="drawn-note">
-                <td colspan="14">Drawn is anything that increased the balance in the month — a new draw, a capitalised fee, an accrual journal — measured from the Xero ledger entries between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))}, never inferred from the balances themselves. Where it reads <em>not measured</em> the walk on that row assumes nothing was borrowed; that is an assumption, and the ledger check in Notes is withheld rather than guessed.</td>
-              </tr>
             </tfoot>
           </table>
         </div>
-        <div class="lcb-foot">Variance covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} actually checked for ${esc(name)} — ${judgedA} confirmed by lender${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? ` · ${rf.unbookedRows.length} differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments this month has not booked yet, which the posting gate above already counts` : ''}${rf.circularRows.length ? ` · ${rf.circularRows.length} more agree${rf.circularRows.length === 1 ? 's' : ''} by construction, because nothing independent of the schedule opens the walk, and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}${rf.undatedRows.length ? ` · ${rf.undatedRows.length} carr${rf.undatedRows.length === 1 ? 'ies' : 'y'} payments whose period label has no date, so they fall in no month at all and no rollforward can see them` : ''}. Extra principal payments are included — a rollforward measures how far the balance actually moved. Notes carries a SECOND and separate check: whether our splits plus the measured movement account for everything the Xero ledger itself did${rf.ledgerChecked.length ? ` — run on ${rf.ledgerChecked.length} loan${rf.ledgerChecked.length === 1 ? '' : 's'}` : ''}${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose month's movement has not been measured` : ''}.</div>
+        <div class="lcb-foot"><b>Drawn</b> is anything that increased the balance in the month — a new draw, a capitalised fee, an accrual journal — measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))}, never inferred from the balances. The interest half of each payment comes back to the loan account as a positive entry, so the month's booked interest is netted off it; the gross figure is in the cell's tooltip. Where it reads <em>not measured</em>, the walk on that row assumes nothing was borrowed — an assumption, not a measurement.<br><b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)} — ${judgedA} confirmed by lender${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? ` · ${rf.unbookedRows.length} differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? ` · ${rf.circularRows.length} agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. Extra principal payments are included.<br>The second line in that column is a <b>separate check</b>: whether our splits plus the measured movement account for everything the Xero ledger itself did${rf.ledgerChecked.length ? ` — run on ${rf.ledgerChecked.length}` : ''}${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}.</div>
       </div>`;
   }
 
