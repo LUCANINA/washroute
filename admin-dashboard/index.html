@@ -3299,88 +3299,145 @@
             /* Session 238: .loans-subtoggle retired with the Manage/Debt Schedule
                toggle; the same pattern now carries Client View's three sub-tabs,
                so the interaction is one users already know from Loans. */
-            /* ── the close band (session 239) ── */
-            .lcb-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-            .lcb-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: #000; letter-spacing: -.015em; }
-            .lcb-why { font-size: 12px; color: #000; }
-            .lcb-right { margin-left: auto; font-size: 11.5px; color: #000; }
-            .lcb-strip { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; padding: 11px 14px;
-                         border-radius: 11px; margin-bottom: 12px; font-size: 12.5px;
-                         border: 1px solid #000; background: #fff; color: #000; }
-            .lcb-strip.clear { border-color: #000; background: #fff; color: #000; }
-            .lcb-lead { font-weight: 700; }
+            /* ── the close band ─────────────────────────────────────────
+               SESSION 249 (David): "soften it; the Client View is the voice."
+               The band had drifted to pure black — #000 rules, #000 ink, #000
+               chip borders — which reads as a printed form rather than as the
+               same product as the tab beside it. Three rules now:
+
+                 1. INK IS GREY. --gray-900 for figures a reader acts on,
+                    --gray-500 for the prose around them, --gray-300 for the
+                    absences. Pure black appears nowhere.
+                 2. RULES ARE HAIRLINES. --gray-100 between rows, --gray-200
+                    at the edges. A table does not need a box per cell to be
+                    a table.
+                 3. ONE RED ON THE PAGE. #b3382c is spent on the blocking
+                    chips in the status strip and nowhere else — not on the
+                    tiles, not on the row figures, not on the status words.
+                    Weight and silence do the rest: when everything settled is
+                    grey, the four rows in near-black ARE the finding.
+               ------------------------------------------------------------- */
+            .lcb-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+            .lcb-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gray-900); letter-spacing: -.015em; }
+            .lcb-why { font-size: 12px; color: var(--gray-500); line-height: 1.5; }
+            .lcb-right { margin-left: auto; font-size: 11.5px; color: var(--gray-400); }
+            /* The export sits at the far end of the title line, where a reader
+               looks last. It is a quiet ghost button, not a call to action —
+               nobody comes to this page to press it. */
+            .lcb-act { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+            .lcb-export { font: inherit; font-size: 12px; font-weight: 600; color: var(--gray-500);
+                          background: #fff; border: 1px solid var(--gray-200); border-radius: 8px;
+                          padding: 5px 11px; cursor: pointer; white-space: nowrap;
+                          transition: color .12s, border-color .12s, background .12s; }
+            .lcb-export:hover { color: var(--gray-900); border-color: var(--gray-300); background: var(--gray-50); }
+            .lcb-export:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+            .lcb-strip { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; padding: 12px 16px;
+                         border-radius: 12px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.7;
+                         border: 1px solid var(--gray-200); background: #fff; color: var(--gray-500); }
+            /* THE ONE MOMENT OF COLOUR, AND IT HAS TO BE EARNED (session 249).
+               David asked for joyful. Joyful is not a brighter palette; it is
+               the page changing when you finish. Every other day this strip is
+               white with a red list. On the day the last gate clears it turns a
+               soft green and says so — a reward that cannot be faked, because
+               the class is set by `blocked`, which is the gates themselves. */
+            .lcb-strip.clear { border-color: #bbf7d0; background: #f6fdf9; color: var(--gray-600); }
+            .lcb-strip.clear .lcb-lead { color: #166534; }
+            .lcb-strip.clear .lcb-gate.ok { color: var(--gray-600); }
+            .lcb-lead { font-weight: 700; color: var(--gray-900); }
+            /* THE one red. Everything else on this page defers to it. */
             .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; color: #b3382c; }
             .lcb-lead + .lcb-gate::before,
-            .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: #000;
+            .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: var(--gray-300);
                                             font-weight: 400; }
-            .lcb-gate.ok { color: #166534; font-weight: 600; }
-            /* A real difference nobody is chasing today is not a confirmation, so it
-               does not get the green. Black, and it still carries no tick. */
-            .lcb-gate.ok[data-gate="immaterial"] { color: #000; font-weight: 400; }
-            /* ── the rollforward, reset as a document (session 241) ──────────
-               David: "this looks circa 2001." The diagnosis was one thing, not
-               a list: MONOSPACE WAS DOING A JOB IT WAS NEVER ASKED TO DO. It
-               earns its place on figures, where digits must align down a
-               column. It had been extended to prose -- "not received",
-               "nothing to check against", "booked", "our ledger" -- and prose
-               set in monospace has read as mainframe since mainframes. Three
-               separate monospace treatments appeared in a single row.
-               Proportional faces have had tabular figures for twenty years:
-               font-variant-numeric does the aligning, and the table can speak
-               in the same voice as the rest of the interface. */
-            /* THIRTEEN COLUMNS NEED A FLOOR (session 247). At width:100% alone the
-               browser squeezed the text columns until "Dexter Loan 2" wrapped onto
-               two lines, which is what made every row 58-84px of mostly whitespace
-               — the flattening had removed the second lines and the layout put
-               them straight back. The wrapper already has overflow-x:auto, so a
-               min-width costs a horizontal scrollbar on narrow screens and buys a
-               table that reads one row per loan on any screen wide enough. */
-            .lcb-table { width: 100%; min-width: 1080px; border-collapse: collapse; font-size: 13px;
+            /* A cleared gate is not an achievement to celebrate in green — it is
+               the expected state, and it should read as calmly as it behaves. */
+            .lcb-gate.ok { color: var(--gray-500); font-weight: 500; }
+            .lcb-gate.ok[data-gate="immaterial"] { color: var(--gray-400); font-weight: 400; }
+
+            /* ── the rollforward table ──────────────────────────────────────
+               NINE COLUMNS (session 249, David). It was thirteen, and four of
+               them were provenance: Lender, Opening source, Closing date,
+               Closing source. Provenance is what you check ONCE, on the one row
+               that surprised you — it is not something to read fourteen times
+               down a column to find the two rows that differ.
+
+               Nothing was deleted. Every one of those facts still travels on
+               the cell it is about, as a data- attribute, so:
+                 · the CSV export carries all thirteen columns, in full;
+                 · the harness reads them from their new homes;
+                 · hovering a row prints the whole provenance sentence in the
+                   detail line under the table.
+               A fact filed on the figure it describes is a fact that cannot
+               drift away from it. A fact in its own column can. */
+            .lcb-table { width: 100%; min-width: 880px; border-collapse: collapse; font-size: 13px;
                          font-variant-numeric: tabular-nums; }
             .lcb-table td, .lcb-table th { white-space: nowrap; }
-            .lcb-table thead th { text-align: left; padding: 9px 9px 7px; font-size: 11px; font-weight: 600;
-                                  color: #000; border-bottom: 1px solid #000; white-space: nowrap; }
+            .lcb-table thead th { text-align: left; padding: 0 12px 10px; font-size: 10.5px; font-weight: 600;
+                                  letter-spacing: .055em; text-transform: uppercase; color: var(--gray-400);
+                                  border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
             .lcb-table thead th.lcb-n { text-align: right; }
-            /* Session 247: every cell is a single line now, so the rows align on
-               their middles. `baseline` was right when a cell stacked a figure
-               over its provenance — it lined the FIGURES up — but with one line
-               per cell and three different font sizes across a row it inflated
-               every row to 64-84px of mostly whitespace. */
-            .lcb-table tbody td { padding: 7px 9px; border-bottom: 1px solid #000; vertical-align: middle; }
-            .lcb-table tbody tr:hover { background: #f2f2f2; }
-            /* No font-family override. That line was the whole problem. */
+            .lcb-table tbody td { padding: 11px 12px; border-bottom: 1px solid var(--gray-100);
+                                  vertical-align: middle; color: var(--gray-700); }
+            .lcb-table tbody tr:last-child td { border-bottom: 0; }
+            .lcb-table tbody tr { transition: background .12s; }
+            .lcb-table tbody tr:hover { background: var(--gray-50); }
             .lcb-table td.lcb-n { text-align: right; white-space: nowrap; }
-            /* The lender is context for the loan, not a column competing for
-               width. Paired under the name, the two read as one identity. */
-            .lcb-lender { display: block; font-size: 11.5px; color: #000; font-weight: 400; margin-top: 1px; }
-            /* Session 247: one fact per cell, so the table exports cleanly. The
-               provenance columns are quiet — they are context for a figure, not
-               figures themselves — and .soft keeps its old meaning: our own
-               arithmetic rather than the lender's word. */
-            .lcb-src { font-size: 11.5px; color: #000; font-weight: 400; white-space: nowrap; }
-            .lcb-src.soft { color: #000; font-style: italic; }
-            .lcb-total > td { border-top: 2px solid #000; font-weight: 700; }
+            /* The loan is the row's identity, so it carries the row's weight.
+               The lender under it is context, set two steps quieter — one
+               reading, not two facts competing. */
+            .lcb-table .td-name { font-weight: 600; color: var(--gray-900); }
+            .lcb-lender { display: block; font-size: 11px; color: var(--gray-400); font-weight: 400; margin-top: 2px; }
+            /* Retained so anything still emitting one degrades quietly rather
+               than shouting. Nothing in the rollforward renders these now. */
+            .lcb-src { font-size: 11.5px; color: var(--gray-500); font-weight: 400; white-space: nowrap; }
+            .lcb-src.soft { color: var(--gray-500); font-style: italic; }
+            .lcb-sub { display: block; font-size: 11px; color: var(--gray-400); font-weight: 400; margin-top: 2px; }
+            .lcb-sub.soft { color: var(--gray-400); font-style: italic; }
+            .lcb-total > td { border-top: 1px solid var(--gray-300); border-bottom: 0;
+                              font-weight: 700; color: var(--gray-900); }
             .lcb-ofwhich > td { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
-                                color: #000; font-weight: 700; padding-top: 10px; border: 0; }
-            /* Provenance is a footnote. It was bold rust monospace and it was
-               the loudest thing in the cell, fourteen times over. */
-            .lcb-sub { display: block; font-size: 11px; color: #000; font-weight: 400; margin-top: 2px; }
-            /* The ONE distinction a reader must not miss: this opening is our
-               own arithmetic, not the lender's. The only warm colour left. */
-            .lcb-sub.soft { color: #000; font-style: italic; }
-            .lcb-none { color: #4b5563; }
-            .lcb-na { color: #4b5563; }
-            /* Agreement is silence. Ten green ticks made the eye filter ten
-               confirmations to find the three rows that need a person. A tie
-               now prints nothing at all and carries data-tie for the harness,
-               which is a sturdier hook than a glyph anyway. */
-            .lcb-off { color: #b3382c; font-weight: 600; }
-            .lcb-flag { color: #b3382c; font-weight: 600; }
-            .lcb-table tfoot td { padding: 11px 9px; border-top: 2px solid #000;
-                                  font-weight: 600; color: #000; font-size: 13px; }
+                                color: var(--gray-400); font-weight: 700; padding-top: 10px; border: 0; }
+            /* An absence is the quietest thing on the row. It was #4b5563,
+               which is darker than the figures beside it. */
+            .lcb-none { color: var(--gray-300); }
+            .lcb-na { color: var(--gray-300); }
+            /* NO RED HERE any more (session 249). A material variance is the
+               near-black, semibold figure in a column where everything settled
+               prints nothing at all. Silence around it is louder than colour
+               on it, and it survives being printed, photocopied and read by
+               someone who does not see red. */
+            .lcb-off { color: var(--gray-900); font-weight: 650; }
+            .lcb-flag { color: var(--gray-900); font-weight: 600; }
+            .lcb-quiet { color: var(--gray-400); font-weight: 400; }
+            .lcb-table tfoot td { padding: 13px 12px; border-top: 1px solid var(--gray-300);
+                                  font-weight: 650; color: var(--gray-900); font-size: 13px; }
             .lcb-table tfoot td.lcb-n { text-align: right; }
-            .lcb-excluded td { color: #000; font-weight: 400; border-top: none; }
-            .lcb-foot { padding: 12px 14px 16px; font-size: 12px; color: #000; }
+            .lcb-excluded td { color: var(--gray-500); font-weight: 400; border-top: none; }
+            .lcb-foot { padding: 14px 18px 18px; font-size: 11.5px; color: var(--gray-400); line-height: 1.65; }
+            .lcb-foot b { color: var(--gray-500); font-weight: 600; }
+
+            /* ── the detail line (session 249) ───────────────────────────────
+               David: "no extra tidbits of information crammed underneath an
+               item — those bits can be shown on hover only."
+
+               The obvious reading is a tooltip per cell. That would have been
+               worse: this table lives inside an overflow-x:auto wrapper, which
+               clips a popup on the top and bottom rows, and twenty popups is
+               twenty places to look. So the whole row's footnotes resolve to
+               ONE line, in ONE place, directly under the table — hover a row
+               and it fills in; move away and it returns to the method note.
+
+               Its height is reserved, so nothing on the page moves when it
+               changes. A line that jumps is a line people stop reading. */
+            .lcb-detail { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+                          padding: 11px 18px; min-height: 40px; font-size: 11.5px;
+                          line-height: 1.5; color: var(--gray-500); white-space: normal;
+                          border-top: 1px solid var(--gray-100); background: var(--gray-50);
+                          transition: color .12s; }
+            .lcb-detail b { color: var(--gray-900); font-weight: 600; }
+            .lcb-detail.idle { color: var(--gray-400); }
+            .lcb-detail .lcb-dot { color: var(--gray-300); }
 
             .cv-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
             .cv-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
@@ -3528,28 +3585,31 @@
             /* The close date, beside the period tabs. Quiet by construction: no
                chip, no ground, no accent — it states a standing condition, not an
                event, and the tab group beside it is what the eye should land on. */
-            .lpb-close { font-size:12px; color:#000; line-height:1.35; }
-            .lpb-close b { font-weight:600; }
-            .lpb-seg { display:inline-flex; background:var(--gray-100); border:1px solid #000;
+            .lpb-close { font-size:12px; color:var(--gray-500); line-height:1.35; }
+            .lpb-close b { font-weight:600; color:var(--gray-700); }
+            .lpb-seg { display:inline-flex; background:var(--gray-100); border:1px solid var(--gray-200);
               border-radius:11px; padding:3px; gap:3px; }
             .lpb-seg button { font:inherit; cursor:pointer; border:0; background:transparent;
-              color:#4b5563; padding:7px 15px 7px 13px; border-radius:8px; display:flex;
+              color:var(--gray-500); padding:7px 15px 7px 13px; border-radius:8px; display:flex;
               align-items:center; gap:9px; text-align:left; line-height:1.15;
               transition:background .12s, color .12s, box-shadow .12s; }
-            .lpb-seg button:hover { color:#000; }
+            .lpb-seg button:hover { color:var(--gray-900); }
             .lpb-seg button:focus-visible { outline:2px solid var(--blue,#3b82f6); outline-offset:2px; }
-            .lpb-seg button.on { background:#fff; color:#000;
-              box-shadow:0 0 0 1px #000; }
+            .lpb-seg button.on { background:#fff; color:var(--gray-900);
+              box-shadow:0 1px 2px rgba(15,37,71,.08); }
             .lpb-k { display:block; font-size:10px; font-weight:700; letter-spacing:.09em;
-              text-transform:uppercase; color:#4b5563; }
+              text-transform:uppercase; color:var(--gray-400); }
             .lpb-seg button.on .lpb-k { color:#2563eb; }
             .lpb-v { display:block; font-size:13.5px; font-weight:650; }
             .lpb-pip { width:8px; height:8px; border-radius:50%; flex:none; }
             .lpb-pip.warn { background:#b3382c; }
-            .lpb-pip.ok   { background:#16a34a; }
+            .lpb-pip.ok   { background:var(--gray-300); }
             .lpb-pip.live { background:#3b82f6; }
-            .lpb-count { font-size:10.5px; font-weight:700; background:#fff; color:#b3382c;
-              border:1px solid #000; border-radius:20px; padding:1px 7px; margin-left:2px; }
+            /* Session 249: this badge counted the SAME blockers the status strip
+               names in red a few pixels below. One red on the page means this
+               one states the count and lets the strip carry the alarm. */
+            .lpb-count { font-size:10.5px; font-weight:700; background:var(--gray-100); color:var(--gray-600);
+              border:1px solid var(--gray-200); border-radius:20px; padding:1px 7px; margin-left:2px; }
             /* Session 248 (David): the "Books closed through ... / Xero lock date"
                chip row is gone from this bar. The close date itself is NOT gone --
                it is stated in the rollforward's footer, where the workpaper already
@@ -3564,17 +3624,17 @@
             .lct .bk-tile { background: transparent; border: 0; box-shadow: none;
                             border-radius: 0; padding: 0 26px 0 0; min-width: 190px;
                             flex: 1 1 0; align-self: stretch; }
-            .lct .bk-tile + .bk-tile { border-left: 1px solid #000; padding-left: 26px; }
+            .lct .bk-tile + .bk-tile { border-left: 1px solid var(--gray-200); padding-left: 26px; }
             .lct .bk-tiles { gap: 0; align-items: stretch; }
-            .lct .bk-tile-label { font-size: 12.5px; font-weight: 500; color: #000;
+            .lct .bk-tile-label { font-size: 12.5px; font-weight: 500; color: var(--gray-500);
                                   white-space: normal; margin-bottom: 5px; }
             .lct .bk-tile-value { font-size: 27px; font-weight: 650; letter-spacing: -.02em;
-                                  font-variant-numeric: tabular-nums; color: #000; }
+                                  font-variant-numeric: tabular-nums; color: var(--gray-900); }
             .lct .bk-tile-delta { font-weight: 400; font-size: 12px; line-height: 1.45;
                                   white-space: normal; }
             /* .bk-tile-delta.flat is grey and SHARED with the Overview KPI tiles.
                Forked here rather than changed globally. */
-            .lct .bk-tile-delta.flat { color: #000; }
+            .lct .bk-tile-delta.flat { color: var(--gray-400); }
             .bk-queue-stale { font-size: 11.5px; color: #92400e; background: #fffbeb;
               border: 1px solid #fde68a; border-radius: 5px; padding: 3px 7px;
               margin-top: 5px; display: inline-block; }
@@ -15999,7 +16059,11 @@
            b.unbooked ? `${money(b.rf.varianceUnbooked)} not booked yet` : '',
            b.off ? `${b.off} loan${b.off === 1 ? '' : 's'} disagree with the lender` : ''
           ].filter(Boolean).join(' · ') + '.',
-          b.off ? '#b3382c' : null)
+          // ONE RED ON THE PAGE (session 249, David). These four tiles carried
+          // red on the figure whenever the thing they measure was non-zero,
+          // which put three reds above a strip whose whole job is to be the
+          // red. A tile states a quantity; the strip states whether it blocks.
+          null)
       // The ledger check gets its own tile rather than sharing the variance one.
       // "Does the ledger agree with the lender" and "do our splits explain what
       // the ledger did" are different questions with different answers, and a
@@ -16013,13 +16077,13 @@
             : b.rf.ledgerChecked.length
             ? `All ${b.rf.ledgerChecked.length} measured ledger${b.rf.ledgerChecked.length === 1 ? '' : 's'} are fully explained.`
             : 'Not measured yet — this check needs the month’s ledger movement.',
-          b.ledgerOff ? '#b3382c' : null)
+          null)
       + tile('Not yet in Xero',
           b.unposted ? money(b.unpostedTotal) : '$0.00',
           b.unposted
             ? `${b.unposted} ${name} split${b.unposted === 1 ? '' : 's'} still unposted.`
             : 'Everything for this month is booked.',
-          b.unposted ? '#b3382c' : null)
+          null)
       + tile(`Paid in ${name}`, money(paidP + paidI),
           `${money(paidP)} principal · ${money(paidI)} interest`)
       + '</div></div>';
@@ -16173,45 +16237,35 @@
       return _anchorSourceLabel(r.perLender.source);
     };
 
+    // ── ONE ROW, NINE CELLS, AND A SENTENCE UNDER THE TABLE ──────────────
+    // Session 249 (David): "eliminate what is not essential ... no extra tidbits
+    // of information crammed underneath an item. Those bits can be shown on
+    // hover only."
+    //
+    // Two things had to stay true while four columns and every sub-line came
+    // off the screen, and they are the whole design of this function:
+    //
+    //   1. NOTHING IS DELETED, ONLY REFILED. Every fact that used to occupy a
+    //      column or a second line now rides as a data- attribute on the cell
+    //      whose figure it is about. The CSV export reads those attributes, so
+    //      the exported workpaper is WIDER than the screen, not narrower; the
+    //      harness reads them from their new homes; and _rowHint below turns
+    //      the same attributes into the sentence the detail line prints.
+    //   2. A HIDDEN FACT MUST STILL BE REACHABLE WITHOUT A CLICK. Hover is the
+    //      whole affordance, so the hint has to be complete — a reader who
+    //      hovers must not then have to open a tooltip to finish the thought.
     const row = (r) => {
       const a = r.a;
-      // .lcb-sub.soft means "our own arithmetic, not the lender's" and it is the
-      // only warm colour left in this table. It is correct for a books-side
-      // opening and for a schedule-derived closing; a lender document gets the
-      // plain grey footnote.
       const openCell = r.opening
         ? bare(r.opening.amount)
         : '<span class="lcb-none">no opening balance</span>';
-      // ONE FACT PER CELL (session 247). David asked for this so the table can
-      // go to CSV or PDF without a parser having to split "6/30 · our books,
-      // rebuilt from Xero" back into a date and a provenance. The date the
-      // opening was struck is the same for every row — it is in the column
-      // header — so only the provenance needs a cell of its own. The closing
-      // date is NOT: every row closes on its own evidence date, so that gets a
-      // column too.
-      // Two names, not seven — see _closeOpeningSourceLabel. The exact source
-      // stays in data-source and in the title, so nothing is lost to anything
-      // that needs it; the column just stops making a reader parse provenance
-      // trivia fourteen times to find the two rows that differ.
       // ── A STRADDLE, OR A LOAN RECOGNISED WHOLLY INSIDE THE MONTH ────────
       // One rule, two different facts, and calling both a "straddle" made the
-      // second one a lie on a workpaper (session 248, David asked whether
-      // Stripe's origination really straddles: it does not, any more). In both
-      // cases the signed agreement is dated on or before the prior month end.
-      // What differs is what the BOOKS carry on that date:
-      //
-      //   books > 0 : part of the loan was recognised before the month and part
-      //               after. Genuinely split across the boundary — a straddle.
-      //   books = 0 : nothing was recognised before the month at all, so the
-      //               WHOLE loan lands inside it. Nothing is split. (Stripe,
-      //               once the fee journal moved off 6/30 onto 7/1: the books
-      //               now carry $0.00 at 6/30 and Drawn carries all 145,875.)
-      //
-      // Both still SAY something, because both put the same question to the
-      // accountant — whether the recognition belongs in the earlier period —
-      // and on the second the whole loan rides on the answer rather than part
-      // of it. Only the words change. data-origination-gap fires for both,
-      // unchanged, so nothing reading this row by attribute is affected.
+      // second one a lie on a workpaper (session 248). In both cases the signed
+      // agreement is dated on or before the prior month end. What differs is
+      // what the BOOKS carry on that date: books > 0 means part was recognised
+      // before the month and part after — genuinely split. books = 0 means the
+      // WHOLE loan lands inside the month, and nothing is split at all.
       const origWhole = !!r.originationGap && Math.abs(r.originationGap.books) < 0.005;
       const openTitle = [
         r.opening ? `Taken from ${_anchorSourceLabel(r.opening.source)}, ${_bkPlainDate(r.opening.asOf)}.` : '',
@@ -16221,23 +16275,11 @@
           ? `The signed agreement is dated ${short(r.originationGap.asOf)} and states ${money(r.originationGap.agreement)}, but the books carry nothing at that date, so the whole loan is recognised inside this month — it is not split across the boundary. Whether the recognition belongs in the earlier period is a question for your accountant.`
           : `The signed agreement states ${money(r.originationGap.agreement)} at ${short(r.originationGap.asOf)}; the books carry ${money(r.originationGap.books)}. ${money(Math.abs(r.originationGap.difference))} of the origination reaches the books after that date. Which period that belongs in is a question for your accountant.`,
       ].filter(Boolean).join(' ');
-      const openSrcCell = r.opening
-        ? `<span${openTitle ? ` title="${esc(openTitle)}"` : ''}>${esc(_closeOpeningSourceLabel(r.opening.source))}</span>`
-          + (r.openingStaged ? '<span class="lcb-sub">staged included</span>' : '')
-          + (r.originationGap ? `<span class="lcb-sub soft">${origWhole ? 'recognised this month' : 'origination straddles'}</span>` : '')
-        : '<span class="lcb-na">—</span>';
       // A REFUSAL IS AN ANSWER AND IT HAS TO BE READABLE. _loanClosingAnchor
       // declines a roll-back for stated reasons — an unlabelled balance, an
       // unposted payment in the window — and a blank cell with the reason known
-      // only to the code is the same silence this session came to remove.
+      // only to the code is a silence, not a safeguard.
       const why = r.anchor.note ? ` title="${esc(r.anchor.note)}"` : '';
-      // Nothing is repeated across two cells. The Closing cell already reads
-      // "swept from Xero" on an automatic loan, so the source cell beside it
-      // says nothing rather than saying it twice — David's "remove extra words",
-      // applied where it costs no information.
-      const closeSrcCell = r.perLender
-        ? `<span title="${esc(_anchorSourceLabel(r.perLender.source))}">${esc(_closeClosingSourceLabel(r.grade))}</span>`
-        : '<span class="lcb-na">—</span>';
       const lenderCell = r.perLender
         ? bare(r.perLender.amount)
         : (r.automatic
@@ -16246,65 +16288,48 @@
             // never as "no evidence" (amendment A2).
             ? '<span class="lcb-na">swept from Xero</span>'
             : `<span class="lcb-none"${why}>not received</span>`);
-      // The roll-back's "derived, not stated" fact, kept as a suffix on the
-      // closing DATE rather than as a fourth source name. It belongs here: the
-      // whole point of a roll-back is that the document's date is not the
-      // column's date, and this is the cell where that shows.
-      const closeDateCell = r.perLender && r.perLender.asOf
-        ? `${esc(short(r.perLender.asOf))}${r.anchor.derivation === 'rolled_back' ? '<span class="lcb-sub soft">rolled back</span>' : ''}`
-        : '<span class="lcb-na">—</span>';
-      // A tie prints NOTHING. data-tie carries the fact for anything that needs
-      // to count them — a data hook outlives a glyph, and the harness was
-      // asserting on "$0.00 ✓" as a string.
-      //
-      // Three outcomes now, not two (amendment A1): tie (silence), immaterial
-      // (grey, figure shown, does not block) and material (red, blocks). An
-      // immaterial difference is DE-ESCALATED, never hidden.
       const ties = r.band === 'tie';
       const signed = (n2) => `${n2 > 0 ? '+' : '−'}${bare(Math.abs(n2))}`;
-      // An 'unbooked' gap is stated WITH its cause, in the same grey as an
-      // immaterial one, because the reader must not have to guess which of the
-      // two de-escalations they are looking at.
       // THE SUBTRACTION, NOT JUST ITS VERDICT. A reader has to be able to see
       // what was covered and what is left over, or "immaterial" on a $2,707.57
-      // figure is a claim they cannot check. Explained parts first, then the
-      // residual when there is one.
+      // figure is a claim they cannot check. It reads in the hint now instead
+      // of under the figure, but it still reads.
       const unbookedWhy = r.unbooked
         ? r.unbooked.parts.map(p => p.kind === 'staged'
             ? `staged ${bare(p.amount)}`
             : `undated ${bare(p.amount)}`).join(' + ')
           + (Math.abs(r.unbooked.residual) < 0.005 ? '' : ` · ${signed(r.unbooked.residual)} left`)
         : '';
-      const explainSub = unbookedWhy ? `<span class="lcb-sub">${esc(unbookedWhy)}</span>` : '';
       const varCell = r.circular
         // A check that cannot fail must never look like a check that passed.
         // Opening, movement and closing all trace to the same document here, so
         // the agreement is arithmetic rather than evidence about the world. No
-        // data-tie, no variance, counted in neither column.
-        ? '<span class="lcb-sub soft" style="display:inline">agrees by construction — not an independent check</span>'
+        // data-tie, no variance, counted in neither column. The words are long
+        // and they belong in the hint; the cell says only that this row was not
+        // independently checked, which is the fact a scanner needs.
+        ? '<span class="lcb-quiet">by construction</span>'
         : r.variance == null
         ? '<span class="lcb-na">—</span>'
         : ties ? ''
         // The figure is always the RAW variance — it is what sits between the
         // Computed and Closing columns either side of it, and a reader checks it
-        // by subtracting those two. The band, and therefore the colour, come
-        // from the residual; the sub-line shows how one became the other.
-        : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-na'}">${signed(r.variance)}${explainSub}</span>`;
+        // by subtracting those two. The band, and therefore the WEIGHT, come
+        // from the residual; the hint shows how one became the other.
+        : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-quiet'}">${signed(r.variance)}</span>`;
       const booked = r.unposted.length
         ? `<span class="lcb-flag">${r.unposted.length === 1
             ? esc(STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
             : esc(r.unposted.length + ' unposted')}</span>`
         : (r.splits.length
-            // Green means booked, red means not (the .lcb-flag above). "No
-            // payment" is neither, and stays grey. Inline rather than a new
-            // class: every class and data- hook on this table is asserted on.
-            ? '<span style="color:#166534;font-weight:600">Booked</span>'
+            // Session 249: "Booked" was green. Booked is the expected state on
+            // thirteen of fourteen rows, and thirteen green words made the eye
+            // filter every confirmation to find the one that needed a person.
+            // Settled is grey. The rows still needing something are near-black.
+            ? '<span class="lcb-quiet">Booked</span>'
             : '<span class="lcb-na">No payment</span>');
       // ── DRAWN ─────────────────────────────────────────────────────────────
       // Anything that INCREASED the balance in the month, which is broader than
-      // borrowing: a new draw, a capitalised fee, an accrual journal. The word
-      // on the header is "Drawn" because that is what it usually is; the footer
-      // sentence says what it actually measures.
+      // borrowing: a new draw, a capitalised fee, an accrual journal.
       //
       // Unmeasured is not zero and must not render as one. A dash would read as
       // "nothing was borrowed" — the exact substitution that hid $125,000.
@@ -16317,56 +16342,65 @@
         : (r.movement.skipReason || 'The month’s ledger movement has not been measured for this loan, so the walk assumes nothing was borrowed. It is an assumption, not a measurement.');
       const drawnCell = r.movement.measured
         ? `<span title="${esc(drawnTitle)}">${Math.abs(r.drawn) >= 0.005 ? bare(r.drawn) : '<span class="lcb-na">—</span>'}</span>`
-          + (r.movement.mixedSign > 0 ? '<span class="lcb-sub soft">mixed-sign</span>' : '')
         : `<span class="lcb-none" title="${esc(drawnTitle)}">not measured</span>`;
 
-      // ── THE LEDGER CHECK, NOW INSIDE THE VARIANCE CELL ───────────────────
-      // David asked for the Notes column to go: "the variance does the talking".
-      // The ledger check is the one thing that column carried which could not
-      // simply be dropped — it is a per-loan finding, and the gate chip alone
-      // would lose WHICH loan. So it becomes a second line under the variance,
-      // where it reads as what it is: the other half of "does this row add up".
-      //
-      // A tying row can still carry one, and that is the point rather than a
-      // contradiction: BayFirst SBA 2 agrees with its lender to the cent while
-      // $858.66 moved in Xero with nothing behind it. Silence in this cell means
-      // "the lender agrees", never "nothing to see".
-      //
-      // Mixed-sign and the origination straddle moved to the cells they are
-      // ABOUT — Drawn and Opening source — as a two-word sub-line plus the full
-      // sentence in the title. Nothing was dropped; it was filed.
-      const ledgerLine = r.unexplainedBand === 'material'
-        ? `<span class="lcb-sub" style="color:#b3382c" title="${esc(`Our splits plus the measured movement do not account for what the ledger did. ${r.unexplained > 0 ? 'The ledger is higher than our walk' : 'The ledger fell further than our splits explain'} by this much.`)}">ledger ${signed(r.unexplained)}</span>`
+      // ── THE LEDGER CHECK ─────────────────────────────────────────────────
+      // The other half of "does this row add up", and a DIFFERENT question from
+      // the variance beside it: the variance asks whether the books agree with
+      // the lender, this asks whether our splits explain what the Xero ledger
+      // itself did. A row can pass one and fail the other — BayFirst SBA 2
+      // agrees with its lender to the cent while $858.66 moved in Xero with
+      // nothing behind it — so folding them into one number would hide exactly
+      // that. It is a sentence in the hint now, and it stays its own CSV column.
+      const ledgerNote = r.unexplainedBand === 'material'
+        ? `ledger ${signed(r.unexplained)} — ${r.unexplained > 0 ? 'the ledger is higher than this walk' : 'the ledger fell further than our splits explain'}`
         : r.unexplainedBand === 'immaterial'
-        ? `<span class="lcb-sub" title="A real difference between our walk and the ledger, too small to be worth chasing on its own.">ledger ${signed(r.unexplained)}</span>`
+        ? `ledger ${signed(r.unexplained)} — a real difference, too small to chase on its own`
         : r.unexplainedBand === 'unbooked'
-        ? `<span class="lcb-sub" title="The ledger already carries a staged transaction whose split this month deliberately excludes, and the gap is exactly that amount. The posting gate above owns it.">ledger ${signed(r.unexplained)} \u00b7 staged</span>`
+        ? `ledger ${signed(r.unexplained)} — a staged transaction this month deliberately excludes; the posting gate owns it`
         : (r.unattributed != null && Math.abs(r.unattributed) >= 0.005)
-        // NOT a finding, and it must not read as one. The walk and the ledger
-        // differ; without the month's measured movement nobody can say whether
-        // that is money borrowed or a payment nobody recorded.
-        ? `<span class="lcb-sub soft" title="${esc(`The Xero ledger closes at ${money(r.booksClosing)} and this walk computes ${money(r.computed)}. Until the month's movement is measured there is no way to tell a drawdown from a missing split, so this states the difference rather than calling it an error.`)}">ledger ${signed(r.unattributed)} \u00b7 unmeasured</span>`
+        // NOT a finding, and it must not read as one. Without the month's
+        // measured movement nobody can tell a drawdown from a missing split.
+        // THE WORD "unmeasured" IS LOAD-BEARING, not decoration. It is the one
+        // token that separates a stated difference from a finding, the suite
+        // asserts on it by name, and a rewrite that reads better without it is
+        // a rewrite that quietly turned a refusal into an accusation.
+        ? `ledger ${signed(r.unattributed)} — unmeasured: stated, not diagnosed until the month’s movement is measured`
         : '';
-      // A payment whose period_label carries no date is in no month at all, so
-      // it is in no rollforward either. Said out loud rather than closed over —
-      // in the Status column, which is where posting state belongs.
-      const undatedFlag = r.undated.length
-        ? `<span class="lcb-sub" style="color:#b3382c" title="A payment whose period label carries no date cannot be placed in a month, so it is not counted in any rollforward.">${r.undated.length} undated</span>`
-        : '';
-      return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}>
-        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span></td>
-        <td class="lcb-src">${esc(a.lender || '')}</td>
-        <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}">${openCell}</td>
-        <td class="lcb-src${r.opening && !r.opening.authoritative ? ' soft' : ''}" data-source="${esc((r.opening && r.opening.source) || '')}"${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}>${openSrcCell}</td>
+
+      // ── THE HINT ─────────────────────────────────────────────────────────
+      // Everything that came off the screen, in the order a person reads a row:
+      // who lent it, where the opening came from, what the closing closes
+      // against and on what date, then anything unusual. Assembled here rather
+      // than in the hover handler so it is inspectable in the DOM and so the
+      // handler stays a one-line lookup.
+      const hint = [
+        a.lender || '',
+        r.opening ? `opening ${_anchorSourceLabel(r.opening.source)}` : 'no opening balance on file',
+        r.openingStaged ? `includes ${r.openingStaged} staged transaction${r.openingStaged === 1 ? '' : 's'}` : '',
+        r.originationGap ? (origWhole ? 'the whole loan is recognised inside this month' : 'origination straddles the period') : '',
+        r.perLender
+          ? `closes ${r.perLender.asOf ? short(r.perLender.asOf) + ' ' : ''}on ${_anchorSourceLabel(r.perLender.source)}${r.anchor.derivation === 'rolled_back' ? ', rolled back to month end' : ''}`
+          : (r.automatic ? 'closes on the Xero sweep — no outside party to disagree' : 'no closing statement received'),
+        r.anchor.note || '',
+        r.circular ? 'agrees by construction — opening, movement and closing all trace to one document, so this is not an independent check' : '',
+        unbookedWhy ? `variance explained by ${unbookedWhy}` : '',
+        ledgerNote,
+        r.movement.mixedSign > 0 ? `${r.movement.mixedSign} mixed-sign journal entr${r.movement.mixedSign === 1 ? 'y' : 'ies'}` : '',
+        r.movement.measured ? '' : 'the month’s ledger movement was not measured on this loan',
+        r.undated.length ? `${r.undated.length} undated payment${r.undated.length === 1 ? '' : 's'} — no date on the split, so ${r.undated.length === 1 ? 'it sits' : 'they sit'} in no month at all` : '',
+      ].filter(Boolean).join(' · ');
+
+      return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
+        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span><span class="lcb-lender">${esc(a.lender || '')}</span></td>
+        <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
         <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
         <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
-        <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''}>${lenderCell}</td>
-        <td class="lcb-src">${closeDateCell}</td>
-        <td class="lcb-src${r.perLender && !r.perLender.authoritative ? ' soft' : ''}" data-derivation="${esc(r.anchor.derivation)}"${why}>${closeSrcCell}</td>
-        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}">${varCell}${ledgerLine}</td>
-        <td style="white-space:nowrap">${booked}${undatedFlag}</td>
+        <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
+        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
+        <td>${booked}</td>
       </tr>`;
     };
 
@@ -16384,7 +16418,7 @@
     // them. What went is the second telling of it in the footer.
     const varianceCell = (st) => st.variance < 0.005
       ? '<span class="lcb-na">$0.00</span>'
-      : `<span class="${st.material ? 'lcb-off' : 'lcb-na'}">${money(st.variance)}</span>`;
+      : `<span class="${st.material ? 'lcb-off' : 'lcb-quiet'}">${money(st.variance)}</span>`;
 
     // ── THE GRAND TOTAL ───────────────────────────────────────────────────
     // Opening / Principal / Interest / Computed cover EVERY loan and foot to the
@@ -16393,21 +16427,20 @@
     // describe different populations is the defect this footer was rebuilt to
     // remove. Do not delete the marker to tidy the row — delete the mismatch.
     const ta = rf.totalsAll;
-    const mark = (n) => `<span class="lcb-sub soft" style="display:inline"> ${n} of ${ta.count}</span>`;
+    // Session 249: the marker is a quiet inline aside, not a stacked sub-line —
+    // it belongs to the figure it qualifies and it must not survive into the
+    // CSV as a second line inside a money cell. The export reads data-amount.
+    const mark = (n) => `<span class="lcb-quiet" style="font-size:11px"> ${n} of ${ta.count}</span>`;
     const rollMark = ta.rollCovers ? '' : mark(ta.rollCount);
     const closingMark = ta.closingCovers ? '' : mark(ta.closingCount);
     const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" data-drawn-measured="${ta.drawnMeasured}" class="lcb-total">
       <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}</td>
-      <td></td>
       <td class="lcb-n" data-amount="${ta.opening}">${money(ta.opening)}${rollMark}</td>
-      <td></td>
-      <td class="lcb-n" data-amount="${ta.drawn}">${money(ta.drawn)}${ta.drawnMeasured === ta.rollCount ? '' : `<span class="lcb-sub soft" style="display:inline"> ${ta.drawnMeasured} of ${ta.rollCount} measured</span>`}</td>
+      <td class="lcb-n" data-amount="${ta.drawn}">${money(ta.drawn)}${ta.drawnMeasured === ta.rollCount ? '' : `<span class="lcb-quiet" style="font-size:11px"> ${ta.drawnMeasured} of ${ta.rollCount} measured</span>`}</td>
       <td class="lcb-n" data-amount="${ta.principal}">${money(ta.principal)}</td>
       <td class="lcb-n" data-amount="${ta.interest}">${money(ta.interest)}</td>
       <td class="lcb-n" data-amount="${ta.computed}">${money(ta.computed)}${rollMark}</td>
       <td class="lcb-n" data-amount="${ta.perLender}">${money(ta.perLender)}${closingMark}</td>
-      <td></td>
-      <td></td>
       <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}">${varianceCell(ta)}${closingMark}</td>
       <td></td>
     </tr>`;
@@ -16415,27 +16448,35 @@
     // The close date is NOT stated here. It moved to the period bar, beside the
     // tabs, at David's direction — one home, not two (session 248).
 
+    // ── THE METHOD NOTE, SHORTENED ───────────────────────────────────────
+    // Session 249: three dense paragraphs sat under the table restating what
+    // the columns already say. What a workpaper's footnote owes a reader is the
+    // things the columns CANNOT say: what "Drawn" actually measures, which
+    // population the Variance column covers, and that a second check runs
+    // underneath. Everything else that was here is now on the row it belongs
+    // to, one hover away.
+    const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. A second check runs underneath it — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
+
     el.innerHTML = `
       <div class="lcb-head">
         <h3>Rollforward</h3>
-        <span class="lcb-why">Opening balance, plus anything drawn, minus principal paid must equal the closing balance on file — the lender's where there is one, the contractual schedule where a recorded policy says so.</span>
+        <span class="lcb-why">Opening, plus anything drawn, minus principal paid, should equal the closing balance on file.</span>
+        <span class="lcb-act"><button type="button" class="lcb-export" onclick="exportRollforwardCSV()" title="Save this rollforward as a spreadsheet — including the sources, dates and notes shown on hover">⤓ Export CSV</button></span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}">
         <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
         ${gates.map(chip).join('')}
       </div>
-      <div class="card" style="overflow:hidden;box-shadow:none;border-color:#000">
-        <div style="overflow-x:auto">
-          <table class="lcb-table">
+      <div class="card" style="overflow:hidden;box-shadow:0 1px 2px rgba(15,37,71,.04);border-color:var(--gray-200);border-radius:14px">
+        <div style="overflow-x:auto;padding:14px 6px 0">
+          <table class="lcb-table" id="lcb-table">
             <thead><tr>
-              <th>Loan</th><th>Lender</th>
+              <th>Loan</th>
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
-              <th>Opening source</th>
               <th class="lcb-n">Drawn</th>
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n">Computed</th>
               <th class="lcb-n">Closing</th>
-              <th>Closing date</th><th>Closing source</th>
               <th class="lcb-n">Variance</th><th>Status</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
@@ -16444,8 +16485,124 @@
             </tfoot>
           </table>
         </div>
-        <div class="lcb-foot"><b>Drawn</b> is anything that increased the balance in the month — a new draw, a capitalised fee, an accrual journal — measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))}, never inferred from the balances. The interest half of each payment comes back to the loan account as a positive entry, so the month's booked interest is netted off it; the gross figure is in the cell's tooltip. Where it reads <em>not measured</em>, the walk on that row assumes nothing was borrowed — an assumption, not a measurement.<br><b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)} — ${judgedA} confirmed by lender${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? ` · ${rf.unbookedRows.length} differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? ` · ${rf.circularRows.length} agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? ` · ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. Extra principal payments are included.<br>The second line in that column is a <b>separate check</b>: whether our splits plus the measured movement account for everything the Xero ledger itself did${rf.ledgerChecked.length ? ` — run on ${rf.ledgerChecked.length}` : ''}${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}.</div>
+        <div class="lcb-detail idle" id="lcb-detail" data-idle="${esc(`Hover a loan for where its figures came from — ${rf.rows.length} rows, ${esc(name)}.`)}">Hover a loan for where its figures came from.</div>
+        <div class="lcb-foot">${footNote}</div>
       </div>`;
+
+    // ── THE HOVER WIRING ─────────────────────────────────────────────────
+    // One delegated listener on the tbody, reading the hint the row already
+    // carries. Deliberately NOT a per-cell tooltip: this table sits in an
+    // overflow-x:auto wrapper, which clips a popup on the first and last rows,
+    // and the row's facts belong together anyway — they are one sentence about
+    // one loan, not nine unrelated asides.
+    const tbody = el.querySelector('.lcb-table tbody');
+    const detail = el.querySelector('#lcb-detail');
+    if (tbody && detail) {
+      const idle = detail.getAttribute('data-idle') || '';
+      const show = (tr) => {
+        if (!tr) { detail.className = 'lcb-detail idle'; detail.textContent = idle; return; }
+        const hint = tr.getAttribute('data-hint') || '';
+        detail.className = 'lcb-detail';
+        detail.innerHTML = `<b>${esc(tr.getAttribute('data-loan') || '')}</b>`
+          + (hint ? `<span>${esc(hint).replace(/ · /g, ' <span class="lcb-dot">·</span> ')}</span>` : '');
+      };
+      detail.textContent = idle;
+      tbody.addEventListener('mouseover', (ev) => {
+        const tr = ev.target && ev.target.closest ? ev.target.closest('tr') : null;
+        if (tr && tbody.contains(tr)) show(tr);
+      });
+      // Focus as well as hover: a keyboard reader tabbing the table gets the
+      // same sentence a mouse gets. A fact reachable only by pointer is a fact
+      // some readers do not have.
+      tbody.addEventListener('focusin', (ev) => {
+        const tr = ev.target && ev.target.closest ? ev.target.closest('tr') : null;
+        if (tr && tbody.contains(tr)) show(tr);
+      });
+      tbody.addEventListener('mouseleave', () => show(null));
+    }
+  }
+
+  // ── EXPORT (session 249, David: "make the table exportable to CSV") ──────
+  // It reads the DATA ATTRIBUTES, not the rendered text, and that is the whole
+  // point rather than an implementation detail. The screen shows nine columns;
+  // the file carries fifteen, because every fact the redesign moved to a hover
+  // is still on the cell it describes. A CSV built by scraping textContent
+  // would export exactly what the screen chose to show — which is the opposite
+  // of what a workpaper is for.
+  function exportRollforwardCSV() {
+    const table = document.getElementById('lcb-table');
+    if (!table) { showToast('Nothing to export yet — the rollforward is still loading.', 'error'); return; }
+    const q = (v) => { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const att = (el, n) => (el && el.getAttribute(n)) || '';
+    // A money cell exports its stored amount, never its formatted text: commas
+    // and the − sign are a reading convenience and a spreadsheet chokes on both.
+    const amt = (td) => { const v = att(td, 'data-amount'); return v === '' ? '' : Number(v).toFixed(2); };
+    const txt = (td) => (td ? (td.textContent || '').replace(/\s+/g, ' ').trim() : '');
+
+    const head = ['Loan', 'Lender', 'Opening', 'Opening source', 'Drawn', 'Drawn gross',
+                  'Principal', 'Interest', 'Computed', 'Closing', 'Closing date',
+                  'Closing source', 'Variance', 'Variance explained by',
+                  'Ledger unexplained', 'Status', 'Notes'];
+    const rows = [head];
+    for (const tr of table.querySelectorAll('tbody tr')) {
+      const td = [...tr.children];
+      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cStat] = td;
+      rows.push([
+        att(tr, 'data-loan'),
+        att(tr, 'data-lender'),
+        amt(cOpen),
+        att(cOpen, 'data-source-label') || att(cOpen, 'data-source'),
+        // "not measured" is not a blank and not a zero — the distinction this
+        // module spent a session establishing must survive the export.
+        att(cDrawn, 'data-drawn-measured') === '1' ? amt(cDrawn) : 'not measured',
+        att(cDrawn, 'data-drawn-gross') ? Number(att(cDrawn, 'data-drawn-gross')).toFixed(2) : '',
+        amt(cPrin), amt(cInt), amt(cComp),
+        att(cClose, 'data-amount') ? amt(cClose) : txt(cClose),
+        att(cClose, 'data-closing-date-iso'),
+        att(cClose, 'data-closing-source-label') || att(cClose, 'data-closing-source'),
+        // A tie exports 0.00, not blank; a row that agrees by construction
+        // exports the words, because it is not a zero variance — it is no
+        // variance measurement at all.
+        cVar.hasAttribute('data-circular') ? 'agrees by construction'
+          : (att(cVar, 'data-variance') === '' ? (cVar.hasAttribute('data-tie') ? '0.00' : '')
+             : Number(att(cVar, 'data-variance')).toFixed(2)),
+        att(cVar, 'data-variance-explained'),
+        att(cVar, 'data-unexplained') === '' ? '' : Number(att(cVar, 'data-unexplained')).toFixed(2),
+        txt(cStat),
+        att(tr, 'data-hint'),
+      ]);
+    }
+    for (const tr of table.querySelectorAll('tfoot tr')) {
+      const td = [...tr.children];
+      const [tLoan, tOpen, tDrawn, tPrin, tInt, tComp, tClose, tVar] = td;
+      rows.push([txt(tLoan).replace(/\s+\d+ of \d+.*$/, ''), '', amt(tOpen), '', amt(tDrawn), '',
+                 amt(tPrin), amt(tInt), amt(tComp), amt(tClose), '', '',
+                 att(tVar, 'data-variance') === '' ? '' : Number(att(tVar, 'data-variance')).toFixed(2),
+                 '', '', '', `${att(tr, 'data-roll-count')} of ${att(tr, 'data-count')} loans in the walk · ${att(tr, 'data-closing-count')} of ${att(tr, 'data-count')} closed against evidence`]);
+    }
+    // The provenance of the FILE, not of a row. A workpaper that leaves the
+    // screen has to say what it is and what was true when it was taken.
+    rows.push([]);
+    rows.push([`${_cvOrgName()} — Loan rollforward, ${_cvMonthName(_cvLastMonth())}`]);
+    // The strip's separators are CSS ::before pseudo-elements — invisible to
+    // textContent — so scraping it produced "all 13 accounted for✓ 11 confirmed
+    // by lender", one run-on claim. Rebuild the line from the parts instead.
+    // Anything a stylesheet draws is not a thing an export can read.
+    const strip = document.querySelector('#loans-close-band .lcb-strip');
+    rows.push([!strip ? '' : [...strip.querySelectorAll('.lcb-lead, .lcb-gate')]
+      .map(x => (x.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ')]);
+    rows.push([`Exported ${_cvTodayLong()}`]);
+
+    const csv = rows.map(r => r.map(q).join(',')).join('\r\n');
+    try {
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `loan-rollforward-${_cvLastMonth()}.csv`;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      showToast('Rollforward exported.', 'success');
+    } catch (e) { showToast('Could not save the file: ' + e.message, 'error'); }
   }
 
   function renderLoansSummary() {

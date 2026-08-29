@@ -337,12 +337,24 @@ function readSurfaces() {
       if (i < 0) throw new Error(`close band: no "${label}" column — headers are ${JSON.stringify(heads)}`);
       return i;
     };
-    const C = { loan: colIx('Loan'), lender: colIx('Lender'), opening: colIx('Opening'),
-                openingSrc: colIx('Opening source'), drawn: colIx('Drawn'), principal: colIx('Principal'),
+    // ── NINE COLUMNS NOW, NOT THIRTEEN (session 249, the softening pass) ──
+    // Lender, Opening source, Closing date and Closing source came off the
+    // screen. NOT out of the DOM: each is a data- attribute on the cell whose
+    // figure it describes, which is where it always belonged — a provenance in
+    // its own column can drift away from the number it qualifies, one attached
+    // to the number cannot.
+    //
+    // So openingSrc/closingDate/closingSrc are ALIASES onto the figure columns,
+    // and every reader below that used to take a cell's TEXT now takes the
+    // attribute. That is a stronger test than the old one, not a weaker one:
+    // the text was a copy decision and this reads the fact.
+    const C = { loan: colIx('Loan'), opening: colIx('Opening'),
+                drawn: colIx('Drawn'), principal: colIx('Principal'),
                 interest: colIx('Interest'), computed: colIx('Computed'),
-                closing: colIx('Closing'), closingDate: colIx('Closing date'),
-                closingSrc: colIx('Closing source'), variance: colIx('Variance'),
+                closing: colIx('Closing'), variance: colIx('Variance'),
                 status: colIx('Status') };
+    C.lender = C.loan; C.openingSrc = C.opening;
+    C.closingDate = C.closing; C.closingSrc = C.closing;
     // ── THE NOTES COLUMN IS GONE (session 247, David's layout pass) ───────
     // "The variance does the talking." Nothing it carried was dropped; each
     // flag was FILED into the cell it is about, so this reader follows them
@@ -360,12 +372,31 @@ function readSurfaces() {
       // account name is read from its own span rather than by prefix-matching a
       // run-together string ("BayFirst SBA 2BayFirst National").
       const nameEl = tds[C.loan] && tds[C.loan].querySelector ? tds[C.loan].querySelector('.td-name') : null;
+      const lenderEl = tds[C.loan] && tds[C.loan].querySelector ? tds[C.loan].querySelector('.lcb-lender') : null;
       return { loan: c[C.loan], name: nameEl ? nameEl.textContent.replace(/\s+/g, ' ').trim() : c[C.loan],
-               lender: c[C.lender],
-               opening: c[C.opening], openingSource: c[C.openingSrc],
+               // The lender is under the loan name now, and it is ALSO on the
+               // row as data-lender. Read the span (what a person sees) and
+               // cross-check it against the attribute (what the export ships) —
+               // a screen and a file that disagree about who lent the money is
+               // the kind of drift this reader exists to catch.
+               lender: lenderEl ? lenderEl.textContent.replace(/\s+/g, ' ').trim() : att(tr, 'data-lender'),
+               lenderAttr: att(tr, 'data-lender'),
+               // Every row now carries the sentence the detail line prints on
+               // hover. It is the only home the moved facts have on screen, so
+               // an assertion that a fact is still REACHABLE reads it here.
+               hint: att(tr, 'data-hint'),
+               opening: c[C.opening],
+               // Was the source column's TEXT; is the source cell's label.
+               openingSource: att(tds[C.openingSrc], 'data-source-label'),
+               openingSourceRaw: att(tds[C.openingSrc], 'data-source'),
                drawn: c[C.drawn], principal: c[C.principal], interest: c[C.interest],
                computed: c[C.computed], perLender: c[C.closing],
-               closingDate: c[C.closingDate], closingSource: c[C.closingSrc],
+               closingDate: att(tds[C.closingDate], 'data-closing-date'),
+               closingDateIso: att(tds[C.closingDate], 'data-closing-date-iso'),
+               closingSource: att(tds[C.closingSrc], 'data-closing-source-label'),
+               closingSourceRaw: att(tds[C.closingSrc], 'data-closing-source'),
+               ledgerNote: att(tds[C.variance], 'data-ledger-note'),
+               varianceExplained: att(tds[C.variance], 'data-variance-explained'),
                variance: c[C.variance], inXero: c[C.status],
                openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
                computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
@@ -2811,7 +2842,11 @@ const CLOSE_REVERTS = {
   'origination-is-stripe-only': ["String(s.source || '') === 'contract_origination' &&",
                                  "String(s.source || '') === 'contract_origination' && a.xero_account_name === 'Stripe Capital Loan' &&"],
   // A journal that both debits and credits the account stops saying so.
-  'mixed-sign-invisible': ["+ (r.movement.mixedSign > 0 ? '<span class=\"lcb-sub soft\">mixed-sign</span>' : '')", '+ \'\''],
+  // Session 249: the flag moved from a sub-line under the Drawn figure into
+  // the row's hover hint. The anchor follows it. An anchor left on the old
+  // string would report 'missing' and the CONTROL would silently stop being a
+  // control — which is the one thing worse than not having one.
+  'mixed-sign-invisible': ["r.movement.mixedSign > 0 ? `${r.movement.mixedSign} mixed-sign journal entr${r.movement.mixedSign === 1 ? 'y' : 'ies'}` : '',", "'',"],
   // The variance tie is suppressed on unmeasured months too — the symmetric
   // treatment the implementing agent deliberately did NOT adopt.
   'variance-suppressed-when-unmeasured': ['const variance = circular ? null : rawVariance;',
@@ -3065,8 +3100,13 @@ GROUPS.push({
       t.eq(rn.circular, true, 'ce1: ...yet the row is now CIRCULAR');
       t.eq(rn.ties, false, 'ce1: ...prints NO tie, on arithmetic that lands on the cent');
       t.eq(rn.varianceN, null, 'ce1: ...and reports no variance at all');
-      t.ok(/agrees by construction/.test(rn.variance || ''),
+      // Session 249: the cell says "by construction" and the hover hint carries
+      // the full sentence. Both are asserted — the short form is what a scanner
+      // sees, the long form is what stops them reading it as a pass.
+      t.ok(/by construction/.test(rn.variance || ''),
            'ce1: ...saying so, in the column a reader looks at', `cell=${JSON.stringify(rn.variance)}`);
+      t.ok(/not an independent check/.test(rn.hint || ''),
+           'ce1: ...and the row explains why, one hover away', `hint=${JSON.stringify(rn.hint)}`);
       t.eq(cbN.rows.filter(x => x.grade === 'B' && x.circular).length, 1,
            'ce1: ...and exactly one grade-B row is now marked not independently checked');
 
@@ -3254,10 +3294,10 @@ GROUPS.push({
       t.eq(rn.ties, false, 'ce3: ...which carries NO data-tie — this is not a tie');
       t.eq(rn.varianceN, null, 'ce3: ...and no variance figure at all');
       t.eq(rn.band, null, 'ce3: ...and no band, so it is in neither the ties nor the offs');
-      t.ok(/agrees by construction/.test(rn.variance || ''),
+      t.ok(/by construction/.test(rn.variance || ''),
            'ce3: ...and it SAYS so, in the column a reader looks at', `cell=${JSON.stringify(rn.variance)}`);
-      t.ok(/not an independent check/.test(rn.variance || ''),
-           'ce3: ...including why that is not the same as agreeing');
+      t.ok(/not an independent check/.test(rn.hint || ''),
+           'ce3: ...including why that is not the same as agreeing', `hint=${JSON.stringify(rn.hint)}`);
       t.ok(/agree.? by construction/.test(cbN.note || ''),
            'ce3: the footer sentence accounts for the row it excluded', `note=${JSON.stringify(cbN.note)}`);
       t.eq(cbN.rows.filter(x => x.grade === 'B' && x.circular).length, 1,
@@ -3267,8 +3307,11 @@ GROUPS.push({
       // The Notes column is gone; "N undated" was filed into Status, where
       // posting state belongs. Following it there is the point — an attribute
       // left on a dead column would still parse and stop meaning anything.
-      t.ok(/7 undated/.test(rn.inXero || ''), 'ce3: ...visibly, in the Status column',
-           `status=${JSON.stringify(rn.inXero)}`);
+      // Session 249: the flag moved from the Status column into the row's hover
+      // hint, which is now the only home the moved facts have on screen. It is
+      // ALSO its own CSV column, so nothing about the export changed.
+      t.ok(/7 undated/.test(rn.hint || ''), 'ce3: ...visibly, one hover away',
+           `hint=${JSON.stringify(rn.hint)}`);
       {
         const revU = await revertFn(pNo, '_undatedSplits', EDITS('undated-invisible'));
         t.ok(revU.ok, 'ce3 CONTROL: an _undatedSplits that reports nothing could be rebuilt', JSON.stringify(revU.missing));
@@ -3376,9 +3419,10 @@ GROUPS.push({
       // The roll-back moved to a sub-line on the Closing DATE cell, beside the
       // date it was rolled back from — which is where a reader asking "why is
       // this dated 8/25 when we are closing July?" is already looking.
-      t.ok(/rolled back/.test(r.closingDate || ''),
-           'ce5: ...and the Closing date cell says the figure was DERIVED',
-           `cell=${JSON.stringify(r.closingDate)}`);
+      t.eq(r.closingDate, '8/25', 'ce5: ...the Closing cell carries the document’s own date');
+      t.ok(/rolled back/.test(r.hint || ''),
+           'ce5: ...and the row says the figure was DERIVED, not stated at month end',
+           `hint=${JSON.stringify(r.hint)}`);
       t.eq(r.derivation, 'rolled_back', 'ce5: ...with the machine-readable derivation to match');
       t.eq(r.closingSource, 'Lender statement',
            'ce5: ...while Closing source still names whose figure it is',
@@ -3714,11 +3758,17 @@ GROUPS.push({
       const rev = await revertFn(p2, '_closeOpeningSourceLabel', EDITS('label-returns-slug'));
       t.ok(rev.ok, 'ce9 CONTROL: a label function that returns the slug could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
+        // Session 249: the opening provenance is an attribute now, not visible
+        // text, so paneText can no longer see it — and a control that cannot
+        // see its own effect is not a control. Read the attribute the CSV
+        // ships instead: a slug there lands in the CPA's spreadsheet, which is
+        // the same failure the visible column used to have.
         const b = await p2.surfaces();
-        const SLUG = /\b(amortization_schedule|xero_derived|xero_rebuild|portal_manual_pull|contract_origination)\b/;
-        t.ok(SLUG.test(b.loans.paneText || ''),
+        const SLUG = /^(amortization_schedule|xero_derived|xero_rebuild|portal_manual_pull|contract_origination)$/;
+        const slugs = (b.loans.closeBand.rows || []).map(x => x.openingSource).filter(x => SLUG.test(x || ''));
+        t.ok(slugs.length > 0,
              'ce9 CONTROL: without the label, raw database slugs reach the close band — so the assertion above is real',
-             `first slug: ${JSON.stringify((b.loans.paneText || '').match(SLUG) || [])}`);
+             `first slug: ${JSON.stringify(slugs.slice(0, 1))}`);
       }
       await restoreFns(p2);
 
@@ -3967,16 +4017,22 @@ GROUPS.push({
       // will edit the wording again, and a test of the wording is a test of the
       // wording. What must survive is that the cell names the KIND of
       // de-escalation and prints the amount it is claiming.
-      t.ok(/staged/.test(rd.variance || ''),
-           'ce12: ...and the cell says WHY, so the reader is not left to guess which de-escalation this is',
-           `cell=${JSON.stringify(rd.variance)}`);
-      t.ok(/3,326\.23/.test(rd.variance || ''), 'ce12: ...with the figure printed, never hidden');
+      // Session 249: the sub-line came off the figure and became
+      // data-variance-explained — read by the hover hint, by the CSV export's
+      // own column, and here. The SHAPE is what matters, not the prose: the
+      // row must name the KIND of de-escalation and print the amount claimed.
+      t.ok(/staged/.test(rd.varianceExplained || ''),
+           'ce12: ...and the row says WHY, so the reader is not left to guess which de-escalation this is',
+           `explained=${JSON.stringify(rd.varianceExplained)}`);
+      t.ok(/3,326\.23/.test(rd.varianceExplained || ''), 'ce12: ...with the figure carried, never hidden');
+      t.ok(/staged 3,326\.23/.test(rd.hint || ''), 'ce12: ...and reachable on the row itself',
+           `hint=${JSON.stringify(rd.hint)}`);
       // Fully explained means nothing is left over, and the cell says so by
       // saying nothing: no "· left" clause. That is the difference between this
       // row and the partial cases pinned in the boundary block below.
       t.close(rd.varianceResidualN, 0, 0.005,
               'ce12: ...and data-variance-residual is $0.00 — the explanation covers all of it');
-      t.ok(!/left/.test(rd.variance || ''), 'ce12: ...so there is no remainder clause on the cell',
+      t.ok(!/left/.test(rd.varianceExplained || ''), 'ce12: ...so there is no remainder clause on the row',
            `cell=${JSON.stringify(rd.variance)}`);
       // Not blocking, and no chip of its own.
       t.ok(!cbD.rows.some(x => /Dexter/.test(x.loan) && x.band === 'material'),
@@ -4023,14 +4079,15 @@ GROUPS.push({
       t.close(ru.unbookedN, 2707.61, 0.005, 'ce12: ...with that principal named on the row');
       t.eq(ru.ties, false, 'ce12: ...and NOTHING turns green');
       t.eq(ru.undatedN, 7, 'ce12: ...the seven undated splits are still declared');
-      t.ok(/7 undated/.test(ru.inXero || ''), 'ce12: ...still visibly, in the Status column');
+      t.ok(/7 undated/.test(ru.hint || ''), 'ce12: ...still visibly, one hover away');
       // Same shape change as above: the cell now carries `undated 2,707.61`
       // rather than the sentence. The Status column (asserted directly above)
       // is what still says "7 undated" in words.
-      t.ok(/undated/.test(ru.variance || ''),
-           'ce12: ...and the variance cell still names it as an undated payment',
-           `cell=${JSON.stringify(ru.variance)}`);
-      t.ok(/2,707\.61/.test(ru.variance || ''), 'ce12: ...at the amount it is claiming');
+      t.ok(/undated/.test(ru.varianceExplained || ''),
+           'ce12: ...and the row still names it as an undated payment',
+           `explained=${JSON.stringify(ru.varianceExplained)}`);
+      t.ok(/2,707\.61/.test(ru.varianceExplained || ''), 'ce12: ...at the amount it is claiming');
+      t.ok(/2,707\.61/.test(ru.variance || ''), 'ce12: ...while the cell still prints the raw gap');
       t.close(ru.varianceResidualN, 0, 0.005, 'ce12: ...with nothing left over');
       await pU.close();
 
@@ -4104,9 +4161,13 @@ GROUPS.push({
               'ce12 boundary: ...Period 14 explains $2,707.61 of it, and the row says which part');
       t.close(ro.varianceResidualN, 0.01, 0.005,
               'ce12 boundary: ...leaving exactly one cent, measured and carried as data-variance-residual');
-      t.ok(/2,707\.62/.test(ro.variance || '') && /left/.test(ro.variance || ''),
+      // The RAW gap stays in the cell — it is what sits between Computed and
+      // Closing either side of it — and the leftover travels with the
+      // explanation. Both are printed; neither is rewritten to make the
+      // arithmetic agree, which is the property this assertion exists for.
+      t.ok(/2,707\.62/.test(ro.variance || '') && /left/.test(ro.varianceExplained || ''),
            'ce12 boundary: ...with the full gap AND the leftover both printed — a de-escalation you can audit',
-           `cell=${JSON.stringify(ro.variance)}`);
+           `cell=${JSON.stringify(ro.variance)} explained=${JSON.stringify(ro.varianceExplained)}`);
       // (3) The band is taken on the CENT, so this is not material — but it is
       // also NOT 'unbooked'. The row does not get to claim it was fully
       // explained when a cent is missing; it goes through the ordinary bands
@@ -4837,10 +4898,15 @@ GROUPS.push({
         t.eq(r.unexplainedState, 'unmeasured', `ce22: ${why} — and says so in its own attribute`);
         t.close(r.unattributedN, 145875, 0.005,
                 `ce22: ${why} — the difference is still STATED, at $145,875.00`);
-        t.ok(/unmeasured/.test(r.variance || ''),
+        // Session 249: the ledger line moved off the figure into
+        // data-ledger-note, which the hover hint prints and the CSV exports.
+        // The WORDING is the whole assertion here — "unmeasured" and never a
+        // verdict — so it follows the words rather than the pixel they sat on.
+        t.ok(/unmeasured/.test(r.ledgerNote || ''),
              `ce22: ${why} — worded as an unmeasured difference, not a finding`,
-             `variance cell=${JSON.stringify(r.variance)}`);
-        t.notMatch(r.variance, /ledger off/, `ce22: ${why} — and never as "ledger off"`);
+             `note=${JSON.stringify(r.ledgerNote)}`);
+        t.ok(/unmeasured/.test(r.hint || ''), `ce22: ${why} — and a reader can reach it on the row`);
+        t.notMatch(r.ledgerNote, /ledger off/, `ce22: ${why} — and never as "ledger off"`);
         const off = await p.evaluate(() => _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
         t.ok(!off.includes('Stripe Capital Loan'), `ce22: ${why} — and it is not in ledgerOff`, JSON.stringify(off));
         await p.close();
@@ -5073,15 +5139,17 @@ GROUPS.push({
       t.close(bf.originationGapN, 12431.79, 0.005,
               'ce26: the straddle fires on a loan that is not Stripe, from the rule alone');
       // Filed into the Opening source cell, which is the column it is about.
-      t.ok(/origination straddles/.test(bf.openingSource || ''),
-           'ce26: ...and says so on the Opening source cell it is about',
-           `cell=${JSON.stringify(bf.openingSource)}`);
+      // Session 249: filed on the Opening cell it is about — data-origination-gap
+      // is asserted directly above — and worded in the row's hover hint.
+      t.ok(/origination straddles/.test(bf.hint || ''),
+           'ce26: ...and says so on the row, beside the opening it is about',
+           `hint=${JSON.stringify(bf.hint)}`);
       // …and still fires on the loan it was found on.
       const st = cb.rows.find(x => x.name === 'Stripe Capital Loan');
       t.close(st.originationGapN, 145875, 0.005, 'ce26: ...while still firing on Stripe');
       // It states the two figures and picks no winner — which period the
       // recognition belongs in is the accountant's question, not a dashboard's.
-      t.notMatch(bf.openingSource, /error|wrong|incorrect/i,
+      t.notMatch(bf.hint, /error|wrong|incorrect/i,
                  'ce26: ...and calls neither figure wrong');
 
       // ── CONTROL ── make it a Stripe special case again
@@ -5110,8 +5178,11 @@ GROUPS.push({
       const r = cb.rows.find(x => x.name === 'BayFirst SBA 2');
       t.eq(r.mixedSignN, 2, 'ce27: the row carries data-mixed-sign="2"');
       // Filed into the Drawn cell, which is the figure it is about.
-      t.ok(/mixed-sign/.test(r.drawn || ''),
-           'ce27: ...and says so on the Drawn cell it is about', `cell=${JSON.stringify(r.drawn)}`);
+      // data-mixed-sign is on the Drawn cell (asserted above); the words are in
+      // the row's hint, which is where every moved footnote now lives.
+      t.ok(/mixed-sign/.test(r.hint || ''),
+           'ce27: ...and says so on the row, beside the Drawn figure it is about',
+           `hint=${JSON.stringify(r.hint)}`);
       // A measured zero must not flag.
       const other = cb.rows.find(x => x.name === 'Paypal 2');
       t.eq(other.mixedSignN, null, 'ce27: ...and a loan with no such journal carries no flag');
@@ -5122,7 +5193,7 @@ GROUPS.push({
            JSON.stringify(rev.missing));
       if (rev.ok) {
         const b = (await p.surfaces()).loans.closeBand.rows.find(x => x.name === 'BayFirst SBA 2');
-        t.notMatch(b.drawn, /mixed-sign/,
+        t.notMatch(b.hint, /mixed-sign/,
                    'ce27 CONTROL: pre-fix, two journals netting to nothing left no trace on the row');
       }
       await restoreFns(p);
@@ -5644,9 +5715,9 @@ GROUPS.push({
       // describes. It is worth fixing; it is not worth panicking about.
       t.ok(Math.abs(r.varianceResidualN) < Math.abs(r.varianceN),
            'ce32: the strict-reduction invariant still holds — less is unexplained than before');
-      t.ok(/2,000\.00/.test(r.variance || '') && /462\.79/.test(r.variance || ''),
+      t.ok(/2,000\.00/.test(r.variance || '') && /462\.79/.test(r.varianceExplained || ''),
            'ce32: and BOTH figures are printed, so a reader can see the claim and reject it',
-           `cell=${JSON.stringify(r.variance)}`);
+           `cell=${JSON.stringify(r.variance)} explained=${JSON.stringify(r.varianceExplained)}`);
 
       // ── THE PROPOSED RULE, TESTED AS ARITHMETIC RATHER THAN ASSERTED ────
       // If a future change adds the overshoot refusal, this row must go back to

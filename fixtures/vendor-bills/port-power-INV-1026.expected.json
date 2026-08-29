@@ -1,0 +1,171 @@
+{
+  "fixture_id": "port-power-INV-1026",
+  "source_file": "port-power-INV-1026.pdf",
+  "captured": "2026-08-19",
+  "real_document": true,
+  "why_this_fixture": [
+    "First real one-off (non-recurring) vendor bill in the fixture set.",
+    "Every number on it can be verified by hand, so extraction accuracy is measurable rather than eyeballed.",
+    "Exercises three things the current design does not handle: a vendor with no mapping history, a line item spanning three months, and fee lines whose amounts are derived from transactions elsewhere in the ledger."
+  ],
+
+  "classification": {
+    "document_type": "vendor_bill",
+    "present_in_document_type_registry": false,
+    "note": "Registry starter list covers loan/payroll/utility/insurance/bank/processor only. A general professional-services vendor bill has no type yet.",
+    "reconciliation_pattern": "B",
+    "split_derivation": "document_itemized",
+    "recurring_vendor": false,
+    "has_prior_document_source_mappings": false
+  },
+
+  "extraction_ground_truth": {
+    "_comment": "Objectively verifiable from the document. A correct extraction matches this exactly.",
+    "source_entity_name": "Port Power Enterprises, Inc.",
+    "source_entity_email": "nadav@portpower.us",
+    "source_entity_address": "3921 Fabian Way, Palo Alto, CA 94303, US",
+    "bill_to_name": "Young and Foolish LLC DBA Family Laundry",
+    "bill_to_email": "david@familylaundry.com",
+    "invoice_number": "INV-1026",
+    "invoice_date": "2026-08-16",
+    "due_date": "2026-08-19",
+    "payment_method": "Manual transfer (ACH/Wire), Pay by Mercury",
+    "currency": "USD",
+    "subtotal": 21330.00,
+    "sales_tax": 0.00,
+    "total": 21330.00,
+    "memo": ["LACI - 6% of $25,000", "BAAD - 3% of 592,000"],
+    "line_items": [
+      {
+        "line": 1,
+        "description": "2026 Reporting BAAD Grant",
+        "quantity": 1,
+        "unit_price": 17760.00,
+        "amount": 17760.00
+      },
+      {
+        "line": 2,
+        "description": "EV System SaaS fees",
+        "description_sub": "6-8/2026",
+        "quantity": 3,
+        "unit_price": 690.00,
+        "amount": 2070.00
+      },
+      {
+        "line": 3,
+        "description": "LACI Invoice fee",
+        "quantity": 1,
+        "unit_price": 1500.00,
+        "amount": 1500.00
+      }
+    ]
+  },
+
+  "arithmetic_checks": {
+    "_comment": "All four must pass. This is the §5 backstop -- internal consistency is provable, not asserted.",
+    "line_2_quantity_x_unit_price": { "expr": "3 * 690.00", "expected": 2070.00, "passes": true },
+    "lines_sum_to_total": { "expr": "17760.00 + 2070.00 + 1500.00", "expected": 21330.00, "passes": true },
+    "memo_baad_derivation": { "expr": "0.03 * 592000", "expected": 17760.00, "matches_line": 1, "passes": true },
+    "memo_laci_derivation": { "expr": "0.06 * 25000", "expected": 1500.00, "matches_line": 3, "passes": true }
+  },
+
+  "expected_splits": {
+    "_comment": "Amounts are ground truth. Account treatment is NOT -- it is a proposal requiring CPA confirmation. Xero account mapping is per-client and dropdown-only, never inferred here.",
+    "count": 3,
+    "splits": [
+      {
+        "line": 1,
+        "category": "baad_grant_reporting_fee",
+        "amount": 17760.00,
+        "period_start": null,
+        "period_end": null,
+        "spans_periods": false,
+        "expected_confidence": "low",
+        "why_low": "Success fee calculated as 3% of a $592,000 grant tied to what reads as capital equipment (EV system). Expense vs. capitalize is a CPA judgment, not a categorization. Bookswell should raise a finding, not propose a treatment."
+      },
+      {
+        "line": 2,
+        "category": "ev_system_saas",
+        "amount": 2070.00,
+        "period_start": "2026-06-01",
+        "period_end": "2026-08-31",
+        "spans_periods": true,
+        "billing_direction": "arrears",
+        "expected_confidence": "high",
+        "why_high": "Unambiguous software subscription with a stated service period. The only open question is period allocation, not account."
+      },
+      {
+        "line": 3,
+        "category": "laci_invoice_fee",
+        "amount": 1500.00,
+        "period_start": null,
+        "period_end": null,
+        "spans_periods": false,
+        "expected_confidence": "low",
+        "why_low": "Fee calculated as 6% of $25,000. Treatment depends on what the underlying $25,000 transaction was."
+      }
+    ]
+  },
+
+  "expected_behaviour": {
+    "_comment": "What a correct run looks like end to end. Declining to be confident is a pass, not a failure.",
+    "on_upload": "Classify, extract and propose the split immediately. Do NOT wait for a matching bank transaction.",
+    "expected_status": "awaiting_payment",
+    "why": "Invoice dated 2026-08-16, due 2026-08-19, paid by manual ACH. Almost certainly unpaid at ingestion. Under reconcile-only scope the split is computed and held, and auto-matches when the ACH clears. Nothing is written to the ledger.",
+    "must_not_do": [
+      "Create a bill or invoice in Xero (explicitly out of scope, Aug 11).",
+      "Silently pick an account for lines 1 or 3.",
+      "Report high confidence on the whole document because the arithmetic reconciles -- arithmetic consistency proves extraction, not treatment."
+    ]
+  },
+
+  "expected_findings": [
+    {
+      "type": "unmapped_source_entity",
+      "detail": "No document_source_mappings rows exist for Port Power Enterprises, Inc. Vendor is non-recurring, so learn-once-reuse-forever pays nothing. Account suggestion must come from existing coded history.",
+      "blocked_on": "A1 -- can listTransactions return how an existing transaction was already coded"
+    },
+    {
+      "type": "spans_periods",
+      "detail": "Line 2 covers 2026-06 through 2026-08 on an invoice dated 2026-08-16. Period allocation decision required.",
+      "blocked_on": "close_document_splits has no period_start / period_end columns"
+    },
+    {
+      "type": "derivation_cross_check",
+      "detail": "Memo states two fees as percentages of other amounts. Both verify arithmetically. Open question is whether the referenced $592,000 and $25,000 appear in the ledger at all.",
+      "note": "New finding type. Same cross-document-agreement idea as the Aug 18 Ford thread. A pure capture tool would not produce this."
+    },
+    {
+      "type": "capitalize_vs_expense",
+      "detail": "Line 1 is a fee on a grant tied to apparent capital equipment. Escalate to the CPA rather than proposing treatment."
+    }
+  ],
+
+  "known_extraction_traps": [
+    {
+      "trap": "Address block attribution",
+      "detail": "3921 Fabian Way, Palo Alto, CA 94303 sits below a visual gap and can read as the recipient's address. Column coordinates settle it: the address block is at xMin=30, same column as 'Port Power' and 'nadav@portpower.us'; the 'To' column is at xMin=253. It is the VENDOR's address.",
+      "correct_value": "Port Power Enterprises, Inc."
+    },
+    {
+      "trap": "Recipient name wraps across two lines",
+      "detail": "'Young and Foolish LLC DBA Family' / 'Laundry' wraps. Naive line-based extraction truncates to 'Young and Foolish LLC DBA Family'.",
+      "correct_value": "Young and Foolish LLC DBA Family Laundry"
+    },
+    {
+      "trap": "Service period is in a sub-line, not a field",
+      "detail": "'6-8/2026' sits under the line description with no label. Easy to drop entirely, which silently loses the spans-periods signal.",
+      "correct_value": "2026-06 through 2026-08"
+    },
+    {
+      "trap": "Memo lines are unlabelled and out of line order",
+      "detail": "Memo reads 'LACI - 6% of $25,000' then 'BAAD - 3% of 592,000', mapping to lines 3 and 1 respectively. Neither names its line item. Also note '592,000' has no dollar sign while '$25,000' does.",
+      "correct_value": "LACI -> line 3, BAAD -> line 1"
+    },
+    {
+      "trap": "Two-digit years",
+      "detail": "Dates print as 08/16/26 and 08/19/26, not ISO.",
+      "correct_value": "2026-08-16 and 2026-08-19"
+    }
+  ]
+}

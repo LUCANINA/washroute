@@ -2227,6 +2227,130 @@ to "what is running".
 
 ## Session Log
 
+### Session 249 (2026-08-29) — the rollforward, softened: nine columns, one red, and everything else one hover away
+
+David, looking at the four Bookkeeping tabs: *"the one I prefer in terms of pure
+style is the Client View, because it is to the point. Take a stab at softening the
+LOANS page: eliminate what is not essential, use bright colours only when absolutely
+necessary, and be joyful. One last request, make the table exportable to CSV, which
+means no extra tidbits of information crammed underneath an item. Those bits can be
+shown on hover only."*
+
+Two decisions he made before any of this was written, and they shaped all of it:
+**cut to nine columns**, and **one red on the page**.
+
+#### What actually changed
+
+| | before | after |
+|---|---|---|
+| columns | 13 | **9** |
+| ink | `#000` throughout | the `--gray-*` scale, no pure black anywhere |
+| rules | `1px solid #000` on every row | `--gray-100` between rows, `--gray-200` at edges |
+| red | tiles, row figures, status words, chips, the period badge | **the blocking chips in the status strip, and nothing else** |
+| green | ten "Booked" words, the gate ticks, a pip | one place, earned (below) |
+| provenance | four columns, read fourteen times | on the cell it describes; one hover away |
+| export | none | `exportRollforwardCSV()` — **17 columns**, wider than the screen |
+
+#### NOTHING WAS DELETED, ONLY REFILED — and that is the whole design
+
+Lender, Opening source, Closing date and Closing source came off the screen. Every
+one of those facts now rides as a `data-` attribute on the cell whose figure it is
+about, and three separate consumers read them from there: the CSV export, the
+harness, and `data-hint` — the sentence the detail line prints on hover.
+
+**A fact filed on the figure it describes cannot drift away from it. A fact in its
+own column can.** That is not a rationalisation of the cut; it is the reason the cut
+was safe to make.
+
+The same move applies to every sub-line that used to sit under a figure: the ledger
+check (`data-ledger-note`), the unbooked explanation (`data-variance-explained`),
+mixed-sign, the origination straddle, the roll-back, the undated flag. Each is
+readable, exportable and asserted-on — just not printed fourteen times.
+
+#### ONE HOVER TARGET, NOT TWENTY TOOLTIPS
+
+The obvious reading of "show it on hover" is a tooltip per cell. It would have been
+worse, for a reason that is specific to this table: **it lives inside an
+`overflow-x:auto` wrapper, which clips a popup on the first and last rows.** A
+footnote a reader cannot see on the top row is not a footnote.
+
+So the whole row resolves to ONE line, in ONE place, directly under the table. Its
+height is reserved so nothing on the page moves when it changes — a line that jumps
+is a line people stop reading — and it fires on `focusin` as well as `mouseover`,
+because a fact reachable only by pointer is a fact some readers do not have.
+
+#### SILENCE IS LOUDER THAN COLOUR
+
+`.lcb-off` is no longer red. A material variance is the **near-black semibold figure
+in a column where everything settled prints nothing at all**. Four such figures among
+fourteen rows find the eye faster than four reds among a dozen coloured things did,
+and the treatment survives being printed, photocopied and read by someone who does
+not see red.
+
+Red survives in exactly one place, and it is the place that says what to DO.
+
+#### THE ONE MOMENT OF COLOUR HAS TO BE EARNED
+
+Joyful is not a brighter palette; it is the page changing when you finish. Every
+other day the status strip is white with a red list. On the day the last gate clears
+it turns a soft green and says *"Ready for your accountant"*. The class is set by
+`blocked`, which is the gates themselves — **it cannot be faked, and it cannot be
+shown on a day it is not true.**
+
+#### ANYTHING A STYLESHEET DRAWS IS NOT A THING AN EXPORT CAN READ
+
+Caught in the first CSV: the status strip's `·` separators are CSS `::before`
+pseudo-elements, so `textContent` returned *"all 13 accounted for✓ 11 confirmed by
+lender"* — one run-on claim in a file a CPA reads. The export rebuilds the line from
+`.lcb-lead` and `.lcb-gate` instead of scraping it.
+
+The same principle governs the whole export: **it reads the data attributes, never
+the rendered text.** A CSV built by scraping `textContent` exports exactly what the
+screen chose to show — which is the opposite of what a workpaper is for. Money cells
+export `data-amount` (a spreadsheet chokes on `−` and thousands separators), `not
+measured` exports as those words and never as a blank or a zero, and a row that
+agrees by construction exports the phrase rather than `0.00`, because it is not a
+zero variance — it is no variance measurement at all.
+
+#### THE SUITE CAUGHT TWO THINGS THE EYE DID NOT
+
+Nineteen assertions went red, and they were not noise:
+
+1. **A footnote shortened past the point of usefulness.** Trimming the method note
+   swept out the clauses naming the rows that differ by exactly what is not yet
+   booked, and the rows with nothing to close against — populations the columns
+   genuinely cannot state. Both are back. The test of whether a footnote sentence has
+   earned its place is whether the columns could have said it.
+2. **A control that could no longer see its own effect.** `ce9 CONTROL` reverts
+   `_closeOpeningSourceLabel` to return raw slugs and then asserts a slug reaches the
+   screen. With the provenance moved off-screen into an attribute, `paneText` could
+   not see it — so the control would have passed by being blind, and the assertion
+   above it would have silently stopped being tested. It now reads the attribute the
+   CSV ships, where a slug lands in the CPA's spreadsheet. **A control that cannot
+   observe its own effect is not a control**, and this is the second session in a row
+   that the suite's own construction, not the code, was the thing that needed fixing.
+
+Also updated: the `mixed-sign-invisible` revert anchor, which pointed at a source
+string this pass deleted. **An anchor left on a dead string reports `missing` and the
+CONTROL quietly stops being one** — worse than not having it.
+
+One wording fix worth naming: the unmeasured ledger note was rewritten to read better
+and lost the word **"unmeasured"** in the process. That word is load-bearing — it is
+the one token separating a *stated difference* from a *finding*, and the suite asserts
+on it by name. A rewrite that reads better without it is a rewrite that quietly turned
+a refusal into an accusation. It is back, first thing in the sentence.
+
+#### State
+
+`1502 assertions · 1501 passing`. The single failure is **Tech Debt #19 and it is red
+on purpose** — unchanged by this session, and tuning it green deletes the only record
+of it.
+
+Verified by rendering the real page in headless Chromium against the production
+fixture, screenshotting it, and driving the Export button to capture and read the
+actual downloaded CSV — not by reading the diff.
+
+
 ### Session 247 (cont. 4, 2026-08-28/29) — an interest add-back is not borrowing, four cents is not a variance, and a rule that outlived its fact
 
 Three commits — `7374c16`, `04e0580`, `a661921` — and the deploy that made the

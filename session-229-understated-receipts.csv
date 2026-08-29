@@ -1,0 +1,114 @@
+customer,email,order_number,billed_date,emailed_receipt_said,actually_charged,understated_by,status
+Amy Cummings,billing@bawt.org,10580,2026-07-29,90.00,585.00,495.00,corrected receipt sent
+Lenore Anderson,aembree333@gmail.com,12758,2026-08-19,0.00,242.00,242.00,corrected receipt sent
+Amy Cummings,billing@bawt.org,8248,2026-07-02,0.00,225.50,225.50,corrected receipt sent
+Alice Neels,aliceen@gmail.com,12482,2026-08-20,0.00,225.50,225.50,corrected receipt sent
+Jennifer Kirchhofer,,9775,2026-07-20,18.00,227.50,209.50,NOT SENT - no email on file
+Lenore Anderson,aembree333@gmail.com,10535,2026-07-21,0.00,176.00,176.00,corrected receipt sent
+Melissa & Ryan Adelman-Sessler,lissandryan@gmail.com,12608,2026-08-23,60.00,230.50,170.50,corrected receipt sent
+Lachar Burns,lacharburns@gmail.com,9353,2026-07-08,14.95,173.25,158.30,corrected receipt sent
+Emma Gimon,emma@gimon.org,11894,2026-08-13,0.00,154.00,154.00,corrected receipt sent
+Sonny Grewal,sonnygrewal5@gmail.com,10810,2026-07-27,9.00,154.75,145.75,corrected receipt sent
+Melissa & Ryan Adelman-Sessler,lissandryan@gmail.com,9768,2026-07-18,60.00,205.75,145.75,corrected receipt sent
+Rae MaxwellRoss,Rae@maxwell-ross.us,8845,2026-07-07,6.00,151.75,145.75,corrected receipt sent
+Lenore Anderson,aembree333@gmail.com,10911,2026-07-27,0.00,143.00,143.00,corrected receipt sent
+Melissa & Ryan Adelman-Sessler,lissandryan@gmail.com,10383,2026-07-25,45.00,182.50,137.50,corrected receipt sent
+Emma Gimon,emma@gimon.org,12699,2026-08-18,0.00,134.75,134.75,corrected receipt sent
+Sonny Grewal,sonnygrewal5@gmail.com,11279,2026-08-03,6.00,140.75,134.75,corrected receipt sent
+Leif Martinson,leif.haven@gmail.com,12600,2026-08-23,0.00,134.75,134.75,corrected receipt sent
+Melissa & Ryan Adelman-Sessler,lissandryan@gmail.com,12060,2026-08-15,45.00,179.75,134.75,corrected receipt sent
+Melissa Boldridge,maboldridge@gmail.com,12966,2026-08-21,0.00,129.25,129.25,corrected receipt sent
+Sarah Seiter,sarah.seiter@gmail.com,11288,2026-08-06,0.00,123.75,123.75,corrected receipt sent
+Danielle Creer,dcreer2@icloud.com,12555,2026-08-15,0.00,123.75,123.75,corrected receipt sent
+Rae MaxwellRoss,Rae@maxwell-ross.us,11775,2026-08-11,21.00,144.75,123.75,corrected receipt sent
+Jennifer Kirchhofer,,11507,2026-08-09,9.00,130.00,121.00,NOT SENT - no email on file
+mayumi santos,decryptedsoul@proton.me,10614,2026-07-22,0.00,118.25,118.25,corrected receipt sent
+Tianna Paschel,tpaschel@gmail.com,11432,2026-08-07,0.00,118.25,118.25,corrected receipt sent
+Lachar Burns,lacharburns@gmail.com,6977,,0.00,118.25,118.25,NOT SENT - written off
+Jennifer Kirchhofer,,10760,2026-08-01,6.00,121.50,115.50,NOT SENT - no email on file
+Emma Gimon,emma@gimon.org,11295,2026-08-06,0.00,112.75,112.75,corrected receipt sent
+Rae MaxwellRoss,Rae@maxwell-ross.us,9358,2026-07-14,21.00,128.25,107.25,corrected receipt sent
+Nate Frank,nbefrank@gmail.com,8285,2026-07-01,0.00,104.50,104.50,corrected receipt sent
+mayumi santos,decryptedsoul@proton.me,8286,2026-07-01,0.00,101.75,101.75,corrected receipt sent
+Liz Morris,lollymorris@gmail.com,11568,2026-08-04,0.00,101.75,101.75,corrected receipt sent
+mayumi santos,decryptedsoul@proton.me,10612,2026-07-29,0.00,101.75,101.75,corrected receipt sent
+Alice Neels,aliceen@gmail.com,11813,2026-08-13,0.00,96.25,96.25,corrected receipt sent
+mayumi santos,decryptedsoul@proton.me,11223,2026-08-05,0.00,96.25,96.25,corrected receipt sent
+Leif Martinson,leif.haven@gmail.com,11887,2026-08-15,0.00,93.50,93.50,corrected receipt sent
+Cole Bridge,cole.r.bridge@gmail.com,9384,2026-07-08,0.00,85.25,85.25,corrected receipt sent
+Caitlin O'Neill,caitlinjoneill@gmail.com,12069,2026-08-15,45.00,130.25,85.25,corrected receipt sent
+Melissa Boldridge,maboldridge@gmail.com,12537,2026-08-15,0.00,85.25,85.25,corrected receipt sent
+Alice Neels,aliceen@gmail.com,12111,2026-08-10,0.00,85.25,85.25,corrected receipt sent
+Liz Morris,lollymorris@gmail.com,8628,2026-06-30,0.00,85.25,85.25,corrected receipt sent
+Joshua DeLuca MacKay,jn.deluckay@icloud.com,9620,2026-07-16,18.00,100.50,82.50,corrected receipt sent
+Nate Frank,nbefrank@gmail.com,8914,2026-07-08,0.00,82.50,82.50,corrected receipt sent
+Sarah Seiter,sarah.seiter@gmail.com,11898,2026-08-13,0.00,79.75,79.75,corrected receipt sent
+Lenore Anderson,aembree333@gmail.com,9998,2026-07-15,0.00,77.00,77.00,corrected receipt sent
+Caitlin O'Neill,caitlinjoneill@gmail.com,12617,2026-08-21,30.00,107.00,77.00,corrected receipt sent
+Jaeman Kim,kjaeman@gmail.com,11414,2026-08-07,0.00,77.00,77.00,corrected receipt sent
+Rae MaxwellRoss,Rae@maxwell-ross.us,11166,2026-08-04,21.00,98.00,77.00,corrected receipt sent
+Kevin Morsony,kmorsony@gmail.com,9772,2026-07-14,15.00,89.25,74.25,corrected receipt sent
+Cole Bridge,cole.r.bridge@gmail.com,12381,2026-08-14,0.00,74.25,74.25,corrected receipt sent
+Lachar Burns,lacharburns@gmail.com,6896,,0.00,74.25,74.25,NOT SENT - written off
+Kevin Morsony,kmorsony@gmail.com,9486,2026-07-16,0.00,74.25,74.25,corrected receipt sent
+Sasha Bainer,sashabainer@gmail.com,12612,2026-08-21,0.00,68.75,68.75,corrected receipt sent
+Danielle Creer,dcreer2@icloud.com,11806,2026-08-08,0.00,68.75,68.75,corrected receipt sent
+Sasha Bainer,sashabainer@gmail.com,12870,2026-08-25,0.00,68.75,68.75,corrected receipt sent
+Lisa Sturges,lisasturges777@gmail.com,11140,2026-08-03,21.00,87.00,66.00,corrected receipt sent
+Alice Baldridge,alice930@gmail.com,9019,2026-07-09,0.00,63.25,63.25,corrected receipt sent
+Jaeman Kim,kjaeman@gmail.com,10845,2026-07-31,0.00,63.25,63.25,corrected receipt sent
+Laurel Calsoni,laurel@calsoni.com,9616,2026-07-16,0.00,60.50,60.50,corrected receipt sent
+Andrew Foster,andrewjohnfoster@gmail.com,11233,2026-07-30,0.00,60.50,60.50,corrected receipt sent
+Sasha Bainer,sashabainer@gmail.com,12284,2026-08-18,0.00,57.75,57.75,corrected receipt sent
+Rachel Lederman,rachel@sfbla.com,11864,2026-08-07,3.00,60.75,57.75,corrected receipt sent
+Corey Keller,corey.e.keller@gmail.com,10369,2026-07-25,0.00,57.75,57.75,corrected receipt sent
+Alex Kancov,akancov@gmail.com,9216,2026-07-11,0.00,55.00,55.00,corrected receipt sent
+Sarah Seiter,sarah.seiter@gmail.com,8793,2026-07-09,0.00,55.00,55.00,corrected receipt sent
+Beverly Greene,BevGreene@aol.com,10880,2026-07-31,3.00,58.00,55.00,corrected receipt sent
+Alex Kancov,akancov@gmail.com,8542,2026-07-06,0.00,55.00,55.00,corrected receipt sent
+Nate Frank,nbefrank@gmail.com,11220,2026-08-05,0.00,52.25,52.25,corrected receipt sent
+Joshua DeLuca MacKay,jn.deluckay@icloud.com,11606,2026-08-05,3.00,52.50,49.50,corrected receipt sent
+Rosalie Odean,rosalieodean@gmail.com,11855,2026-08-13,0.00,46.75,46.75,corrected receipt sent
+Matt Yan,mattkyan@gmail.com,12492,2026-08-20,0.00,46.75,46.75,corrected receipt sent
+Rosalie Odean,rosalieodean@gmail.com,8949,2026-07-08,0.00,44.00,44.00,corrected receipt sent
+Candy RamirezHale,candy.ramirez87@gmail.com,7238,2026-06-26,0.00,44.00,44.00,corrected receipt sent
+Kathleen Lu,katladyin510@gmail.com,9359,2026-07-09,0.00,44.00,44.00,corrected receipt sent
+Lisa Sturges,lisasturges777@gmail.com,9357,2026-07-14,21.00,62.25,41.25,corrected receipt sent
+Ashley Simons,simons.ashley@gmail.com,12459,2026-08-20,0.00,38.50,38.50,corrected receipt sent
+Paola Hurtado,smart.plan7889@fastmail.com,8463,2026-07-11,0.00,35.75,35.75,corrected receipt sent
+B Curry,familylaundry@cbcurry.slmail.me,8984,2026-07-09,0.00,33.00,33.00,corrected receipt sent
+Karla Shallenberger,karlas@comcast.net,9001,2026-07-09,3.00,33.25,30.25,corrected receipt sent
+Cole Bridge,cole.r.bridge@gmail.com,8271,2026-06-25,0.00,30.25,30.25,corrected receipt sent
+Tianna Paschel,tpaschel@gmail.com,10838,2026-07-31,0.00,27.50,27.50,corrected receipt sent
+Sukhesh Miryala,sukheshm@gmail.com,11594,2026-08-03,0.00,27.50,27.50,corrected receipt sent
+MARIA Markison,alohamama1071@gmail.com,8193,2026-06-30,3.00,30.50,27.50,corrected receipt sent
+Caitlin O'Neill,caitlinjoneill@gmail.com,10385,2026-07-25,30.00,54.75,24.75,corrected receipt sent
+Christina Sauper Stratton,csauper@gmail.com,11614,2026-08-05,0.00,24.75,24.75,corrected receipt sent
+Morgan Connolly,morganrconnolly@berkeley.edu,11959,2026-08-08,0.00,24.75,24.75,corrected receipt sent
+Jamie Addington,jj703525@gmail.com,12228,2026-08-11,0.00,24.75,24.75,corrected receipt sent
+Jasmin Hines,jazz.tori.hines@gmail.com,10368,2026-07-24,0.00,22.00,22.00,NOT SENT - gap under $20
+Ren Leduo,reineleduo@gmail.com,12217,2026-08-11,3.00,22.25,19.25,NOT SENT - gap under $20
+Joshua DeLuca MacKay,jn.deluckay@icloud.com,8495,2026-07-04,18.00,37.25,19.25,corrected receipt sent
+Micha Mokrani,shou.micha@gmail.com,11208,2026-08-04,0.00,19.25,19.25,NOT SENT - gap under $20
+Ashley Simons,simons.ashley@gmail.com,10678,2026-07-23,0.00,19.25,19.25,NOT SENT - gap under $20
+Allister Lindamood,allister.lindamood@gmail.com,10035,2026-07-21,3.00,22.25,19.25,NOT SENT - gap under $20
+Christina Sauper Stratton,csauper@gmail.com,8378,2026-06-26,3.00,22.25,19.25,NOT SENT - gap under $20
+Allister Lindamood,allister.lindamood@gmail.com,12306,2026-08-18,3.00,22.25,19.25,NOT SENT - gap under $20
+Joan Xie,joan.xie12@gmail.com,10776,2026-07-30,0.00,19.25,19.25,NOT SENT - gap under $20
+Rachel Lederman,rachel@sfbla.com,8830,2026-07-07,0.00,19.25,19.25,NOT SENT - gap under $20
+Andrew Foster,andrewjohnfoster@gmail.com,10391,2026-07-20,0.00,16.50,16.50,NOT SENT - gap under $20
+Sarah Berk,skberk@gmail.com,12787,2026-08-25,0.00,16.50,16.50,NOT SENT - gap under $20
+Tess Smagorinsky,tess.smagorinsky@gmail.com,11209,2026-08-04,6.00,19.75,13.75,NOT SENT - gap under $20
+Rae MaxwellRoss,Rae@maxwell-ross.us,12899,2026-08-25,21.00,34.75,13.75,NOT SENT - gap under $20
+Kathleen Lu,katladyin510@gmail.com,11676,2026-08-07,0.00,13.75,13.75,NOT SENT - gap under $20
+Liz Morris,lollymorris@gmail.com,10637,2026-07-23,0.00,13.75,13.75,NOT SENT - gap under $20
+Sani Bee,sdbill2009@aol.com,7400,2026-06-15,26.95,37.95,11.00,NOT SENT - gap under $20
+Olivia Rosaldo-Pratt,oliviarp@gmail.com,13243,2026-08-25,3.00,14.00,11.00,NOT SENT - gap under $20
+B Curry,familylaundry@cbcurry.slmail.me,11310,2026-08-06,0.00,8.25,8.25,NOT SENT - gap under $20
+Sarah Berk,skberk@gmail.com,9984,2026-07-20,20.00,28.25,8.25,NOT SENT - gap under $20
+Rachel Lederman,rachel@sfbla.com,11130,2026-08-04,0.00,5.50,5.50,NOT SENT - gap under $20
+Rae MaxwellRoss,Rae@maxwell-ross.us,8225,2026-06-30,21.00,26.50,5.50,NOT SENT - gap under $20
+Brinda Krishnan,brinda.s.krishnan@gmail.com,12520,2026-08-15,3.00,5.75,2.75,NOT SENT - gap under $20
+Melissa & Ryan Adelman-Sessler,lissandryan@gmail.com,9062,2026-07-11,65.00,67.75,2.75,NOT SENT - gap under $20
+Matt Yan,mattkyan@gmail.com,10150,2026-07-16,0.00,2.75,2.75,NOT SENT - gap under $20
+Annaamalaii Palani,apalanijr@gmail.com,12329,2026-08-13,0.00,2.75,2.75,NOT SENT - gap under $20
