@@ -128,7 +128,7 @@
 > an independent opening and nearly shipped acceptance criterion #1 as a tautology.
 > See the session 246 entry.
 >
-> ### 4. 🟠 FUNDING CIRCLE — XERO IS NOW FIXED FOR 2026-04-20; OUR OWN RECORD ISN'T, AND CAN'T BE VOIDED YET
+> ### 4. 🟢 FUNDING CIRCLE'S OVERVIEW FINDING IS RESOLVED (2026-04-20); OUR OWN RECORD STILL ISN'T
 >
 > Sessions 241 through 246 left it unresolved on the Xero side. **Session 252: David fixed
 > the Xero side himself** — split the 2026-04-20 BankTransaction directly to $980.93
@@ -141,9 +141,11 @@
 > **still saw the same finding** — a second, real bug in the first fix (a one-shot
 > `If-Modified-Since` cursor that had already aged past the edit before v59 was even
 > deployed; see the session 252 cont. 4 log entry for the full mechanism). Second fix
-> written (`pullXero` can now force-fetch specific transaction ids directly by id,
-> independent of the cursor), `deno check`-clean, committed locally. **Not yet
-> deployed** — handed David the same CLI command again.
+> (`pullXero` force-fetches specific transaction ids directly by id, independent of the
+> cursor) deployed as **v60** (2026-08-30 00:23:27 UTC) and **confirmed resolved in the
+> database, not just off the screen** — `reconciliation_findings` for
+> `lumped_payment:253:868db3ce-…` is `status='resolved'` as of 00:24:24 UTC, tied to the
+> run right after the deploy. This half is DONE.
 >
 > **Still open, and David has decided the approach:** `loan_splits` `dcd896b3-…`
 > (2026-04-20, `posted`) and the duplicate card `4dfd8dd5-…` (`2026-04`,
@@ -2470,18 +2472,24 @@ moved earlier in the function so it's available before `pullXero` runs): every O
 (`868db3ce-…`) — so this can never grow into a second full scan of Xero; it only ever re-checks
 transactions we already have an open, unresolved question about. `deno check` clean.
 
-**Not yet deployed** — same size-ceiling reason as cont. 3, same command:
+**Deployed and CONFIRMED RESOLVED — checked in the database, not the screen.** David ran (note:
+a bare `supabase` is not on his PATH — it's `npx supabase@latest`, same as every prior deploy this
+project has done from his machine):
 
 ```
 cd ~/Projects/WashRoute
-supabase functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
 ```
 
-**Where to pick up:** confirm the deploy (`list_edge_functions` `updated_at`/hash newer than this
-commit), then re-run reconciliation and confirm the Funding Circle finding is actually gone this
-time — not just "a run happened after the deploy," check the finding's own `status`/`resolved_at` in
-`reconciliation_findings`, the way this entry did, because "still seeing this" has now been wrong
-about being fixed twice.
+`reconciliation-run` v59 → **v60**, `updated_at` **2026-08-30 00:23:27 UTC**, new content hash
+(`91d98d3b…`) confirmed via `list_edge_functions`. David clicked Run Reconciliation Check; run
+`0f86a3d5-…` fired at 00:24:07, finished 00:24:24, `findings_resolved: 1`. Queried
+`reconciliation_findings` directly for the fingerprint itself rather than trusting the run summary
+or the screenshot: `lumped_payment:253:868db3ce-…` is now `status='resolved'`,
+`resolved_at='2026-08-30 00:24:24.378+00'`, `resolved_run_id='0f86a3d5-…'` — the same run. Genuinely
+fixed, not just off the screen. This closes the loop David opened at the top of this session
+("Investigate and solve at source") — three attempts (cont. 3's examinedSrcIds, this cont. 4's
+forceIds, and the two redeploys in between) to get one payment's stale finding to actually clear.
 
 ---
 
