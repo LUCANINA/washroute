@@ -14,6 +14,7 @@ import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './d
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { explainBalanceGap, dailyWithholdingFromBalances } from '../_shared/settlement-lag.ts'
 import { isExaminedForResolve } from '../_shared/resolve-scope.ts'
+import { diagnoseUnexplainedGap, type LaterEntry, type AmortRow, type SiblingFinding } from '../_shared/gap-diagnosis.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -734,6 +735,14 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
       material: ties || closesIt ? null : gap.material,
       material_share: ties || closesIt ? null : Math.round(gap.share * 1e6) / 1e6,
       later_entry_types: Array.from(new Set(laterOnLoan.map((r: any) => String(r.srcType)))),
+      // Session 253 (item 13b): the actual dates of the later entries, not just
+      // their count/types -- checkBalanceVsLender's self-diagnosis matches these
+      // against the amortization schedule and the loan's other findings. Kept as
+      // plain dates, not full entries: this module never lets a check reach past
+      // its own window (see the SESSION 252/253 comments on examinedSrcIds), and a
+      // list of dates is enough to look a real row up without re-deriving the
+      // ledger elsewhere.
+      later_entry_dates: Array.from(new Set(laterOnLoan.map((r: any) => String(r.date)))),
     },
   }
 }
@@ -776,6 +785,25 @@ function priorBalanceGap(existing: any[], loanId: string, asOf: string | null): 
   return { gap, asOf: newest.detail.anchor_date }
 }
 
+// Session 253 (item 13b): turns a GapDiagnosis into the sentence that replaces
+// "either missing from Xero or recorded twice" -- the ONLY place that generic line
+// is displaced. Deliberately hedged ("suggests", "not confirmed") rather than
+// asserted: a schedule match or a same-dated sibling finding is a lead, not proof,
+// and this module does not get to claim more than it measured (see "MEASURED,
+// NEVER DERIVED" and "A typed number is never evidence" elsewhere in this file's
+// history). `self_diagnosis` in `detail` carries the same fact in structured form.
+function diagnosisSentence(diag: NonNullable<ReturnType<typeof diagnoseUnexplainedGap>>): string {
+  if (diag.kind === 'sibling_finding') {
+    return `This loan already has an open finding dated ${diag.date} ("${diag.title}") -- worth checking `
+      + `whether that's the same root cause before treating this as a separate problem.`
+  }
+  const part = diag.kind === 'schedule_interest' ? 'interest' : 'principal'
+  return `That remainder is the size of the ${diag.date} payment's scheduled ${part} per the amortization `
+    + `schedule (${money(diag.scheduled_amount)}) -- suggesting the payment was booked whole to the other `
+    + `side rather than split, the same shape Funding Circle turned out to be. Not confirmed against Xero `
+    + `directly; use "Find the difference" to verify before treating this as settled.`
+}
+
 function checkBalanceVsLender(
   loan: any, tie: TieOut,
   // Added session 242 for the settlement-lag test below. Both were already in
@@ -785,6 +813,12 @@ function checkBalanceVsLender(
   // no earlier close to compare against — in which case explainBalanceGap behaves
   // exactly as it did before the growth test existed.
   prior: { gap: number; asOf: string } | null = null,
+  // Session 253 (item 13b): the loan's own amortization schedule rows and its
+  // other OPEN findings, both already loaded this run at the call site -- no new
+  // Xero call, no new query. Used only to self-diagnose the generic "either
+  // missing from Xero or recorded twice" fallback below; every other branch is
+  // unaffected. See _shared/gap-diagnosis.ts.
+  myAmortRows: AmortRow[] = [], siblingFindings: SiblingFinding[] = [],
 ): Finding[] {
   // A tie and an un-checkable loan both produced no finding before this refactor; they
   // still do. The un-checkable case is now VISIBLE in the tie-out instead of silent.
@@ -915,6 +949,21 @@ function checkBalanceVsLender(
   const howBooked = laterCount && Array.isArray(d.later_entry_types) && d.later_entry_types.length
     ? ` (${d.later_entry_types.join(', ')})` : ''
 
+  // ── SESSION 253 (item 13b): self-diagnose ONLY the generic fallback ──────────
+  // Only worth computing when we're actually about to reach the vague sentence
+  // (material, non-benign, not unconfirmed_no_export, not growing) -- every other
+  // branch already says something specific and is untouched by this. Cheap either
+  // way (in-memory only, no Xero call, per David's "cheap check first" decision),
+  // but gating it here keeps "only touches the generic fallback" literally true in
+  // the code, not just asserted in a comment.
+  const reachesGenericFallback = material && !lag.benign
+    && lag.verdict !== 'unconfirmed_no_export' && lag.verdict !== 'growing'
+  const laterEntryDates: LaterEntry[] = (Array.isArray(d.later_entry_dates) ? d.later_entry_dates : [])
+    .map((dt: string) => ({ date: dt }))
+  const diagnosis = reachesGenericFallback
+    ? diagnoseUnexplainedGap(residual, laterEntryDates, myAmortRows, siblingFindings)
+    : null
+
   return [{
     fingerprint: `balance_vs_lender:${code}:${tie.as_of}`,
     check_key: 'balance_vs_lender',
@@ -948,7 +997,7 @@ function checkBalanceVsLender(
             ? `That remainder is the size of settlement timing, but it is growing: ${lag.statement}`
             : !material
             ? `At ${(share * 100).toFixed(4)}% of the lender's balance that is below the level worth chasing on its own, so it is noted rather than raised — but it is still counted, and it will go red the moment it grows.`
-            : `That remainder is either missing from Xero or recorded twice.`),
+            : diagnosis ? diagnosisSentence(diagnosis) : `That remainder is either missing from Xero or recorded twice.`),
     detail: {
       code, anchor_date: tie.as_of, anchor_source: tie.anchor_source,
       lender_balance: lender, xero_balance: xeroAtAnchor,
@@ -958,6 +1007,9 @@ function checkBalanceVsLender(
       still_unexplained: residual,
       later_entry_types: d.later_entry_types ?? [],
       material, material_share: Math.round(share * 1e6) / 1e6,
+      // Session 253 (item 13b): null when no lead was found (the common case) --
+      // never a placeholder object. See _shared/gap-diagnosis.ts.
+      self_diagnosis: diagnosis,
       settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                         implied_business_days: lag.impliedBusinessDays,
                         implied_books_through: lag.impliedBooksThrough, rate_basis: rate.basis,
@@ -1697,7 +1749,7 @@ async function handle(req: Request): Promise<Response> {
       // anywhere. That is why the count is checked below rather than assumed; raising
       // the cap is the real fix and is A9's open item.
       supa.from('loan_amortization_rows')
-        .select('row_date, row_type, balance, schedule_id, loan_amortization_schedules!inner(id, loan_account_id, balance_basis, schedule_generated_date, created_at)')
+        .select('row_date, row_type, balance, interest, principal, schedule_id, loan_amortization_schedules!inner(id, loan_account_id, balance_basis, schedule_generated_date, created_at)')
         .in('row_type', SCHEDULE_ANCHOR_ROW_TYPES)
         .not('balance', 'is', null),
       // Terms as the LENDER stated them (session 242). Only live rows: a superseded
@@ -2033,8 +2085,21 @@ async function handle(req: Request): Promise<Response> {
       if (!bookBalances.some(b => b.loan_account_id === loan.id && b.as_of === closingMonthEnd)) {
         drawSkips.push({ loan_account_id: loan.id, code, month: closingMonthEnd, reason: 'no_closing_balance_row' })
       }
+      // Session 253 (item 13b): rows from the schedule actually in force for this
+      // loan (chosenScheduleId), not every schedule version ever uploaded -- a
+      // superseded re-amortization's interest/principal split is not evidence for
+      // what a CURRENT payment should have been. Findings already loaded for this
+      // loan this run (`existing`), excluding balance_vs_lender itself so a stale
+      // balance_vs_lender row never "explains" another one.
+      const diagAmortRows: AmortRow[] = myAmortRows
+        .filter((r: any) => r.schedule_id === chosenScheduleId)
+        .map((r: any) => ({ row_date: r.row_date, interest: r.interest, principal: r.principal }))
+      const siblingFindings: SiblingFinding[] = (existing || [])
+        .filter((f: any) => f.loan_account_id === loan.id && f.status === 'open' && f.check_key !== 'balance_vs_lender')
+        .map((f: any) => ({ check_key: f.check_key, title: f.title, detail: f.detail }))
       findings.push(...checkBalanceVsLender(loan, tie, mine, contractTerms || [], today,
-                                            priorBalanceGap(existing || [], loan.id, tie.as_of)))
+                                            priorBalanceGap(existing || [], loan.id, tie.as_of),
+                                            diagAmortRows, siblingFindings))
 
       // Still gated: derived drift genuinely has nothing to say without a checkpoint.
       if (haveCheckpoint) {

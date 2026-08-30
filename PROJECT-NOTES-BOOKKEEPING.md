@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 254 (left by session 253, 2026-08-30)
+> ## ⏭️ START HERE — first thing, session 255 (left by session 254, 2026-08-30)
 >
 > ### 1. ✅ DEPLOYED AND RUN — the ledger check is live; only the push is outstanding
 >
@@ -429,19 +429,25 @@
 > the real test is the next time that combination occurs.
 >
 > **b) Findings should self-diagnose from sources already in the system, instead of
-> theorizing — STILL OPEN, untouched this session.** Concrete example David gave: PCV
-> Good and Green Loan's `balance_vs_lender` finding says a BankTransaction moved the
-> balance by $7,138.10, leaving $1,802.58 "either missing from Xero or recorded twice"
-> — a coin-flip, when the amortization schedule likely shows that $1,802.58 IS the
-> interest portion of that same payment, booked whole to principal (same root cause as
-> Funding Circle, just never connected). The engine already computes the exact number
-> and the exact transaction; it just never cross-references the amortization schedule's
-> interest/principal split, or the loan's own sibling findings, before presenting the
-> gap. `loan-find-difference` already does this kind of deeper digging, but only when
-> a person clicks "Find the difference" — it should run automatically before a check
-> settles for the vague "missing or duplicated" phrasing, and only fall back to that
-> phrasing when nothing lines up within tolerance. Needs its own design session — it
-> touches how every check type writes its conclusion, not just one.
+> theorizing — DONE (first pass), not yet deployed.** Session 254 shipped the "cheap
+> check" David chose over the full loan-find-difference walk (that walk is a genuine
+> 18-month Xero crawl that already needed its own 3-minute timeout — running it
+> automatically for every gap risked timing out the whole scheduled run, not just the
+> one loan). `checkBalanceVsLender`'s generic "either missing from Xero or recorded
+> twice" fallback now cross-references, IN MEMORY ONLY (no new Xero call): the loan's
+> own amortization schedule (does the residual match that period's scheduled interest
+> or principal, on the SAME date a real ledger entry moved the balance?), then — only
+> if nothing dollar-matches — the loan's other OPEN findings (is there one dated on
+> the same later-entry date?). New `_shared/gap-diagnosis.ts` (`diagnoseUnexplainedGap`),
+> 10 passing tests, proved to discriminate (3 assertions confirmed red against a
+> date-blind version). Scoped to `balance_vs_lender` only for this first pass, per
+> David's choice — `derived_drift`'s similarly generic wording is a candidate for the
+> same treatment later, not touched here. Read the session 254 log entry before
+> touching `checkBalanceVsLender` or `gap-diagnosis.ts`. Deliberately hedged wording
+> ("suggests", "not confirmed") — this is a lead, not a verdict, and severity is
+> untouched by it. The expensive full-history walk (`loan-find-difference`) stays a
+> manual "Find the difference" button, unchanged — that decision (go bigger later) is
+> still open, not abandoned.
 >
 
 ## Why this file exists (session 217)
@@ -2341,6 +2347,108 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 254 (2026-08-30) — item 13b: balance_vs_lender's generic fallback now self-diagnoses against the amortization schedule and sibling findings
+
+David: "done. Now on to part b." (confirming the previous session's fix was deployed and,
+per `git log origin/main..HEAD`, pushed). Part (b) is item 13's second follow-up: David's
+complaint that `balance_vs_lender`'s fallback sentence — "That remainder is either missing
+from Xero or recorded twice" — is a coin-flip the engine could often resolve itself, using
+the PCV Good and Green Loan finding as the concrete example (a $1,802.58 residual that the
+amortization schedule likely already explains as that period's scheduled interest, booked
+whole to principal instead — same shape as Funding Circle's root cause, never connected).
+
+**Design conversation before building, per the notes' own instruction that this needed one.**
+Read `loan-find-difference/index.ts` first: it's a genuine full-history walk against Xero
+(session 228's `analyzeWalk`, an 18-month crawl that already needed its own 3-minute timeout
+when session 228 first ran it live). Running that automatically for every unexplained gap, on
+every scheduled reconciliation run, risked timing out the WHOLE run — every loan, not just the
+one with the gap. Presented David two forks: (1) a cheap, in-memory-only cross-check using
+data reconciliation-run already has loaded each run (the amortization schedule, the loan's
+other open findings) vs. wiring in the expensive full walk automatically (bigger, needs its
+own async-execution design); (2) scope to `balance_vs_lender` alone vs. also touching
+`derived_drift`'s similarly generic wording in the same pass. **David chose: cheap check
+first, `balance_vs_lender` only.**
+
+**What shipped.** New `_shared/gap-diagnosis.ts` — `diagnoseUnexplainedGap(residual,
+laterEntries, amortRows, siblingFindings)`, a pure function with no Xero calls and no new
+queries. Two tiers, schedule match tried first (names an exact dollar figure a document
+already states) and a sibling-finding match only when nothing dollar-matches (weaker —
+"look at this other finding too", not an explanation of the number):
+
+1. **Schedule match.** For each later-entry date (the actual dates of the ledger entries that
+   moved the balance after the anchor — new `later_entry_dates` added to `computeTieOut`'s
+   detail so this data reaches the check at all; it was already computed, just not exposed),
+   look up amortization rows dated exactly that day (`chosenScheduleId` only — the schedule
+   actually in force, not a superseded re-amortization) and check whether the residual matches
+   that row's `interest` or `principal` column to the cent (0.02 tolerance, same as
+   `computeTieOut`'s own tie test). The date has to be a REAL later-entry date, not just any
+   schedule row with a matching dollar figure — a coincidental amount on an unrelated month is
+   explicitly rejected (tested).
+2. **Sibling-finding match.** Failing that, is there an open finding on the SAME loan
+   (excluding `balance_vs_lender` itself) dated on one of the same later-entry dates? If so,
+   name it rather than staying silent.
+
+`checkBalanceVsLender` calls this ONLY in the branch that would otherwise print the generic
+sentence (material, non-benign, not `unconfirmed_no_export`, not `growing` — every other
+branch is untouched). When a diagnosis is found, the sentence names the evidence and is
+DELIBERATELY HEDGED — "suggesting... not confirmed against Xero directly; use 'Find the
+difference' to verify" — never asserted as settled. **Severity is untouched by this**: a
+schedule match is a lead, not proof, and this module doesn't get to claim more certainty than
+it measured (same discipline as `unconfirmed_no_export` staying non-benign). The raw numbers
+(`still_unexplained`, `difference`, etc.) are unchanged in `detail`; a new `self_diagnosis`
+field is ADDED (null when nothing found), never replacing anything — per this module's own
+"cutting must never drop a CLAIM" rule. When nothing lines up, the exact original sentence
+still prints, unchanged.
+
+**Wiring, minimal and additive:** the amortization-rows query (loaded once, top of `handle()`)
+now also selects `interest, principal` (previously only `row_date, row_type, balance,
+schedule_id` — no schema change, just more columns off an existing table). The call site
+passes `diagAmortRows` (this loan's rows on its active schedule, re-shaped to `{row_date,
+interest, principal}`) and `siblingFindings` (this loan's other open findings from `existing`,
+already loaded — `{check_key, title, detail}`), both assembled from data already in scope,
+confirmed by reading the surrounding code rather than assumed.
+
+**Verified, not assumed:**
+- `deno check reconciliation-run/index.ts` — clean.
+- New `_shared/gap-diagnosis.test.ts`, 10 assertions, all passing — including the exact PCV
+  Good and Green Loan numbers reconstructed from the session 253 log entry, a principal-match
+  case, the sibling-finding fallback, precedence (schedule beats sibling), and three date-guard
+  tests (an amount that matches on the WRONG date must not count, from either the schedule or a
+  sibling finding).
+- **Proved the tests discriminate**: reran them against a deliberately date-blind
+  implementation (matches on dollar amount alone, ignoring which date it's on) in an isolated
+  scratch copy — exactly the 3 date-guard assertions went red, 7 still passed. Not a test that
+  would pass against broken code too.
+- `resolve-scope.test.ts` (6/6) and `double-reallocation.test.ts` (4/4) — unaffected, still
+  passing (this touches neither file).
+
+**Not yet deployed.** Bundle is now 240KB across 7 files (`index.ts` + `double-reallocation.ts`
++ `xero-auth.ts` + `carrying-basis-drift.ts` + `settlement-lag.ts` + `resolve-scope.ts` + the
+new `gap-diagnosis.ts`) — same sandbox ceiling as every prior session this week. Hand David:
+
+```
+cd ~/Projects/WashRoute
+npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
+
+Committed locally; not pushed (same as always from this sandbox).
+
+**What this deliberately does NOT do, so the next session doesn't assume more than shipped:**
+no Xero calls, no automatic `loan-find-difference` trigger, no change to `derived_drift`'s own
+generic wording, no severity change, no auto-resolution of anything. The real PCV Good and
+Green Loan finding this was modeled on is already `status='resolved'` in the database (checked
+live before designing this — someone fixed the underlying payment split already), so there is
+no live finding to watch this land on; the real test is the next unexplained `balance_vs_lender`
+gap whose date lines up with a scheduled interest/principal figure or a sibling finding.
+
+**Where to pick up:** confirm the deploy the same way as session 253's (`list_edge_functions`
+`updated_at` vs. `git log` — this file's deploy-state line has been wrong before, so check,
+don't trust). If David wants `derived_drift` covered too, or wants the expensive
+`loan-find-difference` walk wired in automatically (deferred/async, not inline), those are the
+two forks this session deliberately did not take — ask before building either.
 
 ---
 
