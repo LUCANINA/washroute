@@ -9104,6 +9104,16 @@
               <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
             </div>
           </div>`;
+      } else if (it.kind === 'ledger_unexplained') {
+        // The ledger check, NOT balance_vs_lender -- no "Find the difference"
+        // button (that engine walks lender statements; this gap has nothing
+        // to do with the lender and can be open even when the balance ties
+        // to the lender exactly, see PayPal 2 in _loanCloseRollforward's
+        // comment). Recomputed fresh from already-loaded data on every
+        // render, so there is nothing to "mark resolved" by hand -- it
+        // clears itself the moment a correcting split or journal makes the
+        // month foot again.
+        detailHtml = `<div style="color:var(--gray-500)">Measured from this month's Xero ledger movement against the splits recorded for ${esc(it.title)} — see the Loans page's Close Rollforward band for the full month-by-month walk.</div>`;
       } else {
         // recon_finding — full explanation + the one real action when the
         // engine proposed one; otherwise it clears itself on a passing check.
@@ -17024,7 +17034,19 @@
     // Every key _bkRosterState can return must exist here, or c[group]++ makes
     // it NaN and the headline silently stops adding up.
     const c = { total: loans.length, reconciled: 0, variance: 0, unverified: 0, na: 0, unchecked: 0, immaterial: 0, byschedule: 0 };
-    loans.forEach(a => { c[_bkRosterState(a).group]++; });
+    // A loan whose BALANCE state is 'reconciled' can still carry an open item
+    // (see _bkRosterHtml's matching inBand widening, session 255) — recount it
+    // as 'variance' here too, or this headline ("N need attention") and the
+    // roster it sits above would disagree about which loans actually need a
+    // look, which is exactly the failure this module has broken itself on
+    // before. One shared source (_bkLoanAttentionItems), read the same way in
+    // both places.
+    const flaggedLoanIds = new Set(_bkLoanAttentionItems().map(_bkIssueLoanId).filter(Boolean));
+    loans.forEach(a => {
+      let group = _bkRosterState(a).group;
+      if (group === 'reconciled' && flaggedLoanIds.has(a.id)) group = 'variance';
+      c[group]++;
+    });
     return c;
   }
 
@@ -17232,7 +17254,15 @@
     // things to act on, not a full roster of every loan's state.
     for (const band of _BK_ROSTER_BANDS) {
       if (band.key !== 'work') continue;
-      const inBand = groups.filter(g => band.groups.includes(g.sum.group));
+      // A lender whose BALANCE state is 'reconciled' can still carry an open
+      // item — a loan flag, a split needing review, or (session 255) the
+      // ledger check, which can be open even while the balance ties to the
+      // lender exactly (PayPal 2). "An issue reaches the screen or it does
+      // not exist" (this file's own rule) means itemCount alone is enough to
+      // pull a lender into Needs Attention, not just a balance disagreement.
+      // _bkRosterCounts() below applies the identical rule so the header
+      // count and this list can never disagree about which loans need a look.
+      const inBand = groups.filter(g => band.groups.includes(g.sum.group) || g.sum.itemCount > 0);
       if (!inBand.length) continue;
       // Work sorts by the size of the gap — the biggest number is the one to
       // open first. The quiet bands sort by name so the list stops moving under
@@ -17363,6 +17393,30 @@
         explain: _bkOneLine(raw), rawExplain: raw,
         amount: s.total_amount != null ? Number(s.total_amount) : null,
         tag: isDup ? 'duplicate?' : isEarly ? 'wrong match?' : 'stale stage',
+      });
+    });
+    // ── THE LEDGER CHECK, PROMOTED (session 255) ──────────────────────────
+    // David, after seeing "3 loans the ledger does not explain — $5,011.49"
+    // on the Loans page with no mention of it in Issues: fold it in. This is
+    // a REAL, separate check from balance_vs_lender — it asks whether OUR
+    // OWN recorded splits explain what actually moved in the Xero ledger
+    // this month, not whether the balance ties to the lender (see
+    // _loanCloseRollforward's "THE LEDGER CHECK, AS A POPULATION" comment
+    // for the full reasoning — PayPal 2 is the standing example: it ties to
+    // the lender to the cent while money moved off the ledger with nothing
+    // behind it). It was computed only inside that page's Close Rollforward
+    // band and never reached the shared item list every attention surface
+    // reads from, so real flagged money could sit invisible outside that one
+    // page. No new fetch: _loanCloseRollforward runs entirely off data
+    // already loaded for the Loans page (loan_book_balances, loan_splits,
+    // loan_accounts), so this costs nothing extra to compute here.
+    (_loanCloseRollforward(_cvLastMonth()).ledgerOff || []).forEach(r => {
+      const amt = Number(r.unexplained);
+      items.push({
+        key: 'ledger-' + r.a.id, kind: 'ledger_unexplained', severityRank: 0, account: r.a,
+        title: r.a.xero_account_name || r.a.lender_account_number || 'Unknown loan',
+        explain: `${fmtMoney(Math.abs(amt))} ${amt < 0 ? 'came off' : 'was added to'} this loan's Xero balance this month with no recorded split behind it.`,
+        rawExplain: null, amount: amt, tag: 'ledger',
       });
     });
     items.sort((a, b) => a.severityRank - b.severityRank);
