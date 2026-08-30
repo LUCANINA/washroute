@@ -137,9 +137,12 @@
 > showing the stale "no interest split" finding anyway (a `reconciliation-run` bug: an
 > out-of-window finding could never learn that Xero told the engine it had changed and
 > the engine had already re-checked it clean — see the session 252 log entry for the
-> full mechanism). Code fix is written, `deno check`-clean, committed locally; **not yet
-> deployed** — handed David the CLI command since the bundle is too big for this
-> sandbox's deploy tool.
+> full mechanism). Code fix is written, `deno check`-clean, committed locally, and
+> **deployed** — David ran the CLI himself (`reconciliation-run` v58 → **v59**,
+> 2026-08-30) after the sandbox's deploy tool proved too small for the bundle.
+> Confirmed via `list_edge_functions` (new content hash) right after. Not yet
+> re-verified on the Overview page by re-running reconciliation — David was about to
+> press it when this was written.
 >
 > **Still open, and David has decided the approach:** `loan_splits` `dcd896b3-…`
 > (2026-04-20, `posted`) and the duplicate card `4dfd8dd5-…` (`2026-04`,
@@ -389,6 +392,35 @@
 > one — a leftover from an earlier unstage. Any lookup of a stage **by reference**
 > must filter `status != 'DELETED'`. Check the sweep's lookup before the next
 > unstage.
+>
+> ### 13. 🟠 NEW — TWO FOLLOW-UPS FROM SESSION 252: THE FIX WAS NARROW, AND FINDINGS DON'T SELF-DIAGNOSE
+>
+> Both raised by David after the Funding Circle fix went live (`reconciliation-run`
+> v59, deployed 2026-08-30).
+>
+> **a) Audit the other check types for the same window-blindness bug.** Session 252's
+> fix (`examinedSrcIds`) only taught `checkLumpedPayments` / `refreshOutOfWindowLumped`
+> to notice when Xero's `If-Modified-Since` pull had already re-examined a transaction.
+> `balance_vs_lender`, `double-reallocation` (`double-reallocation.ts`),
+> `carrying-basis-drift`, and `settlement-lag` each carry their own window logic and
+> were NOT audited for the same "recycle a stale finding without re-checking it" flaw.
+> David's instruction: don't wait for each one to surface as its own "still seeing
+> this" report — go check them deliberately, as one dedicated session.
+>
+> **b) Findings should self-diagnose from sources already in the system, instead of
+> theorizing.** Concrete example David gave: PCV Good and Green Loan's
+> `balance_vs_lender` finding says a BankTransaction moved the balance by $7,138.10,
+> leaving $1,802.58 "either missing from Xero or recorded twice" — a coin-flip, when
+> the amortization schedule likely shows that $1,802.58 IS the interest portion of
+> that same payment, booked whole to principal (same root cause as Funding Circle,
+> just never connected). The engine already computes the exact number and the exact
+> transaction; it just never cross-references the amortization schedule's
+> interest/principal split, or the loan's own sibling findings, before presenting the
+> gap. `loan-find-difference` already does this kind of deeper digging, but only when
+> a person clicks "Find the difference" — it should run automatically before a check
+> settles for the vague "missing or duplicated" phrasing, and only fall back to that
+> phrasing when nothing lines up within tolerance. Needs its own design session — it
+> touches how every check type writes its conclusion, not just one.
 >
 
 ## Why this file exists (session 217)
