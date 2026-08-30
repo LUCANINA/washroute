@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 255 (left by session 254, 2026-08-30)
+> ## ⏭️ START HERE — first thing, session 256 (left by session 255, 2026-08-30)
 >
 > ### 1. ✅ DEPLOYED AND RUN — the ledger check is live; only the push is outstanding
 >
@@ -396,12 +396,17 @@
 > must filter `status != 'DELETED'`. Check the sweep's lookup before the next
 > unstage.
 >
-> ### 13. 🟠 UPDATED — TWO FOLLOW-UPS FROM SESSION 252, PART (a) DONE BUT UNDEPLOYED, PART (b) STILL OPEN
+> ### 13. ✅ CLOSED — both of session 252's follow-ups deployed and verified against live data
 >
 > Both raised by David after the Funding Circle fix went live (`reconciliation-run`
-> v59, deployed 2026-08-30). Session 253 did the part (a) audit and shipped a fix for
-> what it found — **not yet deployed**, see below. Read the session 253 log entry for
-> the full per-check-type breakdown before touching any of this.
+> v59, deployed 2026-08-30). Part (a) (session 253) and part (b) (session 254) are both
+> **live** as of `reconciliation-run` v62, deployed 2026-08-30 01:00:54 UTC — confirmed
+> by data, not version number: re-ran the check afterward and the Funding Circle
+> `balance_vs_lender` finding's `detail` now carries a `self_diagnosis` key (`null` this
+> run, since no schedule row or sibling finding lined up on its later-entry date — a
+> correct "no lead" result, checked against the loan's actual amortization rows, not
+> assumed). Read the session 253 and 254 log entries for the full per-check-type
+> breakdown and design reasoning before touching any of this.
 >
 > **a) Audit the other check types for the same window-blindness bug — DONE, one real
 > bug found and fixed, not yet deployed.** `carrying_basis_drift` is clean (recomputes
@@ -448,6 +453,59 @@
 > untouched by it. The expensive full-history walk (`loan-find-difference`) stays a
 > manual "Find the difference" button, unchanged — that decision (go bigger later) is
 > still open, not abandoned.
+>
+
+> ### 14. 🟠 NEW — OVERVIEW DESIGN PASS: less red, no clean loans in Needs Attention, the ledger check finally shows up (session 255)
+
+> David reviewed the live Overview page after the item 13 deploy and raised four things
+> in one sitting. All four are committed locally, **NOT pushed** (sandbox has no
+> network) — `admin-dashboard/index.html` has no separate deploy step, but it needs
+> `git push` to reach anything other than this device; each commit already bumped
+> `build-version.txt` locally, which is what makes open tablets reload once it's live.
+>
+> **Vague Verdant sentence — cut, not reworded.** "...so this gap is the answer rather
+> than a placeholder" read as filler. David: "Better not say anything rather than
+> something unhelpful." The trailing clause is gone; the real claim (books disagree
+> with the contractual schedule, no statement is coming) is untouched.
+>
+> **A clean loan sat inside a red "Needs Attention" group.** Ford Pro FinSimple groups
+> 4 E-Transit loans (session 247's "one row per lender"); E6-7410 is fully reconciled
+> but was still rendered as a sub-row inside the flagged group, because the per-loan
+> breakdown loop rendered every sibling unconditionally. Now skipped when a loan is
+> both `reconciled` AND carries no open item — the group's own "3 of 4 disagree" spread
+> is computed independently from the full roster, so the denominator survives.
+>
+> **Red was doing a job that weight and dots could do alone.** One real problem could
+> carry red in three places — the lender group headline, that loan's own sub-row, and
+> the finding card itself. Only the finding card (border + tint + bold headline, right
+> where "Review" lives) keeps red text now; the group and sub-row headlines render in a
+> dark neutral color, dots stay red at every level as the quiet scan signal. No claim
+> dropped, only duplicate ink.
+>
+> **"3 loans the ledger does not explain — \$5,011.49" had no mention in Issues.**
+> Confirmed real and a different question from `balance_vs_lender`: whether OUR
+> recorded splits explain what actually moved in the Xero ledger this month (see item 1
+> above and `_loanCloseRollforward`'s "THE LEDGER CHECK, AS A POPULATION" comment) —
+> PayPal 2 is the standing example of a loan that ties to the lender exactly while
+> failing this. It was computed only inside the Loans page's Close Rollforward band and
+> never reached `_bkLoanAttentionItems()`, the one shared source every attention
+> surface reads. Now it does — one item per loan in `ledgerOff`, no new fetch (reuses
+> data already loaded for the Loans page). **This surfaced a real pre-existing gap,
+> not just a missing check**: the roster only ever showed a lender whose WORST loan
+> balance state was `variance`, so ANY open item on an otherwise balance-clean loan —
+> not just this new ledger one, a stale `loan_flag` or a `needs_attention` split would
+> hit the same hole — could be sitting on a loan that never appeared in Needs Attention
+> at all. Widened the roster's `inBand` filter and `_bkRosterCounts()`'s header tally to
+> the same rule (variance OR any open item), both reading `_bkLoanAttentionItems()` so
+> the "N need attention" headline and the roster under it can't drift apart — this
+> module's own repeated failure shape ("two numbers, no way to tell which is real").
+>
+> **Not done, and worth knowing about:** whether a *previously invisible* `loan_flag` or
+> `needs_attention` split now appears on the Overview roster for the first time (because
+> of the `inBand`/`_bkRosterCounts` widening, not because anything new was raised) was
+> not checked against live data this session — next session, after this deploys, is a
+> good time to look at whether the "N need attention" count jumped by more than the
+> ledger-check loans alone, and if so, confirm those items are real rather than stale.
 >
 
 ## Why this file exists (session 217)
@@ -2349,6 +2407,74 @@ exact-amount search is not an existence test when the system aggregates).
 to "what is running".
 
 ---
+
+### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues
+
+Opened by committing session 254's part (b) work (it had been built and tested but not
+committed when that session ended) and reporting both parts of item 13 to David. He
+deployed `reconciliation-run` v62 and ran a live check. Verified against the database,
+not assumed: the Funding Circle `balance_vs_lender` finding's `detail` now carries a
+`self_diagnosis` key (a field that did not exist before this deploy), proving the new
+code path ran. It came back `null` — checked why by pulling Funding Circle's actual
+amortization rows: the next scheduled row after the anchor date is a month out, so
+there is genuinely nothing on the loan's own schedule to match against on the date the
+later transaction landed. Correct silence, not a miss. Item 13 closed.
+
+David then looked at the live Overview page and raised four things — see START HERE
+item 14 for the technical detail on each fix (Verdant's vague sentence cut rather than
+reworded; E6-7410 no longer rendered inside a red "Needs Attention" group when it has
+nothing open; red text collapsed to one signal per problem — the finding card only,
+not the lender/loan headlines above it; the ledger-does-not-explain check, previously
+visible only on the Loans page's Close Rollforward band, now reaches
+`_bkLoanAttentionItems()`, the shared source every attention surface reads).
+
+**The ledger-check fix surfaced a bigger gap than the one David named.** Digging into
+why a check with a real dollar figure ($5,011.49 across 3 loans) never showed up in
+Issues led to `_bkRosterHtml`'s `inBand` filter: a lender only ever entered the
+"Needs attention" band if its WORST loan's *balance* state was `variance`. A loan that
+ties to the lender exactly but carries an open item of some OTHER kind — a stale
+`loan_flag`, a `needs_attention` split, and now the ledger check — never pulled its
+lender into the roster at all, regardless of what was open on it. Fixed generally
+(balance variance OR any open item, per `_bkLoanAttentionItems()`), not just for the
+ledger case, because the module's own "an issue reaches the screen or it does not
+exist" rule doesn't have an exception for which check raised it. `_bkRosterCounts()`
+(the "N need attention" headline above the roster) was widened by the identical rule,
+reading the same shared function, specifically so the headline and the list under it
+cannot disagree about which loans need a look — this file's own most-repeated failure
+shape, avoided by construction rather than by care this time.
+
+**What was NOT done:** whether this widening surfaces any *previously invisible*
+`loan_flag` or `needs_attention` split against live data — every check this session ran
+against real data confirmed the ledger-check loans specifically, not the general case.
+Worth a look next session once this deploys: if "N need attention" jumps by more than
+just the ledger-flagged loans, confirm what surfaced is real rather than stale.
+
+**Verification.** No `deno` involved — this is all `admin-dashboard/index.html`
+client-side JS, no build step, no unit-test harness for this file (consistent with how
+this file's changes have always been verified in this project). Checked each edit by:
+extracting the page's inline `<script>` block and running `node --check` after every
+change (passed each time); reading the full diff for each commit before pushing it to
+git; and tracing the data flow by hand for the ledger-check integration specifically —
+confirmed `_loanCloseRollforward` needs no fetch beyond what's already loaded globally
+for the Loans page (`loan_book_balances`, `loan_splits`, `loan_accounts` are all loaded
+in one batch regardless of which Bookkeeping tab is open), and confirmed
+`_bkIssueLoanId`/`_bkAttnDetailHtml`/`_bkAttnPeekSpec` all handle the new
+`ledger_unexplained` item kind correctly (explicit branch in the two that needed one;
+safe default `null`/fallthrough in the ones that didn't).
+
+**Deploy status.** Four commits, all local, **NOT pushed** — the sandbox has no network
+(same as every session). `admin-dashboard/index.html` has no separate deploy step; a
+pre-commit hook already bumped `build-version.txt` three times (once per UI-touching
+commit), which is what triggers open tablets to reload once this reaches wherever the
+file is actually served from. David needs to `git push` from his own terminal for any
+of today's four commits — the reconciliation-run deploy (v62) and the four
+admin-dashboard commits — to reach anyone but this device.
+
+**Where to pick up.** `git push`, then re-open the Overview page and confirm by eye:
+Verdant's sentence, whether E6-7410 still shows inside Ford Pro FinSimple's group, and
+whether the ledger-check loans now appear in Issues with the right dollar figures. Then
+the "what was NOT done" paragraph above — check whether the roster widening surfaced
+anything unexpected on real data.
 
 ### Session 254 (2026-08-30) — item 13b: balance_vs_lender's generic fallback now self-diagnoses against the amortization schedule and sibling findings
 
