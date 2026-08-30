@@ -3580,17 +3580,17 @@
             .bk-lr-name { font-size: 13.5px; font-weight: 600; color: var(--gray-900); flex: 1 1 auto;
                           min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .bk-lr-meta { font-size: 11.5px; font-weight: 500; color: var(--gray-400); margin-left: 9px; }
-            .bk-lr-sum { font-size: 12.5px; font-weight: 500; color: var(--gray-500);
+            /* Session 255, then unified same day: this line used to switch color AND
+               weight per state (t1 dark-bold, t2 amber, t3/default light-gray) -- three
+               different typographic treatments doing the job the dot already does, and
+               David called it out as inconsistent across the Issues list once the red
+               was gone ("unify styling + colors"). One weight, one color, for every
+               state. The dot (.bk-dot: red/amber/green/gray) is the only place this
+               list communicates severity now -- see the .bk-lr-sub-sum rule below for
+               the identical reasoning at the per-loan level. */
+            .bk-lr-sum { font-size: 12.5px; font-weight: 600; color: var(--gray-800);
                          flex: 0 1 auto; text-align: right; white-space: nowrap;
                          overflow: hidden; text-overflow: ellipsis; }
-            /* Session 255: red here duplicated the finding card below, which already
-               carries the loud signal (border + tint + bold headline, .bk-queue-row.bk-t1).
-               A lender/loan summary line states the same fact once more on the way there —
-               weight says "pay attention" without a second red claiming a second problem.
-               David: "lot of red background" / "collapse to one clear red signal per
-               problem". Dots (.bk-dot.red) stay red at every level; text color does not. */
-            .bk-lr-sum.t1 { color: var(--gray-800); font-weight: 650; }
-            .bk-lr-sum.t2 { color: #b45309; }
             .bk-lr-chev { flex: none; width: 12px; text-align: center; font-size: 11px; color: var(--gray-400); }
             .bk-lr-panel { border-bottom: 1px solid var(--gray-100); background: #fff; }
             .bk-lr-detail { font-size: 12.5px; color: var(--gray-600); line-height: 1.5; padding: 12px 20px 12px 38px; }
@@ -3599,10 +3599,9 @@
             .bk-lr-sub .bk-dot { margin-top: 0; }
             .bk-lr-sub-name { font-size: 12.5px; font-weight: 600; color: var(--gray-700); flex: 1 1 auto;
                               min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .bk-lr-sub-sum { font-size: 12px; color: var(--gray-500); white-space: nowrap; }
-            /* Same reasoning as .bk-lr-sum.t1 above -- see that comment. */
-            .bk-lr-sub-sum.t1 { color: var(--gray-700); font-weight: 600; }
-            .bk-lr-sub-sum.t2 { color: #b45309; }
+            /* Same reasoning as .bk-lr-sum above -- see that comment. One weight, one
+               color, for every state; the dot carries severity. */
+            .bk-lr-sub-sum { font-size: 12px; font-weight: 600; color: var(--gray-700); white-space: nowrap; }
             .bk-lr-none { font-size: 12px; color: var(--gray-400); padding: 0 20px 12px 38px; }
             .bk-lr-panel .bk-queue-row { background: #fff; padding-left: 38px; }
             .bk-lr-panel .bk-queue-row.bk-t1 { padding-left: 35px; }
