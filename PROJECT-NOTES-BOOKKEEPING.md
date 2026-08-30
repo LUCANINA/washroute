@@ -137,12 +137,13 @@
 > showing the stale "no interest split" finding anyway (a `reconciliation-run` bug: an
 > out-of-window finding could never learn that Xero told the engine it had changed and
 > the engine had already re-checked it clean — see the session 252 log entry for the
-> full mechanism). Code fix is written, `deno check`-clean, committed locally, and
-> **deployed** — David ran the CLI himself (`reconciliation-run` v58 → **v59**,
-> 2026-08-30) after the sandbox's deploy tool proved too small for the bundle.
-> Confirmed via `list_edge_functions` (new content hash) right after. Not yet
-> re-verified on the Overview page by re-running reconciliation — David was about to
-> press it when this was written.
+> full mechanism). v59 deployed and confirmed live, but David re-ran reconciliation and
+> **still saw the same finding** — a second, real bug in the first fix (a one-shot
+> `If-Modified-Since` cursor that had already aged past the edit before v59 was even
+> deployed; see the session 252 cont. 4 log entry for the full mechanism). Second fix
+> written (`pullXero` can now force-fetch specific transaction ids directly by id,
+> independent of the cursor), `deno check`-clean, committed locally. **Not yet
+> deployed** — handed David the same CLI command again.
 >
 > **Still open, and David has decided the approach:** `loan_splits` `dcd896b3-…`
 > (2026-04-20, `posted`) and the duplicate card `4dfd8dd5-…` (`2026-04`,
@@ -2424,6 +2425,63 @@ Reconciliation Check and confirm the Funding Circle 2026-04-20 lumped-payment fi
 disappears from Issues). Then, in its own session: design the `void_loan_split` un-mark /
 revert-to-pending-review path (`washroute-migration-review` first), and only then correct
 `dcd896b3-…` and void the `4dfd8dd5-…` duplicate card.
+
+#### Session 252 (cont. 4, 2026-08-30) — deployed, re-ran, STILL showed it. The fix above had a real gap: a one-shot cursor race.
+
+David deployed v59 himself (`npx supabase@latest functions deploy reconciliation-run --project-ref
+umjpbuxrdydwejqtensq --no-verify-jwt`, confirmed live via `list_edge_functions` — new content hash,
+`updated_at` **2026-08-30 00:02:32 UTC**). He then ran reconciliation and reported "STILL seeing a
+reference to Funding Circle 4/20 payment!" with a screenshot proving it — same title, same $2,033.77,
+now additionally showing a "set aside on 2026-08-24, back because it is now a Fix first" annotation.
+
+**Checked against the database, not assumed:** `reconciliation_findings` `d211b225-…` (the same
+`lumped_payment:253:868db3ce-…` fingerprint) was still `status='open'` with `last_seen_at`
+**2026-08-30 00:09:53 UTC** — from run `93610a76-…`, which started **7 minutes after v59 deployed**.
+So the fixed code DID run. It still didn't help, and the reason is a real design gap in cont. 3's
+fix, not a fluke: `examinedSrcIds` only ever contains a transaction if THIS run's `pullXero` pulled it
+via `If-Modified-Since`, and that pull's `modifiedSince` cursor is chained to the PREVIOUS run's own
+`started_at` (`prev?.started_at`) — it only ever moves forward. Xero told the engine this transaction
+changed exactly ONCE: the first run whose cursor was still older than the 17:53:22 edit
+(`2d3b560a-…`, started 17:59:58 on 2026-08-29). That run used the OLD, pre-cont.-3 code — v59 wasn't
+deployed until the next day — so the one and only window in which `examinedSrcIds` could ever have
+included this transaction was spent running code that didn't know what to do with the information.
+Every run since (18:33, 21:36, 23:54, 00:09) has a cursor further past 17:53:22 than the last, so
+`If-Modified-Since` correctly reports nothing changed — because, as far as Xero's clock is concerned,
+nothing HAS changed since any of those later cursors. The transaction isn't invisible because it's
+still broken; it's invisible because the one chance to notice it was fixed already passed, running
+the wrong code. Cont. 3's fix was real and will work for any edit made from now on — the deployed
+code will always be running before the very next incremental run — but it could never retroactively
+rescue a finding whose defining edit predates its own deployment. This is a stronger, more general
+version of the same "recycle a stale conclusion instead of re-checking the source" complaint David
+raised minutes later about the PCV Good and Green Loan `balance_vs_lender` finding (see item 13) —
+confirmed here as a second, concrete instance of it, not a one-off.
+
+**The fix — same file, this time not dependent on any cursor at all:** `pullXero` takes a new
+`forceIds: string[]` parameter. For each id in it, the function fetches that BankTransaction directly
+BY ID from Xero (`GET BankTransactions/{id}`), regardless of `modifiedSince` — a transaction fetched
+by id always carries its current lines (the same rule `xero-read`'s header comment documents), so
+this is not a probabilistic "did the cursor happen to cover it" check, it is just asking Xero what
+that specific transaction says right now. The forced results feed into the SAME `changedOld` /
+`allEntries` / `examinedSrcIds` machinery cont. 3 built, so nothing downstream needed to change.
+`forceIds` itself is computed at the call site from `existing` (the `reconciliation_findings` read,
+moved earlier in the function so it's available before `pullXero` runs): every OPEN,
+`lumped_payment`-prefixed finding whose `detail.date` is before `windowFrom` contributes its
+`bank_transaction_id`. Scoped tightly on purpose — right now that list has exactly one entry
+(`868db3ce-…`) — so this can never grow into a second full scan of Xero; it only ever re-checks
+transactions we already have an open, unresolved question about. `deno check` clean.
+
+**Not yet deployed** — same size-ceiling reason as cont. 3, same command:
+
+```
+cd ~/Projects/WashRoute
+supabase functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
+
+**Where to pick up:** confirm the deploy (`list_edge_functions` `updated_at`/hash newer than this
+commit), then re-run reconciliation and confirm the Funding Circle finding is actually gone this
+time — not just "a run happened after the deploy," check the finding's own `status`/`resolved_at` in
+`reconciliation_findings`, the way this entry did, because "still seeing this" has now been wrong
+about being fixed twice.
 
 ---
 

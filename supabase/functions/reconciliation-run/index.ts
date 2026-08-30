@@ -243,7 +243,7 @@ async function fetchTrialBalances(date: string): Promise<Record<string, number> 
   } catch { return null }
 }
 
-async function pullXero(fromDate: string, toDate: string, modifiedSince: string | null) {
+async function pullXero(fromDate: string, toDate: string, modifiedSince: string | null, forceIds: string[] = []) {
   const { accessToken: token, tenantId } = await getXeroAuth()
 
   const norm = (arr: any[], type: 'BankTransaction' | 'ManualJournal') => arr.map((x: any) => type === 'BankTransaction' ? ({
@@ -302,7 +302,53 @@ async function pullXero(fromDate: string, toDate: string, modifiedSince: string 
 
   const seen = new Set<string>()
   const entries = [...bt, ...mj].filter(r => { if (seen.has(r.srcId)) return false; seen.add(r.srcId); return true })
-  return { entries, changedOld }
+
+  // SESSION 252 (cont. 4): a transaction's own If-Modified-Since window is a single,
+  // non-repeating chance -- Xero reports it "changed" only on the first run whose
+  // modifiedSince cursor is older than the edit. Miss that one run (the code that
+  // knew what to do with it wasn't deployed yet, or the run simply didn't fire) and
+  // every later run's cursor has already moved past the edit, so `changedOld` can
+  // never see it again -- not because it's fixed, but because the CURSOR aged out,
+  // not the finding. Funding Circle's 2026-04-20 payment was hand-split at 17:53:22
+  // on 2026-08-29; the only run whose window covered that edit ran the OLD code
+  // (deployed the next day), so the one chance was spent for nothing and the finding
+  // stayed stuck reciting stale text forever after -- confirmed live: three more
+  // runs, three more stale "no interest split" reports, the cursor moving further
+  // away each time, none of them ever able to see that transaction again.
+  //
+  // Fix: never depend on catching a one-time window. For a short, known list of
+  // transaction ids (the ones sitting behind currently open, out-of-window
+  // lumped-payment findings -- see forceIds at the call site, typically 0-2 across
+  // the whole book), fetch each directly BY ID, regardless of modifiedSince. A
+  // transaction fetched by id always carries its current lines (same rule xero-read
+  // documents), so this is not a probabilistic "did the cursor happen to cover it"
+  // check -- it is just asking Xero what that specific transaction says right now,
+  // every run, forever, for exactly the handful of transactions we already have an
+  // open question about. Bounded and cheap because the caller passes only ids
+  // already known to be stuck, never a scan of anything.
+  let forced: any[] = []
+  if (forceIds.length) {
+    await sleep(300)
+    const raw: any[] = []
+    for (const id of forceIds) {
+      try {
+        const r = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${encodeURIComponent(id)}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' },
+        })
+        if (r.ok) {
+          const j = await r.json().catch(() => null)
+          raw.push(...(j?.BankTransactions || []))
+        }
+      } catch (_) {
+        // Best-effort: a failed forced fetch leaves the finding exactly as stuck as
+        // it already was -- never worse -- and the next run tries again.
+      }
+      await sleep(200)
+    }
+    forced = norm(raw, 'BankTransaction').filter(r => r.date < fromDate)
+  }
+
+  return { entries, changedOld: [...changedOld, ...forced] }
 }
 
 // ── Checks ──────────────────────────────────────────────────────────────
@@ -1729,7 +1775,24 @@ async function handle(req: Request): Promise<Response> {
     const tbDate = addDays(windowFrom, -1)
     const tb = await fetchTrialBalances(tbDate)
 
-    const { entries, changedOld } = await pullXero(windowFrom, pullTo, prev?.started_at ?? null)
+    // SESSION 252 (cont. 4): moved up from below the loan loop so forceIds (just
+    // below) can be computed before pullXero runs. Nothing downstream reads
+    // `existing` any later than it used to -- the loan loop (which needs it for
+    // the settlement-lag growth test) still gets it, just via a binding that now
+    // exists sooner. See the comment that used to sit here, preserved below.
+    const { data: existing } = await supa.from('reconciliation_findings').select('*').eq('source', 'engine')
+
+    // The ids to force-check regardless of the modifiedSince cursor -- see
+    // pullXero's forceIds param for why this exists at all. Scoped tightly on
+    // purpose: only OPEN, out-of-window lumped-payment findings, so this can
+    // never grow into a second full scan of Xero.
+    const forceIds = [...new Set((existing || [])
+      .filter((f: any) => f.status === 'open' && String(f.check_key || '').startsWith('lumped_payment'))
+      .filter((f: any) => f.detail?.date && f.detail.date < windowFrom)
+      .map((f: any) => String(f.detail?.bank_transaction_id || ''))
+      .filter(Boolean))] as string[]
+
+    const { entries, changedOld } = await pullXero(windowFrom, pullTo, prev?.started_at ?? null, forceIds)
     const relevantChangedOld = changedOld.filter(r => r.lines.some((l: any) => codes.includes(l.c)))
     const allEntries = [...entries, ...relevantChangedOld]
     const ledger = buildLedger(allEntries, codes)
@@ -1743,16 +1806,12 @@ async function handle(req: Request): Promise<Response> {
     const examinedSrcIds = new Set(allEntries.map((r: any) => r.srcId))
 
     // ── new / still-open / resolved, by fingerprint ──
-    // Engine-owned rows only. This table is now shared with the intake subsystem
-    // (source='intake'), and the resolve sweep below closes anything it did not
-    // re-find. The engine never produces intake check_keys, so an unscoped load
-    // would silently auto-resolve every intake finding. Never resolve what we don't own.
-    //
-    // Read BEFORE the loan loop (session 244), not after it, because the loop now
-    // needs last close's balance_vs_lender gap for the settlement-lag growth test.
-    // Nothing is written to this table until the loop has finished, so moving the
-    // read earlier changes no row it sees.
-    const { data: existing } = await supa.from('reconciliation_findings').select('*').eq('source', 'engine')
+    // Engine-owned rows only (`existing`, loaded above -- moved up in session 252
+    // cont. 4 so forceIds could be computed before pullXero). This table is now
+    // shared with the intake subsystem (source='intake'), and the resolve sweep
+    // below closes anything it did not re-find. The engine never produces intake
+    // check_keys, so an unscoped load would silently auto-resolve every intake
+    // finding. Never resolve what we don't own.
 
     const findings: Finding[] = []
     const tieOuts: TieOut[] = []
