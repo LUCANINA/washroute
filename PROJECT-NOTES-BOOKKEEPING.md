@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 248 (left by session 247, 2026-08-28)
+> ## ⏭️ START HERE — first thing, session 254 (left by session 253, 2026-08-30)
 >
 > ### 1. ✅ DEPLOYED AND RUN — the ledger check is live; only the push is outstanding
 >
@@ -396,28 +396,46 @@
 > must filter `status != 'DELETED'`. Check the sweep's lookup before the next
 > unstage.
 >
-> ### 13. 🟠 NEW — TWO FOLLOW-UPS FROM SESSION 252: THE FIX WAS NARROW, AND FINDINGS DON'T SELF-DIAGNOSE
+> ### 13. 🟠 UPDATED — TWO FOLLOW-UPS FROM SESSION 252, PART (a) DONE BUT UNDEPLOYED, PART (b) STILL OPEN
 >
 > Both raised by David after the Funding Circle fix went live (`reconciliation-run`
-> v59, deployed 2026-08-30).
+> v59, deployed 2026-08-30). Session 253 did the part (a) audit and shipped a fix for
+> what it found — **not yet deployed**, see below. Read the session 253 log entry for
+> the full per-check-type breakdown before touching any of this.
 >
-> **a) Audit the other check types for the same window-blindness bug.** Session 252's
-> fix (`examinedSrcIds`) only taught `checkLumpedPayments` / `refreshOutOfWindowLumped`
-> to notice when Xero's `If-Modified-Since` pull had already re-examined a transaction.
-> `balance_vs_lender`, `double-reallocation` (`double-reallocation.ts`),
-> `carrying-basis-drift`, and `settlement-lag` each carry their own window logic and
-> were NOT audited for the same "recycle a stale finding without re-checking it" flaw.
-> David's instruction: don't wait for each one to surface as its own "still seeing
-> this" report — go check them deliberately, as one dedicated session.
+> **a) Audit the other check types for the same window-blindness bug — DONE, one real
+> bug found and fixed, not yet deployed.** `carrying_basis_drift` is clean (recomputes
+> from full history every run, immune by construction). `settlement-lag` isn't a
+> separate check — it's embedded in `balance_vs_lender`'s own detail, no separate
+> staleness risk. `balance_vs_lender` and `derived_drift` have a MILDER cousin of the
+> bug (an aged-out finding is orphaned rather than recycled, so it can sit open too
+> long but can never falsely resolve) — filed as **Tech Debt #27**, not fixed this
+> session, needs a design call. `double-reallocation.ts`'s `double_reallocation` and
+> `split_collision` findings had a REAL, unfixed version: they write the same
+> `bank_transaction_id` detail field `examinedSrcIds`/`wasExamined` keys off (session
+> 252's "one writer, one reader" claim only grepped `index.ts`; `double-reallocation.ts`
+> is a separate file), and the `resolvedNow` read of that field wasn't scoped by
+> `check_key` — so a double-count finding could theoretically auto-resolve without ever
+> being re-verified, if its transaction got re-pulled for an unrelated reason. **Fixed**:
+> new `_shared/resolve-scope.ts` (`isExaminedForResolve`), scoped to `lumped_payment*`
+> the same way the other two reads of that field already are. `deno check` clean, new
+> `resolve-scope.test.ts` (6/6, proved to discriminate against the old unscoped logic),
+> `double-reallocation.test.ts` unaffected (4/4). **Committed locally, NOT deployed** —
+> combined bundle is 231KB across 6 files, past the sandbox's deploy-tool ceiling; hand
+> David the `npx supabase@latest functions deploy reconciliation-run ...` command (full
+> command in the session 253 log entry). Not live on any loan today — no loan currently
+> has both an open `lumped_payment` and an open `double_reallocation`/`split_collision`
+> finding on the same transaction — so deploying it should change nothing visible;
+> the real test is the next time that combination occurs.
 >
 > **b) Findings should self-diagnose from sources already in the system, instead of
-> theorizing.** Concrete example David gave: PCV Good and Green Loan's
-> `balance_vs_lender` finding says a BankTransaction moved the balance by $7,138.10,
-> leaving $1,802.58 "either missing from Xero or recorded twice" — a coin-flip, when
-> the amortization schedule likely shows that $1,802.58 IS the interest portion of
-> that same payment, booked whole to principal (same root cause as Funding Circle,
-> just never connected). The engine already computes the exact number and the exact
-> transaction; it just never cross-references the amortization schedule's
+> theorizing — STILL OPEN, untouched this session.** Concrete example David gave: PCV
+> Good and Green Loan's `balance_vs_lender` finding says a BankTransaction moved the
+> balance by $7,138.10, leaving $1,802.58 "either missing from Xero or recorded twice"
+> — a coin-flip, when the amortization schedule likely shows that $1,802.58 IS the
+> interest portion of that same payment, booked whole to principal (same root cause as
+> Funding Circle, just never connected). The engine already computes the exact number
+> and the exact transaction; it just never cross-references the amortization schedule's
 > interest/principal split, or the loan's own sibling findings, before presenting the
 > gap. `loan-find-difference` already does this kind of deeper digging, but only when
 > a person clicks "Find the difference" — it should run automatically before a check
@@ -2069,6 +2087,10 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**27. 🟡 `balance_vs_lender` and `derived_drift` findings can go stale-forever the same way lumped_payment used to (session 253 audit).** Not the same bug session 252 fixed — a MILDER cousin of it, found while auditing the other check types for it per David's ask (item 13a). Both checks refuse to raise a finding once its underlying date (the lender-statement anchor for `balance_vs_lender`, the stored-balance date for `derived_drift`) falls before `windowFrom` — `computeTieOut`'s `anchor_before_window` reason code, and `checkDerivedDrift`'s own `if (d.statement_date < windowFrom) continue`. That's correct and deliberate: neither check can trust a rebuild that reaches outside the pulled ledger. But once that happens, the OLD finding (raised back when its date WAS in-window) is never revisited and never resolved either — `resolvedNow`'s window guard blocks it (see Tech Debt entry below and `_shared/resolve-scope.ts`), and unlike `lumped_payment`, nothing analogous to `examinedSrcIds` exists for these two check types, because their fingerprints are keyed by the anchor/statement date itself (`balance_vs_lender:${code}:${tie.as_of}`, `derived_drift:${code}:${d.statement_date}`) rather than by a transaction id — a newer anchor just produces a NEW fingerprint, orphaning the old row rather than recycling it. Net effect: a ghost finding can sit open in `reconciliation_findings` forever, showing whatever it said the day its anchor aged out, even after later data would show it's fine. Lower stakes than the double-reallocation bug fixed this session (this can only make a queue too noisy, never make a real problem silently disappear), but it's the same root pattern and belongs on the list.
+
+*Next step: needs a design decision, not just a patch — should an aged-out `balance_vs_lender`/`derived_drift` finding auto-resolve on some rule (e.g. a newer anchor/statement exists and ties), or should it require a human close via the dismissal system? Not attempted this session; flagged rather than guessed at.*
+
 ## Next Up — THE INGESTION ENGINE (Aug 21, first thing — David: "this will set us apart from everyone else")
 
 > **STATUS (session 224): largely BUILT — see the Session 224 entry in the Session Log.**
@@ -2319,6 +2341,113 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 253 (2026-08-30) — audited the other check types for session 252's window-blindness bug, per David's item 13a ask; found and fixed a real one, in double-reallocation.ts
+
+David, after the Funding Circle fix: audit `balance_vs_lender`, `double-reallocation.ts`,
+`carrying-basis-drift`, and `settlement-lag` for the same "recycles a stale finding instead of
+re-checking it" shape session 252's `examinedSrcIds` fix closed for `checkLumpedPayments`. Go check
+deliberately, as one dedicated session, rather than waiting for each to surface as its own "still
+seeing this" report.
+
+**Per check type, checked against the actual code, not guessed:**
+
+* **`carrying_basis_drift` / `carrying_basis_payments_unsplit` / `contract_terms_disagree` — clean.**
+  `checkCarryingBasis` recomputes from a loan's ENTIRE history every run (only cut by `today`, never
+  by `windowFrom`), and its fingerprint (`carrying_basis:${code}`) and `detail` carry no date/anchor
+  field at all — so `resolvedNow`'s window guard (`d = detail.date ?? detail.anchor_date`) never even
+  engages for this check type. It self-corrects every run by construction. Worth treating as the model
+  for the others rather than a peer needing the same fix.
+* **`settlement-lag` — not a separate check.** `explainBalanceGap` is a pure function embedded in
+  `balance_vs_lender`'s own detail/verdict, recomputed fresh on every call. No separate fingerprint, no
+  separate resolve path, nothing to independently go stale. It inherits whatever `balance_vs_lender`
+  does.
+* **`balance_vs_lender` (and `derived_drift`, checked as a close cousin) — a MILDER version of the
+  same pattern, not the same bug.** Both refuse to raise a finding once the underlying date (the
+  lender-statement anchor / the stored-balance date) falls before `windowFrom` — deliberate, and
+  correct, since neither check can trust a rebuild reaching outside the pulled ledger. But the OLD
+  finding, raised back when its date WAS in-window, is then never revisited or resolved: nothing
+  analogous to `examinedSrcIds` exists for these two, because their fingerprints are keyed by the
+  anchor/statement date itself, so a newer anchor just produces a new fingerprint and ORPHANS the old
+  row rather than recycling it. Net effect: a ghost finding can sit open forever showing what it said
+  the day it aged out. Lower stakes than what follows — it can only make the queue noisier, never make
+  a real problem disappear — so filed as **Tech Debt #27** rather than patched this session; needs its
+  own design decision (auto-resolve on some rule vs. require a human close).
+* **`double_reallocation` / `split_collision` (`double-reallocation.ts`) — a REAL bug, found live in
+  the code, not yet triggered on any loan.** Session 252's fix comment claimed `bank_transaction_id`
+  "only ever appears in `lumpedFinding`'s `detail`... grepped the whole file to confirm — one writer,
+  one reader." True of `reconciliation-run/index.ts` alone — but `double-reallocation.ts` is a separate
+  module, wasn't part of that grep, and its own `checkDoubleReallocation` ALSO writes
+  `detail.bank_transaction_id` onto both `double_reallocation` and `split_collision` findings. The
+  `resolvedNow` filter's read of that field (the generic resolve block, not `refreshOutOfWindowLumped`)
+  was not scoped by `check_key` the way the other two reads of the same field already are. Consequence:
+  if a bank transaction gets re-pulled via `If-Modified-Since` for an unrelated reason (say, because it
+  also carries an open `lumped_payment` finding being force-checked), `wasExamined` goes true for ANY
+  finding sitting on that transaction id — including a `double_reallocation` finding whose own check
+  never actually got to re-verify it, because `checkDoubleReallocation` requires BOTH the transaction
+  AND its paired manual journal in this run's ledger and silently bails ("outside the loaded window;
+  say nothing") when only one of the two is there. That silent bail plus the unscoped `wasExamined`
+  read together would auto-resolve a real double-booked-interest finding in the database without the
+  check ever confirming it was fixed — a worse failure than session 252's, which could only ever leave
+  a fixed finding open too long, never make a live one vanish. Not live today (no loan currently has
+  both an open `lumped_payment` and an open `double_reallocation`/`split_collision` finding on the same
+  transaction), but a real landmine given both checks watch the same transactions.
+
+**The fix (David: "go ahead").** Extracted the scoping into its own pure, exported, testable function —
+`isExaminedForResolve(checkKey, bankTransactionId, examinedSrcIds)` in new file
+`supabase/functions/_shared/resolve-scope.ts` — rather than inlining it in
+`reconciliation-run/index.ts`, for the same reason `double-reallocation.ts` was pulled into its own
+module in the first place: `index.ts` calls `Deno.serve()` at import time, so nothing inside it can be
+unit-tested directly (confirmed live: `deno test` against `index.ts` itself throws `NotCapable: net
+access to 0.0.0.0:8000` on import). The function now requires `check_key` to start with
+`lumped_payment` before trusting `bank_transaction_id` as evidence of examination — matching the
+scoping `refreshOutOfWindowLumped` and the `forceIds` computation already use for the same field.
+`reconciliation-run/index.ts`'s `resolvedNow` filter now calls it instead of inlining the check.
+
+**Verified, not assumed:**
+- `deno check reconciliation-run/index.ts` — clean, no errors (installed deno fresh in the cloud
+  sandbox again; still not on the device's own PATH, same as session 252).
+- New `_shared/resolve-scope.test.ts`, 6 assertions, all passing: a `lumped_payment` finding on an
+  examined transaction counts; `lumped_payment_missing_prior_statement` counts too (startsWith match);
+  `double_reallocation` and `split_collision` findings on the SAME examined transaction do NOT count;
+  a `lumped_payment` finding on a transaction that wasn't examined stays false; a finding with no
+  `bank_transaction_id` at all (e.g. `balance_vs_lender`) is always false.
+- **Proved the test discriminates**, per this module's own testing rule: reran the 6 assertions
+  against the OLD, unscoped implementation (no `check_key` gate) in an isolated scratch copy — exactly
+  the 3 cases this fix targets went red (`double_reallocation`, `split_collision`, and the
+  no-`bank_transaction_id` case), 3 still passed. Not a test that would have passed against the broken
+  code too.
+- `double-reallocation.test.ts`'s existing 4 assertions — unaffected, still 4/4 passing (this fix
+  doesn't touch `checkDoubleReallocation` itself, only how its findings get resolved).
+
+**Not yet deployed.** Combined bundle (`index.ts` + `double-reallocation.ts` + `xero-auth.ts` +
+`carrying-basis-drift.ts` + `settlement-lag.ts` + the new `resolve-scope.ts`) is **231KB across 6
+files** — past this sandbox's own `deploy_edge_function` ceiling (~100-130KB), same situation as
+session 252's v58/v59/v60 deploys. Hand David the CLI command rather than risk a truncated deploy:
+
+```
+cd ~/Projects/WashRoute
+npx supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
+
+Committed locally (message below); **not pushed** — sandbox has no network for that, same as always.
+Also cleared a stale `.git/HEAD.lock` before committing (moved to `_to_delete/`, not deleted — same
+FUSE-mount rule as every prior session).
+
+**Where to pick up:** confirm the deploy (`list_edge_functions` `updated_at` vs. `git log`, per the
+STEP 0 rule — this file's own deploy-state line has been wrong three sessions running, so check it,
+don't trust it written down). Since this fix only changes RESOLVE behavior and touches no new columns,
+there's no new-field proof available the way session 252 had `loan_book_balances.detail` — the honest
+verification is: no loan should currently show a changed finding count from this deploy alone (nothing
+live exercises the fixed path yet), so "nothing changed on the Overview" after deploying IS the
+expected, correct result. The real test only happens the next time a loan has both an open
+`lumped_payment` and an open `double_reallocation`/`split_collision` finding on the same transaction —
+watch for that combination and confirm the double-count finding does NOT silently resolve when the
+transaction gets re-pulled. Part (b) of item 13 (findings should self-diagnose from the amortization
+schedule / sibling findings instead of theorizing, e.g. PCV Good and Green Loan's `balance_vs_lender`
+finding) is untouched — still needs its own design session, per David's own framing when he raised it.
 
 ---
 

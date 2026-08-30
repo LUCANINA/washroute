@@ -13,6 +13,7 @@ import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './d
 // read it from one place rather than each growing their own copy.
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { explainBalanceGap, dailyWithholdingFromBalances } from '../_shared/settlement-lag.ts'
+import { isExaminedForResolve } from '../_shared/resolve-scope.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -2110,8 +2111,9 @@ async function handle(req: Request): Promise<Response> {
     const resolvedNow = (existing || []).filter(f => {
       if (f.status !== 'open' || seenFps.has(f.fingerprint)) return false
       const d = f.detail?.date ?? f.detail?.anchor_date
-      const txnId = String(f.detail?.bank_transaction_id || '')
-      const wasExamined = txnId !== '' && examinedSrcIds.has(txnId)
+      // See isExaminedForResolve above (session 253) for why this is scoped to
+      // lumped_payment* rather than trusting bank_transaction_id alone.
+      const wasExamined = isExaminedForResolve(f.check_key, f.detail?.bank_transaction_id, examinedSrcIds)
       if (d && d < windowFrom && !wasExamined) return false
       return true
     })
