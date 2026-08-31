@@ -2776,6 +2776,63 @@ Committed (`6018fca`), **not pushed** -- same as every session, sandbox has no
 network.
 
 ---
+**Session 256, round 8 (same day) -- David: "do the cleanup pass as well" (the
+one-time backfill flagged, not done, at the end of round 7).**
+
+This is a live production DATA change (`umjpbuxrdydwejqtensq`, table
+`loan_statements`), not a code change, so it got the corresponding scrutiny --
+queried before writing anything, and NOT a blanket "set every unknown real
+anchor to principal_only for these lenders" pass, because that would have been
+wrong. Grouped every real-anchor (`lender_statement` / `email_pdf_upload` /
+`portal_manual_pull`) row for all ten loan accounts under the five fixed
+lenders by `(account, source, balance_basis)` first. Result: nine of the ten
+accounts already carried `principal_only` on every real-anchor row -- some
+earlier pass (not this session, not found in git for this file) had already
+labelled them correctly, so round 7's parser bug had gone uncaught for months
+on new uploads without visibly biting until Funding Circle. Only two things
+actually needed attention:
+
+Funding Circle Loan had NINE `portal_manual_pull` rows still `unknown`
+(2025-11-01 through 2026-07-01) and one already `principal_only` (2026-08-03).
+Checked each one's `storage_path` before touching anything -- all nine are
+`.../YOUNG_FOOLISH_LLC_iBusiness_Funding_Statement_*.pdf`, the same document
+family, one of which (the 2025-11-01 row, `$74,008.88`) is the EXACT statement
+David had already screenshotted this session -- so this wasn't inferred from a
+filename pattern alone, one of the nine was independently confirmed against
+the real PDF's actual printed text. Updated by explicit id list (never a bare
+WHERE on account+source, precisely so a row that didn't belong couldn't be
+swept in) -- 9 rows, `returning` confirmed all nine landed.
+
+E-Transit E5-4751 and E6-7410 each still carry exactly one `unknown`
+real-anchor row (2026-08-23 and 2026-08-20). Checked these too, and left them
+alone ON PURPOSE: they match the "F7 fix" case documented earlier in this same
+file (`_loanClosingAnchor`'s `unlabelled` note, session 248-ish) almost to the
+letter -- newest-statement-on-file whose own text doesn't say what its balance
+measures, already known, already handled correctly by the code refusing to use
+it. Backfilling these two would have UNDONE a deliberate, previously-fixed
+refusal, not corrected a bug. Confirmed via `storage_path`
+(`Ford_4751_Aug26.pdf`, `Ford_7410_Aug26.pdf`) that these are in fact the two
+rows the F7 comment describes, not a coincidence of matching counts.
+
+**What this actually unblocks:** Funding Circle's 2026-07-01 statement now
+falls inside July's closing window with a real label, so `_loanClosingAnchor`
+should find it as valid grade-A direct evidence for the July close --
+July's Status should move off grey "not received" once the page is reloaded.
+This takes effect immediately: it is a data change, not a code deploy, so it
+does not need round 7's commit pushed to show up. Round 7's parser fix is
+still what stops this from recurring on every new iBusiness (or BayFirst/SBA
+EIDL/PCV/Ford) statement uploaded from here on -- that part DOES need
+pushing.
+
+**Verification, round 8.** Re-ran the same grouped query after the update:
+Funding Circle now reads 10/10 `principal_only` on `portal_manual_pull`
+(was 1/10); E5-4751 and E6-7410 unchanged at exactly one `unknown` row each;
+every other account's counts identical to before the update. No `xero_derived`
+row was touched anywhere (correctly -- those are our own record, never a real
+anchor, and the update's WHERE clause never included that source). This is a
+data change with no git commit of its own; logged here as the record.
+
+---
 
 ### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues
 
