@@ -2408,6 +2408,125 @@ to "what is running".
 
 ---
 
+### Session 257 (2026-08-31) — Issues narrowed to loan variances only; everything else relocated, nothing dropped
+
+David, mid-conversation about a real Aug 18 Xero transaction that happened to match a
+`loan_splits` card's exact figures (the correct call there was NOT to void it — a void
+only edits WashRoute's own record, and the pattern pointed to real money booked with a
+stale month's split, not a phantom entry): "flag it in future via the OVERVIEW page.
+Speaking of which, I'd like a whole rethink of the issues section so that it focuses
+on one thing: reconciling variances. Display only three things: Loans with a variance
+..., the amount of the variance, and a staged adjustment ready to be posted (the CPA
+can choose to ignore and make the adjustment in Xero directly)." A hand-drawn sketch
+came with it (July|August toggle, Loan/Variance/Fix columns) with the note "use the
+screenshot as a guide only" and "only shows variances when statements and/or
+amortization schedules compared to actuals." Planned and mocked up in an Artifact
+before touching code, per his ask; David's follow-up: exclude payroll for now (scope
+to loans), move loan notes to the Loans page, defer button-state judgment to me, and
+(separate question) fold the displaced split_mismatch / stage_flag / recon_finding
+items into Approvals rather than a second Issues-adjacent list.
+
+**What Issues shows now.** `_bkIssueQueueItems()` (line ~9132) was rewritten to source
+directly from `_bkRosterState(a)` — the SAME function that already colors the roster
+dot and feeds `_bkRosterCounts()`'s "N need attention" headline, not a new
+computation. A loan reaches the list only when `group === 'variance'` or
+`'immaterial'` — a real dollar difference against either a lender statement or (when
+that is the loan's recorded closing policy) the amortization schedule — which is
+exactly David's "only shows variances when statements and/or amortization schedules
+compared to actuals" line, already-built plumbing rather than something invented for
+this. Each row states the dollar gap in plain language and, when a correcting split is
+already sitting in `pending_review`/`needs_attention` for that loan, offers **Post
+adjustment**.
+
+**Where "Post adjustment" actually goes — a deliberate departure from the mockup.**
+The mockup (approved by David) showed it as a one-click action. It is NOT wired that
+way: it opens `openLoanReviewModal(splitId)`, the same human-review preview screen
+every other posting path in this module goes through before calling `loan-xero-post`
+with `confirm:true`. A literal one-click post from this button would violate this
+codebase's own standing rule that `confirm:true` is only ever called from a
+human-reviewed button — worth knowing since it is a visible difference from what was
+shown and approved.
+
+**Where everything else went.** `loan_flag` (the persistent note on a loan) moved to
+the Loans page itself — `renderLoansCloseBand()` now prints a "Notes on these loans"
+block under the existing footnote, always visible (never hover-only, matching the
+footnote's own rule), scoped to loans that are both flagged and appear in the current
+month's rollforward so an unrelated month doesn't show a stale note. Reuses
+`pushLoanFix` / `toggleLoanResolveForm` / `confirmResolveLoanFlag` verbatim — nothing
+about resolving a flag was rebuilt. One caveat stated plainly in the block's own
+header text rather than implied: `flagged_note` has no month column today (checked
+before building this), so "notes for the relevant month" reads as "notes currently
+open, shown on whichever month's page you have open" — not a real date match, because
+the data does not support one.
+
+`split_mismatch`, `stage_flag`, and `recon_finding` items — David's explicit call,
+over a second Issues-adjacent list or a new dedicated segment — now surface inside
+`_bkApprovalQueueItems()`, which already backs the Overview's Approvals segment
+(`bk-ov-seg-approvals`). The relocation reuses the old Issues detail-building logic
+almost verbatim: the 🔍 Find-the-difference button, session 228's lender-level folding
+(2+ open `balance_vs_lender` findings on one lender collapse into one card so a
+misallocation between sibling loans reads as one problem, not several), and the
+"Upload statement" button for findings whose proposed action calls for one. Also
+carried over: `_bkReconInfoFindings()` (tier-3 "for information" findings). Confirmed
+live in the DOM (not just present in the JS array) via a harness probe on the current
+fixture: Funding Circle's two open findings, Ford Pro FinSimple's 3-loan folded card,
+and PCV Good and Green's balance finding all render correctly under Approvals with
+working Review/Stage/Approve actions. `_bkLoanAttentionItems()` itself — the shared
+source these three kinds and `loan_flag` are drawn from, and what
+`_bkRosterCounts()`'s headline still widens against — was left completely untouched,
+so that headline's accuracy is unaffected by any of this.
+
+**Verification.** All inline `<script>` blocks parse clean (`node --check`, all 12
+extracted blocks including the 41.6k-line main script). Ran the offline harness
+(`tests/bookkeeping-harness.mjs`, staged copy in the cloud container, David's Mac VM
+has no browser binary):
+
+- `loans-table` 5/5, `close-band` 258/258, `two-surfaces` 29/29, `closing-evidence`
+  664/664 — all green, no regression in the close math or the Loans-page render (the
+  notes-block insertion point sits right after the existing footnote and did not
+  disturb anything above it).
+- Four `roster-*` groups came back with failures. I did not accept the failure counts
+  at face value — I re-ran all four against the **unmodified pre-session-257 file**
+  (via `git show HEAD:admin-dashboard/index.html`) to separate what this session broke
+  from what was already broken:
+  - **`roster-confetti-gate`** — 9/12 pass, 3 failures, and the *same* 3 failures
+    exist on the unmodified file. Pre-existing fixture drift (hardcoded "5 of 14
+    reconciled" / "6 reconciled" expectations that the current book data no longer
+    matches), untouched by this session, not something I fixed. Flagging it rather
+    than quietly leaving it red.
+  - **`roster-clean-loan-children`** — 28/37 pass on the unmodified file (9
+    pre-existing failures, same fixture-drift shape as above), 14/37 on the edited
+    file. The 14 new failures are the direct, correct consequence of the redesign:
+    this group's whole point was "a finding on a reconciled loan must still render,
+    nested under it, in Issues" — an invariant that no longer holds because those
+    findings live on Approvals now, by design.
+  - **`roster-orphan-findings`** — 26/26 on the unmodified file, 13/20 on the edited
+    file. Same story: this group tested findings-on-an-inactive-loan surfacing as an
+    "orphan" inside the Issues roster, a structure that no longer applies to Issues at
+    all. Verified separately (see above) that the substance — the finding itself — is
+    not lost; it is on Approvals as a flat row.
+  - **`roster-empty-denominator`** — 9/9 on the unmodified file, 8/9 on the edited
+    file. With zero active loans, Issues now legitimately has nothing to show (it only
+    ever lists loan variances), where before it fell back to a flat list of
+    everything else. Correct under the new scope, but the test's premise assumed the
+    old scope.
+
+  None of these three represent lost information or a functional regression — each was
+  hand-checked against Approvals to confirm the underlying item still reaches a
+  screen. But their assertions now encode the OLD Issues behavior and will read red on
+  every future run until rewritten against Approvals, which needs its own DOM-reading
+  harness helper (Approvals renders as a flat list via `_bkQueueRowHtml`, not the
+  lender/loan roster nesting `READ_QUEUE` currently parses — a genuinely different
+  shape, not a one-line redirect). Left as open follow-up rather than rushed, and
+  flagged to David directly rather than left for the next session to discover cold.
+
+**Not committed as this note is written:** local commit only (never pushed — sandbox
+has no network); David pushes himself. `_to_delete/` again has stray `.lock` files
+from the FUSE-mount quirk (delete permission was requested but not yet granted this
+session) — clear via Finder or `rm -rf _to_delete` locally, same as prior sessions.
+
+---
+
 ### Session 256 (2026-08-31) — Loans rollforward: the Status column becomes an icon, and the LOAN/OPENING gap is tightened
 
 David, this session: "on Status column, replace text (e.g booked) with either green

@@ -3470,6 +3470,19 @@
             .lcb-excluded td { color: var(--gray-500); font-weight: 400; border-top: none; }
             .lcb-foot { padding: 14px 18px 18px; font-size: 11.5px; color: var(--gray-400); line-height: 1.65; }
             .lcb-foot b { color: var(--gray-500); font-weight: 600; }
+            /* Session 257: loan notes moved here from Issues (David: "find a
+               place for notes on the LOANS page for the relevant month").
+               flagged_note carries no month field today, so this lists
+               whatever is currently open rather than claiming a precision
+               the data doesn't have -- said plainly in .lcb-notes-head. */
+            .lcb-notes { padding: 0 18px 16px; }
+            .lcb-notes-head { font-size: 11px; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; color: var(--gray-400); margin: 4px 0 8px; }
+            .lcb-note-row { padding: 10px 12px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; margin-bottom: 8px; }
+            .lcb-note-row:last-child { margin-bottom: 0; }
+            .lcb-note-loan { font-size: 12.5px; font-weight: 650; color: var(--gray-700); margin-bottom: 3px; }
+            .lcb-note-text { font-size: 12.5px; color: var(--gray-600); line-height: 1.55; }
+            .lcb-note-actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+            .lcb-notedot { font-size: 11px; cursor: default; }
 
             /* ══ THE IN-FLIGHT (AUGUST) TABLE ════════════════════════════════
                Session 250 (David): "apply style, including fonts, to the August
@@ -9130,155 +9143,57 @@
   // place (full text + Mark Resolved / upload actions), split mismatches and
   // payroll flags open their existing review modals.
   function _bkIssueQueueItems() {
+    // ── Session 257: Issues narrowed to ONE thing — loan variances ─────────
+    // David: "I'd like a whole rethink of the issues section so that it
+    // focuses on one thing: reconciling variances." Loan notes (loan_flag)
+    // moved to the Loans page itself (see renderLoansCloseBand's footnote
+    // area); split mismatches, staged-transaction flags and reconciliation
+    // findings moved into Approvals (see _bkApprovalQueueItems) rather than
+    // being dropped — every open item still reaches a screen, just not this
+    // one. Payroll items are out of scope for this pass; they already have
+    // their own attention surface on the Payroll tab (_pkFlaggedCount).
+    //
+    // The source is _bkRosterState(a), the SAME function that already colors
+    // the roster and feeds _bkRosterCounts()'s "N need attention" headline —
+    // not a new computation. That is deliberate: this list and that headline
+    // can now never disagree about which loans have a real variance, because
+    // they read the identical verdict. group==='variance' or 'immaterial' is
+    // exactly the population with a real, checkable dollar difference against
+    // either a lender statement or (when that's the loan's recorded closing
+    // policy) the amortization schedule — group==='unverified'/'na'/'unchecked'
+    // mean no real comparison was possible, and per David's own note on the
+    // design mockup, those loans simply don't appear here at all.
     const items = [];
-    _bkLoanAttentionItems().forEach(it => {
-      let detailHtml = null, onclick = null, bvlGroup = null;
-      if (it.kind === 'split_mismatch') {
-        onclick = `openLoanReviewModal('${it.split.id}')`;
-      } else if (it.kind === 'stage_flag') {
-        // Session 226: a flagged staged transaction — the review modal shows the
-        // live Xero state plus the check/remove actions.
-        onclick = `openLoanReviewModal('${it.split.id}')`;
-      } else if (it.kind === 'loan_flag') {
-        const a = it.account;
-        detailHtml = _bkAttnDetailHtml(it) +
-          `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">` +
-          (a.flag_fixable ? `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : '') +
-          `<button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button></div>
-          <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:10px">
-            <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
-            <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="confirmResolveLoanFlag('${a.id}')">Confirm Resolved</button>
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
-            </div>
-          </div>`;
-      } else if (it.kind === 'ledger_unexplained') {
-        // The ledger check, NOT balance_vs_lender -- no "Find the difference"
-        // button (that engine walks lender statements; this gap has nothing
-        // to do with the lender and can be open even when the balance ties
-        // to the lender exactly, see PayPal 2 in _loanCloseRollforward's
-        // comment). Recomputed fresh from already-loaded data on every
-        // render, so there is nothing to "mark resolved" by hand -- it
-        // clears itself the moment a correcting split or journal makes the
-        // month foot again.
-        detailHtml = `<div style="color:var(--gray-500)">Measured from this month's Xero ledger movement against the splits recorded for ${esc(it.title)} — see the Loans page's Close Rollforward band for the full month-by-month walk.</div>`;
-      } else {
-        // recon_finding — full explanation + the one real action when the
-        // engine proposed one; otherwise it clears itself on a passing check.
-        const f = it.finding;
-        // Session 225: balance-vs-lender findings get the "Find the difference"
-        // engine — walks lender statements against Xero entries span by span,
-        // names the culprit, and (only in the mechanically safe shape) proposes
-        // the closing journal for approval. Renders inline below the card.
-        const fdiffHtml = (f?.check_key === 'balance_vs_lender' && f?.loan_account_id)
-          ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-btn-${f.id}" onclick="bkFindDifference('${f.id}','${f.loan_account_id}')">🔍 Find the difference</button></div><div id="fdiff-out-${f.id}"></div>`
-          : '';
-        // Session 228: remember which lender this balance-vs-lender finding
-        // belongs to — 2+ findings on ONE lender fold into a single grouped
-        // card below (a misallocation between sibling loans shows on BOTH
-        // sides, so per-loan cards describe one tangle twice).
-        if (f?.check_key === 'balance_vs_lender' && f?.loan_account_id) {
-          const la = (_allLoanAccounts || []).find(a => a.id === f.loan_account_id);
-          if (la?.lender) bvlGroup = { lender: la.lender, finding: f, loanName: la.xero_account_name || la.lender_account_number || 'Loan' };
-        }
-        detailHtml = _bkAttnDetailHtml(it) + fdiffHtml +
-          ((f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
-            ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button></div>`
-            : (fdiffHtml ? '' : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">This clears on its own once a reconciliation check confirms it's fixed.</div>`));
-      }
+    (_allLoanAccounts || []).filter(a => a.status === 'active').forEach(a => {
+      const v = _bkRosterState(a);
+      if (v.group !== 'variance' && v.group !== 'immaterial') return;
+      const amt = Number(v.difference);
+      if (!isFinite(amt) || !amt) return;
+      const name = a.xero_account_name || a.lender_account_number || 'Unknown loan';
+      // "Post adjustment" only has somewhere to go if a correcting split is
+      // already sitting in review for this loan — otherwise there is nothing
+      // to open yet and the row says so instead of offering a dead button.
+      const candidate = (_allLoanSplits || []).find(s => s.loan_account_id === a.id
+        && (s.status === 'pending_review' || s.status === 'needs_attention'));
       items.push({
-        key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
-        // The roster groups by loan, and this object is a NEW one — it does not
-        // carry `it`'s .finding / .account / .split references, so without this
-        // line every finding fell into "Not tied to one loan" and the loans above
-        // showed no children at all. Resolved from the ORIGINAL item, which does
-        // have them.
-        loanId: _bkIssueLoanId(it),
-        // Session 225 hierarchy: tier 1 "Fix first" = money is wrong in the
-        // books or posting is blocked; tier 2 "Worth a look" = an anomaly that
-        // doesn't corrupt anything. Loan flags and split mismatches are always
-        // tier 1; reconciliation findings follow their own severity.
-        tier: it.severityRank === 0 ? 1 : 2,
-        amount: it.amount,
-        name: it.title, reason: it.explain || 'Needs a decision.',
-        stale: it.stale || null,
-        action: 'Review', onclick, detailHtml,
-        // Evidence next to the question (session 224 cont.): when a stored
-        // source document resolves for this item, 👁 opens it centered on the
-        // disputed figure.
-        peek: _bkAttnPeekSpec(it) ? `bkPeekAttn('${it.key}')` : null,
-        _bvl: bvlGroup,
+        key: 'variance-' + a.id, dot: v.material === false ? 'amber' : 'red',
+        loanId: a.id, tier: v.material === false ? 2 : 1,
+        amount: amt, name,
+        reason: `${fmtMoney(Math.abs(amt))} ${amt > 0 ? 'more' : 'less'} on the books than ${v.against} shows`
+          + (candidate ? ' — a correcting entry is ready for you to review.' : ' — no correcting entry prepared yet.'),
+        action: candidate ? 'Post adjustment' : null,
+        onclick: candidate ? `openLoanReviewModal('${candidate.id}')` : null,
+        // Ignore is a soft dismissal — same bk_issue_dismissals store as every
+        // other queue, substance-keyed so a materially different number comes
+        // right back even if this exact loan was dismissed before (session
+        // 245's _bkSubstanceKey fix). Nothing in Xero or loan_splits changes.
+        archive: true, archiveLabel: 'Ignore',
+        archiveTitle: 'Dismiss this variance — you\u2019re handling it directly in Xero. Nothing in WashRoute changes; restore it any time from Ignored.',
       });
     });
-    // Session 228: LENDER-LEVEL FOLDING. When 2+ loans from one lender carry
-    // open balance-vs-lender findings, they are almost never separate problems
-    // — the day this shipped, three Ford cards each pointed at candidate
-    // entries on their SIBLINGS, two of them claiming the same journals. Fold
-    // them into ONE lender card whose action analyzes all of them together
-    // (loan-find-difference lender_analysis mode) and returns one fix roadmap.
-    // Presentation-level only: the Needs Attention badge still counts each
-    // finding (_bkLoanAttentionItems stays the one source of that number), and
-    // the grouped card says how many it covers.
-    {
-      const byLender = {};
-      items.forEach(i => { if (i._bvl?.lender) (byLender[i._bvl.lender] = byLender[i._bvl.lender] || []).push(i); });
-      Object.entries(byLender).forEach(([lender, group]) => {
-        if (group.length < 2) return;
-        const idx = items.indexOf(group[0]);
-        const total = group.reduce((s, i) => s + Math.abs(Number(i._bvl.finding?.detail?.difference) || 0), 0);
-        const slug = lender.replace(/[^a-zA-Z0-9]+/g, '-');
-        const rows = group.map(i => {
-          const d = Number(i._bvl.finding?.detail?.difference);
-          return `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--gray-100);font-size:12.5px"><span>${esc(i._bvl.loanName)}</span><span style="font-weight:600">${isFinite(d) ? `${fmtMoney(Math.abs(d))} ${d >= 0 ? 'above' : 'below'} the lender` : ''}</span></div>`;
-        }).join('');
-        items.splice(idx, 1, {
-          key: 'bvl-lender-' + slug, dot: 'red', tier: 1, amount: total,
-          name: `${lender} — ${group.length} loans disagree with the lender`,
-          reason: _bkOneLine(`Combined ${fmtMoney(total)} across ${group.length} loans of one lender — likely one tangle, not ${group.length}. Analyze them together for a single fix list.`),
-          action: 'Review',
-          detailHtml: `${rows}
-            <div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-lender-btn-${slug}" data-lender="${esc(lender)}" onclick="bkFindDifferenceLender(this.dataset.lender)">🔍 Find the difference — all ${group.length} loans</button></div>
-            <div id="fdiff-lender-out-${slug}"></div>`,
-        });
-        group.slice(1).forEach(i => { const k = items.indexOf(i); if (k >= 0) items.splice(k, 1); });
-      });
-    }
-    // Reconciliation "info" findings — real, but explicitly "nothing to do" per
-    // the engine. Session 225: they join the queue as the good-to-know tier
-    // (collapsed, archivable) instead of living only at the bottom of the Loans
-    // card, so the hierarchy has one home.
-    _bkReconInfoFindings().forEach(f => items.push({
-      key: 'recon-' + f.id, dot: 'gray', tier: 3, archive: true, loanId: f.loan_account_id || null,
-      name: f.title || 'For information', reason: _bkOneLine(f.plain_english || ''),
-      detailHtml: f.plain_english ? `<div style="white-space:pre-wrap">${esc(f.plain_english)}</div>` : null,
-    }));
-    (_allPayrollNotices || []).forEach(nt => items.push({
-      // A non-error payroll notice is by its own copy "a standing note for your
-      // CPA — nothing to click here": good-to-know, archivable. Errors stay tier 1.
-      key: 'pnotice-' + nt.key, dot: nt.severity === 'error' ? 'red' : 'gray',
-      tier: nt.severity === 'error' ? 1 : 3, archive: nt.severity !== 'error',
-      name: nt.title || 'Payroll notice', reason: _bkOneLine(nt.detail || ''),
-      action: nt.severity === 'error' ? 'Review' : null,
-      detailHtml: nt.detail ? `<div style="white-space:pre-wrap">${esc(nt.detail)}</div><div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">A standing note for your CPA — nothing to click here.</div>` : null,
-    }));
-    (_allPayrollImports || []).filter(i => i.attention_flag).forEach(imp => items.push({
-      key: 'pflag-' + imp.id, dot: imp.attention_flag === 'unmapped_employees' ? 'red' : 'amber',
-      tier: imp.attention_flag === 'unmapped_employees' ? 1 : 2,
-      name: `Payroll ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}`,
-      reason: _bkOneLine(imp.attention_summary || ''),
-      action: 'Review', onclick: `openPayrollReviewModal('${imp.id}')`,
-    }));
-    // Archived good-to-know items leave the queue (restorable from the
-    // Archived list); within a tier, bigger dollar impact floats up.
     const live = items.filter(i => !_bkDismissalHolds(i.key, { isError: i.tier === 1, title: i.name }));
-    // A row that came back from the archive says so, rather than just reappearing.
     live.forEach(i => { i.unarchived = _bkUnarchivedReason(i.key, { isError: i.tier === 1, title: i.name }); });
-    // Session 230, David: "worth a look" and "good to know" are ONE section now, and
-    // every row in it gets a Got it. Tier 1 (fix first) deliberately stays
-    // undismissable -- an error anyone can wave away is an error nobody fixes.
-    live.forEach(i => { if (i.tier !== 1) i.archive = true; });
-    live.sort((a, b) => (a.tier - b.tier) || ((Number(b.amount) || 0) - (Number(a.amount) || 0)) || String(a.name).localeCompare(String(b.name)));
+    live.sort((a, b) => (a.tier - b.tier) || (Math.abs(Number(b.amount) || 0) - Math.abs(Number(a.amount) || 0)) || String(a.name).localeCompare(String(b.name)));
     return live;
   }
 
@@ -9527,6 +9442,79 @@
       archive: true, archiveLabel: 'Ignore',
       archiveTitle: 'Set this aside — nothing is posted; restore it any time from Ignored',
     });
+
+    // ── Session 257: split mismatches, staged-transaction flags and recon
+    // findings, relocated here from the old Issues tab (which now shows only
+    // loan variances — see _bkIssueQueueItems). Nothing was silently dropped:
+    // this module's rule is that a real open item reaches a screen or it does
+    // not exist, and these are still real work waiting on a decision, just not
+    // a dollar variance in the ledger-vs-lender sense. Reuses the exact
+    // per-kind detail/onclick logic Issues used to build, relocated as-is.
+    _bkLoanAttentionItems().filter(it => it.kind === 'split_mismatch' || it.kind === 'stage_flag' || it.kind === 'recon_finding').forEach(it => {
+      let detailHtml = null, onclick = null, bvlGroup = null;
+      if (it.kind === 'split_mismatch') {
+        onclick = `openLoanReviewModal('${it.split.id}')`;
+      } else if (it.kind === 'stage_flag') {
+        onclick = `openLoanReviewModal('${it.split.id}')`;
+      } else {
+        const f = it.finding;
+        const fdiffHtml = (f?.check_key === 'balance_vs_lender' && f?.loan_account_id)
+          ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-btn-${f.id}" onclick="bkFindDifference('${f.id}','${f.loan_account_id}')">🔍 Find the difference</button></div><div id="fdiff-out-${f.id}"></div>`
+          : '';
+        if (f?.check_key === 'balance_vs_lender' && f?.loan_account_id) {
+          const la = (_allLoanAccounts || []).find(a => a.id === f.loan_account_id);
+          if (la?.lender) bvlGroup = { lender: la.lender, finding: f, loanName: la.xero_account_name || la.lender_account_number || 'Loan' };
+        }
+        detailHtml = _bkAttnDetailHtml(it) + fdiffHtml +
+          ((f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
+            ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button></div>`
+            : (fdiffHtml ? '' : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">This clears on its own once a reconciliation check confirms it's fixed.</div>`));
+      }
+      items.push({
+        key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
+        loanId: _bkIssueLoanId(it), tier: it.severityRank === 0 ? 1 : 2,
+        amount: it.amount, name: it.title, reason: it.explain || 'Needs a decision.',
+        stale: it.stale || null, action: 'Review', onclick, detailHtml,
+        peek: _bkAttnPeekSpec(it) ? `bkPeekAttn('${it.key}')` : null,
+        archive: true, archiveLabel: 'Ignore',
+        archiveTitle: 'Set this aside — restore it any time from Ignored',
+        _bvl: bvlGroup,
+      });
+    });
+    // Session 228's lender-level folding, carried over unchanged: 2+ open
+    // balance-vs-lender findings on one lender fold into a single card so a
+    // misallocation between sibling loans isn't presented as two problems.
+    {
+      const byLender = {};
+      items.forEach(i => { if (i._bvl?.lender) (byLender[i._bvl.lender] = byLender[i._bvl.lender] || []).push(i); });
+      Object.entries(byLender).forEach(([lender, group]) => {
+        if (group.length < 2) return;
+        const idx = items.indexOf(group[0]);
+        const total = group.reduce((s, i) => s + Math.abs(Number(i._bvl.finding?.detail?.difference) || 0), 0);
+        const slug = lender.replace(/[^a-zA-Z0-9]+/g, '-');
+        const rows = group.map(i => {
+          const d = Number(i._bvl.finding?.detail?.difference);
+          return `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--gray-100);font-size:12.5px"><span>${esc(i._bvl.loanName)}</span><span style="font-weight:600">${isFinite(d) ? `${fmtMoney(Math.abs(d))} ${d >= 0 ? 'above' : 'below'} the lender` : ''}</span></div>`;
+        }).join('');
+        items.splice(idx, 1, {
+          key: 'bvl-lender-' + slug, dot: 'red', tier: 1, amount: total,
+          name: `${lender} — ${group.length} loans disagree with the lender`,
+          reason: _bkOneLine(`Combined ${fmtMoney(total)} across ${group.length} loans of one lender — likely one tangle, not ${group.length}. Analyze them together for a single fix list.`),
+          action: 'Review',
+          detailHtml: `${rows}
+            <div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-lender-btn-${slug}" data-lender="${esc(lender)}" onclick="bkFindDifferenceLender(this.dataset.lender)">🔍 Find the difference — all ${group.length} loans</button></div>
+            <div id="fdiff-lender-out-${slug}"></div>`,
+        });
+        group.slice(1).forEach(i => { const k = items.indexOf(i); if (k >= 0) items.splice(k, 1); });
+      });
+    }
+    // Reconciliation "info" findings — real, but explicitly "nothing to do"
+    // per the engine. Relocated from Issues alongside the other three kinds.
+    _bkReconInfoFindings().forEach(f => items.push({
+      key: 'recon-' + f.id, dot: 'gray', tier: 3, archive: true, loanId: f.loan_account_id || null,
+      name: f.title || 'For information', reason: _bkOneLine(f.plain_english || ''),
+      detailHtml: f.plain_english ? `<div style="white-space:pre-wrap">${esc(f.plain_english)}</div>` : null,
+    }));
     // Ignored rows leave the queue (restorable from the Ignored list) -- same
     // bk_issue_dismissals store the issue queue uses, so a decision made on one
     // device holds on every other.
@@ -16570,7 +16558,7 @@
       ].filter(Boolean).join(' · ');
 
       return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
-        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span><span class="lcb-lender">${esc(a.lender || '')}</span></td>
+        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
         <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
         <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
         <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
@@ -16635,6 +16623,39 @@
     // population the Variance column covers, and that a second check runs
     // underneath. Everything else that was here is now on the row it belongs
     // to, one hover away.
+    // ── Session 257: loan notes, relocated from Issues ─────────────────────
+    // David: "focuses on one thing: reconciling variances... find a place for
+    // notes on the LOANS page for the relevant month." flagged_note is loan-
+    // level with no month column (checked before building this — none exists
+    // today), so "the relevant month" is read as "the month currently open on
+    // this page" rather than a precision the data cannot support; the header
+    // text says so rather than implying a date match that isn't real. Scoped
+    // to loans actually appearing in this month's rollforward (rf.rows), not
+    // every flagged loan in the portfolio, so a note about an inactive loan
+    // doesn't show up on an unrelated month's page.
+    const flaggedForBand = (_allLoanAccounts || []).filter(a =>
+      a.flagged_note && a.flag_status !== 'resolved' && rf.rows.some(r => r.a.id === a.id));
+    const notesHtml = flaggedForBand.length ? `
+      <div class="lcb-notes">
+        <div class="lcb-notes-head">Notes on these loans</div>
+        ${flaggedForBand.map(a => `
+          <div class="lcb-note-row">
+            <div class="lcb-note-loan">${esc(a.xero_account_name || a.lender_account_number || 'Unknown loan')}</div>
+            <div class="lcb-note-text">${esc(a.flag_summary || a.flagged_note)}</div>
+            <div class="lcb-note-actions">
+              ${a.flag_fixable ? `<button class="btn btn-ghost" style="font-size:11.5px;padding:4px 9px" onclick="pushLoanFix('${a.id}')">Push fix to Xero</button>` : ''}
+              <button class="btn btn-ghost" style="font-size:11.5px;padding:4px 9px" onclick="toggleLoanResolveForm('${a.id}')">Mark Resolved</button>
+            </div>
+            <div id="loan-resolve-form-${a.id}" style="display:none;margin-top:8px">
+              <div style="font-size:11.5px;color:var(--gray-500);font-weight:600;margin-bottom:6px">What was fixed in Xero? (required)</div>
+              <textarea id="loan-resolve-note-${a.id}" rows="3" style="width:100%;font-size:13px;font-family:inherit;padding:8px;border:1px solid var(--gray-300);border-radius:6px;resize:vertical;box-sizing:border-box" placeholder="e.g. Posted a manual journal moving $2,033.77 out of account 664 into 253/800."></textarea>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="confirmResolveLoanFlag('${a.id}')">Confirm Resolved</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="toggleLoanResolveForm('${a.id}')">Cancel</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>` : '';
     const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. The <b>Ledger</b> column is a second, different check — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. Both columns use the same mark: <b>✓</b> ties or is fully explained, <b>✗</b> is a real dollar difference to resolve, and <b>·</b> means the check was not run this month — either the numbers trace back to the same one document (so agreeing proves nothing) or there is nothing yet to compare it against. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
 
     el.innerHTML = `
@@ -16667,6 +16688,7 @@
         </div>
         <div class="lcb-detail idle" id="lcb-detail" data-idle="${esc(`Hover a loan for where its figures came from — ${rf.rows.length} rows, ${esc(name)}.`)}">Hover a loan for where its figures came from.</div>
         <div class="lcb-foot">${footNote}</div>
+        ${notesHtml}
       </div>`;
 
     // ── THE HOVER WIRING ─────────────────────────────────────────────────
