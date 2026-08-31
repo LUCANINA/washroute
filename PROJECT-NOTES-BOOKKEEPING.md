@@ -2,6 +2,29 @@
 
 > ## ⏭️ START HERE — first thing, session 258 (left by session 257, 2026-08-31)
 >
+> ### 0. 🔎 SESSION 258 (2026-08-31, in progress) — Verdant's August interest split
+> already exists in Xero; ask David who posted it
+>
+> Working down the priority list David asked for, item 2 (fix Verdant's missing
+> August interest split, described below in §1's "open work") turned out to already
+> be done. `xero-read` `payment_picture` for the 2026-08-10 / $4,543.32 transaction
+> shows a **POSTED** manual journal dated **2026-08-31** (today), narration
+> `[VERDANT-AUG2026-INTEREST-SPLIT]`, splitting $1,835.75 interest off account 394 —
+> nets to $2,707.57 principal, matching the schedule's $2,707.61 to within the
+> loan's known 4-cent quirk (see §"exact matching gave way to residual banding" in
+> the session 247 cont. 4 entry). **Grepped the whole codebase for the narration
+> string — no match** — so no automated code path made this journal; it reads like
+> a person composed it directly in Xero, the same pattern as the Funding Circle fix
+> in session 252. Not confirmed who or when beyond "today." **Ask David whether he
+> made this journal** before treating Verdant as closed — if confirmed, this item
+> is done and `loan_splits`' `Period 14` row (already `status='posted'` with no
+> `xero_manual_journal_id`, same as several of Verdant's other historical rows) may
+> not need any change; if nobody made it, that is worth knowing too.
+>
+> Also this session: corrected two more stale "not deployed" claims in this same
+> block — see §1 and §13a, both now marked deployed and checked against `git log` /
+> the deployed function timestamps, not assumed.
+>
 > ### 1. ✅ DEPLOYED, RUN, AND PUSHED — nothing outstanding here
 >
 > **Checked against the live project, not inferred (2026-08-29 01:47 UTC for the
@@ -477,13 +500,20 @@
 > new `_shared/resolve-scope.ts` (`isExaminedForResolve`), scoped to `lumped_payment*`
 > the same way the other two reads of that field already are. `deno check` clean, new
 > `resolve-scope.test.ts` (6/6, proved to discriminate against the old unscoped logic),
-> `double-reallocation.test.ts` unaffected (4/4). **Committed locally, NOT deployed** —
-> combined bundle is 231KB across 6 files, past the sandbox's deploy-tool ceiling; hand
-> David the `npx supabase@latest functions deploy reconciliation-run ...` command (full
-> command in the session 253 log entry). Not live on any loan today — no loan currently
-> has both an open `lumped_payment` and an open `double_reallocation`/`split_collision`
-> finding on the same transaction — so deploying it should change nothing visible;
-> the real test is the next time that combination occurs.
+> `double-reallocation.test.ts` unaffected (4/4). **DEPLOYED — checked, not assumed
+> (session 258).** The note here used to say "committed locally, NOT deployed" because
+> the sandbox's deploy tool can't push a 231KB/6-file bundle. But `git log` shows the
+> last commit touching `index.ts` / `resolve-scope.ts` / `double-reallocation.ts` landed
+> 2026-08-30 00:59:43 UTC, and `reconciliation-run` **v62** deployed 2026-08-30
+> 01:00:54 UTC — 71 seconds later. `index.ts` on disk imports and calls
+> `isExaminedForResolve` at the exact line the fix describes, so v62 carries it. This
+> was the deploy-command hand-off item on this file's own list; **it was already done,
+> and the note just hadn't been corrected.** Still true and unchanged:
+> `double-reallocation.ts` itself doesn't reference `resolve-scope.ts` — its own
+> `wasExamined` read was never the thing this fix touched — and no loan currently has
+> both an open `lumped_payment` and an open `double_reallocation`/`split_collision`
+> finding on the same transaction, so there's nothing to visibly verify until that
+> combination occurs.
 >
 > **b) Findings should self-diagnose from sources already in the system, instead of
 > theorizing — DONE (first pass), not yet deployed.** Session 254 shipped the "cheap
