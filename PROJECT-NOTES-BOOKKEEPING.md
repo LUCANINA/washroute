@@ -2519,6 +2519,89 @@ the check, not a live connection). Re-rendered the real table against the fixtur
 and read both new cells back from the DOM (`Booked`/`No payment`/`Pending review` in
 the new column, the icon-only verdict in Status) before screenshotting it for David.
 
+**Session 256, round 3 (same day) -- David: "identify ways to organize and minimize the
+competing information in this section ... difficult for the CPA to distinguish what is
+actionable and what is noise." Two concrete examples he gave: "Paid in July" is client
+info, not a CPA task; and "July ledger unexplained -- $5,011.49 -- 3 loans moved in Xero
+without a split behind it" says there's a problem without saying which loans or what to
+do.**
+
+Read the code before proposing anything, rather than redesigning from the screenshot
+alone. Two real findings, not just opinion:
+
+1. **Three of the four stat tiles duplicated the strip below them, verbatim.** "July
+   variance to resolve" restated the strip's `variance` gate chip (same money, same
+   loan count); "July ledger unexplained" restated the `ledger` gate chip; "Not yet in
+   Xero" restated the `posting` gate chip. Only "Paid in July" was NOT a duplicate --
+   which is also, not coincidentally, the one tile David named as not belonging on a
+   CPA action screen at all.
+2. **The ledger-unexplained check had NO per-row mark anywhere in the table.** Unlike
+   the variance/tie check (which round 1 gave a Status column), `unexplainedBand` /
+   `ledgerNote` only ever reached a row's hover hint. So "3 loans the ledger does not
+   explain" was genuinely un-findable except by reading all thirteen rows' hovers one
+   at a time -- and hover is exactly what David just said doesn't reach him.
+
+Presented both findings with the evidence, then asked two direction questions rather
+than guessing on David's behalf: (a) keep the strip as the primary checklist and drop
+the duplicate tiles, or keep the tiles and trim the strip instead; (b) give the ledger
+check its own column (matching how round 1 split Booked out) or fold it into the
+existing Status icon. He picked the recommended option both times: keep the strip,
+drop the tiles; new column for Ledger.
+
+**What shipped:**
+
+- `renderLoansCloseTiles()` no longer builds four `.bk-tile` cards. The three
+  duplicate ones are deleted outright, not hidden. "Paid in `<month>`" survives as a
+  single quiet reference line (`.lcb-paid`, styled to match `.lcb-why`'s register --
+  the "Opening, plus anything drawn..." caption just below it -- so it visually reads
+  as *context*, not as a fourth thing to resolve).
+- A new **Ledger** column, rightmost in the table, same `.lcb-mark` circle-icon
+  language round 1 established for Status: green tie/immaterial/unbooked, red on
+  `unexplainedBand === 'material'` (exactly the population `rf.ledgerOff` counts for
+  the strip's chip -- verified equal in the harness render: 2 red marks, chip says
+  "2 loans"), grey when the month's ledger movement was never measured. Reuses
+  `ledgerNote` (already computed for the CSV/hint) for the tooltip text, with one
+  correction: `ledgerNote` is deliberately `''` on a genuine tie (no branch matches
+  `'tie'`), which is right for the hint sentence but would have made a tie row's icon
+  carry a blank, bug-looking title -- so the Ledger mark's own verdict text spells out
+  "ledger fully explained — no difference" for that case instead of reusing the empty
+  string.
+- Live proof the two checks are genuinely independent, on the SAME rendered table:
+  BayFirst SBA 2 and Paypal 2 both show a green Status (tie to the lender to the cent)
+  and a red Ledger (money moved in the Xero ledger with no split behind it) -- which is
+  literally the standing example cited in this file's own "THE SECOND CHECK" comment
+  block ("BayFirst SBA 2 agrees with its lender to the cent while $858.66 moved in
+  Xero with nothing behind it"). Before this change nothing on the table said so.
+- CSV export: `head` gained `'Ledger check'`, the tbody destructure gained
+  `cLedgerMark`, the footer's positional array gained one more `''`. The stale
+  "screen shows N columns / file carries M" comment above `exportRollforwardCSV` was
+  corrected again in the same edit (ten/eighteen -> eleven/nineteen) -- second time
+  this session that comment needed a same-session correction, which is exactly the
+  "a rule can outlive the fact it was written for" pattern (session 247) applied to a
+  code comment instead of UI copy.
+- The footnote under the table ("A second check runs underneath it...") was written
+  when the ledger check was hover-only; corrected to name the Ledger column instead of
+  describing it as hidden beneath the row.
+
+**Why loan names were NOT added to the strip's chip text** (the literal ask —
+"doesn't tell me which ones"): after the Ledger column shipped, every blocking gate on
+the strip now has a visible per-row answer already sitting directly below it —
+variance -> Status, ledger -> Ledger, posting -> Booked, coverage -> Status's grey
+"no closing evidence" state. Naming loans in the compact strip text as well would be a
+THIRD telling of a fact the table already states per-row in the reader's own words,
+which is the exact duplication this round exists to remove. Flagged to David as the
+reasoning, not assumed silently.
+
+**Verification, round 3.** Same method: parse check clean; re-ran loans-table,
+close-band (258), two-surfaces (29), closing-evidence (664) -- all green, `history`'s
+one failure still Tech Debt #19 and nothing else. Rendered the real table against the
+fixture data, screenshotted the whole `#loans-period-closing` section (tiles-turned-
+line through the table footer) for David, and cross-checked in the same render that
+the Ledger column's red-row count exactly equals the strip's `ledger` gate chip count
+(2 and 2) -- the two-surfaces-must-agree discipline this file already holds itself to,
+applied to a screenshot check since no harness assertion exists yet for this specific
+new pairing. Not yet confirmed by David this session.
+
 ---
 
 ### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues

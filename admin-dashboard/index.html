@@ -3345,6 +3345,14 @@
             .lcb-strip.clear .lcb-lead { color: #166534; }
             .lcb-strip.clear .lcb-gate.ok { color: var(--gray-600); }
             .lcb-lead { font-weight: 700; color: var(--gray-900); }
+            /* Session 256, round 3: what used to be the "Paid in <month>" TILE
+               -- the one of four that was never a to-do -- demoted to a plain
+               reference line. Same size/colour family as .lcb-why just above
+               it (the "Opening, plus anything drawn..." caption), on purpose:
+               that line is also "context, not a task", and the two should
+               read as one register, not two competing subheads. */
+            .lcb-paid { font-size: 12px; color: var(--gray-400); margin: 0 2px 10px; }
+            .lcb-paid b { color: var(--gray-700); font-weight: 650; }
             /* THE one red. Everything else on this page defers to it. */
             .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; color: #dc2626; }
             .lcb-lead + .lcb-gate::before,
@@ -16119,10 +16127,34 @@
     // right of the tabs, above.
   }
 
-  // ── The closing month, as four numbers ────────────────────────────────────
-  // Everything here is already computed for the rollforward below; the tiles
-  // just say it before the table does, so the answer to "can I close?" does not
-  // require reading fourteen rows first.
+  // ── THE THREE DUPLICATE TILES ARE GONE (session 256, David) ───────────────
+  // "identify ways to organize and minimize the competing information ...
+  // it's difficult for the CPA to distinguish what is actionable and what is
+  // noise." These four tiles used to restate three of the strip's own seven
+  // gate chips as bigger numbers with a breakdown line -- "July variance to
+  // resolve $4,085.70" duplicated the strip's "5 loans off — $4,085.70 to
+  // resolve"; "July ledger unexplained" duplicated "3 loans the ledger does
+  // not explain"; "Not yet in Xero" duplicated "everything booked" / the
+  // posting gate. Same numbers, same words, two places on one screen. David
+  // chose keeping the strip (compact, scannable, already named by data-gate)
+  // over keeping the tiles, so those three are deleted here, not just hidden.
+  //
+  // "Paid in <month>" was the one tile that was NOT a duplicate of anything —
+  // and it is also the one David named as the example of information that is
+  // for the CLIENT, not a task for the CPA doing this reconciliation. It
+  // stays, because it is a real fact worth having on this screen, but it no
+  // longer gets the tile/headline-number treatment that implied it was
+  // something to resolve. It is one quiet reference line now, visually
+  // distinct from the strip's checklist immediately below it.
+  //
+  // "Which loans" no longer needs an answer here either. Every gate this
+  // strip can flag now has a per-row mark in the table below it: Variance's
+  // tie/off verdict is the Status column, unposted payments are the Booked
+  // column (both session 256, round 1), and the ledger-explains-itself check
+  // is the new Ledger column (round 3, same session) — so naming loans in a
+  // one-line summary would be a THIRD telling of a fact the table already
+  // states, per-row, in the reader's own words. Scan the table; every red
+  // mark there is one of the loans the chip above is counting.
   function renderLoansCloseTiles() {
     const el = document.getElementById('loans-close-tiles');
     if (!el) return;
@@ -16131,67 +16163,13 @@
     if (!b) { el.innerHTML = ''; return; }
     const name = _cvMonthShort(month);
     const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const tile = (label, value, sub, color, extra) => `<div class="bk-tile">
-      <div class="bk-tile-label">${esc(label)}</div>
-      <div class="bk-tile-value"${color ? ` style="color:${color}"` : ''}>${value}</div>
-      ${extra || ''}
-      ${sub ? `<div class="bk-tile-delta flat">${sub}</div>` : ''}</div>`;
-
-    // THE COVERAGE TILE AND ITS METER ARE GONE (session 248, David). It said
-    // "13 of 13" over a row of pips, and the coverage gate chip a few pixels
-    // above says the same thing in words — "all 13 accounted for", or the
-    // count outstanding when there is one. Nothing was lost with it: the chip
-    // carries data-gate="coverage" and its own count, and the missing names
-    // still reach the reader through the Client View checklist. The meter's
-    // amber pips went with it; amber has no place on this surface any more.
 
     // Paid in the closing month, from the same rollforward the table foots to.
     const paidP = b.rf.totals.principal + b.rf.excluded.principal;
     const paidI = b.rf.totals.interest  + b.rf.excluded.interest;
 
-    el.innerHTML = '<div class="lct"><div class="bk-tiles">'
-      // ONE QUANTITY, ONE CLAIM (review F15). This tile used to show every band
-      // added together ($5.00) while the gate chip a foot away showed only what
-      // blocks ($0.00) — two numbers for one question on one screen. The tile
-      // now answers the same question the chip does, says so in its label, and
-      // decomposes the rest underneath instead of summing it into the headline.
-      + tile(`${name} variance to resolve`,
-          b.rf.varianceToResolve < 0.005 ? '$0.00' : money(b.rf.varianceToResolve),
-          // "All N tie to the cent" is a claim the other three bands make false:
-          // a $5.00 difference is a real difference, shown and not chased.
-          [b.rf.ties.length ? `${b.rf.ties.length} tie to the cent` : '',
-           b.immaterial ? `${money(b.rf.varianceSmall)} too small to chase` : '',
-           b.unbooked ? `${money(b.rf.varianceUnbooked)} not booked yet` : '',
-           b.off ? `${b.off} loan${b.off === 1 ? '' : 's'} disagree with the lender` : ''
-          ].filter(Boolean).join(' · ') + '.',
-          // ONE RED ON THE PAGE (session 249, David). These four tiles carried
-          // red on the figure whenever the thing they measure was non-zero,
-          // which put three reds above a strip whose whole job is to be the
-          // red. A tile states a quantity; the strip states whether it blocks.
-          null)
-      // The ledger check gets its own tile rather than sharing the variance one.
-      // "Does the ledger agree with the lender" and "do our splits explain what
-      // the ledger did" are different questions with different answers, and a
-      // loan can pass one while failing the other.
-      + tile(`${name} ledger unexplained`,
-          b.ledgerOff ? money(b.ledgerToResolve) : '$0.00',
-          b.ledgerOff
-            ? `${b.ledgerOff} loan${b.ledgerOff === 1 ? '' : 's'} moved in Xero without a split behind it.`
-            : b.rf.ledgerUnattributed.length
-            ? `${b.rf.ledgerUnattributed.length} loan${b.rf.ledgerUnattributed.length === 1 ? '' : 's'} differ from the ledger by ${money(b.rf.ledgerUnattributedTotal)} in total — stated, not diagnosed, until the month’s movement is measured.`
-            : b.rf.ledgerChecked.length
-            ? `All ${b.rf.ledgerChecked.length} measured ledger${b.rf.ledgerChecked.length === 1 ? '' : 's'} are fully explained.`
-            : 'Not measured yet — this check needs the month’s ledger movement.',
-          null)
-      + tile('Not yet in Xero',
-          b.unposted ? money(b.unpostedTotal) : '$0.00',
-          b.unposted
-            ? `${b.unposted} ${name} split${b.unposted === 1 ? '' : 's'} still unposted.`
-            : 'Everything for this month is booked.',
-          null)
-      + tile(`Paid in ${name}`, money(paidP + paidI),
-          `${money(paidP)} principal · ${money(paidI)} interest`)
-      + '</div></div>';
+    el.innerHTML = `<div class="lcb-paid">Paid in ${esc(name)}: <b>${money(paidP + paidI)}</b>` +
+      ` — ${money(paidP)} principal · ${money(paidI)} interest</div>`;
   }
 
   function renderLoansCloseBand() {
@@ -16471,6 +16449,28 @@
         ? `<span class="lcb-flag">${esc(bookedWord)}</span>`
         : (r.splits.length ? '<span class="lcb-quiet">Booked</span>' : '<span class="lcb-na">No payment</span>');
       const booked = `<span class="lcb-mark ${markCls}" data-status="${esc(markVerdict)}" title="${esc(markVerdict)}">${markGlyph}</span>`;
+      // ── LEDGER: A SECOND, DIFFERENT VERDICT, SO IT GETS ITS OWN MARK ────────
+      // Status above answers "does this loan tie to the lender." This answers
+      // a different question -- "do our splits explain what actually moved in
+      // the Xero ledger" -- and a loan can pass one and fail the other
+      // (BayFirst SBA 2 ties to the lender to the cent while $858.66 moved in
+      // Xero with nothing behind it; PayPal 2 is the mirror case). Folding
+      // both into one icon would hide exactly the thing this column exists to
+      // show (session 247's own words, in the code above `ledgerNote`).
+      // `ledgerNote` (below, already computed for the hover hint and the CSV)
+      // is empty specifically on a 'tie' row, so that case is spelled out
+      // here rather than reusing the empty string as if nothing were true.
+      let ledgerCls, ledgerGlyph, ledgerVerdict;
+      if (r.unexplainedBand === 'material') {
+        ledgerCls = 'lcb-mark-bad'; ledgerGlyph = '✗';
+      } else if (r.unexplainedBand === 'immaterial' || r.unexplainedBand === 'unbooked' || r.unexplainedBand === 'tie') {
+        ledgerCls = 'lcb-mark-ok'; ledgerGlyph = '✓';
+      } else {
+        // Movement not measured this month, and nothing worth stating even as
+        // an unmeasured difference -- "A NULL IS NOT A ZERO" (session 247):
+        // this is "not checked," never a quiet pass.
+        ledgerCls = 'lcb-mark-na'; ledgerGlyph = '·';
+      }
       // ── DRAWN ─────────────────────────────────────────────────────────────
       // Anything that INCREASED the balance in the month, which is broader than
       // borrowing: a new draw, a capitalised fee, an accrual journal.
@@ -16511,6 +16511,17 @@
         // a rewrite that quietly turned a refusal into an accusation.
         ? `ledger ${signed(r.unattributed)} — unmeasured: stated, not diagnosed until the month’s movement is measured`
         : '';
+      // `ledgerNote` is '' on a genuine tie (no branch above matches 'tie'),
+      // which is correct for the hint sentence (nothing worth saying inline)
+      // but wrong for an icon's tooltip (a blank title reads as a bug, not a
+      // pass) -- so the Ledger mark gets its own verdict text, not a reuse of
+      // the empty string.
+      ledgerVerdict = r.unexplainedBand === 'material' ? ledgerNote
+        : r.unexplainedBand === 'immaterial' ? ledgerNote
+        : r.unexplainedBand === 'unbooked' ? ledgerNote
+        : r.unexplainedBand === 'tie' ? 'ledger fully explained — no difference'
+        : (ledgerNote || 'no ledger figure to compare this month');
+      const ledgerCell = `<span class="lcb-mark ${ledgerCls}" data-status="${esc(ledgerVerdict)}" title="${esc(ledgerVerdict)}">${ledgerGlyph}</span>`;
 
       // ── THE HINT ─────────────────────────────────────────────────────────
       // Everything that came off the screen, in the order a person reads a row:
@@ -16546,6 +16557,7 @@
         <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
         <td>${bookedCell}</td>
         <td>${booked}</td>
+        <td>${ledgerCell}</td>
       </tr>`;
     };
 
@@ -16587,7 +16599,7 @@
       <td class="lcb-n" data-amount="${ta.computed}">${money(ta.computed)}${rollMark}</td>
       <td class="lcb-n" data-amount="${ta.perLender}">${money(ta.perLender)}${closingMark}</td>
       <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}">${varianceCell(ta)}${closingMark}</td>
-      <td></td><td></td>
+      <td></td><td></td><td></td>
     </tr>`;
 
     // The close date is NOT stated here. It moved to the period bar, beside the
@@ -16600,7 +16612,7 @@
     // population the Variance column covers, and that a second check runs
     // underneath. Everything else that was here is now on the row it belongs
     // to, one hover away.
-    const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. A second check runs underneath it — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
+    const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. The <b>Ledger</b> column is a second, different check — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
 
     el.innerHTML = `
       <div class="lcb-head">
@@ -16622,7 +16634,7 @@
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n">Computed</th>
               <th class="lcb-n">Closing</th>
-              <th class="lcb-n">Variance</th><th>Booked</th><th>Status</th>
+              <th class="lcb-n">Variance</th><th>Booked</th><th>Status</th><th>Ledger</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
@@ -16669,9 +16681,10 @@
 
   // ── EXPORT (session 249, David: "make the table exportable to CSV") ──────
   // It reads the DATA ATTRIBUTES, not the rendered text, and that is the whole
-  // point rather than an implementation detail. The screen shows ten columns
-  // (session 256 split Status into Booked-the-fact and Status-the-icon); the
-  // file carries eighteen, because every fact the redesign moved to a hover
+  // point rather than an implementation detail. The screen shows eleven columns
+  // (session 256, round 1 split Status into Booked-the-fact and Status-the-
+  // icon; round 3 added Ledger, a second per-row verdict, beside it); the
+  // file carries nineteen, because every fact the redesign moved to a hover
   // is still on the cell it describes. A CSV built by scraping textContent
   // would export exactly what the screen chose to show — which is the opposite
   // of what a workpaper is for.
@@ -16688,11 +16701,11 @@
     const head = ['Loan', 'Lender', 'Opening', 'Opening source', 'Drawn', 'Drawn gross',
                   'Principal', 'Interest', 'Computed', 'Closing', 'Closing date',
                   'Closing source', 'Variance', 'Variance explained by',
-                  'Ledger unexplained', 'Booked', 'Status', 'Notes'];
+                  'Ledger unexplained', 'Booked', 'Status', 'Ledger check', 'Notes'];
     const rows = [head];
     for (const tr of table.querySelectorAll('tbody tr')) {
       const td = [...tr.children];
-      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cBooked, cStat] = td;
+      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cBooked, cStat, cLedgerMark] = td;
       rows.push([
         att(tr, 'data-loan'),
         att(tr, 'data-lender'),
@@ -16716,6 +16729,7 @@
         att(cVar, 'data-unexplained') === '' ? '' : Number(att(cVar, 'data-unexplained')).toFixed(2),
         txt(cBooked),
         att(cStat, 'data-status') || att(cStat, 'title') || txt(cStat),
+        att(cLedgerMark, 'data-status') || att(cLedgerMark, 'title') || txt(cLedgerMark),
         att(tr, 'data-hint'),
       ]);
     }
@@ -16725,7 +16739,7 @@
       rows.push([txt(tLoan).replace(/\s+\d+ of \d+.*$/, ''), '', amt(tOpen), '', amt(tDrawn), '',
                  amt(tPrin), amt(tInt), amt(tComp), amt(tClose), '', '',
                  att(tVar, 'data-variance') === '' ? '' : Number(att(tVar, 'data-variance')).toFixed(2),
-                 '', '', '', '', `${att(tr, 'data-roll-count')} of ${att(tr, 'data-count')} loans in the walk · ${att(tr, 'data-closing-count')} of ${att(tr, 'data-count')} closed against evidence`]);
+                 '', '', '', '', '', `${att(tr, 'data-roll-count')} of ${att(tr, 'data-count')} loans in the walk · ${att(tr, 'data-closing-count')} of ${att(tr, 'data-count')} closed against evidence`]);
     }
     // The provenance of the FILE, not of a row. A workpaper that leaves the
     // screen has to say what it is and what was true when it was taken.
