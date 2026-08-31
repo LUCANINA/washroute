@@ -13,6 +13,16 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
+*Last updated: August 31, 2026 — Session 257 — **Admin maps were showing an "API KEY REQUIRED" watermark instead of the background map — Carto's free tile service now requires a registered key. Swapped to a free, no-signup tile provider; zero impact on actual routing.***
+
+David flagged a screenshot of the Routes map covered in "API KEY REQUIRED" text tiled across the background, worried it might be affecting driver routing.
+
+**Root cause:** the admin dashboard's Leaflet maps (Route Live Map, the customer address map, and the zones map) all share one `cartoTiles()` helper that pulls from Carto's free anonymous basemap endpoint (`basemaps.cartocdn.com`). Carto tightened that service to require a signed-up API key for anonymous requests; without one, every tile now renders as a low-res placeholder stamped with the "API KEY REQUIRED" watermark instead of real map imagery.
+
+**Confirmed cosmetic only.** The numbered stop pins, their colors, and their positions were all rendering correctly on top of the broken background — this is purely the map's background tile image, not any routing or geocoding data. Driver navigation is unaffected regardless of this bug: the driver app uses plain Google Maps deep links for turn-by-turn directions, not this Leaflet/Carto layer at all — see "Driver App" under Completed Features.
+
+**Fix:** rather than have David sign up for a Carto account and manage a new API key indefinitely, swapped the shared `cartoTiles()` helper to Esri's free World Light Gray Canvas tiles (base + reference/labels layers), which need no signup or key, ever, and closely match the previous light, clean look. All three map call sites (`routeLiveMap`, `custMap`, `zonesMap`) use the shared helper unchanged — one-line-of-logic fix, not a per-map patch. Verified the new tile endpoint returns real imagery (HTTP 200, actual JPEG) rather than a gated placeholder, and that the file's inline `<script>` blocks still parse cleanly after the edit. Commit `eef55a1`.
+
 *Last updated: August 28, 2026 — Session 231 — **A driver opened her app mid-route to an empty schedule. She had two driver records; her login could only ever see one of them, and admin had been scheduling her on both.***
 
 Aracely Cruzado, via David: no stops showing even though she's scheduled — "some days work, some days don't."
