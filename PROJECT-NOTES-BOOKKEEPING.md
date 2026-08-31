@@ -2642,6 +2642,39 @@ Funding Circle Loan"` -- screenshotted for David.
 
 ---
 
+**Session 256, round 5 (same day) -- David: "For my own understanding what does
+'loans the ledger does not explain' mean?  Also, add tooltip for status and ledger
+columns to describe what the columns mean/denote?"**
+
+Two asks. First, a plain-language explanation (given back to David directly in chat,
+not just logged here): the app computes what a loan's closing balance *should* be from
+its own recorded splits (Opening + Drawn − Principal paid), and separately rebuilds
+what the loan's balance actually did in Xero from Xero's own ledger movement for that
+account this month. "The ledger does not explain" a loan means those two numbers
+disagree by a real amount -- something touched that loan account in Xero (a payment, a
+journal entry, a reallocation) that none of the recorded splits account for. This is a
+check on whether our own records match our own accounting system, which is a different
+question from whether the balance ties to the lender (that's what Status checks) --
+the BayFirst SBA 2 loan is the standing example of a loan that can pass one of these
+and fail the other.
+
+Second: header-level tooltips, since round 2's per-row tooltip apparently "didn't
+work" for David (most likely because he was viewing a static screenshot, where a
+native hover tooltip cannot render -- not confirmed with him, worth watching for if
+this recurs on the live page). Added a `title` attribute to the `<th>Status</th>` and
+`<th>Ledger</th>` header cells in `renderLoansCloseBand()`'s table markup, spelling out
+in plain language what green/red/grey mean for each column and how the two columns
+differ from each other.
+
+**Verification, round 5.** Parse check on both inline `<script>` blocks clean. Ran the
+`loans-table` harness group (5/5 assertions passed). Rendered the real table against
+the fixture data with Playwright and read `title` back from every `#lcb-table thead
+th` cell: only the Status and Ledger headers carry one, matching the text above
+verbatim; every other header's title is `null`. Committed (`552f33e`), **not pushed**
+-- same as every session, sandbox has no network.
+
+---
+
 ### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues
 
 Opened by committing session 254's part (b) work (it had been built and tested but not
