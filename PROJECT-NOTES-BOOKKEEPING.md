@@ -21,6 +21,11 @@
 > `xero_manual_journal_id`, same as several of Verdant's other historical rows) may
 > not need any change; if nobody made it, that is worth knowing too.
 >
+> **Confirmed by David (2026-08-31): he split this transaction directly in Xero
+> himself.** Verdant's August interest split is closed — no DB change needed, our
+> `loan_splits` `Period 14` row stays as-is (matches the pattern of Verdant's other
+> historical rows: `status='posted'`, no `xero_manual_journal_id`).
+>
 > Also this session: corrected two more stale "not deployed" claims in this same
 > block — see §1 and §13a, both now marked deployed and checked against `git log` /
 > the deployed function timestamps, not assumed.
