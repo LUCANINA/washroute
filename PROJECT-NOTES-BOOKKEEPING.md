@@ -2408,6 +2408,78 @@ to "what is running".
 
 ---
 
+### Session 256 (2026-08-31) — Loans rollforward: the Status column becomes an icon, and the LOAN/OPENING gap is tightened
+
+David, this session: "on Status column, replace text (e.g booked) with either green
+checkmark (no variance) or red X (variance exists)." Two follow-ups mid-turn: "use
+those used in Client View" (the icon), and "there is value in knowing whether a
+payment was booked during the month or not for the CPA to identify possible issues.
+Find a place for this" -- i.e. don't let the fact the column used to spell out in
+words disappear.
+
+**What the Status column used to mean vs. what it means now.** Before this session it
+answered ONE question -- did this loan post to Xero this month (Booked / No payment /
+the specific unposted reason) -- which is a different question from the Variance
+column beside it (does the loan's balance tie to the lender). Asked, David confirmed
+the icon should follow the VARIANCE verdict, and that an unposted/flagged row should
+fold into the same red-X "needs a look" bucket as a real variance. The booked/not-
+booked FACT is not gone -- session 249's own rule for this table ("nothing is deleted,
+only refiled") -- it is now the icon's tooltip, first, before the verdict: e.g. "Booked
+this month -- ties to the lender to the cent" or "Pending review this month -- not yet
+posted to Xero." The CSV export's Status column reads that same sentence now
+(`att(cStat, 'title')`), not the glyph.
+
+**Why the icon isn't purely binary despite the literal ask.** A straight "variance
+exists -> red" would have put a green check on a row that ties only because it hasn't
+been independently checked -- exactly the thing session 246 built `_openingIsIndependent`
+to stop happening ("a check that cannot fail must never look like a check that
+passed"). So there are three icon states, not two: green check (real tie, or a
+difference small enough that this table already treats it as not-a-problem --
+`.lcb-quiet`/immaterial band, or fully explained by known unposted payments --
+`unbooked` band); red X (material variance, OR any split sitting in
+pending_review/needs_attention/staged this month -- David's Q2 answer); grey dot (`.`,
+`.lcb-mark-na`) for "not independently checked" -- circular rows (agrees by
+construction) and rows with no lender evidence to compare at all (an automatic sweep
+loan like Stripe, or nothing received). Flagged to David in the handoff message so he
+can correct the read if the grey state should have gone red instead.
+
+**Client View's own visual language, reused rather than reinvented.** `.lcb-mark` /
+`-ok` / `-bad` / `-na` mirror `.cv-mark` / `.done` / `.open` (same 19px circle, same
+green). The bad state is red, not Client View's amber -- Client View keeps its worst
+case soft on purpose (session 249: "the Client View is the voice"), while this table
+already means something specific by red: "a figure that has to move" (`.lcb-off`,
+session 250). One severity language per surface, not a forced match.
+
+**Column gap.** `.lcb-table` td/th padding went from `12px` to `9px` horizontally, and
+the LOAN<->OPENING boundary specifically (first/second `td`/`th`) tightened further to
+`5px` on the touching sides, per David: "reduce the gap between columns (especially
+LOAN and OPENING)." `lcb-table` is used by exactly this one table (checked before
+touching it), so nothing else on the page was affected.
+
+**Verification.** All inline `<script>` blocks parse (`new Function()` sanity check).
+Ran the real offline harness (`tests/bookkeeping-harness.mjs`, headless Chromium -- this
+sandbox's `device_bash` VM had no browser binary and no root for
+`playwright install-deps`, so the browser install and the run both happened in the
+CLOUD container against a staged copy of the edited `index.html`, not on David's Mac):
+loans-table, close-band (258), money-format (208), closing-evidence (664),
+two-surfaces (29), cold-boot (48), loader-failure (91), tab-races (18) all green. The
+one `history`-group failure is Tech Debt #19, reported red on purpose since session
+247 -- unrelated to this change, confirmed by its own message text. Also rendered the
+real table against the fixture data and read the DOM back: five rows landed on the
+red X for exactly the reasons expected (one unposted/pending-review, four material
+variances), Stripe Capital landed on the grey dot ("balance swept from Xero --
+nothing to compare"), and the small EIDL/Verdant/Paypal-2 differences stayed green,
+matching the "too small to chase" bucket. Screenshot sent to David for a visual check
+before this note was written -- not yet confirmed by him this session.
+
+Edited directly on David's Mac via `device_bash` (this repo lives there, not in the
+cloud sandbox) -- the usual FUSE-bridge lock quirk showed up again on `git status`
+itself this time (a fresh `index.lock` appeared and failed to unlink, not just on
+commit); moved aside into `_to_delete/` same as always, harmless once confirmed via
+`git log -1`.
+
+---
+
 ### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues
 
 Opened by committing session 254's part (b) work (it had been built and tested but not

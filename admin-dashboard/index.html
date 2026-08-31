@@ -3373,12 +3373,18 @@
             .lcb-table { width: 100%; min-width: 880px; border-collapse: collapse; font-size: 13px;
                          font-variant-numeric: tabular-nums; }
             .lcb-table td, .lcb-table th { white-space: nowrap; }
-            .lcb-table thead th { text-align: left; padding: 0 12px 10px; font-size: 10.5px; font-weight: 600;
+            .lcb-table thead th { text-align: left; padding: 0 9px 10px; font-size: 10.5px; font-weight: 600;
                                   letter-spacing: .055em; text-transform: uppercase; color: var(--gray-400);
                                   border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
             .lcb-table thead th.lcb-n { text-align: right; }
-            .lcb-table tbody td { padding: 11px 12px; border-bottom: 1px solid var(--gray-100);
+            .lcb-table tbody td { padding: 11px 9px; border-bottom: 1px solid var(--gray-100);
                                   vertical-align: middle; color: var(--gray-700); }
+            /* Loan is the row's identity and needs no run-up to the first
+               number beside it; Opening needs no run-up back to it either.
+               David, this session: "reduce the gap ... especially LOAN and
+               OPENING." Every other column keeps the standard 9px. */
+            .lcb-table thead th:first-child, .lcb-table tbody td:first-child { padding-right: 5px; }
+            .lcb-table thead th:nth-child(2), .lcb-table tbody td:nth-child(2) { padding-left: 5px; }
             .lcb-table tbody tr:last-child td { border-bottom: 0; }
             .lcb-table tbody tr { transition: background .12s; }
             .lcb-table tbody tr:hover { background: var(--gray-50); }
@@ -3414,6 +3420,31 @@
             .lcb-off { color: #dc2626; font-weight: 650; }
             .lcb-flag { color: var(--gray-900); font-weight: 600; }
             .lcb-quiet { color: var(--gray-400); font-weight: 400; }
+            /* THE STATUS ICON (this session, David: "replace text (e.g.
+               booked) with either green checkmark (no variance) or red X
+               (variance exists)"). It borrows Client View's own mark -- same
+               circle, same size -- so the two surfaces speak one visual
+               language for "resolved" vs "needs a look" (David: "use those
+               used in Client View"). Client View's worst case is amber, kept
+               soft on purpose (session 249: "the Client View is the voice");
+               this table already means something specific by red -- "a
+               figure that has to move" (.lcb-off, session 250) -- so the bad
+               state here is red, not amber. A THIRD, quiet grey state exists
+               on purpose and must never be pushed toward green: a row that
+               ties "by construction" (session 246) or has no lender evidence
+               to compare (session 245-247) has not been independently
+               checked, and a check that cannot fail must never look like a
+               check that passed. The fact this icon used to spell out in
+               words -- Booked / No payment / the specific unposted reason --
+               is not deleted, only refiled: it is the mark's title (and the
+               CSV's Status column), one hover away, same as every other
+               fact this table moved off the screen in session 249. */
+            .lcb-mark { display: inline-grid; place-items: center; width: 19px; height: 19px;
+                        border-radius: 50%; font-size: 11px; font-weight: 800; line-height: 1;
+                        border: 1.5px solid var(--gray-200); color: var(--gray-400); background: #fff; }
+            .lcb-mark-ok  { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+            .lcb-mark-bad { border-color: #fecaca; background: #fef2f2; color: #dc2626; }
+            .lcb-mark-na  { border-color: var(--gray-200); background: #fff; color: var(--gray-300); font-size: 13px; }
             .lcb-table tfoot td { padding: 13px 12px; border-top: 1px solid var(--gray-300);
                                   font-weight: 650; color: var(--gray-900); font-size: 13px; }
             .lcb-table tfoot td.lcb-n { text-align: right; }
@@ -16379,17 +16410,50 @@
         // by subtracting those two. The band, and therefore the WEIGHT, come
         // from the residual; the hint shows how one became the other.
         : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-quiet'}">${signed(r.variance)}</span>`;
-      const booked = r.unposted.length
-        ? `<span class="lcb-flag">${r.unposted.length === 1
-            ? esc(STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
-            : esc(r.unposted.length + ' unposted')}</span>`
-        : (r.splits.length
-            // Session 249: "Booked" was green. Booked is the expected state on
-            // thirteen of fourteen rows, and thirteen green words made the eye
-            // filter every confirmation to find the one that needed a person.
-            // Settled is grey. The rows still needing something are near-black.
-            ? '<span class="lcb-quiet">Booked</span>'
-            : '<span class="lcb-na">No payment</span>');
+      // ── STATUS: THE ICON IS THE VERDICT, THE WORDS STILL SAY WHAT HAPPENED ──
+      // This session (David): the column reads as a checkmark or a red X now,
+      // driven by the SAME tie/variance verdict the Variance column already
+      // carries -- not a second, disagreeing opinion about the row. Whether a
+      // payment was actually booked to Xero this month is a different, real
+      // fact a CPA still needs (David, same session), so it never disappears
+      // -- it is the fact the icon's title states first, before the verdict.
+      const bookedWord = r.unposted.length
+        ? (r.unposted.length === 1
+            ? (STATUS_WORD[r.unposted[0].status] || String(r.unposted[0].status).replace(/_/g, ' '))
+            : `${r.unposted.length} unposted`)
+        : (r.splits.length ? 'Booked' : 'No payment');
+      let markCls, markGlyph, markVerdict;
+      if (r.unposted.length) {
+        // Not yet in Xero beats any dollar tie -- a payment sitting in
+        // pending_review/needs_attention/staged is exactly the thing this
+        // column exists to surface, whatever the variance happens to say.
+        markCls = 'lcb-mark-bad'; markGlyph = '✗';
+        markVerdict = 'not yet posted to Xero';
+      } else if (r.circular) {
+        // Session 246: opening, movement and closing all trace to one
+        // document here, so agreeing is arithmetic, not evidence. A green
+        // check would claim an independent tie that was never run.
+        markCls = 'lcb-mark-na'; markGlyph = '·';
+        markVerdict = 'ties by construction — not an independent check';
+      } else if (r.variance == null) {
+        // No lender evidence to compare against this month at all -- not a
+        // pass, not a fail, a genuine "not checkable" (sessions 245-247).
+        markCls = 'lcb-mark-na'; markGlyph = '·';
+        markVerdict = r.automatic ? 'balance swept from Xero — nothing to compare' : 'no closing evidence to compare this month';
+      } else if (r.band === 'material') {
+        markCls = 'lcb-mark-bad'; markGlyph = '✗';
+        markVerdict = `disagrees with the lender by ${signed(r.variance)}`;
+      } else {
+        // Ties, and the two shapes of "not really a problem" this table has
+        // never treated as one: too small to chase, or fully explained by
+        // payments already known to be unposted (unbookedWhy, above).
+        markCls = 'lcb-mark-ok'; markGlyph = '✓';
+        markVerdict = r.band === 'tie' ? 'ties to the lender to the cent'
+          : r.band === 'unbooked' ? 'variance fully explained by unposted payments'
+          : 'ties to the lender — a difference too small to chase';
+      }
+      const statusTitle = `${bookedWord} this month — ${markVerdict}`;
+      const booked = `<span class="lcb-mark ${markCls}" data-status="${esc(bookedWord)}" title="${esc(statusTitle)}">${markGlyph}</span>`;
       // ── DRAWN ─────────────────────────────────────────────────────────────
       // Anything that INCREASED the balance in the month, which is broader than
       // borrowing: a new draw, a capitalised fee, an accrual journal.
@@ -16631,7 +16695,7 @@
              : Number(att(cVar, 'data-variance')).toFixed(2)),
         att(cVar, 'data-variance-explained'),
         att(cVar, 'data-unexplained') === '' ? '' : Number(att(cVar, 'data-unexplained')).toFixed(2),
-        txt(cStat),
+        att(cStat, 'title') || txt(cStat),
         att(tr, 'data-hint'),
       ]);
     }
