@@ -16147,14 +16147,18 @@
   // something to resolve. It is one quiet reference line now, visually
   // distinct from the strip's checklist immediately below it.
   //
-  // "Which loans" no longer needs an answer here either. Every gate this
-  // strip can flag now has a per-row mark in the table below it: Variance's
-  // tie/off verdict is the Status column, unposted payments are the Booked
-  // column (both session 256, round 1), and the ledger-explains-itself check
-  // is the new Ledger column (round 3, same session) — so naming loans in a
-  // one-line summary would be a THIRD telling of a fact the table already
-  // states, per-row, in the reader's own words. Scan the table; every red
-  // mark there is one of the loans the chip above is counting.
+  // "Which loans" was answered by the table for exactly one round of this
+  // session (round 3): every gate this strip flags has a per-row mark below
+  // it -- Variance's tie/off verdict in Status, unposted payments in Booked,
+  // the ledger-explains-itself check in Ledger. The reasoning at the time was
+  // that naming loans here too would be a third telling of a fact the table
+  // already states. David's next message: "3 loans the ledger does not
+  // explain — $5,011.49. Which ones?" -- i.e. that reasoning was wrong. A
+  // count is not an answer, and a reader should not have to scan thirteen
+  // rows for red marks to reconstruct a list the code already has. Every
+  // blocking chip in renderLoansCloseBand() now names the loans it counts,
+  // directly in the chip, not on hover. This comment stays as the record of
+  // the wrong call, not the current design.
   function renderLoansCloseTiles() {
     const el = document.getElementById('loans-close-tiles');
     if (!el) return;
@@ -16228,10 +16232,28 @@
     // Each chip carries data-gate so anything reading this strip selects by NAME
     // rather than by index. The order of these chips is a reading decision and
     // it will change again; what they MEAN should not have to move with it.
+    // ── NAME THEM, DON'T JUST COUNT THEM (session 256, round 4) ────────────
+    // David, after round 3's Ledger column: "3 loans the ledger does not
+    // explain — $5,011.49. Which ones?" Round 3's own reasoning was that the
+    // table right below already answers this, per row, so naming loans again
+    // in the strip would be a third telling of the same fact — and that
+    // reasoning was wrong in practice: a count is not an answer, and making
+    // someone scan thirteen rows for red marks to reconstruct a list this
+    // code already has in hand is not "not asking the question twice," it is
+    // "asking the reader to do the lookup instead of the tool." Every chip
+    // that BLOCKS names the loans behind it, right in the chip, so the
+    // question in the chip's own words is answered in the chip's own words —
+    // never a hover (round 2, same reason), never a second surface to visit.
+    // Chips that do not block (ties, per-schedule, immaterial, "cause not
+    // measured") still do not name names — those are not questions a reader
+    // needs answered, and a name attached to a confirmation is noise.
+    const loanName = (a) => (a && (a.xero_account_name || a.lender_account_number)) || 'Unknown loan';
+    const names = (arr, getA) => arr.map(x => loanName(getA(x))).join(', ');
+
     const gates = [];
     gates.push(cov.missing.length
       ? { key: 'coverage', bad: true, n: cov.missing.length,
-          text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding` }
+          text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding: ${names(cov.missing, m => m.account)}` }
       : { key: 'coverage', bad: false, n: 0, text: `all ${cov.expected.length} accounted for` });
     if (cov.received.length + cov.rolledBack.length) {
       gates.push({ key: 'lender-confirmed', bad: false, n: cov.received.length + cov.rolledBack.length,
@@ -16247,7 +16269,7 @@
     // for the same question (review F15).
     gates.push(rf.off.length
       ? { key: 'variance', bad: true, n: rf.off.length,
-          text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off — ${money(rf.varianceToResolve)} to resolve` }
+          text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off — ${money(rf.varianceToResolve)} to resolve: ${names(rf.off, r => r.a)}` }
       : { key: 'variance', bad: false, n: rf.ties.length,
           text: `${rf.ties.length} loan${rf.ties.length === 1 ? '' : 's'} tie exactly` });
     // Shown, and deliberately not a blocker. A real gap below the materiality
@@ -16269,7 +16291,7 @@
     // behind it. Folding the two into one number would hide exactly that.
     if (rf.ledgerOff.length) {
       gates.push({ key: 'ledger', bad: true, n: rf.ledgerOff.length,
-        text: `${rf.ledgerOff.length} loan${rf.ledgerOff.length === 1 ? '' : 's'} the ledger does not explain — ${money(rf.ledgerToResolve)}` });
+        text: `${rf.ledgerOff.length} loan${rf.ledgerOff.length === 1 ? '' : 's'} the ledger does not explain — ${money(rf.ledgerToResolve)}: ${names(rf.ledgerOff, r => r.a)}` });
     } else if (rf.ledgerUnattributed.length) {
       // Not bad, and deliberately so: a difference whose cause has not been
       // measured is not yet work, and calling it work would put a number on the
@@ -16282,7 +16304,7 @@
     }
     gates.push(rf.unpostedRows.length
       ? { key: 'posting', bad: true, n: rf.unpostedRows.length,
-          text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}` }
+          text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}: ${names(rf.unpostedRows, r => r.a)}` }
       : { key: 'posting', bad: false, n: 0, text: 'everything booked' });
     const blocked = gates.some(g => g.bad);
 

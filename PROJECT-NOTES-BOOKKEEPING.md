@@ -2600,7 +2600,45 @@ line through the table footer) for David, and cross-checked in the same render t
 the Ledger column's red-row count exactly equals the strip's `ledger` gate chip count
 (2 and 2) -- the two-surfaces-must-agree discipline this file already holds itself to,
 applied to a screenshot check since no harness assertion exists yet for this specific
-new pairing. Not yet confirmed by David this session.
+new pairing.
+
+**Session 256, round 4 (same day) -- David's reply to round 3, verbatim: "Better, but
+this is still super confusing: 3 loans the ledger does not explain — $5,011.49. Which
+ones?"**
+
+Round 3's own code comment had argued this was already answered -- "naming loans in
+the strip would be a THIRD telling of a fact the table already states, per-row." That
+argument was wrong, and David's one-line reply is the proof: a count is not an answer,
+and asking a reader to scan thirteen rows for red marks to reconstruct a list the code
+already had in memory is not "avoiding a duplicate," it is making the reader do the
+tool's job. Logged here rather than quietly fixed, because getting this specific call
+wrong twice in one session (first the tooltip in round 2, now this) is worth having on
+record as a pattern: **when David says a number is confusing, the fix is almost never
+a better sentence around the number -- it is the actual list of what the number is
+counting, in text he can read without hovering or cross-referencing.**
+
+**What shipped:** every BLOCKING chip in `renderLoansCloseBand()`'s strip now names the
+loans it counts, inline, in the chip's own text -- `coverage` (missing statements),
+`variance` (loans off), `ledger` (loans the ledger does not explain), `posting`
+(unposted splits). A `loanName`/`names` helper pulls `xero_account_name ||
+lender_account_number` off each row's `.a` (or `.account` for the coverage array,
+whose entries are shaped `{account, statement, anchor}`, not `{a}`) and joins with
+commas. Chips that do NOT block -- ties, per-schedule, immaterial, "cause not
+measured", "fully explained" -- deliberately do NOT get names: those are confirmations,
+not questions, and a name attached to a confirmation is noise, not an answer. The
+round-3 code comment arguing against this was corrected in place rather than deleted,
+so the wrong call and why it was wrong both stay on record.
+
+**Verification, round 4.** Parse check clean. Re-ran close-band (258), two-surfaces
+(29), loans-table (5) -- all green; the close-band group in particular exercises the
+strip's gate chips heavily (chip text, `data-gate` names, counts) and caught nothing,
+so the added names did not disturb anything those 258 assertions check (they read
+counts and `data-gate` attributes, not the full chip sentence). Rendered the real
+strip against the fixture data and read the actual chip text back from the DOM:
+`"4 loans off — $1,887.50 to resolve: Funding Circle Loan, E-Transit Loan - 4140,
+E-Transit Loan E4 -9744, E-Transit Loan E5-4751"`, `"2 loans the ledger does not
+explain — $4,000.92: BayFirst SBA 2, Paypal 2"`, `"1 split unposted — $2,033.77:
+Funding Circle Loan"` -- screenshotted for David.
 
 ---
 
