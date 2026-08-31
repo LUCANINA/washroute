@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 256 (left by session 255, 2026-08-30)
+> ## ⏭️ START HERE — first thing, session 258 (left by session 257, 2026-08-31)
 >
 > ### 1. ✅ DEPLOYED AND RUN — the ledger check is live; only the push is outstanding
 >
@@ -44,6 +44,46 @@
 >
 > **Nothing is pending here except the push.**
 >
+> ### 1d. 🎨 NEW — ISSUES IS NOW LOAN VARIANCES ONLY, IN A FLAT TABLE (session 257)
+>
+> David: "I'd like a whole rethink of the issues section so that it focuses on one
+> thing: reconciling variances," then, after seeing it shipped: "split ISSUES into 4
+> distinct rows: Loan name, Variance, brief explanation, Action... Remove all click to
+> expand portion." **Read the session 257 log entry (two parts, same day) before
+> touching `_bkIssueQueueItems`, `_bkVarianceTableHtml`, `_bkApprovalQueueItems`, or
+> `renderLoansCloseBand`'s notes block.**
+>
+> **What moved where, load-bearing:**
+> * **Issues** = `_bkIssueQueueItems()`, sourced straight from `_bkRosterState(a)` —
+>   one row per active loan where `group === 'variance'` or `'immaterial'`. Nothing
+>   else renders here any more: no payroll, no loan-flag notes, no split/stage/recon
+>   findings. Rendered by **`_bkVarianceTableHtml`**, a plain `<table>` — Loan /
+>   Variance / Explanation / actions. **`_bkRosterHtml` (session 247's lender-grouped,
+>   click-to-expand roster) is no longer called by Issues** — left in the file
+>   untouched, not deleted, in case a future segment needs lender grouping again, but
+>   do not assume Issues still uses it.
+> * **Loan notes** (`flagged_note`) moved to the **Loans page**, under the close-band
+>   footnote (`renderLoansCloseBand`'s new "Notes on these loans" block). No month
+>   column exists on `flagged_note` — the block says so in its own header rather than
+>   implying a date match the data can't support.
+> * **`split_mismatch` / `stage_flag` / `recon_finding`** moved into
+>   **`_bkApprovalQueueItems()`** (David's explicit call, over a second Issues-adjacent
+>   list) — session 228's lender-folding and the Find-the-difference / Upload-statement
+>   actions carried over almost verbatim. Confirmed live in the DOM, not just present in
+>   the JS array.
+> * `_bkLoanAttentionItems()` and `_bkRosterCounts()` — the shared source these three
+>   kinds are drawn from, and what feeds the "N need attention" headline — are
+>   **untouched**. The headline's accuracy does not depend on any of the above.
+>
+> **Known debt, not silently swept:** four `roster-*` harness groups
+> (`roster-clean-loan-children`, `roster-orphan-findings`, `roster-empty-denominator`,
+> and the pre-existing `roster-confetti-gate` drift) now read red because they assert
+> the OLD Issues-tab nesting/orphan behavior against markup (`.bk-lender-row` /
+> `.bk-lr-loan`) that Issues no longer produces at all. David chose "leave it for next
+> session" over fixing it in-session. **§10 below has the counts and the plan; do not
+> try to make Issues produce that markup again to satisfy them — write the tests
+> against Approvals instead.**
+
 > ### 1c. 🎨 NEW — THE LOANS ROLLFORWARD IS NINE COLUMNS NOW (session 249)
 >
 > David asked for the Client View's voice on the Loans page. Read the session 249
@@ -371,6 +411,24 @@
 > an invariant, grep the suite for assertions that encode the OLD one and fix them
 > in the same commit, even where they are still green.
 >
+>
+> **Session 257 addendum — the totals above predate this session and are not
+> re-verified here; what changed is additive, not a replacement count.** Four
+> `roster-*` groups now read red for a reason connected to a real, approved product
+> change, not a regression — see §1d above for the full explanation:
+> * `roster-confetti-gate` — 3 failures, confirmed **pre-existing** (identical on the
+>   unmodified pre-257 file: hardcoded "5 of 14 reconciled" / "6 reconciled"
+>   expectations the current fixture no longer matches). Not caused by session 257,
+>   not fixed by it either.
+> * `roster-clean-loan-children` (14 new, on top of 9 pre-existing),
+>   `roster-orphan-findings` (7 new, 0 pre-existing), `roster-empty-denominator` (1
+>   new, 0 pre-existing) — all three assert that findings render NESTED under a loan
+>   or as an "orphan" inside the Issues roster. That structure is gone from Issues by
+>   design (§1d); the underlying findings were hand-verified to still reach Approvals.
+>   **These need rewriting against Approvals' flat-list DOM (`_bkQueueRowHtml`, no
+>   `.bk-lender-row`/`.bk-lr-loan` nesting to read), not against Issues** — Issues has
+>   no lender-roster markup left to test at all as of session 257 cont.
+
 > ### 11. 📋 STILL OPEN FROM SESSION 241's AUDITS
 >
 > Unchanged and unworked: the 57 deploy-only edge functions
