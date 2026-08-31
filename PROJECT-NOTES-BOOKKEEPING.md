@@ -28,7 +28,16 @@
 >
 > Also this session: corrected two more stale "not deployed" claims in this same
 > block — see §1 and §13a, both now marked deployed and checked against `git log` /
-> the deployed function timestamps, not assumed.
+> the deployed function timestamps, not assumed. Deleted E-Transit 4140's two
+> duplicate loan documents (David confirmed) and applied the deferred
+> `loan_documents_loan_sha_uniq` uniqueness guard — see §5 below, closed.
+>
+> Also this session: fixed the four `roster-*` test-harness groups (plus
+> `roster-classification`) that read red against session 257's Overview redesign —
+> see §1d below for what changed and why. Full suite now 1468/1469 passing, the one
+> red assertion being the pre-existing, self-labeled Tech Debt #19 report, not a test
+> bug. Diff ported back and committed locally (`07db656`) — not pushed, David pushes
+> himself.
 >
 > ### 1. ✅ DEPLOYED, RUN, AND PUSHED — nothing outstanding here
 >
@@ -97,14 +106,21 @@
 >   kinds are drawn from, and what feeds the "N need attention" headline — are
 >   **untouched**. The headline's accuracy does not depend on any of the above.
 >
-> **Known debt, not silently swept:** four `roster-*` harness groups
+> **Known debt — CLOSED (session 258).** The four `roster-*` harness groups
 > (`roster-clean-loan-children`, `roster-orphan-findings`, `roster-empty-denominator`,
-> and the pre-existing `roster-confetti-gate` drift) now read red because they assert
-> the OLD Issues-tab nesting/orphan behavior against markup (`.bk-lender-row` /
-> `.bk-lr-loan`) that Issues no longer produces at all. David chose "leave it for next
-> session" over fixing it in-session. **§10 below has the counts and the plan; do not
-> try to make Issues produce that markup again to satisfy them — write the tests
-> against Approvals instead.**
+> `roster-confetti-gate`) plus `roster-classification` (R0), which also queried the
+> deleted `.bk-lender-row` markup in one assertion, are rewritten against the current
+> page: Issues' flat `_bkVarianceTableHtml` (`<table>`/`.bk-var-loan`), Approvals'
+> flat `_bkApprovalQueueItems()`/`_bkQueueRowHtml`, and — for R1's two info-severity
+> test loans (Rapid Credit Line, Dexter Loan 2) — the separate `_bkReconInfoFindings()`
+> block, which is a genuinely different code path from the split/stage/recon-finding
+> forEach the rest of `_bkApprovalQueueItems()` uses. `READ_QUEUE`'s `itemNames` was
+> also hardcoded to `_bkIssueQueueItems()` regardless of segment (fixed: segment-aware
+> now), and Approvals' CAP=5 truncation is expanded before DOM assertions that need
+> every row. Full suite: **1468/1469 passing** — the one red assertion is Tech Debt
+> #19 (`[history] s240 #10`), self-labeled `REPORTED, NOT A STALE EXPECTATION`, not a
+> test bug. Verified in the cloud container (this device's Playwright still lacks
+> `sudo` for `install-deps`) before porting the diff back here.
 
 > ### 1c. 🎨 NEW — THE LOANS ROLLFORWARD IS NINE COLUMNS NOW (session 249)
 >
