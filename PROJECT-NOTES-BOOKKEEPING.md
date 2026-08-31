@@ -2520,6 +2520,46 @@ has no browser binary):
   shape, not a one-line redirect). Left as open follow-up rather than rushed, and
   flagged to David directly rather than left for the next session to discover cold.
 
+**Follow-up, same session** — David, looking at the shipped Issues tab: "Better. Now
+split ISSUES into 4 distinct rows: Loan name, Variance, brief explanation, Action
+(ignore OR post). Remove all click to expand portion." The screenshot showed exactly
+why: `_bkRosterHtml` (the lender/loan roster from session 247, built for a queue that
+used to hold five different kinds of item) was still wrapping the new variance-only
+queue, so Ford Pro FinSimple rendered as a collapsible "3 of 4 disagree" group with
+each loan's line printed twice — once as the group's own summary, once again as the
+child row underneath.
+
+**What changed.** Issues no longer calls `_bkRosterHtml` at all. A new
+`_bkVarianceTableHtml(items)` renders `_bkIssueQueueItems()` as one plain
+`<table>` — Loan / Variance / Explanation / actions — nothing collapsible, nothing
+nested. `_bkRosterHtml` and its lender-folding are untouched, not deleted, in case a
+future segment needs grouping again; Approvals and Staged still render through the
+unrelated flat-list `_bkQueueRowHtml`, so this change is Issues-only.
+
+The single combined sentence `_bkIssueQueueItems()` used to build ("$X more on the
+books than Y shows — a correcting entry is ready...") is now two separate fields on
+each item: `varianceLabel` (`"$1,802.58 below the lender"`, `"— rounding"` appended
+for the immaterial ones) reusing `_bkLenderSummary`'s own phrasing so the same fact
+is never worded two ways on one page, and `explain` (`"A correcting entry is ready
+for you to review."` / `"No correcting entry prepared yet."`). Ignore and Post
+adjustment are unchanged — same `bkArchiveIssue` / `openLoanReviewModal` calls as
+before, just laid out as two controls in one cell instead of buried in a row's
+onclick.
+
+**Verification.** All inline `<script>` blocks parse. Re-ran `loans-table` (5/5),
+`close-band` (258/258), `two-surfaces` (29/29), `closing-evidence` (664/664) — all
+still green, confirming the swap didn't touch anything upstream of the table. Rendered
+the real table against the fixture and screenshotted it: 7 loans, one row each, both
+"Post adjustment" rows showing their own explanation text distinct from the plain
+"Ignore" rows. Spot-checked Approvals (5 rows) and Staged (9 rows) still render
+correctly through the untouched `_bkQueueRowHtml` path.
+
+This further widens the gap between the shipped page and the four `roster-*` harness
+groups noted earlier this session (they read `.bk-lender-row`/`.bk-lr-loan` markup
+that Issues no longer produces at all) — doesn't change the plan there, just makes the
+eventual Approvals-focused rewrite even more clearly the right shape, since there is
+now no lender-roster DOM on Issues to fall back and test against.
+
 **Not committed as this note is written:** local commit only (never pushed — sandbox
 has no network); David pushes himself. `_to_delete/` again has stray `.lock` files
 from the FUSE-mount quirk (delete permission was requested but not yet granted this

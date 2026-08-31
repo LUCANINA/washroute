@@ -3623,6 +3623,24 @@
             .bk-queue-name { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
             .bk-queue-reason { font-size: 12.5px; color: var(--gray-500); margin-top: 2px; line-height: 1.45; }
             .bk-review-link { font-size: 12.5px; font-weight: 600; color: var(--accent); white-space: nowrap; padding-top: 1px; }
+            /* Session 257 cont.: Issues becomes a flat table -- David: "split
+               ISSUES into 4 distinct rows: Loan name, Variance, brief
+               explanation, Action... Remove all click to expand portion."
+               Replaces _bkRosterHtml's lender/loan nesting for this one segment
+               (Approvals and Staged still use the plain _bkQueueRowHtml list;
+               this table is Issues-only). */
+            .bk-var-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            .bk-var-table thead th { text-align: left; padding: 12px 20px 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--gray-400); border-bottom: 1px solid var(--gray-200); }
+            .bk-var-table thead th.bk-var-th-actions { text-align: right; }
+            .bk-var-table tbody td { padding: 13px 20px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+            .bk-var-table tbody tr:last-child td { border-bottom: 0; }
+            .bk-var-table tbody tr:hover { background: var(--gray-50); }
+            .bk-var-loan { display: flex; align-items: center; gap: 9px; font-weight: 600; color: var(--gray-900); font-size: 13.5px; }
+            .bk-var-loan .bk-dot { margin-top: 0; }
+            .bk-var-amt { font-weight: 600; color: var(--gray-900); white-space: nowrap; }
+            .bk-var-explain { color: var(--gray-500); }
+            .bk-var-actions { text-align: right; white-space: nowrap; }
+            .bk-var-actions .bk-review-link { cursor: pointer; margin-right: 14px; }
             .bk-queue-empty { color: var(--gray-400); font-size: 13px; padding: 26px; text-align: center; }
             /* Session 231: the one-line explainer above the Staged register. Reads as
                reassurance, not as an alert -- these rows are finished work. */
@@ -9179,8 +9197,14 @@
         key: 'variance-' + a.id, dot: v.material === false ? 'amber' : 'red',
         loanId: a.id, tier: v.material === false ? 2 : 1,
         amount: amt, name,
-        reason: `${fmtMoney(Math.abs(amt))} ${amt > 0 ? 'more' : 'less'} on the books than ${v.against} shows`
-          + (candidate ? ' — a correcting entry is ready for you to review.' : ' — no correcting entry prepared yet.'),
+        // Session 257 cont.: David asked for four distinct columns (Loan /
+        // Variance / Explanation / Action) instead of one run-on sentence, so
+        // the amount and its explanation are now separate fields. varianceLabel
+        // matches _bkLenderSummary's own "$X above/below Y[ — rounding]"
+        // wording -- the same fact, worded the same way, everywhere it appears.
+        varianceLabel: `${fmtMoney(Math.abs(amt))} ${amt < 0 ? 'below' : 'above'} ${v.against}`
+          + (v.material === false ? ' — rounding' : ''),
+        explain: candidate ? 'A correcting entry is ready for you to review.' : 'No correcting entry prepared yet.',
         action: candidate ? 'Post adjustment' : null,
         onclick: candidate ? `openLoanReviewModal('${candidate.id}')` : null,
         // Ignore is a soft dismissal — same bk_issue_dismissals store as every
@@ -9519,6 +9543,32 @@
     // bk_issue_dismissals store the issue queue uses, so a decision made on one
     // device holds on every other.
     return items.filter(i => !_bkDismissals.has(i.key));
+  }
+
+  // ── The Issues table (session 257 cont.) ───────────────────────────────
+  // One row per loan, four plain columns, nothing behind a click. Replaces the
+  // lender-grouped/expandable roster _bkRosterHtml built (Ford Pro FinSimple's
+  // "3 of 4 disagree" chevron, a loan's own line duplicated inside it) now that
+  // Issues holds exactly one kind of item -- a loan variance -- so there is
+  // nothing left to group or nest. _bkRosterHtml itself is untouched and still
+  // serves nothing; kept in place rather than deleted in case a future segment
+  // needs lender grouping again.
+  function _bkVarianceTableHtml(items) {
+    if (!items.length) return '';
+    return `<table class="bk-var-table">
+      <thead><tr><th>Loan</th><th>Variance</th><th>Explanation</th><th class="bk-var-th-actions"></th></tr></thead>
+      <tbody>
+        ${items.map(it => `<tr data-bkkey="${esc(String(it.key))}">
+          <td><div class="bk-var-loan"><span class="bk-dot ${it.dot}"></span>${esc(it.name)}</div></td>
+          <td class="bk-var-amt">${esc(it.varianceLabel)}</td>
+          <td class="bk-var-explain">${esc(it.explain)}${it.unarchived ? `<div class="bk-queue-stale" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af;margin-top:6px" title="A 'Got it' covers a finding as it was, not its id forever.">↩ ${esc(it.unarchived)}</div>` : ''}</td>
+          <td class="bk-var-actions">
+            ${it.action ? `<span class="bk-review-link" onclick="${it.onclick}">${esc(it.action)} →</span>` : ''}
+            <button class="bk-gotit-btn" title="${esc(it.archiveTitle || 'Archive this note')}" onclick="bkArchiveIssue('${encodeURIComponent(String(it.key))}')">${esc(it.archiveLabel || 'Got it ✓')}</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
   }
 
   function _bkQueueRowHtml(it) {
@@ -11280,7 +11330,7 @@
       // number of loans you have, and the whole point is seeing the denominator.
       // Fourteen rows is a list, not a wall — and hiding nine of them behind
       // "show all" would hide exactly the nine that prove the work is working.
-      let html = _bkRosterHtml(main);
+      let html = _bkVarianceTableHtml(main);
       if (!main.length && !archived.length) {
         // An empty queue means "nothing needs a decision" ONLY if we actually
         // read the books. On a cold boot — first visit, expired token, RLS
