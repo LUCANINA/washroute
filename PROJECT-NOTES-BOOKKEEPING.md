@@ -220,13 +220,16 @@
 > quick SQL patch. Read the session 252 entry for the full detail before starting
 > that session.
 >
-> ### 5. ⚠️ THREE DUPLICATE DOCUMENTS STILL BLOCK A GUARD WE WANT
+> ### 5. ✅ CLOSED (session 258) — duplicate documents deleted, the guard index is live
 >
-> Re-verified today: E-Transit Loan 4140 still carries the same screenshot three
-> times — `861b6093`, `49f93485`, `029f7439`, all sha `679ff195…`. Because of them
-> the unique index at the bottom of
-> `migrations/session_242b_bundle_upsert_arbiter.sql` still will not create. Delete
-> two of the three and apply it. Not done unasked — they are real documents.
+> David confirmed which to keep: the earliest upload (`861b6093`, 2026-08-24
+> 21:32:13 UTC). The two later duplicates (`49f93485`, `029f7439`, same sha
+> `679ff195…`) are deleted — checked first, nothing referenced them
+> (`loan_contract_terms.source_document_id` had zero matches). Verified zero
+> remaining `(loan_account_id, file_sha256)` duplicates table-wide, then applied
+> `loan_documents_loan_sha_uniq` (the index `session_242b_bundle_upsert_arbiter.sql`
+> deliberately left undone) as its own migration,
+> `session_258_loan_documents_sha_uniq`. Confirmed live via `pg_indexes`.
 >
 > ### 6. ⚖️ THE STRIPE CAPITAL FEE: STILL A QUESTION FOR RAMONA
 >
