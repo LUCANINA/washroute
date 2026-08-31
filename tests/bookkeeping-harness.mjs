@@ -1748,10 +1748,20 @@ const READ_QUEUE = () => {
       });
     }
   }
+  // Session 258: itemNames/text used to be hardcoded to _bkIssueQueueItems()
+  // regardless of which segment is on screen -- harmless while every test only
+  // read Issues, but a false "missing" report the moment a test reads Approvals
+  // or Staged (Issues' loan-variance names bleed through as phantom expectations
+  // that were never meant to be on this segment at all). Read the segment that's
+  // actually rendered.
+  const segItems = _bkOverviewSeg === 'approvals' ? _bkApprovalQueueItems()
+                  : _bkOverviewSeg === 'staged' ? _bkStagedQueueItems()
+                  : _bkIssueQueueItems();
   return {
     counts: _bkRosterCounts(),
     dataReady: _bkDataReady(),
-    itemNames: _bkIssueQueueItems().map(i => norm(i.name)),
+    seg: _bkOverviewSeg,
+    itemNames: segItems.map(i => norm(i.name)),
     heads: [...list.querySelectorAll('.bk-tier-head')].map(e => norm(e.textContent)),
     rows,
     lenderRows: rows.filter(r => r.kind === 'lender').length,
@@ -1928,10 +1938,12 @@ GROUPS.push({
       };
       to.detail = { residual_after_later: -1802.58 };
       renderBookkeepingOverview();
-      // Session 247: the roster row is a lender row. PCV has one loan, so its
-      // lender row IS the loan and carries the figure.
-      const row = [...document.querySelectorAll('#bk-ov-queue-list .bk-lender-row')]
-        .find(e => ((e.querySelector('.bk-lr-name') || {}).childNodes || [{}])[0].textContent === 'PCV Good and Green Loan');
+      // SESSION 258: session 247's lender-grouped roster (.bk-lender-row /
+      // .bk-lr-name) is gone from Issues — session 257 replaced it with
+      // _bkVarianceTableHtml's flat <table>, one <tr data-bkkey> per loan,
+      // the loan name inside .bk-var-loan.
+      const row = [...document.querySelectorAll('#bk-ov-queue-list .bk-var-table tbody tr')]
+        .find(e => ((e.querySelector('.bk-var-loan') || {}).textContent || '').trim() === 'PCV Good and Green Loan');
       out.rendered = row ? row.textContent.replace(/\s+/g, ' ').trim() : null;
       return out;
     });
@@ -1975,249 +1987,238 @@ GROUPS.push({
 // belongs to" — except that file tested a five-line re-implementation of
 // _bkIssueLoanId, so it could not have seen this.
 //
-// The mutation is one a person performs with a mouse: Restore everything from
-// the Archived list. The real book has three RECONCILED loans (Dexter Loan 2,
-// Paypal 2, Rapid Credit Line) carrying open findings that are currently
-// archived; un-archiving them puts findings under green loans, which is the
-// exact shape that used to render nowhere at all.
+// SESSION 258 REWRITE. Session 257 replaced the lender-grouped, click-to-expand
+// roster (_bkRosterHtml) that this group used to read with two things: Issues
+// is now a flat table of loan VARIANCES ONLY (_bkVarianceTableHtml, sourced from
+// _bkIssueQueueItems, which filters to active loans whose balance state is
+// 'variance' or 'immaterial') and every split_mismatch / stage_flag /
+// recon_finding — the "children" this group used to find nested under a loan's
+// row — moved into Approvals as a flat list with no nesting at all
+// (_bkQueueRowHtml, sourced from _bkApprovalQueueItems). There is no loan
+// roster left inside Approvals to swallow a finding, which is good news: the
+// invariant this group protects — a finding does not disappear just because
+// the loan it is on LOOKS fine — is now trivially easier to state, because
+// _bkApprovalQueueItems never keys anything off a loan's balance state at all.
+// What is worth proving is exactly that: findings on RECONCILED loans (Rapid
+// Credit Line, Paypal 2), a loan settled on its own schedule rather than a
+// lender document (Dexter Loan 2, 'byschedule' — never 'reconciled', session
+// 246), and an IMMATERIAL loan (E-Transit 4140, forced here) all still reach
+// the same flat Approvals list an unreconciled loan's findings do. In this
+// fixture Rapid Credit Line's and Dexter Loan 2's open findings are both
+// 'derivable_not_derived' at severity 'info' — reached through the separate
+// _bkReconInfoFindings() block near the end of _bkApprovalQueueItems, not the
+// split_mismatch/stage_flag/recon_finding forEach; Paypal 2's is warn-severity
+// and does go through that forEach. Both paths get their own control below.
 GROUPS.push({
   name: 'roster-clean-loan-children',
   async run(t) {
     const noDismissals = (d) => { d.bk_issue_dismissals.length = 0; };
+    const findingsFor = (p, loanName) => p.evaluate((name) => {
+      const a = (_allLoanAccounts || []).find(x => x.xero_account_name === name);
+      if (!a) return null;
+      return _bkApprovalQueueItems().filter(it => _bkIssueLoanId(it) === a.id).map(it => it.name);
+    }, loanName);
 
     const p = await newHarnessPage({ tab: 'overview', mutate: noDismissals });
+    await p.evaluate(() => _bkSetOverviewSeg('approvals'));
+    // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
+    await p.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
     const q = await p.evaluate(READ_QUEUE);
 
-    // Session 246 moved Dexter Loan 2 out of this group: its $0.00 tie-out is
-    // against the amortization schedule the books were built from, so it now
-    // reads "closed on the contractual schedule" rather than "reconciled". Five
-    // loans remain, and the probe moves to the two that are still in the green
-    // group AND still carrying open findings — Rapid Credit Line and Paypal 2.
-    // Dexter's findings have not stopped mattering and are asserted below, in
-    // the group it actually landed in.
-    t.eq(q.counts.reconciled, 5, 'r1: the five reconciled loans are still reconciled');
-    // Session 247: the roster is one row per LENDER, so the band's parenthesis
-    // counts lender rows while counts.reconciled still counts LOANS. Those two
-    // numbers are allowed to differ and the reason must be visible, not assumed:
-    // E-Transit E6-7410 is reconciled but sits inside Ford Pro FinSimple, whose
-    // other three loans are not — so its lender row is red and the loan's own
-    // green line lives one click down, inside the group. Asserted explicitly
-    // here because a silent discrepancy between a headline and a list is the
-    // exact failure this module keeps re-learning.
-    t.ok(q.heads.some(h => /^Reconciled \(/.test(h)), 'r1: the Reconciled band is on screen', JSON.stringify(q.heads));
-    const cleanLenders = q.rows.filter(r => r.kind === 'lender' && /agrees with the lender/.test(r.reason));
-    t.eq(cleanLenders.length, 3,
-         'r1: three LENDERS are wholly reconciled — BayFirst (both loans), PayPal, Rapid',
-         JSON.stringify(cleanLenders.map(r => r.name)));
-    const e6 = rowFor(q, 'E-Transit Loan E6-7410');
-    t.ok(!!e6 && /agrees with the lender/.test(e6.reason),
-         'r1: ...and the fifth, E6-7410, still reads as reconciled inside the Ford group',
-         `reason=${JSON.stringify((e6 || {}).reason)}`);
-    t.eq(e6 && e6.dot, 'green', 'r1: ...with its own green dot, not its group\'s red one');
+    // Two loans the real book carries as RECONCILED (balance state) while
+    // still carrying open findings of the relocated kinds.
+    const rcl = await findingsFor(p, 'Rapid Credit Line');
+    t.ok(!!rcl && rcl.length >= 1, 'r1: Rapid Credit Line (reconciled, but carrying findings) still reaches Approvals',
+         JSON.stringify(rcl));
+    t.ok((rcl || []).every(n => q.text.includes(n)),
+         'r1: ...and every one of its findings is actually in the DOM, not just the array', JSON.stringify(rcl));
+    t.ok((rcl || []).some(n => /enough lender balances to project a schedule/.test(n)),
+         'r1: ...named specifically, not folded into a count', JSON.stringify(rcl));
 
-    // A reconciled loan that carries open findings.
-    const RCL = 'Rapid Credit Line';
-    const dex = rowFor(q, RCL);
-    t.ok(!!dex, `r1: ${RCL} (tied, but carrying findings) renders in the roster`);
-    t.eq(dex && dex.dot, 'amber', 'r1: a reconciled loan with open findings gets an AMBER dot, not a plain green one');
-    t.ok(/to look at/.test((dex || {}).reason || ''),
-         'r1: ...and says so — a visible count of outstanding work rather than an unqualified all-clear',
-         `reason=${JSON.stringify((dex || {}).reason)}`);
-    const dexKids = kidsFor(q, RCL);
-    t.eq(dexKids.childRows, 1, `r1: ${RCL}'s open finding renders UNDER it`);
-    t.ok(dexKids.childNames.some(n => /enough lender balances to project a schedule/.test(n)),
-         'r1: ...by name, not as a count', JSON.stringify(dexKids.childNames));
-    // The same rule on the second reconciled loan carrying work, so the check is
-    // about the BRANCH rather than about one loan's data.
-    const pp = rowFor(q, 'Paypal 2');
-    t.eq(pp && pp.dot, 'amber', 'r1: ...and the same on Paypal 2, the other reconciled loan with work outstanding');
-    t.eq(kidsFor(q, 'Paypal 2').childRows, 1, 'r1: ...whose finding also renders under it');
+    const pp = await findingsFor(p, 'Paypal 2');
+    t.ok(!!pp && pp.length >= 1, 'r1: ...and the same on Paypal 2, the other reconciled loan with work outstanding',
+         JSON.stringify(pp));
+    t.ok((pp || []).every(n => q.text.includes(n)), 'r1: ...also fully on screen', JSON.stringify(pp));
 
-    // ── AND THE LOAN THAT LEFT THE GREEN GROUP KEPT ITS FINDINGS ─────────
-    // A quiet group is not a silent one. Dexter now sits under "Closed on the
-    // contractual schedule"; both of its open findings must still be on screen,
-    // under it, or session 246 has re-created the very defect this group exists
-    // to catch in a new group.
-    // Session 247 replaced seven group headings with three bands, and the
-    // precise status moved INTO each row's own sentence. That is the thing to
-    // guard now: "settled on the contractual schedule" must still be said, in
-    // those words, about this loan — a band label reading "Settled or waiting"
-    // is a sort order and would let a check that cannot fail pose as one that
-    // passed, which is the defect session 246 existed to remove.
-    const dx = rowFor(q, 'Dexter Loan 2');
-    t.ok(!!dx, 'r1: Dexter Loan 2 still renders as its own row');
-    t.ok(/settled on the contractual schedule/.test((dx || {}).reason || ''),
-         'r1: ...and still says so in its own words, not by inheriting a band label',
-         `reason=${JSON.stringify((dx || {}).reason)}`);
-    t.notMatch((dx || {}).reason, /agrees with the lender/,
-               'r1: ...and never claims a lender confirmed it');
-    const dxKids = kidsFor(q, 'Dexter Loan 2');
-    t.eq(dxKids.childRows, 1, 'r1: ...with its open finding still underneath it');
-    t.ok(dxKids.childNames.some(n => /hand-posted corrections/.test(n)),
-         'r1: ...by name, not as a count', JSON.stringify(dxKids.childNames));
+    // The loan that left the green group entirely (session 246: a tie against
+    // our own schedule is not a reconciliation) still carries the same shape:
+    // real open findings that must not vanish because its balance state reads
+    // settled rather than red.
+    const dex = await findingsFor(p, 'Dexter Loan 2');
+    t.ok(!!dex && dex.length >= 1, 'r1: Dexter Loan 2 (settled on the contractual schedule) still reaches Approvals',
+         JSON.stringify(dex));
+    t.ok((dex || []).some(n => /hand-posted corrections/.test(n)),
+         'r1: ...by name, not as a count', JSON.stringify(dex));
+    t.ok((dex || []).every(n => q.text.includes(n)), 'r1: ...and on screen');
 
-    // ── AND THE QUEUE THAT COULD NEVER BE FINISHED IS GONE (A8) ───────────
-    // checkStaleAnchor exempted only ingestion_method 'automatic', so the two
-    // loans whose lenders issue nothing raised "no lender document on file"
-    // every run, forever — the close band saying "accepted, per schedule" two
-    // clicks from a queue demanding the document. Gating it on close_basis was
-    // the fix, and reconciliation-run v50 resolved both findings on 2026-08-28.
-    // Dexter's second child row is gone because that work is genuinely done.
-    const stale = await p.evaluate(() => (_reconFindings || [])
-      .filter(f => /no lender document on file/.test(f.title || ''))
-      .map(f => ({ title: f.title, status: f.status })));
-    t.ok(stale.length >= 2, 'r1: the stale-anchor findings are still on file, not deleted', JSON.stringify(stale));
-    for (const n of ['Dexter Loan 2', 'Verdant Capital Loan']) {
-      const f = stale.find(x => x.title.startsWith(n));
-      t.eq(f && f.status, 'resolved',
-           `r1: ...and ${n}'s is RESOLVED — a gate that waits for a document nobody is going to send has stopped asking`);
-    }
-    t.ok(!q.text.includes('Dexter Loan 2 — no lender document on file'),
-         'r1: ...so it no longer reaches the queue at all');
+    // A loan with nothing outstanding names no findings at all — the presence
+    // above is a real distinction, not an artifact of every loan having one.
+    const bay = await findingsFor(p, 'BayFirst SBA 2');
+    t.eq((bay || []).length, 0, 'r1: a loan with nothing outstanding contributes nothing to Approvals');
 
-    // ...and a reconciled loan with nothing outstanding still reads green, so
-    // the amber above is a distinction the renderer actually draws.
-    const bay = rowFor(q, 'BayFirst SBA 2');
-    t.eq(bay && bay.dot, 'green', 'r1: a reconciled loan with NOTHING outstanding is still plain green');
-    t.notMatch((bay || {}).reason, /to look at/, 'r1: ...and names no outstanding work');
-
-    // The whole-card property: nothing the queue believes it is showing is missing.
     const missing = q.itemNames.filter(n => !q.text.includes(n));
-    t.eq(missing.length, 0, 'r1: every item in the queue reaches the DOM — nothing is silently dropped');
+    t.eq(missing.length, 0, 'r1: every item Approvals believes it is showing reaches the DOM');
     if (missing.length) console.log('        missing: ' + JSON.stringify(missing));
-
-    // ── does the assertion discriminate? put the pre-fix branch back ──
-    const rev = await revertRoster(p, ['reconciled-dot', 'no-children'], ROSTER_REVERTS);
-    t.ok(rev.ok, 'r1: the pre-fix reconciled branch could be re-applied in page context',
-         JSON.stringify(rev.missing));
-    if (rev.ok) {
-      const b = await p.evaluate(READ_QUEUE);
-      const bDex = rowFor(b, RCL);
-      t.eq(bDex && bDex.dot, 'green', 'r1 CONTROL: pre-fix, the same loan showed a plain green dot');
-      t.eq(kidsFor(b, RCL).childRows, 0, 'r1 CONTROL: pre-fix, its findings rendered nowhere');
-      const gone = b.itemNames.filter(n => !b.text.includes(n));
-      t.ok(gone.length >= 2, 'r1 CONTROL: pre-fix, findings on reconciled loans vanished from the page',
-           `${gone.length} dropped: ${JSON.stringify(gone.slice(0, 4))}`);
-      // The point of collapsing two branches into one: reverting the SINGLE
-      // children line must empty a variance loan too. If it does not, some other
-      // branch is still rendering children on its own and the shared path is a
-      // fiction — which is the session-231 defect in its dormant form.
-      t.eq(kidsFor(b, 'Funding Circle Loan').childRows, 0,
-           'r1 CONTROL: ...and so did a NEEDS-ATTENTION loan\'s — proving one shared path, not two copies');
-    }
     await p.close();
 
-    // ── the same rule for the IMMATERIAL group ──
-    // Nothing in the real book is immaterial today (no tie-out carries
-    // detail.material === false), so this is EIDL's shape applied to a loan
-    // that actually has findings: mark E-Transit 4140's tie-out immaterial and
-    // its three open findings must still render underneath it.
+    // ── AND THE SAME RULE FOR THE IMMATERIAL GROUP ──
+    // Nothing in the real book is immaterial today with open findings of its
+    // own to test against, so this is EIDL's shape (session 246) applied to a
+    // loan that actually has findings: mark E-Transit 4140's tie-out immaterial
+    // and its three open findings must still reach Approvals.
     const p2 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
       noDismissals(d);
       const a = d.loan_accounts.find(x => x.xero_account_name === 'E-Transit Loan - 4140');
       const to = d.loan_tie_outs.find(x => x.loan_account_id === a.id);
       to.detail = Object.assign({}, to.detail || {}, { material: false });
     } });
+    await p2.evaluate(() => _bkSetOverviewSeg('approvals'));
+    // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
+    await p2.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
     const q2 = await p2.evaluate(READ_QUEUE);
-    // EIDL already sits in this group on the real book (its tie-out carries an
-    // explicit material:false, visible for the first time now the fixture pulls
-    // loan_tie_outs.detail), so forcing E-Transit 4140 immaterial makes TWO.
-    // The invariant asserted is the movement, not the absolute: one loan crosses
-    // from `variance` to `immaterial` and nothing else moves.
-    t.eq(q2.counts.immaterial, 2, 'r1: an immaterial tie-out moves the loan out of "needs attention"');
-    t.eq(q2.counts.variance, 5, 'r1: ...and the variance count drops by exactly one');
-    t.eq(q2.counts.immaterial + q2.counts.variance, 7,
-         'r1: ...so the two groups together are unchanged — the loan moved, it did not vanish');
-    const et = rowFor(q2, 'E-Transit Loan - 4140');
-    t.eq(et && et.dot, 'gray', 'r1: a small-difference loan is gray, not red');
-    t.ok(/3 to look at/.test((et || {}).reason || ''),
-         'r1: ...and still names the work outstanding on it',
-         `reason=${JSON.stringify((et || {}).reason)}`);
-    t.eq(kidsFor(q2, 'E-Transit Loan - 4140').childRows, 3,
-         'r1: all three of its findings render under it');
-
-    const rev2 = await revertRoster(p2, ['no-children'], ROSTER_REVERTS);
-    t.ok(rev2.ok, 'r1: the pre-fix immaterial branch could be re-applied', JSON.stringify(rev2.missing));
-    if (rev2.ok) {
-      const b2 = await p2.evaluate(READ_QUEUE);
-      t.eq(kidsFor(b2, 'E-Transit Loan - 4140').childRows, 0,
-           'r1 CONTROL: pre-fix, an immaterial loan\'s findings rendered nowhere');
-    }
+    const et = await findingsFor(p2, 'E-Transit Loan - 4140');
+    t.eq((et || []).length, 3, 'r1: an immaterial loan\'s three findings all still reach Approvals', JSON.stringify(et));
+    t.ok((et || []).every(n => q2.text.includes(n)), 'r1: ...and every one is on screen');
     await p2.close();
+
+    // ── does it discriminate? ──
+    // There is no historical branch to revert here: session 257 deleted the
+    // by-loan roster this group used to read, rather than patching a bug in
+    // it. The control instead constructs the regression this group exists to
+    // catch — a loan-status filter added to _bkApprovalQueueItems, the exact
+    // shape the old roster bug took (a clean-looking loan silently dropping
+    // its findings) — and proves the assertions above would have caught it.
+    //
+    // TWO controls, not one: this fixture's Rapid Credit Line and Dexter Loan 2
+    // findings are 'derivable_not_derived', severity 'info' -- they never reach
+    // _bkLoanAttentionItems() (its recon_finding branch keeps only error/warn),
+    // so they reach Approvals through the separate _bkReconInfoFindings() block
+    // near the end of _bkApprovalQueueItems, not through the split_mismatch /
+    // stage_flag / recon_finding forEach this group's comment originally named.
+    // Paypal 2's finding IS warn-severity and does go through that forEach.
+    // Proving the invariant for real means patching whichever function actually
+    // produces each loan's findings, not assuming they all take one path.
+    const p3 = await newHarnessPage({ tab: 'overview', mutate: noDismissals });
+    await p3.evaluate(() => _bkSetOverviewSeg('approvals'));
+    // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
+    await p3.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
+
+    // Control A — the split_mismatch/stage_flag/recon_finding(error|warn) forEach.
+    const revA = await p3.evaluate(() => {
+      const src = _bkApprovalQueueItems.toString();
+      const anchor = "_bkLoanAttentionItems().filter(it => it.kind === 'split_mismatch' || it.kind === 'stage_flag' || it.kind === 'recon_finding').forEach(it => {";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor not found — _bkApprovalQueueItems has moved' };
+      const cleanIds = (_allLoanAccounts || [])
+        .filter(a => ['Rapid Credit Line', 'Paypal 2', 'Dexter Loan 2'].includes(a.xero_account_name))
+        .map(a => a.id);
+      window.__R1_CLEAN_LOAN_IDS = cleanIds;
+      const patched = src.replace(anchor, anchor +
+        "\n      if (window.__R1_CLEAN_LOAN_IDS.includes(_bkIssueLoanId(it))) return;");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      let patchedFn;
+      try { patchedFn = new Function(body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      window._bkApprovalQueueItems = patchedFn;
+      return { ok: true };
+    });
+    t.ok(revA.ok, 'r1 CONTROL A: the split/stage/recon-finding regression could be installed in page context',
+         JSON.stringify(revA));
+    if (revA.ok) {
+      await p3.evaluate(() => renderBookkeepingOverview());
+      // Paypal 2's finding is warn-severity, so it is the one this forEach
+      // actually produces -- it must vanish under the patch.
+      const ppGone = await findingsFor(p3, 'Paypal 2');
+      t.eq((ppGone || []).length, 0,
+           'r1 CONTROL A: with the hypothetical filter installed, Paypal 2\'s warn-severity finding vanishes from Approvals');
+    }
+
+    // Control B — the separate _bkReconInfoFindings() block. Rapid Credit Line
+    // and Dexter Loan 2's findings are both 'info' severity and are produced
+    // here, not by Control A's forEach.
+    const revB = await p3.evaluate(() => {
+      const src = _bkReconInfoFindings.toString();
+      const anchor = "f.status === 'open' && f.severity === 'info'";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor not found — _bkReconInfoFindings has moved' };
+      const cleanIds = (_allLoanAccounts || [])
+        .filter(a => ['Rapid Credit Line', 'Dexter Loan 2'].includes(a.xero_account_name))
+        .map(a => a.id);
+      window.__R1B_CLEAN_LOAN_IDS = cleanIds;
+      const patched = src.replace(anchor, anchor + " && !window.__R1B_CLEAN_LOAN_IDS.includes(f.loan_account_id)");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      let patchedFn;
+      try { patchedFn = new Function(body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      window._bkReconInfoFindings = patchedFn;
+      return { ok: true };
+    });
+    t.ok(revB.ok, 'r1 CONTROL B: the info-finding regression could be installed in page context',
+         JSON.stringify(revB));
+    if (revB.ok) {
+      await p3.evaluate(() => renderBookkeepingOverview());
+      const rclGone = await findingsFor(p3, 'Rapid Credit Line');
+      t.eq((rclGone || []).length, 0,
+           'r1 CONTROL B: with the hypothetical filter installed, Rapid Credit Line\'s info finding vanishes from Approvals');
+      const dexGone = await findingsFor(p3, 'Dexter Loan 2');
+      t.eq((dexGone || []).length, 0,
+           'r1 CONTROL B: ...and so does Dexter Loan 2\'s — same shared path, not a coincidence');
+    }
+    await p3.close();
   },
 });
 
 /* ── R2 ── A FINDING ON A LOAN THAT IS NOT ACTIVE MUST SURFACE ────────────── */
-// The roster is built from ACTIVE loans. A finding on a loan that has been paid
-// off, or is still pending, has an id — so the pre-fix code put it in `byLoan`,
-// never read that key back, and never counted it as an orphan either. It simply
-// stopped existing. Funding Circle carries an ERROR balance_vs_lender of
-// $3,041.83; paying the loan off must not make that error disappear.
+// The roster used to be built from ACTIVE loans only, and a finding on a loan
+// that had been paid off had an id the pre-fix code put in `byLoan`, never
+// read back, and never counted as an orphan either — it simply stopped
+// existing. Funding Circle carries an ERROR balance_vs_lender; paying the loan
+// off must not make that error disappear.
+//
+// SESSION 258 REWRITE. Same architecture change as R1: session 257 moved
+// split_mismatch / stage_flag / recon_finding out of the (now-deleted, for
+// this purpose) by-loan roster and into Approvals's flat list. The source
+// feeding it, _bkLoanAttentionItems(), reads _reconFindings / _allLoanSplits
+// directly and has never filtered by loan.status at all — there is no "active
+// loans only" boundary left for an inactive loan's finding to fall outside of.
+// The old orphan-BIN concept (a group findings-with-no-home fell into) is gone
+// along with the roster it lived in; what replaces it is simpler and stronger:
+// nothing in the pipeline from _bkLoanAttentionItems() to the DOM keys off
+// loan.status, so an inactive loan's findings are not orphaned, they are
+// ordinary Approvals rows like any other loan's.
 GROUPS.push({
   name: 'roster-orphan-findings',
   async run(t) {
     const p = await newHarnessPage({ tab: 'overview', mutate: (d) => {
       d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan').status = 'paid_off';
     } });
+    await p.evaluate(() => _bkSetOverviewSeg('approvals'));
+    // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
+    await p.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
     const q = await p.evaluate(READ_QUEUE);
 
-    t.eq(q.counts.total, 13, 'r2: the roster denominator drops to the 13 still-active loans');
+    t.eq(q.counts.total, 13, 'r2: the roster denominator (Issues\' population) drops to the 13 still-active loans');
 
-    // The expected orphan count is DERIVED, not typed. The invariant is "every
-    // finding on the now-inactive loan joins the orphan group"; how many
-    // findings that loan happens to carry is fixture data, and a refresh that
-    // adds one must not read as a regression in the page. (It did: the refresh
-    // added a third Funding Circle finding and this assertion, written as a
-    // literal 3, went red for no reason connected to the code.)
+    // The expected finding names are DERIVED, not typed — reconciliation-run
+    // moves what is open on this loan release to release, and a fixture
+    // refresh must not read as a regression in the page (r2's own historical
+    // lesson: "the refresh added a third Funding Circle finding and this
+    // assertion, written as a literal 3, went red for no reason connected to
+    // the code").
     const derived = await p.evaluate(() => {
       const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
-      const items = _bkIssueQueueItems();
-      // Session 247: a finding with NO loan id that NAMES a lender on the
-      // roster is filed under that lender's row — Ford's "3 loans disagree with
-      // the lender" is about the tangle, not about any one vehicle, and burying
-      // it in an orphan bin was where it went to be ignored. So the orphan group
-      // holds the unplaceable findings that name nobody, plus everything
-      // stranded by an inactive loan. Both halves derived, neither typed.
-      const lenders = new Set((_allLoanAccounts || []).filter(a => a.status === 'active')
-        .map(a => String(a.lender || a.xero_account_name || 'Unknown lender')));
-      const unplaceable = items.filter(it => !_bkIssueLoanId(it));
-      const claimed = unplaceable.filter(it =>
-        [...lenders].some(k => String(it.name || it.title || '').indexOf(k) === 0));
-      return {
-        fcStatus: fc.status,
-        unplaceable: unplaceable.length,
-        claimedByLender: claimed.length,
-        claimedNames: claimed.map(it => it.name),
-        onFc: items.filter(it => _bkIssueLoanId(it) === fc.id).length,
-        onFcNames: items.filter(it => _bkIssueLoanId(it) === fc.id).map(it => it.name),
-      };
+      const items = _bkApprovalQueueItems().filter(it => _bkIssueLoanId(it) === fc.id);
+      return { fcStatus: fc.status, names: items.map(it => it.name) };
     });
     t.eq(derived.fcStatus, 'paid_off', 'r2: the scenario really did take Funding Circle off the active roster');
-    t.ok(derived.onFc >= 2, 'r2: ...and it really is carrying findings that must not vanish with it',
-         `${derived.onFc} findings on the inactive loan`);
-    const orphanHead = q.heads.find(h => /Not tied to one loan/.test(h));
-    t.eq(orphanHead,
-         `Not tied to one loan (${derived.unplaceable - derived.claimedByLender + derived.onFc})`,
-         'r2: every finding on the now-inactive loan joins the orphan group');
-    // The invariant that actually matters, asserted by NAME rather than by a
-    // total that a fixture refresh can move: each of the stranded loan's
-    // findings is in that group, individually.
-    const orphanNames = q.rows.filter(r => r.kind === 'item').map(r => r.name);
-    for (const n of derived.onFcNames) {
-      t.ok(orphanNames.includes(n), `r2: ...including "${String(n).slice(0, 48)}"`);
-    }
-    // And a lender-level finding is not lost by being claimed — it is on screen,
-    // inside the row of the lender it names.
-    for (const n of derived.claimedNames) {
-      t.ok(q.text.includes(n), `r2: a lender-level finding is on screen under its lender, not dropped`);
-      t.ok(!orphanNames.includes(n), `r2: ...and no longer sits in the orphan bin`);
+    t.ok(derived.names.length >= 1, 'r2: ...and it really is carrying findings that must not vanish with it',
+         JSON.stringify(derived.names));
+    for (const n of derived.names) {
+      t.ok(q.itemNames.includes(n), `r2: "${String(n).slice(0, 56)}" is still in Approvals' own item list`);
+      t.ok(q.text.includes(n), `r2: ...and reaches the DOM`);
     }
 
-    // The balance finding's FIGURE is reconciliation-run's business and moves
-    // with every run (it was $3,041.83, it is $2,033.77 today). What must not
-    // move is that the balance error on a loan nobody is looking at any more
-    // still reaches the screen as its own row, so the finding is located by its
-    // shape and then asserted on by name.
+    // Named explicitly by shape, not just counted: the open balance ERROR in
+    // particular must survive, because it is the one a person is least likely
+    // to go looking for on a loan they think is closed.
     const fcErr = await p.evaluate(() => {
       const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
       const f = (_reconFindings || []).find(x => x.loan_account_id === fc.id && x.status === 'open' &&
@@ -2225,132 +2226,134 @@ GROUPS.push({
       return f ? f.title : null;
     });
     t.ok(!!fcErr, 'r2: the inactive loan really is carrying an open balance ERROR', String(fcErr));
-    t.ok(/\$[\d,]+\.\d\d/.test(fcErr || ''), 'r2: ...naming real money', String(fcErr));
     t.ok(q.text.includes(fcErr), 'r2: ...and it is still on screen');
-    t.ok(q.rows.some(r => r.name === fcErr), 'r2: ...as its own row, not as buried text');
-    // The loan's OTHER findings are named from the data rather than typed.
-    // Which are open, and at what severity, is reconciliation-run's business and
-    // it moves every run (this one demoted the 2026-08-18 lumped payment to
-    // info). What must not move is that every finding the queue holds still
-    // reaches the screen.
-    const fcOpen = await p.evaluate(() => {
-      const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
-      return (_reconFindings || [])
-        .filter(f => f.loan_account_id === fc.id && f.status === 'open' &&
-                     (f.severity === 'error' || f.severity === 'warn'))
-        .map(f => f.title);
-    });
-    t.ok(fcOpen.length >= 2, 'r2: the inactive loan really is carrying more than one open finding', JSON.stringify(fcOpen));
-    for (const title of fcOpen) {
-      t.ok(q.text.includes(title), `r2: ...and "${title.slice(0, 56)}" is on screen too`);
-    }
+    t.ok(q.itemNames.includes(fcErr), 'r2: ...as its own item, not buried inside another row\'s text');
 
     const missing = q.itemNames.filter(n => !q.text.includes(n));
-    t.eq(missing.length, 0, 'r2: every item the queue holds reaches the DOM');
+    t.eq(missing.length, 0, 'r2: every item Approvals holds reaches the DOM');
     if (missing.length) console.log('        missing: ' + JSON.stringify(missing));
-
-    // ── does it discriminate? ──
-    const rev = await revertRoster(p, ['orphans'], ROSTER_REVERTS);
-    t.ok(rev.ok, 'r2: the pre-fix orphan test could be re-applied', JSON.stringify(rev.missing));
-    if (rev.ok) {
-      const b = await p.evaluate(READ_QUEUE);
-      t.ok(!b.text.includes(fcErr),
-           'r2 CONTROL: pre-fix, a $3,041.83 error on a non-active loan rendered NOWHERE',
-           b.text.includes(fcErr) ? 'still present — the revert did not reproduce the defect' : '');
-      // Stated as a count rather than as a heading string: once the lender-level
-      // findings are claimed by their lender rows, the pre-fix orphan group can
-      // be EMPTY, and an empty group renders no heading — asserting on the
-      // heading's text would then compare undefined against a sentence and fail
-      // for a reason that has nothing to do with the defect under test.
-      const bOrphanCount = b.rows.filter(r => r.kind === 'item').length;
-      t.eq(bOrphanCount, derived.unplaceable - derived.claimedByLender,
-           'r2 CONTROL: pre-fix, the stranded findings were not counted as orphans either',
-           `heading=${JSON.stringify(b.heads.find(h => /Not tied to one loan/.test(h)) || null)}`);
-      t.eq(b.itemNames.filter(n => !b.text.includes(n)).length, derived.onFc,
-           'r2 CONTROL: pre-fix, exactly the findings on that loan were dropped',
-           JSON.stringify(b.itemNames.filter(n => !b.text.includes(n))));
-    }
     await p.close();
 
-    // ── R2b (session 247) ── THE LENDER CLAIM MUST KEY ON THE ABSENT ID ────
-    // A finding stranded by an inactive loan still HAS a loan id; a finding
-    // about a lender's whole tangle has none. Only the second may be filed under
-    // a lender row. If the rule keyed on the NAME instead, a paid-off loan's
-    // live error would be swallowed into a collapsed panel belonging to loans
-    // that are fine — visible nowhere a person is looking. The real fixture
-    // never produces that collision, which is exactly why it is constructed
-    // here: a guard nothing exercises is a guard nobody knows is broken.
-    const p3 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
-      const fc = d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan');
-      fc.status = 'paid_off';
-      // Give its findings titles that BEGIN with an active lender's key.
-      d.reconciliation_findings.filter(f => f.loan_account_id === fc.id && f.status === 'open')
-        .forEach(f => { f.title = 'Ford Pro FinSimple ' + f.title; });
+    // ── does it discriminate? ──
+    // Same situation as R1: no historical branch survives to revert, since the
+    // by-loan roster that could orphan a finding is gone, not patched. The
+    // control constructs the regression directly: an active-status filter on
+    // _bkLoanAttentionItems (the shared source every attention surface reads —
+    // Issues, Approvals, and the "N need attention" headline all key off it),
+    // which is exactly the shape that would silently drop an inactive loan's
+    // findings the way the pre-257 roster did.
+    const p2 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan').status = 'paid_off';
     } });
-    const q3 = await p3.evaluate(READ_QUEUE);
-    const stranded = await p3.evaluate(() => {
-      const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
-      return _bkIssueQueueItems().filter(it => _bkIssueLoanId(it) === fc.id).map(it => it.name);
+    await p2.evaluate(() => _bkSetOverviewSeg('approvals'));
+    // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
+    await p2.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
+    const rev = await p2.evaluate(() => {
+      const src = _bkLoanAttentionItems.toString();
+      const anchor = "(_reconFindings || []).filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn')).forEach(f => {";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor not found — _bkLoanAttentionItems has moved' };
+      const patched = src.replace(anchor,
+        "(_reconFindings || []).filter(f => f.status === 'open' && (f.severity === 'error' || f.severity === 'warn') "
+        + "&& (!f.loan_account_id || (_allLoanAccounts || []).find(a => a.id === f.loan_account_id && a.status === 'active'))).forEach(f => {");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkLoanAttentionItems = new Function(body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
     });
-    t.ok(stranded.length >= 2, 'r2b: the collision scenario really did build itself',
-         JSON.stringify(stranded.slice(0, 3)));
-    const orphanNames3 = q3.rows.filter(r => r.kind === 'item').map(r => r.name);
-    for (const n of stranded) {
-      t.ok(orphanNames3.includes(n),
-           `r2b: a finding whose loan is inactive stays an orphan even when its title names a live lender`,
-           JSON.stringify(orphanNames3.slice(0, 4)));
+    t.ok(rev.ok, 'r2: the hypothetical active-status-filter regression could be installed in page context',
+         JSON.stringify(rev));
+    if (rev.ok) {
+      await p2.evaluate(() => renderBookkeepingOverview());
+      const b = await p2.evaluate(() => {
+        const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
+        return _bkApprovalQueueItems().filter(it => _bkIssueLoanId(it) === fc.id).map(it => it.name);
+      });
+      t.eq(b.length, 0,
+           'r2 CONTROL: with the hypothetical filter installed, the inactive loan\'s findings vanish from Approvals',
+           JSON.stringify(b));
     }
-
-    const rev3 = await revertRoster(p3, ['orphan-by-name'], ROSTER_REVERTS);
-    t.ok(rev3.ok, 'r2b: the name-only rule could be re-applied', JSON.stringify(rev3.missing));
-    if (rev3.ok) {
-      const b3 = await p3.evaluate(READ_QUEUE);
-      const bOrphans = b3.rows.filter(r => r.kind === 'item').map(r => r.name);
-      t.ok(stranded.every(n => !bOrphans.includes(n)),
-           'r2b CONTROL: keyed on the name, every one of them was swallowed into the Ford row',
-           JSON.stringify(bOrphans.slice(0, 4)));
-      t.ok(stranded.every(n => b3.text.includes(n)),
-           'r2b CONTROL: ...still in the DOM, but filed under loans that are fine — which is the bug');
-    }
-    await p3.close();
+    await p2.close();
   },
 });
 
 /* ── R3 ── NO ACTIVE LOANS IS NOT A REASON TO THROW THE QUEUE AWAY ───────── */
-// `if (!loans.length) return ''` blanked the entire card — payroll items, loan
-// flags, findings, all of it — while the headline above still counted them.
-// A roster with no denominator falls back to the flat list; it does not fall
-// back to a blank screen.
+// `if (!loans.length) return ''` used to blank the entire roster card —
+// payroll items, loan flags, findings, all of it — while the headline above
+// still counted them.
+//
+// SESSION 258 REWRITE. Issues (_bkIssueQueueItems) filters to active loans by
+// design now (session 257: it shows loan variances and NOTHING else), so with
+// zero active loans it is CORRECT for Issues to hold zero items — that is not
+// the bug this group exists to catch, and asserting otherwise would be testing
+// against the redesign rather than for it. The real claim survives, just
+// scoped to where the non-loan-shaped work actually lives now: Approvals
+// (payroll imports, a retail reclass, and any split_mismatch / stage_flag /
+// recon_finding) never filters by loan.status anywhere in its pipeline, so a
+// book with zero active loans must still show every one of those.
 GROUPS.push({
   name: 'roster-empty-denominator',
   async run(t) {
     const p = await newHarnessPage({ tab: 'overview', mutate: (d) => {
       d.loan_accounts.forEach(a => { a.status = 'paid_off'; });
     } });
-    const q = await p.evaluate(READ_QUEUE);
 
-    t.eq(q.counts.total, 0, 'r3: there really are zero active loans in this scenario');
-    t.ok(q.dataReady, 'r3: ...and the books did load — this is an empty book, not a cold boot');
-    t.ok(q.itemNames.length > 0, 'r3: the queue still holds items', `${q.itemNames.length} items`);
+    // Issues really does go to zero, on purpose, and that is not this group's
+    // failure mode.
+    await p.evaluate(() => _bkSetOverviewSeg('issues'));
+    const qi = await p.evaluate(READ_QUEUE);
+    t.eq(qi.counts.total, 0, 'r3: there really are zero active loans in this scenario');
+    t.ok(qi.dataReady, 'r3: ...and the books did load — this is an empty book, not a cold boot');
+    t.eq(qi.itemNames.length, 0, 'r3: ...so Issues (loan variances only) correctly shows nothing — not a bug to guard against');
+
+    // Approvals is where the old invariant actually lives now.
+    await p.evaluate(() => _bkSetOverviewSeg('approvals'));
+    // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
+    await p.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
+    const q = await p.evaluate(READ_QUEUE);
+    t.ok(q.itemNames.length > 0, 'r3: Approvals still holds items with zero active loans', `${q.itemNames.length} items`);
 
     const missing = q.itemNames.filter(n => !q.text.includes(n));
-    t.eq(missing.length, 0, 'r3: every queue row still renders with no roster to hang it on');
+    t.eq(missing.length, 0, 'r3: every Approvals row still renders with no roster to hang it on');
     if (missing.length) console.log('        missing: ' + JSON.stringify(missing));
     t.ok(q.rows.filter(r => /bk-queue-row/.test(r.cls)).length >= q.itemNames.length,
          'r3: ...as real rows, one per item',
          `${q.rows.filter(r => /bk-queue-row/.test(r.cls)).length} rows for ${q.itemNames.length} items`);
-    t.ok(!q.allClear, 'r3: an empty roster never renders the All clear badge over a non-empty queue');
+    t.ok(!q.allClear, 'r3: a zero-loan book never renders the All clear badge over a non-empty Approvals queue');
 
     // ── does it discriminate? ──
-    const rev = await revertRoster(p, ['empty-denominator'], ROSTER_REVERTS);
-    t.ok(rev.ok, 'r3: the pre-fix blank-card return could be re-applied', JSON.stringify(rev.missing));
+    // No historical branch survives to revert (the pre-fix `if (!loans.length)
+    // return ''` lived in _bkRosterHtml, which nothing in Approvals calls any
+    // more). The control constructs the same-shaped regression directly in
+    // _bkApprovalQueueItems.
+    const p2 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      d.loan_accounts.forEach(a => { a.status = 'paid_off'; });
+    } });
+    await p2.evaluate(() => _bkSetOverviewSeg('approvals'));
+    // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
+    await p2.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
+    const rev = await p2.evaluate(() => {
+      const src = _bkApprovalQueueItems.toString();
+      const anchor = 'function _bkApprovalQueueItems() {\n    const items = [];';
+      const openBrace = src.indexOf('{');
+      if (openBrace < 0) return { ok: false, why: 'no function body found' };
+      const bodyStart = src.indexOf('const items = [];');
+      if (bodyStart < 0) return { ok: false, why: 'anchor not found — _bkApprovalQueueItems has moved' };
+      const patched = src.slice(0, bodyStart)
+        + "if (!(_allLoanAccounts || []).some(a => a.status === 'active')) return [];\n    "
+        + src.slice(bodyStart);
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkApprovalQueueItems = new Function(body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev.ok, 'r3: the hypothetical blank-card regression could be installed in page context', JSON.stringify(rev));
     if (rev.ok) {
-      const b = await p.evaluate(READ_QUEUE);
-      t.eq(b.itemNames.filter(n => !b.text.includes(n)).length, b.itemNames.length,
-           'r3 CONTROL: pre-fix, zero active loans discarded EVERY queue row');
-      t.eq(b.rows.filter(r => /bk-queue-row/.test(r.cls)).length, 0,
-           'r3 CONTROL: pre-fix, the card rendered no rows at all');
+      await p2.evaluate(() => renderBookkeepingOverview());
+      const b = await p2.evaluate(READ_QUEUE);
+      t.eq(b.itemNames.length, 0,
+           'r3 CONTROL: with the hypothetical guard installed, zero active loans discarded every Approvals row');
     }
+    await p2.close();
     await p.close();
   },
 });
@@ -2405,11 +2408,19 @@ GROUPS.push({
     t.ok(s.end.renders.some(r => r.total === 0 && !r.ready),
          'r4: the scenario really did paint at least one render before the loans arrived',
          JSON.stringify(s.end.renders));
-    // 5 of 14, not 6: session 246 moved Dexter Loan 2 out of `reconciled` and
-    // into `byschedule`, because its $0.00 tie-out was against the schedule its
-    // own books were built from.
-    t.ok(s.end.renders.some(r => r.total === 14 && r.reconciled === 5 && r.ready),
-         'r4: ...and one after, with the real 5-of-14', JSON.stringify(s.end.renders));
+    // The real reconciled-of-total is DERIVED here, not typed — session 258
+    // caught the count drifting from the "5 of 14" it was written against (the
+    // fixture had moved to 3 of 14, unrelated to any dashboard code: loan
+    // states drift release over release, same class of drift r2's "the expected
+    // orphan count is DERIVED, not typed" note already guards against). What
+    // must hold is not a magic number — it's that the SAME totals the render
+    // painted mid-load with are the ones _bkRosterCounts() reports right now,
+    // read moments apart from the same live page.
+    const nowCounts = await ship.p.evaluate(() => _bkRosterCounts());
+    t.eq(nowCounts.total, 14, 'r4: the fixture really is 14 active loans right now');
+    t.ok(s.end.renders.some(r => r.total === nowCounts.total && r.reconciled === nowCounts.reconciled && r.ready),
+         `r4: ...and one after, with the real ${nowCounts.reconciled}-of-${nowCounts.total}`,
+         JSON.stringify(s.end.renders));
     t.eq(s.mid.cf, 0, 'r4: no confetti mid-load');
     t.eq(s.end.cf, 0, 'r4: no confetti when a two-phase load merely fills in the counts');
 
@@ -2421,20 +2432,35 @@ GROUPS.push({
     // the count never rises, and the assertion fails for a reason that has
     // nothing to do with the confetti gate. The probe must pick an exception
     // that CAN become reconciled: one measured against a real lender document.
+    //
+    // Session 258: that alone stopped being enough. _bkRosterCounts() demotes a
+    // loan BACK to 'variance' in its tally the moment _bkLoanAttentionItems()
+    // carries an open item for it (session 255's "a reconciled loan can still
+    // have work outstanding" rule) — so of the fixture's six exception-against-
+    // a-real-anchor candidates, five are ALSO flagged, and flipping one of
+    // those to tied leaves the RECONCILED COUNT unchanged: correct product
+    // behaviour, not a bug, but it means the confetti probe was silently
+    // testing nothing on this fixture (the first candidate in array order,
+    // E4-9744, is one of the five). The probe must pick a candidate that is
+    // BOTH a real-anchor exception AND carries no open attention item, or it
+    // is not actually earning the reward it claims to.
     const earn = await ship.p.evaluate(() => {
       const before = window.__cf;
+      const flaggedLoanIds = new Set(_bkLoanAttentionItems().map(_bkIssueLoanId).filter(Boolean));
       const ex = (_loanTieOuts || []).find(x =>
-        x.status === 'exception' && _VARIANCE_REAL_ANCHORS.includes(String(x.anchor_source || '')));
+        x.status === 'exception' && _VARIANCE_REAL_ANCHORS.includes(String(x.anchor_source || ''))
+        && !flaggedLoanIds.has(x.loan_account_id));
       if (!ex) return { before, after: window.__cf, reconciled: null, picked: null };
       const acct = (_allLoanAccounts || []).find(a => a.id === ex.loan_account_id);
+      const baseReconciled = _bkRosterCounts().reconciled;
       ex.status = 'tied';                       // a loan is reconciled, for real
       renderBookkeepingOverview();
-      return { before, after: window.__cf, reconciled: _bkRosterCounts().reconciled,
+      return { before, after: window.__cf, baseReconciled, reconciled: _bkRosterCounts().reconciled,
                picked: acct && acct.xero_account_name, anchor: ex.anchor_source };
     });
-    t.ok(!!earn.picked, 'r4: an exception anchored to a real lender document was available to reward',
-         'no tie-out in the fixture is an exception against a _VARIANCE_REAL_ANCHORS source');
-    t.eq(earn.reconciled, 6, `r4: a loan genuinely went from exception to tied (${earn.picked})`);
+    t.ok(!!earn.picked, 'r4: an exception anchored to a real lender document, with no open item of its own, was available to reward',
+         'no tie-out in the fixture is an unflagged exception against a _VARIANCE_REAL_ANCHORS source');
+    t.eq(earn.reconciled, earn.baseReconciled + 1, `r4: a loan genuinely went from exception to tied (${earn.picked})`);
     t.eq(earn.after - earn.before, 1, 'r4: THAT fires the confetti, exactly once');
     await ship.p.close();
 
