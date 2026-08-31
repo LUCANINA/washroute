@@ -2478,6 +2478,47 @@ itself this time (a fresh `index.lock` appeared and failed to unlink, not just o
 commit); moved aside into `_to_delete/` same as always, harmless once confirmed via
 `git log -1`.
 
+**Session 256, round 2 (same day) -- David's feedback on the first pass, three things:**
+"I wasn't able to get the tooltip to work" (title attributes don't reach him reliably),
+"I think I prefer being told upfront whether a payment posted this month or not" (a
+column, not a hover), and "there is still quite a lot of room between the LOAN and
+OPENING columns ... Tighten everything even more."
+
+**Booked is now its own column, between Variance and Status.** Split out of the icon
+cell rather than deleted from it: `bookedCell` renders exactly what the old text-only
+Status column used to (`Booked` / `No payment` / the specific unposted reason, same
+three colour classes), and the icon cell (`booked`) carries only the tie/variance
+verdict, still as a `title` for anyone whose browser does show it, but no longer the
+only place the fact lives. Header row, footer row, and `exportRollforwardCSV` all
+picked up the new column (CSV head gained `'Booked'`; the destructure gained
+`cBooked`; the footer's positional array gained one more `''`) -- the comment above
+`exportRollforwardCSV` documenting "screen shows N columns, file carries M" was wrong
+the moment this shipped, so it was corrected in the same edit rather than left stale
+(session 247's own rule, cited above: don't let a correct-when-written sentence outlive
+the number it names).
+
+**The LOAN/OPENING gap was never really a padding problem.** `.lcb-table` had
+`width: 100%` inside a card wider than the table's own content; browser auto
+table-layout hands the resulting slack to every column, and a short right-aligned
+column (Opening) shows that slack as blank space on its LEFT -- between the number
+and whatever sits to its left -- because the number itself stays glued to the
+column's right edge. Round 1's padding cut (12px -> 9px, then 5px at the LOAN/OPENING
+seam) was real but small next to that. The actual fix was `width: auto`: the table now
+sizes to its own content instead of stretching to the card, and the `overflow-x:auto`
+wrapper it already sat in (`renderRollforward`, unchanged) still scrolls it on a
+narrow screen. Padding was also cut further on top of that (9px -> 7px general, 5px ->
+3px at the LOAN/OPENING seam) per "tighten everything even more" -- but the width fix
+is what actually closed the visible gap; the padding number was never the leverage.
+
+**Verification, round 2.** Same method as round 1: `new Function()` parse check on
+both inline `<script>` blocks (clean), then re-ran the harness groups this touches --
+loans-table, close-band (258), two-surfaces (29), closing-evidence (664), all green --
+against a freshly re-staged copy of the edited file (the CLOUD container still has no
+route to David's Mac directly; every check here is a snapshot staged at the moment of
+the check, not a live connection). Re-rendered the real table against the fixture data
+and read both new cells back from the DOM (`Booked`/`No payment`/`Pending review` in
+the new column, the icon-only verdict in Status) before screenshotting it for David.
+
 ---
 
 ### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues
