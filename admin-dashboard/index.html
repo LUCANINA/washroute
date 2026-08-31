@@ -11787,6 +11787,7 @@
   let _loanUploadParsedAcctNum = null;
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
   let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
+  let _loanUploadParsedBalanceBasis = null; // 'principal_only' from a PDF parser whose statement labels its own balance (session 256, round 7)
   let _loanUploadParsedBulkPeriods = null; // array of {statementDate, principalBalance, explicitSplit, totalAmountDue} from a multi-period CSV (e.g. PayPal), if any
   let _loanUploadBulkAnchorsOnly = false;  // session 225: true when the bulk periods are a Ford transaction history — file as reconciliation anchors, create no splits
   let _liRawFile = null;           // the raw File object -- the document path uploads it directly to storage
@@ -19081,6 +19082,7 @@ ${noActivityNote}
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
+    _loanUploadParsedBalanceBasis = null;
     _loanUploadParsedBulkPeriods = null;
     _loanUploadBulkAnchorsOnly = false;
     _liParsedSchedule = null;
@@ -19428,6 +19430,10 @@ ${noActivityNote}
           statementDate: _mdy2ToIso(principalRow[1]),
           principalBalance: balAfter[1].replace(/,/g, ''),
           accountNumber: acct[1],
+          // "PRINCIPAL BALANCE" is BayFirst's own label for this figure -- it says
+          // what it measures in so many words, the same test session 225 used to
+          // mark the Ford bulk-anchors path 'principal_only'. Session 256, round 7.
+          balanceBasis: 'principal_only',
           explicitSplit: {
             principal: parseFloat(principalRow[2].replace(/,/g, '')),
             interest: parseFloat(interestRow[2].replace(/,/g, '')),
@@ -19458,6 +19464,13 @@ ${noActivityNote}
           statementDate: `${py}-${String(pm).padStart(2, '0')}-01`,
           principalBalance: principalBalance[1].replace(/,/g, ''),
           accountNumber: loanNum[1],
+          // "Current Principal Balance" -- iBusiness's own label. Session 256,
+          // round 7: David flagged this exact statement shape and every one of
+          // these carries the label; without this the row filed as
+          // balance_basis='unknown' and _loanClosingAnchor's labelledOnly test
+          // refused to use it as closing evidence even though it had been
+          // uploaded and read correctly.
+          balanceBasis: 'principal_only',
           explicitSplit: {
             principal: parseFloat(principalSplit[1].replace(/,/g, '')),
             interest: parseFloat(interestSplit[1].replace(/,/g, '')),
@@ -19484,6 +19497,8 @@ ${noActivityNote}
           statementDate: _mdyToIso(statementDate[1]),
           principalBalance: outstandingBalance[1].replace(/,/g, ''),
           accountNumber: loanNum[1],
+          // "Outstanding Balance" -- SBA EIDL's own label. Session 256, round 7.
+          balanceBasis: 'principal_only',
           explicitSplit: {
             principal: parseFloat(appliedPrincipal[1].replace(/,/g, '')),
             interest: parseFloat(appliedInterest[1].replace(/,/g, '')),
@@ -19507,6 +19522,9 @@ ${noActivityNote}
           statementDate: _mdyToIso(lastPaymentDate[1]),
           principalBalance: balance[1].replace(/,/g, ''),
           accountNumber: loanId[1],
+          // "Latest account balance (before current interest charges)" -- PCV's own
+          // label, unambiguous about being principal. Session 256, round 7.
+          balanceBasis: 'principal_only',
           explicitSplit: {
             principal: parseFloat(principal[1].replace(/,/g, '')),
             interest: parseFloat(interest[1].replace(/,/g, '')),
@@ -19553,6 +19571,9 @@ ${noActivityNote}
           statementDate: _mdyToIso(stmtDate[1]),
           principalBalance: principalBal[1].replace(/,/g, ''),
           accountNumber: acct[1],
+          // "Principal Balance:" -- Ford's own label, same test as the other four
+          // explicit-label parsers below. Session 256, round 7.
+          balanceBasis: 'principal_only',
         };
         if (paymentDate && principalSplit && interestSplit) {
           out.explicitSplit = {
@@ -19741,6 +19762,7 @@ ${noActivityNote}
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
+    _loanUploadParsedBalanceBasis = null;
     _loanUploadParsedBulkPeriods = null;
     _loanUploadBulkAnchorsOnly = false;
     _liParsedSchedule = null;
@@ -19906,6 +19928,7 @@ ${noActivityNote}
       if (browserParsed.paymentDueDate) document.getElementById('li-due-date').value = browserParsed.paymentDueDate;
       _loanUploadParsedTransactions = browserParsed.transactions || null;
       _loanUploadParsedExplicitSplit = browserParsed.explicitSplit || null;
+      _loanUploadParsedBalanceBasis = browserParsed.balanceBasis || null;
       _loanUploadParsedAcctNum = browserParsed.accountNumber || null;
       if (browserParsed.accountNumber) {
         _liSelectLoanFromDocument(browserParsed.accountNumber);
@@ -20266,6 +20289,7 @@ ${noActivityNote}
         pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
         transactions: _loanUploadParsedTransactions || undefined,
         explicit_split: _loanUploadParsedExplicitSplit || undefined,
+        balance_basis: _loanUploadParsedBalanceBasis || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       closeLoanIntakeModal();
