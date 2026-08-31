@@ -9160,6 +9160,34 @@
   // summary; loan flags and findings carry a detailHtml panel that expands in
   // place (full text + Mark Resolved / upload actions), split mismatches and
   // payroll flags open their existing review modals.
+  // Shared by Issues (a loan variance whose reason is already diagnosed) and
+  // Approvals (a split_mismatch/stage_flag/recon_finding not tied to a loan
+  // already shown in Issues) -- one place builds the onclick / detail panel /
+  // lender-fold key for one of these three item kinds, so the two surfaces
+  // can never drift on what clicking "Review" actually shows. Extracted
+  // session 258 cont. when Approvals started hiding items whose loan already
+  // has an Issues row (see _bkApprovalQueueItems) -- their detail didn't
+  // disappear, it moved onto the Issues row itself via this same builder.
+  function _bkAttnItemActionSpec(it) {
+    if (it.kind === 'split_mismatch' || it.kind === 'stage_flag') {
+      return { onclick: `openLoanReviewModal('${it.split.id}')`, detailHtml: null, bvlGroup: null };
+    }
+    const f = it.finding;
+    const fdiffHtml = (f?.check_key === 'balance_vs_lender' && f?.loan_account_id)
+      ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-btn-${f.id}" onclick="bkFindDifference('${f.id}','${f.loan_account_id}')">🔍 Find the difference</button></div><div id="fdiff-out-${f.id}"></div>`
+      : '';
+    let bvlGroup = null;
+    if (f?.check_key === 'balance_vs_lender' && f?.loan_account_id) {
+      const la = (_allLoanAccounts || []).find(a => a.id === f.loan_account_id);
+      if (la?.lender) bvlGroup = { lender: la.lender, finding: f, loanName: la.xero_account_name || la.lender_account_number || 'Loan' };
+    }
+    const detailHtml = _bkAttnDetailHtml(it) + fdiffHtml +
+      ((f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
+        ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button></div>`
+        : (fdiffHtml ? '' : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">This clears on its own once a reconciliation check confirms it's fixed.</div>`));
+    return { onclick: null, detailHtml, bvlGroup };
+  }
+
   function _bkIssueQueueItems() {
     // ── Session 257: Issues narrowed to ONE thing — loan variances ─────────
     // David: "I'd like a whole rethink of the issues section so that it
@@ -9193,6 +9221,17 @@
       // to open yet and the row says so instead of offering a dead button.
       const candidate = (_allLoanSplits || []).find(s => s.loan_account_id === a.id
         && (s.status === 'pending_review' || s.status === 'needs_attention'));
+      // Session 258 cont.: when there's no correcting entry yet, look for the
+      // diagnosis already sitting behind this variance -- a split_mismatch,
+      // stage_flag or recon_finding tied to this loan. Approvals no longer
+      // shows these separately once the loan already has a row here (see
+      // _bkApprovalQueueItems), precisely so this is where the reason lands
+      // instead of a second queue the CPA has to switch to. _bkLoanAttentionItems()
+      // is already sorted by severity, so .find() picks the most serious one.
+      const attn = candidate ? null : _bkLoanAttentionItems().find(it =>
+        (it.kind === 'split_mismatch' || it.kind === 'stage_flag' || it.kind === 'recon_finding')
+        && _bkIssueLoanId(it) === a.id);
+      const spec = attn ? _bkAttnItemActionSpec(attn) : null;
       items.push({
         key: 'variance-' + a.id, dot: v.material === false ? 'amber' : 'red',
         loanId: a.id, tier: v.material === false ? 2 : 1,
@@ -9204,9 +9243,11 @@
         // wording -- the same fact, worded the same way, everywhere it appears.
         varianceLabel: `${fmtMoney(Math.abs(amt))} ${amt < 0 ? 'below' : 'above'} ${v.against}`
           + (v.material === false ? ' — rounding' : ''),
-        explain: candidate ? 'A correcting entry is ready for you to review.' : 'No correcting entry prepared yet.',
-        action: candidate ? 'Post adjustment' : null,
-        onclick: candidate ? `openLoanReviewModal('${candidate.id}')` : null,
+        explain: candidate ? 'A correcting entry is ready for you to review.'
+          : attn ? attn.explain : 'No correcting entry prepared yet.',
+        action: candidate ? 'Post adjustment' : attn ? 'Review' : null,
+        onclick: candidate ? `openLoanReviewModal('${candidate.id}')` : (spec && spec.onclick) || null,
+        detailHtml: (spec && !spec.onclick) ? spec.detailHtml : null,
         // Ignore is a soft dismissal — same bk_issue_dismissals store as every
         // other queue, substance-keyed so a materially different number comes
         // right back even if this exact loan was dismissed before (session
@@ -9474,35 +9515,29 @@
     // not exist, and these are still real work waiting on a decision, just not
     // a dollar variance in the ledger-vs-lender sense. Reuses the exact
     // per-kind detail/onclick logic Issues used to build, relocated as-is.
+    // Session 258 cont.: a loan already carrying a variance row in Issues
+    // doesn't also get a second, separately-worded card here. David: "the
+    // approvals queue lists loans that are already displayed in issues...
+    // make Issues the only focal point... they won't have time to switch
+    // back and forth." The diagnosis itself isn't dropped -- Issues now
+    // shows it as that row's Explanation/Review (see _bkIssueQueueItems) --
+    // this just stops it from ALSO being a second, separate approval. A
+    // loan whose variance couldn't even be computed (group 'unverified' /
+    // 'na' / 'unchecked' -- no Issues row at all, e.g. Ford Pro FinSimple's
+    // three loans) still surfaces its finding here, same as always.
+    const issueLoanIds = new Set(_bkIssueQueueItems().map(i => i.loanId).filter(Boolean));
     _bkLoanAttentionItems().filter(it => it.kind === 'split_mismatch' || it.kind === 'stage_flag' || it.kind === 'recon_finding').forEach(it => {
-      let detailHtml = null, onclick = null, bvlGroup = null;
-      if (it.kind === 'split_mismatch') {
-        onclick = `openLoanReviewModal('${it.split.id}')`;
-      } else if (it.kind === 'stage_flag') {
-        onclick = `openLoanReviewModal('${it.split.id}')`;
-      } else {
-        const f = it.finding;
-        const fdiffHtml = (f?.check_key === 'balance_vs_lender' && f?.loan_account_id)
-          ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-btn-${f.id}" onclick="bkFindDifference('${f.id}','${f.loan_account_id}')">🔍 Find the difference</button></div><div id="fdiff-out-${f.id}"></div>`
-          : '';
-        if (f?.check_key === 'balance_vs_lender' && f?.loan_account_id) {
-          const la = (_allLoanAccounts || []).find(a => a.id === f.loan_account_id);
-          if (la?.lender) bvlGroup = { lender: la.lender, finding: f, loanName: la.xero_account_name || la.lender_account_number || 'Loan' };
-        }
-        detailHtml = _bkAttnDetailHtml(it) + fdiffHtml +
-          ((f?.proposed_action?.kind === 'upload_earlier_statement' && f?.loan_account_id)
-            ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="openLoanIntakeModal('${f.loan_account_id}')">Upload statement</button></div>`
-            : (fdiffHtml ? '' : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">This clears on its own once a reconciliation check confirms it's fixed.</div>`));
-      }
+      if (issueLoanIds.has(_bkIssueLoanId(it))) return;
+      const spec = _bkAttnItemActionSpec(it);
       items.push({
         key: it.key, dot: it.severityRank === 0 ? 'red' : 'amber',
         loanId: _bkIssueLoanId(it), tier: it.severityRank === 0 ? 1 : 2,
         amount: it.amount, name: it.title, reason: it.explain || 'Needs a decision.',
-        stale: it.stale || null, action: 'Review', onclick, detailHtml,
+        stale: it.stale || null, action: 'Review', onclick: spec.onclick, detailHtml: spec.detailHtml,
         peek: _bkAttnPeekSpec(it) ? `bkPeekAttn('${it.key}')` : null,
         archive: true, archiveLabel: 'Ignore',
         archiveTitle: 'Set this aside — restore it any time from Ignored',
-        _bvl: bvlGroup,
+        _bvl: spec.bvlGroup,
       });
     });
     // Session 228's lender-level folding, carried over unchanged: 2+ open
@@ -9558,15 +9593,26 @@
     return `<table class="bk-var-table">
       <thead><tr><th>Loan</th><th>Variance</th><th>Explanation</th><th class="bk-var-th-actions"></th></tr></thead>
       <tbody>
-        ${items.map(it => `<tr data-bkkey="${esc(String(it.key))}">
+        ${items.map(it => {
+          // Session 258 cont.: a variance row can now carry the same detail
+          // panel Approvals used to show as a separate card (split_mismatch /
+          // stage_flag / recon_finding detail, including "Find the difference")
+          // -- "Review" toggles it open in place instead of sending the CPA to
+          // a second queue to find the reason behind this row.
+          const panelId = it.detailHtml ? 'bk-var-qd-' + String(it.key).replace(/[^a-zA-Z0-9_-]/g, '') : null;
+          const actionClick = panelId ? `_bkToggleAttnDetail('${panelId}', null)` : (it.onclick || '');
+          return `<tr data-bkkey="${esc(String(it.key))}">
           <td><div class="bk-var-loan"><span class="bk-dot ${it.dot}"></span>${esc(it.name)}</div></td>
           <td class="bk-var-amt">${esc(it.varianceLabel)}</td>
-          <td class="bk-var-explain">${esc(it.explain)}${it.unarchived ? `<div class="bk-queue-stale" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af;margin-top:6px" title="A 'Got it' covers a finding as it was, not its id forever.">↩ ${esc(it.unarchived)}</div>` : ''}</td>
+          <td class="bk-var-explain">${esc(it.explain)}${it.unarchived ? `<div class="bk-queue-stale" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af;margin-top:6px" title="A 'Got it' covers a finding as it was, not its id forever.">↩ ${esc(it.unarchived)}</div>` : ''}
+            ${panelId ? `<div id="${panelId}" style="display:none;margin-top:8px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12px;color:var(--gray-600)" onclick="event.stopPropagation()">${it.detailHtml}</div>` : ''}
+          </td>
           <td class="bk-var-actions">
-            ${it.action ? `<span class="bk-review-link" onclick="${it.onclick}">${esc(it.action)} →</span>` : ''}
+            ${it.action ? `<span class="bk-review-link" onclick="${actionClick}">${esc(it.action)} →</span>` : ''}
             <button class="bk-gotit-btn" title="${esc(it.archiveTitle || 'Archive this note')}" onclick="bkArchiveIssue('${encodeURIComponent(String(it.key))}')">${esc(it.archiveLabel || 'Got it ✓')}</button>
           </td>
-        </tr>`).join('')}
+        </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
   }
