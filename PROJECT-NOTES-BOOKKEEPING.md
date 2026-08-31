@@ -2706,6 +2706,76 @@ sentence landed; screenshotted the whole band for David. Committed (`ee1e514`), 
 pushed** -- same as every session, sandbox has no network.
 
 ---
+**Session 256, round 7 (same day) -- David asked a chain of follow-up questions
+about Funding Circle Loan showing red/grey/"not received" despite tying
+statements being uploaded, ending in: "Identify the issue," then "teach the
+ingestion engine this new shape" about iBusiness Funding's statement layout.**
+
+Investigation, not a guess: pulled Funding Circle's real `loan_statements` and
+`loan_splits` rows from the fixture and read `_loanClosingAnchor` /
+`_bkStatementCoverage` in the source. Two things came out of it:
+
+First, the general Ford-loan question that started this thread ("are these just
+timing issues?") -- answered NO, with the arithmetic: on the three Ford loans
+showing red Status, the OPENING balance already disagreed with Ford's own
+pre-July statement, before a single dollar moved in July; E6-7410, same lender,
+same statement cadence, ties exactly because its opening did NOT disagree.
+Ruled out "statement posted early" as the cause by using E6-7410 as the control
+case.
+
+Second, and the actual root cause of Funding Circle's "not received": David's
+statements were genuinely uploaded and genuinely parsed -- the "not received"
+label doesn't mean nothing arrived, it means `_loanClosingAnchor`'s
+`labelledOnly` test refused to use what's on file, because every
+`loan_statements` row from these statements carries `balance_basis='unknown'`.
+Traced why: `LOAN_PDF_PARSERS`' five "explicit label" parsers (BayFirst SBA,
+iBusiness Funding/FC Marketplace, SBA EIDL, Pacific Community Ventures, Ford
+Pro FinSimple PDF) each read a plainly-labeled balance straight off the
+statement ("Current Principal Balance", "PRINCIPAL BALANCE", "Outstanding
+Balance", "Latest account balance (before current interest charges)",
+"Principal Balance:") but never set `balanceBasis` on their return object, and
+`_submitIntakeStatement()` -- the normal single-statement upload path all five
+go through -- never sent a `balance_basis` field to `loan-ingest-statement` at
+all. Only the Ford bulk-anchors path and the schedule-import path did this
+(session 225's own comment names the exact test: "these documents label the
+column ... in so many words"). So the single-statement path for FIVE lenders,
+not just Funding Circle, has been filing labelled statements as unlabelled
+since those parsers were built -- this matches the "11 `portal_manual_pull`
+rows carrying `balance_basis='unknown'`" line that has been sitting in START
+HERE unresolved.
+
+David's own diagnosis (the iBusiness statement's date SHAPE -- "Billing
+Statement Date" describes a balance that already reflects last month's
+payment) turned out not to be the bug: the existing parser already handles
+that shape correctly (backs the split's period off by one month, deliberately,
+per its own session-220 comment) and was not touched. The actual defect was
+one level down from where he was looking -- the parser reads the number fine,
+it just never told the backend what kind of number it was.
+
+**What shipped:** each of the five explicit-label parsers' `extract()` now
+returns `balanceBasis: 'principal_only'`, one line, with a comment naming the
+statement's own label as the justification (the same test session 225 used).
+A new module-level `_loanUploadParsedBalanceBasis`, reset alongside the
+existing `_loanUploadParsedTransactions`/`_loanUploadParsedExplicitSplit` at
+both reset sites, captured from `browserParsed.balanceBasis` where those are
+captured, and threaded into `_submitIntakeStatement()`'s POST body as
+`balance_basis`. Every future statement from these five lenders will file
+labelled from day one; PAST rows still need a one-time backfill (Tech Debt --
+not done this round, scope was the ingestion path only).
+
+**Verification, round 7.** Parse check on both inline `<script>` blocks clean.
+Extracted `LOAN_PDF_PARSERS` in isolation and ran the iBusiness extractor
+against synthetic text built from David's own statement screenshot (Loan
+50340172506, Billing Statement Date 12/03/2025, Current Principal Balance
+$74,008.88, Past Payment Summary Principal $910.60 / Interest $1,123.17) --
+confirmed `balanceBasis: "principal_only"` comes back correctly alongside the
+existing fields, unchanged. Re-ran `loans-table` (5/5) and `close-band`
+(258/258) -- both green, confirming a client-side-only parser change (nothing
+in the rendering/anchor logic itself) disturbed nothing already covered.
+Committed (`6018fca`), **not pushed** -- same as every session, sandbox has no
+network.
+
+---
 
 ### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues
 
