@@ -9569,14 +9569,27 @@
     }
     // Reconciliation "info" findings — real, but explicitly "nothing to do"
     // per the engine. Relocated from Issues alongside the other three kinds.
-    _bkReconInfoFindings().forEach(f => items.push({
-      key: 'recon-' + f.id, dot: 'gray', tier: 3, archive: true, loanId: f.loan_account_id || null,
-      name: f.title || 'For information', reason: _bkOneLine(f.plain_english || ''),
-      detailHtml: f.plain_english ? `<div style="white-space:pre-wrap">${esc(f.plain_english)}</div>` : null,
-    }));
+    // Session 258 cont.: same rule as the split_mismatch/stage_flag/recon_finding
+    // block above -- a loan already carrying a variance row in Issues doesn't
+    // also get an info-level duplicate here (e.g. EIDL SBA's $5 rounding note,
+    // already on its Issues row). An info finding not tied to any loan, or tied
+    // to a loan with no Issues row, still shows -- that's the whole point of a
+    // pattern-candidate proposal like Verdant's: it isn't a duplicate of anything.
+    _bkReconInfoFindings().forEach(f => {
+      if (f.loan_account_id && issueLoanIds.has(f.loan_account_id)) return;
+      items.push({
+        key: 'recon-' + f.id, dot: 'gray', tier: 3, archive: true, loanId: f.loan_account_id || null,
+        name: f.title || 'For information', reason: _bkOneLine(f.plain_english || ''),
+        detailHtml: f.plain_english ? `<div style="white-space:pre-wrap">${esc(f.plain_english)}</div>` : null,
+      });
+    });
     // Ignored rows leave the queue (restorable from the Ignored list) -- same
     // bk_issue_dismissals store the issue queue uses, so a decision made on one
     // device holds on every other.
+    // Session 258 cont.: tier 3 (informational -- no real action, just a note or
+    // a pattern to confirm) sorts to the bottom, stable otherwise, so a 5-row cap
+    // never buries a real ready-to-post item under a proposal or a rounding note.
+    items.sort((a, b) => (a.tier === 3 ? 1 : 0) - (b.tier === 3 ? 1 : 0));
     return items.filter(i => !_bkDismissals.has(i.key));
   }
 
@@ -9620,9 +9633,15 @@
   function _bkQueueRowHtml(it) {
     const panelId = it.detailHtml ? 'bk-qd-' + String(it.key).replace(/[^a-zA-Z0-9_-]/g, '') : null;
     const click = panelId ? `_bkToggleAttnDetail('${panelId}', null)` : (it.onclick || '');
-    // Session 230: tier 3 no longer gets its own muted style -- it shares one
-    // section with tier 2 now, and two shades inside one list read as a bug.
-    const tierClass = it.tier === 1 ? ' bk-t1' : '';
+    // Session 230 merged tier 2 and tier 3 into one shade because two DIFFERENT
+    // muted shades in the same list read as a bug. Session 258 cont. reintroduces
+    // ONE tier-3 treatment (the existing .bk-t3 name styling, unused since then,
+    // not a new shade) -- now there are exactly three purposeful looks (urgent /
+    // normal / informational), not two accidental ones. That's what lets an
+    // "awaiting approval" list also hold a pattern-detection proposal (info,
+    // nothing posts) next to a real ready-to-post item without both reading as
+    // equally urgent.
+    const tierClass = it.tier === 1 ? ' bk-t1' : (it.tier === 3 ? ' bk-t3' : '');
     return `<div class="bk-queue-row${tierClass}" data-bkkey="${esc(String(it.key))}"${click ? ` onclick="${click}"` : ' style="cursor:default"'}>
       <div class="bk-queue-left" style="flex:1;min-width:0">
         <span class="bk-dot ${it.dot}"></span>
@@ -11302,7 +11321,18 @@
           const settled = rc.unverified + rc.na + rc.unchecked + rc.byschedule + rc.immaterial;
           if (settled) parts.push(`${settled} settled or waiting`);
         } else if (_bkOverviewSeg === 'approvals') {
-          parts.push(approvals.length ? `${approvals.length} ready to post` : 'nothing waiting on you');
+          // Session 258 cont.: "ready to post" overstated it once pattern-candidate
+          // proposals and low-priority info notes joined this list -- neither one
+          // posts anything anywhere. Same split Issues already uses above: the
+          // number that means "post this" stays "ready to post"; anything purely
+          // informational is named separately so it never reads as backlog.
+          const _apprActionable = approvals.filter(a => a.tier !== 3).length;
+          const _apprInfo = approvals.length - _apprActionable;
+          if (!approvals.length) parts.push('nothing waiting on you');
+          else {
+            if (_apprActionable) parts.push(`${_apprActionable} ready to post`);
+            if (_apprInfo) parts.push(`${_apprInfo} for your review`);
+          }
         } else if (_bkOverviewSeg === 'staged') {
           // Stated as a state, never as a backlog — these need nothing done. This
           // is the line the seg-button note above promised and never had.
