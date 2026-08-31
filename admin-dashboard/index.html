@@ -16656,7 +16656,7 @@
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n">Computed</th>
               <th class="lcb-n">Closing</th>
-              <th class="lcb-n">Variance</th><th>Booked</th><th>Status</th><th>Ledger</th>
+              <th class="lcb-n">Variance</th><th>Booked</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
