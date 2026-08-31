@@ -2674,6 +2674,38 @@ verbatim; every other header's title is `null`. Committed (`552f33e`), **not pus
 -- same as every session, sandbox has no network.
 
 ---
+**Session 256, round 6 (same day) -- David: "the hover tooltip doesn't seem to
+work."**
+
+Second report of a hover tooltip not working (round 2 was the per-row Status icon;
+this is the round-5 header tooltip). Both times the underlying `title` attribute was
+verified correct in the rendered DOM before shipping, so this is not a rendering bug --
+it's that native browser tooltips depend on a sustained, precise hover for roughly a
+second, on a device and browser that shows them at all, and apparently don't reach
+David reliably regardless. Round 2 already drew the right lesson once ("I think I
+prefer being told upfront... Identify a place for a column that does this") and this
+session's own code comment says it back: "never a hover (round 2, same reason)." Trying
+a third hover-based fix would be ignoring a pattern now confirmed twice.
+
+**What shipped:** the Status/Ledger meaning moved out of `title` tooltips entirely and
+into the table's existing always-visible footnote (`footNote` in
+`renderLoansCloseBand()`, the `<div class="lcb-foot">` under the table -- already
+on-screen, no interaction required). Added one sentence: "Both columns use the same
+mark: **checkmark** ties or is fully explained, **X** is a real dollar difference to
+resolve, and **dot** means the check was not run this month -- either the numbers
+trace back to the same one document (so agreeing proves nothing) or there is nothing
+yet to compare it against." The header `title` attributes from round 5 were left in
+place -- harmless for anyone whose hover does work, just no longer the only place this
+information lives.
+
+**Verification, round 6.** Parse check clean. Re-ran `loans-table` (5/5) and
+`close-band` (258/258) -- both green, confirming the footnote text change disturbed
+nothing the harness checks structurally. Rendered the real band against the fixture
+data and read the footnote's `textContent` back from the DOM to confirm the exact
+sentence landed; screenshotted the whole band for David. Committed (`ee1e514`), **not
+pushed** -- same as every session, sandbox has no network.
+
+---
 
 ### Session 255 (2026-08-30) — verified item 13 live on real data, then an Overview design pass: less red, no clean loans in "Needs Attention," the ledger check finally reaches Issues
 
