@@ -53,9 +53,34 @@ reconciled in Xero and are individually correct. Because this July journal had a
 removed the 5 Aug payment's principal, that payment is now in the books **twice**, and
 account 284 is understated by roughly **$3,120.60**.
 
-**Suggested fix:** either re-date the $3,120.60 portion into August so it sits with the
-payment it belongs to, or reverse the journal and re-post it at **$21.66**, which is
-what the July position actually required.
+### The fix: reverse this journal in full. Do not re-date it.
+
+**Reverse `a2c49ead` in full, dated 31 July 2026** (July is open — the books are closed
+through 30 June):
+
+| Account | | Amount |
+|---|---|---|
+| `800` Interest Expense | debit | $3,142.26 |
+| `284` Paypal 2 | credit | $3,142.26 |
+
+**Re-dating the $3,120.60 into August would not fix it.** The 6 August bank draft
+already reduces account 284 by that payment, so moving the journal forward simply moves
+the duplication into August. Walked through all four August drafts:
+
+| | Account 284 after 26 Aug | vs PayPal's figure ($49,324.91) |
+|---|---|---|
+| Leave the journal as is | $46,204.31 | **−$3,120.60** |
+| Re-date it into August | $46,225.97 | **−$3,098.94** |
+| **Reverse it in full** | **$49,346.57** | **+$21.66** |
+
+Only the reversal restores the account. The $21.66 that remains is a small difference
+that predates July and is a separate question — **it should not be plugged**; it is the
+same $21.66 the books were already carrying at 30 June.
+
+*Two independent checks agree on the $3,142.26: the journal's own line items, and the
+July ledger movement rebuilt from Xero — which reduced account 284 by $20,215.81, being
+the five drafts at $17,073.55 plus this journal, against $15,383.03 of scheduled
+principal.*
 
 *We have not established why this entry was posted, and are not assuming. The figures
 above are what it did.*

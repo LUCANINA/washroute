@@ -58,11 +58,20 @@
 > are unaffected and can still be backfilled.
 >
 > **Next steps, in order:**
-> 1. **Ask David to raise it with Ramona.** Correct 7/31 balance is the lender's
->    7/29 figure, **$61,896.57**; the July journal should have been **$21.66**.
->    Either re-date the $3,120.60 into August, or reverse and re-post at $21.66.
->    **Do not edit the `2026-07-31-adj` split row in our DB** — it faithfully records
->    what Xero contains and is evidence, not error.
+> 1. **REVERSE `a2c49ead` IN FULL, dated 2026-07-31** (July is open — closed through
+>    2026-06-30). Debit `800` $3,142.26 / credit `284` $3,142.26.
+>    **⚠️ RE-DATING IT INTO AUGUST IS WRONG** — an earlier version of this block offered
+>    that as an equal option. The 08-06 draft already reduces 284 by that payment, so
+>    re-dating moves the duplication rather than removing it. Walked forward through all
+>    four August drafts against PayPal's own figure of $49,324.91 after 08-26:
+>    leave it → **−$3,120.60**; re-date → **−$3,098.94**; **reverse → +$21.66**, the
+>    standing difference the books already carried at 30 June and which must NOT be
+>    plugged. **Do not edit the `2026-07-31-adj` split row until Xero changes** — it
+>    faithfully records what Xero contains and is evidence, not error.
+> 1b. **AFTER the reversal, §8's backfill instruction flips.** With the journal gone,
+>    the 08-06 / 08-13 / 08-20 drafts each represent their payment exactly once, so all
+>    three should be backfilled as `already_in_xero`. The "do NOT backfill 08-05" rule
+>    was conditional on the journal STAYING; it does not survive the fix.
 > 2. **When Xero is reachable:** check whether the 08-05 / 08-12 / 08-19 drafts
 >    reduced 284, then decide the backfill. Also still open from session 258 cont. 2:
 >    April's `2026-04-30-adj` runs the opposite sign (journal `e4d26ad1`, note says
