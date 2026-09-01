@@ -1,8 +1,51 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, session 258 (left by session 257, 2026-08-31)
+> ## ⏭️ START HERE — first thing, next session (left by session 258 cont. 2, 2026-09-01)
 >
-> ### 0. 🔎 SESSION 258 (2026-08-31, in progress) — Verdant's August interest split
+> ### 0. 🔎 PICK UP HERE — PayPal 2 correction-journal tracing, blocked on Xero's
+> daily API rate limit (started session 258 cont. 2, 2026-09-01)
+>
+> David asked to apply the same live-Xero verification just done for Verdant (§0b
+> below) to PayPal 2's own pattern: 7 monthly `-adj` reclassification rows
+> (`2026-01-31-adj` through `2026-07-31-adj`), each carrying a
+> `xero_manual_journal_id` — `670f3dbe`, `b0b4a203`, `0d080de1`, `e4d26ad1`,
+> `a8bbccca`, `5351abb3`, `a2c49ead` in that order. Re-pulled `loan_splits` fresh
+> from the DB (not just trusted from earlier this session) and confirmed all 7
+> exist with the amounts already on file. Two things surfaced worth checking
+> **before** trusting PayPal 2's pattern as uniformly safe:
+>
+> 1. **April's `-adj` row runs the OPPOSITE sign from the other six.** Jan, Feb,
+>    Mar, May, Jun, Jul all have `principal_amount` positive / `interest_amount`
+>    negative (money reclassed OUT of the loan account into interest expense —
+>    the same direction Verdant's pattern runs, which session 258 cont. proved is
+>    the UNSAFE direction against `_loanCloseRollforward`'s `Math.max(0, …)`
+>    clamp on `drawn`). April (`2026-04-30-adj`, journal `e4d26ad1`) is reversed:
+>    `principal_amount=-4219.54`, `interest_amount=+4219.54`. Whether this
+>    actually breaks April's `computed` balance couldn't be checked — no
+>    `loan_book_balances` snapshot survives for April (the table only keeps the
+>    2 most recent month-end rows per loan, currently June 30 / July 31). Confirm
+>    what April's journal actually did before assuming it's equivalent to the
+>    other six.
+> 2. **New since the last check: the regular weekly `posted` splits from
+>    2026-05-06 onward now carry their OWN `xero_manual_journal_id`**
+>    (`ebb5eabf`, `39101d30`, `f1ff0067`, `334c6ec6`, `9aff8720`, `b047a9fe`,
+>    `d846d408`, `8f9a97a6`, `c33a32fe`, `4e907acd`, `ba95a4e0`, `61326bc0`) —
+>    something the earlier PayPal 2 confirmation never mentioned. Not yet traced
+>    what these are (each week's own bank-matched journal, vs. something new).
+>
+> **Blocked:** every `xero-read` call — `manual_journals` AND a plain `accounts`
+> lookup — came back `429` from Xero itself, and stayed `429` across 4+ minutes of
+> waiting. Likely the daily quota, not a one-minute burst: you (David) triggered
+> `reconciliation-run` **5 times** between 17:13 and 02:15 UTC today, each
+> checking all 14 loans against live Xero, on top of the heavy `payment_picture`
+> tracing done earlier in the day for Verdant. David: "update notes with what
+> you've done so far today and we'll recheck tomorrow morning." **Next session:
+> retry `xero-read` first (cheap `accounts` probe before spending it on real
+> queries) — if it's the daily cap it should be clear by morning — then work the
+> two items above via `payment_picture` for each of the 7 correction journals,
+> the same technique as §0b.**
+>
+> ### 0b. 🔎 SESSION 258 (2026-08-31, closed) — Verdant's August interest split
 > already exists in Xero; ask David who posted it
 >
 > Working down the priority list David asked for, item 2 (fix Verdant's missing
@@ -2518,6 +2561,60 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 258 cont. 2 (2026-09-01) — PayPal 2 correction-journal tracing started, blocked on Xero's rate limit before any live check landed
+
+David, after the Verdant work below: "continue with Paypal 2 tracing using
+journal and transaction history" — i.e. apply the exact same live-Xero
+verification (`xero-read` `payment_picture`, not just trusting the DB) to
+PayPal 2's own already-confirmed pattern and its 7 correction journals, rather
+than resting on the DB-only confirmation from earlier this session.
+
+**Done:** re-pulled PayPal 2's `loan_splits` fresh (44 rows, Dec 2025 through
+the 2026-09-02 staged row) rather than trusting the earlier-session read, and
+confirmed the 7 known `-adj` rows / journals are still exactly as recorded:
+`2026-01-31-adj`/`670f3dbe` (+59.59/-59.59), `02-28-adj`/`b0b4a203`
+(+2,544.96/-2,544.96), `03-31-adj`/`0d080de1` (+5,746.93/-5,746.93),
+`04-30-adj`/`e4d26ad1` (-4,219.54/+4,219.54 — **sign-flipped, see below**),
+`05-31-adj`/`a8bbccca` (+9,700.61/-9,700.61), `06-30-adj`/`5351abb3`
+(+1,859.69/-1,859.69), `07-31-adj`/`a2c49ead` (+3,142.26/-3,142.26).
+
+**Two findings, neither yet resolved — both belong to the DB re-pull, not to
+any live Xero check (none succeeded this segment):**
+
+1. April's `-adj` row is the only one of the seven running the opposite sign
+   from the rest. Every other month reclasses money OUT of the loan account
+   into interest expense (principal positive / interest negative) — the exact
+   direction session 258 cont.'s Verdant work proved is UNSAFE against
+   `_loanCloseRollforward`'s `Math.max(0, drawnGross - nettableInterest)` clamp
+   when a loan sits at that floor. April runs the other way. Could not check
+   whether April actually sits at the floor — `loan_book_balances` only
+   retains the 2 most recent month-end snapshots per loan (June 30 / July 31
+   for PayPal 2 right now), nothing back to April. **Open. Needs either a live
+   Xero look at what April's journal (`e4d26ad1`) actually did, or accepting
+   the risk is untestable until the loan cycles back through a month shaped
+   like April again.**
+2. The regular weekly `posted` splits from 2026-05-06 onward (12 rows through
+   2026-07-29) now each carry their own `xero_manual_journal_id` — `ebb5eabf`,
+   `39101d30`, `f1ff0067`, `334c6ec6`, `9aff8720`, `b047a9fe`, `d846d408`,
+   `8f9a97a6`, `c33a32fe`, `4e907acd`, `ba95a4e0`, `61326bc0`. Earlier
+   confirmation of PayPal 2's pattern never mentioned per-week journal links —
+   only the 7 monthly `-adj` rows. Not traced: whether these are simply each
+   week's own bank-matched journal (harmless, expected) or something new since
+   the pattern was last reviewed. **Open, untraced.**
+
+**Blocked:** every `xero-read` call this segment came back `429` from Xero
+itself — `manual_journals` and even a bare `accounts` lookup, both endpoints,
+stayed `429` across three separate attempts spanning 4+ minutes of waiting.
+Reads like the daily quota rather than the 60/minute burst limit: David
+triggered `reconciliation-run` 5 times today (17:13, 20:22, 22:07, 23:21,
+02:15 UTC), each checking all 14 loans against live Xero, stacked on top of
+the heavy `payment_picture` tracing session 258 cont. did for Verdant earlier
+the same day. David: "update notes with what you've done so far today and
+we'll recheck tomorrow morning." **No DB writes this segment — read-only.**
+Pick-up instructions filed in the START HERE block above.
 
 ---
 
