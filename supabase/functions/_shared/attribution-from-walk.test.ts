@@ -33,7 +33,65 @@ Deno.test("the short-circuit response is detected before anything else is read",
   assertEquals(r.verdicts, [])
 })
 
-Deno.test("LIVE GAP — a BankTransaction claim refuses today, because the walk omits Xero's txn type", () => {
+Deno.test("the CALLER can supply the transaction type the walk omits", () => {
+  // The type comes from the caller's OWN ledger pull, not from the walk — which is what
+  // keeps the gate's re-derivation a real check instead of a tautology.
+  const v = attributionFromWalk(base, {
+    txnTypeById: new Map([['30886184-e137-42be-8b8c-7fe2dc2a1aa6', 'SPEND']]),
+  }).verdicts[0]
+  assertEquals(v.refusals, [])
+  assertEquals(v.confidence, 'confirmed')
+  assertEquals(v.amount, 181.97)
+  assertEquals(v.evidence.computed_effect, -793.81)
+})
+
+Deno.test("a caller-supplied type for a DIFFERENT entry does not leak onto this one", () => {
+  const v = attributionFromWalk(base, { txnTypeById: new Map([['some-other-id', 'SPEND']]) }).verdicts[0]
+  assert(v.refusals.includes('entry_direction_unknown'))
+})
+
+Deno.test("PRECEDENCE — when both sources speak, the CALLER's type wins", () => {
+  // The whole point of asking the caller is that its type comes from an independent
+  // ledger pull. If the walk ever starts carrying `txn_type` and the two disagree,
+  // the walk must not be able to override the source we trust.
+  const withWalkType: WalkResponse = {
+    ...base,
+    cpa_exception: {
+      ...E4_EXCEPTION,
+      entry: { ...E4_EXCEPTION.entry, txn_type: 'RECEIVE' },
+    },
+  }
+  const v = attributionFromWalk(withWalkType, {
+    txnTypeById: new Map([['30886184-e137-42be-8b8c-7fe2dc2a1aa6', 'SPEND']]),
+  }).verdicts[0]
+  assertEquals(v.refusals, [])
+  assertEquals(v.confidence, 'confirmed')
+})
+
+Deno.test("PRECEDENCE discriminates — the walk's type is still used when the caller is silent", () => {
+  const withWalkType: WalkResponse = {
+    ...base,
+    cpa_exception: {
+      ...E4_EXCEPTION,
+      entry: { ...E4_EXCEPTION.entry, txn_type: 'SPEND' },
+    },
+  }
+  const v = attributionFromWalk(withWalkType).verdicts[0]
+  assertEquals(v.refusals, [])
+  assertEquals(v.confidence, 'confirmed')
+})
+
+Deno.test("RECEIVE is honoured, not coerced to SPEND", () => {
+  // If the caller says the money went the other way, the gate must see that and refuse
+  // the SPEND-shaped measurement rather than quietly agreeing.
+  const v = attributionFromWalk(base, {
+    txnTypeById: new Map([['30886184-e137-42be-8b8c-7fe2dc2a1aa6', 'RECEIVE']]),
+  }).verdicts[0]
+  assertEquals(v.confidence, 'unresolved')
+  assert(v.refusals.includes('measurement_disagrees_with_entry'), JSON.stringify(v.refusals))
+})
+
+Deno.test("with NO type from anywhere, a BankTransaction claim still refuses", () => {
   // This is the real current behaviour and it is correct: without the type the gate
   // cannot verify the DIRECTION of the entry's effect, and a verdict it cannot check
   // must not ship. When entryView gains `txn_type`, the next test is what passes.

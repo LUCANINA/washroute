@@ -51,19 +51,27 @@
 // here. The open month is `reconciliation-run`'s territory (`net_after_anchor`,
 // `later_entry_dates`), not the walk's. Do not expect this module to see it.
 //
-// KNOWN GAP, and it is deliberately left visible
-// ----------------------------------------------
-// `entryView()` in loan-find-difference (line ~408) does not surface Xero's transaction
-// TYPE, although the record carries it (`rec.type`, set in normBT at line ~218) and
-// `effect()` at line ~212 depends on it. Without it the gate cannot independently
-// verify the direction of a BankTransaction, so every bank-transaction claim built here
-// refuses with `entry_direction_unknown` until this one-line change lands:
+// THE DIRECTION PROBLEM, AND WHY IT IS THE CALLER'S TO SOLVE
+// ----------------------------------------------------------
+// `entryView()` in loan-find-difference does not surface Xero's transaction TYPE, even
+// though the record carries it (`rec.type`) and `effect()` depends on it. Without it the
+// gate cannot verify the DIRECTION of a BankTransaction, and every such claim refuses
+// with `entry_direction_unknown`. That refusal is the system working -- a verdict that
+// cannot be checked should not ship.
 //
-//     src_type: rec.srcType, txn_type: rec.type ?? null, id: rec.srcId, ...
+// The tempting fix is to infer the type from `effect_on_loan`. **That is circular**: the
+// walk computed that field with the same effect() math the gate re-derives, so the gate
+// would be checking its own input against itself and agreeing by construction. It is the
+// settlement-lag mistake (session 245) in a new place. Do not re-add it as a convenience.
 //
-// That refusal is the system working. A verdict that cannot be checked should not ship,
-// and this is exactly the class of "we did not actually look" that the gate exists for.
-// ManualJournal claims are unaffected -- their sign is carried by the line amounts.
+// The second tempting fix is to patch `entryView` and redeploy loan-find-difference --
+// a ~70KB file, for one field.
+//
+// Neither is necessary. **The caller already knows.** Whatever runs this (reconciliation-run
+// is the intended one) pulls the ledger itself and holds each BankTransaction's `Type`.
+// So it passes `txnTypeById`, and the type reaches the gate from a source INDEPENDENT of
+// the walk -- which is what makes the gate's re-derivation a real check rather than a
+// tautology. ManualJournals need nothing: their direction is in the line signs.
 
 import { gate, type GateResult, type LedgerEntry, type Claim, factualSentence, money } from './attribution-gate.ts'
 
@@ -101,6 +109,12 @@ export type Skipped = { from: string; to: string; reason: string; entryId?: stri
 
 export type WalkOptions = {
   /**
+   * Xero entry id -> that BankTransaction's `Type` ('SPEND', 'RECEIVE', ...), from the
+   * CALLER's own ledger pull, never from the walk. Supplying it is what lets the gate
+   * verify a bank transaction's direction; without it such claims correctly refuse.
+   */
+  txnTypeById?: Map<string, string | null>
+  /**
    * Xero entry id -> the PRINCIPAL amount our own split records against it. A culprit is
    * suppressed only when the recorded amount agrees with what the entry actually moved;
    * an entry we have on file at a DIFFERENT amount is precisely the PCV shape and is
@@ -117,14 +131,17 @@ export type WalkAttribution = {
 }
 
 /** Map the walk's line shape onto the gate's. `account_code` is authoritative. */
-function toLedgerEntry(v: WalkEntryView): LedgerEntry {
+function toLedgerEntry(v: WalkEntryView, txnTypeById?: Map<string, string | null>): LedgerEntry {
+  // Precedence is deliberate: the CALLER's independently-pulled type wins, then anything
+  // the walk itself supplies (only if entryView is ever patched), then nothing — and
+  // nothing means the gate refuses rather than assuming SPEND.
+  const fromCaller = txnTypeById?.get(String(v.id))
   return {
     id: v.id,
     date: v.date,
     kind: v.src_type,
     total: v.total ?? null,
-    // Absent today. Left undefined rather than guessed — the gate refuses on it.
-    txnType: v.txn_type ?? undefined,
+    txnType: fromCaller ?? v.txn_type ?? undefined,
     lines: v.lines ? v.lines.map(l => ({ account: String(l.account_code), amount: Number(l.amount) })) : null,
   }
 }
@@ -155,7 +172,7 @@ export function attributionFromWalk(walk: WalkResponse, opts: WalkOptions = {}):
   // to arithmetic out at zero.
   if (exc?.diagnosis && exc.entry && exc.diagnosis.shape !== 'no_duplication') {
     const d = exc.diagnosis
-    const entry = toLedgerEntry(exc.entry)
+    const entry = toLedgerEntry(exc.entry, opts.txnTypeById)
     const moved = Number(exc.entry.effect_on_loan)
     // EXPECTED from primary fields only: the payment total less what this period
     // genuinely owes in interest. Never from `duplicated`, which is the answer.
@@ -219,7 +236,7 @@ export function attributionFromWalk(walk: WalkResponse, opts: WalkOptions = {}):
           reason: 'already recorded in our own splits, at the same amount' })
         continue
       }
-      const entry = toLedgerEntry(cEntry)
+      const entry = toLedgerEntry(cEntry, opts.txnTypeById)
       const moved = Number(cEntry.effect_on_loan)
       // v2 set `expected = moved - p.diff`, which made the "derived" amount identical to
       // the walk's own diff BY CONSTRUCTION, and then asserted "the only entry whose
