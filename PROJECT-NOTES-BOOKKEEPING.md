@@ -1,57 +1,37 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 258 cont. 3, 2026-09-01)
+> ## ⏭️ START HERE — first thing, next session (left by session 259, 2026-09-01)
 >
-> ### 0a. 🔧 NOT YET VISUALLY VERIFIED — Overview's new Closing/In-flight period
-> bar (built session 258 cont. 3, 2026-09-01)
+> ### 0a. ✅ CLOSED (session 259, 2026-09-01 15:05 UTC) — Overview's period bar
+> VISUALLY VERIFIED live, with one cosmetic mismatch left open
 >
-> David asked for Overview to distinguish "what's important for closing LAST
-> MONTH" from "what's happening THIS MONTH" (inspired by his own screenshots of
-> an Issues tab with a July/August toggle). Investigated first rather than
-> building from the screenshot alone, and found the Loans page already answers
-> this exact question (`renderLoansPeriodBar()`, Closing/In-flight, session
-> 241) — Overview had just never picked it up. Also found that Overview's
-> Issues tab is driven by `loan_tie_outs` (the reconciliation engine's verdict,
-> server-side), a DIFFERENT computation from the client-side rollforward that
-> powers the Loans page's Close Rollforward band. Building a month-filtered
-> Issues view from the rollforward would have created a third, independently
-> -computed answer to "is this loan off" — precisely the "two surfaces
-> disagreeing about one number" failure this module's history warns about
-> hardest (see `_bkRosterCounts`' own comment). So the build deliberately does
-> NOT recompute anything:
-> * New `renderOverviewPeriodBar()` — a period bar on Overview's queue card,
->   reading/writing the SAME `_loansPeriod` state as the Loans page (one
->   source of truth, not two toggles that can disagree).
->   **Closing \<last month\>**: Issues/Approvals/Staged all render exactly as
->   before — zero change to any computation.
->   **This month \<in progress\>**: Issues shows a quiet "Nothing to close
->   yet" message instead of the same content under a second label (the
->   statusline sentence gets the matching override so the two can't
->   disagree); Approvals and Staged are unchanged in both periods, since
->   neither is really a "closing month" question.
-> * Touched: `admin-dashboard/index.html` — new `#bk-ov-period-bar` div in the
->   Overview card HTML, new `renderOverviewPeriodBar()` function,
->   `switchLoansPeriod()` now also refreshes Overview when its element is on
->   screen, two small period-aware branches inside `renderBookkeepingOverview()`
->   (the statusline sentence, and the Issues queue body). Committed locally
->   (`6aa6d05`), **not pushed** — David pushes himself, per the usual protocol.
-> * Verified: `node --check` on both inline scripts (clean), diff reviewed by
->   hand, execution order traced carefully (relies on function hoisting the
->   same way the rest of this file already does — nothing new there).
->   **NOT verified: an actual click-through in a live browser.** No live
->   authenticated session was available to drive this from here. Load the
->   Overview tab, confirm the new period bar appears above Issues/Approvals/
->   Staged, toggle between Closing and This month, and confirm Issues shows
->   its real list under Closing and the quiet message under This month —
->   before trusting this in front of anyone else.
-> * Also noticed, unrelated to this change: `git status` on this repo now
->   shows roughly 2,000 lines of `_to_delete/HEAD.lock.*` entries marked
->   deleted-but-tracked — years of past sessions' stale-git-lock workarounds
->   apparently got committed into `_to_delete/` at some point and then cleaned
->   up outside of git. Cosmetic (doesn't block commits), but worth a real
->   cleanup (`git rm -r --cached _to_delete/` plus a `.gitignore` entry) some
->   session that isn't this one.
+> Session 258 cont. 3 left this "NOT verified: an actual click-through in a live
+> browser." Done now, against the real deployed site
+> (`admin.familylaundry.com/#bookkeeping/overview`, signed in as David in his own
+> Chrome — Claude's browser pane has no session on that host). Everything the
+> pickup item asked for behaves as designed:
+> * The period bar renders above Issues/Approvals/Staged: **Closing August 2026
+>   · 8 to clear** | **This month September 2026**.
+> * **Closing** → Issues shows its real 6-row variance table (PCV, Funding Circle,
+>   E-Transit 4140, E5-4751, E4-9744, EIDL), statusline "5 of 14 loans reconciled ·
+>   5 need attention · 4 settled or waiting".
+> * **This month** → the quiet "Nothing to close yet" panel, and the statusline
+>   correctly overrides to "nothing to close yet for September 2026". The two
+>   cannot disagree, which was the point.
+> * **Approvals and Staged are byte-identical in both periods** (checked
+>   Approvals: the same single payroll card either way), as intended.
+> * **The shared `_loansPeriod` state works in BOTH directions across pages** —
+>   toggling on Loans and navigating to Overview carries, and vice versa. One
+>   source of truth confirmed live, not just in the diff.
 >
+> **The one thing left open — a cosmetic instance of this module's own worst
+> failure shape.** Under **This month**, the segment pill still reads **"Issues
+> (6)"** while the body says "Nothing to close yet". Two numbers on one screen with
+> no way to tell which is real — the exact pattern `_bkRosterCounts`' comment warns
+> about, in miniature. It is only a label (nothing miscomputes, and the count is
+> genuinely August's), but a CPA reading "Issues (6)" beside "nothing to close" has
+> to work out which one is lying. Options if it gets fixed: drop the count under
+> `inflight`, or show `Issues (0)`. **Not fixed — David has not been asked yet.**
 > ### 0. 🔎 PICK UP HERE — PayPal 2 correction-journal tracing, blocked on Xero's
 > daily API rate limit (started session 258 cont. 2, 2026-09-01)
 >
