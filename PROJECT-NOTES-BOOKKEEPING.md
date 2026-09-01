@@ -2632,6 +2632,123 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 12 (2026-09-01) — ⛔ AUDIT: the new modules are NOT FIT TO WIRE. 14 defects, 3 severe, every one reproduced.
+
+David: *"Before I get home: check, recheck your work."* An adversarial agent attacked
+`attribution-from-walk.ts` and `attribution-store.ts`; **every finding was then
+reproduced independently by running the real modules**, not taken on the agent's word.
+Both files now carry a ⛔ banner. **Do not wire either into `reconciliation-run` until
+this list is worked through.**
+
+#### 🔴 SEVERE 1 — the gate's brand is not a brand, and my header said otherwise
+
+`attribution-store.ts` claimed *"A hand-built verdict cannot reach the database through
+this door."* **That sentence is false.** `gated: true` is a plain data property;
+`readonly` is erased at runtime. A forged object literal passes the filter:
+
+```
+counts.ungated = 0
+headline       = "The CPA plugged the balance to make it agree."
+correction     = {"amount":250000,"description":"post this"}
+```
+
+Motive prose — the exact thing `lintMotive` exists to stop — became the loan's headline,
+with a quarter-million-dollar postable correction attached. **And a real verdict
+laundered through `JSON.parse(JSON.stringify(v))` keeps the brand**, so any HTTP or
+queue hop (an edge function IS one) strips the guarantee.
+
+**My own test passed only because the fake I wrote omitted the key.** Fifth
+undiscriminating assertion of the day.
+
+Same line, second bug: an object with the brand but no `refusals` array **crashes**
+`buildAttributionPayload` with `Cannot read properties of undefined` — a malformed
+verdict takes down the whole reconciliation run instead of being counted.
+
+*Fix:* mint gated results into a `WeakSet` inside `attribution-gate.ts` and check
+membership, or re-derive `confidence`/`sentence` in the store from `refusals` +
+`violations` rather than trusting the fields. Validate shape before mapping.
+
+#### 🔴 SEVERE 2 — `expected` is never verified, so confident sentences state falsehoods
+
+The gate checks `moved` against the entry's lines. **It never checks `expected`** — so a
+wrong `expected` becomes the entire reported responsibility, at full confidence.
+
+* **A third line inflates the answer.** `-(total - owed)` assumes every payment is
+  exactly `[loan line, interest line]`. Add a $50 bank fee and the reported duplicated
+  interest goes from $181.97 to **$231.97** — the fee, reported as interest. `confirmed`,
+  no refusal. The E4 fixture has exactly two lines, so no test could see it.
+* **`owed > total` flips the sign**, and `factualSentence` hides it behind
+  `Math.abs`. Verified output, at `confirmed`:
+  > *"A payment dated 2026-05-11 reduced Loan 244 by $100.00. **The schedule supports
+  > $400.00** — a difference of $500.00. **Its interest line of $0.00 covers more than
+  > the $500.00 this period owes.**"*
+
+  Two false statements as fact. The trailing clause is appended unconditionally without
+  ever testing `at_source > owed`.
+
+#### 🔴 SEVERE 3 — the span path launders the walk's own number and asserts a check nobody ran
+
+`expected = moved − p.diff` makes `amount === p.diff` **by construction**. So cont. 8's
+claim that the responsibility is *"DERIVED by the gate, never taken from the caller"* is
+true on the exception path and **false on the span path**. Worse, the sentence appends
+*"the only entry whose effect equals the gap"* without comparing them. Verified:
+
+> *"A journal dated 2026-07-31 reduced Paypal 2 by $3,142.26. The schedule supports
+> $2,142.26 — a difference of $1,000.00. It is the only entry whose effect equals the
+> gap."*
+
+$3,142.26 ≠ $1,000.00, and **$2,142.26 exists nowhere** — it is `moved − diff`, invented
+to make the subtraction close. For `extra_entry` the correct `expected` is **0**.
+
+#### 🟠 The rest, in severity order
+
+4. **The suppression added in cont. 9 can hide a real defect.** A bank transaction
+   matched to a split is evidence we SAW it, not that it is right — **which is precisely
+   the PCV shape** (on file *and* the defect). Verified: a `duplicate_suspected` culprit
+   with a $5,000 gap is silently skipped and the loan reads *"Nothing on this loan needs
+   attributing."* Also asymmetric — `recordedEntryIds` is consulted on the span path only.
+5. **The headline lies by omission.** It ignores `ungated`, `omitted` and `skipped`
+   entirely: five ungated verdicts, or one suppressed $5,000 culprit, both read as
+   *"Nothing on this loan needs attributing."* And one $50 confirmed verdict outranks
+   three unresolved spans totalling $240k in the documented SQL surface.
+6. **`violations` — a caller bug by the gate's own definition — is counted nowhere** and
+   is prime truncation material, because a violation demotes to `probable`.
+7. **ManualJournal exceptions are a blind spot reported as corrupt data**
+   (`amount_not_finite`), and because `amount` is 0 they sort LAST — *the cases the
+   pipeline understood least are the first to be truncated away.*
+8. **Refused verdicts store no span**, so two different findings of equal size are
+   byte-identical and indistinguishable.
+9. **`skipped` is unbounded** — 400 entries is a 23KB payload, ~2× the module's own size
+   assertion, in a column rewritten every run.
+10. **The sort is not total**: `+500` and `−500` unexplained spans tie on every key, so
+    stored bytes depend on emission order. The determinism test passes only because its
+    fixtures differ in amount.
+11. **An immaterial refusal is reported as a finding** — a 1¢ span yields *"1 difference
+    on this loan, none of which a specific ledger entry accounts for yet."* The gate
+    refused *because there is no material difference*.
+12. **Evidence that justified the confidence is dropped** — `computed_effect`, `moved`,
+    `expected` and the A3 `habit` denominator are all absent from storage. A workpaper
+    needs the arithmetic, not just the conclusion.
+13. **The 2¢ tolerance is sign-asymmetric.** `Math.round` is half-up: `+0.025` → `0.03`,
+    ships as a finding; `−0.025` → `−0.02`, refused as immaterial. **The same bug class
+    the gate's own comment claims to have fixed**, reintroduced one layer up.
+14. `notEnoughHistory` blanks a real headline while keeping the verdicts.
+
+#### What this says about the day
+
+The gate was written to stop confident wrong answers, was itself found broken, was
+rewritten, and **the two modules built on top then reproduced the same failure in new
+clothes**: `expected` unverified where `moved` is checked; a "derived" figure that is
+the caller's own number; a guarantee asserted in a comment with no test behind it.
+**A rule enforced at one layer is not enforced at the layer above it**, and every one of
+these got past 61 green tests written by the person who wrote the code.
+
+Nothing here reaches production — no caller exists, nothing is deployed. The cost is
+work to redo, not money misposted. **Fix order: 1, 2, 3 before anything else; 4 and 5
+before any UI; the rest before it is called a workpaper.**
+
+---
+
 ### Session 259 cont. 11 (2026-09-01) — the STORAGE layer: `attribution-store.ts`. 61/61, 8 mutations, and one of my own tests proved worthless until a mutation killed it.
 
 `_shared/attribution-store.ts` turns gated verdicts into the payload for

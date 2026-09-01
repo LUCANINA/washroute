@@ -1,3 +1,13 @@
+// ⛔ NOT FIT TO WIRE — adversarial audit 2026-09-01. Two severe defects in THIS file:
+//   * `expected = -(total - owed)` absorbs any third line on the payment (a bank fee
+//     becomes reported duplicated interest) and can produce a positive expected effect
+//     for a SPEND, shipping two false sentences at `confirmed`.
+//   * the span path sets `expected = moved - p.diff`, which makes the "derived" amount
+//     identical to the walk's own `diff` BY CONSTRUCTION, and then appends "the only
+//     entry whose effect equals the gap" without ever checking that it does.
+// Also: `recordedEntryIds` suppression can hide a real culprit, and is applied on the
+// span path only. See PROJECT-NOTES-BOOKKEEPING.md session 259 cont. 12.
+//
 // _shared/attribution-from-walk.ts — the gate's first caller (session 259)
 //
 // Turns `loan-find-difference`'s analyze-mode response into GATED verdicts.

@@ -1,3 +1,10 @@
+// ⛔ NOT FIT TO WIRE — adversarial audit 2026-09-01 found 14 defects, 3 of them
+// severe, ALL REPRODUCED INDEPENDENTLY. Do not call this module from
+// `reconciliation-run` or any other caller until the fix list in
+// PROJECT-NOTES-BOOKKEEPING.md (session 259 cont. 12) is worked through. The
+// headline claims below about what "cannot" happen were wrong; treat every
+// reassuring sentence in this header as unverified until its test exists.
+//
 // _shared/attribution-store.ts — what gets STORED, and what deliberately does not
 // (session 259 cont. 11)
 //
@@ -6,9 +13,12 @@
 //
 // THE JOB IS AS MUCH ABOUT REFUSING TO STORE AS ABOUT STORING
 // ----------------------------------------------------------
-//  * **Nothing ungated gets in.** Verdicts arrive branded `gated: true`; anything
-//    without the brand is dropped and counted. A hand-built verdict cannot reach the
-//    database through this door.
+//  * ~~**Nothing ungated gets in.**~~ **THIS CLAIM IS FALSE — see the banner above.**
+//    `gated: true` is a plain data property, so any object literal carrying it passes
+//    the filter. A forged verdict was stored with its motive prose as the loan's
+//    headline and a $250,000 postable correction attached (verified 2026-09-01).
+//    The brand must become a runtime registry (WeakSet minted inside the gate) or the
+//    store must re-derive confidence from refusals rather than trusting the field.
 //  * **Bounded by construction.** A loan can produce a dozen spans; PayPal 2 produced
 //    ten. Storing every verdict with every line item would bloat a jsonb column that
 //    `reconciliation-run` rewrites on every run. So: `MAX_VERDICTS` kept, the rest
