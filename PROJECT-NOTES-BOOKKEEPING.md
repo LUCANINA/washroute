@@ -22,9 +22,16 @@
 > not need any change; if nobody made it, that is worth knowing too.
 >
 > **Confirmed by David (2026-08-31): he split this transaction directly in Xero
-> himself.** Verdant's August interest split is closed — no DB change needed, our
-> `loan_splits` `Period 14` row stays as-is (matches the pattern of Verdant's other
-> historical rows: `status='posted'`, no `xero_manual_journal_id`).
+> himself.** Verdant's August interest split is closed in Xero — but session 258
+> cont. (2026-09-01) found the DB conclusion above was wrong: `Period 14` is
+> INVISIBLE to the Close Rollforward. `_monthSplits()` matches on
+> `period_label.slice(0,7) === 'YYYY-MM'`, and `"Period 14".slice(0,7)` is
+> `"Period "`, never a month label — so August's payment was correctly split in
+> Xero but had ZERO representation in any month the rollforward can actually see.
+> Fixed by inserting a real `2026-08-10` row with the ACTUAL posted split
+> (2,707.57 / 1,835.75, not the schedule's 2,707.61 / 1,835.71) and linking both
+> July's and August's correction journals directly onto their period rows. Full
+> writeup: session 258 cont. log entry below, dated 2026-09-01.
 >
 > Also this session: corrected two more stale "not deployed" claims in this same
 > block — see §1 and §13a, both now marked deployed and checked against `git log` /
@@ -2511,6 +2518,83 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 258 cont. (2026-09-01) — Verdant's rollforward $0.04: root-caused, and a real adjustment-pattern bug caught before it shipped
+
+David: "identify the root cause of Verdant's mismatch and propose a one-click
+adjustment. Use all the tools we built today and integrate findings into a new
+version." Two genuinely separate things were tangled under "Verdant's mismatch,"
+and pulling them apart is the whole finding:
+
+**The $0.04 on the July close row is NOT a payment error and nothing here fixes
+it.** It is the gap between the amortization schedule's own internally-computed
+running `balance` column and the real Xero-rebuilt book balance — already present
+at 2026-06-30 (books $253,582.23 vs. schedule $253,582.27) and simply carried
+forward unchanged into July, because July's actual split matches the schedule
+exactly. A few cents of rounding baked into how the schedule was generated,
+immaterial, not chased further.
+
+**The real, fixable thing: Verdant's monthly payment posts to Xero in full (no
+split at source), and someone hand-journals the interest back out afterward,
+every month** — same class of bug as Paypal 2 (session 258, earlier). Verified
+live via `xero-read`'s `payment_picture` for both July and August: each is a
+single, clean correction (no double-count). The two `double_reallocation`
+findings against these payments were real at creation time but are correctly
+`resolved` now — re-confirmed against live Xero, not just trusted because the DB
+says so.
+
+**What was fixed (DB only, no redeploy — the pattern-recognition engine built
+earlier this session is already live):**
+* Inserted a `loan_adjustment_patterns` row for Verdant (394 → 800), **status
+  'dormant'** — Verdant has `prestage_enabled=true` and September's payment is
+  already staged pre-split correctly (interest 1,815.90 exact to the schedule),
+  so the root cause should not recur. Notes on the row carry the full breakdown
+  below for the next reader.
+* Linked both known correction journals (`2af0f6ad` for July, `1170c9bd` for
+  August) directly onto their real `loan_splits` period rows — enough for
+  `unexplainedHandPosted()` to stop re-flagging them, since it only checks
+  whether a journal id appears on *any* split for the loan.
+* Backfilled the **missing** `2026-08-10` row entirely (see the START HERE
+  correction above) using the actual posted split, not the schedule's.
+* Left the other 4 corrections inside the `unexplained_ledger_adjustment`
+  finding ($568,709.00 of its $572,400.13) untouched: they're one-time
+  2026-06-30 capital-asset entries — $123,141.23 to 609 Construction in
+  Progress-Solar (roofing/solar), $47,884.82 to 610 Loss on Asset (BESS battery
+  — that account choice looks off for a capitalized asset, worth the CPA
+  confirming), $113,328.45 to 150 Plants/Property/Equipment (EV Depot), and a
+  $284,354.50 re-booking onto the loan account reversing an earlier voided
+  entry. None touch account 800, so they were never going to match this
+  pattern's account pair — confirmed structurally, not just by narration.
+
+**A real bug found and NOT shipped, worth a dedicated look before this pattern
+mechanism is trusted on another loan:** `adjustment-patterns.ts`'s
+`splitRowForMatch()` writes a `total_amount=0` reclassification row
+(`principal_amount` = the journal's own loan-line amount, `interest_amount` =
+its negative) meant to net to zero inside the client's rollforward formula
+(`opening + drawn − principal = computed`, in `_loanCloseRollforward`). That
+identity only holds when the reclass's sign pushes `drawn` AWAY from its `Math.
+max(0, …)` floor. Verdant sits AT that floor already — `drawn` exactly equals
+split interest for this loan (named explicitly in the session 247 comment) —
+and its reclass sign pushes `drawn` further negative, which clamps at 0 and
+breaks the cancellation. Built the two `-adj` rows exactly as the engine would,
+verified by hand against real `loan_book_balances` rows that they moved July's
+`computed` balance by +$1,855.38 (would have shown as a brand-new ~$1,855
+variance in place of the harmless -$0.04), then deleted both before they were
+ever visible anywhere. **Paypal 2's own 7 `-adj` rows (confirmed earlier this
+session) are safe** — verified the same way against real July data — because
+its reclass journals happen to run the opposite sign. This is loan-specific and
+silent: nothing warns a session confirming a new pattern which direction it got.
+Worth a real fix (a sign-aware guard, or reworking the cancellation to not
+depend on which side of the floor a loan sits) before the next pattern
+confirmation on a loan shaped like Verdant rather than Paypal 2.
+
+**Not done:** did not trigger a live `reconciliation-run` — the function
+requires a real admin/manager/cpa user session token (unlike `xero-read`, it has
+no `x-wr-internal` bypass), which this session does not have. David needs to
+click "Run reconciliation" once for the Approvals queue and the
+`unexplained_ledger_adjustment` count (6 → 4) to actually reflect the above.
 
 ---
 
