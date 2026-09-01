@@ -57,6 +57,16 @@ export type StoredVerdict = {
   habit?: { considered: number; satisfied: number } | null
   refusals?: string[]
   violations?: string[]
+  /**
+   * Was this gap born before the last closed period?
+   *
+   * TRUE / FALSE are claims. NULL is the third answer and it is not a formality: with
+   * no close date on file we do not KNOW, and reporting `false` there would be a
+   * derived fact wearing a measured one's clothes — the exact substitution this
+   * pipeline exists to prevent. A verdict with no `period` is null for the same
+   * reason: nothing to compare.
+   */
+  inherited?: boolean | null
   lines?: Array<{ account: string; amount: number }>
   correction?: { amount: number; description: string } | null
 }
@@ -108,7 +118,7 @@ export function recordedEntryAmounts(
  * accounts for" — the gate refused precisely because there is no material difference.
  * Both are fixed: defects are always named, and immaterial refusals are not differences.
  */
-function headlineFor(kept: StoredVerdict[], all: StoredVerdict[], counts: AttributionPayload['counts']): string {
+function headlineFor(kept: StoredVerdict[], all: StoredVerdict[], counts: AttributionPayload['counts'], priorCloseDate?: string | null): string {
   const parts: string[] = []
   const top = kept.find(v => v.confidence !== 'unresolved')
   const realUnresolved = all.filter(v =>
@@ -122,11 +132,35 @@ function headlineFor(kept: StoredVerdict[], all: StoredVerdict[], counts: Attrib
 
   if (top && realUnresolved > 0) parts.push(`${realUnresolved} further difference${realUnresolved === 1 ? '' : 's'} unaccounted for.`)
   if (counts.omitted > 0) parts.push(`${counts.omitted} more not listed here.`)
+  // Say it in the headline, because it changes what the CPA does next: a gap born
+  // inside a closed period is a reopen-or-absorb decision, not a correcting entry.
+  // Counted over KEPT verdicts only — those are the ones whose flag is on display.
+  const inherited = kept.filter(v => v.inherited === true).length
+  if (inherited > 0 && priorCloseDate) {
+    parts.push(`${inherited} of these ${inherited === 1 ? 'was' : 'were'} born on or before the ${priorCloseDate} close.`)
+  }
   // These are DEFECTS in the pipeline, not findings about the loan. Never silent.
   if (counts.ungated > 0) parts.push(`⚠ ${counts.ungated} verdict(s) were rejected as not gate-issued.`)
   if (counts.malformed > 0) parts.push(`⚠ ${counts.malformed} malformed verdict(s) were discarded.`)
   if (counts.violations > 0) parts.push(`⚠ ${counts.violations} explanation(s) were withheld for attributing motive.`)
   return parts.join(' ')
+}
+
+/**
+ * David's rule, session 259: a gap is INHERITED when it was born older than the prior
+ * close. `period.from` is the earliest date the gap could have been born — the span
+ * opens there — so a span opening on or before the close date is inherited.
+ *
+ * The boundary is deliberately INCLUSIVE. A gap born ON the close date is inside the
+ * closed period, not after it; `<` would hand the CPA a gap dated the day of the close
+ * and call it current, which is the one date she is most likely to be asked about.
+ */
+export function inheritedFlag(
+  period: { from: string; to: string } | null | undefined,
+  priorCloseDate: string | null | undefined,
+): boolean | null {
+  if (!priorCloseDate || !period?.from) return null
+  return period.from <= priorCloseDate
 }
 
 export function buildAttributionPayload(input: {
@@ -136,6 +170,12 @@ export function buildAttributionPayload(input: {
   generatedAt: string
   source?: string
   notEnoughHistory?: boolean
+  /**
+   * The last closed period's end date, from the caller's own read of the close
+   * table. Never read in here — same discipline as `generatedAt`. Omit or pass
+   * null when no close is on file and every verdict's `inherited` becomes null.
+   */
+  priorCloseDate?: string | null
 }): AttributionPayload {
   const counts = { confirmed: 0, probable: 0, unresolved: 0, omitted: 0, ungated: 0,
                    malformed: 0, violations: 0, skipped_omitted: 0 }
@@ -190,6 +230,7 @@ export function buildAttributionPayload(input: {
       expected_on_account: v.evidence.expected_on_account,
       computed_effect: v.evidence.computed_effect,
       habit: v.evidence.habit,
+      inherited: inheritedFlag(v.period, input.priorCloseDate),
     }
     if (v.refusals.length) row.refusals = v.refusals
     if (v.violations.length) row.violations = v.violations
@@ -214,7 +255,7 @@ export function buildAttributionPayload(input: {
     source: input.source ?? 'loan-find-difference',
     headline: input.notEnoughHistory
       ? 'Not enough lender history on file to walk this loan.'
-      : headlineFor(verdicts, allStored, counts),
+      : headlineFor(verdicts, allStored, counts, input.priorCloseDate),
     counts,
     verdicts,
     // v1 stored `skipped` wholesale — 400 entries was a 23KB payload, ~2x this module's

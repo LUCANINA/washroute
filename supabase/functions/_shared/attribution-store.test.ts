@@ -195,3 +195,75 @@ Deno.test("the stored payload stays small enough for a column rewritten every ru
   const bytes = JSON.stringify(buildAttributionPayload({ verdicts: many, generatedAt: AT })).length
   assert(bytes < 12000, `payload was ${bytes} bytes`)
 })
+
+// ── INHERITED: was the gap born inside a closed period? (session 259) ──────────
+// David's rule: older than the prior close = inherited. The flag exists so Ramona
+// can tell a reopen-or-absorb decision from a correcting entry.
+
+/** The same passing verdict, but carrying the span the gap was born in. */
+const passingInSpan = (from: string, to: string): GateResult => gate({
+  pattern: 'double_reallocation', proposed: 'confirmed', code: '254',
+  movedOnAccount: 1802.58, expectedOnAccount: 0,
+  period: { from, to },
+  entry: { id: 'd1347f7c', date: '2026-08-31', kind: 'ManualJournal',
+    lines: [{ account: '800', amount: 1802.58 }, { account: '254', amount: -1802.58 }] },
+  sentence: 'A journal dated 2026-08-31 increased the loan by $1,802.58.',
+})
+
+Deno.test("a gap born before the close is marked INHERITED", () => {
+  const p = buildAttributionPayload({
+    verdicts: [passingInSpan('2026-04-19', '2026-05-09')],
+    generatedAt: AT, priorCloseDate: '2026-07-31',
+  })
+  assertEquals(p.verdicts[0].inherited, true)
+})
+
+Deno.test("a gap born after the close is NOT inherited", () => {
+  const p = buildAttributionPayload({
+    verdicts: [passingInSpan('2026-08-01', '2026-08-31')],
+    generatedAt: AT, priorCloseDate: '2026-07-31',
+  })
+  assertEquals(p.verdicts[0].inherited, false)
+})
+
+Deno.test("the boundary is INCLUSIVE — a gap born ON the close date is inside it", () => {
+  // The one date the CPA is most likely to be asked about. `<` would call it current.
+  const p = buildAttributionPayload({
+    verdicts: [passingInSpan('2026-07-31', '2026-08-15')],
+    generatedAt: AT, priorCloseDate: '2026-07-31',
+  })
+  assertEquals(p.verdicts[0].inherited, true)
+})
+
+Deno.test("with NO close on file the answer is null, never a confident false", () => {
+  const p = buildAttributionPayload({
+    verdicts: [passingInSpan('2026-04-19', '2026-05-09')],
+    generatedAt: AT,
+  })
+  assertEquals(p.verdicts[0].inherited, null)
+  assert(!p.headline.includes('born on or before'), p.headline)
+})
+
+Deno.test("a verdict with no span is null too — there is nothing to compare", () => {
+  const p = buildAttributionPayload({
+    verdicts: [passing()], generatedAt: AT, priorCloseDate: '2026-07-31',
+  })
+  assertEquals(p.verdicts[0].period, null)
+  assertEquals(p.verdicts[0].inherited, null)
+})
+
+Deno.test("the headline says how many were inherited, and names the close it used", () => {
+  const p = buildAttributionPayload({
+    verdicts: [passingInSpan('2026-04-19', '2026-05-09')],
+    generatedAt: AT, priorCloseDate: '2026-07-31',
+  })
+  assert(p.headline.includes('1 of these was born on or before the 2026-07-31 close.'), p.headline)
+})
+
+Deno.test("DISCRIMINATES — a post-close gap produces no inherited clause at all", () => {
+  const p = buildAttributionPayload({
+    verdicts: [passingInSpan('2026-08-01', '2026-08-31')],
+    generatedAt: AT, priorCloseDate: '2026-07-31',
+  })
+  assert(!p.headline.includes('born on or before'), p.headline)
+})
