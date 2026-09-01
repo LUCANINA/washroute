@@ -2687,8 +2687,15 @@ free — every input above is already loaded by `reconciliation-run`, and it nee
 Xero call, no migration and no UI to be useful in SQL. Note also that the two-month
 window is a real limit: `loan_book_balances` keeps only the two most recent
 month-ends per loan, so "inherited" can currently only mean "older than the prior
-close", never "since March". If the verdict should name the month a gap was born,
-that retention is the thing to change first.
+close", never "since March".
+
+**DECIDED (David, 2026-09-01): that is the rule for now.** `inherited` means
+*older than the prior close* and says exactly that — it does not name the month a
+gap was born, and `loan_book_balances` retention is **NOT** being changed to make
+it. Do not treat the two-month window as an oversight to fix in passing, and do not
+let the verdict's wording imply an age it cannot measure. If naming the birth month
+ever becomes worth having, widening retention is the first move and it is a
+deliberate, separate decision — not a side effect of building the engine.
 
 ---
 

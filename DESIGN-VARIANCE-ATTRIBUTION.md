@@ -289,6 +289,10 @@ they are the two that decide whether a CPA can trust the sentence.
   make, the answer is `unresolved` plus the sentence saying what would settle it.
 - **It does not rank or hide.** Row order and population stay with
   `_bkRosterState`.
+- **It does not date the birth of an inherited gap.** `loan_book_balances` keeps two
+  month-ends per loan, so `inherited` means *older than the prior close* and must be
+  worded as exactly that. David's call, session 259: **that is the rule for now** —
+  retention stays as it is, and the verdict does not imply an age it cannot measure.
 
 ---
 
