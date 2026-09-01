@@ -2632,6 +2632,73 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 11 (2026-09-01) — the STORAGE layer: `attribution-store.ts`. 61/61, 8 mutations, and one of my own tests proved worthless until a mutation killed it.
+
+`_shared/attribution-store.ts` turns gated verdicts into the payload for
+**`loan_tie_outs.detail.attribution`** — existing jsonb, **no migration**. Still nothing
+deployed and nothing wired: this is the last pure piece, so that when the one-line
+`txn_type` deploy lands the only remaining work is the call site.
+
+**The job is as much about refusing to store as about storing:**
+* **Nothing ungated gets in.** Verdicts must carry the gate's `gated: true` brand;
+  anything else is dropped and counted in `counts.ungated`. A hand-built verdict cannot
+  reach the database through this door.
+* **Bounded by construction, but never silently.** `MAX_VERDICTS = 12` kept, the rest
+  counted in `omitted` — and the confidence COUNTS still see every verdict, so a real
+  finding cannot vanish into a truncation. PayPal 2 alone produced ten spans; this column
+  is rewritten on every run.
+* **Evidence only where it can be acted on.** Line items are stored for verdicts that
+  PASSED (a workpaper needs them); a refused verdict stores its refusal codes and no
+  lines.
+* **Deterministic.** Fixed sort key, and `generated_at` is passed IN rather than read
+  from the clock — so the payload is a pure function of its inputs, unit-testable, and a
+  re-run that changes nothing writes identical bytes instead of churning the row.
+
+What a SQL reader gets with no parsing, which is the whole phase-1 surface:
+
+```sql
+detail->'attribution'->>'headline'   -- one sentence, or the honest silence
+detail->'attribution'->'counts'      -- {confirmed, probable, unresolved, omitted, ungated}
+detail->'attribution'->'verdicts'    -- richest first
+```
+
+`recordedEntryIdsFromSplits()` lives here too — the id set the adapter needs so it never
+accuses an entry we filed ourselves (cont. 9). **Voided splits are excluded: a voided
+record is not a record**, and a mutation proves that line matters.
+
+#### The lesson, again, and this time the machine caught it rather than a person
+
+Eight mutations were run. Seven went red immediately. **One — "lines are withheld from a
+refused verdict" — stayed GREEN with the rule deleted.** The reason is exact: my fixture
+for a refused verdict used `entry: null`, so `evidence.lines` was already `null` and
+there were no lines to withhold. The assertion passed against the fixed code and the
+broken code alike. **It was decoration.**
+
+The repair is a fixture that refuses *while carrying read lines* — a sign-flipped
+measurement against PCV's real 2026-08-31 journal, which the gate rejects on
+`measurement_disagrees_with_entry` with the line items present and readable. It now goes
+red when the rule is removed, and it carries its own guard
+(`assert(v.evidence.lines !== null, 'fixture must actually carry lines, or this proves
+nothing')`) so the fixture cannot rot back into uselessness.
+
+That is the fourth undiscriminating assertion found today — after the gate's own
+cross-account "discriminating" test, and the verdict-count test in the adapter. **The
+pattern is stable enough to name: an assertion written from the same mental model as the
+code will agree with it, including when both are wrong. Only mutation reveals it.**
+
+**Verification:** 61/61 across four modules; 8 store mutations (ungated admitted, lines
+on refusals, correction leak, omitted zeroed, ordering non-deterministic, silent on
+refusals-only, `not_enough_history` hidden, voided splits counted) all detected; the 14
+earlier gate/adapter mutations still hold.
+
+**Next, and it is now genuinely small:** one call site. In `reconciliation-run`, after
+`computeTieOut`, call the walk (or `analyzeWalk` in-process — it needs a user JWT as an
+HTTP call, see §0d), pass `recordedEntryIdsFromSplits(mySplits)`, and write
+`buildAttributionPayload(...)` into the tie-out's `detail`. No UI until the stored
+verdicts have been read by hand against the six live Issues rows.
+
+---
+
 ### Session 259 cont. 10 (2026-09-01) — `git push` WORKS from the device shell, and the remote URL has a token in it
 
 Two operational facts, both worth more than they look.
