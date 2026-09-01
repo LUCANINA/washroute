@@ -39,6 +39,21 @@
 export type Confidence = 'confirmed' | 'probable' | 'unresolved'
 const CONFIDENCES: Confidence[] = ['confirmed', 'probable', 'unresolved']
 
+// ── THE BRAND (v3) ──────────────────────────────────────────────────────────
+// v2 marked results with a `gated: true` PROPERTY. That is not a brand: any object
+// literal carrying the key passed, and a real verdict laundered through
+// JSON.parse(JSON.stringify(v)) kept it. A forged verdict reached storage with motive
+// prose as the loan's headline and a $250,000 postable correction (audit 2026-09-01).
+//
+// Identity cannot be forged and does not survive serialisation, which is exactly the
+// property wanted: a verdict that crossed a wire is NO LONGER GATED and must be
+// re-gated in the process that consumes it. `gated: true` stays on the object only as
+// a human-readable hint; `isGated()` is the check that counts.
+const MINTED = new WeakSet<object>()
+export function isGated(v: unknown): boolean {
+  return typeof v === 'object' && v !== null && MINTED.has(v as object)
+}
+
 export type EntryLine = { account: string; amount: number }
 
 export type LedgerEntry = {
@@ -51,6 +66,8 @@ export type LedgerEntry = {
    * Absent => refusal, never a default: guessing the direction is the bug this
    * module exists to prevent.
    */
+  /** The entry's own total, when it has one. Bounds what `expected` may claim. */
+  total?: number | null
   txnType?: string | null
   /**
    * null/undefined = the line items were NOT READ (fatal under A2).
@@ -91,6 +108,8 @@ export type Claim = {
   /** Required for habit patterns; see PATTERNS. */
   habit?: HabitEvidence
   sentence: string
+  /** The span this claim is about. Without it two equal-sized findings are identical. */
+  period?: { from: string; to: string } | null
   proposedCorrection?: { amount: number; description: string } | null
 }
 
@@ -102,6 +121,7 @@ export type GateResult = {
   sentence: string
   /** The responsibility, DERIVED by the gate — never taken from the caller. */
   amount: number
+  period: { from: string; to: string } | null
   refusals: string[]
   /** A4 lint hits. Non-empty = a BUG IN THE CALLER, not a data condition. */
   violations: string[]
@@ -124,9 +144,14 @@ export type GateResult = {
 // `Math.abs(0.30-0.32) <= 0.02` is false on doubles — the same nominal gap, opposite
 // answers. Never compare money as floats.
 const TOL_CENTS = 2
-const toCents = (n: number) => Math.round(Number(n) * 100)
+// Math.round is half-up, so +0.025 -> 3c while -0.025 -> -2c: the same nominal gap
+// material in one direction and immaterial in the other. Round the magnitude, restore
+// the sign. (Audit finding 13 — the very bug class the float comment above warns about.)
+const toCents = (n: number) => (n < 0 ? -1 : 1) * Math.round(Math.abs(Number(n)) * 100)
 const near = (a: number, b: number) => Math.abs(toCents(a) - toCents(b)) <= TOL_CENTS
-const r2 = (n: number) => Math.round(Number(n) * 100) / 100
+// Sign-symmetric, like toCents: Math.round is half-up, so an unguarded r2 turns
+// -0.025 into -0.02 and +0.025 into 0.03 — the same gap material one way only.
+const r2 = (n: number) => ((n < 0 ? -1 : 1) * Math.round(Math.abs(Number(n)) * 100)) / 100
 
 export const money = (n: number) =>
   '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -233,7 +258,12 @@ export function gate(claim: Claim): GateResult {
   const expected = Number(claim.expectedOnAccount)
   const amount = (Number.isFinite(moved) && Number.isFinite(expected)) ? r2(moved - expected) : NaN
 
-  if (!Number.isFinite(amount)) refusals.push('amount_not_finite')
+  // Audit finding 7: `amount_not_finite` reads as "the numbers were garbage" when the
+  // truth is usually "no expected figure is derivable for this entry's shape". Say which.
+  if (!Number.isFinite(amount)) {
+    refusals.push(Number.isFinite(moved) && !Number.isFinite(expected)
+      ? 'expected_not_derivable' : 'amount_not_finite')
+  }
   else if (Math.abs(toCents(amount)) <= TOL_CENTS) refusals.push('immaterial_claim')
 
   // ── A1 ── an amount is a coincidence until an entry carries it.
@@ -252,6 +282,22 @@ export function gate(claim: Claim): GateResult {
       computed = computeEffect(entry, claim.code)
       if (computed === null) refusals.push('effect_not_computable')
       else if (!near(computed, moved)) refusals.push('measurement_disagrees_with_entry')
+    }
+  }
+
+  // ── A2b ── `expected` was never checked in v2, so a wrong expected became the whole
+  // reported responsibility at full confidence. It cannot be verified against the entry
+  // the way `moved` can — nothing in the ledger states what SHOULD have happened — but
+  // it can be held to what is physically possible for the entry's own direction.
+  if (entry && Number.isFinite(expected) && Number.isFinite(moved)) {
+    const kind = entry.kind === 'BankTransaction' ? String(entry.txnType ?? '').toUpperCase() : null
+    // A SPEND cannot be expected to RAISE a liability, and a RECEIVE cannot lower it.
+    if (kind && kind.startsWith('SPEND') && toCents(expected) > TOL_CENTS) refusals.push('expected_wrong_direction')
+    if (kind && kind.startsWith('RECEIVE') && toCents(expected) < -TOL_CENTS) refusals.push('expected_wrong_direction')
+    // And no entry can be expected to move more than it is worth.
+    const total = Number(entry.total)
+    if (Number.isFinite(total) && total > 0 && Math.abs(toCents(expected)) > toCents(total) + TOL_CENTS) {
+      refusals.push('expected_exceeds_entry_total')
     }
   }
 
@@ -294,12 +340,13 @@ export function gate(claim: Claim): GateResult {
     : violations.length ? WEAKER(proposed)
     : proposed
 
-  return {
+  const result: GateResult = {
     pattern: refused ? `unresolved:${refusals[0]}` : claim.pattern,
     confidence,
     gated: true,
     sentence,
     amount: Number.isFinite(amount) ? amount : 0,
+    period: claim.period ?? null,
     refusals,
     violations,
     evidence: {
@@ -317,4 +364,6 @@ export function gate(claim: Claim): GateResult {
     // bug, and a caller that fabricates motive does not get to ship a correction either.
     proposedCorrection: (refused || violations.length) ? null : (claim.proposedCorrection ?? null),
   }
+  MINTED.add(result)
+  return result
 }

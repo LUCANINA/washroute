@@ -59,6 +59,7 @@ Deno.test("DISCRIMINATES — with `txn_type` present, the same real data yields 
   assertEquals(v.amount, 181.97)
   assertEquals(v.evidence.computed_effect, -793.81)
   assertEquals(v.evidence.expected_on_account, -975.78)
+  assertEquals(v.period, { from: '2026-04-19', to: '2026-05-09' })
 })
 
 Deno.test("the derived amount is INDEPENDENT of the walk's own `duplicated` figure", () => {
@@ -172,9 +173,9 @@ const PP_WALK: WalkResponse = {
 }
 
 Deno.test("LIVE — an entry already on file in our own splits is NOT accused of being extra", () => {
-  const r = attributionFromWalk(PP_WALK, { recordedEntryIds: ['b0b4a203-10b6-4946-8372-c7966c50879d'] })
+  const r = attributionFromWalk(PP_WALK, { recordedEntryIds: new Map([['b0b4a203-10b6-4946-8372-c7966c50879d', 2544.96]]) })
   assertEquals(r.verdicts.length, 0)
-  assertEquals(r.skipped[0].reason, 'the entry is already recorded in our own splits')
+  assertEquals(r.skipped[0].reason, 'already recorded in our own splits, at the same amount')
   assertEquals(r.skipped[0].entryId, 'b0b4a203-10b6-4946-8372-c7966c50879d')
 })
 
@@ -212,4 +213,71 @@ Deno.test("DISCRIMINATES — a duplicated_reallocation on the same shape DOES pr
   // own unresolved verdict — so assert on the pattern, not on the count.
   const pats = attributionFromWalk(dup).verdicts.map(v => v.pattern)
   assert(pats.includes('multi_month_interest'), pats.join(','))
+})
+
+// ── v3 regressions: the three severe audit findings ─────────────────────────
+
+Deno.test("SEVERE 2 — a third line on the payment makes `expected` underivable, not inflated", () => {
+  // A $50 bank fee turned $181.97 of duplicated interest into $231.97, at `confirmed`.
+  // The sum-vs-total check could never catch it: the fee is inside the total too.
+  const withFee: WalkResponse = { ...base, cpa_exception: { ...E4_EXCEPTION, entry: {
+    ...E4_EXCEPTION.entry, txn_type: 'SPEND', total: 1194.55,
+    lines: [...E4_EXCEPTION.entry.lines, { account_code: '404', amount: 50 }] } } }
+  const v = attributionFromWalk(withFee).verdicts[0]
+  assertEquals(v.confidence, 'unresolved')
+  assert(v.refusals.includes('expected_not_derivable'), JSON.stringify(v.refusals))
+})
+
+Deno.test("SEVERE 2 — the 'covers more than' clause is only stated when it is true", () => {
+  const odd: WalkResponse = { ...base, cpa_exception: { ...E4_EXCEPTION,
+    entry: { ...E4_EXCEPTION.entry, txn_type: 'SPEND' },
+    diagnosis: { shape: 'duplicated_reallocation', at_source: 0, owed: 500, duplicated: 0 } } }
+  const v = attributionFromWalk(odd).verdicts[0]
+  assert(!v.sentence.includes('covers more'), v.sentence)
+})
+
+Deno.test("SEVERE 3 — a culprit whose effect does NOT equal the gap is not accused", () => {
+  const mismatch: WalkResponse = { ok: true, loan: { id: 'x', name: 'PP', code: '284' },
+    periods: [{ from: '2026-07-01', to: '2026-07-31', diff: -1000, verdict: 'divergent',
+      culprit: { kind: 'extra_entry', entry: { src_type: 'ManualJournal', id: 'a2', date: '2026-07-31',
+        effect_on_loan: -3142.26,
+        lines: [{ account_code: '284', amount: 3142.26 }, { account_code: '800', amount: -3142.26 }] } } }] }
+  const r = attributionFromWalk(mismatch)
+  assertEquals(r.verdicts.length, 0)
+  assert(r.skipped[0].reason.includes('does not equal'))
+})
+
+Deno.test("SEVERE 3 discriminates — when it DOES equal the gap, expected is 0, not moved-minus-diff", () => {
+  const match: WalkResponse = { ok: true, loan: { id: 'x', name: 'PP', code: '284' },
+    periods: [{ from: '2026-07-01', to: '2026-07-31', diff: -3142.26, verdict: 'divergent',
+      culprit: { kind: 'extra_entry', entry: { src_type: 'ManualJournal', id: 'a2', date: '2026-07-31',
+        effect_on_loan: -3142.26,
+        lines: [{ account_code: '284', amount: 3142.26 }, { account_code: '800', amount: -3142.26 }] } } }] }
+  const v = attributionFromWalk(match).verdicts[0]
+  assertEquals(v.refusals, [])
+  assertEquals(v.evidence.expected_on_account, 0)
+  assertEquals(v.amount, -3142.26)
+})
+
+Deno.test("FINDING 5 — an entry on file at a DIFFERENT amount is still reported", () => {
+  const w: WalkResponse = { ok: true, loan: { id: 'x', name: 'L', code: '254' },
+    periods: [{ from: 'a', to: 'b', diff: -5000, verdict: 'divergent',
+      culprit: { kind: 'duplicate_suspected', entry: { src_type: 'BankTransaction', txn_type: 'SPEND',
+        id: 'bt', date: 'd', total: 5000, effect_on_loan: -5000,
+        lines: [{ account_code: '254', amount: 5000 }] } } }] }
+  assertEquals(attributionFromWalk(w, { recordedEntryIds: new Map([['bt', 5000]]) }).verdicts.length, 0)
+  assertEquals(attributionFromWalk(w, { recordedEntryIds: new Map([['bt', 1234]]) }).verdicts.length, 1)
+})
+
+Deno.test("SEVERE 2 — loan + FEE with no interest line is underivable, though it is two lines", () => {
+  // The isolating case for the account-identity half of the shape guard. Two lines, one
+  // genuinely on the loan account — so the gate's own `account_not_on_entry` cannot help
+  // — but the second is a fee, not interest. `-(total - owed)` would silently treat the
+  // fee as principal. Found because mutation M5 survived a weaker fixture.
+  const loanPlusFee: WalkResponse = { ...base, cpa_exception: { ...E4_EXCEPTION, entry: {
+    ...E4_EXCEPTION.entry, txn_type: 'SPEND', total: 1144.55,
+    lines: [{ account_code: '244', amount: 793.81 }, { account_code: '404', amount: 350.74 }] } } }
+  const v = attributionFromWalk(loanPlusFee).verdicts[0]
+  assertEquals(v.confidence, 'unresolved')
+  assert(v.refusals.includes('expected_not_derivable'), JSON.stringify(v.refusals))
 })

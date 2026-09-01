@@ -1,13 +1,3 @@
-// ⛔ NOT FIT TO WIRE — adversarial audit 2026-09-01. Two severe defects in THIS file:
-//   * `expected = -(total - owed)` absorbs any third line on the payment (a bank fee
-//     becomes reported duplicated interest) and can produce a positive expected effect
-//     for a SPEND, shipping two false sentences at `confirmed`.
-//   * the span path sets `expected = moved - p.diff`, which makes the "derived" amount
-//     identical to the walk's own `diff` BY CONSTRUCTION, and then appends "the only
-//     entry whose effect equals the gap" without ever checking that it does.
-// Also: `recordedEntryIds` suppression can hide a real culprit, and is applied on the
-// span path only. See PROJECT-NOTES-BOOKKEEPING.md session 259 cont. 12.
-//
 // _shared/attribution-from-walk.ts — the gate's first caller (session 259)
 //
 // Turns `loan-find-difference`'s analyze-mode response into GATED verdicts.
@@ -111,11 +101,12 @@ export type Skipped = { from: string; to: string; reason: string; entryId?: stri
 
 export type WalkOptions = {
   /**
-   * Xero entry ids this product already has on file (e.g. every non-void
-   * `loan_splits.xero_manual_journal_id` / `matched_xero_bank_transaction_id` for this
-   * loan). A culprit in this set is RECORDED, not extra, and is never accused.
+   * Xero entry id -> the PRINCIPAL amount our own split records against it. A culprit is
+   * suppressed only when the recorded amount agrees with what the entry actually moved;
+   * an entry we have on file at a DIFFERENT amount is precisely the PCV shape and is
+   * still reported. Build it with `recordedEntryAmounts()` in attribution-store.ts.
    */
-  recordedEntryIds?: Iterable<string>
+  recordedEntryIds?: Map<string, number>
 }
 
 export type WalkAttribution = {
@@ -131,17 +122,21 @@ function toLedgerEntry(v: WalkEntryView): LedgerEntry {
     id: v.id,
     date: v.date,
     kind: v.src_type,
+    total: v.total ?? null,
     // Absent today. Left undefined rather than guessed — the gate refuses on it.
     txnType: v.txn_type ?? undefined,
     lines: v.lines ? v.lines.map(l => ({ account: String(l.account_code), amount: Number(l.amount) })) : null,
   }
 }
 
-const r2 = (n: number) => Math.round(Number(n) * 100) / 100
+// Sign-symmetric, like toCents: Math.round is half-up, so an unguarded r2 turns
+// -0.025 into -0.02 and +0.025 into 0.03 — the same gap material one way only.
+const INTEREST_CODE = '800'
+
+const r2 = (n: number) => ((n < 0 ? -1 : 1) * Math.round(Math.abs(Number(n)) * 100)) / 100
 
 export function attributionFromWalk(walk: WalkResponse, opts: WalkOptions = {}): WalkAttribution {
-  const recorded = new Set<string>()
-  for (const id of opts.recordedEntryIds ?? []) if (id) recorded.add(String(id))
+  const recorded: Map<string, number> = opts.recordedEntryIds ?? new Map()
   const verdicts: GateResult[] = []
   const skipped: Skipped[] = []
 
@@ -165,7 +160,21 @@ export function attributionFromWalk(walk: WalkResponse, opts: WalkOptions = {}):
     // EXPECTED from primary fields only: the payment total less what this period
     // genuinely owes in interest. Never from `duplicated`, which is the answer.
     const total = Number(exc.entry.total)
-    const expected = (Number.isFinite(total) && Number.isFinite(d.owed) && exc.entry.src_type === 'BankTransaction')
+    // `-(total - owed)` assumes the payment is exactly [loan line, interest line]. Add a
+    // third line — a bank fee, say — and that fee is reported as duplicated interest
+    // ($181.97 became $231.97 with a $50 fee, at `confirmed`). So the shape is CHECKED:
+    // the lines must sum to the total, or no expected is derivable and the gate refuses.
+    // The guard has to be the SHAPE, not the sum: a fee line is inside `total` too, so
+    // "lines add up to the total" is satisfied by exactly the case it was meant to
+    // reject. `-(total - owed)` is only principal if the payment is precisely
+    // [loan account, interest] and nothing else.
+    const lines = exc.entry.lines ?? null
+    const onLoan = (lines ?? []).filter(l => String(l.account_code) === String(code))
+    const onInterest = (lines ?? []).filter(l => String(l.account_code) === INTEREST_CODE)
+    const shapeOk = lines != null && lines.length === 2
+      && onLoan.length === 1 && onInterest.length === 1
+    const expected = (Number.isFinite(total) && Number.isFinite(d.owed)
+                      && exc.entry.src_type === 'BankTransaction' && shapeOk)
       ? r2(-(total - d.owed))
       : NaN
     const claim: Claim = {
@@ -179,7 +188,12 @@ export function attributionFromWalk(walk: WalkResponse, opts: WalkOptions = {}):
         entryKind: entry.kind, entryDate: entry.date, accountName: name,
         moved: Number.isFinite(moved) ? moved : 0,
         expected: Number.isFinite(expected) ? expected : 0,
-      }) + ` Its interest line of ${money(d.at_source)} covers more than the ${money(d.owed)} this period owes.`,
+      }) + (d.at_source > d.owed
+        // Only stated when it is true. v2 appended it unconditionally, producing
+        // "$0.00 covers more than the $500.00 this period owes" at `confirmed`.
+        ? ` Its interest line of ${money(d.at_source)} covers more than the ${money(d.owed)} this period owes.`
+        : ''),
+      period: { from: exc.period.from, to: exc.period.to },
     }
     verdicts.push(gate(claim))
   }
@@ -194,26 +208,43 @@ export function attributionFromWalk(walk: WalkResponse, opts: WalkOptions = {}):
     const cEntry = p.culprit?.entry
 
     if ((kind === 'duplicate_suspected' || kind === 'extra_entry') && cEntry) {
-      // An entry we have on file is recorded, not extra.
-      if (recorded.has(String(cEntry.id))) {
+      // An entry we have on file is recorded, not extra — but "we matched this
+      // transaction to a split" is evidence we SAW it, not that its effect is right.
+      // PCV's defect was an entry that was both on file AND wrong. So suppression now
+      // requires the recorded amount to MATCH what the entry actually moved; a
+      // disagreement is the interesting case and must still be reported.
+      const rec = recorded.get(String(cEntry.id))
+      if (rec !== undefined && Math.abs(r2(rec) - Math.abs(r2(Number(cEntry.effect_on_loan)))) <= 0.02) {
         skipped.push({ from: p.from, to: p.to, entryId: cEntry.id,
-          reason: 'the entry is already recorded in our own splits' })
+          reason: 'already recorded in our own splits, at the same amount' })
         continue
       }
       const entry = toLedgerEntry(cEntry)
       const moved = Number(cEntry.effect_on_loan)
-      // The span's own measured gap is what this entry is held responsible for.
-      const expected = Number.isFinite(moved) ? r2(moved - Number(p.diff)) : NaN
+      // v2 set `expected = moved - p.diff`, which made the "derived" amount identical to
+      // the walk's own diff BY CONSTRUCTION, and then asserted "the only entry whose
+      // effect equals the gap" without ever comparing them. Both are fixed here:
+      //   * an entry the walk calls EXTRA should not have been there at all, so the
+      //     expected effect is ZERO — a real quantity, not a rearrangement;
+      //   * the equality the sentence claims is TESTED, and the claim is dropped when
+      //     it does not hold, which also stops a mismatched culprit shipping as probable.
+      const equalsGap = Number.isFinite(moved) && Math.abs(r2(moved) - r2(Number(p.diff))) <= 0.02
+      if (!equalsGap) {
+        skipped.push({ from: p.from, to: p.to, entryId: cEntry.id,
+          reason: `the culprit's effect (${money(moved)}) does not equal the span's gap (${money(Number(p.diff))})` })
+        continue
+      }
       verdicts.push(gate({
         pattern: kind === 'duplicate_suspected' ? 'double_reallocation' : 'extra_entry',
         proposed: 'probable',
         code,
-        movedOnAccount: Number.isFinite(moved) ? moved : NaN,
-        expectedOnAccount: expected,
+        movedOnAccount: moved,
+        expectedOnAccount: 0,
         entry,
+        period: { from: p.from, to: p.to },
         sentence: factualSentence({
           entryKind: entry.kind, entryDate: entry.date, accountName: name,
-          moved: Number.isFinite(moved) ? moved : 0, expected: Number.isFinite(expected) ? expected : 0,
+          moved, expected: 0,
         }) + ` It is the only entry between ${p.from} and ${p.to} whose effect equals the gap.`,
       }))
       continue

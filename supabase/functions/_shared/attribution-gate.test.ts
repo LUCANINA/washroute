@@ -6,7 +6,7 @@
 // would fail half of these.
 import { assert, assertEquals } from "jsr:@std/assert"
 import {
-  gate, lintMotive, factualSentence, computeEffect, PATTERNS, type LedgerEntry,
+  gate, isGated, lintMotive, factualSentence, computeEffect, PATTERNS, type LedgerEntry,
 } from "./attribution-gate.ts"
 
 // ── Real entries, 2026-09-01 ────────────────────────────────────────────────
@@ -294,6 +294,40 @@ Deno.test("a refused verdict never carries a correction anyone could post", () =
   assertEquals(r.proposedCorrection, null)
 })
 
-Deno.test("every result is branded as gated, so a hand-built verdict cannot pose as one", () => {
-  assertEquals(ok().gated, true)
+Deno.test("the brand is IDENTITY, not a property — and it does not survive JSON", () => {
+  const r = ok()
+  assertEquals(r.gated, true)               // human-readable hint
+  assert(isGated(r), 'a gate-issued result must be recognised')
+  // The v2 hole: an object literal carrying the property.
+  assert(!isGated({ gated: true } as never), 'a forged object must NOT be recognised')
+  // And a real verdict that crossed a wire is no longer gated — by design.
+  assert(!isGated(JSON.parse(JSON.stringify(r))), 'a serialised verdict must NOT be recognised')
+})
+
+Deno.test("A2b — `expected` is bounded: a SPEND cannot be expected to RAISE the loan", () => {
+  const r = ok({ expectedOnAccount: 500 })
+  assertEquals(r.confidence, 'unresolved')
+  assert(r.refusals.includes('expected_wrong_direction'))
+})
+
+Deno.test("A2b — `expected` cannot exceed what the entry is worth", () => {
+  const r = ok({ entry: { ...E4_TXN, total: 1144.55 }, expectedOnAccount: -99999 })
+  assert(r.refusals.includes('expected_exceeds_entry_total'))
+})
+
+Deno.test("A2b discriminates — a plausible expected still passes", () => {
+  assertEquals(ok({ entry: { ...E4_TXN, total: 1144.55 } }).refusals, [])
+})
+
+Deno.test("an undrivable expected says so, rather than blaming the numbers", () => {
+  const r = ok({ expectedOnAccount: NaN })
+  assert(r.refusals.includes('expected_not_derivable'), JSON.stringify(r.refusals))
+})
+
+Deno.test("rounding is sign-symmetric at the tolerance boundary", () => {
+  // Math.round is half-up; +0.025 and -0.025 must be treated alike.
+  const mk = (amt: number) => gate({ pattern: 'unexplained_span', proposed: 'probable',
+    code: '1', movedOnAccount: amt, expectedOnAccount: 0, entry: null, sentence: 'x' })
+  assertEquals(mk(0.025).refusals.includes('immaterial_claim'),
+               mk(-0.025).refusals.includes('immaterial_claim'))
 })

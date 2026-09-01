@@ -2585,6 +2585,92 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 13 (2026-09-01) — ATTRIBUTION v3: all three severe defects fixed, 78/78, and twelve mutations of which FOUR initially survived.
+
+The ⛔ NOT-FIT banners are removed. Every audit finding from cont. 12 that could be
+fixed without a caller is fixed, each with a test that is **proven to discriminate**.
+
+#### The three severe ones
+
+**1. The brand is now IDENTITY, not a property.** `gated: true` was a data field any
+object literal satisfied, and it survived `JSON.parse(JSON.stringify(v))`. v3 mints
+results into a **`WeakSet` inside the gate** and exports `isGated()`. Object identity
+cannot be forged and does not survive serialisation — **which is the point**: a verdict
+that crossed a wire is no longer gated and must be re-gated by whoever consumes it. The
+store therefore has to run in the same process as the gate; that is a designed
+constraint, written into its header. The store also screens SHAPE now — a branded object
+missing `refusals` used to crash the whole reconciliation run; it is counted as
+`malformed` and discarded.
+
+**2. `expected` is bounded, and the adapter stops guessing it.** The gate cannot verify
+`expected` against the ledger — nothing in Xero states what *should* have happened — but
+it can hold it to what is physically possible: a **SPEND cannot be expected to RAISE a
+liability** (`expected_wrong_direction`), and **no entry can be expected to move more
+than it is worth** (`expected_exceeds_entry_total`). On the adapter side,
+`-(total - owed)` is only principal when the payment is exactly *[loan line, interest
+line]*, so the SHAPE is checked. Note why the obvious guard fails: "the lines add up to
+the total" is **satisfied by the very case it was meant to reject**, because a bank fee
+sits inside the total too. And the *"covers more than the $X this period owes"* clause is
+now only emitted when `at_source > owed` — v2 appended it unconditionally and produced
+"$0.00 covers more than the $500.00 this period owes" at `confirmed`.
+
+**3. The span path no longer launders the walk's own number.** `expected = moved - p.diff`
+made the "derived" amount identical to `p.diff` by construction. For an entry the walk
+calls EXTRA the honest expectation is **zero** — it should not have been there — and the
+equality the sentence asserts (*"the only entry whose effect equals the gap"*) is now
+**tested**, with the whole verdict dropped to a stated `skipped` reason when it fails.
+
+Also fixed: suppression requires the recorded split's amount to MATCH the entry's effect
+(an entry on file at a *different* amount is the PCV shape and is still reported);
+`r2` **and** `toCents` are sign-symmetric (`Math.round` is half-up, so an unguarded r2
+turned −0.025 into −0.02 and +0.025 into 0.03 — the same gap material one way only);
+immaterial refusals are no longer called "differences"; the headline names `ungated`,
+`malformed`, `omitted` and withheld explanations rather than reading "Nothing needs
+attributing"; `skipped` is bounded and counted; the sort has a signed-amount tiebreak;
+and the arithmetic (`moved` / `expected` / `computed_effect` / `habit`) is stored beside
+the conclusion, because a conclusion without its working is not a workpaper.
+
+#### The part worth keeping: FOUR of twelve mutations survived on the first pass
+
+| Mutation | First run | After |
+|---|---|---|
+| brand not minted | FAILED ×12 | — |
+| expected direction / bound removed | FAILED | — |
+| false "covers more" clause | FAILED | — |
+| brand back to a property | FAILED | — |
+| malformed not screened | FAILED | — |
+| skipped unbounded | FAILED | — |
+| **two-line shape guard removed** | **ok — survived** | FAILED |
+| **signed-amount sort tiebreak removed** | **ok — survived** | FAILED |
+| **culprit-gap check disabled** | **ok — survived** | FAILED |
+| **`r2` back to half-up** | **ok — survived** | FAILED |
+
+Each survivor had the same cause — **a fixture that could not tell the two behaviours
+apart**, not a missing rule:
+
+* the sort test used two verdicts with *different periods*, so the period tiebreak
+  masked the amount tiebreak;
+* the rounding test ran through `r2` before `toCents`, so fixing one hid the other;
+* the shape test used a **three-line** entry, which the length check alone rejects. The
+  isolating case is subtler and real: **a payment split loan + FEE with no interest line**
+  — two lines, one genuinely on the loan account, so the gate's own `account_not_on_entry`
+  cannot help, and `-(total - owed)` would silently treat the fee as principal.
+
+**This is the fifth, sixth, seventh and eighth undiscriminating assertion found today,
+and the first time the count went down rather than up.** The practice that found them is
+cheap and should be standing: after writing a rule, delete the rule and re-run. If the
+suite stays green the test is decoration, however carefully it reads.
+
+Two mutations remain unobservable and are recorded as **deliberate defence in depth**,
+not gaps: `expected = moved - p.diff` is unreachable while the equality guard holds, and
+a half-up `toCents` is invisible once `r2` is symmetric. Both are cheap to keep.
+
+**Still not wired.** No caller exists; nothing is deployed. The remaining audit items
+(#8 span identity is done, #12 evidence is done; the rest — proposed-correction lint
+scope, `notEnoughHistory` precedence — are minor and listed in cont. 12).
+
+---
+
 ### Session 259 cont. 12 (2026-09-01) — ⛔ AUDIT: the new modules are NOT FIT TO WIRE. 14 defects, 3 severe, every one reproduced.
 
 David: *"Before I get home: check, recheck your work."* An adversarial agent attacked
