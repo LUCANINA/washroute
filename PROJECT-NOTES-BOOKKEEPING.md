@@ -77,6 +77,38 @@
 > so nothing says which limit was hit or for how long — that is why this has now
 > been misread twice.
 >
+> ### 0c. 🏗️ NEXT BUILD — VARIANCE ATTRIBUTION: read `DESIGN-VARIANCE-ATTRIBUTION.md`
+>
+> David, after the PayPal 2 answer landed: *"identify how to: a/ systematize this kind
+> of deep search to identify the source of a variance and b/ reveal it to the CPA within
+> ISSUES and on the LOANS page... because this tool will ultimately be the only window
+> into the truth."*
+>
+> Design is written and committed (`43d2a65`). **Nothing is built yet.** The short
+> version — the full reasoning, the refusal rules and the four required test fixtures
+> are in the document, which should be read before writing a line of it:
+> * The PayPal investigation generalises to four stages — **localize** the period the
+>   variance moved in, **attribute** it to a ledger entry, **decompose** that entry's
+>   amount against quantities the system already knows, **name the shape**.
+> * It is an **extension of `_shared/gap-diagnosis.ts`**, not a new engine, and it
+>   inherits that module's constraints unchanged: no Xero calls, only data the run
+>   already holds, adds a sentence and never changes a number, returns null freely.
+>   Three things it must gain: schedule rows on **FUTURE** dates (PayPal was only
+>   solvable because the explaining figure was in the future), **two-term**
+>   decomposition capped at `named quantity + carried variance`, and the **plug test**
+>   — does the balance the entry produced equal a lender anchor exactly? That last one
+>   is the strongest evidence available and is not amount matching at all.
+> * Stored at **`loan_tie_outs.detail.attribution`** — existing jsonb, **no migration**.
+>   One computation; Issues and the Loans hover both read it, so they cannot disagree.
+> * David chose: **explain and name the fix, post nothing** — and on the Loans page,
+>   **hover on the variance figure**, following session 249's `data-` attribute pattern
+>   (no tenth column, CSV reads the attributes not the text).
+> * **Rollout is phased and phase 1 has no UI**: run the engine, read the verdicts in
+>   SQL, check them by hand against the six live Issues rows first.
+> * Three open questions for David sit at the end of the design doc — the most
+>   interesting being whether `inherited` (this gap predates the period; look in an
+>   earlier month) should be reported for all six live rows before any UI exists.
+>
 > ### 0b. 🔎 SESSION 258 (2026-08-31, closed) — Verdant's August interest split
 > already exists in Xero; ask David who posted it
 >
