@@ -32,9 +32,36 @@
 > genuinely August's), but a CPA reading "Issues (6)" beside "nothing to close" has
 > to work out which one is lying. Options if it gets fixed: drop the count under
 > `inflight`, or show `Issues (0)`. **Not fixed — David has not been asked yet.**
-> ### 0. 🔴 PICK UP HERE — PayPal 2's July journal OVER-REDUCED account 284 by
-> $3,142.26. The effect is MEASURED and confirmed; the MOTIVE is NOT known (an
-> earlier claim here was retracted). One prior instruction is now UNSAFE.
+> ### 0. 🟡 FIRST THING TOMORROW — VERIFY the PayPal 2 reversal, then backfill
+> three August splits. Xero's daily quota was exhausted before it could be checked.
+>
+> **What happened (2026-09-01 evening).** Ramona's 2026-07-31 journal `a2c49ead`
+> ($3,142.26, `284` Dr / `800` Cr) over-reduced account 284 — authorship CONFIRMED from
+> Xero's own History panel: **created and posted by Ramona Cedeno, 12 Aug 2026 06:43
+> EST**, dated back to 31 July. **David posted a reversing journal dated 2026-07-31**
+> (`800` Dr $3,142.26 / `284` Cr $3,142.26) via Xero's ⋮ → Reversing journal.
+>
+> **⚠️ NOT INDEPENDENTLY VERIFIED.** The accounting API hit its daily cap
+> (`remaining_day: 0`, `retry_after 64,157s` — ~08:40 Pacific 2026-09-02) after this
+> session spent it on the 14-loan walk dry run. David reported it posted; nobody has
+> checked the resulting balance.
+>
+> **1. FIRST ACTION: confirm account 284 closes at $49,346.58** (probe the quota first —
+> `xero-rate-probe`, never `whoami`). That is PayPal's own $49,324.91 after the 08-26
+> payment plus the standing **$21.66** that predates July and **must not be plugged**.
+> If it reads **$46,204.32** the reversal did not land — it sat in Draft once already,
+> which is exactly how the first attempt failed.
+> *Note the target is $49,346.58, not the $49,346.57 quoted earlier: Xero's 08-20 entry
+> is $3,150.32 where the schedule says $3,150.33.*
+>
+> **2. THEN backfill three splits as `already_in_xero`**, using the amounts read off
+> David's Account Transactions report (no Xero calls needed): **08-06 $3,120.60,
+> 08-13 $3,135.43, 08-20 $3,150.32**. 08-26 already exists (`WR-STAGE 284 2026-08-26`).
+> This is only correct BECAUSE the reversal landed — verify step 1 first.
+>
+> **3. The `2026-07-31-adj` split row still records the ORIGINAL journal.** Once the
+> reversal is confirmed, that row needs a matching reversal record or a void — it is
+> currently the only place our DB still asserts the $3,142.26 reduction.
 >
 > **VERIFIED against the journal's own lines (session 259 cont. 5).** `a2c49ead`
 > (2026-07-31, POSTED, *"To reclass the payment made for paypal"*) carries

@@ -2,6 +2,11 @@
 
 **Prepared 1 September 2026. Five entries across five loans, $5,787.45 in total.**
 
+> **Update, 1 September:** item 2 (Paypal 2) has already been corrected — a reversing
+> journal was posted the same day. It is left in this document because the shape is
+> worth knowing, not because anything remains to do on it. **Four items, $2,666.85,
+> are outstanding.**
+
 Each item below states what the entry **did** in Xero, what the lender's own
 documents say it **should** have done, and the difference. Every figure has been read
 from the entry's own line items in Xero and checked against the lender's statements —
@@ -34,7 +39,7 @@ cent. This journal then adds $1,802.58 back.
 
 ---
 
-## 2. Paypal 2 — a July journal reduced the loan more than the schedule supports
+## 2. Paypal 2 — a July journal reduced the loan more than the schedule supports  ✅ CORRECTED 1 SEP 2026
 
 **Journal `a2c49ead-3c5c-4bf0-a343-9cbfa657f271`, dated 31 July 2026**
 *"To reclass the payment made for paypal"* — lines: `284` +$3,142.26 / `800` −$3,142.26
@@ -124,5 +129,7 @@ right principal. Only the May payment needs attention.
 | E-Transit E5-4751 | $266.42 |
 | E-Transit E4-9744 | $181.97 |
 | **Total** | **$5,787.45** |
+
+**Outstanding after the Paypal 2 reversal: $2,666.85** (items 1, 3, 4 and 5).
 
 Happy to pull the underlying transactions or statements for any of these.
