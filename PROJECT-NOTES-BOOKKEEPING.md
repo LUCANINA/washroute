@@ -2628,6 +2628,101 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 5 (2026-09-01) — SELF-AUDIT at David's request. One headline claim was OVERSTATED; the operational conclusions survive.
+
+David: *"I want you to review your code and assumptions because there have been many
+false starts throughout this process. I don't want to take AI confidence as meaning
+everything works fine now."* Correct instinct. Every claim made today, re-checked
+against primary sources. **One is wrong and is corrected below.**
+
+#### ❌ OVERSTATED — "Ramona plugged 284 to the lender's 8/05 portal balance"
+
+**This was never verified and it should not have been written as fact.** It was built
+entirely from DB rows and arithmetic — the exact failure the notes above were
+simultaneously lecturing about. The journal's own lines were never fetched until now.
+
+Journal `a2c49ead` (2026-07-31, POSTED), lines as Xero holds them:
+`284: +3,142.26` / `800: −3,142.26` — narration *"To reclass the payment made for
+paypal"*. In the sign convention these responses use, a positive figure on the loan
+account means the balance FALLS, so this moves $3,142.26 **out of interest expense and
+into reducing the loan**. The DIRECTION and MAGNITUDE of the earlier claim are confirmed.
+The MOTIVE is not.
+
+**And the plug story fails its own generalisation test.** If the habit were "true 284 up
+to whatever the portal shows", the other `-adj` journals should do it too. June's does
+not: books at 6/30 are $77,301.26, while the surrounding lender rows are $77,279.60
+(6/24) and $74,232.09 (7/01) — **no portal figure matches.** June's journal left the
+$21.66 gap standing rather than plugging it away.
+
+**Also, the "corroboration" was double-counted.** The write-up presented "$3,142.26 =
+$3,120.60 + $21.66" and "the resulting balance equals the lender's 8/05 figure" as two
+independent confirmations. They are the same statement rearranged — one arithmetic
+identity, not two witnesses. Many pairs sum to $3,142.26; what makes this pair
+interesting is that both terms are meaningful, and that is suggestive, not probative.
+
+**Corrected standing:** the July journal over-reduced 284. **Why it was posted is
+UNKNOWN.** The plug reading is one hypothesis; a year-to-date interest/principal
+reclassification is another and fits the narration better. **Do not repeat the plug
+story to David or to Ramona as established**, and in particular do not attribute an
+intent to a named person on the strength of an arithmetic coincidence.
+
+#### ✅ SURVIVES — everything the recommendation actually rests on
+
+| Claim | Status |
+|---|---|
+| The July journal reduced 284 by $3,142.26 more than the schedule supports | **VERIFIED** — journal lines, `loan_book_balances` movement, and the schedule all agree |
+| All four August drafts (08-06/13/20/26) are live in Xero, correctly coded | **VERIFIED** — `bank_transactions`; interest add-backs total $1,087.18 = the four scheduled amounts |
+| Therefore the 08-05 principal is in the books TWICE, ≈$3,120.60 understated | **HOLDS** — follows from the two verified facts above |
+| **Do not backfill an 08-05/08-06 split** | **HOLDS** — and does not depend on the discredited motive at all |
+| Fix = reverse or re-date `a2c49ead` in Xero | **HOLDS** |
+
+One measurement caveat to keep honest: "lender today" in the earlier entry was COMPUTED
+from schedule figures, not read from a portal row — the newest real anchor on file is
+2026-08-05. The $3,120.60 is measured; the current-balance sentence around it is
+derived. Pull a fresh PayPal statement before quoting a live figure.
+
+#### ✅ VERIFIED at source — the E-Transit finding, all three
+
+Not taken on `loan-find-difference`'s word. Each culprit entry's own lines were read:
+
+| Loan | Entry | Lines in Xero | Correct split | Short by |
+|---|---|---|---|---|
+| 4140 | 2026-06-17 | `242` 764.44 / `800` **415.88** | 1,047.51 / 132.81 | 283.07 |
+| E5-4751 | 2026-05-12 | `332` 498.74 / `800` **548.21** | 780.53 / 266.42 | 281.79 |
+| E4-9744 | 2026-05-11 | `244` 793.81 / `800` **350.74** | 975.78 / 168.77 | 181.97 |
+
+4140's $415.88 interest line = 147.43 + 135.64 + 132.81, the April/May/June figures
+already in `loan_splits`. The one-defect finding stands on the entries themselves.
+
+#### ✅ VERIFIED — PCV's double reallocation
+
+Both halves read in one `payment_picture` call: the 8/03 transaction is split at source
+(`254` 5,335.52 / `800` 1,802.58) AND journal `d1347f7c` splits it again. This one was
+done the right way round and needs no revision.
+
+#### ✅ VERIFIED — the `xero-read` `with_lines` bug
+
+`fetchOneById()` returns `(JSON.parse(text).ManualJournals ?? [])[0] ?? null` for every
+endpoint, while `COLLECTION.bank_transactions` is `'BankTransactions'`. Code-read, and
+consistent with the observed `count: 1, hydrated: 0, results: []`. Still unfixed.
+
+#### ⚠️ METHOD CAVEATS worth carrying forward
+
+* **The `inherited` month-end analysis is MY OWN SQL, not the engine's logic.** It picks
+  the latest allowlisted anchor at-or-before each month end; `computeTieOut` uses
+  `rankAnchorsByAuthority` and an as-of-TODAY frame. They agreed on every E-Transit loan
+  (corroboration) and deliberately differ on PCV (different questions). **Do not treat
+  those numbers as a second engine's output** — they are a hand analysis, and if the real
+  `inherited` verdict is built it must use the engine's own anchor selection.
+* **`loan-find-difference` needs a user JWT** (`callerRole`), so it was invoked through
+  the live dashboard's authenticated client, in analyze mode, which writes nothing. It
+  cannot be called from SQL with the internal secret — relevant to wiring it into
+  `reconciliation-run`.
+* The stray `client/debt` navigation and second tab that appeared mid-session were closed;
+  nothing was posted, approved, or written from the browser at any point.
+
+---
+
 ### Session 259 cont. 4 (2026-09-01) — ALL THREE frozen E-Transit gaps are ONE defect, $864.30 — and `loan-find-difference` has known the answer all along
 
 Ran `loan-find-difference` (analyze mode, read-only, invoked through the live
