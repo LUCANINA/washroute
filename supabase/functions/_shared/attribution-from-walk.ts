@@ -24,6 +24,33 @@
 //    of the walk (`entry.total`, `diagnosis.owed`, `period.diff`), never from the
 //    answer it is being used to check.
 //
+// WHAT THE FIRST LIVE RUN CHANGED (session 259 cont. 9)
+// -----------------------------------------------------
+// Run over all 14 active loans' real walk output, two false-positive classes appeared
+// that no unit fixture had shown:
+//
+//  1. `extra_entry` accused ENTRIES WE OURSELVES HAVE ON FILE. PayPal 2's seven
+//     month-end `-adj` journals each land as a culprit whose effect equals its span's
+//     gap -- which is true, and yet every one is already recorded in `loan_splits` as
+//     `already_in_xero` precisely so our close matches Xero. Calling them "extra" would
+//     have put eight confident accusations in front of the CPA about entries the
+//     product had itself filed. So the adapter now takes `recordedEntryIds` and SKIPS
+//     any culprit already linked to one of our splits. Note the direction: an app-written
+//     link is used only to SUPPRESS an accusation, never to enable one -- the mistake
+//     `checkDoubleReallocation` makes in reverse (session 259 cont. 5).
+//
+//  2. A `no_duplication` diagnosis is NOT a finding. PCV's exception reports
+//     `duplicated: 0` -- the entry was examined and found sound. Building a claim from
+//     it produced an `immaterial_claim` refusal, which is the right outcome by accident;
+//     it is now skipped explicitly, because relying on the arithmetic to come out at
+//     zero is not the same as deciding not to accuse.
+//
+// A LIMIT WORTH KNOWING: the walk's spans run between LENDER ANCHORS, so anything after
+// the last statement on file is outside every span. PCV's real August defect (a payment
+// on 08-03 and a journal on 08-31, against a last anchor of 08-01) is therefore invisible
+// here. The open month is `reconciliation-run`'s territory (`net_after_anchor`,
+// `later_entry_dates`), not the walk's. Do not expect this module to see it.
+//
 // KNOWN GAP, and it is deliberately left visible
 // ----------------------------------------------
 // `entryView()` in loan-find-difference (line ~408) does not surface Xero's transaction
@@ -70,7 +97,16 @@ export type WalkResponse = {
   } | null
 }
 
-export type Skipped = { from: string; to: string; reason: string }
+export type Skipped = { from: string; to: string; reason: string; entryId?: string }
+
+export type WalkOptions = {
+  /**
+   * Xero entry ids this product already has on file (e.g. every non-void
+   * `loan_splits.xero_manual_journal_id` / `matched_xero_bank_transaction_id` for this
+   * loan). A culprit in this set is RECORDED, not extra, and is never accused.
+   */
+  recordedEntryIds?: Iterable<string>
+}
 
 export type WalkAttribution = {
   verdicts: GateResult[]
@@ -93,7 +129,9 @@ function toLedgerEntry(v: WalkEntryView): LedgerEntry {
 
 const r2 = (n: number) => Math.round(Number(n) * 100) / 100
 
-export function attributionFromWalk(walk: WalkResponse): WalkAttribution {
+export function attributionFromWalk(walk: WalkResponse, opts: WalkOptions = {}): WalkAttribution {
+  const recorded = new Set<string>()
+  for (const id of opts.recordedEntryIds ?? []) if (id) recorded.add(String(id))
   const verdicts: GateResult[] = []
   const skipped: Skipped[] = []
 
@@ -107,7 +145,10 @@ export function attributionFromWalk(walk: WalkResponse): WalkAttribution {
 
   // ── 1. The CPA exception: one entry carrying several months of interest ──
   const exc = walk.cpa_exception
-  if (exc?.diagnosis && exc.entry) {
+  // `no_duplication` means the entry was examined and found sound. That is not a
+  // finding, and deciding not to accuse is different from an accusation that happens
+  // to arithmetic out at zero.
+  if (exc?.diagnosis && exc.entry && exc.diagnosis.shape !== 'no_duplication') {
     const d = exc.diagnosis
     const entry = toLedgerEntry(exc.entry)
     const moved = Number(exc.entry.effect_on_loan)
@@ -143,6 +184,12 @@ export function attributionFromWalk(walk: WalkResponse): WalkAttribution {
     const cEntry = p.culprit?.entry
 
     if ((kind === 'duplicate_suspected' || kind === 'extra_entry') && cEntry) {
+      // An entry we have on file is recorded, not extra.
+      if (recorded.has(String(cEntry.id))) {
+        skipped.push({ from: p.from, to: p.to, entryId: cEntry.id,
+          reason: 'the entry is already recorded in our own splits' })
+        continue
+      }
       const entry = toLedgerEntry(cEntry)
       const moved = Number(cEntry.effect_on_loan)
       // The span's own measured gap is what this entry is held responsible for.

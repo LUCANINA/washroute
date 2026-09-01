@@ -152,3 +152,64 @@ Deno.test("every verdict this module emits is gate-branded — nothing bypasses 
   assert(r.verdicts.length > 0)
   for (const v of r.verdicts) assertEquals(v.gated, true)
 })
+
+// ── Regressions from the first live run over all 14 loans (session 259 cont. 9) ──
+
+/** Verbatim: PayPal 2's 2026-02-28 month-end journal, as the walk reports it. */
+const PP_ADJ_SPAN = {
+  from: '2026-02-18', to: '2026-02-25', diff: -2544.96, verdict: 'divergent' as const,
+  culprit: {
+    kind: 'extra_entry',
+    entry: {
+      src_type: 'ManualJournal' as const, id: 'b0b4a203-10b6-4946-8372-c7966c50879d',
+      date: '2026-02-28', total: null, effect_on_loan: -2544.96,
+      lines: [{ account_code: '284', amount: 2544.96 }, { account_code: '800', amount: -2544.96 }],
+    },
+  },
+}
+const PP_WALK: WalkResponse = {
+  ok: true, loan: { id: 'f3aa83c5', name: 'Paypal 2', code: '284' }, periods: [PP_ADJ_SPAN],
+}
+
+Deno.test("LIVE — an entry already on file in our own splits is NOT accused of being extra", () => {
+  const r = attributionFromWalk(PP_WALK, { recordedEntryIds: ['b0b4a203-10b6-4946-8372-c7966c50879d'] })
+  assertEquals(r.verdicts.length, 0)
+  assertEquals(r.skipped[0].reason, 'the entry is already recorded in our own splits')
+  assertEquals(r.skipped[0].entryId, 'b0b4a203-10b6-4946-8372-c7966c50879d')
+})
+
+Deno.test("DISCRIMINATES — the same journal, NOT on file, does produce a verdict", () => {
+  const r = attributionFromWalk(PP_WALK)
+  assertEquals(r.verdicts.length, 1)
+  assertEquals(r.verdicts[0].pattern, 'extra_entry')
+  assertEquals(r.verdicts[0].confidence, 'probable')
+  assertEquals(r.verdicts[0].evidence.computed_effect, -2544.96)
+})
+
+Deno.test("LIVE — a `no_duplication` diagnosis is skipped outright, not turned into a zero claim", () => {
+  // PCV's real exception: the entry was examined and found sound (duplicated: 0).
+  const pcv: WalkResponse = {
+    ok: true, loan: { id: 'ad5dd55d', name: 'PCV Good and Green Loan', code: '254' }, periods: [],
+    cpa_exception: {
+      period: { from: '2025-11-01', to: '2025-12-01' }, split_period: '2025-12-01',
+      entry: {
+        src_type: 'BankTransaction', txn_type: 'SPEND', id: 'd02e14a9', date: '2025-12-01',
+        total: 7138.1, effect_on_loan: -5160.96,
+        lines: [{ account_code: '254', amount: 5160.96 }, { account_code: '800', amount: 1977.14 }],
+      },
+      diagnosis: { shape: 'no_duplication', at_source: 1977.14, owed: 1977.14, duplicated: 0 },
+    },
+  }
+  assertEquals(attributionFromWalk(pcv).verdicts.length, 0)
+})
+
+Deno.test("DISCRIMINATES — a duplicated_reallocation on the same shape DOES produce a verdict", () => {
+  const dup: WalkResponse = {
+    ...base,
+    cpa_exception: { ...E4_EXCEPTION, entry: { ...E4_EXCEPTION.entry, txn_type: 'SPEND' } },
+  }
+  // `base` also carries a divergent span with no culprit, which correctly yields its
+  // own unresolved verdict — so assert on the pattern, not on the count.
+  const pats = attributionFromWalk(dup).verdicts.map(v => v.pattern)
+  assert(pats.includes('multi_month_interest'), pats.join(','))
+})

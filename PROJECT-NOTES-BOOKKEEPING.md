@@ -2632,6 +2632,73 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 9 (2026-09-01) — PHASE-1 DRY RUN over all 14 loans. Two false-positive classes found that no fixture had shown; 47/47 after the fix.
+
+`loan-find-difference` was run in analyze mode (read-only) against **every active loan**
+through the live dashboard's authenticated client, and the real output examined against
+what `attributionFromWalk` would do with it. **No deploy, no UI, nothing written** — this
+is phase 1 exactly as the design asks: read the verdicts by hand before anyone sees them.
+
+What the 14 walks contain: 3 loans short-circuit on `not_enough_history` (Stripe, EIDL,
+Dexter 2); the other 11 produce **~60 divergent spans**, of which roughly half are
+timing pairs, **9 carry a culprit entry with real line items**, and 4 carry a
+`cpa_exception` (two `duplicated_reallocation`, two `no_duplication`).
+
+#### 🔴 False positive 1 — `extra_entry` was about to accuse ENTRIES WE OURSELVES FILED
+
+**PayPal 2's seven month-end `-adj` journals each land as a culprit whose effect equals
+its span's gap** — `ec7fe123` ($15,671.08), `670f3dbe` (−$59.59), `b0b4a203`
+(−$2,544.96), `0d080de1` (−$5,746.93) and the rest. The measurement is correct every
+time, so the gate passes them: the entries are real, the lines are read, the direction
+checks out. And the verdicts would have been **wrong**, because every one of those
+journals is already recorded in `loan_splits` as `already_in_xero` — filed on 2026-08-31
+precisely so our close matches Xero. Eight confident accusations about entries the
+product itself put on file.
+
+**The gate could not have caught this and was never going to.** It verifies that a
+measurement is true; it cannot know that "extra" is the wrong word for a true
+measurement. That distinction is worth holding onto: *A2 makes a claim checkable. It
+does not make it right.*
+
+Fixed in the adapter: it now takes `recordedEntryIds` (the loan's non-void
+`xero_manual_journal_id` / `matched_xero_bank_transaction_id` values) and **skips any
+culprit already linked to one of our splits**, with the reason stated. Note the
+direction of the rule — an app-written link is used ONLY to suppress an accusation,
+never to enable one. That is `checkDoubleReallocation`'s mistake (session 259 cont. 5)
+run the safe way round.
+
+#### 🟠 False positive 2 — a `no_duplication` diagnosis is not a finding
+
+PCV's exception reports `duplicated: 0` — the entry was examined and found sound.
+Building a claim from it produced an `immaterial_claim` refusal, which is the right
+outcome **by accident**. Now skipped explicitly: deciding not to accuse is a different
+act from an accusation that happens to arithmetic out at zero, and only the first one
+survives someone later changing the tolerance.
+
+#### 🔎 And a limit worth knowing before anyone relies on this
+
+**The walk's spans run between LENDER ANCHORS, so anything after the last statement on
+file is outside every span.** PCV's real August defect — the 08-03 payment and the 08-31
+journal, against a last anchor of 08-01 — **is invisible to the walk entirely.** Its
+final span instead reports a bare `missing_reduction` of $5,335.52 with no entry.
+
+So the attribution engine cannot be walk-only. The open month is `reconciliation-run`'s
+territory (`net_after_anchor`, `later_entry_dates`, which is exactly how the PCV double
+reallocation was found this morning). Written into the adapter's header so the next
+session does not discover it the hard way.
+
+#### Verification
+
+**47/47** across the three modules. Two new mutations, two detections: `accuse recorded
+entries → 1 fail`, `no_duplication claimed → 1 fail`; the previous twelve still hold.
+
+One test of mine was wrong and the run caught it — it asserted a verdict COUNT where the
+fixture legitimately produces two (the exception plus an unresolved span). Fixed to
+assert on the pattern. Worth noting because it is the same error class as everything
+else today: an assertion that looked right and was checking the wrong thing.
+
+---
+
 ### Session 259 cont. 8 (2026-09-01) — THE GATE HAS A CALLER: `attribution-from-walk.ts`. 43/43, and its first contact with real data found a missing field rather than agreeing with itself.
 
 `_shared/attribution-from-walk.ts` (180 lines) turns `loan-find-difference`'s
