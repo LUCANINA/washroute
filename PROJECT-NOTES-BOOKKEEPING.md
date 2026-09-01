@@ -32,19 +32,23 @@
 > genuinely August's), but a CPA reading "Issues (6)" beside "nothing to close" has
 > to work out which one is lying. Options if it gets fixed: drop the count under
 > `inflight`, or show `Issues (0)`. **Not fixed — David has not been asked yet.**
-> ### 0. 🔴 PICK UP HERE — PayPal 2's July journal is a PLUG TO THE WRONG WEEK'S
-> LENDER BALANCE. Root cause found (session 259, 2026-09-01); the repair is
-> Ramona's, and one prior instruction is now UNSAFE.
+> ### 0. 🔴 PICK UP HERE — PayPal 2's July journal OVER-REDUCED account 284 by
+> $3,142.26. The effect is MEASURED and confirmed; the MOTIVE is NOT known (an
+> earlier claim here was retracted). One prior instruction is now UNSAFE.
 >
-> **The finding, exact to the cent from three independent sources, no Xero needed.**
-> The CPA's 2026-07-31 journal `a2c49ead` ($3,142.26, "To reclass the payment made
-> for paypal") is not an interest true-up. It forced account 284 to equal a PayPal
-> portal balance — and the balance she was reading is the lender's **2026-08-05**
-> figure ($58,775.97), booked as of 7/31. It decomposes as **$3,120.60 (the 08-05
-> scheduled principal) + $21.66 (a books-over-lender difference standing since
-> June)**. Books tracked the lender to +$21.66 at end-June and are −$3,120.60 at
-> end-July; the entire swing is this one journal. Full arithmetic and the three
-> corroborations: session 259 log entry.
+> **VERIFIED against the journal's own lines (session 259 cont. 5).** `a2c49ead`
+> (2026-07-31, POSTED, *"To reclass the payment made for paypal"*) carries
+> `284: +3,142.26` / `800: −3,142.26` — moving $3,142.26 out of interest expense into
+> reducing the loan, which is **$3,142.26 more principal reduction than July's
+> schedule supports.** Books tracked the lender to +$21.66 at end-June and are
+> −$3,120.60 at end-July; the whole swing is this one journal.
+>
+> **⚠️ WHY it was posted is UNKNOWN, and an earlier version of this block said
+> otherwise.** It stated that Ramona had plugged 284 to the lender's 2026-08-05 portal
+> balance. That was inferred from arithmetic with the journal's lines never fetched,
+> and it fails its own test — June's `-adj` journal matches no portal figure at all.
+> **Do not repeat the plug story as established, to David or to Ramona.** Full
+> retraction in the session 259 cont. 5 log entry. Nothing below depends on the motive.
 >
 > **This makes §8's $44.70 and §8b's −$3,142.26 ONE event, not two** — and it means
 > **§8's instruction to backfill 08-05 as `already_in_xero` is NO LONGER SAFE.** The
@@ -3104,10 +3108,16 @@ paypal"). And that figure decomposes exactly:
    3,142.26   = the journal
 ```
 
-**So the CPA did not compute a July interest true-up at all — she forced account
-284 to equal a portal balance she was reading, and the balance she was reading was
-the lender's 2026-08-05 figure ($58,775.97), booked as of 7/31.** The books are
-right in amount and **one payment early in time**. Confirmed independently by the
+**⚠️ RETRACTED by session 259 cont. 5 — read that entry before using this paragraph.**
+The conclusion below was inferred from arithmetic without ever fetching the journal's
+lines, and the pattern it assumes does not hold (June's `-adj` matches no portal
+figure). The MEASURED over-reduction stands; the motive does not. Left in place, struck
+through, as the record of how the error was made.
+
+~~So the CPA did not compute a July interest true-up at all — she forced account 284 to
+equal a portal balance she was reading, and the balance she was reading was the lender's
+2026-08-05 figure ($58,775.97), booked as of 7/31. The books are right in amount and one
+payment early in time.~~ Confirmed independently by the
 ledger shape in `loan_book_balances`' July detail: `reduced_entries: 6` = the five
 weekly drafts ($17,073.55) plus this one journal ($3,142.26); `drawn_entries: 5` =
 WashRoute's own five weekly interest add-backs, totalling **$1,690.52, exactly
