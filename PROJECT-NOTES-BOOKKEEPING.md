@@ -2632,6 +2632,75 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 8 (2026-09-01) — THE GATE HAS A CALLER: `attribution-from-walk.ts`. 43/43, and its first contact with real data found a missing field rather than agreeing with itself.
+
+`_shared/attribution-from-walk.ts` (180 lines) turns `loan-find-difference`'s
+analyze-mode response into GATED verdicts. Still no production caller — this is the
+adapter, not the wiring — but the gate now guards something, and its tests run on the
+REAL walk output for E-Transit E4-9744 pulled live today, not on invented shapes.
+
+**Three things it refuses to do, each written into the code as a comment:**
+* **It never reads `conclusions`.** That array is capped at FOUR and emitted in a fixed
+  priority order, so a real span's finding can be silently dropped. Claims are rebuilt
+  from `periods` / `cpa_exception`; prose is for wording only.
+* **It never feeds a PROPOSED journal to the gate.** `proposal.journal.JournalLines` and
+  `cpa_exception.proposed_entry.JournalLines` are our own suggestions — corroborating a
+  claim with the fix we invented for it is circular. A response carrying only a proposal
+  produces **no verdict at all**, which is its own test.
+* **It never derives `expected` from the answer.** Expected comes from primary fields
+  (`entry.total`, `diagnosis.owed`, `period.diff`), never from `diagnosis.duplicated`.
+
+**And that last rule immediately paid for itself.** On E4-9744 the walk reports
+`duplicated: 181.99`; the gate derives **181.97** from `−(1144.55 − 168.77)`. Two cents
+apart, by two independent routes — and a test asserts they differ. Had the adapter simply
+trusted `duplicated`, the check could never have disagreed with the thing it was checking.
+
+#### 🔎 THE FIRST REAL FINDING: the walk cannot tell the gate which way a payment went
+
+`entryView()` (loan-find-difference ~line 408) does not surface Xero's transaction TYPE,
+even though the record carries it (`rec.type`, normBT ~line 218) and `effect()` (~line
+212) depends on it to decide whether a bank transaction pays a liability down or draws
+more. **So the gate cannot independently verify the DIRECTION of any BankTransaction
+coming out of the walk, and every such claim refuses with `entry_direction_unknown`.**
+
+The tempting shortcut is to infer the type from `effect_on_loan`. **That would be
+circular** — the walk computed that field with the same `effect()` math the gate uses, so
+the gate would be checking its own input against itself and would agree by construction.
+It is the settlement-lag lesson (session 245) in a new place, and the adapter refuses it
+explicitly in a comment so nobody re-adds it as a convenience.
+
+**The fix is one line in `loan-find-difference`:**
+
+```ts
+src_type: rec.srcType, txn_type: rec.type ?? null, id: rec.srcId, ...
+```
+
+Not applied — that file is large and its deploy belongs with the other pending CLI
+deploys (`xero-read`'s rate-header and `with_lines` fixes). **A test proves what happens
+when it lands**: the same real E4-9744 data, with `txn_type: 'SPEND'` added, produces a
+**`confirmed` `multi_month_interest` verdict, amount 181.97, computed effect −793.81
+against an expected −975.78.** ManualJournals are unaffected — their direction is carried
+in the line signs — and PayPal's `a2c49ead` passes today as an `extra_entry` verdict.
+
+**This is the gate doing its job on day one.** Its first contact with production data did
+not rubber-stamp a plausible answer; it named a field nobody had noticed was missing and
+refused to guess. That is worth more than a green verdict would have been.
+
+#### Verification
+
+**43/43 across both modules.** Five adapter mutations, five detections:
+`adapter guesses SPEND → 1 fail · expected taken from duplicated → 2 · unread lines
+coerced to empty → 1 · timing spans treated as errors → 1 · gate bypassed → 2 ·
+restored → 43/43`. The gate's own ten mutations still hold.
+
+`inherited` was **removed** from the pattern registry. It is not an attribution — it
+makes no claim about an entry — so putting it through A1 would either fail always or
+force an exemption, and exemptions are how gates rot. It is a scope statement measured
+from two balances and belongs beside the verdict, not inside it. `extra_entry` and
+`unexplained_span` were added.
+
+---
+
 ### Session 259 cont. 7 (2026-09-01) — THE GATE WAS BROKEN. An adversarial review found four ways past it; v2 is 33/33 and mutation-proven on ten rules.
 
 David: *"keep going, and test along the way with multiple agents working in parallel."*

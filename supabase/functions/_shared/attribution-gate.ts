@@ -141,7 +141,8 @@ export const PATTERNS: Record<string, { habit: boolean; label: string }> = {
   unsplit_payment:          { habit: false, label: 'booked without splitting interest' },
   multi_month_interest:     { habit: false, label: 'one split carrying several months of interest' },
   missing_period:           { habit: false, label: 'a scheduled payment with no ledger entry' },
-  inherited:                { habit: false, label: 'predates this period' },
+  extra_entry:              { habit: false, label: 'one entry accounts for the whole gap' },
+  unexplained_span:         { habit: false, label: 'a gap no single entry accounts for' },
   plug_to_anchor:           { habit: true,  label: 'balance forced to a lender figure' },
   plug_to_wrong_date_anchor:{ habit: true,  label: 'balance forced to a lender figure dated elsewhere' },
 }
