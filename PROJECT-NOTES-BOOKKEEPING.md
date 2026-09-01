@@ -2632,6 +2632,77 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 6 (2026-09-01) — THE GATE IS BUILT: `_shared/attribution-gate.ts`, 17/17, mutation-proven
+
+David: *"Build the gate."* Built, tested, and each assertion proven to discriminate.
+**Not deployed and not wired to anything** — it is a pure module with no callers yet,
+which is exactly phase 1 of `DESIGN-VARIANCE-ATTRIBUTION.md`.
+
+**Files:** `supabase/functions/_shared/attribution-gate.ts` (236 lines, pure — no I/O,
+no clock, no Xero) and `attribution-gate.test.ts` (17 tests), in the style of
+`gap-diagnosis.test.ts`.
+
+**What it is.** `gate(claim) -> GateResult`. Every candidate verdict passes through it
+before anyone sees it, and **the gate can only ever LOWER confidence, never raise it.**
+That asymmetry is deliberate: a bug in this file makes the product quieter, never more
+confident. It enforces A1–A4 of the design in executable form:
+
+| Rule | Refusal it raises | The 2026-09-01 error it stops |
+|---|---|---|
+| **A1** no decomposition without an attributed entry | `no_attributed_entry` | E4-9744's "$182.00 = April's interest" — a number with no entry behind it |
+| **A2** the entry's own lines, fetched | `entry_lines_unread`, `amount_not_in_entry` | PCV's "interest never split out" — concluded without opening the journals |
+| **A3** a habit must generalise | `habit_untested`, `habit_does_not_generalise` | PayPal's plug verdict — June's journal matches no anchor, so it is not a habit |
+| **A4** never motive | reported as `violations`, sentence WITHHELD | "she forced 284 to equal a portal balance she was reading" |
+
+Three details worth keeping:
+
+* **`lines: null` means NOT READ and is fatal; `lines: []` means read-and-empty and is
+  a different refusal.** Conflating the two is how "we didn't look" becomes "there was
+  nothing there" — the whole failure mode this module exists to stop. Two separate
+  tests hold the distinction.
+* **A refused verdict never carries a `proposedCorrection`.** Nobody can post a fix that
+  the gate would not stand behind. Its own test, and mutant M6 proves it fires.
+* **A4 bans INTENT, not names.** "Journal d1347f7c was posted by Ramona on 2026-08-31"
+  passes; "The CPA intended to split the interest and did not realise it was already
+  split" is caught, the sentence is replaced with a factual one, and the verdict drops a
+  level. `factualSentence()` is the safe builder and a test asserts it never trips its
+  own lint.
+
+**MUTATION-PROVEN — the discipline session 245 set out, applied to a new module.** A
+suite that passes against both the fixed and the broken code is decoration, so each rule
+was inverted in a copy (never in the repo file) and the suite re-run:
+
+| Mutation | Result |
+|---|---|
+| baseline | **ok — 17 passed** |
+| A1 refusal removed | FAILED — 2 |
+| A2 `lines === null` treated as fine | FAILED — 1 |
+| `HABIT_PATTERNS` emptied | FAILED — 2 (both A3 tests, by name) |
+| `lintMotive` stubbed to `[]` | FAILED — 2 |
+| refusals ignored when setting confidence | FAILED — 6 |
+| `proposedCorrection` leaked past a refusal | FAILED — 1 |
+| restored | **ok — 17 passed** |
+
+Every rule has at least one assertion that goes red when that rule is removed, and each
+rule also has a **discriminating pair**: the failing shape refuses AND the sound shape
+passes (E4-9744 refuses with no entry, passes once the 2026-05-11 entry is attached;
+PayPal refuses with non-conforming siblings, passes with a conforming one). A gate that
+refused everything would fail those halves.
+
+**Running it:** `deno test attribution-gate.test.ts` from `supabase/functions/_shared/`.
+Deno is not installed on this device or, by default, in the sandbox — it was installed
+in the cloud container for this run (`curl -fsSL https://deno.land/install.sh | sh`),
+the two files staged there, and the suite run against them. Fixtures are the real
+entries of 2026-09-01 (PCV `ec50f278`/`d1347f7c`, PayPal `a2c49ead`, E4-9744
+`30886184`), so if any of those is later found to be misread the tests say so.
+
+**Next, in the design's own order:** wire it in. Nothing calls `gate()` yet. The first
+caller should be the stored-but-invisible attribution on `loan_tie_outs.detail`, with
+`loan-find-difference`'s existing conclusions passed through it — and note that its
+conclusions will need entry LINES attached to clear A2, which the walk already has.
+
+---
+
 ### Session 259 cont. 5 (2026-09-01) — SELF-AUDIT at David's request. One headline claim was OVERSTATED; the operational conclusions survive.
 
 David: *"I want you to review your code and assumptions because there have been many
