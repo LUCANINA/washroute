@@ -78,6 +78,68 @@ the new checks in (3)**. Ignore their framing of stages 1–3 as something to bu
 
 ---
 
+## 0c. ⚠️ AMENDED, session 259 cont. 6 — tested against the day's OWN three errors
+
+David: *"is the attribution engine configured properly moving forward?"* It is not
+configured at all — nothing is built. So the useful question is whether this design,
+as written, would have prevented the three wrong calls made on 2026-09-01. **Tested
+honestly: it would have prevented one and reproduced two.** Four hard rules follow,
+and they are binding on the build.
+
+**A1. NO DECOMPOSITION WITHOUT AN ATTRIBUTED ENTRY.** §2's stage 3 could match
+E4-9744's $182.00 against April's scheduled interest ($181.99), report
+`unsplit_payment`, and be **wrong** — April's payment is correct in Xero; the defect
+is in MAY's split. The "unique or refuse" rule does not save it, because only one
+quantity matched. Stage 3 is therefore **gated on stage 2**: a decomposition may only
+be emitted for an amount that has already been attributed to a specific ledger entry,
+and the verdict must name that entry. *An amount match is a coincidence until an entry
+carries it.*
+
+**A2. EVERY VERDICT CITES THE ENTRY'S OWN LINES, FETCHED — NEVER INFERRED.** All three
+of the day's errors share one shape: a figure that matched to the cent, and nobody had
+opened the journals. The engine must hold the culprit entry's line items in
+`evidence[]` (account codes and amounts as Xero returned them) before it may emit
+anything above `unresolved`. If the lines could not be read, the verdict is
+`unresolved_unread`, never a confident pattern. **This is the rule that makes the tool
+better than the person driving it** — a human forgets to check both halves; a gate
+cannot.
+
+**A3. A PATTERN THAT ASSERTS A HABIT MUST GENERALISE, OR IT IS DOWNGRADED.**
+`plug_to_wrong_date_anchor` fired on PayPal's July journal and read as confirmed. It was
+wrong: June's `-adj` journal on the same loan matches no lender anchor at all, so "she
+plugs to the portal" is not this loan's habit and the July equality is one arithmetic
+identity, not a practice. **Before any `plug_*` verdict, run the same test against the
+loan's other same-shaped entries. If it does not hold for them, the verdict drops to
+`unresolved` with both facts stated.** A pattern is a claim about repeated behaviour;
+one instance cannot establish it.
+
+**A4. THE ENGINE NEVER STATES MOTIVE.** It says what an entry DID (measurable), what
+the schedule or lender says it SHOULD have been (measurable), and what the correcting
+entry would be (arithmetic). It does not say why anyone posted it, and it never names
+a person as having intended something. "Journal X reduced 284 by $3,142.26; July's
+schedule supports $0.00 of that" is a finding. "She plugged the balance to the wrong
+week" is a story, and it was wrong.
+
+### The coverage hole this design MUST close, and the existing check cannot
+
+`checkDoubleReallocation` only inspects splits carrying **both**
+`matched_xero_bank_transaction_id` **and** `xero_manual_journal_id` — links the app
+itself wrote. Verified 2026-09-01: PCV's `2026-08-01` split has **both null**, and
+PayPal's `2026-07-31-adj` has a journal id but no transaction id. **Both of the day's
+largest findings are structurally invisible to it**, and its own header calls that
+silence correct, because it cannot prove ownership of a hand-written journal.
+
+That reasoning was sound for a check that PROPOSES corrections. It is the wrong
+default for one that only EXPLAINS. **On this book the hand-written journal is the
+dominant defect class** — PCV's double split, PayPal's over-reduction, Verdant's
+(correct) August split, and the seven PayPal `-adj` journals are all hand-made. So the
+attribution engine must read the **ledger** for the period — every live entry touching
+the loan's account, whoever wrote it — and must never restrict itself to entries the
+app can prove it authored. Where it cannot prove ownership it still reports, under A4's
+wording: what the entry did, not who meant what.
+
+---
+
 ## 1. Why this is an extension of `gap-diagnosis.ts`, not a new thing
 
 `_shared/gap-diagnosis.ts` (session 253) already does a narrow version of step 3.
