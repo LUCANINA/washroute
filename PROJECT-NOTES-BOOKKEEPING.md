@@ -1,6 +1,44 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 259, 2026-09-01)
+> ## ⏭️ START HERE — first thing, next session (left by session 259 cont. 14, 2026-09-01)
+>
+> **Order:** §00 is the next build. Both §00 and §0 need the Xero accounting API, which
+> was at `remaining_day 0` until ~08:40 PT 2026-09-02 — **probe with `xero-rate-probe`
+> first** (never `whoami`; it hits a different API and lies about the accounting quota).
+> §0's one-line job (record the reversing journal's id) is quick — do it in the same
+> quota window.
+>
+> ### 00. ⏭️ THE ACTUAL NEXT BUILD (left by session 259 cont. 14) — `loan-attribution-run`
+>
+> **The design fork is closed and the decision is David's, not inferred.** Attribution
+> runs as a **nightly scheduled job**, not inside `reconciliation-run`, and it **reports
+> inherited gaps rather than suppressing them**. Reasoning and the measurements behind it
+> are in the cont. 14 log entry — read that before changing the shape.
+>
+> **Do not "optimise" this by calling `analyzeWalk()` in-process.** It is a pure function
+> and `reconciliation-run` has a compatible ledger, so it looks free. It is not:
+> `reconciliation-run` floors its window at **120 days** while the walk needs up to **18
+> months**, and E4-9744's variance originates **135 days back** — outside the floor. Wired
+> naively, every pre-window span returns `divergent` with a **fabricated** gap equal to the
+> lender's entire movement, and it would reach the CPA looking confident. If it is ever
+> revived: clamp `usable` to anchors `>= windowFrom`, drop the walk below two survivors.
+>
+> **Build shape:** open material `balance_vs_lender` findings (5 loans today) → POST each
+> to `loan-find-difference` (`mode: analyze`) → collect entry ids → get transaction types
+> → `attributionFromWalk(walk, { txnTypeById })` → `buildAttributionPayload({ …,
+> priorCloseDate })` → upsert to `loan_tie_outs.detail.attribution`. Measured cost ~7 Xero
+> calls per loan, **~35 per nightly pass** against 1,000/day.
+>
+> **One open question, deliberately left for David:** over HTTP the job has no ledger, so
+> where do transaction types come from — (a) patch `entryView` to emit `txn_type:
+> rec.type` (one line, not circular, but walk supplies both effect and type), or (b) the
+> job fetches them fresh from Xero by id (one call, genuinely independent). **(b) is
+> preferred and unverified** — the accounting API was at `remaining_day 0` until ~08:40 PT
+> 2026-09-02, so probe the quota first (`xero-rate-probe`, **never** `whoami`).
+>
+> **State:** `_shared/attribution-{gate,from-walk,store}.ts` are **90/90 and mutation-
+> proven**; commits `ef11f4d` and `7a7ba72` are pushed. Nothing in the pipeline is wired to
+> a caller yet — that is this item.
 >
 > ### 0a. ✅ CLOSED (session 259, 2026-09-01 15:05 UTC) — Overview's period bar
 > VISUALLY VERIFIED live, with one cosmetic mismatch left open
@@ -2582,6 +2620,119 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 259 cont. 14 (2026-09-01) — THE CALLER IS DECIDED, AND MEASUREMENT KILLED THE CHEAP OPTION. Two commits, 90/90, twelve more mutations.
+
+Two things shipped and one design fork closed. The fork is the important part, because
+the answer was the opposite of what the code made convenient.
+
+**1. `txnTypeById` — the caller supplies the transaction type (commit `ef11f4d`).**
+`loan-find-difference`'s `entryView` carries no `txn_type`, so every BankTransaction
+claim refused with `entry_direction_unknown`. Inferring the type from `effect_on_loan`
+would be **circular** — the gate would be checking a number against itself, which is
+the settlement-lag mistake of session 245. So the type arrives from the caller via
+`WalkOptions.txnTypeById`. Precedence: caller, then the walk if it is ever patched,
+then nothing — and nothing still refuses.
+
+**Mutation testing earned its keep again.** Five mutations against the new rule; four
+died immediately, and the fifth — *swap the precedence so the walk beats the caller* —
+**survived**, because no fixture exercised both sources at once. The precedence
+ordering, which is the entire point of the design, was decoration. Two tests added;
+all five now die.
+
+**2. `inherited` — was the gap born inside a closed period? (commit `7a7ba72`).**
+David's rule: older than the prior close = inherited. Stored per verdict, stated in the
+headline, because it changes what Ramona does next — a gap born inside a closed period
+is a reopen-or-absorb decision, not a correcting entry. Two deliberate choices:
+* **Three answers, not two.** `null` when no close is on file, or the verdict has no
+  span. A confident `false` where we do not know is a derived fact wearing a measured
+  one's clothes — the substitution this whole pipeline exists to prevent.
+* **The boundary is INCLUSIVE.** A gap born ON the close date is inside the closed
+  period. That is the one date the CPA is most likely to be asked about, and `<` would
+  have called it current.
+
+Seven mutations (exclusive boundary, null→false, span-end instead of span-start, rule
+removed, sense inverted, headline clause dropped, headline ignoring the flag) — all
+seven die. **90/90** across the three attribution modules.
+
+---
+
+#### ⚖️ THE FORK: where attribution runs — and why the free option is unusable
+
+`analyzeWalk()` in `loan-find-difference` is a **pure function** (verified: zero
+`await`/`fetch`/`supa.`/`Date.now` in its body, lines 461–853; `today` and
+`postingDate` arrive as parameters). `reconciliation-run` already holds a ledger whose
+entry shape is near-identical — same `normDate`, same `isLive`, same `effect()`, same
+`lines:[{d,c,a}]`. So calling the walk **in-process for zero extra Xero calls** looked
+like the obvious answer.
+
+**It is unusable, and the reason is a measurement, not an opinion.**
+`reconciliation-run` floors its ledger window at **120 days** (`floorFrom = addDays(today,
+-120)`, line ~1819 — deliberately, because EIDL's 2024 statement dragged the window back
+years and broke the first live run). `analyzeWalk` walks between the first and last
+lender anchor, up to **18 months** (`trimAnchors`). **E4-9744 is the proof: its variance
+is dated 2026-08-20, but the origin traced in cont. 4 is the 2026-04-19 → 05-09 span —
+135 days back, just outside the floor.** Attribution's entire job is walking back to the
+origin, so a 120-day ledger is structurally blind to exactly the class of thing the
+engine was built for.
+
+Worse if wired naively: for every span older than `windowFrom`, `entries.filter(...)`
+returns empty, `xeroDelta` is 0, and `diff = -lenderDelta` — so **every pre-window span
+reports `divergent` with a fabricated gap equal to the lender's whole movement.** That
+is the "a partial ledger fabricates mismatches" failure both files' `fetchPaged`
+comments hard-fail to avoid, and it would reach the CPA looking confident. *If anyone
+revives the in-process idea: clamp `usable` to anchors `>= windowFrom` and drop the walk
+below two survivors. Do not skip that clamp.*
+
+**Measured cost of doing it properly** (all figures from the live DB, 2026-09-01):
+* **6 open `balance_vs_lender` findings, 5 material** — PCV $5,335.52, E-Transit 4140
+  $415.88, E5-4751 $266.42, E4-9744 $182.00, Funding Circle $44.78; EIDL −$5.00 is
+  immaterial. So attribution runs for ~5 loans, not 14.
+* **All six have `xero_bank_account_id` set**, so `pullWindow` takes the fast path
+  (one paged BankTransactions query, not up to 18 monthly ones). ~7 Xero calls each,
+  **~35 per pass** against a measured 1,000/day.
+* **`reconciliation-run` is NOT on a cron** (checked `cron.job`: no entry). It is
+  manual, ~18s, and David watches it.
+
+**David's decision: a nightly job.** Attribution gets its own scheduled function, walks
+the material open variances, and stores the payload in
+`loan_tie_outs.detail.attribution`. The Loans-page hover and ISSUES then read stored
+data and answer instantly, up to 24h stale. This keeps the manual run at 18s instead of
+50–70s. Also decided: **inherited gaps are reported and marked**, not suppressed —
+suppressing them would hide the E4-9744 case that motivated the engine.
+
+#### ⏭️ NEXT: build `loan-attribution-run`, and one honest open question
+
+Shape: select loans with open material `balance_vs_lender` findings → POST each to
+`loan-find-difference` (`mode: analyze`) → collect entry ids → fetch transaction types →
+`attributionFromWalk(walk, { txnTypeById })` → `buildAttributionPayload({ ...,
+priorCloseDate })` → upsert into `loan_tie_outs.detail.attribution`.
+
+**The open question is step 4.** Calling over HTTP, the job has **no ledger of its own** —
+which is precisely what `txnTypeById` was designed to be fed from. Two ways out:
+* **(a)** Patch `entryView` to emit `txn_type: rec.type`. One line, and *not* circular —
+  `rec.type` is a raw Xero field, not derived from `effect_on_loan`. But then the walk
+  supplies both the effect and the type, so the gate re-derives from inputs that share a
+  source. Weaker, not vacuous.
+* **(b)** The job fetches types fresh from Xero by entry id (`where=BankTransactionID==
+  Guid("…")||…`). One extra call, genuinely independent. **Preferred.**
+
+**A correction to cont. 13's stated reasoning.** That entry justified putting the type on
+the caller because re-typing a 70KB file to add one field was not worth it. That was
+**convenience, not correctness**. The independence argument above is real, but it was
+arrived at afterwards — the original decision was made for the weaker reason, and the
+notes should say so.
+
+**Blocked on quota:** the Xero accounting API is still at `remaining_day 0` until
+~08:40 PT 2026-09-02, so option (b)'s fetch **cannot be verified live today**. Build it
+with that step isolated so it is one call to confirm when quota returns.
+
+**Housekeeping, unchanged and getting worse:** every `git` write leaves a `.git/*.lock`
+it cannot unlink, so each commit needs the locks moved into `_to_delete/gitlocks/` first.
+`rm -rf _to_delete` locally, or approve the delete-permission prompt for the repo folder
+and this stops entirely.
 
 ---
 
