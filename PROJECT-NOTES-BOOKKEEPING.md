@@ -32,48 +32,50 @@
 > genuinely August's), but a CPA reading "Issues (6)" beside "nothing to close" has
 > to work out which one is lying. Options if it gets fixed: drop the count under
 > `inflight`, or show `Issues (0)`. **Not fixed — David has not been asked yet.**
-> ### 0. 🔎 PICK UP HERE — PayPal 2 correction-journal tracing, blocked on Xero's
-> daily API rate limit (started session 258 cont. 2, 2026-09-01)
+> ### 0. 🔴 PICK UP HERE — PayPal 2's July journal is a PLUG TO THE WRONG WEEK'S
+> LENDER BALANCE. Root cause found (session 259, 2026-09-01); the repair is
+> Ramona's, and one prior instruction is now UNSAFE.
 >
-> David asked to apply the same live-Xero verification just done for Verdant (§0b
-> below) to PayPal 2's own pattern: 7 monthly `-adj` reclassification rows
-> (`2026-01-31-adj` through `2026-07-31-adj`), each carrying a
-> `xero_manual_journal_id` — `670f3dbe`, `b0b4a203`, `0d080de1`, `e4d26ad1`,
-> `a8bbccca`, `5351abb3`, `a2c49ead` in that order. Re-pulled `loan_splits` fresh
-> from the DB (not just trusted from earlier this session) and confirmed all 7
-> exist with the amounts already on file. Two things surfaced worth checking
-> **before** trusting PayPal 2's pattern as uniformly safe:
+> **The finding, exact to the cent from three independent sources, no Xero needed.**
+> The CPA's 2026-07-31 journal `a2c49ead` ($3,142.26, "To reclass the payment made
+> for paypal") is not an interest true-up. It forced account 284 to equal a PayPal
+> portal balance — and the balance she was reading is the lender's **2026-08-05**
+> figure ($58,775.97), booked as of 7/31. It decomposes as **$3,120.60 (the 08-05
+> scheduled principal) + $21.66 (a books-over-lender difference standing since
+> June)**. Books tracked the lender to +$21.66 at end-June and are −$3,120.60 at
+> end-July; the entire swing is this one journal. Full arithmetic and the three
+> corroborations: session 259 log entry.
 >
-> 1. **April's `-adj` row runs the OPPOSITE sign from the other six.** Jan, Feb,
->    Mar, May, Jun, Jul all have `principal_amount` positive / `interest_amount`
->    negative (money reclassed OUT of the loan account into interest expense —
->    the same direction Verdant's pattern runs, which session 258 cont. proved is
->    the UNSAFE direction against `_loanCloseRollforward`'s `Math.max(0, …)`
->    clamp on `drawn`). April (`2026-04-30-adj`, journal `e4d26ad1`) is reversed:
->    `principal_amount=-4219.54`, `interest_amount=+4219.54`. Whether this
->    actually breaks April's `computed` balance couldn't be checked — no
->    `loan_book_balances` snapshot survives for April (the table only keeps the
->    2 most recent month-end rows per loan, currently June 30 / July 31). Confirm
->    what April's journal actually did before assuming it's equivalent to the
->    other six.
-> 2. **New since the last check: the regular weekly `posted` splits from
->    2026-05-06 onward now carry their OWN `xero_manual_journal_id`**
->    (`ebb5eabf`, `39101d30`, `f1ff0067`, `334c6ec6`, `9aff8720`, `b047a9fe`,
->    `d846d408`, `8f9a97a6`, `c33a32fe`, `4e907acd`, `ba95a4e0`, `61326bc0`) —
->    something the earlier PayPal 2 confirmation never mentioned. Not yet traced
->    what these are (each week's own bank-matched journal, vs. something new).
+> **This makes §8's $44.70 and §8b's −$3,142.26 ONE event, not two** — and it means
+> **§8's instruction to backfill 08-05 as `already_in_xero` is NO LONGER SAFE.** The
+> July journal has already removed 08-05's principal from 284; if the real 08-05
+> draft also hit 284 in August, it is in the books twice already. **Check whether
+> the 08-05 draft reduced 284 in August BEFORE backfilling it.** 08-12 and 08-19
+> are unaffected and can still be backfilled.
 >
-> **Blocked:** every `xero-read` call — `manual_journals` AND a plain `accounts`
-> lookup — came back `429` from Xero itself, and stayed `429` across 4+ minutes of
-> waiting. Likely the daily quota, not a one-minute burst: you (David) triggered
-> `reconciliation-run` **5 times** between 17:13 and 02:15 UTC today, each
-> checking all 14 loans against live Xero, on top of the heavy `payment_picture`
-> tracing done earlier in the day for Verdant. David: "update notes with what
-> you've done so far today and we'll recheck tomorrow morning." **Next session:
-> retry `xero-read` first (cheap `accounts` probe before spending it on real
-> queries) — if it's the daily cap it should be clear by morning — then work the
-> two items above via `payment_picture` for each of the 7 correction journals,
-> the same technique as §0b.**
+> **Next steps, in order:**
+> 1. **Ask David to raise it with Ramona.** Correct 7/31 balance is the lender's
+>    7/29 figure, **$61,896.57**; the July journal should have been **$21.66**.
+>    Either re-date the $3,120.60 into August, or reverse and re-post at $21.66.
+>    **Do not edit the `2026-07-31-adj` split row in our DB** — it faithfully records
+>    what Xero contains and is evidence, not error.
+> 2. **When Xero is reachable:** check whether the 08-05 / 08-12 / 08-19 drafts
+>    reduced 284, then decide the backfill. Also still open from session 258 cont. 2:
+>    April's `2026-04-30-adj` runs the opposite sign (journal `e4d26ad1`, note says
+>    it reduced principal / increased interest — likely walking back March's
+>    $5,746.93 over-adjustment, not confirmed), and the weekly `posted` splits from
+>    2026-05-06 carry their own `xero_manual_journal_id`s, now understood to be
+>    WashRoute's OWN interest add-backs (July's five total $1,690.52, exactly July's
+>    scheduled interest) — worth confirming that reading against the journals.
+>
+> **⚠️ XERO IS STILL RATE-LIMITED, and this morning's session got that wrong.**
+> A `whoami` probe returned **200** and session 259 announced the quota was back.
+> `whoami` hits Xero's **identity** API, which has a separate limit — the
+> **accounting** API is still **429** (checked twice, 2026-09-01 ~15:10 UTC).
+> **Probe with a cheap `accounts` call, never `whoami`.** Small fix worth making:
+> `xero-read` drops Xero's `Retry-After` / `X-Rate-Limit-Problem` headers on a 429,
+> so nothing says which limit was hit or for how long — that is why this has now
+> been misread twice.
 >
 > ### 0b. 🔎 SESSION 258 (2026-08-31, closed) — Verdant's August interest split
 > already exists in Xero; ask David who posted it
@@ -2591,6 +2593,92 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 259 (2026-09-01) — PayPal 2: the July journal is a PLUG TO THE LENDER'S 8/05 BALANCE, and it lands the books exactly one week early
+
+David: "hold off on that (add to notes later): I'd like to get to the bottom of
+Paypal." Xero is **still rate-limited** (see the correction below), so this was
+done entirely from stored data — the lender's own weekly principal balances, the
+`xero_rebuild` book balances, and the schedule. It did not need Xero, and the
+answer is exact to the cent from three independent sources.
+
+**FIRST, A CORRECTION TO THIS MORNING'S OWN CLAIM.** Session 259 opened by
+probing `xero-read` `whoami`, got a **200**, and told David the quota was back.
+That was wrong. `whoami` hits Xero's **identity** API (`/connections`), which has
+its own limit; the **accounting** API is still returning **429** — verified twice
+(`manual_journals` for 2026-04-30, and a bare `accounts` lookup, both 429 with an
+empty `details`). **`whoami` is not a quota probe. Use a cheap `accounts` call**,
+which is what §0 of the previous START HERE actually said to do. Related gap
+worth closing: `xero-read` swallows Xero's `Retry-After` and
+`X-Rate-Limit-Problem` headers on a 429, so nothing tells us *which* limit was hit
+or for how long — that is why this has now been guessed at twice. Filed as a
+small next step, not built this session.
+
+**The finding.** PayPal's portal balances are on file weekly, principal-only, and
+the books were tracking them well until the end of July:
+
+| | lender (principal only) | books (`xero_rebuild`) | books − lender |
+|---|---|---|---|
+| 2026-06-24 / 06-30 | $77,279.60 | $77,301.26 | **+$21.66** |
+| 2026-07-29 / 07-31 | $61,896.57 | $58,775.97 | **−$3,120.60** |
+
+The whole swing is **$3,142.26** — which is precisely the CPA's July month-end
+journal `a2c49ead` (`2026-07-31-adj`, narration "To reclass the payment made for
+paypal"). And that figure decomposes exactly:
+
+```
+   3,120.60   the 2026-08-05 scheduled PRINCIPAL (confirmed twice:
+              lender 61,896.57 − 58,775.97, and the schedule row itself)
+   +   21.66   the standing books-over-lender difference carried since June
+   ─────────
+   3,142.26   = the journal
+```
+
+**So the CPA did not compute a July interest true-up at all — she forced account
+284 to equal a portal balance she was reading, and the balance she was reading was
+the lender's 2026-08-05 figure ($58,775.97), booked as of 7/31.** The books are
+right in amount and **one payment early in time**. Confirmed independently by the
+ledger shape in `loan_book_balances`' July detail: `reduced_entries: 6` = the five
+weekly drafts ($17,073.55) plus this one journal ($3,142.26); `drawn_entries: 5` =
+WashRoute's own five weekly interest add-backs, totalling **$1,690.52, exactly
+July's scheduled interest**. Net book reduction $18,525.29 against a schedule
+principal reduction of **$15,383.03** — over by $3,142.26, the same number a third
+way.
+
+**This also closes out §8's $44.70 and §8b's −$3,142.26 as ONE event, not two.**
+The band was trying to close a gap created by the 08-05 payment using the 08-26
+split, and `3,165.30 − 3,120.60 = 44.70` — session 247's diagnosis was right in
+every particular; this entry supplies the cause it was missing.
+
+**⚠️ AND IT CHANGES THE STANDING ADVICE IN §8.** "Backfill the three missing
+splits (08-05, 08-12, 08-19) as `already_in_xero`" is **no longer safe for 08-05
+without a check first**. The July journal has already taken 08-05's principal out
+of 284. If the real 08-05 bank draft ALSO reduced 284 in August, that principal is
+in the books twice, and backfilling a third representation of it makes the record
+worse. **Do not backfill 08-05 until someone has looked at whether the 08-05 draft
+hit 284 in August.** 08-12 and 08-19 are unaffected by this and can still be
+backfilled on the old reasoning. August's `loan_book_balances` row does not exist
+yet (the table keeps only the two most recent month-ends, currently 06-30 / 07-31),
+so this check needs Xero — blocked with everything else.
+
+**What the fix looks like, for David to decide with Ramona.** The correct 284
+balance at 7/31 is the lender's 7/29 figure, **$61,896.57** — no draft falls
+between 7/29 and 7/31. The July journal should have been **$21.66**, not
+$3,142.26. Two candidate repairs, neither taken this session because both are
+Ramona's to make in Xero: re-date the $3,120.60 portion into August so it lands
+with the payment it belongs to, or reverse the journal and re-post it at $21.66
+with August booked normally from the drafts. **The `2026-07-31-adj` split row in
+our DB is a faithful record of what Xero contains and should NOT be edited until
+Xero itself changes** — it is not the error, it is the evidence.
+
+**One thing NOT concluded.** The four `double_reallocation` findings on this loan
+(all `status='resolved'`) report things like "10 manual journals move a further
+$3,812.41" against a single $3,414.71 payment, and a payment where "$-822.14 ends
+up against the loan". Those arithmetic results are not credible as stated and look
+like the month-end true-ups being attributed to whichever payment sits in the
+window. Not investigated here; flagged so nobody quotes those numbers as findings.
 
 ---
 
