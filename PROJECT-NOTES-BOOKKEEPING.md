@@ -2628,6 +2628,70 @@ to "what is running".
 
 ---
 
+### Session 259 cont. (2026-09-01) — THE `inherited` TEST, RUN BY HAND ON ALL SIX ISSUES ROWS: three have not moved since June, and the loan with the real defect is not in the list at all
+
+David: "Worth running that alone before building anything else? YES PLEASE."
+
+**This was a HAND-RUN SQL ANALYSIS, not a shipped computation.** No code changed, no
+engine exists yet. It is the phase-1 check `DESIGN-VARIANCE-ATTRIBUTION.md` asks for
+— read the verdicts in SQL and see whether they hold up — done before building
+anything. Method: `V(t) = books(t) − nearest real lender anchor at-or-before t`,
+using `loan_book_balances` (`xero_rebuild`) at the only two month-ends the table
+keeps (2026-06-30, 2026-07-31) and `loan_statements` filtered to the existing
+allowlist with `balance_basis <> 'unknown'`. Cross-read against the latest
+`loan_tie_outs` row per loan for the current residual.
+
+**The result, and it reframes the queue.**
+
+| Issues row | V(6/30) | V(7/31) | Verdict |
+|---|---|---|---|
+| E-Transit 4140 — $415.88 | +415.88 | +415.88 | **inherited, frozen** |
+| E-Transit E5-4751 — $266.42 | +266.42 | +266.42 | **inherited, frozen** |
+| E-Transit E4-9744 — $182.00 | +182.00 | +182.00 | **inherited, frozen** |
+| Funding Circle — $980.93 | +29.64 | +44.78 | inherited $29.64 + **$15.14 made in July**; today's figure is August timing |
+| PCV Good and Green — $1,802.58 | **0.00** | **0.00** | **created in the OPEN month** |
+| EIDL SBA — $5.00 | (no anchor in window) | (no anchor in window) | rounding, already labelled |
+
+**1. Three of the six have not moved by a cent in two months.** Same figure at both
+month-ends, `net_after_anchor = 0` and no later entries at the current anchor either
+— so unchanged through August as well. Whatever created them predates June. A CPA
+closing August has been reading three rows that contain nothing August can fix. They
+are still real and still need clearing; they are just not *this month's* work, and
+saying so is the entire value of the `inherited` verdict.
+
+**2. PCV ties EXACTLY at both month-ends — the gap is entirely in the open month, and
+it has a name.** Tie-out at the 8/01 anchor: raw difference $5,335.52, two later
+entries (8/03 BankTransaction, 8/31 ManualJournal) netting −$3,532.94, residual
+**$1,802.58**. That residual is **exactly the interest half of PCV's own
+`2026-08-01` split** (principal $5,335.52 / interest $1,802.58, `posted`,
+`statement_delta`). Shape: August's payment booked without the interest split out —
+the Funding Circle shape. **Probable, not confirmed** — Xero has not been read for
+it (still rate-limited). But note what this row means for the design: `gap-diagnosis`
+already has an `unsplit_payment` rule and **it cannot fire here**, because it only
+tests schedule rows whose date equals a later-entry date (8/03, 8/31) and this figure
+sits on 8/01. Second live case for the same date-brittleness PayPal exposed. The fix
+in the design — match the figure within the period rather than requiring exact date
+equality — would have named PCV's cause without any Xero call at all.
+
+**3. THE SHARPEST RESULT: PayPal 2 is not in the Issues list.** Its current tie-out
+difference is **$0.00**. The plug documented in the entry above did its job — it made
+the one loan on this book with a proven, six-figure-adjacent posting defect read as a
+perfect tie, while three loans whose gaps have not moved since spring occupy the
+queue. **A tie is not evidence of correctness; it is evidence that two numbers agree
+today.** This is the strongest argument yet for the attribution engine, and for
+`inherited` specifically: the queue's ordering today is driven by *magnitude of
+current disagreement*, which is exactly the quantity a plug can zero out.
+
+**Where to pick up:** the `inherited` verdict is worth building first and is nearly
+free — every input above is already loaded by `reconciliation-run`, and it needs no
+Xero call, no migration and no UI to be useful in SQL. Note also that the two-month
+window is a real limit: `loan_book_balances` keeps only the two most recent
+month-ends per loan, so "inherited" can currently only mean "older than the prior
+close", never "since March". If the verdict should name the month a gap was born,
+that retention is the thing to change first.
+
+---
+
 ### Session 259 (2026-09-01) — PayPal 2: the July journal is a PLUG TO THE LENDER'S 8/05 BALANCE, and it lands the books exactly one week early
 
 David: "hold off on that (add to notes later): I'd like to get to the bottom of
