@@ -523,10 +523,39 @@ async function handle(req: Request): Promise<Response> {
   const res = await fetch(url, { method: 'GET', headers })
   const text = await res.text()
   if (!res.ok) {
+    // ── Session 259: SURFACE THE RATE-LIMIT HEADERS ─────────────────────────
+    // A 429 from Xero arrives with an EMPTY body, so `details` was blank and the
+    // response said only "429" -- which limit, and for how long, were invisible.
+    // The quota state has been misread twice because of this (session 258 cont. 2
+    // assumed the daily cap; session 259 assumed it had cleared, having probed
+    // with `whoami` -- the IDENTITY api, which has its own separate limit and
+    // returns 200 while the accounting api is still refusing). Xero states both
+    // facts in headers on every 429: `X-Rate-Limit-Problem` names the limit
+    // (Minute / Daily / Concurrent / AppMinute) and `Retry-After` gives seconds.
+    // Read them, and say what they mean.
+    const rateProblem = res.headers.get('X-Rate-Limit-Problem')
+    const retryAfter = res.headers.get('Retry-After')
+    const rate = res.status === 429 ? {
+      limit: rateProblem || 'unknown',
+      retry_after_seconds: retryAfter ? Number(retryAfter) : null,
+      // Xero's own remaining-call counters, when present.
+      remaining_minute: res.headers.get('X-MinLimit-Remaining'),
+      remaining_day: res.headers.get('X-DayLimit-Remaining'),
+      note: rateProblem === 'Daily'
+        ? 'Daily cap. It resets on a rolling 24h basis from the calls that spent it, not at midnight — waiting past midnight UTC is not itself evidence it has cleared.'
+        : rateProblem === 'Minute'
+        ? 'Per-minute burst limit. Wait the Retry-After and repeat; nothing is wrong with the connection.'
+        : rateProblem
+        ? `Xero named this limit: ${rateProblem}.`
+        : 'Xero returned 429 without naming a limit.',
+    } : undefined
     return new Response(JSON.stringify({
       error: 'Xero read failed', status: res.status, url_without_host: url.replace(XERO, ''),
       details: text.slice(0, 1200),
-      hint: res.status === 401 ? 'Often a missing scope rather than a bad token — call mode "whoami" to see what was granted.' : undefined,
+      rate,
+      hint: res.status === 401 ? 'Often a missing scope rather than a bad token — call mode "whoami" to see what was granted.'
+        : res.status === 429 ? 'Probe with mode "accounts" (accounting api), never "whoami" (identity api, separate limit).'
+        : undefined,
     }), { status: 502, headers: cors })
   }
 

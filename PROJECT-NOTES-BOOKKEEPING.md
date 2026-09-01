@@ -2628,6 +2628,123 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 2 (2026-09-01) — Xero was 88 SECONDS away, not a day; and PCV's $1,802.58 is a CORRECTION THAT CORRECTED NOTHING
+
+Three findings, and the first one is the reason the other two exist.
+
+#### 1. `xero-rate-probe` — deployed (v2, `verify_jwt:false`, internal-secret gated)
+
+Xero returns 429 **with an empty body**, so every 429 this module has seen said only
+"429". That silence has now produced two wrong conclusions and cost the better part of
+two sessions. The new function does one hard-coded GET to `/Accounts` and reports the
+headers Xero was sending all along. Read-only by construction — no write branch, no
+path parameter, body discarded.
+
+```sql
+select net.http_post(url := '.../functions/v1/xero-rate-probe',
+  headers := jsonb_build_object('x-wr-internal', public.wr_internal_secret(),
+                                'Content-Type','application/json'),
+  body := '{}'::jsonb);
+```
+
+**What it said the first time it ran, at 15:38 UTC:**
+
+| | |
+|---|---|
+| `limit` | **`"day"`** — lowercase, singular. NOT the `Daily` the docs promise. |
+| `remaining_day` | **0** |
+| `retry_after_seconds` | **88** |
+
+**Eighty-eight seconds.** Session 258 cont. 2 shut down for the night on the belief that
+the daily cap meant "recheck tomorrow morning"; session 259 opened believing it had
+cleared because `whoami` returned 200. Both were guesses at a number Xero was stating
+outright. A re-probe 92 seconds later: **200, `remaining_day: 999`.**
+
+Two measured facts now in the code, neither of which matches the documentation:
+* **The daily ceiling on this tenant is 1,000/day, not the 5,000 the docs quote.**
+* **It is a ROLLING window, not a midnight reset.** "It is a new day in UTC" is not
+  evidence it has cleared — and equally, a hard 0-remaining refusal can clear in
+  seconds. `retry_after_seconds` and `remaining_day` are the only things to trust.
+* `X-Rate-Limit-Problem` arrives lowercase; a guidance table keyed on the documented
+  casing silently produced "no guidance on file". Normalise before lookup.
+
+**The rule: never conclude Xero is unavailable without running this probe, and never
+probe with `whoami`** (identity api, separate limit, answers 200 while accounting is
+refusing). The same header-reading fix is committed into `xero-read` too but is NOT
+deployed there — that file is 30KB and re-typing it through the MCP deploy tool is a
+transcription risk not worth taking for a diagnostic; deploy it from a CLI.
+
+Also noted while listing functions: `reconciliation-run` is at **v63** and `loan-bundle`
+at **v37**, against the START HERE table's v58 / v26. Stale again, as always.
+
+#### 2. 🔴 PCV Good and Green — the $1,802.58 is a DOUBLE REALLOCATION, and we made it
+
+Session 259 cont. (above) reasoned from the DB split row and the arithmetic that PCV's
+residual was August's interest **never split out**. **That was wrong, and wrong in the
+exact way session 232 warns about**: it concluded from one half of the picture.
+`payment_picture` for 2026-08-03 / $7,138.10 shows the two halves disagree:
+
+* **The bank transaction is ALREADY SPLIT AT SOURCE** — two lines, `254` $5,335.52 and
+  `800` $1,802.58. Correct as coded, nothing wrong with it.
+* **And a POSTED journal `d1347f7c` dated 2026-08-31 splits it AGAIN**, moving another
+  $1,802.58 to `800` and taking $1,802.58 back off `254`. Its own narration states the
+  premise: *"payment 2026-08-03 $7,138.10 was posted in full to the loan account"* —
+  **which is false.** It was not.
+
+So interest expense is overstated by $1,802.58 and account 254 is over-credited by the
+same, which is precisely the variance on screen. Arithmetic confirms it end to end:
+books tie to the lender exactly at both 6/30 and 7/31; the 8/03 payment takes 254 to
+$427,284.34, equal to the lender's 8/01 anchor **to the cent**; the 8/31 journal then
+adds $1,802.58 back. `net_after_anchor` −3,532.94 = −5,335.52 + 1,802.58. ✓
+
+**Provenance: this is ours, not Ramona's.** The narration tag `[PCV-AUG2026-INTEREST-SPLIT]`
+is the same template as `[VERDANT-AUG2026-INTEREST-SPLIT]`, which David confirmed on
+2026-08-31 he composed himself in Xero. A `contains:'INTEREST-SPLIT'` search returns
+**exactly two** journals, both dated 2026-08-31, both his. **Verdant's is CORRECT** — its
+tie-out moved from −$1,835.75 to $0.00 on the strength of it, so that payment really had
+gone whole to `394`. **PCV's is not**, because PCV's payment had not.
+
+**Proposed fix (David's to make in Xero, nothing done here): void or reverse journal
+`d1347f7c`.** Nothing in `loan_splits` should change — our `2026-08-01` row
+(5,335.52 / 1,802.58, `posted`) already describes the correct split, which is what the
+bank transaction itself does.
+
+**The lesson is the one already at the top of this file, and it caught its author.**
+*A transaction is never the whole answer* — and neither is a DB row plus arithmetic. The
+first pass produced a confident, precisely-argued, **backwards** diagnosis ("interest
+never split") from evidence that never included the journals. `payment_picture` exists
+for exactly this and should have been the first call, not the confirmation.
+
+#### 3. 🔴 PayPal 2 — the 08-05 backfill is CONFIRMED UNSAFE. The principal is in the books twice, today.
+
+August's drafts in Xero (all AUTHORISED and reconciled): **2026-08-06, 08-13, 08-20,
+08-26**, $3,414.71 each. Note they land a day AFTER the schedule's 08-05 / 08-12 /
+08-19 (08-26 aligns). Their interest add-backs total $1,087.18 = 294.11 + 279.28 +
+264.38 + 249.41, exactly the four scheduled interest amounts, so each draft was itself
+coded correctly.
+
+**Which settles the open question the wrong way for the backfill plan.** The July plug
+already removed the 08-05 payment's principal from 284 as of 7/31; the 08-06 draft then
+removed it again. Books today ≈ $46,204.32 against a lender principal of ≈ $49,324.91
+after the 08-26 payment — **understated by ≈ $3,120.60, the 08-05 principal, counted
+twice.**
+
+* **DO NOT backfill an 08-05 / 08-06 split.** It would be a third representation of one
+  payment. §8's standing instruction is now formally superseded for this period.
+* **08-13 and 08-20 can still be backfilled** — their money is in the books exactly once.
+* **The real fix is in Xero and is David's**: reverse or re-date journal `a2c49ead`
+  ($3,142.26, 2026-07-31). Removing it restores 284 and dissolves the duplication in one
+  move. The correct July entry was $21.66.
+
+**Two of the three loans examined today turned out to have a defect INTRODUCED BY A
+CORRECTION.** PayPal's plug and PCV's double split are the same failure in different
+clothes: a correcting entry posted without checking what the other half of the record
+already said. That is worth carrying into the attribution engine's design — `plug_to_*`
+and `double_reallocation` are not exotic edge cases on this book, they are the two most
+common shapes.
+
+---
+
 ### Session 259 cont. (2026-09-01) — THE `inherited` TEST, RUN BY HAND ON ALL SIX ISSUES ROWS: three have not moved since June, and the loan with the real defect is not in the list at all
 
 David: "Worth running that alone before building anything else? YES PLEASE."
