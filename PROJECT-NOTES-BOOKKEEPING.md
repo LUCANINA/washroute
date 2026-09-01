@@ -1,6 +1,56 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 258 cont. 2, 2026-09-01)
+> ## ⏭️ START HERE — first thing, next session (left by session 258 cont. 3, 2026-09-01)
+>
+> ### 0a. 🔧 NOT YET VISUALLY VERIFIED — Overview's new Closing/In-flight period
+> bar (built session 258 cont. 3, 2026-09-01)
+>
+> David asked for Overview to distinguish "what's important for closing LAST
+> MONTH" from "what's happening THIS MONTH" (inspired by his own screenshots of
+> an Issues tab with a July/August toggle). Investigated first rather than
+> building from the screenshot alone, and found the Loans page already answers
+> this exact question (`renderLoansPeriodBar()`, Closing/In-flight, session
+> 241) — Overview had just never picked it up. Also found that Overview's
+> Issues tab is driven by `loan_tie_outs` (the reconciliation engine's verdict,
+> server-side), a DIFFERENT computation from the client-side rollforward that
+> powers the Loans page's Close Rollforward band. Building a month-filtered
+> Issues view from the rollforward would have created a third, independently
+> -computed answer to "is this loan off" — precisely the "two surfaces
+> disagreeing about one number" failure this module's history warns about
+> hardest (see `_bkRosterCounts`' own comment). So the build deliberately does
+> NOT recompute anything:
+> * New `renderOverviewPeriodBar()` — a period bar on Overview's queue card,
+>   reading/writing the SAME `_loansPeriod` state as the Loans page (one
+>   source of truth, not two toggles that can disagree).
+>   **Closing \<last month\>**: Issues/Approvals/Staged all render exactly as
+>   before — zero change to any computation.
+>   **This month \<in progress\>**: Issues shows a quiet "Nothing to close
+>   yet" message instead of the same content under a second label (the
+>   statusline sentence gets the matching override so the two can't
+>   disagree); Approvals and Staged are unchanged in both periods, since
+>   neither is really a "closing month" question.
+> * Touched: `admin-dashboard/index.html` — new `#bk-ov-period-bar` div in the
+>   Overview card HTML, new `renderOverviewPeriodBar()` function,
+>   `switchLoansPeriod()` now also refreshes Overview when its element is on
+>   screen, two small period-aware branches inside `renderBookkeepingOverview()`
+>   (the statusline sentence, and the Issues queue body). Committed locally
+>   (`6aa6d05`), **not pushed** — David pushes himself, per the usual protocol.
+> * Verified: `node --check` on both inline scripts (clean), diff reviewed by
+>   hand, execution order traced carefully (relies on function hoisting the
+>   same way the rest of this file already does — nothing new there).
+>   **NOT verified: an actual click-through in a live browser.** No live
+>   authenticated session was available to drive this from here. Load the
+>   Overview tab, confirm the new period bar appears above Issues/Approvals/
+>   Staged, toggle between Closing and This month, and confirm Issues shows
+>   its real list under Closing and the quiet message under This month —
+>   before trusting this in front of anyone else.
+> * Also noticed, unrelated to this change: `git status` on this repo now
+>   shows roughly 2,000 lines of `_to_delete/HEAD.lock.*` entries marked
+>   deleted-but-tracked — years of past sessions' stale-git-lock workarounds
+>   apparently got committed into `_to_delete/` at some point and then cleaned
+>   up outside of git. Cosmetic (doesn't block commits), but worth a real
+>   cleanup (`git rm -r --cached _to_delete/` plus a `.gitignore` entry) some
+>   session that isn't this one.
 >
 > ### 0. 🔎 PICK UP HERE — PayPal 2 correction-journal tracing, blocked on Xero's
 > daily API rate limit (started session 258 cont. 2, 2026-09-01)
@@ -2561,6 +2611,54 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 258 cont. 3 (2026-09-01) — Overview gets a Closing/In-flight period bar, reusing the Loans page's own answer instead of building a second one
+
+David, after the PayPal 2 tracing got blocked on Xero's rate limit: "For the
+overview page to be helpful, I think it would help to see what is important
+for closing LAST MONTH vs. what is happening this month. The CPA can work on
+what needs to get done now. Take inspiration from an earlier design and
+suggest a way forward." Two screenshots came with it — an Issues tab with a
+July 2026 / August 2026 toggle, Loan/Variance/Fix columns, Post
+adjustment/Ignore actions, "12 of 14 loans reconciled this month."
+
+**Investigated before proposing anything.** Grepped the live `admin-dashboard/
+index.html` for the screenshot's exact copy and found most of it already
+ships today — `_bkIssueQueueItems()` already produces "Post adjustment" /
+"Ignore" and the Loan/Variance/Explanation columns are `_bkVarianceTableHtml`'s
+real output. The one genuinely missing piece was the month toggle. And the
+Loans page has HAD that exact toggle since session 241
+(`renderLoansPeriodBar()`, Closing/In-flight) — Overview just never adopted
+it. Proposed reusing it rather than inventing a new one; David confirmed via
+two AskUserQuestion picks: quiet all-clear for the in-flight empty state, and
+the period bar sitting above the existing Issues/Approvals/Staged tabs rather
+than replacing them.
+
+**The build turned up a real design risk before any code was written for it:**
+Overview's Issues tab reads `loan_tie_outs` (the server-side reconciliation
+engine's verdict), NOT the client-side `_loanCloseRollforward()` that powers
+the Loans page's Close Rollforward band -- these are two independently
+computed answers to "is this loan off," which is exactly the class of bug
+this module's history is made of (`_bkRosterCounts`' own comment: "this
+module's history is largely two surfaces disagreeing about one number").
+Filtering Issues by month using the rollforward would have introduced a
+THIRD computation of the same fact. Built the safer version instead: Closing
+renders Issues/Approvals/Staged with ZERO changes to any computation; This
+month shows Issues as a quiet "Nothing to close yet" redirect to Closing,
+rather than a second, differently-sourced list under a new label. Approvals
+and Staged are unchanged in both periods -- neither is really a
+closing-month question.
+
+**Shipped:** `renderOverviewPeriodBar()` (new), sharing `_loansPeriod` /
+`switchLoansPeriod()` / `LOAN_PERIODS` with the Loans page rather than a
+second state, so the two pages can never show a different period from each
+other. Committed locally (`6aa6d05`) -- David pushes himself. `node --check`
+clean on both inline scripts; diff reviewed by hand; **not yet clicked
+through in a live browser** -- no authenticated session was available from
+here. Full pick-up note, including the untested-in-browser caveat and an
+unrelated `_to_delete/` git-cruft finding, is in the START HERE block above.
 
 ---
 
