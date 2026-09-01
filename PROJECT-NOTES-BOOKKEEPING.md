@@ -2628,6 +2628,85 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 3 (2026-09-01) — the three frozen E-Transit rows: one confirmed, one DISPROVED, one untouched — plus a silent `xero-read` bug
+
+Took the three `inherited, frozen` rows from the localization pass and traced them.
+The headline is not any single loan:
+
+> **All three had a written diagnosis already — in `FORD-FINDINGS-2026-08-22.md`, ten
+> days old. They are frozen because they are waiting on a PERSON, not because they are
+> mysterious. And when checked against Xero, one of those written diagnoses is WRONG.**
+
+That is the argument for the attribution engine stated as plainly as it can be: the
+answer existed, in a markdown file in the repo, and never reached the screen the CPA
+reads. A doc is not the window into the truth.
+
+#### E5-4751 — $266.42 CONFIRMED. Month-offset split, exactly as the Ford doc said.
+
+`payment_picture` for 2026-05-12 / $1,046.95 (`window_days:35`). The transaction's own
+lines are **`332` $498.74 / `800` $548.21**. The lender's real May split is **$780.53 /
+$266.42**. The difference is **$281.79 — which is APRIL's interest**, so May's payment
+was booked with April's interest figure and the loan account under-reduced by that much.
+Net today is $266.42 because a separate $15.37 moved the other way (both figures are
+named in the Ford doc). No journal touched `332` in the window; nothing has corrected it.
+**Fix is Ramona's re-split per the Ford doc's table. It was written on 2026-08-22 and
+has not been done.**
+
+#### E4-9744 — $182.00 is NOT April's interest. The Ford doc's assumption is DISPROVED.
+
+The doc reads "E4's gap ≈ its April interest $181.99", and the arithmetic is seductive:
+$182.00 against $181.99. **Xero says otherwise.** `payment_picture` for 2026-04-09 /
+$1,144.55: the transaction is lumped 100% to `244`, **and a journal already moved
+−$181.99 out of it**, netting `244` to **$962.56 — exactly the correct principal.**
+April is right. Whatever the $182.00 is, it is not that.
+
+What is actually known about it: it is **static**. Books read $16,405.75 and the lender
+$16,223.75 at 6/30, at 7/31, and at the 8/20 anchor — identical to the cent, with no
+later entries at any of them. The loan genuinely has no payments in June–August (the
+2026-05-27 $5,000 payment covered the June invoice — Ford doc), so nothing has moved on
+either side. **$182.00 is a standing difference of unknown origin, older than June, and
+it needs its own trace. It is also suspiciously ROUND** — no interest figure on this loan
+is a whole dollar (181.99, 168.77, 197.14, 204.56), which points at a hand-entered
+adjustment rather than a mis-split payment.
+
+**Second time today a confident arithmetic match was backwards** (PCV was the first).
+Both times the tell was the same: a figure that matched to the cent, and no one had
+looked at the journals. Two cents of difference — $182.00 vs $181.99 — was the only
+visible hint, and it would have been easy to call rounding.
+
+#### 4140 — $415.88 untraced, and the Ford doc predicts why
+
+Not in the doc's split table. Its closing line: *"If 4140 still shows an old residual
+after all this, it's pre-Feb-2025 history (the engine walks 18 months at a time) — the
+deep-walk item on the shelf, now fully backed by lender data whenever we want it."*
+$415.88 is that residual. Unverified; the lender history to 2023 is already on file, so
+the deep walk is available whenever it is wanted.
+
+#### 🐛 `xero-read` bug: `with_lines:true` on `bank_transactions` silently returns NOTHING
+
+`fetchOneById()` hard-codes `JSON.parse(text).ManualJournals` for every endpoint. Fetch a
+BankTransaction by id and Xero answers `{ BankTransactions: [...] }`, so the parse yields
+`undefined → [] → [0] → null`, the row is dropped as "not found", and the response reads:
+
+```
+"count": 1, "hydrated": 0, "results": [], "complete": false
+```
+
+**A transaction that exists is reported as no transaction at all** — the failure shape
+this module hates most, an answer that cannot fail presented as a clean result. It is
+also why this session reached for arithmetic instead of the ledger on PCV and got it
+backwards. Fix is three lines (`(json.BankTransactions ?? json.ManualJournals ?? [])[0]`)
+and is **NOT written yet** — `xero-read` is 30KB and re-typing it through the MCP deploy
+tool is a transcription risk; do it from a CLI along with the rate-header change already
+committed there. Until then use `payment_picture`, which reads lines correctly.
+
+**Also learned about `payment_picture`:** its default 120-day forward window makes it
+time out (>55s) on older payments. `window_days` fixes it — 30–35 is plenty for a
+single payment, and pg_net needs `timeout_milliseconds := 55000`, since its 5s default
+kills the call long before the function answers.
+
+---
+
 ### Session 259 cont. 2 (2026-09-01) — Xero was 88 SECONDS away, not a day; and PCV's $1,802.58 is a CORRECTION THAT CORRECTED NOTHING
 
 Three findings, and the first one is the reason the other two exist.
