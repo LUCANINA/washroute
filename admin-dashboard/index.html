@@ -47850,28 +47850,39 @@ async function _dvIframeLoaded() {
   }
   window.toggleOAGroup = toggleOAGroup;
 
-  function previewSelectedInvoice() {
+  async function previewSelectedInvoice() {
     const checked = [...document.querySelectorAll('.oa-select-cb:checked')];
     if (!checked.length) { showToast('Select an account first', 'error'); return; }
-    // Preview all selected accounts
-    checked.forEach(cb => {
-      if (cb.dataset.type === 'group') {
-        _invoiceGroupId = cb.dataset.id;
-        _invoiceCustomerId = null;
-        const invoices = getInvoicesForGroup(_invoiceGroupId);
-        invoices.forEach(inv => {
-          const w = window.open('', '_blank');
-          if (w) { w.document.write(inv.html); w.document.close(); }
-        });
-      } else {
-        const inv = getInvoiceForStandalone(cb.dataset.id);
-        if (inv) {
-          const w = window.open('', '_blank');
-          if (w) { w.document.write(inv.html); w.document.close(); }
-        }
-      }
-    });
-    showToast('Opened invoice(s) — use Print to save as PDF');
+    // Session 258: build descriptors for every selected account through the same
+    // single pipeline the Send flow uses, then number them. The modal's own
+    // selection is saved and restored so previewing from the list can't leave
+    // stale _invoice* state behind.
+    const prevGroup = _invoiceGroupId, prevCust = _invoiceCustomerId;
+    let all = [];
+    for (const cb of checked) {
+      const isGroup = cb.dataset.type === 'group';
+      _invoiceGroupId    = isGroup ? cb.dataset.id : null;
+      _invoiceCustomerId = isGroup ? null : cb.dataset.id;
+      all = all.concat(getSelectedInvoiceData());
+    }
+    _invoiceGroupId = prevGroup; _invoiceCustomerId = prevCust;
+    if (!all.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+    // Tabs open synchronously — window.open() after an await is blocked.
+    const wins = all.map(() => window.open('', '_blank'));
+    try {
+      await issueInvoiceNumbers(all, false);
+      all.forEach((inv, i) => {
+        const w = wins[i];
+        if (!w) return;
+        w.document.write(generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber));
+        w.document.close();
+      });
+      showToast('Opened ' + all.length + ' invoice(s) — use Print to save as PDF');
+    } catch (err) {
+      console.error('Preview invoice error:', err);
+      wins.forEach(w => { try { if (w) w.close(); } catch (e) {} });
+      showToast(err.message, 'error');
+    }
   }
   window.previewSelectedInvoice = previewSelectedInvoice;
 
@@ -48102,30 +48113,6 @@ async function _dvIframeLoaded() {
   }
   window.oaVoidPayment = oaVoidPayment;
 
-  // ── STANDALONE INVOICE SUPPORT ──────────────────────────────────
-  function getInvoiceForStandalone(customerId) {
-    const custOrders = oaData.filter(o => o.customer_id === customerId);
-    if (!custOrders.length) return null;
-    const c = custOrders[0].customers;
-    const name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
-    const period = document.getElementById('oa-period-label').textContent || '';
-    // Fall back to created_at so counter drop-offs (no pickup_window_start)
-    // sort by when they actually happened instead of all landing at epoch 0.
-    const sorted = [...custOrders].sort((a, b) =>
-      new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
-    const html = generateInvoiceHTML(name, sorted, period, null);
-    return { filename: name + ' — Invoice', html };
-  }
-
-  function previewStandaloneInvoice() {
-    if (!_invoiceCustomerId) { showToast('No customer selected', 'error'); return; }
-    const inv = getInvoiceForStandalone(_invoiceCustomerId);
-    if (!inv) { showToast('No invoiceable orders for this customer', 'error'); return; }
-    const w = window.open('', '_blank');
-    if (w) { w.document.write(inv.html); w.document.close(); }
-    showToast('Opened invoice — use Print to save as PDF');
-  }
-
   async function openStandaloneInvoiceModal(customerId) {
     _invoiceGroupId = null;
     _invoiceCustomerId = customerId;
@@ -48194,7 +48181,7 @@ async function _dvIframeLoaded() {
   }
   window.closeInvoiceModal = closeInvoiceModal;
 
-  function generateInvoiceHTML(title, orders, period, groupName) {
+  function generateInvoiceHTML(title, orders, period, groupName, invoiceNumber) {
     // Customer-facing PDF — must always show Pacific dates regardless of where admin is.
     const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
     const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
@@ -48277,7 +48264,7 @@ async function _dvIframeLoaded() {
     }).join('');
 
     return `<!DOCTYPE html>
-<html><head><title>Invoice — ${title}</title>
+<html><head><title>${invoiceNumber ? 'Invoice ' + invoiceNumber : 'Invoice'} — ${title}</title>
 <style>
   @media print { body { margin: 0; } .no-print { display: none !important; } @page { margin: 0.4in; } }
   html, body { background: #ffffff; }
@@ -48301,6 +48288,7 @@ async function _dvIframeLoaded() {
   </div>
   <div style="text-align:right">
     <div style="font-size:18px;font-weight:700;letter-spacing:0.05em">INVOICE</div>
+    <div style="font-size:12px;font-weight:700;color:#fff;margin-top:4px">${invoiceNumber || 'DRAFT — not yet issued'}</div>
     <div style="font-size:11px;color:#d1d5db;margin-top:3px">Statement Date: ${today}</div>
     <div style="font-size:11px;color:#d1d5db">Due Date: ${dueDate}</div>
     <div style="font-size:11px;color:#d1d5db">Period: ${period}</div>
@@ -48349,41 +48337,6 @@ ${orderSections}
 </body></html>`;
   }
 
-  function getInvoicesForGroup(groupId) {
-    const g = _oaBillingGroups.find(bg => bg.id === groupId);
-    if (!g) return [];
-    const period = document.getElementById('oa-period-label').textContent || '';
-
-    // Get actual order data for this group from oaData
-    const groupOrders = oaData.filter(o => o.customers?.billing_group_id === groupId);
-
-    if (g.invoice_style === 'consolidated') {
-      // One invoice with all orders, sorted by date
-      const sorted = [...groupOrders].sort((a, b) =>
-        new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
-      const html = generateInvoiceHTML(g.name, sorted, period, g.name);
-      return [{ filename: g.name + ' — Consolidated Invoice', html }];
-    } else {
-      // Separate invoice per member customer
-      const byCustomer = {};
-      groupOrders.forEach(o => {
-        const cid = o.customer_id;
-        if (!byCustomer[cid]) byCustomer[cid] = { orders: [], name: '' };
-        const c = o.customers;
-        byCustomer[cid].name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
-        byCustomer[cid].orders.push(o);
-      });
-      return Object.values(byCustomer)
-        .filter(c => c.orders.some(o => Number(o.total_amount || 0) > 0))
-        .map(c => {
-          const sorted = c.orders.sort((a, b) =>
-            new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
-          const html = generateInvoiceHTML(c.name, sorted, period, g.name);
-          return { filename: c.name + ' — Invoice', html };
-        });
-    }
-  }
-
   // Pre-load the invoice logo as base64 for PDF embedding
   let _invoiceLogoBase64 = null;
   let _invoiceLogoNatW = 0, _invoiceLogoNatH = 0;
@@ -48410,7 +48363,7 @@ ${orderSections}
   _preloadInvoiceLogo(BIZ_INVOICE.logo_url);
 
   // Build a PDF directly from invoice data using jsPDF (no screenshots)
-  function buildInvoicePdfBase64(title, orders, period, groupName) {
+  function buildInvoicePdfBase64(title, orders, period, groupName, invoiceNumber) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait' });
     const pw = 215.9, ph = 279.4; // letter size in mm
@@ -48427,7 +48380,7 @@ ${orderSections}
 
     // ── DARK HEADER BAR ──
     doc.setFillColor(31, 41, 55);
-    doc.rect(0, 0, pw, 28, 'F');
+    doc.rect(0, 0, pw, 32, 'F');
 
     // Logo — sized to align with the 3 text lines (y 7–20, ~13mm tall)
     let textStart = ml;
@@ -48453,11 +48406,16 @@ ${orderSections}
     // Customer-facing PDF — Pacific dates regardless of admin's browser TZ.
     const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
     const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
+    // Session 258: the invoice number sits directly under the INVOICE heading,
+    // the most-read spot on the page. jsPDF's standard fonts are WinAnsi, so use
+    // a plain hyphen here rather than an em dash.
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+    rText(invoiceNumber || 'DRAFT - not yet issued', 15);
     doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-    rText('Statement Date: ' + today, 15);
-    rText('Due Date: ' + dueDate, 19);
-    rText('Period: ' + period, 23);
-    y = 35;
+    rText('Statement Date: ' + today, 20);
+    rText('Due Date: ' + dueDate, 24);
+    rText('Period: ' + period, 28);
+    y = 40;
 
     // ── BILL TO + AMOUNT DUE ──
     doc.setTextColor(107, 114, 128);
@@ -48599,67 +48557,99 @@ ${orderSections}
     return pdfData.split(',')[1];
   }
 
-  // Helper: get all invoices for current selection (group or standalone)
-  function getSelectedInvoices() {
-    if (_invoiceGroupId) return getInvoicesForGroup(_invoiceGroupId);
-    if (_invoiceCustomerId) {
-      const inv = getInvoiceForStandalone(_invoiceCustomerId);
-      return inv ? [inv] : [];
-    }
-    return [];
-  }
-
-  // Return structured data for PDF generation (not HTML)
+  // ── INVOICE DESCRIPTORS ─────────────────────────────────────────
+  // Session 258: ONE place decides what invoices the current selection
+  // produces. Preview and Send both read from here, so the numbered PDF the
+  // customer receives can never disagree with what was shown on screen.
   function getSelectedInvoiceData() {
     const period = document.getElementById('oa-period-label').textContent || '';
+    const mk = (title, orders, groupName, filename, customerId, billingGroupId) => {
+      const sorted = [...orders].sort((a, b) =>
+        new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
+      return {
+        title, orders: sorted, period, groupName, filename,
+        customerId:     customerId || null,
+        billingGroupId: billingGroupId || null,
+        orderIds:       sorted.map(o => o.id),
+        total:          Math.round(sorted.reduce((s, o) => s + orderChargedTotal(o), 0) * 100) / 100,
+        invoiceNumber:  null,
+      };
+    };
+
     if (_invoiceGroupId) {
       const g = _oaBillingGroups.find(bg => bg.id === _invoiceGroupId);
       if (!g) return [];
       const groupOrders = oaData.filter(o => o.customers?.billing_group_id === _invoiceGroupId);
+      if (!groupOrders.length) return [];
       if (g.invoice_style === 'consolidated') {
-        const sorted = [...groupOrders].sort((a, b) => new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
-        return [{ title: g.name, orders: sorted, period, groupName: g.name, filename: g.name + ' — Consolidated Invoice' }];
-      } else {
-        const byCustomer = {};
-        groupOrders.forEach(o => {
-          const cid = o.customer_id;
-          if (!byCustomer[cid]) byCustomer[cid] = { orders: [], name: '' };
-          const c = o.customers;
-          byCustomer[cid].name = c ? ((c.first_name_cache||'') + ' ' + (c.last_name_cache||'')).trim() : 'Unknown';
-          byCustomer[cid].orders.push(o);
-        });
-        return Object.values(byCustomer)
-          .filter(c => c.orders.some(o => Number(o.total_amount||0) > 0))
-          .map(c => {
-            const sorted = c.orders.sort((a, b) => new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
-            return { title: c.name, orders: sorted, period, groupName: g.name, filename: c.name + ' — Invoice' };
-          });
+        return [mk(g.name, groupOrders, g.name, g.name + ' — Consolidated Invoice', null, g.id)];
       }
+      const byCustomer = {};
+      groupOrders.forEach(o => {
+        const cid = o.customer_id;
+        if (!byCustomer[cid]) byCustomer[cid] = { id: cid, orders: [], name: '' };
+        const c = o.customers;
+        byCustomer[cid].name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
+        byCustomer[cid].orders.push(o);
+      });
+      return Object.values(byCustomer)
+        .filter(c => c.orders.some(o => Number(o.total_amount || 0) > 0))
+        .map(c => mk(c.name, c.orders, g.name, c.name + ' — Invoice', c.id, g.id));
     }
+
     if (_invoiceCustomerId) {
       const custOrders = oaData.filter(o => o.customer_id === _invoiceCustomerId);
       if (!custOrders.length) return [];
       const c = custOrders[0].customers;
-      const name = c ? ((c.first_name_cache||'') + ' ' + (c.last_name_cache||'')).trim() : 'Unknown';
-      const sorted = [...custOrders].sort((a, b) => new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
-      return [{ title: name, orders: sorted, period, groupName: null, filename: name + ' — Invoice' }];
+      const name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
+      return [mk(name, custOrders, null, name + ' — Invoice', _invoiceCustomerId, null)];
     }
     return [];
   }
 
-  function previewInvoicePDF() {
-    try {
-      if (!_invoiceGroupId && !_invoiceCustomerId) { showToast('No account selected', 'error'); return; }
-      const invoices = getSelectedInvoices();
-      if (!invoices.length) { showToast('No invoiceable orders in this period', 'error'); return; }
-      invoices.forEach(inv => {
-        const w = window.open('', '_blank');
-        if (w) { w.document.write(inv.html); w.document.close(); }
+  // ── INVOICE NUMBERS (session 258) ───────────────────────────────
+  // The number is minted and recorded by the issue_invoice RPC, never by the
+  // browser — so it is unique, never reused, and identical every time this
+  // customer's (or group's) invoice for this period is regenerated. Mutates
+  // each descriptor in place, setting .invoiceNumber.
+  async function issueInvoiceNumbers(descriptors, markSent) {
+    for (const d of descriptors) {
+      const { data, error } = await db.rpc('issue_invoice', {
+        p_customer_id:      d.customerId,
+        p_billing_group_id: d.billingGroupId,
+        p_period_label:     d.period,
+        p_bill_to_name:     d.title,
+        p_order_ids:        d.orderIds,
+        p_total_amount:     d.total,
+        p_mark_sent:        !!markSent,
+        p_actor_name:       currentUserDisplayName || currentUserFirstName || 'Admin',
       });
-      showToast('Opened ' + invoices.length + ' invoice(s) — use Print to save as PDF');
+      if (error) throw new Error('Could not assign an invoice number: ' + error.message);
+      d.invoiceNumber = data?.invoice_number || null;
+    }
+    return descriptors;
+  }
+
+  async function previewInvoicePDF() {
+    if (!_invoiceGroupId && !_invoiceCustomerId) { showToast('No account selected', 'error'); return; }
+    const invData = getSelectedInvoiceData();
+    if (!invData.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+    // Open the tabs synchronously — a window.open() issued after an await is
+    // treated as an unrequested popup and blocked.
+    const wins = invData.map(() => window.open('', '_blank'));
+    try {
+      await issueInvoiceNumbers(invData, false);
+      invData.forEach((inv, i) => {
+        const w = wins[i];
+        if (!w) return;
+        w.document.write(generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber));
+        w.document.close();
+      });
+      showToast('Opened ' + invData.length + ' invoice(s) — use Print to save as PDF');
     } catch (err) {
       console.error('Preview invoice error:', err);
-      showToast('Error: ' + err.message, 'error');
+      wins.forEach(w => { try { if (w) w.close(); } catch (e) {} });
+      showToast(err.message, 'error');
     }
   }
   window.previewInvoicePDF = previewInvoicePDF;
@@ -48682,31 +48672,35 @@ ${orderSections}
       const cc = ccStr ? ccStr.split(',').map(e => ({ email: e.trim() })).filter(e => e.email) : [];
 
       // Generate invoice PDFs
-      const invoices = getSelectedInvoices();
-      if (!invoices.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+      const invData = getSelectedInvoiceData();
+      if (!invData.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+
+      // Session 258: lock the invoice number in BEFORE the PDF is built, so the
+      // number printed on the attachment is exactly the one recorded in the
+      // invoices table. Re-sending the same period reuses the same number.
+      btn.textContent = 'Assigning numbers…';
+      await issueInvoiceNumbers(invData, true);
 
       btn.textContent = 'Generating PDFs…';
       const attachments = [];
       // Build PDFs directly from order data (not from HTML screenshots)
-      const invData = getSelectedInvoiceData();
       for (const inv of invData) {
+        const fname = inv.filename + (inv.invoiceNumber ? ' ' + inv.invoiceNumber : '');
         try {
-          const pdfBase64 = buildInvoicePdfBase64(inv.title, inv.orders, inv.period, inv.groupName);
+          const pdfBase64 = buildInvoicePdfBase64(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber);
           attachments.push({
-            filename: inv.filename + '.pdf',
+            filename: fname + '.pdf',
             content: pdfBase64,
             type: 'application/pdf',
           });
         } catch (pdfErr) {
           console.error('PDF generation failed, falling back to HTML:', pdfErr);
-          const htmlInv = invoices.find(i => i.filename === inv.filename);
-          if (htmlInv) {
-            attachments.push({
-              filename: inv.filename + '.html',
-              content: btoa(unescape(encodeURIComponent(htmlInv.html))),
-              type: 'text/html',
-            });
-          }
+          const html = generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber);
+          attachments.push({
+            filename: fname + '.html',
+            content: btoa(unescape(encodeURIComponent(html))),
+            type: 'text/html',
+          });
         }
       }
       btn.textContent = 'Sending…';
