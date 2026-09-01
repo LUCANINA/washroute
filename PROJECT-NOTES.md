@@ -13,6 +13,25 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
+*Last updated: September 1, 2026 — Session 258 (QA) — **Post-fix QA pass on the Invoices screen: blast-radius clean, plus a chunked order fetch and a KPI reconciliation fix found by re-testing with production-shaped data.***
+
+Run after the double-quoted-id bug reached David. Findings:
+
+**🔍 Blast radius — clean.** The pattern was "a helper that returns an ALREADY-DELIMITED value, wrapped in delimiters again." Grepped every `escAttrJSArg` call site across all four apps: 14 others, every one interpolating bare (`promptUpdateCard(${escAttrJSArg(name)}, …)`). The Invoices tab was the only offender and is fixed. No equivalent misuse of `escJS` / `svcEsc` was introduced.
+
+**Authorization re-verified.** The session-227 audit query confirms both new SECURITY DEFINER functions (`issue_invoice`, `void_invoice`) are `guarded = true`. Grants on all three new objects are `authenticated:SELECT` only, anon absent.
+
+**Two real defects found by re-testing with PRODUCTION-SHAPED data — the direct lesson from the button bug.** The first harness used tidy invented values; the real API does not.
+
+1. **PostgREST returns `numeric` columns as JSON strings** (`"10536.00"`, not `10536`). Every arithmetic site in the new code already wrapped in `Number()`, so this passed — but it passed by luck of habit, not because it had been tested. Re-ran the whole screen with string numerics: KPIs render `$10,536.00`, no string concatenation. Now covered.
+2. **`.in('id', order_ids)` was unbounded.** Kidango's August invoice carries **73 orders**, and the group has 18 sites — a consolidated annual invoice would be several hundred. Each id costs ~38 characters on the request line, so a few hundred would exceed the server's limit and fail as an opaque error at exactly the moment the invoice matters most. `_fetchInvoiceOrders` now batches at 100. Verified with a 150-order invoice: two requests (100 + 50), all 150 orders on the rebuilt document.
+
+**KPI reconciliation fix.** `written_off_total` is deliberately neither paid nor outstanding, so with any write-off in range, Paid + Outstanding silently failed to equal Total Invoiced — on a finance screen that reads as lost money. The Paid card now carries a `+ $X written off` subline whenever it is non-zero, and the four figures reconcile explicitly. Verified: 1,036.50 + 450.00 + 9,049.50 = 10,536.00.
+
+**⚠️ Live data note.** `INV-2026-0001` (Kidango Group, Aug 1–31, $10,536, 73 orders) was **voided at 16:24 UTC** — David's void click, after the fix landed. Its `last_sent_at` is NULL, so it was never emailed and no customer ever saw that number. The next issue for Kidango / August will mint `INV-2026-0002`.
+
+**Flagged, not changed (pre-existing, customer-facing):** `generateInvoiceHTML` and `buildInvoicePdfBase64` format every figure with `.toFixed(2)` and no thousands separator, so the Kidango invoice prints **`Total Due $10536.00`** while the admin table shows `$10,536.00`. This predates today's work and affects every invoice already sent. One-line fix in both renderers; left for David to green-light since it changes a document customers have already received.
+
 *Last updated: September 1, 2026 — Session 258 (fix) — **All three Invoices-tab row buttons were dead: `escAttrJSArg()` returns an ALREADY-QUOTED value and I wrapped it in quotes again.***
 
 David: "Invoice not found — reload the report" on Print, and the same on Void.

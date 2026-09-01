@@ -2840,6 +2840,7 @@
               <div class="stat-card">
                 <div class="stat-label">Paid</div>
                 <div class="stat-value" id="inv-kpi-paid">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="inv-kpi-wo"></div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Outstanding</div>
@@ -48927,6 +48928,11 @@ ${orderSections}
     document.getElementById('inv-kpi-invoiced').textContent    = fmtMoney(live.reduce((s, r) => s + Number(r.live_total || 0), 0));
     document.getElementById('inv-kpi-paid').textContent        = fmtMoney(live.reduce((s, r) => s + Number(r.paid_total || 0), 0));
     document.getElementById('inv-kpi-outstanding').textContent = fmtMoney(live.reduce((s, r) => s + Number(r.outstanding_total || 0), 0));
+    // Written-off money is neither paid nor outstanding. Surface it whenever it
+    // exists, otherwise Paid + Outstanding quietly fails to equal Total Invoiced
+    // and the screen looks like it is losing money.
+    const woTotal = live.reduce((s, r) => s + Number(r.written_off_total || 0), 0);
+    document.getElementById('inv-kpi-wo').textContent = woTotal > 0.005 ? '+ ' + fmtMoney(woTotal) + ' written off' : '';
 
     const rows = _invoiceListRows.filter(r => {
       if (r.voided_at && !showVoided) return false;
@@ -48986,9 +48992,20 @@ ${orderSections}
   // showing right now.
   async function _fetchInvoiceOrders(r) {
     if (!r.order_ids || !r.order_ids.length) return [];
-    const { data, error } = await db.from('orders').select(_INV_ORDER_SELECT).in('id', r.order_ids);
-    if (error) throw new Error('Could not load this invoice’s orders: ' + error.message);
-    return (data || []).sort((a, b) =>
+    // Chunked: .in() goes on the URL as one id per 38 characters, and a large
+    // consolidated invoice is not hypothetical here — Kidango's August invoice
+    // already carries 73 orders and the group has 18 sites. A few hundred ids
+    // would push the request line past the server's limit and fail as an opaque
+    // error, so batch rather than trust the account to stay small.
+    const CHUNK = 100;
+    const out = [];
+    for (let i = 0; i < r.order_ids.length; i += CHUNK) {
+      const { data, error } = await db.from('orders').select(_INV_ORDER_SELECT)
+        .in('id', r.order_ids.slice(i, i + CHUNK));
+      if (error) throw new Error('Could not load this invoice’s orders: ' + error.message);
+      out.push(...(data || []));
+    }
+    return out.sort((a, b) =>
       new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
   }
 
