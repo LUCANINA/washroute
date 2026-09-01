@@ -32,6 +32,52 @@ equal" and "this is what a person did."
 
 ---
 
+## 0b. ⚠️ REVISED, session 259 cont. 4 — most of this already exists. Do not rebuild it.
+
+**Read this before §1–§3.** Those sections were written before anyone ran
+`loan-find-difference` on the three stuck E-Transit loans. It answered all three in
+seconds, and its output is better than what §2 proposed to build:
+
+> *"2026-05-28 → 2026-06-17 is off by $283.07 — your accountant's own split on the
+> 2026-06-17 payment carries 2026-04 + 2026-05 + 2026-06 interest ($415.88), and all 3
+> of those months were already booked."*
+
+`loan-find-difference` (session 225, live at v24) **already performs stages 1–3**: it
+localizes the gap to a span between lender anchors, names the entry, decomposes the
+amount against the schedule and the lender's own history, collapses offsetting-pair
+timing spans, hunts cross-loan misallocations, and writes plain-English conclusions. It
+also already honours the rule that matters most here — **the CPA's work is untouchable**:
+where the culprit is one of Ramona's own multi-line splits it returns
+`can_post: false, proposal: null` and flags an exception rather than proposing anything.
+
+**So the diagnosis was never missing. Its DELIVERY was.** Nothing calls that function
+automatically, nothing stores its conclusion, and nothing puts the sentence in front of
+the CPA — so three loans sat in Issues for months showing a bare dollar amount and "No
+correcting entry prepared yet", with the real answer one unpressed button away.
+
+**The revised build, in priority order:**
+
+1. **Call `loan-find-difference` from `reconciliation-run` for any loan with a material
+   variance, and store its conclusion at `loan_tie_outs.detail.attribution`.** Note it
+   requires a user JWT today (`callerRole`); either add the `x-wr-internal` path it
+   already has siblings for, or factor `analyzeWalk()` into `_shared/` and call it
+   in-process — the second is cleaner and avoids a function calling a function.
+2. **Surface the stored sentence** in Issues' Explanation column and the Loans hover,
+   exactly as §4 describes. §4 is unchanged and still correct.
+3. **Only then add the three genuinely new things** the PayPal and E-Transit work turned
+   up, which `loan-find-difference` does NOT do:
+   * **The plug test** — does the balance an entry produced equal a lender anchor dated
+     somewhere else? (PayPal's July journal; the strongest evidence available.)
+   * **Future-dated schedule rows** as decomposition terms (PayPal was only solvable
+     because the explaining figure was in the future).
+   * **The `inherited` verdict** — "this gap predates the period; look in an earlier
+     month."
+
+§1–§3 below stay as the record of the reasoning, and their **refusal rules still govern
+the new checks in (3)**. Ignore their framing of stages 1–3 as something to build.
+
+---
+
 ## 1. Why this is an extension of `gap-diagnosis.ts`, not a new thing
 
 `_shared/gap-diagnosis.ts` (session 253) already does a narrow version of step 3.

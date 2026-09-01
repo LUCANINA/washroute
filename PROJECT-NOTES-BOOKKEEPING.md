@@ -2628,6 +2628,80 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 4 (2026-09-01) — ALL THREE frozen E-Transit gaps are ONE defect, $864.30 — and `loan-find-difference` has known the answer all along
+
+Ran `loan-find-difference` (analyze mode, read-only, invoked through the live
+dashboard's own authenticated client — it requires a user JWT, so it cannot be called
+from SQL with the internal secret). It answered all three in seconds.
+
+| Loan | Gap | The entry | What its split carries |
+|---|---|---|---|
+| 4140 | **$415.88** | 2026-06-17 payment | 2026-04 + 05 + 06 interest — all three already booked |
+| E5-4751 | **$266.42** | 2026-05-12 payment | 2026-04 + 05 interest ($548.21), $266.42 already booked |
+| E4-9744 | **$181.97** (+$0.02) | 2026-05-11 payment | 2026-04 + 05 interest ($350.74), both already booked |
+
+**One defect, three loans, $864.30.** In each case a single payment was split in Xero
+with SEVERAL months' interest at once, while those months had already been booked
+separately — so the interest is counted twice and the loan account is under-reduced by
+the excess. It is the same family as PCV's double reallocation from earlier today:
+interest counted twice because two entries each carried it.
+
+The arithmetic ties exactly to our own split rows — 4140's $415.88 = $147.43 (Apr) +
+$135.64 (May) + $132.81 (Jun), the three interest figures already in `loan_splits`.
+
+**Every one is a CPA EXCEPTION: `can_post: false`, `proposal: null`.** The entries are
+Ramona's own multi-line splits, and the engine's "the CPA's work is untouchable" rule
+(session 224) correctly refuses to propose a correction over them. So **nothing in this
+product can clear these three rows. They can only be fixed by Ramona re-splitting those
+three payments**, which is precisely why they have not moved since June.
+
+#### The Ford doc is wrong in two places — correct it before anyone acts on it
+
+`FORD-FINDINGS-2026-08-22.md` is excellent work and two of its calls do not survive
+contact with the walk:
+
+* **"If 4140 still shows an old residual… it's pre-Feb-2025 history — the deep-walk
+  item on the shelf."** It is not. `residual_before_window: 0`, `agree_until:
+  2025-10-17`. 4140's gap is a **2026** problem, entirely inside the window already
+  walked. **There is no deep-walk item here.** Do not spend a session on pre-2025
+  history for this.
+* **"E4's gap ≈ its April interest $181.99."** The shape is right, the payment is
+  wrong. April's own payment is CORRECT in Xero (verified separately this session:
+  lumped to 244, journal moved −$181.99, nets to the exact principal). The defect is in
+  **May's** split, which carries April's interest a second time.
+
+Its "do NOT move the $135.64 and $132.81 journals on 4140" ruling is still right — those
+journals are 4140's own interest. The problem was never those journals; it is that the
+June payment's split carried the same months' interest *again*.
+
+#### 🔑 THE FINDING THAT MATTERS MOST FOR THE BUILD
+
+**`loan-find-difference` already does stages 1–3 of the attribution engine, and has
+since session 225.** It localizes to a span, names the entry, decomposes the amount
+against the schedule and the lender's own history, detects offsetting-pair timing spans,
+hunts cross-loan misallocations, and writes conclusions in plain English — "your
+accountant's own split on the 2026-06-17 payment carries 2026-04 + 2026-05 + 2026-06
+interest ($415.88), and all 3 of those months were already booked."
+
+That sentence is better than anything `DESIGN-VARIANCE-ATTRIBUTION.md` proposed to
+generate. It has been available on these three loans for months, behind a button on a
+screen nobody pressed, while the Issues queue showed three bare dollar amounts with
+"No correcting entry prepared yet."
+
+**So the design's centre of gravity is wrong and must be revised: do NOT build a second
+attribution engine. Wire the one that exists into the surfaces.** The real gap is not
+analysis, it is *delivery* — nothing calls `loan-find-difference` automatically, nothing
+stores its conclusion, and nothing puts that sentence in the Explanation column. Revised
+plan in `DESIGN-VARIANCE-ATTRIBUTION.md` §2 (rewritten this session).
+
+The genuinely NEW capabilities from the PayPal work still stand and are not in
+`loan-find-difference`: the **plug test** (does the balance an entry produced equal a
+lender anchor dated elsewhere?), **future-dated** schedule rows as decomposition terms,
+and the **`inherited`** verdict. Those are additions to the existing walk, not a
+replacement for it.
+
+---
+
 ### Session 259 cont. 3 (2026-09-01) — the three frozen E-Transit rows: one confirmed, one DISPROVED, one untouched — plus a silent `xero-read` bug
 
 Took the three `inherited, frozen` rows from the localization pass and traced them.
