@@ -2619,6 +2619,7 @@
               <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
               <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
+              <button class="rpt-page-tab" onclick="setRptTab('invoices',this)">Invoices</button>
               <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">Subscriptions</button>
               <button class="rpt-page-tab" onclick="setRptTab('registrations',this)">Registrations</button>
               <button class="rpt-page-tab" onclick="setRptTab('deliverykpis',this)">Delivery KPIs</button>
@@ -2819,6 +2820,59 @@
                     <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
                   <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:1px solid var(--gray-200)"></tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── TAB: INVOICES (session 258) ── -->
+          <div id="rpttab-invoices" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">Invoices Issued</div>
+                <div class="stat-value" id="inv-kpi-count">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">excludes voided</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Total Invoiced</div>
+                <div class="stat-value" id="inv-kpi-invoiced">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Paid</div>
+                <div class="stat-value" id="inv-kpi-paid">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Outstanding</div>
+                <div class="stat-value" id="inv-kpi-outstanding">—</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <div class="card-title">Issued Invoices</div>
+                <div class="card-sub" id="inv-period-label" style="flex:1"></div>
+                <input type="text" id="inv-search" class="form-input" placeholder="Search number or name"
+                       style="max-width:210px;padding:6px 10px;font-size:12.5px" oninput="renderInvoicesTable()">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray-500);cursor:pointer;white-space:nowrap">
+                  <input type="checkbox" id="inv-show-voided" onchange="renderInvoicesTable()"> Show voided
+                </label>
+              </div>
+              <div class="rpt-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Invoice #</th>
+                      <th>Issued</th>
+                      <th>Bill To</th>
+                      <th>Period</th>
+                      <th style="text-align:right">Orders</th>
+                      <th style="text-align:right">Amount</th>
+                      <th>Status</th>
+                      <th style="text-align:right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inv-tbody">
+                    <tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                  </tbody>
                 </table>
               </div>
             </div>
@@ -43641,6 +43695,7 @@ ${oneCopy}
     else if (rptTab === 'launderer')     loadLaundererReport();
     else if (rptTab === 'drivers')       loadReports();
     else if (rptTab === 'onaccount')     loadOnAccountReport();
+    else if (rptTab === 'invoices')      loadInvoicesReport();
     else if (rptTab === 'registrations') loadRegistrationsReport();
     else if (rptTab === 'deliverykpis')  loadDeliveryKpis();
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
@@ -43679,7 +43734,7 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','possales','launderer','onaccount','subscriptions','registrations','deliverykpis'].forEach(t => {
+    ['drivers','revenue','items','possales','launderer','onaccount','invoices','subscriptions','registrations','deliverykpis'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -43687,6 +43742,18 @@ ${oneCopy}
     if (tab !== 'onaccount') {
       const oaBar = document.getElementById('oa-action-bar');
       if (oaBar) oaBar.classList.remove('visible');
+    }
+    if (tab === 'invoices') {
+      // Invoices are monthly, so a today-only range (the global default) would
+      // show an empty screen. Open on the last 90 days instead.
+      const fromEl = document.getElementById('rpt-from');
+      const toEl   = document.getElementById('rpt-to');
+      if (fromEl && toEl && fromEl.value === toEl.value) {
+        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        fromEl.value = addDaysPacific(todayPT, -90);
+        toEl.value   = todayPT;
+        _rptQuickClear();
+      }
     }
     if (tab === 'subscriptions' || tab === 'deliverykpis') {
       // These reports compare windows / need a multi-day range to be meaningful.
@@ -47807,6 +47874,11 @@ async function _dvIframeLoaded() {
 
   let _invoiceGroupId = null;
   let _invoiceCustomerId = null; // for standalone accounts
+  // Session 258: when set, the Send Invoice modal is working on ONE specific
+  // already-issued invoice (a resend from the Invoices tab) rather than
+  // rebuilding from the On Account tab's current period. Always cleared when
+  // the modal closes or is opened the normal way.
+  let _invoiceOverrideDescriptors = null;
   let _oaSelType = null; // 'group' or 'standalone'
   let _oaSelId = null;
   let _oaSelName = null;
@@ -48114,6 +48186,7 @@ async function _dvIframeLoaded() {
   window.oaVoidPayment = oaVoidPayment;
 
   async function openStandaloneInvoiceModal(customerId) {
+    _invoiceOverrideDescriptors = null;
     _invoiceGroupId = null;
     _invoiceCustomerId = customerId;
     const custOrders = oaData.filter(o => o.customer_id === customerId);
@@ -48144,6 +48217,7 @@ async function _dvIframeLoaded() {
 
   // ── GROUP INVOICE MODAL ─────────────────────────────────────────
   function openInvoiceModal(groupId) {
+    _invoiceOverrideDescriptors = null;
     _invoiceGroupId = groupId;
     _invoiceCustomerId = null;
     const g = _oaBillingGroups.find(bg => bg.id === groupId);
@@ -48178,6 +48252,7 @@ async function _dvIframeLoaded() {
     document.getElementById('modal-send-invoice').style.display = 'none';
     _invoiceGroupId = null;
     _invoiceCustomerId = null;
+    _invoiceOverrideDescriptors = null;
   }
   window.closeInvoiceModal = closeInvoiceModal;
 
@@ -48562,6 +48637,7 @@ ${orderSections}
   // produces. Preview and Send both read from here, so the numbered PDF the
   // customer receives can never disagree with what was shown on screen.
   function getSelectedInvoiceData() {
+    if (_invoiceOverrideDescriptors) return _invoiceOverrideDescriptors;
     const period = document.getElementById('oa-period-label').textContent || '';
     const mk = (title, orders, groupName, filename, customerId, billingGroupId) => {
       const sorted = [...orders].sort((a, b) =>
@@ -48716,7 +48792,9 @@ ${orderSections}
           to, cc, subject, body: htmlBody, attachments,
           billing_group_id: _invoiceGroupId || null,
           customer_id: _invoiceCustomerId || null,
-          period: document.getElementById('oa-period-label').textContent || '',
+          // Session 258: a resend from the Invoices tab carries its own period,
+          // and the On Account label may not even be populated in that case.
+          period: (invData[0] && invData[0].period) || document.getElementById('oa-period-label').textContent || '',
         }),
       });
 
@@ -48776,6 +48854,7 @@ ${orderSections}
 
       showToast('Invoice sent to ' + toStr, 'success');
       closeInvoiceModal();
+      if (rptTab === 'invoices') loadInvoicesReport();
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     } finally {
@@ -48784,6 +48863,237 @@ ${orderSections}
     }
   }
   window.sendInvoiceEmail = sendInvoiceEmail;
+
+  // ══ INVOICES TAB (session 258) ═══════════════════════════════════
+  // Reads v_invoice_list, which recomputes paid / outstanding from the orders
+  // each invoice actually covers. That matters: an invoice is a snapshot of a
+  // moment, but the orders on it keep moving — one gets paid, another refunded
+  // or written off — so the status column is derived live rather than stored,
+  // and can never drift away from the truth.
+  let _invoiceListRows = [];
+
+  // Mirrors the On Account query's shape so a rebuilt invoice is byte-identical
+  // to the one that was sent. customers() rather than customers!inner() so an
+  // order whose customer row was later deleted still renders.
+  const _INV_ORDER_SELECT = 'id, order_number, total_amount, tip_amount, tip_type, status, billing_status, billed_at, actual_delivery_at, created_at, pickup_window_start, source, customer_id, line_items, total_bags, weight_lbs, customers(id, first_name_cache, last_name_cache, billing_type, billing_group_id)';
+
+  async function loadInvoicesReport() {
+    const tbody = document.getElementById('inv-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>';
+
+    const from = document.getElementById('rpt-from').value;
+    const to   = document.getElementById('rpt-to').value;
+    let q = db.from('v_invoice_list').select('*').order('issued_at', { ascending: false }).limit(500);
+    if (from) q = q.gte('issued_at', pacificDayStart(from).toISOString());
+    if (to)   q = q.lte('issued_at', pacificDayEnd(to).toISOString());
+
+    const { data, error } = await q;
+    if (error) {
+      tbody.innerHTML = '<tr><td colspan="8" style="padding:16px;color:var(--red);font-size:13px">Error loading invoices: ' + esc(error.message) + '</td></tr>';
+      return;
+    }
+    _invoiceListRows = data || [];
+    document.getElementById('inv-period-label').textContent =
+      (from && to) ? `${fmtDate(from)} — ${fmtDate(to)}` : 'All time';
+    renderInvoicesTable();
+  }
+  window.loadInvoicesReport = loadInvoicesReport;
+
+  function _invStatus(r) {
+    if (r.voided_at) return { label: 'Void', bg: 'var(--gray-100)', fg: 'var(--gray-500)' };
+    if (!r.live_order_count) return { label: 'No orders', bg: 'var(--gray-100)', fg: 'var(--gray-500)' };
+    const out  = Number(r.outstanding_total   || 0);
+    const paid = Number(r.paid_total          || 0);
+    const wo   = Number(r.written_off_total   || 0);
+    if (out <= 0.005) {
+      if (paid <= 0.005 && wo > 0.005) return { label: 'Written off', bg: 'var(--gray-100)', fg: 'var(--gray-500)' };
+      return { label: 'Paid', bg: 'var(--green-light)', fg: 'var(--green)' };
+    }
+    if (paid > 0.005 || wo > 0.005) return { label: 'Partly paid', bg: '#fef3c7', fg: '#92400e' };
+    return { label: 'Outstanding', bg: '#fee2e2', fg: '#991b1b' };
+  }
+
+  function renderInvoicesTable() {
+    const tbody = document.getElementById('inv-tbody');
+    if (!tbody) return;
+    const term       = (document.getElementById('inv-search').value || '').trim().toLowerCase();
+    const showVoided = document.getElementById('inv-show-voided').checked;
+
+    // KPIs always describe the live invoices in range, never the search result —
+    // a search box shouldn't silently change what the money at the top means.
+    const live = _invoiceListRows.filter(r => !r.voided_at);
+    document.getElementById('inv-kpi-count').textContent       = live.length;
+    document.getElementById('inv-kpi-invoiced').textContent    = fmtMoney(live.reduce((s, r) => s + Number(r.live_total || 0), 0));
+    document.getElementById('inv-kpi-paid').textContent        = fmtMoney(live.reduce((s, r) => s + Number(r.paid_total || 0), 0));
+    document.getElementById('inv-kpi-outstanding').textContent = fmtMoney(live.reduce((s, r) => s + Number(r.outstanding_total || 0), 0));
+
+    const rows = _invoiceListRows.filter(r => {
+      if (r.voided_at && !showVoided) return false;
+      if (!term) return true;
+      return (r.invoice_number     || '').toLowerCase().includes(term)
+          || (r.bill_to_name       || '').toLowerCase().includes(term)
+          || (r.billing_group_name || '').toLowerCase().includes(term)
+          || (r.period_label       || '').toLowerCase().includes(term);
+    });
+
+    if (!rows.length) {
+      const msg = _invoiceListRows.length
+        ? 'No invoices match this search.'
+        : 'No invoices in this date range. An invoice gets its number the first time you preview or send it from the On Account tab.';
+      tbody.innerHTML = `<tr><td colspan="8" style="padding:22px;text-align:center;color:var(--gray-400);font-size:13px">${msg}</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+      const st      = _invStatus(r);
+      const voided  = !!r.voided_at;
+      // Calendar days apart in Pacific, not 24-hour chunks — an invoice sent at
+      // 5pm yesterday should read "1 day ago", not "today".
+      const issuedIso = new Date(r.issued_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const ageDays = Math.max(0, Math.round(
+        (new Date(today() + 'T12:00:00') - new Date(issuedIso + 'T12:00:00')) / 86400000));
+      const ageTxt  = ageDays === 0 ? 'today' : ageDays === 1 ? 'yesterday' : ageDays + ' days ago';
+      const sub     = (r.billing_group_name && r.billing_group_name !== r.bill_to_name) ? r.billing_group_name : '';
+      const idArg   = escAttrJSArg(r.id);
+      return `<tr style="${voided ? 'opacity:.55' : ''}">
+        <td style="font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">${esc(r.invoice_number)}</td>
+        <td style="white-space:nowrap">${fmtDate(r.issued_at)}
+          <div style="font-size:11px;color:var(--gray-400)">${ageTxt}</div></td>
+        <td>${esc(r.bill_to_name || '—')}${sub ? `<div style="font-size:11px;color:var(--gray-400)">${esc(sub)}</div>` : ''}</td>
+        <td style="white-space:nowrap;color:var(--gray-500)">${esc(r.period_label || '')}</td>
+        <td style="text-align:right">${r.live_order_count}</td>
+        <td style="text-align:right;font-weight:600">${fmtMoney(r.live_total)}</td>
+        <td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;background:${st.bg};color:${st.fg}">${st.label}</span>
+          ${voided && r.void_reason ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px">${esc(r.void_reason)}</div>` : ''}
+          ${!voided && r.last_sent_at ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px">emailed ${fmtDate(r.last_sent_at)}</div>` : ''}
+        </td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-ghost" style="padding:3px 9px;font-size:12px" title="Reopen this invoice to print or save as PDF" onclick="printIssuedInvoice('${idArg}')">Print</button>
+          ${voided ? '' : `<button class="btn btn-ghost" style="padding:3px 9px;font-size:12px" title="Email this invoice again" onclick="resendIssuedInvoice('${idArg}')">Resend</button>
+          <button class="btn btn-ghost" style="padding:3px 9px;font-size:12px;color:var(--red)" title="Void this invoice so a reissue gets a new number" onclick="voidIssuedInvoice('${idArg}')">Void</button>`}
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  window.renderInvoicesTable = renderInvoicesTable;
+
+  // Rebuilds an issued invoice's order list from the ids stored on it, so what
+  // reprints is what was sent — not whatever the On Account tab happens to be
+  // showing right now.
+  async function _fetchInvoiceOrders(r) {
+    if (!r.order_ids || !r.order_ids.length) return [];
+    const { data, error } = await db.from('orders').select(_INV_ORDER_SELECT).in('id', r.order_ids);
+    if (error) throw new Error('Could not load this invoice’s orders: ' + error.message);
+    return (data || []).sort((a, b) =>
+      new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
+  }
+
+  async function printIssuedInvoice(invoiceId) {
+    const r = _invoiceListRows.find(x => x.id === invoiceId);
+    if (!r) { showToast('Invoice not found — reload the report', 'error'); return; }
+    const w = window.open('', '_blank');   // synchronous: a post-await open is blocked
+    try {
+      const orders = await _fetchInvoiceOrders(r);
+      if (!orders.length) { if (w) w.close(); showToast('This invoice has no orders left on file', 'error'); return; }
+      const html = generateInvoiceHTML(r.bill_to_name || '—', orders, r.period_label, r.billing_group_name, r.invoice_number);
+      if (w) { w.document.write(html); w.document.close(); }
+      showToast('Opened ' + r.invoice_number + ' — use Print to save as PDF');
+    } catch (err) {
+      if (w) { try { w.close(); } catch (e) {} }
+      showToast(err.message, 'error');
+    }
+  }
+  window.printIssuedInvoice = printIssuedInvoice;
+
+  async function voidIssuedInvoice(invoiceId) {
+    const r = _invoiceListRows.find(x => x.id === invoiceId);
+    if (!r) return;
+    const reason = prompt(
+      `Void invoice ${r.invoice_number}?\n\n` +
+      `It stays on file for your records, but the next invoice you send ` +
+      `${r.bill_to_name || 'this account'} for ${r.period_label} will get a NEW number.\n\n` +
+      `Reason (optional):`);
+    if (reason === null) return;   // cancelled
+    const { error } = await db.rpc('void_invoice', {
+      p_invoice_id: invoiceId,
+      p_reason:     reason.trim() || null,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) { showToast('Could not void: ' + error.message, 'error'); return; }
+    showToast(r.invoice_number + ' voided', 'success');
+    loadInvoicesReport();
+  }
+  window.voidIssuedInvoice = voidIssuedInvoice;
+
+  async function resendIssuedInvoice(invoiceId) {
+    const r = _invoiceListRows.find(x => x.id === invoiceId);
+    if (!r) return;
+    try {
+      const orders = await _fetchInvoiceOrders(r);
+      if (!orders.length) { showToast('This invoice has no orders left on file', 'error'); return; }
+      await openResendInvoiceModal(r, {
+        title:          r.bill_to_name || '—',
+        orders,
+        period:         r.period_label,
+        groupName:      r.billing_group_name || null,
+        filename:       (r.bill_to_name || 'Invoice') + ' — Invoice',
+        customerId:     r.customer_id || null,
+        billingGroupId: r.billing_group_id || null,
+        orderIds:       r.order_ids,
+        total:          Math.round(orders.reduce((s, o) => s + orderChargedTotal(o), 0) * 100) / 100,
+        invoiceNumber:  r.invoice_number,
+      });
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+  window.resendIssuedInvoice = resendIssuedInvoice;
+
+  // Opens the existing Send Invoice modal against ONE already-issued invoice.
+  // _invoiceOverrideDescriptors makes getSelectedInvoiceData() hand back this
+  // exact invoice instead of rebuilding from whatever the On Account tab has
+  // loaded — which is how a resend keeps its original number and order list.
+  async function openResendInvoiceModal(r, descriptor) {
+    _invoiceGroupId    = r.billing_group_id || null;
+    _invoiceCustomerId = r.customer_id || null;
+    _invoiceOverrideDescriptors = [descriptor];
+
+    const period = r.period_label || '';
+    const expand = s => (s || '').replace(/\{\{period\}\}/g, period);
+    const defaultSubject = 'Family Laundry Invoice — {{period}}';
+    const defaultBody    = 'Hi,\n\nPlease find attached your invoice for {{period}}.\n\nLet me know if you have any questions.\n\nBest,\nDavid';
+
+    let to = '', cc = '', subject = defaultSubject, body = defaultBody;
+    // Group first, mirroring openInvoiceModal: a per-member invoice inside a
+    // billing group is still addressed to the group's contacts, and that is also
+    // where sendInvoiceEmail persists any edits back to.
+    if (r.billing_group_id) {
+      const { data: g } = await db.from('billing_groups')
+        .select('contacts, email_subject_template, email_body_template')
+        .eq('id', r.billing_group_id).maybeSingle();
+      const contacts = Array.isArray(g?.contacts) ? g.contacts : [];
+      to      = contacts.filter(c => c.role === 'primary').map(c => c.email).join(', ');
+      cc      = contacts.filter(c => c.role !== 'primary').map(c => c.email).join(', ');
+      subject = g?.email_subject_template || defaultSubject;
+      body    = g?.email_body_template    || defaultBody;
+    } else if (r.customer_id) {
+      const { data: tpl } = await db.from('customers')
+        .select('invoice_to_email, invoice_cc_emails, invoice_subject_template, invoice_body_template, email_cache')
+        .eq('id', r.customer_id).maybeSingle();
+      to      = tpl?.invoice_to_email || tpl?.email_cache || '';
+      cc      = tpl?.invoice_cc_emails || '';
+      subject = tpl?.invoice_subject_template || defaultSubject;
+      body    = tpl?.invoice_body_template    || defaultBody;
+    }
+
+    document.getElementById('inv-group-label').textContent = (r.bill_to_name || '') + ' — resending ' + r.invoice_number;
+    document.getElementById('inv-to').value      = to;
+    document.getElementById('inv-cc').value      = cc;
+    document.getElementById('inv-subject').value = expand(subject);
+    document.getElementById('inv-body').value    = expand(body);
+    document.getElementById('inv-attachment-list').innerHTML =
+      `<div>📄 ${esc(descriptor.filename + ' ' + r.invoice_number)}.pdf</div>`;
+    document.getElementById('modal-send-invoice').style.display = 'flex';
+  }
 
   // ── CSV EXPORT ──────────────────────────────────────────────────
 

@@ -13,6 +13,35 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
+*Last updated: September 1, 2026 — Session 258 (cont.) — **Reports → Invoices: a list of every issued invoice, with live paid/outstanding status, reprint, resend and void.***
+
+Follow-on to the invoice-numbering work earlier the same day, which deliberately shipped without a UI. David asked for the screen.
+
+**New tab: Reports → Invoices**, sitting next to On Account. Opens on the **last 90 days** when the global range is at its today-only default (invoices are monthly; a one-day range would show an empty screen). Four KPI cards — invoices issued, total invoiced, paid, outstanding — plus a table of Invoice # / Issued (with a plain-language age) / Bill To / Period / Orders / Amount / Status / Actions, a search box (number, name, group, period) and a **Show voided** toggle. Voided invoices are hidden by default and never counted in the KPIs.
+
+**Status is derived, never stored — this is the important design decision.** An invoice is a snapshot of one moment, but the orders on it keep moving: one gets paid next week, another refunded, another written off. A `status` column on `invoices` would start lying the day after it was written. So `v_invoice_list` recomputes, per invoice, from the orders its `order_ids` actually point at today:
+
+| column | meaning |
+|---|---|
+| `live_order_count` / `live_total` | orders from `order_ids` that still exist, and their charged total |
+| `paid_total` | those with `billing_status IN ('paid','refunded')` |
+| `written_off_total` | those with `billing_status = 'written_off'` |
+| `outstanding_total` | everything else |
+
+The charged-total expression is a line-for-line port of the dashboard's `orderChargedTotal()` (subtotal + tip, tip flat or a percentage of subtotal), so the status column can never disagree with the figure printed on the invoice itself. Badge logic: `outstanding <= 0` → **Paid** (or **Written off** if that is all there is), some paid but not all → **Partly paid**, else **Outstanding**. `live_order_count = 0` renders **No orders** rather than a misleading $0 Outstanding.
+
+The view is `security_invoker = on`, matching `v_outstanding_orders` — the caller's RLS on both `invoices` and `orders` applies, so it cannot become a way to read orders that RLS would otherwise hide.
+
+**Void** (`void_invoice` RPC — `assert_staff`, row lock, rejects double-voiding). Voiding releases the `(scope, period)` slot held by the partial unique index `invoices_scope_period_uniq`, so the **next** `issue_invoice()` for that customer and period mints a **fresh** number instead of reusing the voided one. That is the entire mechanism: void is how you get a new number, and nothing else is needed to make reissue work. The voided row stays on file with its reason and who did it.
+
+**Print** rebuilds the invoice from the `order_ids` stored on it — not from whatever the On Account tab happens to have loaded — so a reprint months later is the document that was actually sent, with its own number, even if the On Account date range has moved on.
+
+**Resend** reuses the existing Send Invoice modal via a new module-level `_invoiceOverrideDescriptors`. When set, `getSelectedInvoiceData()` hands back that one already-issued invoice instead of rebuilding from the current On Account period; it is cleared by `closeInvoiceModal()` and by both normal modal entry points, so it can never leak into an ordinary send. Contacts and templates are loaded **group-first**, mirroring `openInvoiceModal`, so the load path and `sendInvoiceEmail`'s persist-back path agree about where a per-member group invoice's template lives. `sendInvoiceEmail`'s `period` field now prefers the descriptor's own period — a resend from the Invoices tab has no `oa-period-label` populated, and was sending an empty string to `send-invoice`.
+
+**⚠️ Grants gap found and fixed (migration `session_258_invoice_grants_hardening`) — read this before creating any new table.** The public schema still carries Supabase's default ACL, which auto-grants **ALL** privileges to `anon` and `authenticated` on every newly created table or view. The creating migration's `GRANT SELECT … TO authenticated` is *additive* and takes none of that back, so `invoices`, `invoice_counters` and `v_invoice_list` were each created with **anon holding INSERT, UPDATE, DELETE and TRUNCATE**. No exploit was possible — RLS is enabled on both tables, neither has a write policy, and `invoice_counters` has no policies at all, so every write was refused one layer in — but the outer wall was wide open. Now: `REVOKE ALL … FROM anon, authenticated` then `GRANT SELECT` to `authenticated` on the two readable objects; `invoice_counters` is closed to both. **The rule for every future new table in this project is REVOKE first, then GRANT** — a `GRANT` alone proves nothing about what else the role holds. Verified post-apply: `authenticated:SELECT` only, anon absent entirely.
+
+**Verification.** Role-coverage harness in a rolled-back transaction: `void_invoice` allows all six staff roles plus `service_role` and a no-JWT context, denies `customer` (`insufficient_privilege`) and `anon` (at the GRANT layer); double-void rejected. Full lifecycle proved against real order data: issue → view row balances (`paid + written_off + outstanding = live_total`) → reissue while live returns the **same** number → void → reissue returns a **fresh** number. PostgREST reachability of the view and the RPC confirmed before shipping the code that calls them. The UI was then driven end-to-end in headless Chromium against the real page with a stubbed data layer: KPI arithmetic, voided-row hiding and the Show-voided toggle, search, empty states, and — critically — a customer name containing `<script>` rendering as text, not a tag. Print produced a popup carrying `INV-2026-0007` with its orders correctly date-sorted and Total Due $205.00; Resend prefilled the modal from the customer's saved template and, on send, called `issue_invoice` with that invoice's own customer / period / orders / total and `mark_sent = true` (i.e. the RPC will reuse the number), attaching a file named with it. Zero page errors. Both inline `<script>` blocks parse clean under `node --check`.
+
 *Last updated: September 1, 2026 — Session 258 — **Invoices now carry a real invoice number. Numbers are minted and stored server-side, so they are unique, never reused, and identical every time the same customer's invoice for the same period is regenerated.***
 
 David: customers have asked for invoice numbers on the invoices he sends from the On Account page. Scope agreed up front: **every invoice that page produces** — standalone (individual) customers, consolidated billing-group invoices, and per-member invoices inside a group — on one shared counter, rather than numbering individuals now and building a second system when group invoices need numbers too.
