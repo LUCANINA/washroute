@@ -2632,6 +2632,82 @@ to "what is running".
 
 ---
 
+### Session 259 cont. 7 (2026-09-01) — THE GATE WAS BROKEN. An adversarial review found four ways past it; v2 is 33/33 and mutation-proven on ten rules.
+
+David: *"keep going, and test along the way with multiple agents working in parallel."*
+Two agents ran: one attacking `attribution-gate.ts`, one mapping
+`loan-find-difference`'s response shape. **The attacker found real bugs and every one
+reproduced when checked directly.** v1 is the version that shipped four hours after a
+self-audit about overconfidence, which is the point.
+
+#### What was wrong with v1 — all four verified, not taken on the agent's word
+
+| | Bug | What it let through |
+|---|---|---|
+| 1 | `corroborate()`'s `line_amount` path **never compared the account** | A claim about PayPal's `284` came back **`confirmed`** against a PCV transaction with no `284` line at all — the `800` line happened to match the magnitude |
+| 2 | Both sides absolutised | A claim **and its exact opposite** both corroborated. Direction was the ENTIRE defect on PCV; v1 would have blessed the wrong one |
+| 3 | `amount: 0` matched any zero line | A $0.00 verdict, `confirmed`, with a $0.00 correction attached |
+| 4 | `HABIT_PATTERNS` was a Set of two literals, default-ALLOW | `plug_to_month_end`, or `Plug_To_Anchor`, or a trailing space — **`confirmed` with no siblings at all.** A3 silently skipped |
+
+Bug 1 is the humbling one: **the module's own "discriminating" test passed by
+cross-account coincidence** — it claimed `350.74` on code `244`, and the only `350.74`
+line was on `800`. A test written to prove the gate discriminates was itself an
+instance of the failure the gate exists to stop.
+
+#### The fix, and the shape worth keeping
+
+**v2 no longer matches an amount against anything.** The caller states what the entry
+did to the loan account (`movedOnAccount`, signed) and what should have happened
+(`expectedOnAccount`); the gate **re-derives the effect from the entry's own lines** —
+`computeEffect()`, the same math as `reconciliation-run`'s `effect()` — and refuses if
+the caller measured it wrong, including by sign. The responsibility figure is then
+DERIVED by the gate, never accepted from the caller. **A coincidence cannot survive
+that, because there is nothing left for it to coincide with.**
+
+Also in v2: pattern registry is **default-deny** (unknown pattern ⇒ refusal); a
+`BankTransaction` with no `txnType` refuses rather than assuming SPEND; `lines:
+undefined` is "not read" like `null`; money compares in **integer cents** (on doubles
+`|0.07−0.09| ≤ 0.02` is true while `|0.30−0.32| ≤ 0.02` is false — same nominal gap,
+opposite answers); habit evidence needs a **denominator** (`considered`/`satisfied`,
+≥2 satisfied and ≥50%, so one cherry-picked sibling cannot clear A3); the
+**correction description is linted too**, and a motive violation now forfeits the
+correction; a refused verdict's sentence says *"is not explained"* instead of
+fabricating the attribution it just refused; `proposed` is validated at runtime;
+results are branded `gated: true`.
+
+**A4's lint was loose where it mattered and tight where it didn't.** Nine motive
+phrasings that slipped past v1 are now caught and tested by example — *"posted to make
+account 284 agree"*, *"so that the balance would tie"*, *"the intent was to"*, *"the
+previous bookkeeper wanted"*, *"never checked"*, *"overlooked"*, *"appears to have been
+an attempt"*, *"whoever posted it wanted"*. And four false positives are gone: *"must
+have an offsetting credit to 800"* and *"plugged the figures into the template"* are
+ordinary accounting English and no longer trip it. **A lint is a backstop, not a proof
+— `factualSentence()` is the real answer, because it cannot express a motive.**
+
+#### Verification
+
+**33/33 passing**, and every rule mutation-proven — each inverted in a scratch copy
+(never the repo file), suite re-run:
+
+`A1 off → 2 fail · A2 unread ok → 3 · wrong-account ok → 1 · sign check off → 3 ·
+pattern default-allow → 1 · habit single-instance ok → 1 · zero-amount ok → 1 ·
+correction not linted → 1 · assume SPEND → 1 · correction leaks → 2 · restored → 33/33`
+
+Ten mutations, ten detections. The original attack script was re-run against v2: all
+four bugs now return `unresolved` with the right refusal code.
+
+#### Still true, and worth repeating
+
+**Nothing imports this module.** The agent checked: only its own test file and these
+notes mention it. The gate guards nothing until it has a caller — that is next, and
+`DESIGN-VARIANCE-ATTRIBUTION.md` §0d now carries the wiring reference (mapped from the
+code, not assumed): the three paths in `loan-find-difference`'s response that actually
+carry ledger line items, the sign convention, the fact that `conclusions` is capped at
+four and must not be the source of truth, and that proposed journals must never be fed
+to A2 — they would corroborate a claim with our own suggestion.
+
+---
+
 ### Session 259 cont. 6 (2026-09-01) — THE GATE IS BUILT: `_shared/attribution-gate.ts`, 17/17, mutation-proven
 
 David: *"Build the gate."* Built, tested, and each assertion proven to discriminate.

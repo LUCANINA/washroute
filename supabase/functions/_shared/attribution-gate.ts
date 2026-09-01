@@ -1,41 +1,43 @@
-// _shared/attribution-gate.ts — THE GATE (session 259)
+// _shared/attribution-gate.ts — THE GATE (session 259, hardened after adversarial review)
 //
 // WHY THIS EXISTS
 // ---------------
 // On 2026-09-01 three variance diagnoses were made in one day and three were wrong,
 // all with the same shape: a figure that matched to the cent, and nobody had opened
 // the journals.
+//   * PCV — "August's interest was never split out." The opposite was true: the bank
+//     transaction was ALREADY split at source and a journal split it again.
+//   * E4-9744 — "$182.00 is April's interest ($181.99)." April is correct in Xero; the
+//     defect is in MAY's split. One quantity matched, so "unique or refuse" would not
+//     have saved it either.
+//   * PayPal — "the balance was plugged to the lender's 08-05 figure." An arithmetic
+//     identity, presented as a habit and as an intent.
 //
-//   * PCV Good and Green — "August's interest was never split out." The opposite was
-//     true: the bank transaction was ALREADY split at source and a second journal
-//     split it again. Concluded from a DB row plus arithmetic.
-//   * E-Transit E4-9744 — "$182.00 is April's interest ($181.99)." April's payment is
-//     correct in Xero; the defect is in MAY's split. One quantity matched, so a
-//     "unique or refuse" rule would not have saved it either.
-//   * PayPal 2 — "the balance was plugged to the lender's 2026-08-05 figure." An
-//     arithmetic identity, presented as a habit and as an intent. The same loan's June
-//     journal matches no lender figure at all.
+// A person forgets to check both halves. A gate cannot. Rules A1-A4 of
+// DESIGN-VARIANCE-ATTRIBUTION.md §0c, in executable form.
 //
-// A person forgets to check both halves. A gate cannot. So no verdict in this module's
-// care may rise above `unresolved` until it has passed all four rules below — which are
-// A1–A4 of DESIGN-VARIANCE-ATTRIBUTION.md §0c, in executable form.
+// THE v1 GATE WAS BROKEN AND THE REVIEW CAUGHT IT. Recorded here because the bugs are
+// instructive and must not come back:
+//   * `line_amount` corroboration never compared the account. ANY line of ANY account
+//     whose magnitude matched cleared A2 — so a claim about PayPal's account 284 was
+//     "corroborated" by a PCV transaction with no 284 line at all. The module's own
+//     "discriminating" test passed that way.
+//   * Both sides were absolutised, so a claim and its exact opposite both corroborated.
+//     Direction was the entire defect on PCV; a sign-blind gate would have blessed it.
+//   * A $0.00 claim auto-corroborated against any zero line.
+//   * An unregistered habit pattern silently skipped A3 (default-allow).
 //
-//   A1  No decomposition without an attributed ENTRY.
-//       An amount match is a coincidence until a specific ledger entry carries it.
-//   A2  Every verdict cites the entry's OWN LINES, fetched — never inferred.
-//       lines === null means "not read" and is fatal. It is NOT the same as [].
-//   A3  A pattern that asserts a HABIT must generalise across the loan's other
-//       same-shaped entries, or it is downgraded.
-//   A4  The engine never states MOTIVE. What the entry did, what it should have been,
-//       what the correction is. Never why, never whose intent.
+// THE FIX, and the shape to keep: **the gate no longer matches an amount against
+// anything. It re-derives the entry's effect on the loan account from the entry's own
+// lines and checks the caller measured it correctly, signed.** A coincidence cannot
+// survive that, because there is nothing left to coincide with.
 //
-// THE GATE ONLY EVER DOWNGRADES. It cannot make a weak claim strong; it can only
-// refuse a strong one. That asymmetry is the whole point — a bug in this file makes
-// the product quieter, never more confident.
+// THE GATE ONLY EVER LOWERS CONFIDENCE. A bug here makes the product quieter.
 //
 // Pure: no I/O, no clock, no Xero. Unit-tested in attribution-gate.test.ts.
 
 export type Confidence = 'confirmed' | 'probable' | 'unresolved'
+const CONFIDENCES: Confidence[] = ['confirmed', 'probable', 'unresolved']
 
 export type EntryLine = { account: string; amount: number }
 
@@ -44,34 +46,50 @@ export type LedgerEntry = {
   date: string
   kind: 'BankTransaction' | 'ManualJournal'
   /**
-   * null  = the line items were NOT READ (fatal under A2)
-   * []    = read, and the entry genuinely has no lines
-   * Never synthesise this from a DB row. It must be what Xero returned.
+   * Xero's own transaction type ('SPEND', 'RECEIVE', 'SPEND-OVERPAYMENT', ...).
+   * REQUIRED for a BankTransaction, because the sign of its effect depends on it.
+   * Absent => refusal, never a default: guessing the direction is the bug this
+   * module exists to prevent.
    */
-  lines: EntryLine[] | null
+  txnType?: string | null
+  /**
+   * null/undefined = the line items were NOT READ (fatal under A2).
+   * []             = read, and the entry genuinely has none.
+   * Must be what Xero returned. Never synthesise this from a DB row.
+   */
+  lines?: EntryLine[] | null
   narration?: string | null
 }
 
-export type Sibling = {
-  id: string
-  date: string
-  /** Does this OTHER entry of the same shape also satisfy the pattern being claimed? */
-  satisfiesPattern: boolean
+/** One other entry of the same shape, and whether it also satisfies the pattern. */
+export type HabitEvidence = {
+  /** How many same-shaped entries were EXAMINED. The denominator. */
+  considered: number
+  /** How many of them satisfy the pattern. */
+  satisfied: number
+  ids?: string[]
 }
 
 export type Claim = {
-  /** e.g. 'double_reallocation', 'unsplit_payment', 'plug_to_wrong_date_anchor' */
   pattern: string
-  /** The confidence the caller believes it has earned. The gate may only lower it. */
+  /** The confidence the caller believes it earned. The gate may only lower it. */
   proposed: Confidence
-  /** The dollar amount this verdict holds the entry responsible for. */
-  amount: number
-  /** The loan's Xero account code the claim is about. */
+  /** The loan's Xero account code under examination. */
   code: string
-  /** The entry the claim attributes the amount to. Absent => A1 refusal. */
+  /**
+   * What the caller says this entry DID to `code`, as a signed effect on the
+   * outstanding balance, in the ledger's own convention:
+   *   NEGATIVE = the balance falls   POSITIVE = the balance rises
+   * (Same convention as reconciliation-run's `effect()` and loan-find-difference's
+   * `effect_on_loan`.) The gate recomputes this from the entry's lines and refuses
+   * if the caller got it wrong — including by sign.
+   */
+  movedOnAccount: number
+  /** What the schedule or lender says should have happened, same convention. */
+  expectedOnAccount: number
   entry?: LedgerEntry | null
-  /** Required for habit patterns (see HABIT_PATTERNS). */
-  siblings?: Sibling[]
+  /** Required for habit patterns; see PATTERNS. */
+  habit?: HabitEvidence
   sentence: string
   proposedCorrection?: { amount: number; description: string } | null
 }
@@ -79,10 +97,13 @@ export type Claim = {
 export type GateResult = {
   pattern: string
   confidence: Confidence
+  /** Brand: only this module mints it. A hand-built verdict cannot claim to be gated. */
+  readonly gated: true
   sentence: string
-  /** Machine-readable reasons the claim was downgraded. Empty => it passed. */
+  /** The responsibility, DERIVED by the gate — never taken from the caller. */
+  amount: number
   refusals: string[]
-  /** A4 lint hits. A non-empty list is a BUG IN THE CALLER, not a data condition. */
+  /** A4 lint hits. Non-empty = a BUG IN THE CALLER, not a data condition. */
   violations: string[]
   evidence: {
     entry_id: string | null
@@ -90,57 +111,73 @@ export type GateResult = {
     entry_kind: string | null
     lines_read: boolean
     lines: EntryLine[] | null
-    corroboration: 'line_amount' | 'account_net' | null
+    /** The effect the gate itself computed from the lines. */
+    computed_effect: number | null
+    moved_on_account: number
+    expected_on_account: number
+    habit: HabitEvidence | null
   }
   proposedCorrection: { amount: number; description: string } | null
 }
 
-const TOLERANCE = 0.02 // the same 2-cent tie tolerance computeTieOut already uses
-const cents = (n: number) => Math.round(n * 100) / 100
-const near = (a: number, b: number) => Math.abs(cents(a) - cents(b)) <= TOLERANCE
+// Integer cents throughout: `Math.abs(0.07-0.09) <= 0.02` is true while
+// `Math.abs(0.30-0.32) <= 0.02` is false on doubles — the same nominal gap, opposite
+// answers. Never compare money as floats.
+const TOL_CENTS = 2
+const toCents = (n: number) => Math.round(Number(n) * 100)
+const near = (a: number, b: number) => Math.abs(toCents(a) - toCents(b)) <= TOL_CENTS
+const r2 = (n: number) => Math.round(Number(n) * 100) / 100
 
 export const money = (n: number) =>
   '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /**
- * Patterns that assert a REPEATED BEHAVIOUR rather than a single event. These are the
- * ones A3 governs: claiming somebody "plugs the balance" is a claim about a practice,
- * and one instance can never establish a practice. Single-event patterns
- * (double_reallocation, unsplit_payment, ...) are exempt — they describe one entry and
- * make no claim beyond it.
+ * The pattern registry. DEFAULT-DENY: a pattern not listed here is refused outright,
+ * so adding a new plug-like verdict and forgetting to classify it fails loudly instead
+ * of silently skipping A3 — which is exactly what the v1 Set-of-two allowed.
  */
-export const HABIT_PATTERNS = new Set([
-  'plug_to_anchor',
-  'plug_to_wrong_date_anchor',
-])
+export const PATTERNS: Record<string, { habit: boolean; label: string }> = {
+  double_reallocation:      { habit: false, label: 'corrected twice' },
+  unsplit_payment:          { habit: false, label: 'booked without splitting interest' },
+  multi_month_interest:     { habit: false, label: 'one split carrying several months of interest' },
+  missing_period:           { habit: false, label: 'a scheduled payment with no ledger entry' },
+  inherited:                { habit: false, label: 'predates this period' },
+  plug_to_anchor:           { habit: true,  label: 'balance forced to a lender figure' },
+  plug_to_wrong_date_anchor:{ habit: true,  label: 'balance forced to a lender figure dated elsewhere' },
+}
 
 // ── A4: the motive lint ─────────────────────────────────────────────────────
-//
-// Naming a person FACTUALLY is fine and often necessary ("the CPA's own split",
-// "posted by Ramona"). What is banned is attributing INTENT, STATE OF MIND or
-// CARELESSNESS to anyone — that is the class of claim this module cannot evidence and
-// got wrong on PayPal. Each rule therefore needs an intent verb, not just a name.
+// Naming a person FACTUALLY is fine ("posted by Ramona"). What is banned is attributing
+// INTENT, PURPOSE or NEGLIGENCE — the class of claim this module cannot evidence.
+// A lint is a backstop, not a proof: it cannot catch every phrasing of motive. Prefer
+// factualSentence(), which cannot express one.
+const PERSONS = `(?:she|he|they|him|her|them|ramona|david|whoever|someone|somebody|the (?:cpa|accountant|bookkeeper|controller|preparer)|(?:the )?(?:previous|former|prior) \\w+|[A-Z][a-z]+)`
+const INTENT = `(?:meant|intended|wanted|tried|decided|thought|believed|assumed|guessed|hoped|chose|was (?:reading|looking|trying))`
+const NEGLECT = `(?:never (?:checked|noticed|looked|verified)|overlooked|neglected|failed to (?:notice|check|see)|forgot to \\w+|did not (?:realise|realize|notice|check|know)|was not aware|missed the)`
 const MOTIVE_PATTERNS: { re: RegExp; why: string }[] = [
-  {
-    re: /\b(she|he|they|ramona|david|the cpa|the accountant|the bookkeeper)\b[^.;]{0,60}?\b(meant|intended|wanted|tried|decided|thought|believed|assumed|was reading|was looking|plugged|forced|guessed)\b/i,
-    why: 'attributes intent or state of mind to a person',
-  },
-  { re: /\b(?:in order )?to (?:make|force) the (?:books|balance|account) (?:match|agree|tie)\b/i, why: 'states a purpose behind an entry' },
-  { re: /\b(intended to|meant to|on purpose|deliberately|by mistake|carelessly|forgot to|failed to notice|did not realise|did not realize)\b/i, why: 'states intent or negligence' },
-  { re: /\bmust have\b/i, why: 'speculates about what someone must have done' },
-  { re: /\b(?:probably|presumably|apparently|evidently)\b[^.;]{0,40}?\b(?:wanted|meant|thought|intended|was)\b/i, why: 'speculates about motive' },
+  { re: new RegExp(`\\b${PERSONS}\\b[^.;]{0,80}?\\b${INTENT}\\b`, 'i'), why: 'attributes intent or state of mind to a person' },
+  { re: new RegExp(`\\b${PERSONS}\\b[^.;]{0,80}?\\b${NEGLECT}\\b`, 'i'), why: 'attributes negligence to a person' },
+  { re: new RegExp(`\\b${NEGLECT}\\b`, 'i'), why: 'states that someone failed to do something' },
+  // Purpose, however phrased: "to make X agree", "so that X would tie", "in order to ...".
+  { re: /\b(?:in order )?to (?:make|force|get|bring)\b[^.;]{0,50}?\b(?:match|agree|tie|equal|balance|reconcile|line up)\b/i, why: 'states a purpose behind an entry' },
+  { re: /\bso (?:that )?\b[^.;]{0,50}?\bwould\b[^.;]{0,30}?\b(?:match|agree|tie|equal|balance|reconcile)\b/i, why: 'states a purpose behind an entry' },
+  { re: /\b(?:the )?(?:intent|intention|purpose|aim|goal|motive)\b[^.;]{0,20}?\bwas\b/i, why: 'states an intent or purpose as fact' },
+  { re: /\b(?:an )?attempt to\b/i, why: 'characterises an entry as an attempt' },
+  { re: /\b(intended to|meant to|on purpose|deliberately|carelessly|by mistake)\b/i, why: 'states intent or negligence' },
+  // "must have been/intended/known" — but NOT "must have an offsetting credit".
+  { re: /\bmust have\s+(?:been|intended|wanted|thought|meant|known|realised|realized|assumed|noticed)\b/i, why: 'speculates about what someone must have done' },
+  { re: /\b(?:appears|seems)\s+to\s+have\s+been\s+(?:an?\s+)?(?:attempt|effort|mistake|error|oversight)\b/i, why: 'speculates about motive' },
+  { re: /\b(?:probably|presumably|apparently|evidently)\b[^.;]{0,40}?\b(?:wanted|meant|thought|intended|hoped|decided)\b/i, why: 'speculates about motive' },
 ]
 
-export function lintMotive(sentence: string): string[] {
+export function lintMotive(text: string | null | undefined): string[] {
+  if (!text) return []
   const hits: string[] = []
-  for (const { re, why } of MOTIVE_PATTERNS) if (re.test(sentence)) hits.push(why)
+  for (const { re, why } of MOTIVE_PATTERNS) if (re.test(text) && !hits.includes(why)) hits.push(why)
   return hits
 }
 
-/**
- * The A4-safe way to describe an entry: what it did, what was expected, and the
- * difference. Never why. Use this instead of hand-writing a sentence wherever possible.
- */
+/** The A4-safe way to describe an entry: what it did, what was expected, the difference. */
 export function factualSentence(o: {
   entryKind: 'BankTransaction' | 'ManualJournal'
   entryDate: string
@@ -149,88 +186,134 @@ export function factualSentence(o: {
   expected: number
 }): string {
   const kind = o.entryKind === 'ManualJournal' ? 'A journal' : 'A payment'
-  const diff = cents(o.moved - o.expected)
-  return `${kind} dated ${o.entryDate} moved ${money(o.moved)} against ${o.accountName}. `
-    + `The schedule supports ${money(o.expected)} for this period — a difference of ${money(Math.abs(diff))}.`
+  const dir = (n: number) => n < 0 ? 'reduced' : n > 0 ? 'increased' : 'did not change'
+  const diff = r2(o.moved - o.expected)
+  return `${kind} dated ${o.entryDate} ${dir(o.moved)} ${o.accountName} by ${money(Math.abs(o.moved))}. `
+    + `The schedule supports ${money(Math.abs(o.expected))} — a difference of ${money(Math.abs(diff))}.`
 }
 
-/** Does the entry's own line detail actually carry the amount being claimed? */
-function corroborate(entry: LedgerEntry, amount: number, code: string):
-  'line_amount' | 'account_net' | null {
+/**
+ * Re-derive the entry's signed effect on `code` from its own lines.
+ * SPEND pays a liability down; RECEIVE draws more. A ManualJournal's LineAmount is
+ * already signed (debit +, credit −) and a debit to a liability reduces it. Same math
+ * as reconciliation-run's effect() and loan-find-difference's effect_on_loan.
+ */
+export function computeEffect(entry: LedgerEntry, code: string): number | null {
   const lines = entry.lines
   if (!lines) return null
-  const target = Math.abs(cents(amount))
-  for (const l of lines) if (near(Math.abs(Number(l.amount || 0)), target)) return 'line_amount'
-  const net = lines
-    .filter(l => String(l.account) === String(code))
-    .reduce((t, l) => t + Number(l.amount || 0), 0)
-  if (lines.some(l => String(l.account) === String(code)) && near(Math.abs(net), target)) return 'account_net'
-  return null
+  const onCode = lines.filter(l => String(l.account) === String(code))
+  if (!onCode.length) return null
+  const net = onCode.reduce((s, l) => s + Number(l.amount ?? 0), 0)
+  if (entry.kind === 'BankTransaction') {
+    const t = String(entry.txnType ?? '')
+    if (!t) return null                                   // direction unknown => refuse
+    return r2(t.toUpperCase().startsWith('RECEIVE') ? net : -net)
+  }
+  return r2(-net)
 }
 
-const WEAKER: Record<Confidence, Confidence> = {
-  confirmed: 'probable',
-  probable: 'unresolved',
-  unresolved: 'unresolved',
-}
+const WEAKER = (c: Confidence): Confidence =>
+  c === 'confirmed' ? 'probable' : 'unresolved'
 
 export function gate(claim: Claim): GateResult {
   const refusals: string[] = []
   const entry = claim.entry ?? null
 
-  // ── A1 ── an amount match is a coincidence until an entry carries it.
+  // Runtime validation — TypeScript is erased at the edge-function boundary and this
+  // may arrive as JSON. An unrecognised confidence is treated as no confidence.
+  const proposed: Confidence = CONFIDENCES.includes(claim.proposed) ? claim.proposed : 'unresolved'
+  if (!CONFIDENCES.includes(claim.proposed)) refusals.push('invalid_proposed_confidence')
+
+  // Default-deny on the pattern registry.
+  const spec = PATTERNS[claim.pattern]
+  if (!spec) refusals.push('unregistered_pattern')
+
+  const moved = Number(claim.movedOnAccount)
+  const expected = Number(claim.expectedOnAccount)
+  const amount = (Number.isFinite(moved) && Number.isFinite(expected)) ? r2(moved - expected) : NaN
+
+  if (!Number.isFinite(amount)) refusals.push('amount_not_finite')
+  else if (Math.abs(toCents(amount)) <= TOL_CENTS) refusals.push('immaterial_claim')
+
+  // ── A1 ── an amount is a coincidence until an entry carries it.
   if (!entry) refusals.push('no_attributed_entry')
 
-  // ── A2 ── the entry's own lines, fetched. null means NOT READ and is fatal.
-  let corroboration: 'line_amount' | 'account_net' | null = null
+  // ── A2 ── the entry's own lines, fetched, on THIS account, with the RIGHT SIGN.
+  let computed: number | null = null
   if (entry) {
-    if (entry.lines === null) {
+    if (entry.lines === null || entry.lines === undefined) {
       refusals.push('entry_lines_unread')
+    } else if (!entry.lines.some(l => String(l.account) === String(claim.code))) {
+      refusals.push('account_not_on_entry')
+    } else if (entry.kind === 'BankTransaction' && !entry.txnType) {
+      refusals.push('entry_direction_unknown')
     } else {
-      corroboration = corroborate(entry, claim.amount, claim.code)
-      if (!corroboration) refusals.push('amount_not_in_entry')
+      computed = computeEffect(entry, claim.code)
+      if (computed === null) refusals.push('effect_not_computable')
+      else if (!near(computed, moved)) refusals.push('measurement_disagrees_with_entry')
     }
   }
 
-  // ── A3 ── a habit must generalise.
-  if (HABIT_PATTERNS.has(claim.pattern)) {
-    const sibs = claim.siblings
-    if (!sibs || sibs.length === 0) refusals.push('habit_untested')
-    else if (!sibs.some(s => s.satisfiesPattern)) refusals.push('habit_does_not_generalise')
+  // ── A3 ── a habit must generalise, over a stated denominator.
+  if (spec?.habit) {
+    const h = claim.habit
+    if (!h || !Number.isFinite(h.considered) || h.considered < 2) refusals.push('habit_untested')
+    else if (h.satisfied < 2) refusals.push('habit_single_instance')
+    else if (h.satisfied / h.considered < 0.5) refusals.push('habit_does_not_generalise')
   }
 
-  // ── A4 ── never motive. A hit here is a caller bug, so it is reported separately
-  // from `refusals` AND the offending sentence is replaced rather than shipped.
-  const violations = lintMotive(claim.sentence)
-  const sentence = violations.length
-    ? (entry
-        ? `A ${entry.kind === 'ManualJournal' ? 'journal' : 'payment'} dated ${entry.date} `
-          + `accounts for ${money(Math.abs(claim.amount))} against account ${claim.code}. `
-          + `(The generated explanation was withheld: it ${violations[0]}.)`
-        : `${money(Math.abs(claim.amount))} against account ${claim.code} is not explained. `
-          + `(The generated explanation was withheld: it ${violations[0]}.)`)
-    : claim.sentence
+  // ── A4 ── never motive. Lint the sentence AND the correction description: a
+  // correction people read is just as much a channel for a story as a sentence is.
+  const violations = [
+    ...lintMotive(claim.sentence),
+    ...lintMotive(claim.proposedCorrection?.description),
+  ].filter((v, i, a) => a.indexOf(v) === i)
 
-  // The gate only ever LOWERS confidence.
-  let confidence: Confidence = claim.proposed
-  if (refusals.length) confidence = 'unresolved'
-  else if (violations.length) confidence = WEAKER[claim.proposed]
+  const refused = refusals.length > 0
+
+  // A refused verdict must not assert the attribution it just refused. v1's fallback
+  // said "A journal dated X accounts for $Y against account Z" even when the lines
+  // were never read — fabricating, in prose, the corroboration the gate had denied.
+  let sentence: string
+  if (refused) {
+    sentence = `${Number.isFinite(amount) ? money(Math.abs(amount)) : 'A difference'} on account `
+      + `${claim.code} is not explained. (${refusals.join(', ')})`
+  } else if (violations.length) {
+    sentence = entry
+      ? `A ${entry.kind === 'ManualJournal' ? 'journal' : 'payment'} dated ${entry.date} `
+        + `accounts for ${money(Math.abs(amount))} against account ${claim.code}. `
+        + `(The generated explanation was withheld: it ${violations[0]}.)`
+      : `${money(Math.abs(amount))} against account ${claim.code}. `
+        + `(The generated explanation was withheld: it ${violations[0]}.)`
+  } else {
+    sentence = claim.sentence
+  }
+
+  const confidence: Confidence = refused ? 'unresolved'
+    : violations.length ? WEAKER(proposed)
+    : proposed
 
   return {
-    pattern: refusals.length ? `unresolved:${refusals[0]}` : claim.pattern,
+    pattern: refused ? `unresolved:${refusals[0]}` : claim.pattern,
     confidence,
+    gated: true,
     sentence,
+    amount: Number.isFinite(amount) ? amount : 0,
     refusals,
     violations,
     evidence: {
       entry_id: entry?.id ?? null,
       entry_date: entry?.date ?? null,
       entry_kind: entry?.kind ?? null,
-      lines_read: !!entry && entry.lines !== null,
+      lines_read: !!entry && entry.lines !== null && entry.lines !== undefined,
       lines: entry?.lines ?? null,
-      corroboration,
+      computed_effect: computed,
+      moved_on_account: Number.isFinite(moved) ? r2(moved) : 0,
+      expected_on_account: Number.isFinite(expected) ? r2(expected) : 0,
+      habit: claim.habit ?? null,
     },
-    // A refused verdict must never hand anyone a correction to post.
-    proposedCorrection: refusals.length ? null : (claim.proposedCorrection ?? null),
+    // A refused verdict never hands anyone something to post. A violation is a caller
+    // bug, and a caller that fabricates motive does not get to ship a correction either.
+    proposedCorrection: (refused || violations.length) ? null : (claim.proposedCorrection ?? null),
   }
 }

@@ -140,6 +140,42 @@ wording: what the entry did, not who meant what.
 
 ---
 
+## 0d. Wiring reference — what `loan-find-difference` actually returns (mapped session 259 cont. 7)
+
+Facts, read out of the code, for the module that will convert the walk's output into
+gated claims. **Do not build against assumptions here; these were checked line by line.**
+
+* **Two success shapes.** A short-circuit `{ verdict: 'not_enough_history', … }` (fewer
+  than two `principal_only` anchors) has **no `periods`, no `conclusions`, no
+  `proposal`**. Branch on it first.
+* **Only THREE paths carry real ledger line items**, all produced by `entryView()`:
+  `periods[i].culprit.entry.lines[]`, `periods[i].culprit.twin.lines[]`, and
+  `cpa_exception.entry.lines[]`. Line fields are **`account_code`** and **`amount`**.
+  `culprit.entry` exists only when `culprit.kind` is `extra_entry` or
+  `duplicate_suspected` — for `missing_reduction`, `excess_reduction` and `unexplained`
+  there is **no entry and no lines**, so those spans can only ever produce a claim that
+  A2 refuses. That is correct behaviour, not a bug to work around.
+* **`proposal.journal.JournalLines[]` and `cpa_exception.proposed_entry.JournalLines[]`
+  are PROPOSED entries, not ledger reality** — different field names (`LineAmount`,
+  `AccountCode`). Never feed these to A2; they would corroborate a claim with our own
+  suggestion.
+* **`effect_on_loan` is the only signed field** and shares the gate's convention:
+  **negative = the balance falls.** `culprit.amount`, `cross_loan_candidates[].amount`
+  and `fingerprint_hunt.amount` are unsigned magnitudes and must be oriented from
+  `periods[i].diff` (`diff = xero_delta − lender_delta`; positive = Xero above lender).
+* **`conclusions` is capped at four** and emitted in a fixed priority order, so a real
+  span's finding can be silently dropped. **Rebuild claims from `periods` +
+  `proposal` + `cpa_exception`; use `conclusions` only for wording.**
+* `cpa_exception.diagnosis.components[]` is the richest structured attribution in the
+  response — per month: `interest`, `already_booked`, `booked_by`, `journal_id`. It is
+  the natural source for a `multi_month_interest` claim.
+* `can_post` / `can_post_exception` are **role-dependent** (`cpa` always gets `false`),
+  so they say nothing about whether a fix exists. Read `proposal` / `proposed_entry`.
+* Auth: role must be `admin | manager | cpa`, so it cannot be called from SQL with the
+  internal secret as it stands.
+
+---
+
 ## 1. Why this is an extension of `gap-diagnosis.ts`, not a new thing
 
 `_shared/gap-diagnosis.ts` (session 253) already does a narrow version of step 3.
