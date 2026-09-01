@@ -15,6 +15,11 @@ import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { explainBalanceGap, dailyWithholdingFromBalances } from '../_shared/settlement-lag.ts'
 import { isExaminedForResolve } from '../_shared/resolve-scope.ts'
 import { diagnoseUnexplainedGap, type LaterEntry, type AmortRow, type SiblingFinding } from '../_shared/gap-diagnosis.ts'
+// Session 258: learned per-loan adjustment patterns -- see adjustment-patterns.ts's header
+// for why this exists (Paypal 2's CPA hand-posted the same true-up seven times over seven
+// months, re-flagged as a fresh mystery every time).
+import { matchAgainstPatterns, clusterCandidates, splitRowForMatch, unexplainedHandPosted,
+  checkAdjustmentPatternCandidates, type AdjustmentPattern } from './adjustment-patterns.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -1867,6 +1872,16 @@ async function handle(req: Request): Promise<Response> {
     // finding. Never resolve what we don't own.
 
     const findings: Finding[] = []
+    // Session 258: bulk-loaded once for every loan rather than per-loan -- cheap, and
+    // it lets each loan's pass recognize its own CPA's habits without an extra query.
+    const { data: adjPatternRows } = await supa.from('loan_adjustment_patterns').select('*')
+    const adjPatternsByLoan: Record<string, AdjustmentPattern[]> = {}
+    for (const p of (adjPatternRows || [])) {
+      (adjPatternsByLoan[(p as any).loan_account_id] ||= []).push(p as unknown as AdjustmentPattern)
+    }
+    // journal ids newly recognized this run, per pattern id -- flushed to
+    // loan_adjustment_patterns.matched_journal_ids once, after the loan loop.
+    const newlyMatchedByPattern: Record<string, Set<string>> = {}
     const tieOuts: TieOut[] = []
     // Month-end books balances, and the refusals. See the block beside tieOuts.push().
     const bookBalances: any[] = []
@@ -2114,11 +2129,44 @@ async function handle(req: Request): Promise<Response> {
       // today. A policy with nothing behind it is grade C and must still report.
       findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor, schedAnchors.length > 0))
       findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), mySplits))
+      // Session 258: recognize hand-posted journals that match an already-confirmed
+      // pattern for this loan (writes a loan_splits row so this and every future run
+      // sees it as explained), then propose NEW patterns for whatever's left over that
+      // looks like a repeat of itself. Both are pure functions in adjustment-patterns.ts;
+      // this block is the only place that turns their answers into a DB write.
+      {
+        const handPosted = unexplainedHandPosted(loan, ledger, mySplits, windowFrom)
+        const loanPatterns = adjPatternsByLoan[loan.id] || []
+        const { matched, unmatched } = matchAgainstPatterns(handPosted, loanPatterns)
+        for (const { journal, pattern } of matched) {
+          const row = splitRowForMatch(code, journal)
+          if (!row) continue
+          const { error } = await supa.from('loan_splits')
+            .upsert({ loan_account_id: loan.id, ...row }, { onConflict: 'loan_account_id,period_label', ignoreDuplicates: true })
+          if (error) { console.error('adjustment pattern recognize failed', loan.id, journal.srcId, error.message); continue }
+          // Reflect it in-memory immediately so the unexplained check below (same
+          // loan, same run) already sees this journal as explained.
+          mySplits.push({ xero_manual_journal_id: journal.srcId } as any)
+          ;(newlyMatchedByPattern[pattern.id] ||= new Set()).add(journal.srcId)
+        }
+        findings.push(...checkAdjustmentPatternCandidates(loan, clusterCandidates(unmatched, code)))
+      }
       findings.push(...checkUnexplainedLedgerAdjustment(loan, ledger, mySplits, windowFrom))
       // Window-independent by construction: reads loan_accounts, loan_contract_terms,
       // loan_statements and loan_splits, none of which are windowed. So it cannot go
       // stale the way a ledger-derived finding can.
       findings.push(...checkCarryingBasis(loan, contractTerms || [], mine, mySplits, today))
+    }
+
+    // Session 258: flush newly-recognized journal ids onto their pattern rows. One
+    // update per touched pattern, not per journal -- a pattern with 7 matches in a run
+    // (the Paypal 2 backfill, replayed) only needs its array set once.
+    for (const [patternId, ids] of Object.entries(newlyMatchedByPattern)) {
+      const existingRow = (adjPatternRows || []).find((p: any) => p.id === patternId)
+      const merged = new Set([...(existingRow?.matched_journal_ids || []), ...ids])
+      const { error } = await supa.from('loan_adjustment_patterns')
+        .update({ matched_journal_ids: [...merged] }).eq('id', patternId)
+      if (error) console.error('adjustment pattern matched_journal_ids update failed', patternId, error.message)
     }
 
     const byFp: Record<string, any> = Object.fromEntries((existing || []).map(f => [f.fingerprint, f]))

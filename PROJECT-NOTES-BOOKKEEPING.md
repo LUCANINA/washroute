@@ -32,122 +32,39 @@
 > genuinely August's), but a CPA reading "Issues (6)" beside "nothing to close" has
 > to work out which one is lying. Options if it gets fixed: drop the count under
 > `inflight`, or show `Issues (0)`. **Not fixed — David has not been asked yet.**
-> ### 0. 🟡 FIRST THING TOMORROW — VERIFY the PayPal 2 reversal, then backfill
-> three August splits. Xero's daily quota was exhausted before it could be checked.
+> ### 0. ✅ PAYPAL 2 IS CLOSED (2026-09-01 evening) — one item left, and it needs Xero
 >
-> **What happened (2026-09-01 evening).** Ramona's 2026-07-31 journal `a2c49ead`
-> ($3,142.26, `284` Dr / `800` Cr) over-reduced account 284 — authorship CONFIRMED from
-> Xero's own History panel: **created and posted by Ramona Cedeno, 12 Aug 2026 06:43
-> EST**, dated back to 31 July. **David posted a reversing journal dated 2026-07-31**
-> (`800` Dr $3,142.26 / `284` Cr $3,142.26) via Xero's ⋮ → Reversing journal.
+> **Verified end to end.** Ramona's 2026-07-31 journal `a2c49ead` ($3,142.26, `284` Dr /
+> `800` Cr) over-reduced the loan. Authorship confirmed from Xero's own History panel —
+> **created and posted by Ramona Cedeno, 12 Aug 2026 06:43 EST**, dated back to 31 July,
+> i.e. after the 08-06 draft had already landed. David reversed it via Xero's
+> ⋮ → Reversing journal, dated 2026-07-31.
 >
-> **⚠️ NOT INDEPENDENTLY VERIFIED.** The accounting API hit its daily cap
-> (`remaining_day: 0`, `retry_after 64,157s` — ~08:40 Pacific 2026-09-02) after this
-> session spent it on the 14-loan walk dry run. David reported it posted; nobody has
-> checked the resulting balance.
+> **The reversal is CONFIRMED, from a report we did not predict it in:** Xero's Balance
+> Sheet shows **Paypal 2 = $49,346.58**, the exact target (PayPal's own $49,324.91 after
+> the 08-26 payment, plus the standing **$21.66** that predates July). Note the first
+> attempt did NOT take — Xero's reversing-journal flow opens an unsaved entry and it sat
+> unposted. **Always confirm the balance, never the click.**
 >
-> **1. FIRST ACTION: confirm account 284 closes at $49,346.58** (probe the quota first —
-> `xero-rate-probe`, never `whoami`). That is PayPal's own $49,324.91 after the 08-26
-> payment plus the standing **$21.66** that predates July and **must not be plugged**.
-> If it reads **$46,204.32** the reversal did not land — it sat in Draft once already,
-> which is exactly how the first attempt failed.
-> *Note the target is $49,346.58, not the $49,346.57 quoted earlier: Xero's 08-20 entry
-> is $3,150.32 where the schedule says $3,150.33.*
+> **Three August splits backfilled** (`2026-08-05 / -12 / -19`, `already_in_xero`,
+> `direct_split`, each tied to its amortization row and its Xero bank transaction).
+> August principal booked now totals **$12,571.65**, matching the ledger movement
+> measured from Xero this morning (`net_after_anchor −12,571.65`) to the cent.
+> Two modelling choices, both deliberate:
+> * **`period_label` uses the SCHEDULE date, not the bank date** (drafts landed 08-06/13/20,
+>   a day after the schedule). That is this loan's existing convention.
+> * **The 08-19 row carries XERO'S amounts, 3150.32/264.39, not the schedule's
+>   3150.33/264.38.** `already_in_xero` asserts what the ledger holds, so the row matches
+>   the ledger; the 1¢ divergence from the amortization row is intentional and inside
+>   tolerance. Reverse it if you disagree — the reasoning is in the row's `review_notes`.
 >
-> **2. THEN backfill three splits as `already_in_xero`**, using the amounts read off
-> David's Account Transactions report (no Xero calls needed): **08-06 $3,120.60,
-> 08-13 $3,135.43, 08-20 $3,150.32**. 08-26 already exists (`WR-STAGE 284 2026-08-26`).
-> This is only correct BECAUSE the reversal landed — verify step 1 first.
->
-> **3. The `2026-07-31-adj` split row still records the ORIGINAL journal.** Once the
-> reversal is confirmed, that row needs a matching reversal record or a void — it is
-> currently the only place our DB still asserts the $3,142.26 reduction.
->
-> **VERIFIED against the journal's own lines (session 259 cont. 5).** `a2c49ead`
-> (2026-07-31, POSTED, *"To reclass the payment made for paypal"*) carries
-> `284: +3,142.26` / `800: −3,142.26` — moving $3,142.26 out of interest expense into
-> reducing the loan, which is **$3,142.26 more principal reduction than July's
-> schedule supports.** Books tracked the lender to +$21.66 at end-June and are
-> −$3,120.60 at end-July; the whole swing is this one journal.
->
-> **⚠️ WHY it was posted is UNKNOWN, and an earlier version of this block said
-> otherwise.** It stated that Ramona had plugged 284 to the lender's 2026-08-05 portal
-> balance. That was inferred from arithmetic with the journal's lines never fetched,
-> and it fails its own test — June's `-adj` journal matches no portal figure at all.
-> **Do not repeat the plug story as established, to David or to Ramona.** Full
-> retraction in the session 259 cont. 5 log entry. Nothing below depends on the motive.
->
-> **This makes §8's $44.70 and §8b's −$3,142.26 ONE event, not two** — and it means
-> **§8's instruction to backfill 08-05 as `already_in_xero` is NO LONGER SAFE.** The
-> July journal has already removed 08-05's principal from 284; if the real 08-05
-> draft also hit 284 in August, it is in the books twice already. **Check whether
-> the 08-05 draft reduced 284 in August BEFORE backfilling it.** 08-12 and 08-19
-> are unaffected and can still be backfilled.
->
-> **Next steps, in order:**
-> 1. **REVERSE `a2c49ead` IN FULL, dated 2026-07-31** (July is open — closed through
->    2026-06-30). Debit `800` $3,142.26 / credit `284` $3,142.26.
->    **⚠️ RE-DATING IT INTO AUGUST IS WRONG** — an earlier version of this block offered
->    that as an equal option. The 08-06 draft already reduces 284 by that payment, so
->    re-dating moves the duplication rather than removing it. Walked forward through all
->    four August drafts against PayPal's own figure of $49,324.91 after 08-26:
->    leave it → **−$3,120.60**; re-date → **−$3,098.94**; **reverse → +$21.66**, the
->    standing difference the books already carried at 30 June and which must NOT be
->    plugged. **Do not edit the `2026-07-31-adj` split row until Xero changes** — it
->    faithfully records what Xero contains and is evidence, not error.
-> 1b. **AFTER the reversal, §8's backfill instruction flips.** With the journal gone,
->    the 08-06 / 08-13 / 08-20 drafts each represent their payment exactly once, so all
->    three should be backfilled as `already_in_xero`. The "do NOT backfill 08-05" rule
->    was conditional on the journal STAYING; it does not survive the fix.
-> 2. **When Xero is reachable:** check whether the 08-05 / 08-12 / 08-19 drafts
->    reduced 284, then decide the backfill. Also still open from session 258 cont. 2:
->    April's `2026-04-30-adj` runs the opposite sign (journal `e4d26ad1`, note says
->    it reduced principal / increased interest — likely walking back March's
->    $5,746.93 over-adjustment, not confirmed), and the weekly `posted` splits from
->    2026-05-06 carry their own `xero_manual_journal_id`s, now understood to be
->    WashRoute's OWN interest add-backs (July's five total $1,690.52, exactly July's
->    scheduled interest) — worth confirming that reading against the journals.
->
-> **⚠️ XERO IS STILL RATE-LIMITED, and this morning's session got that wrong.**
-> A `whoami` probe returned **200** and session 259 announced the quota was back.
-> `whoami` hits Xero's **identity** API, which has a separate limit — the
-> **accounting** API is still **429** (checked twice, 2026-09-01 ~15:10 UTC).
-> **Probe with a cheap `accounts` call, never `whoami`.** Small fix worth making:
-> `xero-read` drops Xero's `Retry-After` / `X-Rate-Limit-Problem` headers on a 429,
-> so nothing says which limit was hit or for how long — that is why this has now
-> been misread twice.
->
-> ### 0c. 🏗️ NEXT BUILD — VARIANCE ATTRIBUTION: read `DESIGN-VARIANCE-ATTRIBUTION.md`
->
-> David, after the PayPal 2 answer landed: *"identify how to: a/ systematize this kind
-> of deep search to identify the source of a variance and b/ reveal it to the CPA within
-> ISSUES and on the LOANS page... because this tool will ultimately be the only window
-> into the truth."*
->
-> Design is written and committed (`43d2a65`). **Nothing is built yet.** The short
-> version — the full reasoning, the refusal rules and the four required test fixtures
-> are in the document, which should be read before writing a line of it:
-> * The PayPal investigation generalises to four stages — **localize** the period the
->   variance moved in, **attribute** it to a ledger entry, **decompose** that entry's
->   amount against quantities the system already knows, **name the shape**.
-> * It is an **extension of `_shared/gap-diagnosis.ts`**, not a new engine, and it
->   inherits that module's constraints unchanged: no Xero calls, only data the run
->   already holds, adds a sentence and never changes a number, returns null freely.
->   Three things it must gain: schedule rows on **FUTURE** dates (PayPal was only
->   solvable because the explaining figure was in the future), **two-term**
->   decomposition capped at `named quantity + carried variance`, and the **plug test**
->   — does the balance the entry produced equal a lender anchor exactly? That last one
->   is the strongest evidence available and is not amount matching at all.
-> * Stored at **`loan_tie_outs.detail.attribution`** — existing jsonb, **no migration**.
->   One computation; Issues and the Loans hover both read it, so they cannot disagree.
-> * David chose: **explain and name the fix, post nothing** — and on the Loans page,
->   **hover on the variance figure**, following session 249's `data-` attribute pattern
->   (no tenth column, CSV reads the attributes not the text).
-> * **Rollout is phased and phase 1 has no UI**: run the engine, read the verdicts in
->   SQL, check them by hand against the six live Issues rows first.
-> * Three open questions for David sit at the end of the design doc — the most
->   interesting being whether `inherited` (this gap predates the period; look in an
->   earlier month) should be reported for all six live rows before any UI exists.
+> **⏳ THE ONE REMAINING ITEM.** Our DB still has `2026-07-31-adj` recording Ramona's
+> original journal with **no row beside it for the reversal**. Her journal does still
+> exist in Xero, so that row is not wrong — but the picture is half-told. Adding the
+> reversal row needs the new journal's Xero id, and the accounting API hit its daily cap
+> tonight (`remaining_day 0`, retry ~08:40 PT 2026-09-02) after this session spent it on
+> the 14-loan walk. **First action next session: probe the quota (`xero-rate-probe`,
+> never `whoami`), fetch the reversing journal's id from 2026-07-31, and record it.**
 >
 > ### 0b. 🔎 SESSION 258 (2026-08-31, closed) — Verdant's August interest split
 > already exists in Xero; ask David who posted it
