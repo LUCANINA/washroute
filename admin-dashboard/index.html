@@ -48257,6 +48257,12 @@ async function _dvIframeLoaded() {
   }
   window.closeInvoiceModal = closeInvoiceModal;
 
+  // Money on a customer-facing invoice — thousands separators, two decimals,
+  // no symbol (each call site supplies its own '$'). Plain .toFixed(2) printed
+  // Kidango's August total as "$10536.00"; en-US grouping is what a reader of a
+  // five-figure invoice expects, and jsPDF's WinAnsi fonts render the comma fine.
+  const invAmt = (n) => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   function generateInvoiceHTML(title, orders, period, groupName, invoiceNumber) {
     // Customer-facing PDF — must always show Pacific dates regardless of where admin is.
     const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
@@ -48300,14 +48306,14 @@ async function _dvIframeLoaded() {
       const liRows = serviceItems.map(li =>
         `<tr>
           <td style="padding:4px 12px;font-size:13px">${li.label || li.type}</td>
-          <td style="padding:4px 12px;text-align:right;font-size:13px">$${Number(li.amount || 0).toFixed(2)}</td>
+          <td style="padding:4px 12px;text-align:right;font-size:13px">$${invAmt(Number(li.amount || 0))}</td>
         </tr>`
       ).join('');
 
       // If no line_items but we have total_bags / weight_lbs, show what we can
       const fallbackRow = (!items.length && o.total_bags)
-        ? `<tr><td style="padding:4px 12px;font-size:13px">${o.total_bags} bag${o.total_bags > 1 ? 's' : ''}${o.weight_lbs ? ' — ' + o.weight_lbs + ' lbs' : ''}</td><td style="padding:4px 12px;text-align:right;font-size:13px">$${orderTotal.toFixed(2)}</td></tr>`
-        : (!items.length ? `<tr><td style="padding:4px 12px;font-size:13px">Laundry Service</td><td style="padding:4px 12px;text-align:right;font-size:13px">$${orderTotal.toFixed(2)}</td></tr>` : '');
+        ? `<tr><td style="padding:4px 12px;font-size:13px">${o.total_bags} bag${o.total_bags > 1 ? 's' : ''}${o.weight_lbs ? ' — ' + o.weight_lbs + ' lbs' : ''}</td><td style="padding:4px 12px;text-align:right;font-size:13px">$${invAmt(orderTotal)}</td></tr>`
+        : (!items.length ? `<tr><td style="padding:4px 12px;font-size:13px">Laundry Service</td><td style="padding:4px 12px;text-align:right;font-size:13px">$${invAmt(orderTotal)}</td></tr>` : '');
 
       return `
       <div style="margin-bottom:24px;${idx > 0 ? 'border-top:1px solid #e5e7eb;padding-top:16px;' : ''}">
@@ -48321,19 +48327,19 @@ async function _dvIframeLoaded() {
           ${items.length ? `
           <tr style="border-top:1px solid #e5e7eb">
             <td style="padding:4px 12px;font-size:13px;font-weight:600">Subtotal</td>
-            <td style="padding:4px 12px;text-align:right;font-size:13px;font-weight:600">$${subtotal.toFixed(2)}</td>
+            <td style="padding:4px 12px;text-align:right;font-size:13px;font-weight:600">$${invAmt(subtotal)}</td>
           </tr>
           ${deliveryFee > 0 ? `<tr>
             <td style="padding:4px 12px;font-size:13px">Delivery Fee</td>
-            <td style="padding:4px 12px;text-align:right;font-size:13px">$${deliveryFee.toFixed(2)}</td>
+            <td style="padding:4px 12px;text-align:right;font-size:13px">$${invAmt(deliveryFee)}</td>
           </tr>` : ''}
           ${tipDollars > 0 ? `<tr>
             <td style="padding:4px 12px;font-size:13px">${o.tip_type === 'pct' ? `Team Tip (${_tipRaw}%)` : 'Team Tip'}</td>
-            <td style="padding:4px 12px;text-align:right;font-size:13px">$${tipDollars.toFixed(2)}</td>
+            <td style="padding:4px 12px;text-align:right;font-size:13px">$${invAmt(tipDollars)}</td>
           </tr>` : ''}
           <tr style="border-top:1px solid #d1d5db">
             <td style="padding:6px 12px;font-size:14px;font-weight:700">Grand Total</td>
-            <td style="padding:6px 12px;text-align:right;font-size:14px;font-weight:700">$${orderTotal.toFixed(2)}</td>
+            <td style="padding:6px 12px;text-align:right;font-size:14px;font-weight:700">$${invAmt(orderTotal)}</td>
           </tr>` : ''}
         </table>
       </div>`;
@@ -48379,7 +48385,7 @@ async function _dvIframeLoaded() {
   </div>
   <div style="text-align:right">
     <div style="font-size:11px;color:#6b7280;">Amount Due</div>
-    <div style="font-size:20px;font-weight:700;margin-top:2px">$${grandTotal.toFixed(2)}</div>
+    <div style="font-size:20px;font-weight:700;margin-top:2px">$${invAmt(grandTotal)}</div>
     <div style="font-size:11px;color:#6b7280">${orders.length} order${orders.length !== 1 ? 's' : ''}</div>
   </div>
 </div>
@@ -48390,19 +48396,19 @@ ${orderSections}
 <table style="width:100%;border-collapse:collapse;margin-top:16px;border-top:2px solid #111">
   <tr>
     <td style="padding:5px 0;font-size:12px">Subtotal</td>
-    <td style="padding:5px 0;text-align:right;font-size:12px">$${grandSubtotal.toFixed(2)}</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px">$${invAmt(grandSubtotal)}</td>
   </tr>
   <tr>
     <td style="padding:5px 0;font-size:12px">Delivery Fees</td>
-    <td style="padding:5px 0;text-align:right;font-size:12px">$${grandDeliveryFees.toFixed(2)}</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px">$${invAmt(grandDeliveryFees)}</td>
   </tr>
   ${grandTips > 0 ? `<tr>
     <td style="padding:5px 0;font-size:12px">Team Tips</td>
-    <td style="padding:5px 0;text-align:right;font-size:12px">$${grandTips.toFixed(2)}</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px">$${invAmt(grandTips)}</td>
   </tr>` : ''}
   <tr style="border-top:1px solid #d1d5db">
     <td style="padding:7px 0;font-size:14px;font-weight:700">Total Due</td>
-    <td style="padding:7px 0;text-align:right;font-size:14px;font-weight:700">$${grandTotal.toFixed(2)}</td>
+    <td style="padding:7px 0;text-align:right;font-size:14px;font-weight:700">$${invAmt(grandTotal)}</td>
   </tr>
 </table>
 
@@ -48519,7 +48525,7 @@ ${orderSections}
       grandTotal += Math.round((_preTip + _tipDol) * 100) / 100;
     });
     doc.setFontSize(14);
-    rText('$' + grandTotal.toFixed(2), y);
+    rText('$' + invAmt(grandTotal), y);
     y += 5;
     if (groupName && groupName !== title) {
       doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
@@ -48573,37 +48579,37 @@ ${orderSections}
           needPage(5);
           doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(17,17,17);
           doc.text(li.label || li.type, ml + 3, y);
-          rText('$' + Number(li.amount||0).toFixed(2), y);
+          rText('$' + invAmt(Number(li.amount||0)), y);
           y += 4.5;
         });
         // Subtotal
         hLine(y - 1, [229,231,235]); y += 2;
         doc.setFont('helvetica', 'bold');
         doc.text('Subtotal', ml + 3, y);
-        rText('$' + sub.toFixed(2), y); y += 4.5;
+        rText('$' + invAmt(sub), y); y += 4.5;
         // Delivery fee
         if (delFee > 0) {
           doc.setFont('helvetica', 'normal');
           doc.text('Delivery Fee', ml + 3, y);
-          rText('$' + delFee.toFixed(2), y); y += 4.5;
+          rText('$' + invAmt(delFee), y); y += 4.5;
         }
         // Tip (session 137 — only when tip_amount > 0)
         if (tipDollars > 0) {
           doc.setFont('helvetica', 'normal');
           doc.text(o.tip_type === 'pct' ? `Team Tip (${_tipRaw}%)` : 'Team Tip', ml + 3, y);
-          rText('$' + tipDollars.toFixed(2), y); y += 4.5;
+          rText('$' + invAmt(tipDollars), y); y += 4.5;
         }
         // Grand total
         hLine(y - 1, [209,213,219]); y += 2;
         doc.setFontSize(10); doc.setFont('helvetica', 'bold');
         doc.text('Grand Total', ml + 3, y);
-        rText('$' + orderTotal.toFixed(2), y); y += 6;
+        rText('$' + invAmt(orderTotal), y); y += 6;
       } else {
         // Fallback for orders without line items
         doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(17,17,17);
         const desc = o.total_bags ? (o.total_bags + ' bag' + (o.total_bags > 1 ? 's' : '') + (o.weight_lbs ? ' — ' + o.weight_lbs + ' lbs' : '')) : 'Laundry Service';
         doc.text(desc, ml + 3, y);
-        rText('$' + orderTotal.toFixed(2), y); y += 6;
+        rText('$' + invAmt(orderTotal), y); y += 6;
       }
     });
 
@@ -48613,12 +48619,12 @@ ${orderSections}
     doc.setLineWidth(0.5); doc.setDrawColor(17,17,17); doc.line(ml, y, pw - mr, y);
     y += 5;
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(17,17,17);
-    doc.text('Subtotal', ml, y); rText('$' + grandSub.toFixed(2), y); y += 4.5;
-    doc.text('Delivery Fees', ml, y); rText('$' + grandDel.toFixed(2), y); y += 4.5;
-    if (grandTip > 0) { doc.text('Team Tips', ml, y); rText('$' + grandTip.toFixed(2), y); y += 4.5; }
+    doc.text('Subtotal', ml, y); rText('$' + invAmt(grandSub), y); y += 4.5;
+    doc.text('Delivery Fees', ml, y); rText('$' + invAmt(grandDel), y); y += 4.5;
+    if (grandTip > 0) { doc.text('Team Tips', ml, y); rText('$' + invAmt(grandTip), y); y += 4.5; }
     hLine(y - 1, [209,213,219]); y += 2;
     doc.setFontSize(11); doc.setFont('helvetica', 'bold');
-    doc.text('Total Due', ml, y); rText('$' + grandTotal.toFixed(2), y); y += 10;
+    doc.text('Total Due', ml, y); rText('$' + invAmt(grandTotal), y); y += 10;
 
     // ── FOOTER ──
     doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(156,163,175);

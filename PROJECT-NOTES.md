@@ -13,6 +13,18 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
+*Last updated: September 1, 2026 — Session 258 (polish) — **Invoice documents now print thousands separators: `$10,548.50`, not `$10548.50`.***
+
+David green-lit the fix flagged in the QA pass. Both customer-facing renderers — `generateInvoiceHTML` (the on-screen / printed invoice) and `buildInvoicePdfBase64` (the emailed PDF) — formatted every figure with a bare `.toFixed(2)`, so Kidango's five-figure August total read `$10536.00`. All **23** money sites across the two functions now go through one shared helper:
+
+```js
+const invAmt = (n) => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+```
+
+One helper rather than 23 edits, so the two renderers cannot drift apart later — the same reason the invoice-number work collapsed its three parallel build paths into one.
+
+**Verified** against a Kidango-shaped invoice (80 orders, a tip, delivery fees) by running both renderers out-of-page with real jsPDF: HTML Amount Due and Total Due both `$10,548.50` (80 × 131.70 + 12.50 tip ✓), subtotal `$10,136.00` ✓, sub-$1,000 line items unchanged at `$126.70`, and the 14-page PDF carries the grouped figures with no font damage — the comma is plain ASCII, safe in jsPDF's WinAnsi encoding. Note this changes the appearance of invoices already sent if any are reprinted; the amounts are identical, only the grouping differs.
+
 *Last updated: September 1, 2026 — Session 258 (QA) — **Post-fix QA pass on the Invoices screen: blast-radius clean, plus a chunked order fetch and a KPI reconciliation fix found by re-testing with production-shaped data.***
 
 Run after the double-quoted-id bug reached David. Findings:
