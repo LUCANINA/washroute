@@ -13,6 +13,16 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
+*Last updated: September 1, 2026 — Session 258 (fix) — **All three Invoices-tab row buttons were dead: `escAttrJSArg()` returns an ALREADY-QUOTED value and I wrapped it in quotes again.***
+
+David: "Invoice not found — reload the report" on Print, and the same on Void.
+
+**Root cause.** `escAttrJSArg(val)` is `esc(JSON.stringify(String(val)))` — it returns the value **with its quotes included** (`&quot;abc&quot;`), which is why every pre-existing call site interpolates it bare: `promptUpdateCard(${escAttrJSArg(name)}, ...)`. The Invoices tab wrapped it in single quotes as well — `onclick="printIssuedInvoice('${idArg}')"` — so the rendered handler passed `"11111111-…"` **with literal double quotes as part of the string**, and `_invoiceListRows.find(x => x.id === invoiceId)` missed every time. Print, Resend and Void were all dead in exactly the same way.
+
+**Fix:** interpolate bare on all three handlers, with a comment at the `idArg` assignment stating that the helper self-quotes, so the next person doesn't re-add them.
+
+**Why the pre-ship browser test missed it — the real lesson.** The headless run drove the feature by calling `window.printIssuedInvoice('<uuid>')` **directly**, so it exercised the function and never the button that calls it. The defect lived entirely in the generated `onclick` attribute, which that test never rendered a single character of. **A UI test that invokes handlers by name tests the handler, not the UI.** The replacement test clicks the actual rendered buttons (`page.click('#inv-tbody tr:first-child button:has-text("Print")')`) and asserts the emitted markup — it reproduces the bug on the old code and passes on the new. Any future row-action work in this dashboard should be verified by clicking, not calling.
+
 *Last updated: September 1, 2026 — Session 258 (cont.) — **Reports → Invoices: a list of every issued invoice, with live paid/outstanding status, reprint, resend and void.***
 
 Follow-on to the invoice-numbering work earlier the same day, which deliberately shipped without a UI. David asked for the screen.

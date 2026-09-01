@@ -48955,6 +48955,9 @@ ${orderSections}
         (new Date(today() + 'T12:00:00') - new Date(issuedIso + 'T12:00:00')) / 86400000));
       const ageTxt  = ageDays === 0 ? 'today' : ageDays === 1 ? 'yesterday' : ageDays + ' days ago';
       const sub     = (r.billing_group_name && r.billing_group_name !== r.bill_to_name) ? r.billing_group_name : '';
+      // escAttrJSArg() returns the value ALREADY QUOTED (esc(JSON.stringify(...))),
+      // so it is interpolated bare — wrapping it in '...' would pass the quotes
+      // through as part of the string and every id lookup would miss.
       const idArg   = escAttrJSArg(r.id);
       return `<tr style="${voided ? 'opacity:.55' : ''}">
         <td style="font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">${esc(r.invoice_number)}</td>
@@ -48969,9 +48972,9 @@ ${orderSections}
           ${!voided && r.last_sent_at ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px">emailed ${fmtDate(r.last_sent_at)}</div>` : ''}
         </td>
         <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-ghost" style="padding:3px 9px;font-size:12px" title="Reopen this invoice to print or save as PDF" onclick="printIssuedInvoice('${idArg}')">Print</button>
-          ${voided ? '' : `<button class="btn btn-ghost" style="padding:3px 9px;font-size:12px" title="Email this invoice again" onclick="resendIssuedInvoice('${idArg}')">Resend</button>
-          <button class="btn btn-ghost" style="padding:3px 9px;font-size:12px;color:var(--red)" title="Void this invoice so a reissue gets a new number" onclick="voidIssuedInvoice('${idArg}')">Void</button>`}
+          <button class="btn btn-ghost" style="padding:3px 9px;font-size:12px" title="Reopen this invoice to print or save as PDF" onclick="printIssuedInvoice(${idArg})">Print</button>
+          ${voided ? '' : `<button class="btn btn-ghost" style="padding:3px 9px;font-size:12px" title="Email this invoice again" onclick="resendIssuedInvoice(${idArg})">Resend</button>
+          <button class="btn btn-ghost" style="padding:3px 9px;font-size:12px;color:var(--red)" title="Void this invoice so a reissue gets a new number" onclick="voidIssuedInvoice(${idArg})">Void</button>`}
         </td>
       </tr>`;
     }).join('');
