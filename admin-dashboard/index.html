@@ -3937,6 +3937,7 @@
                   </div>
                 </span>
               </div>
+              <div id="bk-ov-period-bar" class="lpb" style="padding:0 24px 16px"></div>
               <div id="bk-ov-queue-list"></div>
               <!-- History (session 223 cont. 3, per David): ONE record of
                    everything settled — resolved issues with who/when,
@@ -11204,10 +11205,56 @@
     renderBookkeepingOverview();
   }
 
+  // ── Overview's period bar (session 258 cont. 3) ────────────────────────
+  // David: "what is important for closing LAST MONTH vs what is happening
+  // THIS MONTH" -- the Loans page already answers exactly that question
+  // (Closing/In flight, session 241) but Overview never picked it up, so the
+  // Issues/Approvals/Staged queue read as one undifferentiated pile with no
+  // way to tell which of the two you were even looking at. This reads and
+  // writes the SAME state as the Loans page (_loansPeriod / switchLoansPeriod
+  // / LOAN_PERIODS) rather than a second one, so switching period on either
+  // page keeps both in sync and there is exactly one answer anywhere in the
+  // module to "which period am I on". Deliberately lighter than
+  // renderLoansPeriodBar(): no close-date note here -- that already lives on
+  // Loans, and saying it twice is the two-numbers-one-page failure this
+  // module's history warns against -- just the two tabs and the badge.
+  function renderOverviewPeriodBar() {
+    const el = document.getElementById('bk-ov-period-bar');
+    if (!el) return;
+    const closingMonth = _cvLastMonth();
+    const liveMonth = today().slice(0, 7);
+    if (_loansPeriod === null) {
+      let remembered = null;
+      try { remembered = sessionStorage.getItem('wr-loans-period'); } catch (_) {}
+      const b0 = _loansCloseBlockers(closingMonth);
+      const dflt = (b0 && b0.count === 0) ? 'inflight' : 'closing';
+      switchLoansPeriod(LOAN_PERIODS.includes(remembered) ? remembered : dflt, { silent: true });
+      return; // switchLoansPeriod() re-invokes this once the state is set
+    }
+    const b = _loansCloseBlockers(closingMonth);
+    const pip = b == null ? 'live' : (b.count ? 'warn' : 'ok');
+    const badge = b && b.count ? `<span class="lpb-count">${b.count} to clear</span>` : '';
+    el.innerHTML = `
+      <div class="lpb-seg" role="tablist" aria-label="Accounting period">
+        <button id="bk-ov-lpb-closing" role="tab" class="${_loansPeriod === 'closing' ? 'on' : ''}"
+                aria-selected="${_loansPeriod === 'closing'}" onclick="switchLoansPeriod('closing')">
+          <span class="lpb-pip ${pip}"></span>
+          <span><span class="lpb-k">Closing</span><span class="lpb-v">${esc(_cvMonthName(closingMonth))}</span></span>
+          ${badge}
+        </button>
+        <button id="bk-ov-lpb-inflight" role="tab" class="${_loansPeriod === 'inflight' ? 'on' : ''}"
+                aria-selected="${_loansPeriod === 'inflight'}" onclick="switchLoansPeriod('inflight')">
+          <span class="lpb-pip live"></span>
+          <span><span class="lpb-k">This month</span><span class="lpb-v">${esc(_cvMonthName(liveMonth))}</span></span>
+        </button>
+      </div>`;
+  }
+
   function renderBookkeepingOverview() {
     const tilesEl = document.getElementById('bk-kpi-tiles');
     const listEl = document.getElementById('bk-ov-queue-list');
     if (!tilesEl || !listEl) return;
+    renderOverviewPeriodBar();
 
     // ── KPI tiles (4, Orders-page style) ──
     const p = _bkKpiSnapshot;
@@ -11312,7 +11359,13 @@
         // one of these three buckets in the SAME edit — a state that falls
         // through lands nowhere and the line silently stops summing.
         const rc = _bkOverviewSeg === 'issues' ? _bkRosterCounts() : null;
-        if (rc && rc.total) {
+        if (_bkOverviewSeg === 'issues' && _loansPeriod === 'inflight') {
+          // Session 258 cont. 3: Issues is a closing-month question (see the
+          // matching note beside the queue body below) -- say so here too,
+          // rather than let the headline sentence and the list under it
+          // disagree about whether there is anything to look at.
+          parts.push(`nothing to close yet for ${_cvMonthName(today().slice(0, 7))}`);
+        } else if (rc && rc.total) {
           // Reconciled leads: a bounded score, not an unbounded pile. "5 of 14
           // reconciled" is a position you can finish; "13 issues" is one you are
           // losing.
@@ -11390,6 +11443,23 @@
         </div>`).join('');
       }
       listEl.innerHTML = ahtml;
+    } else if (_loansPeriod === 'inflight') {
+      // Session 258 cont. 3: Issues reads loan_tie_outs -- the reconciliation
+      // engine's verdict on whether the books tie to the lender -- which is
+      // only a real question once a month is OVER. There is no second,
+      // in-flight-scoped version of that check, and building one from a
+      // different computation (the client-side rollforward that powers the
+      // Loans page's Close Rollforward) would risk exactly the "two surfaces
+      // disagreeing about one number" failure this module's history warns
+      // about hardest. So In flight says plainly there is nothing to close
+      // yet and points back at Closing, rather than recomputing or
+      // duplicating that list under a second label.
+      const closingName = _cvMonthName(_cvLastMonth());
+      const liveName = _cvMonthName(today().slice(0, 7));
+      listEl.innerHTML = `<div class="bk-allclear">
+        <div class="bk-allclear-title">Nothing to close yet</div>
+        <div class="bk-allclear-sub">You're viewing ${esc(liveName)}, still in progress — a month only has a variance to check once it's over. Switch to Closing to see ${esc(closingName)}'s work.</div>
+      </div>`;
     } else {
       // ── Issues: "Fix first" cards up top, everything else in one "Worth a look"
       // list under them, every row of it archivable with Got it.
@@ -16166,6 +16236,10 @@
     // changes as the close progresses, and a stale choice from last week should
     // not outrank it.
     if (!(opts && opts.silent)) { try { sessionStorage.setItem('wr-loans-period', p); } catch (_) {} }
+    // Session 258 cont. 3: Overview reads this same state -- keep it in sync
+    // whenever its element is on screen. Guarded so this is a no-op from the
+    // Loans page before Overview has ever been rendered this session.
+    if (document.getElementById('bk-ov-period-bar')) { renderOverviewPeriodBar(); renderBookkeepingOverview(); }
   }
 
   function renderLoansPeriodBar() {
