@@ -27,6 +27,13 @@
 >   it: `index.ts` alone is 123.5KB JSON-escaped against a ~100–130KB ceiling. Two
 >   attempts, neither created a version. **Nothing was truncated to force it through.**
 >
+> **⚠️ CHECKED 2026-09-02 AFTER DAVID'S `git push`: STILL v24, STILL 403.** The push landed
+> (`origin/main..HEAD` empty, `internal_job` present in the committed file) — but **pushing
+> does not deploy an edge function.** Vercel auto-deploys the four SPAs on push; Supabase
+> edge functions do not, and never have. This is the third distinct way this block has
+> carried a wrong deploy claim in a week, and the first where the code was genuinely on
+> GitHub while the function was not. **Git state is not deploy state.**
+>
 > **THE ONE COMMAND, from David's own terminal:**
 >
 > ```
@@ -72,9 +79,9 @@
 > That default silently flipped the watchdog on session 260's first deploy (harmless there;
 > the cron sends the anon key). On the sync it would kill every payout.
 >
-> **⏳ STILL OPEN — a person has to do this in Xero.** The **Aug 27 ($7,813.03)** and
-> **Sept 2 ($12,329.03)** bank lines are unreconciled, waiting to be MATCHED to the
-> transactions we already posted. Sept 2's feed line does not arrive until 9/3 (T+1).
+> **Aug 27 ($7,813.03) is MATCHED AND RECONCILED in Xero — David, 2026-09-02.** One left:
+> **Sept 2 ($12,329.03)**, whose feed line does not arrive until **9/3** (T+1). Match it
+> when it lands; nothing in the code is waiting on it.
 >
 > ### 0a. ✅ CLOSED (session 259, 2026-09-01 15:05 UTC) — Overview's period bar
 > VISUALLY VERIFIED live, with one cosmetic mismatch left open
