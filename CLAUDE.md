@@ -66,6 +66,26 @@ fixes the problem, and prefer one shared helper over N parallel edits.
 - **Test with production-shaped data.** PostgREST returns `numeric` as strings;
   `.in('id', ids)` must be batched (100 at a time) or long lists fail opaquely.
 - **The database is the one thing that cannot be undone.** Migration review, always.
+- **A `git push` does NOT deploy an edge function.** Vercel auto-deploys the four SPAs on
+  push; Supabase functions do not, and never have. Session 261 lost three round trips to
+  this — the code was on GitHub, the function was still the old version, and the START HERE
+  block would have said "deployed" on the strength of the push. **Deploy state is checked by
+  BEHAVIOUR, never inferred from git.** The command, from the repo root:
+  ```
+  npx -y supabase@latest functions deploy <name> --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+  ```
+  `npx` because the `supabase` binary is not on David's PATH (`command not found` — the
+  second lost round trip). **`--no-verify-jwt` is not optional on any function that is
+  currently `verify_jwt: false`** — omitting it flips the function to requiring a JWT and
+  breaks every caller, which is how session 260 nearly killed the Stripe payout webhook.
+  To check the flag on any function in one call: POST it with no Authorization header. The
+  gateway (verify_jwt true) answers `401 {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}`; a function
+  with it false answers in its own words.
+- **The MCP `deploy_edge_function` tool has a real size ceiling** (~100–130KB of file
+  content per call) and `deploy_edge_function`'s `verify_jwt` **defaults to true**. Anything
+  near that size — `loan-find-difference` (158KB), `loan-bundle` (404KB) — must go through
+  the CLI above, from David's own terminal. Never truncate or re-type a file to force it
+  through the tool.
 
 ## Committing
 
