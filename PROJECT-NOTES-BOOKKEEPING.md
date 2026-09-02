@@ -2803,6 +2803,27 @@ quietly permitted, and it proves one loan's failure does not kill the pass. **Wh
 has deployed, re-run the dry run: those five errors becoming payloads is the proof, and a
 version number would not be.**
 
+#### A ONE-CALL TEST FOR `verify_jwt`, found while chasing the failed deploy
+
+David's terminal showed a SUCCESSFUL supabase deploy in the scrollback above the failed
+one, and `loan-find-difference` was untouched — so some other function had been deployed,
+and a deploy without `--no-verify-jwt` silently flips a function to requiring a JWT (this
+is what hit the watchdog in session 260). Checking that used to mean `list_edge_functions`,
+which returns every function's metadata. It does not have to:
+
+POST to the function with **no Authorization header at all** and read who answers.
+
+| | Response |
+|---|---|
+| `verify_jwt: true` — the GATEWAY refuses, the body never runs | `401` `{"code":"UNAUTHORIZED_NO_AUTH_HEADER","message":"Missing authorization header"}` |
+| `verify_jwt: false` — the request REACHES the function | whatever the function itself says; for `xero-payout-sync`, `500` `{"error":"Missing Authorization header"}` |
+
+Note the tell: the gateway's message is lowercase `authorization` and carries a `code`;
+the function's is its own wording. **Confirmed 2026-09-02: `xero-payout-sync` still gets
+the second answer, so its `verify_jwt` is still false and Stripe's webhook is intact.**
+`loan-ingest-amortization` (known true) was used as the control — a test with no known-true
+control proves nothing about which half of the table you are in.
+
 #### THE CRON IS DELIBERATELY NOT CREATED
 
 Session 231's corollary: *do not schedule or automate something before auditing the guards
