@@ -1,67 +1,80 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 260, 2026-09-02)
+> ## ⏭️ START HERE — first thing, next session (left by session 261, 2026-09-02)
 >
-> **Order:** §00 is the next build. Both §00 and §0 need the Xero accounting API, which
-> was at `remaining_day 0` until ~08:40 PT 2026-09-02 — **probe with `xero-rate-probe`
-> first** (never `whoami`; it hits a different API and lies about the accounting quota).
-> §0's one-line job (record the reversing journal's id) is quick — do it in the same
-> quota window.
+> **Order:** ONE DEPLOY COMMAND is the whole of what is left on the attribution build, and
+> it needs David's terminal — see §00. After that, §0's one-line job (record the reversing
+> journal's id) is quick. **Xero quota was probed 2026-09-02 16:42 UTC: `remaining_day 959`,
+> not capped** — but probe again with `xero-rate-probe`, never `whoami`, which hits a
+> different API and lies about the accounting quota.
 >
-> ### 0α. ✅ CLOSED (session 260, 2026-09-02) — the Stripe payout recovery path, deployed and VERIFIED LIVE at 16:35 UTC
+> ### 00. 🟡 `loan-attribution-run` IS BUILT AND DEPLOYED — one deploy left, and DAVID MUST RUN IT
 >
-> Aug 27 and Sept 2 payouts are posted and reconciled in our records; the Stripe Capital
-> chain foots to the cent from 8/26 through 9/2. Three fixes shipped, and the deploy state
-> below was checked FUNCTIONALLY, not by version number — read §"THE DEPLOY STATE IS
-> CHECKED, NEVER ASSUMED" and note this entry obeys it:
+> Session 261 built it. Read that log entry before touching any of it. State, checked
+> functionally on 2026-09-02 and not by version number:
 >
-> * `xero-payout-watchdog` **v4 live** — proven by its cron response at 16:30 UTC carrying
->   the new `retried` / `alerts` keys, not by `updated_at`.
-> * `xero-payout-sync` **live** — proven by the internal-secret auth path answering
->   "No such payout" (that branch exists only in the new build) and by a full dry run
->   returning `would_post: true`, $4,752.54, 124 txns, 0 unclassified.
-> * `verify_jwt` on `xero-payout-sync` is **still false** — confirmed by an unauthenticated
->   call reaching the function body. **Never let a deploy flip this**: Stripe's webhook
->   cannot present a JWT, and `deploy_edge_function`'s `verify_jwt` parameter DEFAULTS TO
->   TRUE. That default silently flipped the watchdog to `true` on this session's first
->   deploy (harmless there — the cron sends the anon key, which is a valid JWT — and left
->   as-is deliberately; see the session log). On the sync it would kill every payout.
+> * **`loan-attribution-run` — DEPLOYED, v1, `verify_jwt: false`.** Proven by a dry run
+>   that authenticated on the internal secret, read the close date (2026-06-30) and
+>   selected the right 5 loans — not by `updated_at`.
+> * **New table `loan_attributions`** — one row per loan, migration
+>   `session_261_loan_attributions` + `..._revoke_default_acl`. NOT `loan_tie_outs`: that
+>   table is per-run and would orphan the payload on every reconciliation run. Grants
+>   verified `authenticated: SELECT`, anon nothing.
+> * **Option (b) is VERIFIED LIVE.** The ORed-GUID `where` clause returns exactly the
+>   requested ids with their types in one call. No longer an open question.
+> * **`loan-find-difference` — NOT DEPLOYED, still v24.** Its `x-wr-internal` analyze-only
+>   auth path is written, typechecked and committed, but the MCP deploy tool cannot carry
+>   it: `index.ts` alone is 123.5KB JSON-escaped against a ~100–130KB ceiling. Two
+>   attempts, neither created a version. **Nothing was truncated to force it through.**
 >
-> **One thing a person must still do:** the Aug 27 bank line ($7,813.03) and the Sept 2
-> line ($12,329.03) are unreconciled in Xero, waiting to be MATCHED to the transactions we
-> posted. Sept 2's feed line does not arrive until 9/3 — see the T+1 note in the log.
+> **THE ONE COMMAND, from David's own terminal:**
 >
-> ### 00. ⏭️ THE ACTUAL NEXT BUILD (left by session 259 cont. 14) — `loan-attribution-run`
+> ```
+> supabase functions deploy loan-find-difference \
+>   --project-ref umjpbuxrdydwejqtensq \
+>   --no-verify-jwt
+> ```
 >
-> **The design fork is closed and the decision is David's, not inferred.** Attribution
-> runs as a **nightly scheduled job**, not inside `reconciliation-run`, and it **reports
-> inherited gaps rather than suppressing them**. Reasoning and the measurements behind it
-> are in the cont. 14 log entry — read that before changing the shape.
+> `--no-verify-jwt` is REQUIRED — omitting it flips the function to `verify_jwt: true` and
+> breaks every caller including the admin dashboard.
 >
-> **Do not "optimise" this by calling `analyzeWalk()` in-process.** It is a pure function
-> and `reconciliation-run` has a compatible ledger, so it looks free. It is not:
-> `reconciliation-run` floors its window at **120 days** while the walk needs up to **18
-> months**, and E4-9744's variance originates **135 days back** — outside the floor. Wired
-> naively, every pre-window span returns `divergent` with a **fabricated** gap equal to the
-> lender's entire movement, and it would reach the CPA looking confident. If it is ever
-> revived: clamp `usable` to anchors `>= windowFrom`, drop the walk below two survivors.
+> **Then re-run the dry run and check the ROWS, not the version:**
 >
-> **Build shape:** open material `balance_vs_lender` findings (5 loans today) → POST each
-> to `loan-find-difference` (`mode: analyze`) → collect entry ids → get transaction types
-> → `attributionFromWalk(walk, { txnTypeById })` → `buildAttributionPayload({ …,
-> priorCloseDate })` → upsert to `loan_tie_outs.detail.attribution`. Measured cost ~7 Xero
-> calls per loan, **~35 per nightly pass** against 1,000/day.
+> ```sql
+> select net.http_post(
+>   url := 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/loan-attribution-run',
+>   headers := jsonb_build_object('x-wr-internal', public.wr_internal_secret(),
+>     'Content-Type','application/json'),
+>   body := jsonb_build_object('dry_run', true),
+>   timeout_milliseconds := 240000) as rid;
+> -- then: select status_code, content from net._http_response where id = <rid>;
+> ```
 >
-> **One open question, deliberately left for David:** over HTTP the job has no ledger, so
-> where do transaction types come from — (a) patch `entryView` to emit `txn_type:
-> rec.type` (one line, not circular, but walk supplies both effect and type), or (b) the
-> job fetches them fresh from Xero by id (one call, genuinely independent). **(b) is
-> preferred and unverified** — the accounting API was at `remaining_day 0` until ~08:40 PT
-> 2026-09-02, so probe the quota first (`xero-rate-probe`, **never** `whoami`).
+> Today that returns `selected: 5, attempted: 5` and five identical
+> `loan-find-difference 403: Not authorized.` **Those five errors turning into payloads is
+> the proof the deploy landed.** A 403 that persists means the deploy did not take.
 >
-> **State:** `_shared/attribution-{gate,from-walk,store}.ts` are **90/90 and mutation-
-> proven**; commits `ef11f4d` and `7a7ba72` are pushed. Nothing in the pipeline is wired to
-> a caller yet — that is this item.
+> **THE CRON IS DELIBERATELY NOT CREATED** — session 231's corollary: do not schedule
+> something before auditing the guards it makes load-bearing. The loop has never run end
+> to end. Create it only after a real pass produces real payloads, and put it through
+> `washroute-preflight` like any other cron.
+>
+> ### 0c. 🟠 STRIPE PAYOUTS — the code is closed (session 260), TWO BANK LINES ARE NOT
+>
+> Session 260's recovery path is deployed and verified live; the Stripe Capital chain foots
+> to the cent 8/26 → 9/2, and `xero-payout-watchdog` v4 / `xero-payout-sync` were both
+> proven FUNCTIONALLY (the watchdog by its cron response carrying the new `retried`/`alerts`
+> keys, the sync by its internal-auth branch answering and a full dry run: `would_post:
+> true`, $4,752.54, 124 txns, 0 unclassified). That entry is closed and condensed here.
+>
+> **`verify_jwt` on `xero-payout-sync` is still false and MUST stay false** — Stripe's
+> webhook cannot present a JWT, and `deploy_edge_function`'s `verify_jwt` DEFAULTS TO TRUE.
+> That default silently flipped the watchdog on session 260's first deploy (harmless there;
+> the cron sends the anon key). On the sync it would kill every payout.
+>
+> **⏳ STILL OPEN — a person has to do this in Xero.** The **Aug 27 ($7,813.03)** and
+> **Sept 2 ($12,329.03)** bank lines are unreconciled, waiting to be MATCHED to the
+> transactions we already posted. Sept 2's feed line does not arrive until 9/3 (T+1).
 >
 > ### 0a. ✅ CLOSED (session 259, 2026-09-01 15:05 UTC) — Overview's period bar
 > VISUALLY VERIFIED live, with one cosmetic mismatch left open
@@ -2643,6 +2656,154 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 261 (2026-09-02) — `loan-attribution-run` IS BUILT AND DEPLOYED. A new table, an analyze-only auth path, 20 assertions, 13/13 mutations — and option (b) verified live at last.
+
+§00 of the START HERE block is closed except for one deploy David has to run himself.
+Everything below was checked against the live project, not inferred.
+
+#### The planned storage target was wrong, and the arithmetic says so
+
+Session 259 cont. 14 specified `loan_tie_outs.detail.attribution`. That table is
+**per-run**: 1,342 rows across 61 runs, 22 per run, which is exactly the loan count. So
+every `reconciliation-run` inserts a fresh row per loan, and a payload written to the
+previous newest row is orphaned the next time David clicks Run. The hover would then show
+nothing — and in this module **nothing reads as "no attribution needed"**, not as "not
+computed since you last re-ran". That is the two-numbers-one-screen shape in its quietest
+form, so it went to David rather than being worked around.
+
+**David chose the dedicated table.** `loan_attributions`, one row per loan, PK on
+`loan_account_id`, migration `session_261_loan_attributions`, reviewed under
+`washroute-migration-review` first.
+
+**The migration review earned its place twice.** The first draft had **no GRANTs** —
+session 162's trap exactly: `public` still carries default ACLs today so it would have
+worked, then gone invisible to the dashboard on 2026-10-30 with no error at create time.
+Added, matched to `loan_tie_outs`' real grants rather than guessed. Then **verifying after
+apply caught a second thing**: the default ACLs had auto-granted `anon` AND
+`authenticated` the FULL set — insert, update, delete, **truncate** — on a financial
+table. RLS refuses all of it (there is no anon policy), but `loan_tie_outs` carries
+exactly one grant and a financial table should not rest on RLS alone. Second migration,
+`session_261_loan_attributions_revoke_default_acl`, revokes it. **Granting is not enough
+before the cutover; you have to revoke what the default ACL handed out.** Verified:
+`authenticated: SELECT`, `anon:` nothing.
+
+#### A scheduled job has no user to be
+
+`loan-find-difference` authenticates with `anon.auth.getUser(token)` against `profiles`,
+so a cron job can only ever be `null` there. Added the `x-wr-internal` path (same contract
+as `xero-read` / `loan-xero-post`), mapping to the role **`internal_job`**.
+
+**The role name is doing real work, and the guard is placed by session 231's rule.** Every
+write gate in that file is `['admin','manager'].includes(role)` — grepped and read
+individually, all five: `can_post` in the lender branch (1516), the post_fix/post_exception
+check (1534), post_crossloan (1544), and the two `can_post` flags (1690, 1691). Three Xero
+POSTs exist and each sits behind one of them, so `internal_job` cannot reach a single write
+by construction. **That is an absence, though**, so `handle` also refuses an internal
+caller asking for any write mode explicitly, by name, before anything runs — a guard where
+the dangerous paths converge, so widening one of those arrays later cannot silently hand a
+write path to a cron job.
+
+#### Option (b) is no longer unverified — and it works
+
+Session 259 cont. 14 left this as "preferred and unverified", blocked on Xero's daily cap.
+**Probed with `xero-rate-probe` (never `whoami`) at 16:42 UTC: `remaining_day 959`.** Then
+tested the exact clause the code builds:
+
+```
+BankTransactionID==Guid("ff35ddb0-…")||BankTransactionID==Guid("333faff5-…")
+```
+
+→ 200, `count: 2`, exactly the two requested ids, types `RECEIVE` and `SPEND`, in ONE
+call. The types therefore come from Xero, independent of the walk that supplies the effect
+they check — which is what makes the gate's re-derivation a real check rather than a
+tautology. `xero-read`'s list trim already carries `type`, so no `with_lines` hydration and
+no per-id fetch.
+
+#### What was built
+
+* **`loan-attribution-run/selection.ts`** — the pure half. `selectLoans`,
+  `orderByStaleness`, `bankEntryIds`, `isGuid`, `xeroIdWhereChunks`, `typeMapFromRows`.
+* **`loan-attribution-run/index.ts`** — the I/O shell, and nothing a test would want.
+
+Four decisions in there worth not undoing by accident:
+
+1. **Materiality is READ from the engine's severity, never recomputed.** `info` is the
+   engine saying immaterial (EIDL's −$5.00 today). A second threshold in a second file is
+   how two numbers start disagreeing. `warn` counts as material even though
+   `balance_vs_lender` has no open `warn` row to notice the difference with.
+2. **`orderByStaleness` turns starvation into rotation.** The pass has a wall-clock budget,
+   so it can end with loans unvisited. Under ANY fixed order the same loans are starved
+   every night, forever, and nobody would see it — the table would carry a row for them
+   from whenever it last fit, looking exactly like a fresh one. Oldest answer first,
+   never-computed before every computed one.
+3. **`run_status='error'` is not "nothing found".** A loan that could not be walked gets a
+   row saying so. Leaving yesterday's payload in place would show the CPA a stale answer
+   with a fresh look and no way to tell.
+4. **A row never outlives its finding.** Loans with no open material finding are deleted,
+   so a stale explanation cannot sit beside a cleared gap.
+
+#### The tests, and the one my own fixtures nearly hid
+
+`selection.test.ts`: **20 assertions, all against the shipped functions** — nothing
+transcribed. Then **13 mutations, and the first run had a SURVIVOR.**
+
+`m11` (key the type map case-sensitively) survived — and the fault was in the TEST, not
+the code. The GUID fixtures were all digits, so `.toUpperCase()` returned the identical
+string and the case-mismatch test **exercised no case mismatch**. It passed against the
+broken code as happily as the fixed one. Fixtures given hex letters; m11 now dies on `t2`.
+**Session 245's rule about tests that cannot fail applies to their DATA too, and only the
+mutation could see it — the assertion never would have.**
+
+Final: **20/20 passing, 13/13 mutations dead.** Whole attribution suite including the
+existing three modules: **110/110**. `deno check` clean on both changed functions.
+
+The defect t2 protects is real: `toLedgerEntry` looks the type up with an exact-string
+`Map.get(String(v.id))`, Xero is not consistent about GUID case between endpoints, and a
+miss there does not throw — the type is undefined and every claim refuses with
+`entry_direction_unknown`. The job would report "we could not determine the direction"
+for a fetch that succeeded completely.
+
+#### DEPLOY STATE — CHECKED 2026-09-02, FUNCTIONALLY, NOT BY VERSION NUMBER
+
+* **`loan-attribution-run` — DEPLOYED, v1, `verify_jwt: false`** (passed explicitly; the
+  deploy tool DEFAULTS IT TO TRUE, which is what silently flipped the watchdog in session
+  260). Proven live by a dry run that authenticated on the internal secret, read the close
+  date, and selected the right loans.
+* **`loan-find-difference` — NOT DEPLOYED. Still v24.** The MCP deploy tool refused it:
+  `index.ts` alone is **123.5KB JSON-escaped**, and the whole payload 158KB, against a
+  ceiling around 100–130KB. Two attempts, both failed with `Entrypoint path does not
+  exist`, **neither created a version** (confirmed: still v24, `updated_at` unchanged).
+  Nothing was truncated or re-typed to force it through — a successful deploy carrying one
+  wrong character in reallocation code is worse than no deploy. **David runs this:**
+
+  ```
+  supabase functions deploy loan-find-difference \
+    --project-ref umjpbuxrdydwejqtensq \
+    --no-verify-jwt
+  ```
+
+  `--no-verify-jwt` is REQUIRED. Omitting it flips the function to `verify_jwt: true` and
+  breaks every caller, the admin dashboard included.
+
+**The dry run's result is the evidence for both halves at once:** `selected: 5`,
+`attempted: 5`, `close_date: 2026-06-30`, 2,455 ms, and five identical
+`loan-find-difference 403: Not authorized.` That 403 is the CORRECT answer while the auth
+patch is undeployed — it proves the internal path genuinely is not live rather than being
+quietly permitted, and it proves one loan's failure does not kill the pass. **When David
+has deployed, re-run the dry run: those five errors becoming payloads is the proof, and a
+version number would not be.**
+
+#### THE CRON IS DELIBERATELY NOT CREATED
+
+Session 231's corollary: *do not schedule or automate something before auditing the guards
+it makes load-bearing* — putting the stage sweep on a cron turned a latent flag-clearing
+bug into a certainty. The full loop has never run end to end, so nothing is scheduled.
+Creating it is a separate step, after a real pass produces real payloads, and it goes
+through `washroute-preflight` like any other cron. Checked `cron.job`: 17 jobs, none for
+attribution.
 
 ---
 

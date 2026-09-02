@@ -148,7 +148,7 @@ import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-wr-internal',
 }
 
 const INTEREST_EXPENSE_ACCOUNT_CODE = '800'
@@ -165,6 +165,33 @@ async function callerRole(req: Request) {
   if (!user) return null
   const { data: profile } = await admin().from('profiles').select('role').eq('id', user.id).single()
   return profile?.role || null
+}
+
+// A SCHEDULED JOB HAS NO USER TO BE (session 261).
+//
+// `loan-attribution-run` runs nightly with nobody logged in, so `callerRole` can only
+// ever return null for it. Same shared-secret contract as xero-read and loan-xero-post
+// (migration session_227h_internal_call_secret).
+//
+// The secret maps to the role `internal_job`, and the name is doing real work: EVERY
+// write gate in this file is `['admin','manager'].includes(role)` -- five of them, at
+// lines that post a Manual Journal (post_fix), the exception correction (post_exception)
+// and the cross-loan reallocation (post_crossloan), plus the two `can_post` flags. A role
+// outside that array cannot reach a single one of them by construction.
+//
+// That is an absence, though, and session 231's rule is that a guard belongs where the
+// dangerous paths CONVERGE and should say so out loud rather than depend on a role
+// simply not appearing in an array someone may widen later. So `handle` also refuses an
+// internal caller that asks for any write mode, explicitly, before anything else runs.
+async function isInternalCall(req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  try {
+    const { data } = await admin().from('wr_internal_auth').select('secret').maybeSingle()
+    return !!data?.secret && provided === data.secret
+  } catch (_) {
+    return false
+  }
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -1527,9 +1554,20 @@ async function handle(req: Request): Promise<Response> {
   // this same request, exact-token match or nothing posts.
   const post_exception = !!body.post_exception
 
-  const role = await callerRole(req)
-  if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
+  let role = await callerRole(req)
+  // session 261: the nightly attribution job, authenticating on the shared secret
+  // because it has no user. Read the isInternalCall comment above before widening this.
+  const internal = !role && await isInternalCall(req)
+  if (internal) role = 'internal_job'
+  if (!role || !['admin', 'manager', 'cpa', 'internal_job'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
+  // The convergence guard. `internal_job` already fails every ['admin','manager'] gate
+  // below, so this refuses nothing those would have allowed -- it exists so the refusal
+  // is a STATEMENT rather than a side effect of a role's absence from an array, and so
+  // that widening one of those arrays cannot silently hand a write path to a cron job.
+  if (internal && (post_fix || post_exception || body.post_crossloan || body.lender_analysis)) {
+    return new Response(JSON.stringify({ error: 'The internal job may run analyze only. Nothing was posted.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   if ((post_fix || post_exception) && !['admin', 'manager'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Only an admin or manager can post a correction. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
