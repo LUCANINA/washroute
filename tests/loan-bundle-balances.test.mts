@@ -1363,5 +1363,129 @@ section('E — the basis card says which shape was tried and by how much it miss
 }
 
 
+
+section('§5 — whose balance is "your books", and is it the same day (cont. 4)')
+{
+  // A LEDGER THAT COVERS THE WINDOW THESE ASSERTIONS TALK ABOUT. The two-payment
+  // PP_CSV above starts 2026-08-26, so a book balance dated 2026-08-12 legitimately
+  // predates it and every roll-forward here would be refused — correctly, and while
+  // proving nothing. Real August figures, real origination rows.
+  const PP_CSV_AUG = [
+    'Date,Description,Amount,Principal,Fee,Other',
+    '09/02/2026,Auto Draft Payment,"-$3,414.71","-$3,180.33","-$234.38","$0.00"',
+    '08/26/2026,Auto Draft Payment,"-$3,414.71","-$3,165.30","-$249.41","$0.00"',
+    '08/19/2026,Auto Draft Payment,"-$3,414.71","-$3,150.32","-$264.39","$0.00"',
+    '08/12/2026,Auto Draft Payment,"-$3,414.71","-$3,135.43","-$279.28","$0.00"',
+    '12/10/2025,Wire,"$157,000.00","$157,000.00","$0.00","$0.00"',
+    '12/10/2025,Total Loan Fee,"$20,565.12","$0.00","$20,565.12","$0.00"',
+  ].join('\n')
+  const pp = parsePayPalHistoryCsv(PP_CSV_AUG)
+  const lenderRow = (d: string, bal: number) =>
+    ({ statement_date: d, principal_balance: bal, balance_basis: 'principal_only', source: 'portal_manual_pull' })
+  const bookRow = (d: string, bal: number, basis = 'principal_only') =>
+    ({ statement_date: d, principal_balance: bal, balance_basis: basis, source: 'xero_derived' })
+
+  const mk = (statements: any[], over: any = {}) => buildPlan(ctxOf({
+    loan: { ...ctxOf().loan, id: 'loan-pp', lender: 'PayPal', xero_account_name: 'Paypal 2',
+            lender_account_number: 'A00845102', original_amount: 177565.12, xero_account_code: '284' },
+    agreementTerms: [], ledgerTerms: pp.terms as any, csv: pp as any, csvCoversFromOrigination: true,
+    documents: [], statements,
+    portal: ppScreen({ as_of: '2026-09-02' }),
+    ...over,
+  } as any))
+
+  // ── THE LIVE FALSE ALARM, PINNED ──────────────────────────────────────
+  // Every row on this loan is a lender pull. The old code took the newest one,
+  // called it "your books", and reported $12,631.38 — which is exactly the four
+  // payments between 2026-08-05 and 2026-09-02, to the cent.
+  const lenderOnly = mk([lenderRow('2026-07-29', 61896.57), lenderRow('2026-08-05', 58775.97)])
+  ok('a lender row is never "your books"',
+     !lenderOnly.conflicts.some(c => c.key === 'balance_vs_lender' || c.key === 'balance_vs_lender_unconfirmed'),
+     JSON.stringify(lenderOnly.conflicts.map(c => c.key)))
+  ok('...and specifically the $12,631.38 phantom is gone',
+     !JSON.stringify(lenderOnly.conflicts).includes('12,631.38'))
+  ok('...replaced by a question naming what is missing',
+     lenderOnly.unresolved.some(u => /Do your books agree with the lender/.test(u.question) &&
+                                     /rebuilt from your own ledger/.test(u.what_would_answer_it)),
+     JSON.stringify(lenderOnly.unresolved.map(u => u.question)))
+
+  // ── SAME DAY, BOOK-SOURCED: compares exactly as before ────────────────
+  const sameDay = mk([bookRow('2026-09-02', 46144.59)])
+  ok('a same-dated book balance ties to the lender',
+     sameDay.corroborations.some(c => /agree on the balance/.test(c.statement)),
+     JSON.stringify(sameDay.corroborations.map(c => c.statement)).slice(0, 200))
+  ok('...and no conflict is raised', !sameDay.conflicts.some(c => c.key === 'balance_vs_lender'))
+
+  // A real disagreement on the same day must STILL be reported.
+  const realGap = mk([bookRow('2026-09-02', 50000)])
+  ok('a genuine same-day gap is still raised',
+     realGap.conflicts.some(c => c.key === 'balance_vs_lender' || c.key === 'balance_vs_lender_unconfirmed'),
+     JSON.stringify(realGap.conflicts.map(c => c.key)))
+
+  // ── DIFFERENT DAYS, EXPORT COVERS: roll forward and tie ───────────────
+  // The book balance is the truth at 2026-08-12; the lender's is at 2026-09-02.
+  // The ledger took 3,150.32 + 3,165.30 + 3,180.33 = 9,495.95 of principal in
+  // between, which brings 55,640.54 to 46,144.59 — the lender's figure exactly.
+  const rolled = mk([bookRow('2026-08-12', 55640.54)])
+  ok('a book balance on an earlier day is rolled forward and ties',
+     rolled.corroborations.some(c => /agree on the balance/.test(c.statement)),
+     JSON.stringify(rolled.corroborations.map(c => c.statement)).slice(0, 320))
+  ok('...and the roll-forward shows its working',
+     rolled.corroborations.some(c => /Between those days the lender's own ledger took/.test(c.statement)))
+  ok('...and no phantom gap is raised', !rolled.conflicts.some(c => c.key === 'balance_vs_lender'))
+
+  // THE ROLL CAN ONLY REDUCE A CLAIM: a residual after rolling is still reported.
+  const residual = mk([bookRow('2026-08-12', 56640.54)])
+  ok('a residual after rolling forward is still a real gap',
+     residual.conflicts.some(c => c.key === 'balance_vs_lender' || c.key === 'balance_vs_lender_unconfirmed'),
+     JSON.stringify(residual.conflicts.map(c => c.key)))
+  // The figure compared is the ROLLED one. Raw would be $56,640.54 and the gap
+  // would read $10,495.95 — the residual plus the payments, which is the bug.
+  ok('...and it is the ROLLED figure that is compared, not the raw one',
+     residual.conflicts.some(c => /lender/.test(c.key) && /47,144\.59/.test(String(c.found)) &&
+                                  /rolled to 2026-09-02/.test(String(c.found))),
+     JSON.stringify(residual.conflicts.map(c => c.found)))
+
+  // ── DIFFERENT DAYS, NO EXPORT COVERING THE WINDOW: no verdict ─────────
+  const uncovered = mk([bookRow('2026-01-05', 120000)], { csv: null })
+  ok('two different days with no export reaches no verdict',
+     !uncovered.conflicts.some(c => c.key === 'balance_vs_lender'),
+     JSON.stringify(uncovered.conflicts.map(c => c.key)))
+  ok('...and asks for the thing that would settle it',
+     uncovered.unresolved.some(u => /balance is dated 2026-01-05 and the lender's is dated 2026-09-02/.test(u.why_it_matters)),
+     JSON.stringify(uncovered.unresolved.map(u => u.why_it_matters)).slice(0, 260))
+
+  // A gross-basis book row must be rolled by the TOTAL taken, not the principal.
+  const grossRolled = mk([bookRow('2026-08-12', 57000, 'total_payback')])
+  // 57,000 less the TOTAL taken (3 x 3,414.71 = 10,244.13) is 46,755.87.
+  // Rolled by the principal instead it would be 47,504.05 — a different number,
+  // so this assertion actually discriminates between the two quantities.
+  ok('a payoff-basis book row is rolled by the total, not the principal',
+     grossRolled.conflicts.some(c => /lender/.test(c.key) && /46,755\.87/.test(String(c.found))),
+     JSON.stringify(grossRolled.conflicts.map(c => c.found)))
+  ok('...and it is compared against the lender GROSS balance',
+     grossRolled.conflicts.some(c => /lender/.test(c.key) && /47,806\.14/.test(String(c.expected))),
+     JSON.stringify(grossRolled.conflicts.map(c => c.expected)))
+}
+
+section('the itemised screen is not described by the paid identity (cont. 4)')
+{
+  const pp = parsePayPalHistoryCsv(PP_CSV)
+  const plan = buildPlan(ctxOf({
+    loan: { ...ctxOf().loan, id: 'loan-pp', lender: 'PayPal', xero_account_code: '284' },
+    agreementTerms: [], ledgerTerms: pp.terms as any, csv: pp as any, csvCoversFromOrigination: true,
+    documents: [], statements: [],
+    portal: ppScreen({ as_of: '2026-09-02' }),
+  } as any))
+  const anchor = of(plan, 'record_lender_balance')
+  const text = JSON.stringify(anchor || {})
+  ok('the anchor is proposed', !!anchor)
+  ok('it does NOT claim the screen states total-due-less-paid',
+     !/total due less the amount paid to date/.test(text), text.slice(0, 200))
+  ok('it describes what this screen actually prints',
+     /two lines add up/.test(text), text.slice(0, 260))
+}
+
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

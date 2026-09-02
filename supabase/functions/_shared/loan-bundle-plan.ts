@@ -52,6 +52,7 @@
 import type { ContractTerm, StripeCsvParseResult, DecompositionResult } from './stripe-capital.ts'
 import { explainBalanceGap, dailyWithholdingFromMonths, lenderExportFromCsv, RATE_SOURCES } from './settlement-lag.ts'
 import { dateFromLedger, paidFromOutstanding, type LedgerDatingResult, type LedgerDatingFigures } from './ledger-dating.ts'
+import { BOOK_BALANCE_SOURCES } from './carrying-basis-drift.ts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -989,10 +990,81 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
                     ctx.portal!.lender_balance_net_principal !== null ||
                     ctx.portal!.lender_balance_gross_payback !== null)) {
     const asOf = portalAsOf
-    const book = asOf
-      ? ctx.statements.filter(s => s.statement_date <= asOf).slice(-1)[0]
-      : ctx.statements.slice(-1)[0]
-    const picked = book ? lenderBalanceFor((book as any).balance_basis) : null
+
+    // ── WHOSE BALANCE IS "YOUR BOOKS"? (session 263 cont. 4) ────────────────
+    //
+    // This read `ctx.statements` with no source filter and took the newest row.
+    // That table holds BOTH parties: lender pulls, statements, our own schedule
+    // AND balances rebuilt from Xero. On a loan whose rows are mostly lender
+    // pulls — which is most of this book — the newest row IS the lender, so the
+    // check compared the lender's August figure against the lender's September
+    // screen and reported it as your books disagreeing with the lender.
+    //
+    // Live on PayPal 2: "$46,144.59 (lender) vs $58,775.97 (books)", a claimed
+    // $12,631.38 gap, where the $58,775.97 was a `portal_manual_pull` — the
+    // lender's own row. Same defect Tech Debt #34 fixed inside the basis check,
+    // in a section I did not carry it to.
+    //
+    // The books side is now book-sourced or there is no comparison, using the
+    // same allowlist and for the same reason: a source nobody has classified is
+    // excluded rather than assumed to be ours.
+    const bookRows = (ctx.statements || [])
+      .filter(st => BOOK_BALANCE_SOURCES.includes(String((st as any).source || '')))
+      .filter(st => !asOf || st.statement_date <= asOf)
+    const book = bookRows.slice(-1)[0]
+
+    if (!book) {
+      unresolved.push({
+        question: `Do your books agree with the lender on this loan?`,
+        why_it_matters: `This is the check a close rests on, and it is the one thing these documents cannot answer by themselves.`,
+        what_would_answer_it: `Nothing on file for this loan is a balance rebuilt from your own ledger — every row came from the lender or from a schedule. The lender's figure has been recorded${asOf ? ` at ${asOf}` : ''}; what it needs to be measured against is what your books actually hold on the same day.`,
+      })
+    }
+
+    // ── AND ARE THE TWO ABOUT THE SAME DAY? ────────────────────────────────
+    //
+    // A balance is a point in time. Comparing one dated 2026-08-05 with one
+    // dated 2026-09-02 reports every payment in between as a disagreement — on
+    // PayPal 2, to the cent: four payments, $12,631.38 of principal, exactly the
+    // gap the old code called a problem.
+    //
+    // When the lender's own ledger covers the window, the books side is rolled
+    // forward by what the lender actually took in it, and the residual is the
+    // real question. That is amount-matching, which this module is wary of, and
+    // it is admissible for the reasons session 247 set out: the pairing is
+    // same-loan and same-window, the mechanic is documented rather than found in
+    // data, both figures stay on the row, and IT CAN ONLY EVER REDUCE A CLAIMED
+    // GAP, never create one. With no export covering the window there is no
+    // verdict — session 245's rule, unchanged.
+    const bookBasis = book ? String((book as any).balance_basis || '') : ''
+    const picked = book ? lenderBalanceFor(bookBasis) : null
+    let bookValue = book ? Number(book.principal_balance) : null
+    let rollNote = ''
+    let rollBlocked = false
+    if (book && picked && asOf && book.statement_date !== asOf) {
+      const days = ctx.csv?.days || []
+      const covers = ctx.csv?.ok === true && !!ctx.csv?.first_date && !!ctx.csv?.last_date &&
+        String(ctx.csv!.first_date) <= book.statement_date && String(ctx.csv!.last_date) >= asOf
+      if (covers) {
+        // Match the quantity to the basis the book row declares, or the roll
+        // forward moves a principal balance by a gross figure.
+        const grossSide = bookBasis === 'total_payback'
+        const moved = days
+          .filter(d => d.date > book.statement_date && d.date <= asOf)
+          .reduce((a, d) => a + Number(grossSide ? d.total_paid : d.principal_paid), 0)
+        const rolled = Math.round((bookValue! - moved) * 100) / 100
+        rollNote = ` Your books' most recent balance is dated ${book.statement_date}, ${money(bookValue!)}; the lender's figure is dated ${asOf}. Between those days the lender's own ledger took ${money(moved)}${grossSide ? '' : ' of principal'}, which brings the books to ${money(rolled)} — so the two dates are accounted for before anything is called a difference.`
+        bookValue = rolled
+      } else {
+        rollBlocked = true
+        unresolved.push({
+          question: `Do your books agree with the lender on this loan?`,
+          why_it_matters: `A balance is a point in time. Your books' most recent balance is dated ${book.statement_date} and the lender's is dated ${asOf}; everything repaid in between would read as a disagreement, when it is simply time passing.`,
+          what_would_answer_it: `There is no lender export in this set covering ${book.statement_date} to ${asOf}, so what moved between those days cannot be measured and no verdict was reached. A balance from your books dated ${asOf}, or the lender's transaction export covering that window, settles it.`,
+        })
+      }
+    }
+
     if (book && !picked) {
       unresolved.push({
         question: `Which balance should the lender's screen be compared against?`,
@@ -1002,11 +1074,11 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           : `The lender's screen and your books state balances on different bases and the screen does not state the one your books use. A screen showing both principal and fee still owed would settle it.`,
       })
     }
-    if (book && picked) {
-      const diff = Number(book.principal_balance) - picked.value
+    if (book && picked && !rollBlocked) {
+      const diff = bookValue! - picked.value
       if (near(diff, 0, 0.02)) {
         corroborations.push({
-          statement: `Your books and the lender agree on the balance at ${book.statement_date} (${money(Number(book.principal_balance))}), measured on the same basis — ${picked.basis}.`,
+          statement: `Your books and the lender agree on the balance${book.statement_date === asOf ? ` at ${asOf}` : ''} (${money(bookValue!)}), measured on the same basis — ${picked.basis}.${rollNote}`,
           sources: ['loan history', 'lender portal'], tie: 'exact',
         })
       } else {
@@ -1102,7 +1174,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             key: 'balance_vs_lender_unconfirmed',
             statement: `Your books show ${money(Math.abs(diff))} more still owing than the lender does, which is the size of settlement timing on this loan — but nothing in this set confirms it.`,
             expected: `${money(picked.value)} (lender, ${asOf ?? 'as shown'})`,
-            found: `${money(Number(book.principal_balance))} (books, ${book.statement_date})`,
+            found: `${money(bookValue!)} (books, ${book.statement_date}${rollNote ? ` rolled to ${asOf}` : ''})`,
             sources: ['loan history', 'lender portal'],
             severity: 'warn',
             caveat: lag.statement,
@@ -1112,14 +1184,14 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             kind: 'raise_finding',
             title: `Ask for a current transaction export before calling the ${money(Math.abs(diff))} difference settlement timing`,
             plain_english:
-              `The lender says ${money(picked.value)} is still owed; your books say ${money(Number(book.principal_balance))}. ` +
+              `The lender says ${money(picked.value)} is still owed; your books say ${money(bookValue!)}.${rollNote} ` +
               `On this loan a difference of about that size is what settlement timing looks like — the lender counts a withholding when the sale clears and your books count it when the payout lands. ` +
               `But "about that size" is an assumption until the lender's own transactions for those days are added up, and this lender withholds a percentage of every sale, so no two days are alike. ` +
               `${lag.statement} Raising it puts it in Needs Attention, where it stays until an export settles it either way.`,
             payload: {
               check_key: 'balance_vs_lender', severity: 'warn',
               title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: ${money(Math.abs(diff))} difference is unconfirmed settlement timing`,
-              detail: { book_balance: Number(book.principal_balance), book_date: book.statement_date,
+              detail: { book_balance: bookValue, book_balance_as_filed: Number(book.principal_balance), book_date: book.statement_date, rolled_to: rollNote ? asOf : null,
                         lender_balance: picked.value, lender_date: asOf, difference: Number(diff.toFixed(2)),
                         settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                                           implied_business_days: lag.impliedBusinessDays,
@@ -1136,7 +1208,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
               ? `Your books show more still owing than the lender does.`
               : `Your books show less still owing than the lender does.`,
             expected: `${money(picked.value)} (lender, ${asOf ?? 'as shown'})`,
-            found: `${money(Number(book.principal_balance))} (books, ${book.statement_date})`,
+            found: `${money(bookValue!)} (books, ${book.statement_date}${rollNote ? ` rolled to ${asOf}` : ''})`,
             sources: ['loan history', 'lender portal'],
             severity: 'error',
             caveat: booksLagLender
@@ -1147,11 +1219,11 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             id: nextId('finding'),
             kind: 'raise_finding',
             title: `Flag the ${money(Math.abs(diff))} difference between your books and the lender`,
-            plain_english: `The lender says ${money(picked.value)} is still owed; your books say ${money(Number(book.principal_balance))}. That is a ${money(Math.abs(diff))} difference and it needs explaining before this loan is relied on in a close. ${lag.statement} Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
+            plain_english: `The lender says ${money(picked.value)} is still owed; your books say ${money(bookValue!)}.${rollNote} That is a ${money(Math.abs(diff))} difference and it needs explaining before this loan is relied on in a close. ${lag.statement} Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
             payload: {
               check_key: 'balance_vs_lender', severity: 'error',
               title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: books and lender disagree by ${money(Math.abs(diff))}`,
-              detail: { book_balance: Number(book.principal_balance), book_date: book.statement_date,
+              detail: { book_balance: bookValue, book_balance_as_filed: Number(book.principal_balance), book_date: book.statement_date, rolled_to: rollNote ? asOf : null,
                         lender_balance: picked.value, lender_date: asOf, difference: Number(diff.toFixed(2)),
                         settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                                           implied_business_days: lag.impliedBusinessDays,
@@ -1317,7 +1389,9 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             : `Record the lender's balance of ${money(bal)} — needs the date it was taken`,
           plain_english: [
             asOf
-              ? `The lender's own screen says ${money(bal)} was still owed at ${asOf}, and the screen proves it: the total due less the amount paid to date comes to exactly that.`
+              ? `The lender's own screen says ${money(bal)} was still owed at ${asOf}, and the screen proves it: ${usingItemised
+              ? `its two lines add up: ${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed come to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints`
+              : `the total due less the amount paid to date comes to exactly that`}.`
               : derivedDate
               // SHOW THE WORKING. This module's standing rule is that a derived
               // number says how it was derived, and a derived DATE is the sharpest
@@ -1326,8 +1400,12 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
               // The sentence names the figures that agreed, the day they agreed on
               // and the next day's total, which is enough for a person to check it
               // against the export by hand rather than take it on trust.
-              ? `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: the total due less the amount paid to date comes to exactly that. What the screen never says is which day that is the balance for — so it was measured rather than guessed. ${dating!.statement} That is why this is filed at ${derivedDate}. The date is only as good as the export it was measured from, which is why it was taken only when more than one figure landed on the same day; if that export later turns out to be missing transactions, this date moves with it.`
-              : `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: the total due less the amount paid to date comes to exactly that. What it does not say is which day that is the balance for.`,
+              ? `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: ${usingItemised
+              ? `its two lines add up: ${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed come to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints`
+              : `the total due less the amount paid to date comes to exactly that`}. What the screen never says is which day that is the balance for — so it was measured rather than guessed. ${dating!.statement} That is why this is filed at ${derivedDate}. The date is only as good as the export it was measured from, which is why it was taken only when more than one figure landed on the same day; if that export later turns out to be missing transactions, this date moves with it.`
+              : `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: ${usingItemised
+              ? `its two lines add up: ${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed come to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints`
+              : `the total due less the amount paid to date comes to exactly that`}. What it does not say is which day that is the balance for.`,
             `Filing it as a lender balance is what makes this loan checkable. Every balance currently on file for it was swept out of your own ledger, so today the books are only ever compared with themselves — the month-end screen says "n/a" against this loan rather than a figure your accountant can sign.`,
             screens.length ? `Read from ${screens.join(' and ')}.` : '',
           ].filter(Boolean).join(' '),

@@ -190,7 +190,14 @@ function money(n: number): string {
  * So the observation is chosen deliberately, from the books, and its declared
  * basis decides which models may be compared to it at all.
  */
-const BOOK_BALANCE_SOURCES = ['xero_derived', 'xero_balance_snapshot', 'xero_rebuild']
+/**
+ * Sources whose balances are OUR BOOKS speaking. Exported because §5 of
+ * loan-bundle-plan.ts needs exactly the same answer to exactly the same
+ * question, and two lists would drift — which is how the same loan came to be
+ * diagnosed one way by the basis check and the opposite way by the comparison
+ * eleven sections below it.
+ */
+export const BOOK_BALANCE_SOURCES = ['xero_derived', 'xero_balance_snapshot', 'xero_rebuild']
 
 export type ObservationBasis = 'total_payback' | 'principal_only' | 'unlabelled'
 export type ObservationRefusal = 'no_balances' | 'no_source_on_rows' | 'no_book_balance'

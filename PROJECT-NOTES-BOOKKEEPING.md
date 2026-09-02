@@ -3085,13 +3085,63 @@ extracts terms from documents lenders DO send when no agreement PDF exists. File
 Debt #35. And even with terms, 7 of the 14 have no book-sourced balance at all, which is
 Tech Debt #36.
 
+#### 8. (cont. 4, same day) THE $12,631.38 THAT WAS NOT A DIFFERENCE
+
+The bundle ran again with everything above live, and it worked: the screenshot was **dated
+2026-09-02 from the ledger** ("the running total is $129,758.98 on 2026-09-02 and on no other
+day in the file; the day before it stood at $126,344.27, $3,414.71 short; that same day it
+splits $110,855.41 financing and $18,903.57 fee, which is what the screen's own two lines say,
+to the cent"), the origination date was corrected from the lender's own document, the $65.12
+was raised with no write proposed, and the balance was stated on both bases.
+
+**And it offered to file a $12,631.38 disagreement that does not exist.** §5 was wrong twice
+over, in the same two ways Tech Debt #34 had just been fixed for — in a section I did not
+carry the fix to:
+
+* **Wrong party.** It read `ctx.statements` with no source filter and took the newest row.
+  That table holds both parties. On PayPal 2 every row is a `portal_manual_pull`, so the card
+  compared **the lender's August figure against the lender's September screen** and called it
+  "your books show more still owing than the lender does".
+* **Wrong dates.** The two figures were four weeks apart. The four payments in between total
+  **$12,631.38 of principal — exactly the gap reported**, verified against
+  `loan_amortization_rows`. Every cent of the "difference" was time passing.
+
+The books side is now `BOOK_BALANCE_SOURCES` or there is no comparison — the allowlist is
+EXPORTED from carrying-basis-drift.ts and imported, rather than restated, because two lists
+would drift and that is precisely how one loan came to be diagnosed one way by the basis check
+and the opposite way by the comparison eleven sections below it.
+
+When the dates differ and the lender's own export covers the window, the books side is now
+**rolled forward by what the lender actually took**, and the residual is the real question.
+Amount-matching, admissible on session 247's terms: same loan, same window, a documented
+mechanic rather than a pattern found in data, both figures printed on the row, and **it can
+only ever reduce a claimed gap, never create one**. With no export covering the window there is
+no verdict — session 245's rule, unchanged. The roll matches the quantity to the book row's own
+basis: a principal-only row moves by principal, a payoff row by the total.
+
+Two smaller ones from the same run:
+
+* **The account reference still was not read**, because the transcription tool's schema asked
+  for `lender_account_ref` while the system prompt above it said *"report only FIGURES"*. The
+  schema and the instructions disagreed and the instructions won, so `A00845102` sat in plain
+  sight on the heading and the plan told the reader no document carried one.
+* **A stale sentence on a correct number.** The lender-balance card said the screen proves its
+  figure because *"the total due less the amount paid to date comes to exactly that"* — which
+  this screen never says; it itemises balances. The paid-identity wording had survived onto the
+  itemised path. §"A rule can outlive the fact it was written for", again: a wrong sentence
+  beside a right number is harder to catch than a wrong number, and the CPA reads the sentence.
+
+**Three test fixtures in a row paired real figures with a ledger that could not support them**,
+and each time the code was right to refuse. Worth naming as a habit rather than an accident:
+when a fixture and an assertion disagree here, the fixture is usually the thing that is wrong.
+
 #### Verification
 
 `portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
 `loan-bundle-balances` 283/283 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
 `settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
 112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13, `carrying-basis` 27/27 (new)
-— **975 green, 0 red.**
+— **993 green, 0 red.**
 
 Every session-263-cont.-2 assertion has its inverse beside it: strip the itemised figures
 and the anchor goes back to being unproposable; feed a payoff-basis book row and the tie
