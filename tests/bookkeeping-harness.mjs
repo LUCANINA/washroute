@@ -186,6 +186,12 @@ const FIXTURE_TABLES = [
   'payroll_imports', 'payroll_import_employee_lines', 'payroll_departments', 'payroll_employees',
   'payroll_notices', 'reconciliation_runs', 'reconciliation_findings', 'loan_tie_outs',
   'bk_issue_dismissals', 'bookkeeping_kpi_snapshots',
+  // Session 262. Registered for the SAME reason loan_book_balances is, and the
+  // reason matters more here: an unregistered table serves [] silently, and []
+  // is indistinguishable from "the job has no answer for this loan" -- so every
+  // attribution assertion would exercise the 'none' branch and pass while the
+  // three states that actually needed proving were never reached.
+  'loan_attributions',
   // Empty in production until reconciliation-run starts writing it, and that is
   // exactly why it is registered: an unregistered table serves [] silently, so
   // a grade-B test would exercise only the no-books-balance fallback and pass
@@ -648,8 +654,9 @@ const CONFIDENT_ZERO = /\$0(?:\.00)?\b/;
 /* ═══════════════════════════ SCENARIO GROUPS ═════════════════════════════ */
 const GROUPS = [];
 
-/* Every table the Bookkeeping page reads on boot. 16 now: session 246 added
-   loan_book_balances to loadLoans()'s Promise.all. Anything not in here answers
+/* Every table the Bookkeeping page reads on boot. 17 now: session 246 added
+   loan_book_balances and session 262 added loan_attributions to loadLoans()'s
+   Promise.all. Anything not in here answers
    instantly, which quietly un-parks a loader a cold-boot scenario claims is
    parked. */
 const COLD_TABLES = [
@@ -658,6 +665,7 @@ const COLD_TABLES = [
   'payroll_imports', 'payroll_import_employee_lines', 'payroll_departments', 'payroll_employees',
   'payroll_notices', 'reconciliation_runs', 'reconciliation_findings', 'loan_tie_outs',
   'bk_issue_dismissals', 'bookkeeping_kpi_snapshots',
+  'loan_attributions',
 ];
 
 /* 1 ── COLD BOOT IN THE REAL ORDER ───────────────────────────────────────── */
@@ -1599,7 +1607,7 @@ const ALL_TABLES = COLD_TABLES;
 // or phase 1 would release it and the "loans have not landed yet" phase would be
 // half-landed.
 const LOAN_TABLES = ['loan_accounts', 'loan_statements', 'loan_splits', 'loan_amortization_rows',
-                     'loan_documents', 'loan_book_balances'];
+                     'loan_documents', 'loan_book_balances', 'loan_attributions'];
 
 /* The inverse edits: shipped source → pre-fix source. Keyed by the defect they
    re-introduce. Applied to _bkRosterHtml.toString() inside the page. */
@@ -5767,6 +5775,303 @@ GROUPS.push({
 
 
 
+
+
+
+/* 18 ── THE FOUR STATES OF AN ATTRIBUTION (session 262) ────────────────────
+   loan-attribution-run has been writing an explanation per loan four times a
+   day since session 261, into a table nothing read. This group covers the
+   surface that now reads it, and it exists for ONE assertion above all others:
+
+     the four not-an-answer states must not print the same sentence.
+
+   §00 of START HERE named the risk exactly — "collapsing [error and no-row]
+   into 'nothing to attribute' would reintroduce this module's oldest failure
+   shape at the last possible step". That shape is two different truths wearing
+   one wording, and this module's whole session log 214-217 is what it costs.
+
+   The states, and what each one means to a person reading the Issues table:
+     ok      here is the entry that caused your variance
+     empty   we looked at this loan and nothing accounts for it
+     error   we tried and could not answer
+     none    nobody has looked at this loan
+     unread  we could not reach the answers at all
+
+   'empty' and 'none' are the pair most easily confused and the pair whose
+   confusion is most expensive: one says the cause is not a single mis-split
+   entry (real information, changes what you go looking for), the other says
+   nothing whatsoever. A screen that renders both as "no cause found" tells a
+   CPA the analysis has an opinion when it has never run.                    */
+GROUPS.push({
+  name: 'attribution-states',
+  async run(t) {
+    // ── Which loans does Issues actually show? Derived, never typed. ───────
+    // Same discipline as r2's derived finding names: the fixture is a real
+    // production pull and which loans carry a variance moves between refreshes.
+    // A hardcoded loan name here would go red for a reason unconnected to the
+    // code, which is the most expensive kind of red.
+    const p0 = await newHarnessPage({ tab: 'overview' });
+    const issue = await p0.evaluate(() => _bkIssueQueueItems().map(i => ({ id: i.loanId, name: i.name })));
+    await p0.close();
+    t.ok(issue.length >= 4, 'a0: the fixture puts at least 4 loans in Issues, enough to hold all four states at once',
+         `${issue.length}: ${issue.map(i => i.name).join(', ')}`);
+    if (issue.length < 4) return;
+
+    const [L_OK, L_ERR, L_EMPTY, L_NONE] = issue;
+
+    // Payload shaped exactly like a real loan_attributions row (session 261's
+    // schema: counts live under payload.counts, and the sentence is duplicated
+    // into the top-level headline column).
+    const HEAD = 'A payment dated 2026-06-17 reduced this loan by $764.44. The schedule supports $1,047.51 — a difference of $283.07.';
+    const plant = (d) => {
+      d.loan_attributions = [
+        { loan_account_id: L_OK.id, schema_version: 1, run_status: 'ok', headline: HEAD,
+          generated_at: '2026-09-02T17:34:57.866Z', updated_at: '2026-09-02T17:35:31.677Z', error_message: null,
+          payload: { counts: { confirmed: 1, probable: 0, unresolved: 2, omitted: 0, malformed: 0, violations: 0 } } },
+        { loan_account_id: L_ERR.id, schema_version: 1, run_status: 'error', headline: null,
+          generated_at: '2026-09-02T17:34:57.866Z', updated_at: '2026-09-02T17:34:57.866Z',
+          error_message: 'loan-find-difference 500: upstream timeout', payload: {} },
+        // Ran clean, concluded nothing. The counts are the engine's own, and
+        // the page must read THEM rather than re-deciding what counts as an
+        // answer — a second threshold in a second file is how two numbers start
+        // disagreeing (session 261's decision 1, kept here).
+        { loan_account_id: L_EMPTY.id, schema_version: 1, run_status: 'ok', headline: null,
+          generated_at: '2026-09-02T17:34:57.866Z', updated_at: '2026-09-02T17:34:57.866Z', error_message: null,
+          payload: { counts: { confirmed: 0, probable: 0, unresolved: 3, omitted: 0, malformed: 0, violations: 0 } } },
+        // L_NONE deliberately gets NO ROW. That is the fourth state and it is
+        // expressed by absence, which is the only way it occurs in production.
+      ];
+    };
+
+    // Reads the Issues table's own cells. data-attr-state is read as an
+    // ATTRIBUTE rather than inferred from the wording, so a copy edit can never
+    // quietly turn a failed analysis into a clean one for anything that checks.
+    const READ_VAR = () => {
+      const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+      return [...document.querySelectorAll('.bk-var-table tbody tr')].map(tr => {
+        const ex = tr.querySelector('.bk-var-explain');
+        const sub = ex && ex.querySelector('.bk-var-sub');
+        const conf = ex && ex.querySelector('.bk-var-conf');
+        return {
+          loan: norm((tr.querySelector('.bk-var-loan') || {}).textContent),
+          state: ex ? (ex.getAttribute('data-attr-state') || '') : null,
+          confAttr: ex ? (ex.getAttribute('data-attr-confidence') || '') : null,
+          generated: ex ? (ex.getAttribute('data-attr-generated') || '') : null,
+          // The cause sentence alone: the cell minus the demoted remedy line
+          // and minus the confidence word.
+          cause: norm(ex ? [...ex.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ') : ''),
+          sub: norm(sub ? sub.textContent : ''),
+          conf: norm(conf ? conf.textContent : ''),
+          all: norm(ex ? ex.textContent : ''),
+        };
+      });
+    };
+
+    const p = await newHarnessPage({ tab: 'overview', mutate: plant });
+    await p.evaluate(() => _bkSetOverviewSeg('issues'));
+    const rows = await p.evaluate(READ_VAR);
+    const byName = (n) => rows.find(r => r.loan.includes(n));
+
+    t.eq(rows.length, issue.length, 'a1: every Issues row rendered a variance cell');
+
+    // ── STATE: ok ─────────────────────────────────────────────────────────
+    const rOk = byName(L_OK.name);
+    t.ok(!!rOk, `a2: the 'ok' loan (${L_OK.name}) is on screen`);
+    t.eq(rOk && rOk.state, 'ok', 'a2: ...carrying data-attr-state="ok"');
+    t.ok(rOk && rOk.cause.includes('$764.44'),
+         'a2: ...and the Explanation column prints the engine’s actual sentence, not a summary of it', rOk && rOk.cause);
+    t.eq(rOk && rOk.conf, 'confirmed',
+         'a2: ...with the engine’s own verdict beside it, so a reader knows whether to act on it');
+    t.eq(rOk && rOk.confAttr, 'confirmed', 'a2: ...also as an attribute, readable without parsing prose');
+    // The remedy wording is DEMOTED, not deleted. Cutting must never drop a
+    // claim (the LESS IS BEST limit) — it moves one line down, still saying
+    // what the Action button opens.
+    t.ok(rOk && rOk.sub.length > 0,
+         'a2: ...and the remedy line it displaced is still on the row, one step quieter', rOk && rOk.sub);
+
+    // ── STATE: error ──────────────────────────────────────────────────────
+    const rErr = byName(L_ERR.name);
+    t.eq(rErr && rErr.state, 'error', 'a3: a failed analysis reports state="error"');
+    t.ok(rErr && /could not be worked out|failed/i.test(rErr.cause),
+         'a3: ...and SAYS so, in words', rErr && rErr.cause);
+    t.ok(rErr && !rErr.conf.includes('confirmed') && !rErr.conf.includes('probable'),
+         'a3: ...and asserts no confidence in a cause it never found', rErr && rErr.conf);
+    t.ok(rErr && rErr.conf === 'unavailable',
+         'a3: ...marking the absence explicitly rather than leaving a blank that reads as "fine"', rErr && rErr.conf);
+
+    // ── STATE: empty ──────────────────────────────────────────────────────
+    const rEmp = byName(L_EMPTY.name);
+    t.eq(rEmp && rEmp.state, 'empty', 'a4: a clean run that concluded nothing reports state="empty"');
+    t.ok(rEmp && /found no single entry/i.test(rEmp.cause),
+         'a4: ...and says the analysis RAN — a real finding, not a silence', rEmp && rEmp.cause);
+    t.ok(rEmp && /3 differences/.test(rEmp.cause),
+         'a4: ...naming what it could not place, from the engine’s own counts', rEmp && rEmp.cause);
+
+    // ── STATE: none ───────────────────────────────────────────────────────
+    const rNone = byName(L_NONE.name);
+    t.eq(rNone && rNone.state, 'none', 'a5: a loan with no attribution row reports state="none"');
+    t.ok(rNone && !/analysis|could not be worked out/i.test(rNone.cause),
+         'a5: ...and claims nothing about an analysis that never ran', rNone && rNone.cause);
+    t.ok(rNone && rNone.conf === '',
+         'a5: ...and carries no verdict word at all');
+
+    /* ── THE ASSERTION THIS GROUP EXISTS FOR ───────────────────────────────
+       Four states, four sentences. If any two of these collapse, a CPA reading
+       the column cannot tell "we found nothing" from "we never looked" from
+       "we broke". This is §00's requirement stated as an executable fact. */
+    const sentences = [rOk, rErr, rEmp, rNone].map(r => (r && r.cause) || '');
+    t.eq(new Set(sentences).size, 4,
+         'a6: ⭐ all four states print DIFFERENT sentences — no two truths share a wording',
+         JSON.stringify(sentences.map(s => s.slice(0, 40))));
+    t.eq(new Set([rOk, rErr, rEmp, rNone].map(r => r && r.state)).size, 4,
+         'a6: ...and four different states reach the DOM as attributes');
+    await p.close();
+
+    // ── STATE: unread — the table itself could not be read ────────────────
+    // Distinct from all four above, and the one most likely to be collapsed by
+    // accident: an empty array after a failed read looks exactly like a table
+    // with no rows in it. _bkAttributionsRead is what keeps them apart.
+    const p2 = await newHarnessPage({ tab: 'overview', mutate: plant });
+    await p2.evaluate(() => { _bkAttributionsRead = false; _bkSetOverviewSeg('issues'); renderBookkeepingOverview(); });
+    const unread = await p2.evaluate(READ_VAR);
+    t.ok(unread.length > 0 && unread.every(r => r.state === 'unread'),
+         'a7: a FAILED read reports "unread" on every row — not "none", which would claim we looked',
+         JSON.stringify(unread.map(r => r.state)));
+    t.ok(unread[0] && /could not be read/i.test(unread[0].cause),
+         'a7: ...and says so', unread[0] && unread[0].cause);
+    t.ok(unread[0] && unread[0].cause !== ((rNone && rNone.cause) || ''),
+         'a7: ...in different words from the loan nobody has analysed');
+    await p2.close();
+
+    // ── THE SECOND SURFACE: the Loans rollforward hint ────────────────────
+    // Both surfaces read _bkLoanAttribution, so the point of checking here is
+    // that they cannot disagree about the STATE while wording it differently.
+    const p3 = await newHarnessPage({ tab: 'loans', mutate: plant });
+    const hints = await p3.evaluate(() => {
+      const out = {};
+      for (const tr of document.querySelectorAll('.lcb-table tbody tr, table tbody tr[data-hint]')) {
+        out[tr.getAttribute('data-loan') || ''] = tr.getAttribute('data-hint') || '';
+      }
+      return out;
+    });
+    const hOk = hints[L_OK.name] || '';
+    const hErr = hints[L_ERR.name] || '';
+    const hNone = hints[L_NONE.name] || '';
+    t.ok(/cause \(confirmed\)/.test(hOk),
+         'a8: the Loans hover names the cause AND whose confidence it is', hOk.slice(-120));
+    t.ok(hOk.includes('$764.44'), 'a8: ...carrying the same sentence Issues shows, from the same function');
+    t.ok(/analysis .* failed|failed on its last run/.test(hErr),
+         'a8: ...and a failed analysis speaks on this surface too rather than going quiet', hErr.slice(-120));
+    t.ok(!/cause \(|analysis/.test(hNone),
+         'a8: ...while a loan nobody analysed adds no clause at all — silence is correct only for "none"',
+         hNone.slice(-120));
+    await p3.close();
+
+    /* ═══ DOES IT DISCRIMINATE? ═══════════════════════════════════════════
+       Each control re-applies the INVERSE of the fix to the shipped function's
+       own .toString() in page context and rebuilds it with new Function().
+       admin-dashboard/index.html is never touched. An assertion that passes
+       against both the fixed and the broken code is decoration (session 245). */
+
+    // C1 — THE COLLAPSE §00 NAMED: treat a failed run as no row at all.
+    const c1 = await newHarnessPage({ tab: 'overview', mutate: plant });
+    const rev1 = await c1.evaluate(() => {
+      const src = _bkLoanAttribution.toString();
+      const anchor = "if (row.run_status !== 'ok') {";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkLoanAttribution' };
+      const patched = src.replace(anchor, "if (row.run_status !== 'ok') { return { state: 'none' }; } if (false) {");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkLoanAttribution = new Function('loanId', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev1.ok, 'c1: the error→none collapse could be installed in page context', JSON.stringify(rev1));
+    if (rev1.ok) {
+      await c1.evaluate(() => { _bkSetOverviewSeg('issues'); renderBookkeepingOverview(); });
+      const broke = await c1.evaluate(READ_VAR);
+      const bErr = broke.find(r => r.loan.includes(L_ERR.name));
+      const bNone = broke.find(r => r.loan.includes(L_NONE.name));
+      t.eq(bErr && bErr.state, 'none',
+           'c1: ...and with it installed the failed loan really does report "none"');
+      /* ── WHAT "INDISTINGUISHABLE" ACTUALLY MEANS HERE ──────────────────
+         The first draft of this control compared the two broken cells for an
+         IDENTICAL string and went red against correct code. It was wrong, and
+         wrong in an instructive way: under the collapse each loan falls back to
+         its OWN remedy wording, so the two cells still differ — by text that
+         has nothing to do with the analysis. Comparing them proved only that
+         two loans have different pending splits.
+         The collapse's real cost is that the failure STOPS BEING STATED and the
+         row reports the same STATE as a loan nobody looked at. So the control
+         asserts the exact inverse of a3's own predicates: the words go, and the
+         state becomes the never-analysed one. A control has to fail the
+         assertion it claims to protect, not merely differ from something. */
+      t.ok(bErr && !/could not be worked out|failed/i.test(bErr.cause),
+           'c1: ⭐ ...and a3\'s "SAYS so, in words" is now FALSE — the failure is no longer stated anywhere',
+           bErr && bErr.cause);
+      t.eq(bErr && bErr.state, bNone && bNone.state,
+           'c1: ⭐ ...and the failed loan reports the same state as the loan nobody analysed — which a6 forbids, so a6 discriminates');
+      t.ok(bErr && bErr.conf !== 'unavailable',
+           'c1: ...and the explicit "unavailable" mark a3 requires is gone too', bErr && bErr.conf);
+    }
+    await c1.close();
+
+    // C2 — the quieter collapse: a clean run that found nothing, folded into
+    // "no row". This is the pair a reader is least able to tell apart on their
+    // own, because both feel like "no cause".
+    const c2 = await newHarnessPage({ tab: 'overview', mutate: plant });
+    const rev2 = await c2.evaluate(() => {
+      const src = _bkLoanAttribution.toString();
+      const anchor = "if (!found || !row.headline) {";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkLoanAttribution' };
+      const patched = src.replace(anchor, "if (!found || !row.headline) { return { state: 'none' }; } if (false) {");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkLoanAttribution = new Function('loanId', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev2.ok, 'c2: the empty→none collapse could be installed', JSON.stringify(rev2));
+    if (rev2.ok) {
+      await c2.evaluate(() => { _bkSetOverviewSeg('issues'); renderBookkeepingOverview(); });
+      const broke = await c2.evaluate(READ_VAR);
+      const bEmp = broke.find(r => r.loan.includes(L_EMPTY.name));
+      const bNone = broke.find(r => r.loan.includes(L_NONE.name));
+      t.ok(bEmp && !/found no single entry/i.test(bEmp.cause),
+           'c2: ⭐ a4\'s "says the analysis RAN" is now FALSE — the one thing that separated it from silence is gone',
+           bEmp && bEmp.cause);
+      t.eq(bEmp && bEmp.state, bNone && bNone.state,
+           'c2: ⭐ ...and "we looked and found nothing" now reports the same state as "nobody looked" — so a4 and a6 discriminate');
+    }
+    await c2.close();
+
+    // C3 — the failure the OTHER way: print the headline whatever the state.
+    // A reverted sentence function would put an 'ok'-looking sentence on a row
+    // whose run failed, which is worse than a collapse: it is an assertion the
+    // engine never made.
+    const c3 = await newHarnessPage({ tab: 'overview', mutate: plant });
+    const rev3 = await c3.evaluate(() => {
+      const src = _bkAttributionSentence.toString();
+      const anchor = "if (at.state === 'ok') return at.headline;";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkAttributionSentence' };
+      const patched = src.replace(anchor, "return at.headline || 'No cause found.';");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkAttributionSentence = new Function('at', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev3.ok, 'c3: the state-blind sentence could be installed', JSON.stringify(rev3));
+    if (rev3.ok) {
+      await c3.evaluate(() => { _bkSetOverviewSeg('issues'); renderBookkeepingOverview(); });
+      const broke = await c3.evaluate(READ_VAR);
+      const bErr = broke.find(r => r.loan.includes(L_ERR.name));
+      const bEmp = broke.find(r => r.loan.includes(L_EMPTY.name));
+      t.eq(bErr && bErr.cause, bEmp && bEmp.cause,
+           'c3: ⭐ a state-blind sentence makes a failed run read exactly like a clean empty one — so a3 discriminates');
+      t.ok(bErr && !/could not be worked out/i.test(bErr.cause),
+           'c3: ...and the failure stops being stated at all');
+    }
+    await c3.close();
+  },
+});
 
 
 /* ═══════════════════════════════ RUNNER ═════════════════════════════════ */

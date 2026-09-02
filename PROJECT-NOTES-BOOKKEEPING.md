@@ -2,16 +2,23 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 261, 2026-09-02)
 >
-> **Order (rewritten by session 262, 2026-09-02 17:52 UTC — the previous version of this
-> paragraph was ALREADY STALE: it said a deploy command was outstanding when §00 below,
-> written the same day, records that David had deployed it).** Nothing is outstanding on the
-> attribution build. Re-verified functionally, not by version number: all 5 loans carry
-> `run_status='ok'` payloads in `loan_attributions` (latest 17:34 UTC), and cron jobid 25
-> `wr-loan-attribution` is active on `20 */6 * * *`. **What is actually left, in order:**
-> (1) §0's one-line job — record PayPal 2's reversing-journal id; (2) the next BUILD —
-> nothing reads `loan_attributions` yet (§00's "NEXT ON THIS THREAD"); (3) §0a's cosmetic
-> "Issues (6)" vs "Nothing to close yet" label, awaiting David's choice; (4) §0c — match the
-> Sept 2 Stripe payout ($12,329.03) when its feed line lands 9/3.
+> **Order (session 262, 2026-09-02 18:30 UTC).** Nothing is outstanding on the attribution
+> build, and **the Issues table and Loans hover now READ it** — §00's "nothing reads this
+> yet" is closed; see the session 262 entry. Deploy state re-verified functionally at 17:52
+> UTC (5 loans carrying `run_status='ok'` payloads; cron jobid 25 active on `20 */6 * * *`),
+> after the previous version of THIS paragraph was found stale — it claimed a deploy command
+> was outstanding while §00, forty lines below it and written the same day, recorded David
+> having run it.
+>
+> **What is left, in order:**
+> 1. 🔴 **`closing-evidence` is 183 assertions red on git HEAD and it is the CALENDAR, not a
+>    regression** — the group is pinned to a fixture pulled 2026-08-28 and asserts July, and
+>    the close band rolled to August on 09-01. Until it is pinned or refreshed, §10's
+>    "1468/1469" is not a usable baseline. Full diagnosis and both options: session 262 entry.
+> 2. §0's one-line job — record PayPal 2's reversing-journal id (needs Xero; quota was fine).
+> 3. §0a's cosmetic "Issues (6)" vs "Nothing to close yet" label — **awaiting David's choice**.
+> 4. §0c — match the Sept 2 Stripe payout ($12,329.03) when its feed line lands 9/3.
+>
 > **Xero quota probed 2026-09-02 17:52 UTC: `remaining_day 526`, not capped** — probe again
 > with `xero-rate-probe`, never `whoami`, which hits a different API and lies about the
 > accounting quota.
@@ -36,10 +43,13 @@
 > * The first full pass **504'd** on a time budget larger than the platform's own limit —
 >   fixed with measured numbers (90s start-cutoff, 45s per loan), redeployed as v2.
 >
-> **NEXT ON THIS THREAD: nothing reads the table yet.** Phase 1 is SQL-readable by design.
-> The Loans hover / ISSUES surface must distinguish THREE states — `ok`, `error`, and no row
-> at all. Collapsing the last two into "nothing to attribute" would put this module's oldest
-> failure shape at the very end of the pipeline built to prevent it.
+> **✅ CLOSED BY SESSION 262 — the table is read now.** The Issues Explanation column and the
+> Loans rollforward hover both go through `_bkLoanAttribution`, the single accessor. It
+> returns **five** states, not the three asked for here: `ok`, `empty` (ran, found nothing),
+> `error`, `none` (no row) and `unread` (the read itself failed) — the two extras are
+> distinctions that collapse just as expensively, and `unread` in particular is why the
+> fail-soft read does not simply empty the array. 38 assertions, three controls. See the
+> session 262 entry.
 >
 > To see the current answers:
 > ```sql
@@ -2645,6 +2655,173 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 262 (2026-09-02) — SOMETHING READS `loan_attributions` AT LAST. Four states, not two, 38 assertions, three controls — one of which was wrong and taught the better lesson.
+
+Session 261 ended with the job live on a 6-hour cron and this line: *"Nothing is
+reading `loan_attributions` yet."* It had been writing an explanation per loan four
+times a day into a screen that never asked. This closes that.
+
+#### First: the START HERE block was stale AGAIN, in the usual direction
+
+Its `Order:` paragraph said one deploy command was outstanding — written by session
+261, whose own §00, further down the same block, records David having deployed it.
+**The stale sentence and the correct one were in the same block, forty lines apart.**
+Re-verified functionally before writing anything: five `run_status='ok'` payloads
+generated 17:32–17:34 UTC, `cron.job` 25 `wr-loan-attribution` active on `20 */6 * * *`.
+Rewritten with the check's timestamp in it. That is four days running for this block;
+the deploy state is not the only thing in it that goes stale.
+
+#### Three states was the requirement. There are five, and the extra two are not padding
+
+§00 asked the surface to distinguish `ok`, `error`, and no row. Building it turned up
+two more distinctions that collapse just as expensively:
+
+| state | means | why it cannot fold into its neighbour |
+|---|---|---|
+| `ok` | here is the entry that caused it | — |
+| `empty` | the job RAN and nothing accounts for the gap | a real finding: the cause is not one mis-split entry. Tells you where to look next |
+| `error` | the job TRIED and failed | §00's own case |
+| `none` | no row — not reached, or no qualifying finding | asserts nothing |
+| `unread` | WE could not read the table | an empty array after a failed read is byte-identical to a table with no rows |
+
+`empty` vs `none` is the pair a reader is least able to separate unaided — both feel
+like "no cause" — and the pair whose confusion costs most, because one has an opinion
+and the other has never run. `unread` needs `_bkAttributionsRead`, a tri-state
+(`null` = not read yet) rather than a boolean, because "not read yet" is a third thing
+again.
+
+#### `_bkLoanAttribution` is the only place anything reads the table
+
+Same rule this module has re-learned in nearly every two-numbers-one-screen bug it has
+had: the moment a second call site does its own `.find()` and its own wording, the two
+can disagree about whether a loan has an answer and nothing on screen says which is
+right. Both surfaces — the Issues Explanation column and the Loans rollforward hint —
+go through it. `_bkAttributionSentence` holds the wording; `_bkHintAttribution` holds
+the hint's compact phrasing. A caller wanting the STATE reads `data-attr-state`, never
+prose, so a copy edit cannot silently turn a failed analysis into a clean one.
+
+**Materiality is still read off the engine, never recomputed** — `payload.counts`
+decides whether there is an answer, exactly as `loan-attribution-run` reads severity off
+the finding rather than re-thresholding. A second threshold in a second file is how two
+numbers start disagreeing.
+
+#### What the Explanation column used to say, and why it was worth displacing
+
+It could only ever describe the REMEDY — "A correcting entry is ready for you to
+review" — which the Action button beside it already said. That is test 2 of LESS IS
+BEST, two statements of one fact, in the column whose header asks *why*. The cause now
+takes the column and **the remedy drops one line down, muted, still saying what the
+button opens.** Nothing was cut, which is the limit that rule carries: cut the words,
+keep the claim.
+
+The engine's verdict (`confirmed` / `probable`) sits beside the sentence in one muted
+word — not a colour. Colour would be spent on something a reader cannot act on, and the
+row's red/amber dot is the one thing on that row that genuinely needs it. `confirmed`
+means that entry's effect is the only thing in the window equal to the gap; `probable`
+means best-of-several, i.e. check it before posting. A CPA about to post an adjustment
+on the strength of a sentence needs to know which one they are reading.
+
+On `error` and `unread` the same slot reads **`unavailable`** rather than going blank.
+A blank there reads as "fine".
+
+#### The read is fail-soft, and the fail-soft path is where the bug would have been
+
+Modelled on `loan_book_balances` (session 246): the seventh read in `loadLoans`, unable
+to take the other six down. **But emptying the array on failure is not enough** — every
+loan would fall to `none`, and "we could not read the answers" would print as "nobody
+has looked at this loan". The failed read sets `_bkAttributionsRead = false` so the
+state is `unread`, and raises a load-error banner. This is the same defect the feature
+exists to prevent, one layer down in the code that loads it.
+
+#### 38 assertions, and the control that was wrong
+
+New harness group **`attribution-states`**, registered in `FIXTURE_TABLES`,
+`COLD_TABLES` and `LOAN_TABLES` — an unregistered table serves `[]` silently, so every
+assertion would have exercised the `none` branch and passed while the three states that
+needed proving were never reached. Loans are **derived** from `_bkIssueQueueItems()` at
+runtime, never typed, so a fixture refresh cannot turn this group red for a reason
+unconnected to the code.
+
+The headline assertion is **a6**: four states, four different sentences.
+
+**Three controls, each re-applying the inverse edit to the shipped function's own
+`.toString()` in page context — `index.html` untouched.** c1 collapses `error` into
+`none` (§00's named failure), c2 collapses `empty` into `none`, c3 makes the sentence
+state-blind.
+
+**c1 and c2 went red against correct code on the first run, and the fault was mine.**
+They asserted the two broken cells would print an IDENTICAL string. They do not: under
+the collapse each loan falls back to its own remedy wording, so the cells still differ —
+by text that has nothing to do with the analysis. The comparison proved only that two
+loans have different pending splits.
+
+> **A control has to falsify the assertion it claims to protect, not merely differ from
+> something.** Rewritten to assert the exact inverse of a3's and a4's own predicates:
+> the failure stops being stated in words, the `unavailable` mark disappears, and the
+> row reports the same STATE as a loan nobody analysed. That is what the collapse
+> actually costs, and it is what a6 forbids.
+
+This is session 245's lesson arriving from a new direction: a test can fail to
+discriminate, and a *control* can fail to discriminate too — by being satisfied by
+noise instead of by the defect.
+
+Final: **38/38 in the group.**
+
+#### What is left on this thread
+
+* The `unresolved` counts are read but only surfaced on `empty` rows ("3 differences it
+  could not place"). On an `ok` row the count is in `data-attr-unresolved` and nothing
+  displays it. Deliberate — the headline already ends with "N further differences
+  unaccounted for" on the loans that have them, and saying it twice is the redundancy
+  this session removed elsewhere. Revisit only if David asks for it on the face.
+* Nothing shows the attribution's AGE. `data-attr-generated` carries it. A payload older
+  than the finding it explains is possible in principle (the job deletes a row when its
+  finding clears, so the window is small), and there is no staleness banding today.
+* Tech Debt #26 unchanged.
+
+#### ⚠️ A 183-FAILURE FINDING THAT IS NOT MINE AND IS NOT A CODE REGRESSION
+
+Running the whole suite to check for regressions turned up **188 failures on git HEAD
+itself**, against §10's standing claim of 1468/1469. Before assuming anything, both
+trees were run in the same container:
+
+| | assertions | passed | failed |
+|---|---|---|---|
+| git HEAD, untouched | 1,292 | 1,104 | **188** |
+| this session's tree | 1,330 | 1,142 | **188** |
+
+**+38 assertions, +38 passing, +0 failing, and an identical failure profile by group**
+(183 `closing-evidence`, 2 `two-surfaces`, 2 `history`, 1 `roster-clean-loan-children`).
+So this session regresses nothing. But the 188 are real and need writing down.
+
+**The cause is the calendar, not the code**, and the group's own first assertion says
+so out loud:
+
+```
+FAIL ce: precondition — the band is closing the month this fixture was pulled for (2026-07)
+     observed "2026-08" · expected "2026-07"
+```
+
+`closing-evidence` is pinned to a fixture pulled 2026-08-28 and asserts July's figures.
+**On 2026-09-01 the close band advanced to August**, every downstream figure moved, and
+183 assertions went red at once — including the `group threw` at line 4963, which is a
+later block dereferencing a row the earlier ones never found. Session 258 ran this green
+on 2026-08-31. Nothing was committed between that and now that touches it.
+
+Whoever picks this up: the two options are to **pin the group's period** (drive
+`_loansPeriod` to the fixture's own month in `newHarnessPage` rather than letting it
+default to today) or to **refresh the fixture** — and only the first survives October.
+Pinning is also the honest fix: a rollforward test's subject is a specific month's
+arithmetic, so taking that month from the wall clock was always a latent bug, and it
+will fire again on 2026-10-01 either way.
+
+**Until it is fixed, §10's "1468/1469" is not a usable baseline** — a suite that is
+183-red by default is a suite nobody can read a regression out of, which is how a real
+one gets through. That is the same failure shape as this module's stale deploy state:
+a number everybody quotes and nobody re-measures.
 
 ---
 
