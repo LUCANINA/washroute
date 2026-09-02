@@ -2,11 +2,19 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 261, 2026-09-02)
 >
-> **Order:** ONE DEPLOY COMMAND is the whole of what is left on the attribution build, and
-> it needs David's terminal — see §00. After that, §0's one-line job (record the reversing
-> journal's id) is quick. **Xero quota was probed 2026-09-02 16:42 UTC: `remaining_day 959`,
-> not capped** — but probe again with `xero-rate-probe`, never `whoami`, which hits a
-> different API and lies about the accounting quota.
+> **Order (rewritten by session 262, 2026-09-02 17:52 UTC — the previous version of this
+> paragraph was ALREADY STALE: it said a deploy command was outstanding when §00 below,
+> written the same day, records that David had deployed it).** Nothing is outstanding on the
+> attribution build. Re-verified functionally, not by version number: all 5 loans carry
+> `run_status='ok'` payloads in `loan_attributions` (latest 17:34 UTC), and cron jobid 25
+> `wr-loan-attribution` is active on `20 */6 * * *`. **What is actually left, in order:**
+> (1) §0's one-line job — record PayPal 2's reversing-journal id; (2) the next BUILD —
+> nothing reads `loan_attributions` yet (§00's "NEXT ON THIS THREAD"); (3) §0a's cosmetic
+> "Issues (6)" vs "Nothing to close yet" label, awaiting David's choice; (4) §0c — match the
+> Sept 2 Stripe payout ($12,329.03) when its feed line lands 9/3.
+> **Xero quota probed 2026-09-02 17:52 UTC: `remaining_day 526`, not capped** — probe again
+> with `xero-rate-probe`, never `whoami`, which hits a different API and lies about the
+> accounting quota.
 >
 > ### 00. ✅ CLOSED (session 261, 2026-09-02) — `loan-attribution-run` IS LIVE, PROVEN END TO END, AND ON A CRON
 >
@@ -22,7 +30,9 @@
 >   **probable**. E4-9744 is the vindication — its variance starts 135 days back, outside
 >   `reconciliation-run`'s 120-day floor, which is exactly why this is a separate job.
 > * **`wr-loan-attribution` (jobid 25) runs every 6h at :20**, created through preflight
->   only after the loop was proven.
+>   only after the loop was proven. **Its first automatic fire at 18:20 UTC is confirmed —
+>   from `generated_at` moving, not from `cron.job_run_details`, which reports success for
+>   any queued `net.http_post` regardless of what the function did.**
 > * The first full pass **504'd** on a time budget larger than the platform's own limit —
 >   fixed with measured numbers (90s start-cutoff, 45s per loan), redeployed as v2.
 >
@@ -2889,6 +2899,22 @@ query error returns 500 before any delete, a legitimately empty result SHOULD cl
 table, and every payload is regenerable by re-running. This table is a cache, not a record
 of truth — which is also why `run_status='error'` matters more than it looks: it is the one
 state a reader must never mistake for "nothing found".
+
+#### ✅ THE CRON'S FIRST AUTOMATIC FIRE — 2026-09-02 18:20 UTC, confirmed FROM THE ROWS
+
+`cron.job_run_details` for jobid 25: **succeeded**, 18:20:00.148 → 18:20:00.167.
+`loan_attributions` then advanced to `generated_at = 18:20:02.335` on **four** loans
+(E-Transit 4140, E4-9744, Funding Circle, PCV). E5-4751 stayed at 17:34:57.866 — skipped
+by the budget, and it leads the 00:20 pass. Four rather than three this time: the budget
+is a time cutoff, not a fixed count, so a faster pass simply fits more.
+
+**⚠️ A pg_cron job that calls `net.http_post` ALWAYS reports `succeeded` in ~0.0s, whatever
+the function does.** `net.http_post` queues the request and returns immediately; the run
+detail's "1 row" is the queue insert, not the HTTP result. **`cron.job_run_details` can
+therefore only prove the job FIRED, never that the work happened** — a green row there
+beside a function that 500s every time looks identical to this one. The proof is
+`generated_at` moving. This is "check the rows, not the version number" in a new costume,
+and it applies to every HTTP cron in this project, not just this one.
 
 #### WHAT IS ACTUALLY LEFT
 
