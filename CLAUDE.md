@@ -20,6 +20,13 @@ give step-by-step instructions, and don't assume command-line fluency.
 | Bulk imports, enabling cron/SMS, UPDATE/DELETE >10 rows, "go live" | skill `washroute-preflight` — **every time** |
 | A feature is finished | `washroute-qa`, then `washroute-test`, then commit, then `washroute-changelog` |
 
+> **If a skill above isn't available**, don't stop — it's a per-machine install,
+> not a repo file. `washroute`, `washroute-audit` and `washroute-changelog` live
+> in `~/.claude/skills/` and the `.skill` archives in this repo root are the
+> source (`WashRoute-Laptop-Setup.md` §7 installs them). Meanwhile: this file plus
+> `docs/washroute/*.md` carry the orientation, and
+> `database/audits/daily_audit.sql` carries the audit checks.
+
 Notes files (large — grep them, don't read them whole):
 - `PROJECT-NOTES.md` — laundry app history through today. Sessions are logged newest-first at the top.
 - `PROJECT-NOTES-BOOKKEEPING.md` — Bookkeeping module only, from session 218 onward.
@@ -94,6 +101,13 @@ equally safe — the version bump lives in the hook, not the script. Commit only
 when David asks.
 
 ## RTK — compress command output
+
+> **Machine-specific — check before using.** `rtk` is installed per machine, not
+> in this repo. Run `command -v rtk` once; if it's missing (the laptop, a fresh
+> clone, CI), **use the plain command instead** — `git status`, not `rtk git
+> status`. Everything in this section is an optimization, never a requirement.
+> Nothing here should ever produce "command not found".
+> Install steps: `WashRoute-Laptop-Setup.md` §7.
 
 `rtk` (v0.47.0, `~/.local/bin/rtk`) filters noisy command output before it reaches
 context. Prefix a command with `rtk` and it uses a filter if it has one, or passes
