@@ -20,7 +20,9 @@ const section = (s: string) => console.log(`\n── ${s} ${'─'.repeat(Math.ma
 const blank = (o: Partial<PortalTotals> = {}): PortalTotals => ({
   as_of: null, amount_remaining: null, paid_to_date: null, principal_paid: null,
   fee_paid: null, total_amount_due: null, funds_deposited: null,
-  funds_deposited_date: null, sources: [], checks: [], warnings: [], disputes: [], corroborated: [], ...o,
+  funds_deposited_date: null, principal_balance: null, fee_balance: null,
+  total_balance: null, amount_remaining_basis: null,
+  sources: [], checks: [], warnings: [], disputes: [], corroborated: [], ...o,
 })
 
 section('the $125,000 bug, pinned')
@@ -392,6 +394,122 @@ section('a screen whose balance was dropped does not claim to state one')
   ok('a real balance still reads as one',
      /its statement of what is still owed/.test(describeScreenshot(blank({ amount_remaining: 123091.66 }))))
 }
+
+
+section('a screen that itemises what is still OWED (session 263, PayPal 2)')
+{
+  // PayPal's loan screen, transcribed. It is the mirror of Stripe's: three
+  // outstanding balances rather than three amounts paid. Before this, every one
+  // of these figures came back null for want of a field to hold it, and a screen
+  // whose numbers determine each other exactly proved nothing.
+  const pp = checkPortalTotals(blank({
+    sources: ['Paypal_Loan.png'],
+    principal_balance: 46144.59, fee_balance: 1661.55, total_balance: 47806.14,
+    amount_remaining: 47806.14,
+  }))
+  ok('the itemised balances survive', pp.principal_balance === 46144.59 && pp.fee_balance === 1661.55)
+  ok('the screen proves its own arithmetic',
+     pp.checks.some(c => /balances add up/.test(c)), JSON.stringify(pp.checks))
+  ok('all three are corroborated',
+     ['principal_balance','fee_balance','total_balance'].every(k => pp.corroborated.includes(k)))
+  ok('the headline balance is corroborated too', pp.corroborated.includes('amount_remaining'))
+  ok('and the basis is MEASURED as gross', pp.amount_remaining_basis === 'gross_payback')
+  ok('nothing was dropped', pp.warnings.length === 0, JSON.stringify(pp.warnings))
+  ok('it is described as itemised', /itemises what is still owed/.test(describeScreenshot(pp)))
+
+  // DISCRIMINATION: the same screen with one figure wrong must fail.
+  const bad = checkPortalTotals(blank({
+    sources: ['bad.png'],
+    principal_balance: 46144.59, fee_balance: 1661.55, total_balance: 47000.00 }))
+  ok('a screen whose balances do not add up drops all three',
+     bad.principal_balance === null && bad.fee_balance === null && bad.total_balance === null)
+  ok('and says so', bad.warnings.some(w => /do not add up/.test(w.detail)))
+
+  // A lender that headlines the PRINCIPAL and itemises the fee beside it is on
+  // the other basis. Not an error — and saying WHICH is the entire point.
+  const netScreen = checkPortalTotals(blank({
+    sources: ['net.png'],
+    principal_balance: 46144.59, fee_balance: 1661.55, total_balance: 47806.14,
+    amount_remaining: 46144.59 }))
+  ok('a principal headline reads as net_principal', netScreen.amount_remaining_basis === 'net_principal')
+  ok('and the balance is kept', netScreen.amount_remaining === 46144.59)
+
+  // A headline that is neither is dropped, not reconciled.
+  const odd = checkPortalTotals(blank({
+    sources: ['odd.png'],
+    principal_balance: 46144.59, fee_balance: 1661.55, total_balance: 47806.14,
+    amount_remaining: 51000 }))
+  ok('a headline matching neither line is dropped', odd.amount_remaining === null)
+  ok('the itemised figures are kept', odd.principal_balance === 46144.59)
+  ok('no basis is claimed for a dropped balance', odd.amount_remaining_basis === null)
+
+  // A DERIVED total must not vouch for its own parts — the same rule the paid
+  // identity already carries, and the one the $125,000 bug walked through.
+  const derived = checkPortalTotals(blank({
+    sources: ['derived.png'],
+    principal_balance: 46144.59, fee_balance: 1661.55 }))
+  ok('the missing total is derived', derived.total_balance === 47806.14)
+  ok('but a derived sum alone corroborates nothing',
+     derived.corroborated.length === 0, JSON.stringify(derived.corroborated))
+
+  // ...unless the screen's own headline predicts it, which IS a real check:
+  // three printed figures determining a fourth.
+  const derivedPredicts = checkPortalTotals(blank({
+    sources: ['derived2.png'],
+    principal_balance: 46144.59, fee_balance: 1661.55, amount_remaining: 47806.14 }))
+  ok('two printed parts predicting the printed headline is a check',
+     derivedPredicts.corroborated.includes('principal_balance') &&
+     derivedPredicts.corroborated.includes('amount_remaining'))
+}
+
+section('the funding guard accepts EITHER proof (session 263)')
+{
+  // Session 231's shape: the right guard, one branch away from the path that
+  // needs it. provenBalance tested the PAID identity only, so a balance proven
+  // by an ITEMISED one would still have been dropped for equalling the funding.
+  const proven = checkPortalTotals(blank({
+    sources: ['itemised.png'],
+    principal_balance: 90000, fee_balance: 10000, total_balance: 100000,
+    amount_remaining: 100000, funds_deposited: 100000 }))
+  ok('a balance proven by itemised parts survives equalling the funding',
+     proven.amount_remaining === 100000, JSON.stringify(proven.warnings))
+
+  // And the guard still bites when nothing proves the balance.
+  const unproven = checkPortalTotals(blank({
+    sources: ['plain.png'], amount_remaining: 100000, funds_deposited: 100000 }))
+  ok('an unproven balance equal to the funding is still dropped',
+     unproven.amount_remaining === null)
+
+  // A DERIVED total must not license it either — the algebra-not-evidence hole.
+  const derivedOnly = checkPortalTotals(blank({
+    sources: ['derived3.png'],
+    principal_balance: 90000, fee_balance: 10000,
+    amount_remaining: 100000, funds_deposited: 100000 }))
+  ok('a derived total does not license a balance equal to the funding',
+     derivedOnly.amount_remaining === null, JSON.stringify(derivedOnly.checks))
+}
+
+section('two screens disagreeing about what a balance MEASURES')
+{
+  const gross = checkPortalTotals(blank({
+    sources: ['a.png'], principal_balance: 46144.59, fee_balance: 1661.55,
+    total_balance: 47806.14, amount_remaining: 47806.14 }))
+  const net = checkPortalTotals(blank({
+    sources: ['b.png'], principal_balance: 46144.59, fee_balance: 1661.55,
+    total_balance: 47806.14, amount_remaining: 46144.59 }))
+  const m = mergePortal(gross, net)
+  ok('the basis is dropped rather than picked', m.amount_remaining_basis === null)
+  ok('and the disagreement is said out loud',
+     m.disputes.some(d => /what their balance measures/.test(d)), JSON.stringify(m.disputes))
+  ok('the balance itself is dropped too, as before', m.amount_remaining === null)
+
+  // Two screens that agree keep the basis.
+  const agree = mergePortal(gross, checkPortalTotals(blank({
+    sources: ['c.png'], principal_balance: 46144.59, fee_balance: 1661.55,
+    total_balance: 47806.14, amount_remaining: 47806.14 })))
+  ok('two agreeing screens keep the basis', agree.amount_remaining_basis === 'gross_payback')
+}
+
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

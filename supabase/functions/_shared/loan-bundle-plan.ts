@@ -51,7 +51,7 @@
 
 import type { ContractTerm, StripeCsvParseResult, DecompositionResult } from './stripe-capital.ts'
 import { explainBalanceGap, dailyWithholdingFromMonths, lenderExportFromCsv, RATE_SOURCES } from './settlement-lag.ts'
-import { dateFromLedger, type LedgerDatingResult } from './ledger-dating.ts'
+import { dateFromLedger, paidFromOutstanding, type LedgerDatingResult, type LedgerDatingFigures } from './ledger-dating.ts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -88,6 +88,10 @@ export interface BundleDocument {
     total_amount_due: number | null
     funds_deposited: number | null
     funds_deposited_date: string | null
+    principal_balance: number | null
+    fee_balance: number | null
+    total_balance: number | null
+    amount_remaining_basis: 'gross_payback' | 'net_principal' | null
     corroborated: string[]
     dropped: string[]
   } | null
@@ -224,6 +228,17 @@ export interface PlanContext {
     principal_paid: number | null
     fee_paid: number | null
     total_amount_due: number | null
+    /** What is still OWED, where the lender itemises it rather than what is paid. */
+    principal_balance: number | null
+    fee_balance: number | null
+    total_balance: number | null
+    /**
+     * What `amount_remaining` MEASURES, established by the screen's own
+     * arithmetic. Null unless the screen itemised and the identity came out —
+     * the planner must never assume a basis, and this is the one field that can
+     * tell it, from evidence, whether the balance beside it includes the fee.
+     */
+    amount_remaining_basis: 'gross_payback' | 'net_principal' | null
     /**
      * Which of the figures above took part in an identity that CAME OUT RIGHT —
      * checkPortalTotals' own verdict, carried through the merge.
@@ -716,12 +731,43 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   // silent, and only on a corroborated, unique, exact match (see ledger-dating.ts
   // for every way it refuses). One value, one definition, every consumer.
   const repaymentStart = date('repayment_start_date') ?? origination ?? ctx.loan.original_date
+
+  // ── THE SCREEN MAY STATE WHAT IS OWED RATHER THAN WHAT IS PAID (session 263)
+  //
+  // Everything below dates a PAID figure, because Stripe's screen states paid
+  // figures. PayPal's states the mirror — principal owed, fee owed, and the two
+  // together — and it prints no as-of date either, so it was exactly as
+  // undatable and for no better reason. The conversion is the contract's own
+  // arithmetic and lives in ledger-dating.ts, which refuses it whenever the
+  // terms are absent, contradict each other, or produce something impossible.
+  //
+  // The screen's own paid figures WIN where it prints them. This only fills a
+  // silence, and only from figures the screen's own arithmetic vouched for —
+  // dating an anchor off a number nothing checked would put a misread in charge
+  // of the date, which is the failure §5b already exists to prevent.
+  const portalCorrob = (ctx.portal?.corroborated || [])
+  const paidTargetFromScreen: LedgerDatingFigures | null =
+    (hasPortal && ctx.portal!.paid_to_date !== null && portalCorrob.includes('paid_to_date'))
+      ? { paid: ctx.portal!.paid_to_date!, financing: ctx.portal!.principal_paid, fee: ctx.portal!.fee_paid }
+      : null
+  const outstandingConversion =
+    (!paidTargetFromScreen && hasPortal &&
+     ctx.portal!.total_balance !== null && portalCorrob.includes('total_balance'))
+      ? paidFromOutstanding(
+          { principal_balance: ctx.portal!.principal_balance,
+            fee_balance: ctx.portal!.fee_balance,
+            total_balance: ctx.portal!.total_balance },
+          { loan_amount: loanAmount, fixed_fee: num('fixed_fee'),
+            total_repayment_amount: num('total_repayment_amount') })
+      : null
+  const portalPaidTarget: LedgerDatingFigures | null =
+    paidTargetFromScreen ?? outstandingConversion?.target ?? null
+
   const portalDating: LedgerDatingResult | null =
     (hasPortal && ctx.portal!.amount_remaining !== null &&
      (ctx.portal!.corroborated || []).includes('amount_remaining') &&
      !ctx.portal!.as_of && ctx.csv && ctx.csv.days.length > 0 && ctx.csv.first_date &&
-     repaymentStart && ctx.portal!.paid_to_date !== null &&
-     (ctx.portal!.corroborated || []).includes('paid_to_date'))
+     repaymentStart && portalPaidTarget !== null)
       ? dateFromLedger({
           days: ctx.csv.days.map(d => ({ date: d.date, total: d.total_paid, financing: d.principal_paid, fee: d.fee_paid })),
           // `ok` false means rows could not be read, which understates the running
@@ -734,11 +780,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           // Dating a lender anchor off a number nothing on the screen checked would
           // put the misread this module already caught once ($125,000 of funding
           // read as $123,091.66 of balance) in charge of the date as well.
-          target: {
-            paid: ctx.portal!.paid_to_date!,
-            financing: ctx.portal!.principal_paid,
-            fee: ctx.portal!.fee_paid,
-          },
+          target: portalPaidTarget!,
         })
       : null
   const portalDerivedDate = portalDating?.corroborated ? portalDating.date : null

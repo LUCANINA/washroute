@@ -20,6 +20,7 @@ const section = (s: string) => console.log(`\n── ${s} ${'─'.repeat(Math.ma
 const blank = (o: any = {}): any => ({
   as_of: null, amount_remaining: null, paid_to_date: null, principal_paid: null,
   fee_paid: null, total_amount_due: null, funds_deposited: null, funds_deposited_date: null,
+  principal_balance: null, fee_balance: null, total_balance: null, amount_remaining_basis: null,
   sources: [], checks: [], warnings: [], disputes: [], corroborated: [], ...o })
 
 section('A — the derived sum must not launder the $125,000 misread')

@@ -24,6 +24,33 @@ export interface PortalTotals {
   total_amount_due: number | null
   funds_deposited: number | null
   funds_deposited_date: string | null
+  /**
+   * OUTSTANDING balances, for a lender that itemises what is still owed rather
+   * than what has been paid.
+   *
+   * Stripe's screen states amounts PAID and the fields above were built for it.
+   * PayPal's states the mirror image — principal still owed, fee still owed,
+   * and the two together — and every one of those figures came back null,
+   * because there was no field to hold them. A screen whose three numbers
+   * determine each other exactly proved nothing, which is the same failure
+   * `paid_to_date` being absent used to cause on Stripe.
+   *
+   * These are kept SEPARATE from `amount_remaining` on purpose. A balance that
+   * means "principal only" and one that means "principal plus the fee still to
+   * run" are different quantities, and the nine months PayPal spent carrying an
+   * unexplainable discrepancy is what treating them as one number costs.
+   */
+  principal_balance: number | null
+  fee_balance: number | null
+  total_balance: number | null
+  /**
+   * What `amount_remaining` MEASURES, established by the screen's own
+   * arithmetic and never by assumption: 'gross_payback' when the headline
+   * balance equals principal + fee, 'net_principal' when it equals the
+   * principal line alone. Null whenever the screen did not itemise, which is
+   * most screens — an unproven basis stays unstated.
+   */
+  amount_remaining_basis: 'gross_payback' | 'net_principal' | null
   /** Which screenshot(s) these figures came from. Needed to say WHO disagreed. */
   sources: string[]
   /**
@@ -70,7 +97,18 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   const checks: string[] = []
   const warnings: PortalTotals["warnings"] = []
   const corroborated: string[] = []
+  // Set only where the screen's own arithmetic establishes it. Stays null
+  // otherwise; a basis nobody proved is worse than no basis at all.
+  let basis: PortalTotals['amount_remaining_basis'] = null
   const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // A caller that predates these fields hands us `undefined`, not `null`, and
+  // every test below is `=== null`. An undefined would then read as "present"
+  // and skip the identity silently — the quietest possible failure. Normalise
+  // once, here, rather than defending against it at each comparison.
+  p.principal_balance = p.principal_balance ?? null
+  p.fee_balance = p.fee_balance ?? null
+  p.total_balance = p.total_balance ?? null
 
   // A screen that states the PARTS but not the SUM.
   //
@@ -118,6 +156,56 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
     }
   }
 
+  // ── WHAT IS STILL OWED, ITEMISED ─────────────────────────────────────────
+  // The mirror of the two identities above, for a lender that prints balances
+  // rather than payments:
+  //
+  //     principal still owed + fee still owed = total balance
+  //
+  // Same discipline throughout: a sum we derived may not vouch for its own
+  // parts, and a figure that fails its identity is dropped rather than
+  // corrected.
+  let totalWasDerived = false
+  if (p.total_balance === null && p.principal_balance !== null && p.fee_balance !== null) {
+    p.total_balance = Math.round((p.principal_balance + p.fee_balance) * 100) / 100
+    totalWasDerived = true
+  }
+  if (!totalWasDerived && p.principal_balance !== null && p.fee_balance !== null && p.total_balance !== null) {
+    if (near(p.principal_balance + p.fee_balance, p.total_balance)) {
+      checks.push(`The screen's own balances add up: ${fmt(p.principal_balance)} principal + ${fmt(p.fee_balance)} fee still owed = ${fmt(p.total_balance)}.`)
+      corroborated.push('principal_balance', 'fee_balance', 'total_balance')
+    } else {
+      warnings.push({ question: `A screenshot's own figures do not add up.`, detail: `The balances it itemises do not add up (${fmt(p.principal_balance)} + ${fmt(p.fee_balance)} \u2260 ${fmt(p.total_balance)}), so these three figures were dropped rather than used.` })
+      p.principal_balance = p.fee_balance = p.total_balance = null
+    }
+  }
+
+  // ── WHICH BALANCE IS THE HEADLINE BALANCE? ───────────────────────────────
+  // A screen that itemises can settle, by arithmetic on its own face, what its
+  // headline "balance" actually measures. That is the one question this module
+  // was never able to answer from a picture, and it is the question the basis
+  // fields exist for. It is ANSWERED here, never assumed: if the headline
+  // matches neither the total nor the principal line, it is dropped.
+  if (p.amount_remaining !== null && p.total_balance !== null) {
+    if (near(p.amount_remaining, p.total_balance)) {
+      checks.push(totalWasDerived
+        ? `The screen's itemised balances predict its headline: ${fmt(p.principal_balance!)} principal + ${fmt(p.fee_balance!)} fee = ${fmt(p.amount_remaining)}, which is the balance printed on it \u2014 so that balance is the whole payback, fee included.`
+        : `The headline balance is the two lines together: ${fmt(p.principal_balance ?? 0)} principal + ${fmt(p.fee_balance ?? 0)} fee = ${fmt(p.amount_remaining)} \u2014 so it measures the whole payback, fee included.`)
+      corroborated.push('amount_remaining', 'total_balance')
+      if (totalWasDerived) corroborated.push('principal_balance', 'fee_balance')
+      basis = 'gross_payback'
+    } else if (p.principal_balance !== null && near(p.amount_remaining, p.principal_balance)) {
+      // Not an error. A lender may headline the principal and itemise the fee
+      // beside it, and saying WHICH is exactly the point.
+      checks.push(`The headline balance equals the principal line alone (${fmt(p.amount_remaining)}), with ${fmt(p.fee_balance ?? 0)} of fee still owed shown separately \u2014 so it measures principal only.`)
+      corroborated.push('amount_remaining', 'principal_balance')
+      basis = 'net_principal'
+    } else {
+      warnings.push({ question: `A screenshot's own figures do not add up.`, detail: `The balance printed on this screen (${fmt(p.amount_remaining)}) is neither the total it itemises (${fmt(p.total_balance)}) nor the principal line (${p.principal_balance === null ? 'not shown' : fmt(p.principal_balance)}), so the headline balance was dropped and the itemised figures kept.` })
+      p.amount_remaining = null
+    }
+  }
+
   // A funding figure transcribed into the balance field.
   //
   // On a funding screen the same number is routinely read twice — once correctly
@@ -151,8 +239,17 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   // So only a sum the SCREEN ITSELF PRINTED, and a non-zero one, may vouch for a
   // balance that equals the funding advanced. A number we computed cannot license
   // the number it was computed from.
+  // ── THE PROOF MAY COME FROM EITHER IDENTITY (session 263) ────────────────
+  // This tested the PAID identity only, because that was the only one that
+  // existed. A screen proving its balance by ITEMISING what is still owed
+  // \u2014 principal + fee = total, printed, not derived \u2014 is proof of exactly
+  // the same strength, and leaving it out would drop a balance the screen had
+  // just demonstrated. Same shape as session 231's six bugs: the right check,
+  // one branch away from the path that needed it.
+  const provenByPaid = !paidWasDerived && (p.paid_to_date ?? 0) > 0
+  const provenByBalances = !totalWasDerived && (p.total_balance ?? 0) > 0
   const provenBalance = corroborated.includes('amount_remaining') &&
-                        !paidWasDerived && (p.paid_to_date ?? 0) > 0
+                        (provenByPaid || provenByBalances)
   if (p.amount_remaining !== null && p.funds_deposited !== null &&
       near(p.amount_remaining, p.funds_deposited) &&
       !provenBalance) {
@@ -165,13 +262,16 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
       `balance. If this really is the balance, it needs a screen showing the amount paid to date beside it.` })
     p.amount_remaining = null
     // The figure is gone; its endorsement must go with it, or the merge will
-    // still prefer a value that no longer exists.
+    // still prefer a value that no longer exists. The BASIS goes too: it was a
+    // statement about what that number measured, and there is no longer a
+    // number for it to be about.
+    basis = null
     for (let i = corroborated.length - 1; i >= 0; i--) {
       if (corroborated[i] === 'amount_remaining') corroborated.splice(i, 1)
     }
   }
 
-  return { ...p, checks, warnings, corroborated, disputes: p.disputes ?? [] }
+  return { ...p, checks, warnings, corroborated, disputes: p.disputes ?? [], amount_remaining_basis: basis ?? p.amount_remaining_basis ?? null }
 }
 
 /**
@@ -215,6 +315,9 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
     fee_paid: 'the fee paid',
     total_amount_due: 'the total amount due',
     funds_deposited: 'the amount deposited',
+    principal_balance: 'the principal still owed',
+    fee_balance: 'the fee still owed',
+    total_balance: 'the total still owed',
   }
 
   const aOk = (k: string) => (a.corroborated ?? []).includes(k)
@@ -279,6 +382,20 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
       `These screenshots were taken on different days (${a.as_of} and ${b.as_of}), so their ` +
       `figures describe two different moments. The later date (${as_of}) was used.`)
   }
+  // Two screens that itemise can disagree about what their headline balance
+  // MEASURES, and that is not a tie to break \u2014 it is the single most expensive
+  // disagreement this module can be handed, so it is dropped and said out loud.
+  let amount_remaining_basis = a.amount_remaining_basis ?? b.amount_remaining_basis ?? null
+  if (a.amount_remaining_basis && b.amount_remaining_basis &&
+      a.amount_remaining_basis !== b.amount_remaining_basis) {
+    disputes.push(
+      `Two screenshots disagree about what their balance measures \u2014 ${who(a)} itemises it as ` +
+      `${a.amount_remaining_basis === 'gross_payback' ? 'the whole payback, fee included' : 'principal only'} and ` +
+      `${who(b)} as ${b.amount_remaining_basis === 'gross_payback' ? 'the whole payback, fee included' : 'principal only'}. ` +
+      `Nothing below treats this loan as being on either basis.`)
+    amount_remaining_basis = null
+  }
+
   let funds_deposited_date = a.funds_deposited_date ?? b.funds_deposited_date
   if (a.funds_deposited_date && b.funds_deposited_date && a.funds_deposited_date !== b.funds_deposited_date) {
     disputes.push(
@@ -295,6 +412,10 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
     fee_paid: num('fee_paid'),
     total_amount_due: num('total_amount_due'),
     funds_deposited: num('funds_deposited'),
+    principal_balance: num('principal_balance'),
+    fee_balance: num('fee_balance'),
+    total_balance: num('total_balance'),
+    amount_remaining_basis,
     funds_deposited_date,
     sources: [...a.sources, ...b.sources],
     checks, warnings, disputes, corroborated,
@@ -321,6 +442,17 @@ export function describeScreenshot(p: PortalTotals): string {
   const hasBalance = p.amount_remaining !== null
   const hasDeposit = p.funds_deposited !== null
   const hasOther = p.total_amount_due !== null || p.paid_to_date !== null
+  const itemised = p.principal_balance !== null && p.fee_balance !== null
+  // A screen that breaks its balance into principal and fee says more than one
+  // that states a single figure, and the reader should be told which they have.
+  if (itemised) {
+    const which = p.amount_remaining_basis === 'gross_payback'
+      ? ' Its headline balance is the two together.'
+      : p.amount_remaining_basis === 'net_principal'
+        ? ' Its headline balance is the principal alone.'
+        : ''
+    return `The lender's own screen \u2014 it itemises what is still owed, principal and fee separately.${which}`
+  }
   if (hasBalance && hasDeposit) {
     return `The lender's own screen — it states both what was advanced and what is still owed.`
   }

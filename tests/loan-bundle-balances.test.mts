@@ -39,7 +39,7 @@ import {
   checkStatementPayload, statementRowWrite, checkApproveList,
   STATEMENT_SOURCE_BY_KIND, STATEMENT_BASES,
 } from '../supabase/functions/_shared/loan-bundle-apply.ts'
-import { dateFromLedger, type LedgerDay } from '../supabase/functions/_shared/ledger-dating.ts'
+import { dateFromLedger, paidFromOutstanding, type LedgerDay } from '../supabase/functions/_shared/ledger-dating.ts'
 import { parseStripeCapitalCsv } from '../supabase/functions/_shared/stripe-capital.ts'
 
 let pass = 0, fail = 0
@@ -1025,6 +1025,71 @@ section('10 — the handlers are wired into the function that ships')
   ok('the correct_statement_basis guard is still there beside it',
      /\.eq\('balance_basis', 'unknown'\)/.test(applySrc))
 }
+
+
+section('dating a screen that states what is still OWED (session 263, PayPal 2)')
+{
+  // PayPal 2's real figures. The contract: $157,000 advanced, $20,565.12 of fee,
+  // $177,565.12 repaid in all. The screen on 2026-09-02: $46,144.59 of principal
+  // and $1,661.55 of fee still owed, $47,806.14 together — and no as-of date
+  // printed anywhere on it.
+  const TERMS = { loan_amount: 157000, fixed_fee: 20565.12, total_repayment_amount: 177565.12 }
+  const SCREEN = { principal_balance: 46144.59, fee_balance: 1661.55, total_balance: 47806.14 }
+
+  const c = paidFromOutstanding(SCREEN, TERMS)
+  ok('the conversion succeeds', c.refused_because === null, c.statement)
+  ok('total paid is the contract less the balance',
+     Math.abs(c.target!.paid - 129758.98) < 0.005, String(c.target?.paid))
+  ok('financing paid is measured too', Math.abs(c.target!.financing! - 110855.41) < 0.005, String(c.target?.financing))
+  ok('and the fee paid', Math.abs(c.target!.fee! - 18903.57) < 0.005, String(c.target?.fee))
+  // The parts must foot to the whole, or the conversion has invented something.
+  ok('the converted parts foot to the whole',
+     Math.abs((c.target!.financing! + c.target!.fee!) - c.target!.paid) < 0.005)
+  ok('the working is stated in full', /still owed is .* paid/.test(c.statement), c.statement)
+
+  // REFUSALS — each one a date the module must decline to produce.
+  ok('no terms on file -> refused',
+     paidFromOutstanding(SCREEN, { loan_amount: null, fixed_fee: null, total_repayment_amount: null })
+       .refused_because === 'no_terms')
+  ok('terms that do not add up -> refused',
+     paidFromOutstanding(SCREEN, { loan_amount: 157000, fixed_fee: 20565.12, total_repayment_amount: 177500 })
+       .refused_because === 'terms_disagree')
+  ok('...and it names both figures',
+     /not the .*177,500\.00/.test(paidFromOutstanding(SCREEN,
+       { loan_amount: 157000, fixed_fee: 20565.12, total_repayment_amount: 177500 }).statement))
+  ok('a screen with no total still owed -> refused',
+     paidFromOutstanding({ principal_balance: 46144.59 }, TERMS).refused_because === 'no_balance')
+  ok('a balance bigger than the loan -> refused, not returned negative',
+     paidFromOutstanding({ total_balance: 200000 }, TERMS).refused_because === 'impossible_result')
+  ok('a sub-cent figure -> refused',
+     paidFromOutstanding({ total_balance: 47806.145 }, TERMS).refused_because === 'unusable_amount')
+
+  // The typed original_amount on this loan is $177,500 — wrong by $65.12 against
+  // the lender's own CSV. That is precisely the shape 'terms_disagree' exists to
+  // catch, and it is why a date is refused rather than produced 65 dollars late.
+  ok('the loan record\'s own wrong total is caught by the same guard',
+     paidFromOutstanding(SCREEN, { loan_amount: 157000, fixed_fee: 20565.12, total_repayment_amount: 177500 })
+       .target === null)
+
+  // DISCRIMINATION: the conversion must actually feed the dating engine, and the
+  // dating engine must find the right day from it. A tiny ledger, exact.
+  const days: LedgerDay[] = [
+    { date: '2026-08-26', total: 3414.71, financing: 3165.30, fee: 249.41 },
+    { date: '2026-09-02', total: 3414.71, financing: 3180.33, fee: 234.38 },
+  ]
+  const dated = dateFromLedger({
+    days, complete: true, coversFrom: '2026-08-26', periodStart: '2026-08-26',
+    target: { paid: 6829.42, financing: 6345.63, fee: 483.79 },
+  })
+  ok('the ledger dates the last payment day', dated.date === '2026-09-02', dated.statement)
+  ok('and it is corroborated by the split', dated.corroborated === true)
+  // And it refuses when the target lands between two days.
+  const between = dateFromLedger({
+    days, complete: true, coversFrom: '2026-08-26', periodStart: '2026-08-26',
+    target: { paid: 5000 } })
+  ok('a target between two days is still refused', between.date === null && between.refused_because === 'between_days')
+}
+
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)

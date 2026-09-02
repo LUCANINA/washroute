@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 262, 2026-09-02 21:00 UTC)
+> ## ⏭️ START HERE — first thing, next session (left by session 263, 2026-09-02)
 >
 > **This block is rewritten at the END of every session. It has been wrong four days
 > running, always by being written before the thing it describes finished. Everything
@@ -37,6 +37,32 @@
 > a statement older than the month being closed is not a gap to investigate — it is one
 > nobody can evaluate, and the row says so and asks for the document. An ESTABLISHED cause
 > always outranks the ask. `balance_vs_lender` is a RESTATEMENT of the gap, not a cause.
+>
+> ### Session 263 left this, and item 1 is a DEPLOY
+>
+> 1. **🔴 DEPLOY `loan-bundle` — NOTHING FROM SESSION 263 IS LIVE.** Three of the four
+>    changed files are its dependencies (`_shared/portal-figures.ts`,
+>    `_shared/ledger-dating.ts`, `_shared/loan-bundle-plan.ts`). `loan-bundle` is the
+>    ~404KB bundle that **must** go through the CLI from David's own terminal —
+>    `deploy_edge_function` cannot carry it. From the repo root:
+>    `npx -y supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`.
+>    Then check it FUNCTIONALLY, not by version: a screenshot that itemises its balance
+>    should come back with `amount_remaining_basis` set. **This block says "not deployed"
+>    because a deploy was never attempted, not because anything was measured.**
+> 2. **Tech Debt #34 (🔴) is the blocker on `carrying_basis`, and it is bigger than PayPal 2.**
+>    David asked for PayPal 2's basis to be set; it was NOT, because `fitBasis` compares a
+>    gross prediction against a principal-only observation and so misses by the unearned fee
+>    on every loan of that shape. 21 of 22 loans are `unknown`. Read session 263 §4 for the
+>    measured working before touching it.
+> 3. **Tech Debt #33 (🟠)** — a projected schedule row is never reconciled against the
+>    lender's later actual, and on a prestaged loan those rows are what reach Xero.
+> 4. **PayPal 2's data was corrected by hand** (two amortization rows, 2026-08-19 and
+>    2026-09-02, to the lender's own figures). The staged 2026-09-02 Xero transaction was
+>    deliberately left holding 3180.34/234.37 — one cent, total unchanged, precedent set by
+>    session 259 on 2026-08-19. Nothing is waiting on it.
+> 5. **David's PayPal CSV and screenshot have NOT been filed.** The prediction was the ask;
+>    the upload is still his to make. The CSV will route to "your call" (the loan is already
+>    tracked by a schedule) and adds 4 new statement dates, 08-12 through 09-02.
 >
 > ### What is left, in order
 >
@@ -2457,6 +2483,10 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**34. 🔴 `fitBasis` never reads the `balance_basis` it is handed, so the gross model cannot fit a principal-only book (session 263).** `carrying-basis-drift.ts` predicts `total_repayment − everything paid` for the gross model and compares it against `BasisBalance.principal_balance`. That field carries a `balance_basis` alongside it, and `fitBasis` ignores it. Where the balances on file are `principal_only` — which is most of this book — the gross prediction is therefore compared against a quantity that excludes the unearned fee, and it **misses by exactly the unearned fee, every time, forever**. Measured on PayPal 2 at the 2026-08-05 anchor: gross predicts $61,464.98 against an observed $58,775.97, a miss of $2,689.01, which is the unearned fee at that date to the cent. The verdict comes back `fits_neither` and the loan cannot have its basis established. **21 of 22 loans are still `carrying_basis = 'unknown'`**, and this is a plausible reason why more than one of them is stuck there. Next step: read `balance_basis` and predict the quantity the observation actually measures — a principal-only observation is compared against `loan_amount − principal paid` under BOTH bases, and the models are told apart by how the PAYMENTS behave rather than by which total the prediction starts from. Do not "fix" it by converting the observation, which needs the unearned fee and so needs a fee schedule the check does not have. This is the blocker on setting PayPal 2's basis; see session 263 §4 for the full working, including the separate $18,834.50 net-model miss that points at that loan's four open `double_reallocation` findings rather than at this bug.
+
+**33. 🟠 Nothing reconciles a projected schedule row against the lender's later actual (session 263).** PayPal 2's schedule is `amort_type='actual_payment_history_from_lender_csv'` — an earlier parse of the lender's own history CSV, with rows past the parse date projected forward. When a newer CSV arrives, the PayPal ingest path files **statements** and never touches the schedule, so a projected row stays a projection permanently even once the lender has settled the period. Session 263 found two such rows (2026-08-19 and 2026-09-02) each a penny out, and corrected them by hand; 36 of 38 agreed, so the projection is good, which is exactly what makes this easy to leave broken. **It matters because on a `prestage_enabled` loan those projected rows are what get created in Xero** — the 2026-09-02 stage carries the projection's 3180.34/234.37 against the lender's 3180.33/234.38. Next step: when a lender history CSV is ingested for a loan whose schedule is of this `amort_type`, reconcile past rows against the file and correct any that the lender has since settled, recording the supersession on the row. Never touch rows on or after a period whose split has left `pending_review` without saying so — a corrected row under a staged split is a discrepancy someone must be told about, not one to silently paper over.
+
 **32. 🔴 The ask reaches the CPA; the upload is the business owner's job (session 262 cont. 2).** The Issues row now says "a statement dated August 31 or later settles this — there is nothing to investigate until then" and offers **Upload statement**. But David's own framing is that the chore belongs to the business owner, who works in the **Client View**, not to the CPA reading Issues. So the request is currently shown to the one person who is not going to act on it. This is the difference between a better label and a working loop, and it is why this is red rather than amber. Next step: a "documents we're waiting on" surface in the Client View, driven by the same `_bkEvidenceAsk()` — one function, both surfaces, so they can never disagree about what is outstanding (the shared-function rule this module lives by). Worth carrying the loan's lender and the month-end date so the owner knows exactly what to fetch. Longer term David's answer is better than either: lender integrations remove the chore instead of routing it.
 
 **30. 🟠 A posting hold lives in free text, and the guard that reads it is a regex (session 262 cont.).** `loan_splits.review_notes` is where a human writes "DO NOT STAGE THIS PERIOD until Ford confirms a September draft" — a real instruction, on the row, that no code read until now. `_bkSplitPostingHold` matches `/\bdo not (stage|post)\b/i` and, when it hits, removes the row's action entirely and quotes the writer's own sentence. **It is built so it can only ever REMOVE an action** — a false positive costs a button still reachable from the Loans page, a false negative leaves the pre-session-262 behaviour; it never enables a post, never changes a figure, never suppresses a variance. That asymmetry is what makes a prose regex admissible here at all, and it is the only thing that does. **The real fix is a structured column** — `posting_hold_reason text` plus `posting_hold_set_by/at`, written deliberately by whoever knows, with the note field left as commentary. Then every surface can honour a hold without reading English, `loan-xero-post` can refuse a held split server-side (today nothing stops a direct call), and the hold becomes auditable. Do this before any second surface starts matching the same phrase — two regexes over one note field is how they start disagreeing.
@@ -2727,6 +2757,172 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 263 (2026-09-02) — TWO DOCUMENTS THAT AGREE TO THE CENT, AND THE THREE PLACES NOTHING WAS LISTENING
+
+David uploaded PayPal 2's loan-history CSV and a screenshot of its portal balance and
+asked, before filing either, what the ingestion engine would do with them. Answering that
+honestly turned out to be the session: the CSV would have been handled well, the
+screenshot would have been filed as a picture and read by nobody, and the two documents
+together prove something neither proves alone.
+
+**The agreement, measured.** From the CSV alone, walked oldest-first: principal after the
+2026-09-02 payment is **$46,144.59**, and fee charged to date is $18,903.57, so the
+unearned fee is $20,565.12 − $18,903.57 = **$1,661.55**. Those are, to the cent, the two
+figures the screenshot prints as its principal balance and fee balance. Two sources
+sharing no arithmetic, agreeing exactly — the independent check §1 of this file keeps
+finding the book does not have. Nothing in the product would have noticed it.
+
+#### 1. The penny drift — and what the "schedule" on this loan actually is
+
+Comparing all 38 CSV periods against the 38 payment rows of schedule
+`96839329` found exactly **two** disagreements:
+
+| Date | Our row | PayPal's CSV |
+|---|---|---|
+| 2026-08-19 | 3,150.33 / 264.38 | 3,150.32 / **264.39** |
+| 2026-09-02 | 3,180.34 / 234.37 | 3,180.33 / **234.38** |
+
+The important discovery is *why*. That schedule's `amort_type` is
+**`actual_payment_history_from_lender_csv`** — it is not a contract schedule at all, it is
+an EARLIER PARSE OF THIS VERY CSV, taken 2026-08-04, with rows after that date projected
+forward. So the two disagreements are not real-world rounding to be recorded and tolerated;
+they are **projections the lender has since settled**, and the other 36 rows agreeing to the
+cent is the evidence that the projection method was sound. Correcting them restores fidelity
+to the source rather than overwriting a contract with actuals, so it introduces none of the
+circularity §1 warns about.
+
+Both rows corrected, each carrying its provenance in `addl_info`. The splits were left
+alone, deliberately and on precedent:
+
+* **2026-08-19** is `already_in_xero` and session 259 had ALREADY found this penny from the
+  other side — its `review_notes` say "AMOUNTS ARE XERO'S, NOT THE SCHEDULE'S". Xero holds
+  3150.32/264.39, which is what the lender says. The split was right and our row was wrong;
+  now they agree.
+* **2026-09-02** is `staged`, with a live transaction in Xero (`WR-STAGE 284 2026-09-02`)
+  built 2026-08-31 from the projection. Unstaging and re-staging to move one cent between
+  principal and interest is a real Xero write against a transaction the CPA may be about to
+  match, for $0.01. The total is identical at $3,414.71, so the bank-feed match is
+  unaffected. Recorded on the split instead, in session 259's own words and tolerance.
+
+**Root cause, open:** nothing in the code ever reconciles a projected schedule row against
+the lender's later actual. The PayPal CSV path files STATEMENTS, not schedule rows, so a
+projection stays a projection forever even once the lender has settled it. On a
+prestage-enabled loan those projections are what get created in Xero. Filed as Tech Debt
+#33.
+
+#### 2. The screenshot: three figures, no field to hold them
+
+`loan-document-intake` classifies an image as `balance_screenshot`, which is in
+`LOAN_ATTACH_KINDS` — filed as an attachment, no figures read. The one path that DOES read
+screenshots, `loan-bundle`'s `readPortalScreenshot`, has a schema built for Stripe's screen,
+which states amounts **PAID**: `amount_remaining`, `paid_to_date`, `principal_paid`,
+`fee_paid`. PayPal's screen states the mirror image — principal owed, fee owed, and the two
+together — so every figure on it came back null, and a screen whose three numbers determine
+each other exactly proved nothing. That is the same failure `paid_to_date` being absent used
+to cause on Stripe, which §portal-figures already documents; it simply had one more shape.
+
+Added `principal_balance` / `fee_balance` / `total_balance` to `PortalTotals` and the
+transcription tool, with the mirror identity — **principal still owed + fee still owed =
+total balance** — under exactly the discipline the paid identity already carried: a derived
+sum may not vouch for its own parts, and a figure that fails its identity is dropped rather
+than corrected.
+
+**And the field that is the actual point: `amount_remaining_basis`.** A screen that itemises
+can settle, by arithmetic on its own face, whether its headline balance means *principal
+only* or *the whole payback, fee included*. That distinction is the one this module names in
+its own comments as having left PayPal carrying an unexplainable discrepancy for nine
+months, and until now nothing could establish it from a picture. It is MEASURED — the
+headline either equals the total, or equals the principal line, or is dropped. It is never
+assumed, it is null on any screen that does not itemise, and two screens that disagree about
+it produce a dispute rather than a tie-break.
+
+**One guard had to move, and it is session 231's shape exactly.** `provenBalance` — which
+decides whether a balance equal to the funding advanced is a real balance or one number read
+twice — tested the PAID identity only, because that was the only identity that existed. A
+balance proven by an itemised one is proof of the same strength and would still have been
+dropped. The right check, one branch away from the path that needed it. Both proofs now
+count; a DERIVED total still licenses nothing, which is the hole the $125,000 bug walked
+through the first time.
+
+The `as_of` instruction was tightened in the same pass. PayPal's screen prints no balance
+date but does print **"Date Issued: Dec 10, 2025"**, which is exactly the kind of line a
+transcriber grabs and which would have dated today's balance nine months early. The schema
+now names origination, funding, issue and transaction dates as things that are not as-of
+dates, and says to omit when in doubt.
+
+#### 3. Dating an undated screen that states balances
+
+`ledger-dating.ts` could already date an undated screen by finding the unique day a lender's
+own ledger reaches the figure the screen states — but only for a figure measuring what has
+been PAID. The conversion turns out to be three lines of the lender's own arithmetic:
+
+```
+paid so far = what the contract says is owed in total − what is owed now
+```
+
+`paidFromOutstanding()` does it, and there is deliberately **no second dating engine** — a
+second one would drift from the first and every refusal in that file would have to be
+written twice. It refuses rather than guessing when the terms are not on file, when the
+terms do not add up, when the screen states no total, on a sub-cent figure, and on any
+conversion that comes out negative.
+
+The `terms_disagree` refusal earns its place immediately on this very loan:
+`loan_accounts.original_amount` says **$177,500**, and the lender's CSV says
+$157,000 + $20,565.12 = **$177,565.12**. Sixty-five dollars of typed note, which under a
+looser conversion would have produced a confident date that was simply late. §"A typed
+number is never evidence", again, now with a guard that catches it.
+
+Wired into `loan-bundle-plan.ts` §5a. The screen's own paid figures still win; this only
+fills a silence, and only from figures the screen's own arithmetic vouched for.
+
+#### 4. What could NOT be established, and why that is the answer
+
+David asked for `carrying_basis` to be set on PayPal 2 (it is `unknown`, which excludes the
+loan from every lender-comparison check). **It was not set, because the evidence refuses
+it**, and this is the ask-don't-assert rule applying to us rather than to the interface.
+
+Running the two models at the 2026-08-05 anchor, against a lender principal of $58,775.97:
+
+| Model | Prediction | Miss |
+|---|---|---|
+| `gross_payback` = 177,565.12 − 116,100.14 paid | 61,464.98 | **−2,689.01** |
+| `net_principal` = 157,000 − 117,058.53 booked principal | 39,941.47 | **+18,834.50** |
+
+`fits_neither`, and both misses are legible. The gross miss of $2,689.01 is EXACTLY the
+unearned fee at that date — because `fitBasis` compares a gross-basis prediction against a
+`principal_only` observation, and `BasisBalance` carries a `balance_basis` field that
+`fitBasis` never reads. On any loan whose statements are principal-only the gross model can
+therefore never fit, and it will always miss by the unearned fee. That is a defect worth
+its own session, and it plausibly blocks establishing the basis on more than this one loan
+— 21 of 22 are still `unknown`. The net miss of $18,834.50 is a different story and points
+at this loan's four open `double_reallocation` findings.
+
+Setting the field to either value would have been a typed number wearing a measurement's
+clothes. Filed as Tech Debt #34; the loan keeps `unknown`, which is at least true.
+
+#### Verification
+
+`tests/portal-figures.test.mts` 123/123 (was 79), `tests/loan-bundle-balances.test.mts`
+249/249 (was 233), `tests/audit-regressions.test.mts` 33/33, `apply-bundle` 88/88,
+`settlement-lag` 159/159, `export-merge` 30/30. The new assertions include the inverse of
+each fix — a screen whose balances do not add up, a headline matching neither line, a
+derived total trying to license a balance equal to the funding, terms that do not foot, a
+balance larger than the loan, a target falling between two days — so each is red against
+the un-fixed behaviour rather than merely green against the fixed one.
+
+`admin-dashboard/index.html` is **untouched** this session, so `bookkeeping-harness.mjs`
+was not re-run: its subject did not change, and the device VM has no Playwright browser
+installed in any case. `tests/loan-bundle.test.mts` fails to import `pdfjs-dist` on this
+machine — pre-existing, unrelated to this diff.
+
+**Deploy state: NOTHING IS DEPLOYED.** `loan-bundle` is the ~404KB bundle that must go
+through the CLI from David's own terminal, and it carries three of this session's four
+changed files. Checked by nothing — this is a statement about a deploy not attempted, not
+a claim about what is live.
+
 
 ---
 

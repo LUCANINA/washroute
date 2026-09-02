@@ -499,3 +499,135 @@ export function dateFromLedger(input: LedgerDatingInput): LedgerDatingResult {
     statement: parts.join(' '),
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dating a screen that states what is still OWED (session 263)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Everything above dates a figure that measures what has been PAID, because the
+// screen that caused this module — Stripe Capital's — states amounts paid.
+// PayPal's states the mirror image: principal still owed, fee still owed, and
+// the two together. Its screen prints no as-of date either, and it was equally
+// undatable, for a reason that turns out to be a missing three-line conversion
+// rather than anything about the method:
+//
+//     paid so far  =  what the contract says is owed in total  −  what is owed now
+//
+// The identity is exact, and it is the LENDER's own arithmetic on both sides —
+// its contract and its screen. So an outstanding balance becomes a paid figure
+// and `dateFromLedger` dates it unchanged. There is deliberately no second
+// dating engine here; a second one would drift from the first, and every refusal
+// written above would have to be written again.
+//
+// WHAT THIS WILL NOT DO, and it is the whole reason it is a function rather than
+// three lines at the call site:
+//
+//   * It never converts from a balance alone. The conversion needs the contract's
+//     own opening figures, and a loan whose terms are not on file is refused
+//     rather than dated off an assumed principal.
+//   * It refuses terms that do not add up. If the advance plus the fee is not the
+//     total repayment, the three fields do not describe one contract, and
+//     choosing which two to believe is a guess with a date attached.
+//   * It refuses a negative. A balance larger than the loan's own opening figure
+//     means the screen and the terms are not about the same loan, or one of them
+//     is misread. Either way the arithmetic is meaningless and returning it would
+//     hand `dateFromLedger` a target it will politely fail to find.
+
+/** The contract's opening figures. All three, because the conversion checks them. */
+export interface LedgerOpeningTerms {
+  /** The cash advanced. */
+  loan_amount: number | null
+  /** The whole fee, as the contract states it. */
+  fixed_fee: number | null
+  /** Advance plus fee — what the borrower repays in total. */
+  total_repayment_amount: number | null
+}
+
+/** What an itemising screen states is still owed. */
+export interface OutstandingBalances {
+  principal_balance?: number | null
+  fee_balance?: number | null
+  total_balance?: number | null
+}
+
+export type OutstandingConversionRefusal =
+  /** The contract's opening figures are not on file, so there is nothing to subtract from. */
+  | 'no_terms'
+  /** The terms on file do not add up, so they do not describe one contract. */
+  | 'terms_disagree'
+  /** The screen states no total still owed. */
+  | 'no_balance'
+  /** A figure is not a whole number of cents. */
+  | 'unusable_amount'
+  /** The conversion produced a negative amount paid. */
+  | 'impossible_result'
+
+export interface OutstandingConversion {
+  /** Feed straight to `dateFromLedger`'s `target`. Null on any refusal. */
+  target: LedgerDatingFigures | null
+  refused_because: OutstandingConversionRefusal | null
+  /** The working, in plain English. Always populated. */
+  statement: string
+}
+
+/**
+ * Turn "this much is still owed" into "this much has been paid", using the
+ * contract's own opening figures. Integer cents throughout, same as everything
+ * above — a conversion that introduced float drift would make an exact match
+ * unreachable and the whole module would report "no day matches" on a file that
+ * matches perfectly.
+ */
+export function paidFromOutstanding(
+  balances: OutstandingBalances,
+  terms: LedgerOpeningTerms,
+): OutstandingConversion {
+  const loanC = toCents(terms.loan_amount)
+  const feeC = toCents(terms.fixed_fee)
+  const totalC = toCents(terms.total_repayment_amount)
+
+  if (totalC === null) {
+    return { target: null, refused_because: 'no_terms',
+      statement: `This loan's total repayment amount is not on file, so a balance still owed cannot be turned into an amount paid. Upload the agreement, or the lender's own statement of the loan's terms.` }
+  }
+  // The three figures must describe ONE contract. Where all three are on file and
+  // the advance plus the fee is not the total, believing any two of them is a
+  // guess — and a guess here comes back as a confident date.
+  if (loanC !== null && feeC !== null && loanC + feeC !== totalC) {
+    return { target: null, refused_because: 'terms_disagree',
+      statement: `The terms on file do not add up: ${money(major(loanC))} advanced plus ${money(major(feeC))} of fee is ${money(major(loanC + feeC))}, not the ${money(major(totalC))} recorded as the total repayment. Nothing is dated from figures that contradict each other.` }
+  }
+
+  const totalBalC = toCents(balances.total_balance)
+  const princBalC = toCents(balances.principal_balance)
+  const feeBalC = toCents(balances.fee_balance)
+
+  if (balances.total_balance != null && totalBalC === null) {
+    return { target: null, refused_because: 'unusable_amount',
+      statement: `The total still owed read off the screen is not a whole number of cents, so nothing was converted.` }
+  }
+  if (totalBalC === null) {
+    return { target: null, refused_because: 'no_balance',
+      statement: `This screen states no total still owed, so there is nothing to convert into an amount paid.` }
+  }
+
+  const paidC = totalC - totalBalC
+  const financingC = (loanC !== null && princBalC !== null) ? loanC - princBalC : null
+  const feePaidC = (feeC !== null && feeBalC !== null) ? feeC - feeBalC : null
+
+  if (paidC < 0 || (financingC !== null && financingC < 0) || (feePaidC !== null && feePaidC < 0)) {
+    return { target: null, refused_because: 'impossible_result',
+      statement: `Converting this screen's balances against the loan's opening figures gives a negative amount paid, which cannot be true — the screen and the terms on file are not describing the same loan, or one of them has been misread. Nothing was dated.` }
+  }
+
+  const parts = [
+    `${money(major(totalC))} owed in total less ${money(major(totalBalC))} still owed is ${money(major(paidC))} paid`,
+    financingC !== null ? `${money(major(loanC!))} advanced less ${money(major(princBalC!))} still owed is ${money(major(financingC))} of financing paid` : null,
+    feePaidC !== null ? `${money(major(feeC!))} of fee less ${money(major(feeBalC!))} still owed is ${money(major(feePaidC))} of fee paid` : null,
+  ].filter(Boolean)
+
+  return {
+    target: { paid: major(paidC), financing: financingC === null ? null : major(financingC), fee: feePaidC === null ? null : major(feePaidC) },
+    refused_because: null,
+    statement: `${parts.join('; ')}. These are the figures the ledger is measured against.`,
+  }
+}
