@@ -74,6 +74,7 @@ import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
 import { detectPayPalHistoryCsv, parsePayPalHistoryCsv, type PayPalHistoryParseResult } from '../_shared/paypal-history.ts'
+import { describeBasisMiss, describeBasisObserved } from '../_shared/carrying-basis-drift.ts'
 import { findOriginationFeeJournal, classifyFeeDebit, normaliseLedgerEntry, type LedgerEntry, type FeeSearchResult } from '../_shared/origination-fee.ts'
 import { rankFeeCandidates } from './candidates.ts'
 
@@ -155,6 +156,7 @@ const PORTAL_TOOL = {
       principal_balance: { type: 'number', description: 'The principal/financing still OWED, e.g. "Principal balance". This is an outstanding balance, not an amount paid. Omit if not shown.' },
       fee_balance: { type: 'number', description: 'The fee/interest still OWED, e.g. "Fee balance", "Unearned fee". This is an outstanding balance, not an amount paid. Omit if not shown.' },
       total_balance: { type: 'number', description: 'The itemised total still owed where the screen states it as its own line, e.g. a "Total balance" row above a principal and a fee row. Omit if not shown.' },
+      lender_account_ref: { type: 'string', description: 'The loan or account identifier printed on the screen, e.g. a heading reading "Loan (A00845102)" or "Account ID 12345". Copy it exactly as shown. Omit if the screen shows none.' },
       as_of: { type: 'string', description: 'ISO date YYYY-MM-DD that these figures are stated as of, ONLY if the image prints such a date for the BALANCES. Omit otherwise — never infer one. An origination, funding or issue date ("Date Issued", "Loan date", "Funded on") is NOT an as-of date; neither is a transaction date in an activity list, nor the start or end of a period the screen covers. If in doubt, omit it.' },
     },
     required: [],
@@ -199,9 +201,17 @@ async function readPortalScreenshot(base64: string, mediaType: string): Promise<
     if (!block?.input) return null
     const i = block.input
     const numOrNull = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null)
+    const refOrNull = (v: unknown) => {
+      const t = typeof v === 'string' ? v.trim() : ''
+      // Bounded and conservative. A model reading a picture is the least reliable
+      // input here, and this value is only ever used to CORROBORATE a match made
+      // some other way — never to make one. See the caller.
+      return /^[A-Za-z0-9][A-Za-z0-9\-_ ]{2,39}$/.test(t) ? t : null
+    }
     const dateOrNull = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
     return {
       as_of: dateOrNull(i.as_of),
+      lender_account_ref: refOrNull(i.lender_account_ref),
       sources: [], disputes: [], corroborated: [],
       amount_remaining: numOrNull(i.amount_remaining),
       paid_to_date: numOrNull(i.paid_to_date),
@@ -214,6 +224,7 @@ async function readPortalScreenshot(base64: string, mediaType: string): Promise<
       fee_balance: numOrNull(i.fee_balance),
       total_balance: numOrNull(i.total_balance),
       amount_remaining_basis: null,
+      lender_balance_net_principal: null, lender_balance_gross_payback: null,
       checks: [], warnings: [],
     }
   } catch {
@@ -277,6 +288,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   // the plan names the CSV when it proposes them.
   let ledgerTerms: ContractTerm[] = []
   let ledgerTermsSource: string | null = null
+  let csvCoversFromOrigination = false
   let portal: PortalTotals | null = null
   let acctRefFromDoc: string | null = null
   // The lender a parser RECOGNISED, as opposed to an account number it read.
@@ -401,6 +413,8 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
           // field that tells a reader whether the balance beside it includes the
           // fee still to run — the distinction PayPal spent nine months on.
           amount_remaining_basis: checked.amount_remaining_basis ?? null,
+          lender_balance_net_principal: checked.lender_balance_net_principal ?? null,
+          lender_balance_gross_payback: checked.lender_balance_gross_payback ?? null,
           corroborated: checked.corroborated ?? [],
           // Read but NOT used, and why it matters: this is the list that would
           // have answered "where did $125,000.00 come from" in one query.
@@ -620,6 +634,11 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     } else {
       csv = ppFiles[0].parsed; csvRaw = ppFiles[0].text
     }
+    // Does the ledger begin where the loan does? Only an export carrying the
+    // origination row can say so, and only that answer licenses an opening
+    // cumulative of zero downstream.
+    const adopted = ppFiles.find(f => f.parsed === csv)
+    csvCoversFromOrigination = !!adopted?.parsed.origination?.origination_date
   }
 
   // Terms the bundle can rely on: the AGREEMENT first, the lender's transaction
@@ -629,6 +648,21 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   // rule mergePortal follows for two screenshots, and it matters more here: the
   // figure feeds a conversion that puts a DATE on a balance, and a date built on
   // a contested contract figure does not fail loudly.
+  // AN ACCOUNT REFERENCE READ OFF A PICTURE CORROBORATES; IT NEVER MATCHES.
+  //
+  // The plan told David "None of these documents carries an account reference"
+  // while the screenshot in front of him printed A00845102 — and said it under a
+  // tick, so a false negative was wearing a confirmation's clothes. The reader
+  // simply never asked for it.
+  //
+  // It is taken as a HINT and nothing more, which is the same standing rule
+  // loan-document-intake applies: a vision-claimed account number that matches a
+  // known loan is never an auto-match, because the one thing a model reading a
+  // picture must not do is decide which loan money belongs to. So it can confirm
+  // a match already made by lender name, and it can CONTRADICT one — which is the
+  // valuable direction — but `acctRefFromDoc` is only adopted for matching when a
+  // deterministic document parser produced it.
+  const acctRefFromScreen: string | null = portal?.lender_account_ref ?? null
   const termConflicts: string[] = []
   const combinedTerms: ContractTerm[] = (() => {
     const out = [...agreementTerms]
@@ -702,7 +736,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       treatment_kind: feeSearch.treatment?.kind ?? null,
     } : null,
     agreementTerms, agreementChecks, agreementUnresolved,
-    ledgerTerms, ledgerTermsSource, termConflicts,
+    ledgerTerms, ledgerTermsSource, termConflicts, csvCoversFromOrigination,
     csv, csvNote: csvMergeNote, decomposition,
     portal: portal ? {
       as_of: portal.as_of, amount_remaining: portal.amount_remaining,
@@ -711,6 +745,8 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       principal_balance: portal.principal_balance, fee_balance: portal.fee_balance,
       total_balance: portal.total_balance,
       amount_remaining_basis: portal.amount_remaining_basis ?? null,
+      lender_balance_net_principal: portal.lender_balance_net_principal ?? null,
+      lender_balance_gross_payback: portal.lender_balance_gross_payback ?? null,
       // The verdict travels with the figures. It did not, and while it stayed
       // behind, the planner could only ever ask whether a balance was PRESENT —
       // which on this very loan was true of $125,000 of funding read as
@@ -747,12 +783,36 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     splits: ctx.splits,
   })
   if (drift.verdict === 'payments_unsplit' || drift.verdict === 'fits_neither') {
+    // "EXPECTED: ONE OF THE EXPECTED SHAPES" (session 263 cont.).
+    //
+    // `expected` was built from the models that FIT — and this branch runs
+    // precisely when none of them does, so on `fits_neither` the list was always
+    // empty and the placeholder always fired. The card that appears when the tool
+    // cannot explain a loan was the one card that explained nothing: a heading, a
+    // tautology, and a bare `58775.97` with no currency, no thousands separator
+    // and no date, on a bundle whose screenshot said $46,144.59.
+    //
+    // A model that missed is not nothing to report. It is the most useful thing
+    // here: WHICH shape was tried, what it predicted, and by how much it was out.
+    // On this loan the gross model misses by exactly the unearned fee, which is
+    // the fingerprint of Tech Debt #34 rather than of anything wrong with the
+    // loan — and a reader can only see that if the misses are printed.
+    const asOfRow = [...(ctx.statements || [])]
+      .filter((r: any) => r.principal_balance != null)
+      .sort((a: any, b: any) => String(a.statement_date).localeCompare(String(b.statement_date)))
+      .slice(-1)[0]
     plan.conflicts.push({
       key: `carrying_basis_${drift.verdict}`, statement: drift.title,
-      expected: drift.fits.filter(f => f.fits).map(f => f.means).join('; ') || 'one of the expected shapes',
-      found: `${drift.fits[0]?.observed?.toFixed(2) ?? '?'} on the books`,
+      expected: describeBasisMiss(drift.fits),
+      found: describeBasisObserved(drift.fits, asOfRow?.statement_date ?? null),
       sources: ['agreement', 'loan history'], severity: drift.severity as any,
-      caveat: drift.suggested_next_step,
+      caveat: [
+        drift.suggested_next_step,
+        // The comparison is against the newest book row, which on a bundle
+        // carrying a fresher lender screen is NOT today. Saying which day it
+        // speaks for is the difference between a finding and a nag.
+        asOfRow ? `This compares the newest balance on file, dated ${asOfRow.statement_date}. A lender figure in this bundle for a later day is not what was measured here.` : '',
+      ].filter(Boolean).join(' '),
     })
   }
   ;(plan as any).basis_check = {
@@ -802,11 +862,40 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       statement: `These documents were matched to ${loan.xero_account_name || loan.lender} by ${matchedOn}.`,
       sources: ['agreement', 'loan record'], tie: 'exact',
     })
-    if (!acctRefFromDoc || loan.lender_account_number !== acctRefFromDoc) {
+    // A reference a DETERMINISTIC parser read wins; a reference read off a
+    // picture is reported as what it is. The old code knew only the first kind,
+    // so on a bundle whose screenshot plainly printed "Loan (A00845102)" it said
+    // no document carried a reference at all — under a tick, which made a false
+    // negative read as a confirmation. Saying "we could not check" and saying
+    // "we checked and found nothing" are different statements and only one of
+    // them was true.
+    const screenRef = acctRefFromScreen
+    const parsedRef = acctRefFromDoc
+    const norm = (x: string | null) => (x || '').replace(/[\s-]/g, '').toUpperCase()
+    if (parsedRef && loan.lender_account_number === parsedRef) {
+      // nothing to say: the reference agrees and the match is already stated above.
+    } else if (parsedRef) {
       plan.corroborations.push({
-        statement: acctRefFromDoc
-          ? `This loan's record stores its account number as "${loan.lender_account_number}", while the lender's own documents use "${acctRefFromDoc}". Recording the contract terms below files the lender's reference too, so the next set of documents for this loan is recognised without being asked.`
-          : `None of these documents carries an account reference, so the match rests on the lender's name alone.`,
+        statement: `This loan's record stores its account number as "${loan.lender_account_number}", while the lender's own documents use "${parsedRef}". Recording the contract terms below files the lender's reference too, so the next set of documents for this loan is recognised without being asked.`,
+        sources: ['loan record'], tie: 'within_tolerance',
+      })
+    } else if (screenRef && norm(screenRef) === norm(loan.lender_account_number)) {
+      plan.corroborations.push({
+        statement: `The screenshot prints "${screenRef}", which is the account number on this loan's record — so the match by lender name is backed by an identifier as well. It was read off the image rather than parsed from a document, so it confirms the match rather than making it.`,
+        sources: ['loan record', 'lender portal'], tie: 'exact',
+      })
+    } else if (screenRef) {
+      // The direction that actually matters. A reference that does NOT match is
+      // evidence these documents may belong to a different loan, and it must not
+      // be filed under corroborations as though it were reassurance.
+      plan.unresolved.push({
+        question: `Do these documents belong to this loan?`,
+        why_it_matters: `Everything proposed below is written against ${loan.xero_account_name || loan.lender}. Filing another loan's balance here is not a cosmetic error — it becomes the figure the books are checked against.`,
+        what_would_answer_it: `The match was made on the lender's name alone, and the screenshot prints "${screenRef}" where this loan's record stores "${loan.lender_account_number}". Those may be the same account written two ways, or these documents may be for a different loan. Confirm the account number before applying anything.`,
+      })
+    } else {
+      plan.corroborations.push({
+        statement: `None of these documents carries an account reference, so the match rests on the lender's name alone.`,
         sources: ['loan record'], tie: 'within_tolerance',
       })
     }

@@ -41,6 +41,7 @@ import {
 } from '../supabase/functions/_shared/loan-bundle-apply.ts'
 import { dateFromLedger, paidFromOutstanding, type LedgerDay } from '../supabase/functions/_shared/ledger-dating.ts'
 import { parsePayPalHistoryCsv } from '../supabase/functions/_shared/paypal-history.ts'
+import { detectCarryingBasisDrift, describeBasisMiss, describeBasisObserved } from '../supabase/functions/_shared/carrying-basis-drift.ts'
 import { parseStripeCapitalCsv } from '../supabase/functions/_shared/stripe-capital.ts'
 
 let pass = 0, fail = 0
@@ -1168,6 +1169,191 @@ section('the ledger and the agreement are not the same kind of evidence')
      recs.some(r => /from the agreement/.test(r.title)) &&
      recs.some(r => /transaction history/.test(r.title)),
      recs.map(r => r.title).join(' | '))
+}
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session 263 cont. 2 — the five defects the first live run exposed.
+// Every one is asserted against the BROKEN behaviour as well as the fixed one,
+// because a test that passes either way is decoration.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PP_CSV = [
+  'Date,Description,Amount,Principal,Fee,Other',
+  '09/02/2026,Auto Draft Payment,"-$3,414.71","-$3,180.33","-$234.38","$0.00"',
+  '08/26/2026,Auto Draft Payment,"-$3,414.71","-$3,165.30","-$249.41","$0.00"',
+  '12/10/2025,Wire,"$157,000.00","$157,000.00","$0.00","$0.00"',
+  '12/10/2025,Total Loan Fee,"$20,565.12","$0.00","$20,565.12","$0.00"',
+].join('\n')
+
+// The screen as checkPortalTotals leaves it: itemised, no headline, no date.
+const ppScreen = (over: Record<string, unknown> = {}) => ({
+  as_of: null, amount_remaining: null, paid_to_date: null, principal_paid: null,
+  fee_paid: null, total_amount_due: null, funds_deposited: null, funds_deposited_date: null,
+  principal_balance: 46144.59, fee_balance: 1661.55, total_balance: 47806.14,
+  amount_remaining_basis: null,
+  lender_balance_net_principal: 46144.59, lender_balance_gross_payback: 47806.14,
+  corroborated: ['principal_balance', 'fee_balance', 'total_balance'],
+  ...over,
+} as any)
+
+section('A — an itemised screen with no headline can still be dated')
+{
+  const pp = parsePayPalHistoryCsv(PP_CSV)
+  // The screen must describe THIS ledger, or the dating engine is right to refuse
+  // and the test proves nothing. Built from the parse so the two cannot drift:
+  // after both payments, $150,654.37 of principal and $20,081.33 of fee are owed.
+  const owedPrincipal = pp.origination!.loan_amount! - pp.totals!.principal_paid
+  const owedFee = pp.origination!.fixed_fee! - pp.totals!.fee_paid
+  const owedTotal = Math.round((owedPrincipal + owedFee) * 100) / 100
+  const ledgerScreen = (over: Record<string, unknown> = {}) => ppScreen({
+    principal_balance: owedPrincipal, fee_balance: owedFee, total_balance: owedTotal,
+    lender_balance_net_principal: owedPrincipal, lender_balance_gross_payback: owedTotal,
+    ...over,
+  })
+  const base = ctxOf({
+    loan: { ...ctxOf().loan, id: 'loan-pp', lender: 'PayPal', xero_account_name: 'Paypal 2',
+            lender_account_number: 'A00845102', original_amount: 177500, xero_account_code: '284' },
+    agreementTerms: [], ledgerTerms: pp.terms as any, ledgerTermsSource: 'Paypal Loan.csv',
+    csv: pp as any, csvCoversFromOrigination: true,
+    documents: [{ filename: 'Paypal Loan.csv', kind: 'transaction_history', sha256: 'abc' },
+                { filename: 'Paypal today.png', kind: 'balance_screenshot', sha256: 'def' }] as any,
+    statements: [sweep('2026-08-26', 153834.70, 'principal_only')],
+    portal: ledgerScreen(),
+  } as any)
+  const plan = buildPlan(base)
+  const dating = (plan as any).portal_dating ?? null
+
+  // The anchor action is the observable proof the date was established: it is
+  // blocked without one and offered with one.
+  const anchor = of(plan, 'record_lender_balance')
+  ok('the lender-balance row is proposed at all', !!anchor, JSON.stringify(plan.actions.map(a => a.kind)))
+  ok('and it is NOT blocked for want of a date',
+     !!anchor && !(anchor as any).blocked_reason,
+     String((anchor as any)?.blocked_reason || '').slice(0, 160))
+  ok('the date measured off the ledger is 2026-09-02',
+     JSON.stringify(anchor?.payload || {}).includes('2026-09-02'),
+     JSON.stringify(anchor?.payload))
+
+  // DISCRIMINATION: strip the itemised figures and the row must go back to being
+  // blocked — proving the fix is what carries it, not something else in the ctx.
+  const noItems = buildPlan(ctxOf({ ...base,
+    portal: ledgerScreen({ principal_balance: null, fee_balance: null, total_balance: null,
+                       lender_balance_net_principal: null, lender_balance_gross_payback: null,
+                       corroborated: [] }) } as any))
+  ok('without the itemised figures there is no anchor to propose',
+     !of(noItems, 'record_lender_balance'))
+}
+
+section('B — the balance is compared on the basis the books actually carry')
+{
+  const pp = parsePayPalHistoryCsv(PP_CSV)
+  const mk = (bookBal: number, basis: string) => buildPlan(ctxOf({
+    loan: { ...ctxOf().loan, id: 'loan-pp', lender: 'PayPal', xero_account_name: 'Paypal 2',
+            lender_account_number: 'A00845102', original_amount: 177500, xero_account_code: '284' },
+    agreementTerms: [], ledgerTerms: pp.terms as any, csv: pp as any,
+    documents: [], statements: [sweep('2026-09-02', bookBal, basis)],
+    portal: ppScreen({ as_of: '2026-09-02' }),
+  } as any))
+
+  // Principal-only books agree with the PRINCIPAL line, not the total.
+  const net = mk(46144.59, 'principal_only')
+  ok('a principal-only book balance ties to the principal line',
+     net.corroborations.some(c => /agree on the balance/.test(c.statement) && /principal only/.test(c.statement)),
+     JSON.stringify(net.corroborations.map(c => c.statement)).slice(0, 300))
+
+  // The SAME book figure against a payoff-basis book row must NOT tie — that is
+  // the comparison the old code made, and it is off by the unearned fee.
+  const grossBooks = mk(47806.14, 'total_payback')
+  ok('a payoff-basis book balance ties to the total instead',
+     grossBooks.corroborations.some(c => /agree on the balance/.test(c.statement) && /whole payback/.test(c.statement)))
+
+  // THE BUG, PINNED: comparing a principal-only book row against the gross figure
+  // produces exactly the unearned fee as a phantom gap. It must not happen.
+  const wrong = mk(46144.59, 'principal_only')
+  ok('no phantom gap equal to the unearned fee is reported',
+     !JSON.stringify(wrong.conflicts).includes('1,661.55'),
+     JSON.stringify(wrong.conflicts).slice(0, 300))
+
+  // An unlabelled book balance is not compared to anything — it is asked about.
+  const unknown = mk(46144.59, 'unknown')
+  ok('an unlabelled book balance raises a question rather than a comparison',
+     unknown.unresolved.some(u => /Which balance should the lender's screen be compared against/.test(u.question)),
+     JSON.stringify(unknown.unresolved.map(u => u.question)))
+  ok('...and no books-vs-lender conflict is raised off it',
+     !unknown.conflicts.some(c => c.key === 'books_vs_lender'))
+}
+
+section('C — the loan record is checked against terms from ANY lender document')
+{
+  const pp = parsePayPalHistoryCsv(PP_CSV)
+  const plan = buildPlan(ctxOf({
+    loan: { ...ctxOf().loan, id: 'loan-pp', lender: 'PayPal', xero_account_name: 'Paypal 2',
+            lender_account_number: 'A00845102', original_amount: 177500, original_date: null,
+            xero_account_code: '284' },
+    agreementTerms: [], ledgerTerms: pp.terms as any, csv: pp as any,
+    documents: [], statements: [], portal: null,
+  } as any))
+
+  const amt = plan.conflicts.find(c => c.key === 'term_original_amount')
+  ok('the typed original amount is challenged with no agreement present', !!amt,
+     JSON.stringify(plan.conflicts.map(c => c.key)))
+  ok('...and BOTH lender figures are named', !!amt &&
+     /157,000\.00 advanced/.test(amt.expected) && /177,565\.12 repaid/.test(amt.expected), amt?.expected)
+  ok('...and the $65.12 is stated', !!amt && /\$65\.12/.test(amt.caveat || ''), amt?.caveat)
+  ok('...and NO write is proposed for it, because choosing is the basis question',
+     !plan.actions.some(a => a.kind === 'apply_term_to_loan' && (a.payload as any)?.field === 'original_amount'))
+
+  // The origination date IS unambiguous, so that one does get an action.
+  const dateAct = plan.actions.find(a => a.kind === 'apply_term_to_loan' && (a.payload as any)?.field === 'original_date')
+  ok('the blank origination date is offered from the ledger', !!dateAct, JSON.stringify(plan.actions.map(a => a.title)))
+  ok('...and the row names the transaction history, not an agreement',
+     !!dateAct && /transaction history/.test(dateAct.plain_english), dateAct?.plain_english)
+
+  // A record that already matches one basis is corroborated, not challenged.
+  const right = buildPlan(ctxOf({
+    loan: { ...ctxOf().loan, id: 'loan-pp', lender: 'PayPal', original_amount: 177565.12, xero_account_code: '284' },
+    agreementTerms: [], ledgerTerms: pp.terms as any, csv: pp as any,
+    documents: [], statements: [], portal: null,
+  } as any))
+  ok('a record matching the gross figure is corroborated instead',
+     !right.conflicts.some(c => c.key === 'term_original_amount') &&
+     right.corroborations.some(c => /whole payback, fee included/.test(c.statement)),
+     JSON.stringify(right.corroborations.map(c => c.statement)).slice(0, 260))
+}
+
+section('E — the basis card says which shape was tried and by how much it missed')
+{
+  const drift = detectCarryingBasisDrift({
+    loan_id: 'x', loan_label: 'Paypal 2', recorded_basis: 'unknown',
+    terms: { loan_amount: 157000, fixed_fee: 20565.12, total_repayment_amount: 177565.12 },
+    balances: [{ statement_date: '2026-08-05', principal_balance: 58775.97 }],
+    splits: [{ period_label: '2026-08-05', principal_amount: 117058.53, interest_amount: -958.39, total_amount: 116100.14 }],
+  })
+  ok('the real loan still comes back fits_neither', drift.verdict === 'fits_neither', drift.verdict)
+
+  const expected = describeBasisMiss(drift.fits)
+  ok('the placeholder is gone', !/one of the expected shapes/.test(expected), expected)
+  ok('each model names its prediction', /would put it at/.test(expected), expected)
+  ok('the gross miss is the unearned fee, and it is printed',
+     /-\$2,689\.01/.test(expected), expected)
+  ok('the net miss is printed too', /\$18,834\.50/.test(expected), expected)
+  ok('money is formatted, not raw', !/61464\.98/.test(expected) && /\$61,464\.98/.test(expected), expected)
+
+  const found = describeBasisObserved(drift.fits, '2026-08-05')
+  ok('the observed balance is money-formatted', /\$58,775\.97/.test(found), found)
+  ok('...and names the day it speaks for', /at 2026-08-05/.test(found), found)
+
+  // When a model DOES fit, the old wording is what should appear.
+  const fitting = describeBasisMiss([
+    { basis: 'gross_payback', predicted: 1, observed: 1, difference: 0, fits: true, means: 'the fee sits inside the balance' } as any,
+    { basis: 'net_principal', predicted: 9, observed: 1, difference: -8, fits: false, means: 'nope' } as any,
+  ])
+  ok('a fitting model is described by what it MEANS, not by its miss',
+     fitting === 'the fee sits inside the balance', fitting)
+  ok('nothing to predict from is said plainly',
+     /opening figures are not on file/.test(describeBasisMiss([])))
 }
 
 

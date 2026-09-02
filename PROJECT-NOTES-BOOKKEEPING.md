@@ -40,8 +40,10 @@
 >
 > ### Session 263 left this, and item 1 is a DEPLOY
 >
-> 0. **🔴 REDEPLOY `loan-bundle` — session 263 cont. added `_shared/paypal-history.ts`
->    and rewired the CSV branch. The 21:30 UTC deploy predates it.**
+> 0. **🔴 REDEPLOY `loan-bundle` — session 263 cont. 2 fixed five defects the first live
+>    run exposed. The v41 deploy predates them.** Check FUNCTIONALLY: an itemised screenshot
+>    with no printed date should come back DATED, and the basis card should name each
+>    model's miss instead of "one of the expected shapes".
 > 1. **The earlier deploy note, kept for the command:** Three of the four
 >    changed files are its dependencies (`_shared/portal-figures.ts`,
 >    `_shared/ledger-dating.ts`, `_shared/loan-bundle-plan.ts`). `loan-bundle` is the
@@ -2949,12 +2951,77 @@ document, but the TARGET is the screenshot. A screen that disagrees with the led
 no day — `target_beyond_export` on one wrong balance, `between_days` on another — which is
 the failure a circular check cannot produce.
 
+#### 6. (cont. 2, same day) THE FIRST LIVE RUN, AND THE THREE BRANCHES I LEFT BEHIND
+
+David ran the bundle. Four things worked and were proven by the screen itself — the CSV
+described as the lender's ledger, the screenshot as itemising what is still owed, the
+screen's own arithmetic checked ($46,144.59 + $1,661.55 = $47,806.14), and the terms action
+titled *"from the lender's transaction history"*. The clinching evidence was the BLOCKED
+opening-balance card, which said the day-one balance is *"$177,565.12 on a payoff basis; on
+a principal basis it is the $157,000.00 borrowed"* — **$177,565.12 exists nowhere on file
+except the CSV's origination rows.** The new reader was live and its terms were flowing.
+
+Three things did not work, and all three are the same defect, committed by me, in the file
+whose notes I had updated that morning with the rule against it. **A guard is only as good
+as the branch it sits on — and so is a reader.** I added a second source of truth and left
+three consumers keyed to the first:
+
+* **The screenshot got no date.** §5a gated on `amount_remaining` being present and
+  corroborated. PayPal's screen has no headline balance — it labels its rows *Principal
+  balance / Fee balance / Total balance* — so `amount_remaining` is correctly null, and a
+  screen stating MORE than Stripe's could not be dated at all. The gate is now
+  `portalPaidTarget` alone, which already carries the entire corroboration requirement.
+* **The basis was never established.** Same root, and the fix reframes the question.
+  `amount_remaining_basis` can only answer "what does the headline measure" where a headline
+  exists. **A screen that itemises does not need classifying onto one basis — it states
+  both**, so `lender_balance_net_principal` and `lender_balance_gross_payback` are carried
+  and §5 picks whichever matches the book row's own `balance_basis`. Where the book row is
+  `unknown`, no comparison is made and a question is raised instead. That is this module's
+  oldest bug — two quantities on two bases subtracted from each other — fixed at the source
+  rather than at one call site.
+* **The $65.12 was never raised.** The whole terms-vs-loan-record comparison sat inside
+  `if (hasAgreement)`. No agreement PDF, no comparison. Now ungated, and each row names the
+  document it came from. **`original_amount` deliberately gets NO proposed write**: the field
+  can hold the cash advanced or the whole payback, the record's $177,500 matches neither, and
+  choosing between them IS the carrying-basis question rather than a typo to correct. Both
+  candidates are printed and the $65.12 is named.
+
+Two pre-existing defects the run exposed, both now fixed:
+
+* **"Expected: one of the expected shapes."** That string was built from the models that
+  FIT, on a card that only renders when none of them does — so the card that appears when
+  the tool cannot explain a loan was the one card that explained nothing, every time. It now
+  prints each model's prediction and miss (`describeBasisMiss`, pure and tested), money
+  formatted, with the date the compared balance speaks for. On this loan it reads *"the whole
+  payback would put it at $61,464.98, out by -$2,689.01 · principal only would put it at
+  $39,941.47, out by $18,834.50"* — and the first of those is the unearned fee to the cent,
+  which is the **fingerprint of Tech Debt #34 rather than of anything wrong with the loan.**
+  A reader can only see that if the misses are printed.
+* **"None of these documents carries an account reference"** — said under a tick, while the
+  screenshot in front of David printed `A00845102`. The reader never asked for it. It is
+  read now and treated as intake's rule requires: a hint that can CONFIRM a match made by
+  lender name and can CONTRADICT one, never make one. A non-matching reference is an
+  Unresolved question, not a corroboration — that is the direction that matters.
+
+**And one bug the tests caught that the live run would have hit next.** Dating refused with
+`coverage_starts_late` on a demonstrably complete file: the period start is the origination
+date (2025-12-10) and the first withholding is a week later (2025-12-17), so the cumulative
+looked short. `openingCumulative: 0` is the documented way past it and is *"a claim, not a
+convenience"* — so it is passed only on the evidence that licenses it, `csvCoversFromOrigination`,
+true when the export carries the loan's own advance row. There is nothing earlier for the
+file to be missing.
+
 #### Verification
 
 `portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
-`loan-bundle-balances` 257/257 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
+`loan-bundle-balances` 283/283 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
 `settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
-112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13 — 922 green, 0 red. The new assertions include the inverse of
+112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13 — **948 green, 0 red.**
+
+Every session-263-cont.-2 assertion has its inverse beside it: strip the itemised figures
+and the anchor goes back to being unproposable; feed a payoff-basis book row and the tie
+moves to the total; leave the book row unlabelled and the comparison is refused; give the
+loan record a figure that DOES match and it is corroborated instead of challenged. The new assertions include the inverse of
 each fix — a screen whose balances do not add up, a headline matching neither line, a
 derived total trying to license a balance equal to the funding, terms that do not foot, a
 balance larger than the loan, a target falling between two days — so each is red against

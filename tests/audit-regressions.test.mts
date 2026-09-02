@@ -21,6 +21,7 @@ const blank = (o: any = {}): any => ({
   as_of: null, amount_remaining: null, paid_to_date: null, principal_paid: null,
   fee_paid: null, total_amount_due: null, funds_deposited: null, funds_deposited_date: null,
   principal_balance: null, fee_balance: null, total_balance: null, amount_remaining_basis: null,
+  lender_balance_net_principal: null, lender_balance_gross_payback: null,
   sources: [], checks: [], warnings: [], disputes: [], corroborated: [], ...o })
 
 section('A — the derived sum must not launder the $125,000 misread')

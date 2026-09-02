@@ -436,3 +436,42 @@ export function detectCarryingBasisDrift(input: DriftInput): DriftResult {
     detail,
   }
 }
+
+/**
+ * How to describe a basis check on the card a person actually reads (session 263).
+ *
+ * The caller used to build this inline as
+ * `fits.filter(f => f.fits).map(f => f.means).join('; ') || 'one of the expected shapes'`
+ * — a list of the models that FIT, rendered on a card that only appears when
+ * none of them does. So the branch that ran when the tool could not explain a
+ * loan was the one branch that explained nothing, every single time.
+ *
+ * A model that MISSED is the useful thing here: which shape was tried, what it
+ * predicted, and by how much it was out. On the loan that exposed this, the
+ * gross model misses by exactly the unearned fee — the fingerprint of a defect
+ * in the check rather than of anything wrong with the loan — and that is only
+ * visible if the misses are printed.
+ *
+ * Pure, so it can be tested. It is a sentence about money and it was wrong.
+ */
+export function describeBasisMiss(fits: BasisFit[]): string {
+  const fitting = fits.filter(f => f.fits)
+  if (fitting.length) return fitting.map(f => f.means).join('; ')
+  if (!fits.length) return `nothing to predict from — this loan's opening figures are not on file`
+  const name = (b: BasisModel) =>
+    b === 'gross_payback' ? 'the whole payback'
+      : b === 'net_principal' ? 'principal only'
+      : 'principal only, payments unsplit'
+  return fits
+    .map(f => `${name(f.basis)} would put it at ${money(f.predicted)}, out by ${money(f.difference)}`)
+    .join(' · ')
+}
+
+/** The book balance a basis check actually spoke about, formatted, with its date. */
+export function describeBasisObserved(fits: BasisFit[], asOfDate: string | null): string {
+  const observed = fits[0]?.observed
+  if (observed === undefined || observed === null || !Number.isFinite(observed)) {
+    return 'no book balance to compare'
+  }
+  return `${money(observed)} on the books${asOfDate ? ` at ${asOfDate}` : ''}`
+}

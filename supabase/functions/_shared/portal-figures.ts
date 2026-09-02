@@ -51,6 +51,37 @@ export interface PortalTotals {
    * most screens — an unproven basis stays unstated.
    */
   amount_remaining_basis: 'gross_payback' | 'net_principal' | null
+  /**
+   * THE LENDER'S BALANCE ON EACH BASIS, where the screen itemises (session 263 cont.).
+   *
+   * `amount_remaining_basis` answers "what does the headline measure", and it can
+   * only answer at all when a headline exists. PayPal's screen has none — it
+   * labels its rows "Principal balance", "Fee balance", "Total balance" — so the
+   * basis came back null and the balance came back unusable, on a screen that
+   * states BOTH balances outright.
+   *
+   * That is the wrong question to have been asking. A screen that itemises does
+   * not need to be classified onto one basis; it states them both, and the
+   * comparison downstream should pick the one that matches whatever the books
+   * are carrying. Which is the module's oldest bug, finally addressed at the
+   * source rather than at the comparison: PayPal spent nine months carrying an
+   * unexplainable discrepancy because two figures on two bases were compared as
+   * though they were one quantity.
+   *
+   * Both are set only when the itemisation survived its own arithmetic. Null on
+   * a screen that does not itemise, which is most of them.
+   */
+  lender_balance_net_principal: number | null
+  lender_balance_gross_payback: number | null
+  /**
+   * The loan or account identifier printed on the screen, when it prints one.
+   *
+   * A HINT, never a match. loan-document-intake's standing rule is that a
+   * vision-claimed account number matching a known loan is never an auto-match,
+   * and the same applies here: this can confirm a match already made, and it can
+   * contradict one, but it may not decide which loan money belongs to.
+   */
+  lender_account_ref?: string | null
   /** Which screenshot(s) these figures came from. Needed to say WHO disagreed. */
   sources: string[]
   /**
@@ -100,6 +131,8 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   // Set only where the screen's own arithmetic establishes it. Stays null
   // otherwise; a basis nobody proved is worse than no basis at all.
   let basis: PortalTotals['amount_remaining_basis'] = null
+  let netBalance: number | null = null
+  let grossBalance: number | null = null
   const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   // A caller that predates these fields hands us `undefined`, not `null`, and
@@ -109,6 +142,8 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
   p.principal_balance = p.principal_balance ?? null
   p.fee_balance = p.fee_balance ?? null
   p.total_balance = p.total_balance ?? null
+  p.lender_balance_net_principal = p.lender_balance_net_principal ?? null
+  p.lender_balance_gross_payback = p.lender_balance_gross_payback ?? null
 
   // A screen that states the PARTS but not the SUM.
   //
@@ -206,6 +241,17 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
     }
   }
 
+  // Both bases, stated, where the itemisation held. `total_balance` may have
+  // been derived from the two printed parts a moment ago — that is the lender's
+  // own arithmetic on its own two figures, and it is fine as a STATEMENT of the
+  // gross quantity. What a derived sum may never do is CORROBORATE its own
+  // parts, and it does not: `corroborated` is untouched here.
+  if (p.principal_balance !== null && p.fee_balance !== null && p.total_balance !== null) {
+    netBalance = p.principal_balance
+    grossBalance = p.total_balance
+    checks.push(`This screen states the balance on both bases: ${fmt(p.principal_balance)} of principal still owed, and ${fmt(p.total_balance)} including the ${fmt(p.fee_balance)} of fee still to run. Which one the books have to agree with depends on how this loan is carried.`)
+  }
+
   // A funding figure transcribed into the balance field.
   //
   // On a funding screen the same number is routinely read twice — once correctly
@@ -271,7 +317,10 @@ export function checkPortalTotals(p: PortalTotals): PortalTotals {
     }
   }
 
-  return { ...p, checks, warnings, corroborated, disputes: p.disputes ?? [], amount_remaining_basis: basis ?? p.amount_remaining_basis ?? null }
+  return { ...p, checks, warnings, corroborated, disputes: p.disputes ?? [],
+    amount_remaining_basis: basis ?? p.amount_remaining_basis ?? null,
+    lender_balance_net_principal: netBalance ?? p.lender_balance_net_principal ?? null,
+    lender_balance_gross_payback: grossBalance ?? p.lender_balance_gross_payback ?? null }
 }
 
 /**
@@ -318,6 +367,8 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
     principal_balance: 'the principal still owed',
     fee_balance: 'the fee still owed',
     total_balance: 'the total still owed',
+    lender_balance_net_principal: 'the principal still owed',
+    lender_balance_gross_payback: 'the whole payback still owed',
   }
 
   const aOk = (k: string) => (a.corroborated ?? []).includes(k)
@@ -415,6 +466,8 @@ export function mergePortal(a: PortalTotals, b: PortalTotals): PortalTotals {
     principal_balance: num('principal_balance'),
     fee_balance: num('fee_balance'),
     total_balance: num('total_balance'),
+    lender_balance_net_principal: num('lender_balance_net_principal'),
+    lender_balance_gross_payback: num('lender_balance_gross_payback'),
     amount_remaining_basis,
     funds_deposited_date,
     sources: [...a.sources, ...b.sources],

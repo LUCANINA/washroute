@@ -92,6 +92,8 @@ export interface BundleDocument {
     fee_balance: number | null
     total_balance: number | null
     amount_remaining_basis: 'gross_payback' | 'net_principal' | null
+    lender_balance_net_principal: number | null
+    lender_balance_gross_payback: number | null
     corroborated: string[]
     dropped: string[]
   } | null
@@ -196,6 +198,22 @@ export interface PlanContext {
    * ends up speaking in the lender's voice. The action that records these names
    * the CSV.
    */
+  /**
+   * True when the transaction export CONTAINS this loan's origination row, and
+   * therefore begins at the loan's own beginning.
+   *
+   * This is the evidence for `openingCumulative: 0` when dating a screenshot.
+   * ledger-dating.ts calls that "a claim, not a convenience" — passing zero
+   * asserts nothing was withheld between the period start and the file's first
+   * day — and an export carrying the advance itself is exactly the evidence for
+   * the claim: there is no earlier activity for the file to be missing.
+   *
+   * Without it, a loan originated 2025-12-10 whose first payment is 2025-12-17
+   * refuses with `coverage_starts_late` on a file that is demonstrably complete,
+   * because the period start falls a week before the first withholding. That is
+   * the refusal doing its job with the wrong input, not a file that is short.
+   */
+  csvCoversFromOrigination?: boolean
   ledgerTerms?: ContractTerm[]
   /** The file those terms were read from, for the action's title. */
   ledgerTermsSource?: string | null
@@ -259,6 +277,13 @@ export interface PlanContext {
      * tell it, from evidence, whether the balance beside it includes the fee.
      */
     amount_remaining_basis: 'gross_payback' | 'net_principal' | null
+    /**
+     * The lender's balance on EACH basis, where the screen itemised. This is what
+     * lets §5 compare like for like instead of classifying the screen onto one
+     * basis it may never have stated.
+     */
+    lender_balance_net_principal: number | null
+    lender_balance_gross_payback: number | null
     /**
      * Which of the figures above took part in an identity that CAME OUT RIGHT —
      * checkPortalTotals' own verdict, carried through the merge.
@@ -418,20 +443,81 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
       default_checked: true,
     })
 
-    // Terms that CONTRADICT the loan record. Each is a separate tick, because
-    // agreeing that the maturity date is wrong is a different decision from
-    // agreeing what the payment schedule is.
+  }
+
+  // ── 2c. Terms that CONTRADICT the loan record ───────────────────────────
+  //
+  // UNGATED FROM THE AGREEMENT (session 263 cont.). This whole block sat inside
+  // `if (hasAgreement)`, so a lender that sends no agreement PDF — PayPal sends
+  // none — could state its terms in its own transaction history and never have
+  // them held up against what is typed on the loan record. On the loan that
+  // exposed it, the record says $177,500 where the lender's own rows say
+  // $157,000.00 + $20,565.12 = $177,565.12, and nothing said a word.
+  //
+  // Third time in one day I have added a source of truth and left a consumer
+  // keyed to the old one. The rule I wrote into the notes this morning is that a
+  // guard is only as good as the branch it sits on; the same is true of a reader.
+  {
+    // Which document a term came from, so the row can name it. A term is the
+    // agreement's if it is in that list; anything else reached us through the
+    // lender's own ledger.
+    const sourceOf = (key: string) =>
+      ctx.agreementTerms.some(t => t.term_key === key) ? 'the agreement' : `the lender's transaction history`
     const compare: { term: string; field: string; label: string; onFile: unknown; fromDoc: unknown }[] = []
     if (finalRepayment) compare.push({ term: 'final_repayment_date', field: 'maturity_date', label: 'Maturity date', onFile: ctx.loan.maturity_date, fromDoc: finalRepayment })
     if (origination) compare.push({ term: 'origination_date', field: 'original_date', label: 'Origination date', onFile: ctx.loan.original_date, fromDoc: origination })
-    if (loanAmount !== null) compare.push({ term: 'loan_amount', field: 'original_amount', label: 'Original amount', onFile: ctx.loan.original_amount, fromDoc: loanAmount })
+    // `original_amount` IS AMBIGUOUS AND MUST NOT BE SET FROM ONE BASIS.
+    //
+    // The field can mean the cash advanced or the whole payback, and the record
+    // does not say which. Proposing `loan_amount` into it whenever they differ
+    // would, on a fee-based loan, silently restate a gross figure as a net one —
+    // this module's oldest bug, in the form of a helpful-looking one-tap.
+    //
+    // So: if it equals either figure, say which basis it is on and move on. If it
+    // equals NEITHER, that is worth reporting and nobody here can choose — the
+    // choice IS the carrying-basis question, and it is settled elsewhere or not
+    // at all. Report both candidates, propose no write.
+    const onFileAmt = ctx.loan.original_amount === null || ctx.loan.original_amount === undefined
+      ? null : Number(ctx.loan.original_amount)
+    if (loanAmount !== null || totalRepayment !== null) {
+      const matchesNet = onFileAmt !== null && loanAmount !== null && near(onFileAmt, loanAmount, 0.02)
+      const matchesGross = onFileAmt !== null && totalRepayment !== null && near(onFileAmt, totalRepayment, 0.02)
+      if (matchesNet || matchesGross) {
+        corroborations.push({
+          statement: `The original amount on the loan record (${money(onFileAmt!)}) is ${matchesGross ? 'the whole payback, fee included' : 'the cash advanced, with the fee held outside it'}, and ${sourceOf(matchesGross ? 'total_repayment_amount' : 'loan_amount')} agrees to the cent.`,
+          sources: ['loan record', matchesGross ? 'total_repayment_amount' : 'loan_amount'], tie: 'exact',
+        })
+      } else if (onFileAmt === null) {
+        conflicts.push({
+          key: 'term_original_amount',
+          statement: `The loan record has no original amount; ${sourceOf('loan_amount')} states this loan's opening figures.`,
+          expected: [loanAmount !== null ? `${money(loanAmount)} advanced` : null,
+                     totalRepayment !== null ? `${money(totalRepayment)} repaid in total` : null].filter(Boolean).join(' · '),
+          found: '(blank)',
+          sources: ['loan record', "lender's own documents"],
+          severity: 'info',
+          caveat: `Which of the two belongs in that field depends on how this loan is carried, so nothing is proposed for it here.`,
+        })
+      } else {
+        conflicts.push({
+          key: 'term_original_amount',
+          statement: `The original amount on the loan record matches neither figure the lender states.`,
+          expected: [loanAmount !== null ? `${money(loanAmount)} advanced` : null,
+                     totalRepayment !== null ? `${money(totalRepayment)} repaid in total` : null].filter(Boolean).join(' · '),
+          found: `${money(onFileAmt)} on the loan record`,
+          sources: ['loan record', "lender's own documents"],
+          severity: 'warn',
+          caveat: `A typed note, and it is out by ${totalRepayment !== null ? money(Math.abs(totalRepayment - onFileAmt)) : money(Math.abs(loanAmount! - onFileAmt))} against the closer of the two. Nothing is proposed for it: the field can hold either the cash advanced or the whole payback, and choosing between them is the carrying-basis question rather than a typo to correct. Recording ${sourceOf('loan_amount')}'s figures above puts both on file with the row each was read from, which is the durable fix — the typed note stops being the only thing anyone can consult.`,
+        })
+      }
+    }
 
     for (const c of compare) {
       const same = c.onFile !== null && String(c.onFile).slice(0, 10) === String(c.fromDoc).slice(0, 10)
       if (same) {
         corroborations.push({
-          statement: `${c.label} on file matches the agreement (${c.fromDoc}).`,
-          sources: ['loan record', 'agreement'], tie: 'exact',
+          statement: `${c.label} on file matches ${sourceOf(c.term)} (${c.fromDoc}).`,
+          sources: ['loan record', sourceOf(c.term)], tie: 'exact',
         })
         continue
       }
@@ -439,10 +525,10 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
       conflicts.push({
         key: `term_${c.field}`,
         statement: wasBlank
-          ? `${c.label} is blank on the loan record; the agreement states it.`
-          : `${c.label} on the loan record disagrees with the agreement.`,
+          ? `${c.label} is blank on the loan record; ${sourceOf(c.term)} states it.`
+          : `${c.label} on the loan record disagrees with ${sourceOf(c.term)}.`,
         expected: String(c.fromDoc), found: wasBlank ? '(blank)' : String(c.onFile),
-        sources: ['loan record', 'agreement'],
+        sources: ['loan record', sourceOf(c.term)],
         severity: wasBlank ? 'info' : 'warn',
       })
       actions.push({
@@ -450,13 +536,18 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         kind: 'apply_term_to_loan',
         title: `${c.label}: ${wasBlank ? 'set to' : 'change to'} ${c.fromDoc}${wasBlank ? '' : ` (currently ${c.onFile})`}`,
         plain_english: wasBlank
-          ? `The loan record has no ${c.label.toLowerCase()}. The agreement gives it as ${c.fromDoc}.`
-          : `The loan record says ${c.onFile}. The signed agreement says ${c.fromDoc}. The agreement is the better evidence.`,
+          ? `The loan record has no ${c.label.toLowerCase()}. ${sourceOf(c.term) === 'the agreement' ? 'The agreement' : "The lender's own transaction history"} gives it as ${c.fromDoc}.`
+          : `The loan record says ${c.onFile}. ${sourceOf(c.term) === 'the agreement' ? 'The signed agreement' : "The lender's own transaction history"} says ${c.fromDoc}, and a document from the lender is better evidence than a note someone typed.`,
         // The source document rides along so the apply step can mark THIS
         // document's term applied rather than every document's term for this key.
         payload: {
           field: c.field, term_key: c.term, value: c.fromDoc, previous: c.onFile,
-          source_sha256: ctx.documents.find(d => d.kind === 'agreement')?.sha256 ?? null,
+          // The document this term actually came from. It was hardcoded to the
+          // agreement, so a ledger-sourced term would have marked an agreement's
+          // term applied — or nothing at all, on a bundle with no agreement in it.
+          source_sha256: (sourceOf(c.term) === 'the agreement'
+            ? ctx.documents.find(d => d.kind === 'agreement')?.sha256
+            : ctx.documents.find(d => d.kind === 'transaction_history')?.sha256) ?? null,
         },
         default_checked: true,
       })
@@ -825,9 +916,20 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     paidTargetFromScreen ?? outstandingConversion?.target ?? null
 
   const portalDating: LedgerDatingResult | null =
-    (hasPortal && ctx.portal!.amount_remaining !== null &&
-     (ctx.portal!.corroborated || []).includes('amount_remaining') &&
-     !ctx.portal!.as_of && ctx.csv && ctx.csv.days.length > 0 && ctx.csv.first_date &&
+    // THE GATE IS `portalPaidTarget`, AND NOTHING ELSE ABOUT WHICH FIGURE IT CAME
+    // FROM (session 263 cont.). This used to also demand `amount_remaining` be
+    // present and corroborated — which was the same requirement stated twice for
+    // the Stripe path and an outright block on the PayPal one, whose screen has
+    // no headline balance at all: it labels its rows "Total balance", so
+    // `amount_remaining` is correctly null and the date was refused on a screen
+    // that states its figures more completely than Stripe's does.
+    //
+    // `portalPaidTarget` already carries the whole requirement. It is non-null
+    // only from a corroborated `paid_to_date` or a corroborated `total_balance`,
+    // so a figure nothing on the screen vouched for can never reach `target`.
+    // Session 231's shape, and I committed it myself adding the second path: the
+    // right check, one branch away from the road that needed it.
+    (hasPortal && !ctx.portal!.as_of && ctx.csv && ctx.csv.days.length > 0 && ctx.csv.first_date &&
      repaymentStart && portalPaidTarget !== null)
       ? dateFromLedger({
           days: ctx.csv.days.map(d => ({ date: d.date, total: d.total_paid, financing: d.principal_paid, fee: d.fee_paid })),
@@ -837,6 +939,11 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           complete: ctx.csv.ok === true,
           coversFrom: ctx.csv.first_date,
           periodStart: repaymentStart,
+          // Zero, asserted from evidence: the export carries the loan's own
+          // origination row, so nothing precedes its first day. Never passed on
+          // a partial export, where the head is genuinely unknown and the
+          // coverage refusal is the correct answer.
+          openingCumulative: ctx.csvCoversFromOrigination ? { paid: 0, financing: 0, fee: 0 } : null,
           // The target must be a figure the screen's own arithmetic vouched for.
           // Dating a lender anchor off a number nothing on the screen checked would
           // put the misread this module already caught once ($125,000 of funding
@@ -848,16 +955,58 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   const portalAsOf = (hasPortal ? ctx.portal!.as_of : null) ?? portalDerivedDate
 
   // ── 5. Does the lender agree with the books? ────────────────────────────
-  if (hasPortal && ctx.portal!.amount_remaining !== null) {
+  //
+  // WHICH LENDER FIGURE, MEASURED AGAINST WHICH BOOK FIGURE (session 263 cont.).
+  //
+  // This compared `amount_remaining` against `book.principal_balance` and asked
+  // no questions about what either one measured. On Stripe that was survivable
+  // because both are payoff figures; on a loan whose books are principal-only it
+  // is the module's oldest bug, the one that left PayPal carrying an
+  // unexplainable discrepancy for nine months — two quantities on two bases
+  // subtracted from each other and the difference reported as a problem.
+  //
+  // A screen that ITEMISES states both, so there is nothing to classify: pick the
+  // one matching whatever the book row says it is carrying. Where the book row is
+  // unlabelled (`balance_basis` 'unknown'), no comparison is made at all — an
+  // unlabelled balance cannot be compared to anything without guessing, and a
+  // guess here manufactures a gap or hides one.
+  const lenderBalanceFor = (bookBasis: string | null | undefined): { value: number; basis: string } | null => {
+    const p = ctx.portal!
+    const net = p.lender_balance_net_principal ?? null
+    const gross = p.lender_balance_gross_payback ?? null
+    if (bookBasis === 'principal_only' && net !== null) return { value: net, basis: 'principal only' }
+    if (bookBasis === 'total_payback' && gross !== null) return { value: gross, basis: 'the whole payback, fee included' }
+    // No itemisation to pick from: fall back to the headline, carrying whatever
+    // basis its own arithmetic established, and refuse when the two are known to
+    // disagree rather than subtracting them anyway.
+    if (p.amount_remaining === null) return null
+    const hb = p.amount_remaining_basis
+    if (hb === 'gross_payback' && bookBasis === 'principal_only') return null
+    if (hb === 'net_principal' && bookBasis === 'total_payback') return null
+    return { value: p.amount_remaining, basis: hb === 'gross_payback' ? 'the whole payback, fee included' : hb === 'net_principal' ? 'principal only' : 'an unstated basis' }
+  }
+  if (hasPortal && (ctx.portal!.amount_remaining !== null ||
+                    ctx.portal!.lender_balance_net_principal !== null ||
+                    ctx.portal!.lender_balance_gross_payback !== null)) {
     const asOf = portalAsOf
     const book = asOf
       ? ctx.statements.filter(s => s.statement_date <= asOf).slice(-1)[0]
       : ctx.statements.slice(-1)[0]
-    if (book) {
-      const diff = Number(book.principal_balance) - ctx.portal!.amount_remaining!
+    const picked = book ? lenderBalanceFor((book as any).balance_basis) : null
+    if (book && !picked) {
+      unresolved.push({
+        question: `Which balance should the lender's screen be compared against?`,
+        why_it_matters: `A balance that includes the fee still to run and one that does not are different quantities. Subtracting one from the other reports a gap that is really just the fee — this loan's own history is the reason that rule exists here.`,
+        what_would_answer_it: (book as any).balance_basis === 'unknown' || !(book as any).balance_basis
+          ? `The book balance on file at ${book.statement_date} does not record what it measures, so nothing can be compared to it without guessing. Settle this loan's carrying basis, and the comparison follows.`
+          : `The lender's screen and your books state balances on different bases and the screen does not state the one your books use. A screen showing both principal and fee still owed would settle it.`,
+      })
+    }
+    if (book && picked) {
+      const diff = Number(book.principal_balance) - picked.value
       if (near(diff, 0, 0.02)) {
         corroborations.push({
-          statement: `Your books and the lender agree on the balance at ${book.statement_date} (${money(Number(book.principal_balance))}).`,
+          statement: `Your books and the lender agree on the balance at ${book.statement_date} (${money(Number(book.principal_balance))}), measured on the same basis — ${picked.basis}.`,
           sources: ['loan history', 'lender portal'], tie: 'exact',
         })
       } else {
@@ -952,7 +1101,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           conflicts.push({
             key: 'balance_vs_lender_unconfirmed',
             statement: `Your books show ${money(Math.abs(diff))} more still owing than the lender does, which is the size of settlement timing on this loan — but nothing in this set confirms it.`,
-            expected: `${money(ctx.portal!.amount_remaining!)} (lender, ${asOf ?? 'as shown'})`,
+            expected: `${money(picked.value)} (lender, ${asOf ?? 'as shown'})`,
             found: `${money(Number(book.principal_balance))} (books, ${book.statement_date})`,
             sources: ['loan history', 'lender portal'],
             severity: 'warn',
@@ -963,7 +1112,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             kind: 'raise_finding',
             title: `Ask for a current transaction export before calling the ${money(Math.abs(diff))} difference settlement timing`,
             plain_english:
-              `The lender says ${money(ctx.portal!.amount_remaining!)} is still owed; your books say ${money(Number(book.principal_balance))}. ` +
+              `The lender says ${money(picked.value)} is still owed; your books say ${money(Number(book.principal_balance))}. ` +
               `On this loan a difference of about that size is what settlement timing looks like — the lender counts a withholding when the sale clears and your books count it when the payout lands. ` +
               `But "about that size" is an assumption until the lender's own transactions for those days are added up, and this lender withholds a percentage of every sale, so no two days are alike. ` +
               `${lag.statement} Raising it puts it in Needs Attention, where it stays until an export settles it either way.`,
@@ -971,7 +1120,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
               check_key: 'balance_vs_lender', severity: 'warn',
               title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: ${money(Math.abs(diff))} difference is unconfirmed settlement timing`,
               detail: { book_balance: Number(book.principal_balance), book_date: book.statement_date,
-                        lender_balance: ctx.portal!.amount_remaining, lender_date: asOf, difference: Number(diff.toFixed(2)),
+                        lender_balance: picked.value, lender_date: asOf, difference: Number(diff.toFixed(2)),
                         settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                                           implied_business_days: lag.impliedBusinessDays,
                                           implied_books_through: lag.impliedBooksThrough,
@@ -986,7 +1135,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             statement: booksLagLender
               ? `Your books show more still owing than the lender does.`
               : `Your books show less still owing than the lender does.`,
-            expected: `${money(ctx.portal!.amount_remaining!)} (lender, ${asOf ?? 'as shown'})`,
+            expected: `${money(picked.value)} (lender, ${asOf ?? 'as shown'})`,
             found: `${money(Number(book.principal_balance))} (books, ${book.statement_date})`,
             sources: ['loan history', 'lender portal'],
             severity: 'error',
@@ -998,12 +1147,12 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             id: nextId('finding'),
             kind: 'raise_finding',
             title: `Flag the ${money(Math.abs(diff))} difference between your books and the lender`,
-            plain_english: `The lender says ${money(ctx.portal!.amount_remaining!)} is still owed; your books say ${money(Number(book.principal_balance))}. That is a ${money(Math.abs(diff))} difference and it needs explaining before this loan is relied on in a close. ${lag.statement} Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
+            plain_english: `The lender says ${money(picked.value)} is still owed; your books say ${money(Number(book.principal_balance))}. That is a ${money(Math.abs(diff))} difference and it needs explaining before this loan is relied on in a close. ${lag.statement} Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
             payload: {
               check_key: 'balance_vs_lender', severity: 'error',
               title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: books and lender disagree by ${money(Math.abs(diff))}`,
               detail: { book_balance: Number(book.principal_balance), book_date: book.statement_date,
-                        lender_balance: ctx.portal!.amount_remaining, lender_date: asOf, difference: Number(diff.toFixed(2)),
+                        lender_balance: picked.value, lender_date: asOf, difference: Number(diff.toFixed(2)),
                         settlement_lag: { verdict: lag.verdict, implied_calendar_days: lag.impliedCalendarDays,
                                           implied_business_days: lag.impliedBusinessDays,
                                           implied_books_through: lag.impliedBooksThrough,
@@ -1042,8 +1191,17 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   // row is a real anchor by source, so it silently moves the variance on the one
   // screen whose job is to say this loan is ready for your accountant. No anchor
   // is a gap somebody can see. A wrong anchor is a gap nobody can.
-  if (hasPortal && ctx.portal!.amount_remaining !== null) {
-    const bal = ctx.portal!.amount_remaining!
+  // A SCREEN THAT ITEMISES NEEDS NO HEADLINE (session 263 cont.). This required
+  // `amount_remaining`, so a lender whose screen states principal owed and fee
+  // owed as separate lines — and therefore says MORE than one that prints a
+  // single figure — could never file an anchor at all. The itemised principal is
+  // taken in preference: it is unambiguous, it needs no basis to be settled
+  // first, and it is directly comparable to the principal-only history already
+  // on file. Same corroboration bar, applied to the figure actually used.
+  const itemisedNet = ctx.portal?.lender_balance_net_principal ?? null
+  const usingItemised = itemisedNet !== null
+  if (hasPortal && (ctx.portal!.amount_remaining !== null || usingItemised)) {
+    const bal = usingItemised ? itemisedNet! : ctx.portal!.amount_remaining!
     const asOf = ctx.portal!.as_of
     // PRESENT is not PROVEN, and only proven earns a row. checkPortalTotals lists
     // a figure in `corroborated` only when an identity printed on the screen came
@@ -1051,7 +1209,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     // number on this loan, when $125,000 of funding was read as $123,091.66 of
     // balance and was present the entire time. A figure nothing vouches for may
     // inform a plan. It may not become the row the whole system measures against.
-    const proven = (ctx.portal!.corroborated || []).includes('amount_remaining')
+    const proven = (ctx.portal!.corroborated || []).includes(
+      usingItemised ? 'principal_balance' : 'amount_remaining')
 
     // The date comes from §5a, which derived it once for the whole plan. It used
     // to be computed here, below §5, which is why §5 could ask for an export
@@ -1103,7 +1262,14 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         // than being counted on a basis nobody proved.
         const lenderQuotesGross = totalRepayment !== null && ctx.portal!.total_amount_due !== null &&
           near(ctx.portal!.total_amount_due!, totalRepayment)
-        const lenderBasis = lenderQuotesGross ? 'total_payback'
+        // An itemised screen states what its principal line measures on its own
+        // face, so nothing has to be settled first and nothing is inferred. This
+        // sits ABOVE the hierarchy below deliberately: those branches all reason
+        // from what we believe about the loan, and this one reads what the lender
+        // printed. 'unknown' remains the fail-safe for a screen that states one
+        // figure and does not say what it is.
+        const lenderBasis = usingItemised ? 'principal_only'
+          : lenderQuotesGross ? 'total_payback'
           : settledBasis === 'gross_payback' ? 'total_payback'
           : settledBasis === 'net_principal' ? 'principal_only'
           : 'unknown'
@@ -1135,7 +1301,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           : ` The transaction export in this set cannot date it either. ${dating.statement}${startCaveat}`
 
         const blockedReason = asOfDate ? undefined
-          : `This screen states no balance date. Every figure on it checks out — ${money(bal)} is the total due less the amount paid, to the cent — but it shows a period and a period-to-date total, and never says which day the ${money(bal)} belongs to. Nothing here will invent one: this row would become the figure your books are checked against, and filed against the wrong day it does not fail — it quietly moves the variance on the month-end screen, the one screen whose job is to tell you this loan is ready for your accountant. Tell us the date the screenshot was taken and it can be filed.${exportNote}`
+          : `This screen states no balance date. Every figure on it checks out — ${usingItemised ? `${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed add to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints` : `${money(bal)} is the total due less the amount paid, to the cent`} — but it never says which day the ${money(bal)} belongs to. Nothing here will invent one: this row would become the figure your books are checked against, and filed against the wrong day it does not fail — it quietly moves the variance on the month-end screen, the one screen whose job is to tell you this loan is ready for your accountant. Tell us the date the screenshot was taken and it can be filed.${exportNote}`
 
         actions.push({
           id: nextId('lenderbal'),
