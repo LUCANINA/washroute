@@ -10,6 +10,12 @@
 > was outstanding while §00, forty lines below it and written the same day, recorded David
 > having run it.
 >
+> 🔒 **NEW STANDING RULE (session 262 cont. 3, David):** *the month cannot be closed
+> without all relevant statements uploaded AND analysed against Xero* — schedule-basis
+> loans exempt by recorded policy. Enforced by `_bkStatementGate()`, which blocks the
+> close band's readiness strip and feeds the period tab's "N to clear". See the session
+> 262 cont. 3 entry, including the one way this could turn from a gate into a nag.
+>
 > **What is left, in order:**
 > 1. §0's one-line job — record PayPal 2's reversing-journal id (needs Xero; quota was fine).
 > 2. §0a's cosmetic "Issues (6)" vs "Nothing to close yet" label — **awaiting David's choice**.
@@ -1410,6 +1416,21 @@ in the wrong month books the payment into the wrong period, which no invariant c
 
 ---
 
+### THE CLOSE GATE (session 262 cont. 3) — an invariant, not a preference
+
+**A month cannot be closed without every relevant statement uploaded AND analysed
+against Xero.** David's rule, stated as one he wishes had existed from the start.
+
+* **Analysed** means a tie-out whose `as_of` equals the date of the document the close
+  anchors on. A tie-out from an older statement checked a different document and does
+  not count. "Uploaded" and "analysed" differed by four documents the day this shipped.
+* **Exempt** means `close_basis === 'amortization_schedule'` — a recorded policy, the
+  same field grade B keys on. **Never infer the exemption from the presence of a
+  schedule file:** most schedules here are ones we derived from statements, and that
+  would let a loan excuse itself from its only outside evidence.
+* Exempt loans are counted and named. A denominator that quietly shrinks is not a gate.
+* `_bkStatementGate()` is the single source. Every surface reads it; none recomputes it.
+
 ## Tech Debt — deliberately deferred, with the next step written down
 
 **21. ~~Session 226 — `loan-generate-schedule-split` upsert can clobber staged/posted split state~~ RESOLVED (session 226 end-of-session review, same day).** The server now refuses (hard 409, nothing written) to regenerate any period whose split status isn't pending_review — a staged period names the live staged transaction and says to unstage first; a posted period names the duplicate-posting risk. Deployed v12, byte-verified, and the function source is in git for the first time (v1–v11 were deployed-only). Also picked up the nullsFirst:false latest-schedule fix so a null-dated schedule can never win the "most recent" pick. Covered by qa-staging.mjs g1–g4 (regenerate over staged/posted/already_in_xero → 409 untouched; pending_review refresh and fresh-create still work). The v42 loan-xero-post guard and the client-side refusal remain as defense-in-depth.
@@ -2675,6 +2696,118 @@ to "what is running".
 ---
 
 ---
+
+---
+
+---
+
+### Session 262 cont. 3 (2026-09-02) — THE CLOSE GATE: every expected statement in, AND checked. David's rule, and the half of it nothing measured.
+
+> **David:** "The month cannot be closed without all relevant statements having been
+> uploaded and ingested by the system. This excludes loans with fixed amortization
+> schedules, where statements help confirm the final figure. Somewhere in our
+> dashboard, this needs to be clear. E.g.: 8 of 12 expected statements uploaded and
+> analyzed against Xero."
+
+#### The second half is the one that had no measurement at all
+
+"Uploaded" was counted. "Analysed against Xero" was not, anywhere — and the two are
+not the same number. Measured the day this shipped, closing August: **ten of the
+eleven loans owing a statement had one on file, and only six had been checked
+against the books.** Four documents were sitting in the system, never compared, and
+every surface counted them as done.
+
+A statement nobody looked at is not evidence. It is a file.
+
+**What "analysed" means, precisely:** a tie-out exists whose `as_of` is the SAME DATE
+as the document the close anchors on. A tie-out computed from an older statement does
+not count — it checked a different document. That is the whole difference between
+E-Transit E5-4751 (statement 23 Aug, tie-out 12 Aug: **not** analysed) and E-Transit
+4140 (statement 17 Aug, tie-out 17 Aug: analysed), and no coarser test separates them.
+
+#### The exemption is a recorded policy, never an inference
+
+`close_basis === 'amortization_schedule'` — the same field grade B already keys on,
+and a decision somebody made about that loan. **A loan is NOT exempt because it has
+a schedule on file.** Most of this book's schedules are ones we DERIVED from its own
+statements (Tech Debt #31); exempting on that basis would let a loan excuse itself
+from the only outside evidence it has, on the strength of our own arithmetic. The
+harness installs exactly that regression and watches the required set shrink.
+
+Exempt loans are **counted and named**, never silently dropped — a denominator that
+quietly shrinks is how a gate stops being one.
+
+#### Where it shows, and that it actually gates
+
+`_bkStatementGate(month)` is the single source; both surfaces read it, so they cannot
+disagree:
+
+* **The Loans close band's readiness strip** — two chips, because they are two
+  different failures with two different fixes: a document that never arrived is
+  somebody's upload; one that arrived and was never compared is a reconciliation run.
+  Both block, and both NAME their loans per session 256's rule.
+* **The Overview statusline** — David's sentence verbatim, beside the existing counts
+  and deliberately not folded into them: those say how the loans are DOING, this says
+  whether we hold the evidence to say anything at all.
+
+It is a real gate, not a label: `unanalysed` joins `_loansCloseBlockers`' count, so
+the period tab's "N to clear" badge includes it. Additive and non-overlapping by
+construction — `unanalysed` requires `inHand`, `cov.missing` requires its opposite.
+
+**A month where every loan reads "reconciled" against documents nobody checked is not
+closed. It is unexamined, and until now no surface could tell the two apart.** The c1
+control makes exactly that: with the check weakened to `analysed = inHand`, the strip
+reads *Ready for your accountant*.
+
+#### The suite caught a real regression in my first cut — and it was the interesting kind
+
+The first version **narrowed the existing `coverage` chip** to the gate's required set
+instead of adding beside it. Seventeen assertions went red, and one of them was not
+about the new chip at all: *"the coverage chip's count is exactly the rows reading
+'not received'."*
+
+**A schedule-basis loan that falls to grade C has no established closing balance
+either** — no schedule row covers the month — and my change silently dropped it from
+the chip that reports exactly that. Two different questions had been collapsed into
+one:
+
+* *Can this month be closed at all?* — any loan, any basis. That is `coverage`.
+* *Do we hold every statement we are owed?* — statements only, exemptions applied.
+  That is David's rule.
+
+**The second must be ADDED beside the first, never substituted for it.** An exemption
+from a statement is not an exemption from having a closing balance.
+
+The other sixteen were the honest consequence of a new blocker: scenarios that clear
+their own blocker and assert "ready for your accountant" now had a second gate to
+satisfy. `cleanJuly` — the helper whose whole meaning is "the state in which ready is
+the right answer" — now also marks every held document analysed, because being checked
+is part of what ready MEANS. That keeps those scenarios on one variable each, which is
+what made them meaningful in the first place; the gate's own group is where blocking is
+proved.
+
+`GATE_KEYS` needed `checked` added, and that assertion doing its job is the reason the
+chip could not appear unexamined. Exactly what it was built for.
+
+#### Tests: 31 assertions, two controls, all passing
+
+Which loans are un-analysed moves with every reconciliation run, so **g4 asserts the
+SHAPE** — each un-analysed loan's tie-out date differs from its document date — rather
+than a literal list that would go red for reasons unconnected to the code.
+
+#### ⚠️ ONE THING TO WATCH, and it is the difference between a gate and a nag
+
+The gate compares the CLOSE BAND's anchor date with RECONCILIATION-RUN's chosen
+anchor date. Those agree today. If they ever diverge systematically — a rolled-back
+close anchor against a recon run that picked the raw document, say — a loan could
+read "not yet checked" permanently, with no action able to clear it. That is the
+"queue people learn to ignore" failure the close-date doctrine warns about, arriving
+by a different road.
+
+**If this chip is ever red on a loan whose statement was obviously checked, that is
+the bug — do not tune the comparison looser without first confirming the two anchor
+pickers agree.** The honest fix in that case is for the tie-out to record which
+document it examined, rather than for the gate to stop asking.
 
 ---
 

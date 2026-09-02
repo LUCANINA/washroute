@@ -17031,6 +17031,7 @@
     };
 
     const cov = _bkStatementCoverage(month);
+    const sg = _bkStatementGate(month);
     const unpostedTotal = rf.unpostedRows.reduce((n, r) =>
       n + r.unposted.reduce((m, sp) => m + Number(sp.total_amount || 0), 0), 0);
     // Judged, per grade — NOT rf.gradeA.length / rf.gradeB.length, which include
@@ -17071,10 +17072,38 @@
     const names = (arr, getA) => arr.map(x => loanName(getA(x))).join(', ');
 
     const gates = [];
+    // ── DAVID'S RULE, AS A GATE (session 262 cont. 3) ─────────────────────
+    // "The month cannot be closed without all relevant statements having been
+    // uploaded and ingested by the system." Two chips, because they are two
+    // different failures with two different fixes: a document that never
+    // arrived is somebody's upload; a document that arrived and was never
+    // compared is a reconciliation run. Both block. Both name their loans, per
+    // the session-256 rule that a blocking chip answers its own question.
+    //
+    // The denominator is _bkStatementGate's `total`, NOT cov.expected -- the
+    // schedule-basis loans are exempt by recorded policy and are already named
+    // by their own 'per schedule' chip below, so counting them here would both
+    // overstate what is owed and tell the same fact twice.
+    // ⚠️ THE COVERAGE CHIP KEEPS COUNTING cov.missing, NOT sg.awaiting. My first
+    // cut narrowed it to the gate's required set and that was a real regression,
+    // caught by the suite: a SCHEDULE-BASIS loan that falls to grade C (no
+    // schedule row covers the month) has no established closing balance either,
+    // and it silently left the chip. These are two different questions —
+    // "can this month be closed at all" (any loan, any basis) and "do we hold
+    // every statement we are owed" (David's rule, statements only) — and the
+    // second must be ADDED beside the first, never substituted for it.
     gates.push(cov.missing.length
       ? { key: 'coverage', bad: true, n: cov.missing.length,
           text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding: ${names(cov.missing, m => m.account)}` }
       : { key: 'coverage', bad: false, n: 0, text: `all ${cov.expected.length} accounted for` });
+    // THE HALF NOTHING MEASURED BEFORE. A statement on file is not evidence
+    // until it has been checked against the books -- four of this book's
+    // documents were uploaded and never looked at on the day this shipped, and
+    // every surface counted them as done.
+    if (sg.unanalysed.length) {
+      gates.push({ key: 'checked', bad: true, n: sg.unanalysed.length,
+        text: `${sg.unanalysed.length} not yet checked against Xero: ${sg.unanalysed.map(r => r.name).join(', ')}` });
+    }
     if (cov.received.length + cov.rolledBack.length) {
       gates.push({ key: 'lender-confirmed', bad: false, n: cov.received.length + cov.rolledBack.length,
         text: `${cov.received.length + cov.rolledBack.length} confirmed by lender` });

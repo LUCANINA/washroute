@@ -656,7 +656,49 @@ function readSurfaces() {
 // the variance chip asks whether the books agree with the lender, this one asks
 // whether our splits explain what the ledger itself did, and a loan can pass one
 // while failing the other. Folding them into one number would hide exactly that.
-const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting'];
+// 'checked' (session 262 cont. 3) is David's close gate: a statement that has
+// been UPLOADED but never compared to Xero. Deliberately separate from
+// 'coverage', which asks whether a closing balance can be established at all —
+// a document can be present (coverage satisfied) and unexamined (checked
+// failing), and that combination is precisely the state the rule exists to stop.
+const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting', 'checked'];
+
+/* ── ISOLATING A READINESS TEST FROM THE NEW GATE (session 262 cont. 3) ─────
+   Several scenarios clear their own blocker and then assert the band reads
+   ready. David's statement gate is a SECOND blocker they never had to satisfy,
+   and it fires on this fixture because its reconciliation run predates some of
+   its statements. Those scenarios are about a $5 gap or an unposted split, not
+   about statement coverage, so they say so explicitly by marking every required
+   document analysed — one variable per scenario, which is what made the old
+   assertions meaningful in the first place.
+
+   THIS IS NOT A WAY TO MAKE THE GATE PASS QUIETLY. `close-gate` asserts the gate
+   blocks, names its loans, and that weakening it lets a month read "ready" on
+   documents nobody checked. Anything that wants readiness proves it here. */
+/* My first version of this did it in the FIXTURE, pointing every tie-out at the
+   newest real document its loan held. That is not the same date: the closing
+   anchor is the newest document dated on or before month end, or a later one
+   rolled back — and for several loans the newest document overall is neither.
+   It guessed at a rule the page already owns, and the guess was wrong for
+   exactly the loans the scenario cared about.
+
+   So this runs in PAGE CONTEXT and asks `_loanClosingAnchor` itself. It means
+   "a reconciliation run that had actually examined the document this close
+   anchors on", expressed with the product's own anchor picker rather than a
+   second copy of it that can drift. */
+const alignTieOutsToAnchors = (p) => p.evaluate(() => {
+  const month = _cvLastMonth();
+  const monthEnd = _lastDayOfMonth(month), priorEnd = _priorMonthEnd(month);
+  for (const t of (_loanTieOuts || [])) {
+    const a = (_allLoanAccounts || []).find(x => x.id === t.loan_account_id);
+    if (!a) continue;
+    const anc = _loanClosingAnchor(a, monthEnd, priorEnd);
+    if (anc && anc.grade === 'A' && anc.asOf) t.as_of = anc.asOf;
+  }
+  renderLoansCloseBand();
+  try { renderLoansCloseTiles(); } catch (_) {}
+  try { renderClientChecklist(); } catch (_) {}
+});
 
 /* ── phrases that claim "everything is fine" ──────────────────────────────── */
 /* ═══════════ THE FIXTURE'S OWN CLOCK (session 262) ═══════════════════════
@@ -3578,6 +3620,13 @@ GROUPS.push({
       // whole materiality amendment exists for: a five-dollar difference on a
       // million-dollar loan may be shown, and may not stop a close.
       const pClean = await newHarnessPage({ tab: 'loans', mutate: await cleanJuly(['EIDL SBA Loan']) });
+      // Session 262 cont. 3: David's statement gate is a SECOND blocker this
+      // scenario never had to satisfy, and it fires on this fixture because its
+      // reconciliation run predates some of its statements. The claim under test
+      // is about a $5.00 gap, so the scenario says explicitly that the documents
+      // were checked rather than letting an unrelated gate decide the answer.
+      // `close-gate` is where blocking is proved.
+      await alignTieOutsToAnchors(pClean);
       const cb2 = (await pClean.surfaces()).loans.closeBand;
       t.ok(/ready for your accountant/i.test(cb2.lead || ''),
            'ce5: with the unposted split cleared, a $5.00 gap does NOT stop the close',
@@ -4612,6 +4661,7 @@ GROUPS.push({
       // and posts the split, which is the only state in which "ready" is the
       // right answer — and the point is that BOTH surfaces reach it together.
       const pOk = await newHarnessPage({ tab: 'loans', mutate: await cleanJuly([]) });
+      await alignTieOutsToAnchors(pOk);   // see ce5 — the statement gate is not this scenario's variable
       const b = await read(pOk);
       t.ok(/ready for your accountant/i.test(b.lead || ''), 'ce16: with the blocker cleared the band is ready');
       t.ok(/ready for your accountant/i.test(b.count || ''),
@@ -6603,6 +6653,187 @@ GROUPS.push({
            JSON.stringify(after));
     }
     await c3.close();
+  },
+});
+
+
+
+/* 21 ── THE CLOSE GATE: EVERY EXPECTED STATEMENT IN, AND CHECKED
+   (session 262 cont. 3) ────────────────────────────────────────────────────
+   David, stating the rule he says should have existed from the start:
+
+     "The month cannot be closed without all relevant statements having been
+      uploaded and ingested by the system. This excludes loans with fixed
+      amortization schedules, where statements help confirm the final figure.
+      Somewhere in our dashboard, this needs to be clear. E.g.: 8 of 12
+      expected statements uploaded and analyzed against Xero."
+
+   THREE claims, and the middle one had no measurement anywhere before this:
+     1. a document that never arrived blocks the close   (already counted)
+     2. a document that arrived and was never CHECKED against Xero also blocks
+     3. a loan closing on its own contractual schedule is exempt -- by recorded
+        policy, never because it happens to have a schedule file
+
+   On the day this shipped, ten of eleven loans owing a statement had one on
+   file and only six had been checked. Four documents were uploaded, never
+   compared, and counted as done by every surface.                          */
+GROUPS.push({
+  name: 'close-gate',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const g = await p.evaluate(() => {
+      const sg = _bkStatementGate(_cvLastMonth());
+      return {
+        total: sg.total, done: sg.done, ready: sg.ready,
+        awaiting: sg.awaiting.map(r => r.name),
+        unanalysed: sg.unanalysed.map(r => ({ name: r.name, doc: r.docDate, tie: r.tieDate })),
+        exempt: sg.exempt.map(a => a.xero_account_name),
+        sentence: sg.sentence, exemptNote: sg.exemptNote,
+        automatic: sg.automatic,
+      };
+    });
+
+    // ── the sentence David asked for ──────────────────────────────────────
+    t.ok(/^\d+ of \d+ expected statements uploaded and analysed against Xero$/.test(g.sentence),
+         'g1: ⭐ the gate states itself in one sentence, in David\'s own shape', g.sentence);
+    t.eq(g.done + g.awaiting.length + g.unanalysed.length, g.total,
+         'g1: ...and the three buckets sum to the denominator — nothing falls through',
+         `${g.done} + ${g.awaiting.length} + ${g.unanalysed.length} vs ${g.total}`);
+    t.ok(g.total > 0, 'g1: ...over a non-empty required set', String(g.total));
+
+    // ── the exemption is BY POLICY, and it is named rather than dropped ────
+    const policy = await p.evaluate(() => (_allLoanAccounts || [])
+      .filter(a => a.status === 'active' && _loanCloseBasis(a) === 'amortization_schedule')
+      .map(a => a.xero_account_name));
+    t.ok(policy.length >= 1, 'g2: precondition — some loan closes on its contractual schedule', JSON.stringify(policy));
+    t.eq(g.exempt.length, policy.length,
+         'g2: ⭐ exactly the recorded-policy loans are exempt from the denominator', JSON.stringify(g.exempt));
+    for (const n of policy) {
+      t.ok(!g.awaiting.some(x => x === n) && !g.unanalysed.some(x => x.name === n),
+           `g2: ...and ${n} is never counted as owing a statement`);
+    }
+    t.ok(g.exemptNote.includes(String(policy.length)),
+         'g2: ...while still being COUNTED out loud — a denominator that quietly shrinks is not a gate',
+         g.exemptNote);
+
+    /* ⚠️ THE EXEMPTION MUST NOT FOLLOW A SCHEDULE FILE. Most of this book's
+       schedules are ones we DERIVED from statements (Tech Debt #31). If having
+       a schedule were enough, a loan would excuse itself from the only outside
+       evidence it has, on the strength of our own arithmetic. */
+    const derivedButRequired = await p.evaluate(() => {
+      const sg = _bkStatementGate(_cvLastMonth());
+      const req = new Set(sg.rows.map(r => r.account.id));
+      return (_allLoanAccounts || []).filter(a => a.status === 'active'
+        && req.has(a.id) && _loanScheduleRows(a).length > 0)
+        .map(a => a.xero_account_name);
+    });
+    t.ok(derivedButRequired.length >= 1,
+         'g3: ⭐ a loan WITH schedule rows but no schedule close-policy still owes its statement',
+         JSON.stringify(derivedButRequired));
+
+    // ── uploaded is not the same as checked ───────────────────────────────
+    // Asserted as a SHAPE, not a count: which loans are un-analysed moves with
+    // every reconciliation run, and a literal here would go red for a reason
+    // unconnected to the code.
+    for (const u of g.unanalysed) {
+      t.ok(u.doc && u.tie !== u.doc,
+           `g4: "${u.name}" is un-analysed because its tie-out is on a DIFFERENT date than its document`,
+           `doc ${u.doc} vs tie ${u.tie}`);
+    }
+    t.eq(g.ready, g.awaiting.length === 0 && g.unanalysed.length === 0,
+         'g4: ready is exactly "nothing outstanding and nothing unchecked"');
+
+    // ── it reaches the screen, and it BLOCKS ──────────────────────────────
+    const strip = await p.evaluate(() => {
+      const el = document.querySelector('.lcb-strip');
+      if (!el) return null;
+      return {
+        lead: (el.querySelector('.lcb-lead') || {}).textContent || '',
+        clear: el.classList.contains('clear'),
+        chips: [...el.querySelectorAll('[data-gate]')].map(c => ({
+          gate: c.getAttribute('data-gate'), text: (c.textContent || '').replace(/\s+/g, ' ').trim(),
+          bad: /bad/.test(c.className) })),
+      };
+    });
+    t.ok(!!strip, 'g5: the close band renders its readiness strip');
+    const coverage = strip && strip.chips.find(c => c.gate === 'coverage');
+    t.ok(!!coverage, 'g5: ...with a coverage chip', JSON.stringify(strip && strip.chips.map(c => c.gate)));
+    if (g.unanalysed.length) {
+      const checked = strip.chips.find(c => c.gate === 'checked');
+      t.ok(!!checked, 'g5: ⭐ ...and a "not yet checked against Xero" chip when documents are unchecked',
+           JSON.stringify(strip.chips.map(c => c.gate)));
+      t.ok(checked && g.unanalysed.every(u => checked.text.includes(u.name)),
+           'g5: ...naming every loan behind it, per the session-256 rule', checked && checked.text);
+      t.eq(strip.clear, false, 'g5: ⭐ ...and the strip does NOT read ready while a document is unchecked');
+      t.ok(/Not ready to close/i.test(strip.lead), 'g5: ...saying so in words', strip.lead);
+    }
+
+    // The Overview says the same sentence, from the same function.
+    const ov = await p.evaluate(() => {
+      switchBookkeepingView('overview', null);
+      _bkSetOverviewSeg('issues');
+      renderBookkeepingOverview();
+      const el = document.getElementById('bk-ov-status') || document.querySelector('.bk-ov-status');
+      return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : (document.body.textContent || '');
+    });
+    t.ok(ov.includes(g.sentence),
+         'g6: ⭐ the Overview statusline carries the IDENTICAL sentence — one function, two surfaces',
+         g.sentence);
+    await p.close();
+
+    /* ═══ DOES IT DISCRIMINATE? ═════════════════════════════════════════ */
+
+    // C1 — "uploaded" counted as done, which is the state before this change.
+    const c1 = await newHarnessPage({ tab: 'loans' });
+    const rev1 = await c1.evaluate(() => {
+      const src = _bkStatementGate.toString();
+      const anchor = "const analysed = !!(inHand && tie && tie.as_of === anchor.asOf);";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkStatementGate' };
+      const patched = src.replace(anchor, "const analysed = inHand;");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkStatementGate = new Function('monthLabel', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev1.ok, 'c1: the uploaded-counts-as-checked regression could be installed', JSON.stringify(rev1));
+    if (rev1.ok && g.unanalysed.length) {
+      const after = await c1.evaluate(() => {
+        const sg = _bkStatementGate(_cvLastMonth());
+        return { done: sg.done, unanalysed: sg.unanalysed.length, ready: sg.ready, sentence: sg.sentence };
+      });
+      t.eq(after.unanalysed, 0,
+           'c1: ⭐ ...and every unchecked document is silently promoted to done');
+      t.ok(after.done > g.done,
+           'c1: ⭐ ...inflating the published figure — so g1 and g4 discriminate',
+           `${g.done} → ${after.done}`);
+      t.ok(after.ready && !g.ready,
+           'c1: ⭐ ...and the month reads READY TO CLOSE on documents nobody checked — the exact failure the rule exists to stop');
+    }
+    await c1.close();
+
+    // C2 — exemption inferred from a schedule FILE rather than the policy.
+    const c2 = await newHarnessPage({ tab: 'loans' });
+    const rev2 = await c2.evaluate(() => {
+      const src = _bkStatementGate.toString();
+      const anchor = "(_loanCloseBasis(a) === 'amortization_schedule' ? exempt : required).push(a);";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved' };
+      const patched = src.replace(anchor, "(_loanScheduleRows(a).length > 0 ? exempt : required).push(a);");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkStatementGate = new Function('monthLabel', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev2.ok, 'c2: the schedule-file exemption could be installed', JSON.stringify(rev2));
+    if (rev2.ok) {
+      const after = await c2.evaluate(() => {
+        const sg = _bkStatementGate(_cvLastMonth());
+        return { total: sg.total, exempt: sg.exempt.map(a => a.xero_account_name) };
+      });
+      t.ok(after.total < g.total,
+           'c2: ⭐ ...and loans excuse themselves from the gate on the strength of a schedule WE derived — so g3 discriminates',
+           `${g.total} required → ${after.total}`);
+    }
+    await c2.close();
   },
 });
 
