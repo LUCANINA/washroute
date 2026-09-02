@@ -74,3 +74,36 @@ exactly why shrinking the preload compounds — it is multiplied by turn count.
 3. `washroute-audit` skill body (~18.5K) — loaded at start of day
 4. Whole-file reads of the ~1 MB PROJECT-NOTES files (~240K each) — rare but catastrophic
 5. Deferred MCP tool-name list (~3.5K) from 12 connectors, most unused per session
+
+---
+
+## AFTER — measured 2026-09-02, fresh session `d50683c0`
+
+**Preload = 70,712 tokens** (was 72,163). **−1,451 / −2.0%**
+
+Not like-for-like: the 72,163 baseline was taken in a scratch workspace that did
+NOT load `WashRoute/CLAUDE.md`. This one does, and that file grew 3,829 → 5,771 B
+(~1,440 tok) with the RTK and agent-routing sections. Adjusting for that, the
+underlying reduction is closer to **~2,900 tokens**.
+
+### Still pending — the biggest preload item
+The 13 unused MCP connectors have NOT been removed yet (~3,000–3,500 tokens,
+Klaviyo alone ~120 tools). See `TOKEN-STEP2-CONTEXT-DIET.md`. Doing that should
+put preload near ~67,000.
+
+### Where the real win actually landed
+Preload was never the problem — it moved 2%. Skill bodies moved 94%:
+
+| Skill | Before | After | Saved |
+|---|---|---|---|
+| `washroute` | 102,319 B (~25,580 tok) | 7,392 B (~1,850 tok) | **~23,730** |
+| `washroute-audit` | 74,004 B (~18,500 tok) | 51,051 B (~12,760 tok) | **~5,740** |
+
+`CLAUDE.md` routes essentially every session to `washroute`, and every morning to
+`washroute-audit`, so both are effectively per-session costs.
+
+**Typical morning session: ~116,300 → ~85,300 tokens (−27%).**
+
+Re-measure with:
+`python3 -c "import json,glob,os;f=max(glob.glob(os.path.expanduser('~/.claude/projects/-Users-davidmacquart-moulin-Projects-WashRoute/*.jsonl')),key=os.path.getmtime);[print('preload:',u['input_tokens']+u['cache_creation_input_tokens']+u['cache_read_input_tokens']) or exit() for l in open(f) if (u:=(json.loads(l).get('message') or {}).get('usage'))]"`
+(run it in a NEW session — a resumed one reports its original first request)
