@@ -40,6 +40,7 @@ import {
   STATEMENT_SOURCE_BY_KIND, STATEMENT_BASES,
 } from '../supabase/functions/_shared/loan-bundle-apply.ts'
 import { dateFromLedger, paidFromOutstanding, type LedgerDay } from '../supabase/functions/_shared/ledger-dating.ts'
+import { parsePayPalHistoryCsv } from '../supabase/functions/_shared/paypal-history.ts'
 import { parseStripeCapitalCsv } from '../supabase/functions/_shared/stripe-capital.ts'
 
 let pass = 0, fail = 0
@@ -1088,6 +1089,85 @@ section('dating a screen that states what is still OWED (session 263, PayPal 2)'
     days, complete: true, coversFrom: '2026-08-26', periodStart: '2026-08-26',
     target: { paid: 5000 } })
   ok('a target between two days is still refused', between.date === null && between.refused_because === 'between_days')
+}
+
+
+
+section('the PayPal bundle, wired end to end (session 263 cont.)')
+{
+  // Everything the real bundle holds: the lender's history CSV and an undated
+  // screenshot that itemises what is still owed. No agreement PDF — PayPal
+  // sends none, which is exactly why the CSV has to be allowed to state terms.
+  const HEAD = 'Date,Description,Amount,Principal,Fee,Other'
+  const PAY: [string, string, string][] = [
+    ['09/02/2026','3,180.33','234.38'], ['08/26/2026','3,165.30','249.41'],
+    ['08/19/2026','3,150.32','264.39'], ['08/12/2026','3,135.43','279.28'],
+  ]
+  const CSV = [HEAD,
+    ...PAY.map(([d,p,fe]) => `${d},Auto Draft Payment,"-$3,414.71","-$${p}","-$${fe}","$0.00"`),
+    '08/05/2026,Wire,"$12,631.46","$12,631.46","$0.00","$0.00"',
+    '08/05/2026,Total Loan Fee,"$1,027.46","$0.00","$1,027.46","$0.00"',
+  ].join('\n')
+  const pp = parsePayPalHistoryCsv(CSV)
+  const paidAll = pp.totals!.total_paid            // 13,658.92
+  const owed = pp.origination!.total_repayment_amount! - paidAll   // 0 after the last payment
+
+  const ctx = ctxOf({
+    loan: { ...ctxOf().loan, id: 'loan-pp', lender: 'PayPal', xero_account_name: 'Paypal 2',
+            lender_account_number: 'A00845102', original_amount: 177500, xero_account_code: '284' },
+    agreementTerms: [],
+    ledgerTerms: pp.terms as any,
+    ledgerTermsSource: 'Paypal Loan.csv',
+    csv: pp as any,
+    documents: [{ filename: 'Paypal Loan.csv', kind: 'transaction_history', sha256: 'abc' }] as any,
+    statements: [sweep('2026-08-12', 10244.21, 'principal_only')],
+    portal: {
+      as_of: null, amount_remaining: null, paid_to_date: null, principal_paid: null,
+      fee_paid: null, total_amount_due: null, funds_deposited: null, funds_deposited_date: null,
+      principal_balance: pp.origination!.loan_amount! - pp.totals!.principal_paid,
+      fee_balance: pp.origination!.fixed_fee! - pp.totals!.fee_paid,
+      total_balance: owed,
+      amount_remaining_basis: null,
+      corroborated: ['principal_balance', 'fee_balance', 'total_balance'],
+    } as any,
+  })
+  const plan = buildPlan(ctx)
+
+  const rec = all(plan, 'record_contract_terms')
+  ok('the CSV terms are proposed for recording', rec.length === 1, String(rec.length))
+  ok('and the action names the transaction history, not an agreement',
+     /transaction history/.test(rec[0].title) && !/agreement/i.test(rec[0].title), rec[0].title)
+  ok('the provenance travels with them',
+     (rec[0].payload as any).extracted_by === 'deterministic_parser:paypal_loan_history_v1')
+  ok('four opening figures', ((rec[0].payload as any).terms || []).length === 4)
+
+  // A conflict between the two lender documents must remove the figure entirely.
+  const conflicted = buildPlan(ctxOf({ ...ctx, termConflicts: ['total_repayment_amount: the agreement says 177500, the lender\'s transaction history says 177565.12'] } as any))
+  ok('a term two documents contradict raises an unresolved question',
+     conflicted.unresolved.some(u => /which of this lender's own documents/i.test(u.question)),
+     JSON.stringify(conflicted.unresolved.map(u => u.question)))
+  ok('...and it says neither figure was used',
+     conflicted.unresolved.some(u => /Neither was used/.test(u.what_would_answer_it)))
+}
+
+section('the ledger and the agreement are not the same kind of evidence')
+{
+  // An agreement present alongside ledger terms: the agreement still wins the
+  // lookup, and BOTH record actions appear, because they are different documents
+  // making different claims and a person may want each on file.
+  const pp = parsePayPalHistoryCsv([
+    'Date,Description,Amount,Principal,Fee,Other',
+    '09/02/2026,Auto Draft Payment,"-$3,414.71","-$3,180.33","-$234.38","$0.00"',
+    '12/10/2025,Wire,"$157,000.00","$157,000.00","$0.00","$0.00"',
+    '12/10/2025,Total Loan Fee,"$20,565.12","$0.00","$20,565.12","$0.00"',
+  ].join('\n'))
+  const withBoth = buildPlan(ctxOf({ ledgerTerms: pp.terms as any, ledgerTermsSource: 'pp.csv' } as any))
+  const recs = all(withBoth, 'record_contract_terms')
+  ok('both documents get their own record action', recs.length === 2, String(recs.length))
+  ok('one names the agreement and one the transaction history',
+     recs.some(r => /from the agreement/.test(r.title)) &&
+     recs.some(r => /transaction history/.test(r.title)),
+     recs.map(r => r.title).join(' | '))
 }
 
 

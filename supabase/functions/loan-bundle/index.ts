@@ -73,6 +73,7 @@ import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
+import { detectPayPalHistoryCsv, parsePayPalHistoryCsv, type PayPalHistoryParseResult } from '../_shared/paypal-history.ts'
 import { findOriginationFeeJournal, classifyFeeDebit, normaliseLedgerEntry, type LedgerEntry, type FeeSearchResult } from '../_shared/origination-fee.ts'
 import { rankFeeCandidates } from './candidates.ts'
 
@@ -264,6 +265,18 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   // reach an August figure and August alone starts six weeks late. Both failed
   // safe, and both failed.
   const csvFiles: { name: string; text: string; parsed: StripeCsvParseResult }[] = []
+  // PayPal's loan-history export is kept in its OWN bucket, never in `csvFiles`.
+  // The merge below combines raw TEXT and re-parses it with the Stripe reader; a
+  // PayPal file in that list would be concatenated into a Stripe parse, and the
+  // result would be a ledger built out of two lenders. Separate buckets is not
+  // tidiness — it is the only thing that makes the merge safe to leave alone.
+  const ppFiles: { name: string; text: string; parsed: PayPalHistoryParseResult }[] = []
+  // Terms stated by a lender's TRANSACTION HISTORY rather than by a signed
+  // agreement. Deliberately not folded into `agreementTerms`: see the header of
+  // _shared/paypal-history.ts. Same table downstream, different provenance, and
+  // the plan names the CSV when it proposes them.
+  let ledgerTerms: ContractTerm[] = []
+  let ledgerTermsSource: string | null = null
   let portal: PortalTotals | null = null
   let acctRefFromDoc: string | null = null
   // The lender a parser RECOGNISED, as opposed to an account number it read.
@@ -337,6 +350,25 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
         role = csv.ok
           ? `The lender's own ledger — every payment it took, and how each one splits between financing and fee.`
           : `The lender's transaction export, but ${csv.rows_rejected_count} of its ${csv.rows_in_file} rows could not be read.`
+      } else if (detectPayPalHistoryCsv(text)) {
+        const pp = parsePayPalHistoryCsv(text)
+        ppFiles.push({ name: filename, text, parsed: pp })
+        lenderHints.add('PayPal')
+        kind = 'transaction_history'; label = pp.lender_label; confidence = pp.ok ? 'high' : 'low'
+        if (pp.terms.length && !ledgerTerms.length) { ledgerTerms = pp.terms; ledgerTermsSource = filename }
+        role = pp.ok
+          ? (pp.origination
+              ? `The lender's own ledger — every payment it took and how each splits, and the origination rows that state what this loan actually is.`
+              : `The lender's own ledger — every payment it took, and how each one splits between principal and fee.`)
+          : `The lender's transaction export, but ${pp.rows_rejected_count} of its ${pp.rows_in_file} rows could not be read.`
+        figures = pp.origination ? {
+          as_of: null, amount_remaining: null, paid_to_date: pp.totals?.total_paid ?? null,
+          principal_paid: pp.totals?.principal_paid ?? null, fee_paid: pp.totals?.fee_paid ?? null,
+          total_amount_due: pp.origination.total_repayment_amount,
+          funds_deposited: pp.origination.loan_amount, funds_deposited_date: pp.origination.origination_date,
+          principal_balance: null, fee_balance: null, total_balance: null,
+          amount_remaining_basis: null, corroborated: [], dropped: [],
+        } : null
       }
     } else if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
       const media = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
@@ -568,8 +600,56 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     }
   }
 
+  // ── ADOPT THE PAYPAL LEDGER, OR REFUSE TO CHOOSE (session 263 cont.) ──────
+  // One lender's ledger per bundle. Two lenders' exports in one bundle is not a
+  // merge problem, it is a bundle that is about two loans, and quietly picking
+  // one would date a screenshot against the wrong lender's payments.
+  if (ppFiles.length) {
+    if (csvFiles.length) {
+      csvMergeNote = `This bundle carries transaction exports from more than one lender (${[...csvFiles, ...ppFiles].map(f => f.name).join(', ')}). They describe different loans, so neither was used as this loan's ledger. Upload one lender's documents at a time.`
+      csv = null; csvRaw = null
+    } else if (ppFiles.length > 1) {
+      // The Stripe merge combines files by column name; PayPal's export has no
+      // overlap rule written for it yet, and combining two without one is how a
+      // running total double-counts and dates a screen EARLY. Refuse, say so.
+      const latest = ppFiles.slice().sort((a, b) =>
+        String(a.parsed.last_date ?? '').localeCompare(String(b.parsed.last_date ?? '')))[ppFiles.length - 1]
+      csv = latest.parsed; csvRaw = latest.text
+      csvMergeNote = `${ppFiles.length} PayPal loan-history exports were uploaded. They are not combined — this reader has no rule yet for telling whether two of them overlap, and a double-counted running total dates a balance EARLY rather than failing. The one covering the latest dates (${latest.name}) was used on its own.`
+      if (latest.parsed.terms.length) { ledgerTerms = latest.parsed.terms; ledgerTermsSource = latest.name }
+    } else {
+      csv = ppFiles[0].parsed; csvRaw = ppFiles[0].text
+    }
+  }
+
+  // Terms the bundle can rely on: the AGREEMENT first, the lender's transaction
+  // history where the agreement is silent, and NEITHER where the two disagree.
+  //
+  // Dropping on a disagreement rather than preferring the agreement is the same
+  // rule mergePortal follows for two screenshots, and it matters more here: the
+  // figure feeds a conversion that puts a DATE on a balance, and a date built on
+  // a contested contract figure does not fail loudly.
+  const termConflicts: string[] = []
+  const combinedTerms: ContractTerm[] = (() => {
+    const out = [...agreementTerms]
+    for (const lt of ledgerTerms) {
+      const a = agreementTerms.find(x => x.term_key === lt.term_key)
+      if (!a) { out.push(lt); continue }
+      const an = typeof a.value_numeric === 'number' ? a.value_numeric : null
+      const ln = typeof lt.value_numeric === 'number' ? lt.value_numeric : null
+      const ad = a.value_date ?? null, ld = lt.value_date ?? null
+      const disagrees = (an !== null && ln !== null && Math.abs(an - ln) > 0.005) || (ad && ld && ad !== ld)
+      if (disagrees) {
+        termConflicts.push(`${lt.term_key}: the agreement says ${an ?? ad}, the lender's transaction history says ${ln ?? ld}`)
+        const i = out.findIndex(x => x.term_key === lt.term_key)
+        if (i >= 0) out.splice(i, 1)
+      }
+    }
+    return out
+  })()
+
   const termNum = (k: string) => {
-    const t = agreementTerms.find(x => x.term_key === k)
+    const t = combinedTerms.find(x => x.term_key === k)
     return typeof t?.value_numeric === 'number' ? t.value_numeric : null
   }
   let decomposition: DecompositionResult | null = null
@@ -583,7 +663,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   // which may be read after the screenshot. `Stripe deposit.png` reported its
   // deposit as 2024-06-30 on a loan originated 2026-06-30 and nothing looked.
   if (portal) {
-    const orig = agreementTerms.find(t => t.term_key === 'origination_date')?.value_date ?? null
+    const orig = combinedTerms.find(t => t.term_key === 'origination_date')?.value_date ?? null
     portal = checkDepositDate(portal, orig)
   }
 
@@ -592,8 +672,8 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   // incomplete, and the plan falls back to the question it asked before.
   let feeSearch: FeeSearchResult | null = null
   {
-    const fee = agreementTerms.find(t => t.term_key === 'fixed_fee')?.value_numeric ?? null
-    const orig = agreementTerms.find(t => t.term_key === 'origination_date')?.value_date ?? loan.original_date ?? null
+    const fee = combinedTerms.find(t => t.term_key === 'fixed_fee')?.value_numeric ?? null
+    const orig = combinedTerms.find(t => t.term_key === 'origination_date')?.value_date ?? loan.original_date ?? null
     if (typeof fee === 'number' && fee > 0) {
       feeSearch = await searchLedgerForFeeJournal(loan.xero_account_code ?? null, fee, orig,
         { loanName: loan.xero_account_name ?? null, lender: loan.lender ?? null })
@@ -622,6 +702,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
       treatment_kind: feeSearch.treatment?.kind ?? null,
     } : null,
     agreementTerms, agreementChecks, agreementUnresolved,
+    ledgerTerms, ledgerTermsSource, termConflicts,
     csv, csvNote: csvMergeNote, decomposition,
     portal: portal ? {
       as_of: portal.as_of, amount_remaining: portal.amount_remaining,
@@ -1189,7 +1270,12 @@ async function applyBundle(supa: any, who: string, body: any) {
           loan_account_id: loanId, source_document_id: srcDocId, term_key: t.term_key,
           value_numeric: t.value_numeric ?? null, value_date: t.value_date ?? null,
           value_text: t.value_text ?? null, source_text: t.source_text,
-          extracted_by: 'deterministic_parser:stripe_capital_agreement_v2',
+          // Carried from the payload, not hardcoded. It said stripe_capital_agreement
+          // for every term this action ever recorded, so the moment a second reader
+          // existed the provenance column would have lied about it — and this is the
+          // column whose whole job is provenance.
+          extracted_by: typeof p.extracted_by === 'string' && p.extracted_by
+            ? p.extracted_by : 'deterministic_parser:stripe_capital_agreement_v2',
           confidence: t.confidence, created_by: who,
         }))
         // Re-uploading the same agreement updates in place rather than stacking a

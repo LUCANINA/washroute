@@ -185,6 +185,26 @@ export interface PlanContext {
   documents: BundleDocument[]
   /** Terms read off an agreement, if the bundle contained one. */
   agreementTerms: ContractTerm[]
+  /**
+   * Terms stated by a lender's TRANSACTION HISTORY rather than by a signed
+   * agreement — PayPal's export carries its advance and its fee as rows.
+   *
+   * Separate from `agreementTerms` on purpose. Both are the lender speaking and
+   * both belong in `loan_contract_terms`, but one is a contract and the other is
+   * a record of what actually moved, and this module has learnt (Tech Debt #31)
+   * that letting a mechanism stand in for a provenance is how our own reading
+   * ends up speaking in the lender's voice. The action that records these names
+   * the CSV.
+   */
+  ledgerTerms?: ContractTerm[]
+  /** The file those terms were read from, for the action's title. */
+  ledgerTermsSource?: string | null
+  /**
+   * Keys where the agreement and the transaction history DISAGREE. Such a key
+   * appears in neither, because a figure two lender documents contradict is not
+   * evidence — and this one feeds a conversion that puts a date on a balance.
+   */
+  termConflicts?: string[]
   agreementChecks: string[]
   agreementUnresolved: string[]
   /** Parsed transaction export, if the bundle contained one. */
@@ -340,7 +360,14 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   let n = 0
   const nextId = (k: string) => `${k}_${++n}`
 
-  const termOf = (key: string) => ctx.agreementTerms.find(t => t.term_key === key)
+  // The agreement first, the lender's own transaction history where the
+  // agreement is silent. index.ts has already removed any key the two contradict,
+  // so a conflicted term is absent here rather than resolved here — one place
+  // decides, and it is not this lookup.
+  const ledgerTerms = ctx.ledgerTerms ?? []
+  const termConflicts = ctx.termConflicts ?? []
+  const termOf = (key: string) =>
+    ctx.agreementTerms.find(t => t.term_key === key) ?? ledgerTerms.find(t => t.term_key === key)
   const num = (key: string) => {
     const t = termOf(key)
     return typeof t?.value_numeric === 'number' ? t.value_numeric : null
@@ -449,6 +476,40 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         caveat: `This is not a missed payment. The obligation is a floor over a ${minPeriodDays}-day window, not a fixed monthly amount, and repayment actually happens as a percentage of each sale.`,
       })
     }
+  }
+
+  // ── 2b. Terms the lender's own LEDGER states (session 263 cont.) ─────────
+  // PayPal sends no agreement PDF here; its loan-history CSV carries the wire
+  // and the fee as rows, which is the lender's record of what it actually sent
+  // and actually charged. Proposed under its own title so nobody reads a
+  // transaction export as a signed contract.
+  if (ledgerTerms.length) {
+    const src = ctx.ledgerTermsSource ? ` from ${ctx.ledgerTermsSource}` : ''
+    actions.push({
+      id: nextId('ledgerterms'),
+      kind: 'record_contract_terms',
+      title: `Record ${ledgerTerms.length} opening figure${ledgerTerms.length === 1 ? '' : 's'} from the lender's transaction history`,
+      plain_english:
+        `The lender's own export${src} states what it advanced and what it charged, so those figures are recorded as this loan's terms — each with the row it was read from. This is the lender's record of what actually moved, not a signed agreement, and it is filed as exactly that. It matters beyond the record: without these figures nothing can turn a balance still owed into an amount paid, which is what lets an undated screenshot be dated against this same ledger.`,
+      payload: {
+        terms: ledgerTerms,
+        extracted_by: 'deterministic_parser:paypal_loan_history_v1',
+        source_sha256: ctx.documents.find(d => d.kind === 'transaction_history')?.sha256 ?? null,
+      },
+      default_checked: true,
+    })
+  }
+
+  // Two of the lender's own documents contradicting each other about the same
+  // term. This is an UNRESOLVED QUESTION, not a finding: the figure is already
+  // absent from every calculation above, and the module's job when documents do
+  // not settle a question is to hand the question back rather than answer it.
+  if (termConflicts.length) {
+    unresolved.push({
+      question: `Which of this lender's own documents states this loan's terms correctly?`,
+      why_it_matters: `These figures are what turn a balance still owed into an amount paid, which is how an undated screenshot gets a date. A date built on a contested figure does not fail loudly — it moves the variance on the one screen whose job is to say this loan is ready for the accountant.`,
+      what_would_answer_it: `Two documents disagree: ${termConflicts.join('; ')}. Neither was used and nothing below rests on either. Decide which document is the operative one, and remove or supersede the other.`,
+    })
   }
 
   // ── 3. Establish the carrying basis ─────────────────────────────────────

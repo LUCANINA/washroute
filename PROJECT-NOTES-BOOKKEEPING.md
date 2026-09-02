@@ -40,7 +40,9 @@
 >
 > ### Session 263 left this, and item 1 is a DEPLOY
 >
-> 1. **🔴 DEPLOY `loan-bundle` — NOTHING FROM SESSION 263 IS LIVE.** Three of the four
+> 0. **🔴 REDEPLOY `loan-bundle` — session 263 cont. added `_shared/paypal-history.ts`
+>    and rewired the CSV branch. The 21:30 UTC deploy predates it.**
+> 1. **The earlier deploy note, kept for the command:** Three of the four
 >    changed files are its dependencies (`_shared/portal-figures.ts`,
 >    `_shared/ledger-dating.ts`, `_shared/loan-bundle-plan.ts`). `loan-bundle` is the
 >    ~404KB bundle that **must** go through the CLI from David's own terminal —
@@ -2903,11 +2905,56 @@ at this loan's four open `double_reallocation` findings.
 Setting the field to either value would have been a typed number wearing a measurement's
 clothes. Filed as Tech Debt #34; the loan keeps `unknown`, which is at least true.
 
+#### 5. (cont., same day) THE BUNDLE HELD EVERY FACT AND JOINED NONE OF THEM
+
+David uploaded both files, the classifier called them exactly as predicted, and he
+hovered "Read 2 together" — whose tooltip promises to *cross-check them against each
+other*. It could not. `loan-bundle` recognised exactly one transaction export, Stripe
+Capital's, so the PayPal CSV was inert, and PayPal 2 has **no rows in
+`loan_contract_terms`**, so `paidFromOutstanding` refused with `no_terms`. The screenshot's
+figures would have been read and the date would not, for the want of a reader.
+
+Every piece was in the bundle: the screen states $47,806.14 owed and no date; the CSV
+states a $157,000.00 wire and a $20,565.12 fee, which turns that balance into $129,758.98
+paid; and the CSV lists every payment with a date. **`tests/paypal-history.test.mts` now
+walks exactly that chain and lands on 2026-09-02, corroborated by the financing/fee split.**
+
+New `_shared/paypal-history.ts`, structurally a `StripeCsvParseResult` (settlement-lag's
+precedent, not a shared parser). Three things about it are deliberate:
+
+* **The origination rows are SKIPPED, not rejected** — stripe-capital.ts's own distinction
+  between an excluded row and unexplained money.
+* **An unreadable amount is REJECTED, never `|| 0`.** The browser's `_parsePayPalHistoryCsv`
+  coerces, which is survivable when the output is a display balance and not when it is a
+  DATE. A payment whose parts do not foot to its total is refused for the same reason.
+* **Terms are NOT `agreementTerms`.** A transaction export stating an advance and a fee is
+  the lender's record of what actually moved; an agreement is a contract. Tech Debt #31's
+  shape is a mechanism name standing in for a provenance, so these come back under
+  `ledgerTerms`, record with `extracted_by: deterministic_parser:paypal_loan_history_v1`,
+  and the action reads *"from the lender's transaction history"*. **The apply path had
+  `extracted_by` HARDCODED to `stripe_capital_agreement_v2`** — the provenance column would
+  have lied the moment a second reader existed. Now carried from the payload.
+
+Where the agreement and the ledger disagree about a term, **neither is used** and an
+Unresolved question names both. That is mergePortal's rule for two screenshots, and it
+matters more here because the figure feeds a conversion that puts a DATE on a balance.
+
+Two exports of two different lenders in one bundle is refused outright — that is a bundle
+about two loans, and quietly picking one would date a screenshot against the wrong lender's
+payments. Two PayPal exports use the latest and say so; there is no overlap rule for this
+shape yet, and a double-counted running total dates a balance EARLY rather than failing.
+
+**Not circular, and the test asserts both halves.** The terms and the days share one
+document, but the TARGET is the screenshot. A screen that disagrees with the ledger matches
+no day — `target_beyond_export` on one wrong balance, `between_days` on another — which is
+the failure a circular check cannot produce.
+
 #### Verification
 
-`tests/portal-figures.test.mts` 123/123 (was 79), `tests/loan-bundle-balances.test.mts`
-249/249 (was 233), `tests/audit-regressions.test.mts` 33/33, `apply-bundle` 88/88,
-`settlement-lag` 159/159, `export-merge` 30/30. The new assertions include the inverse of
+`portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
+`loan-bundle-balances` 257/257 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
+`settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
+112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13 — 922 green, 0 red. The new assertions include the inverse of
 each fix — a screen whose balances do not add up, a headline matching neither line, a
 derived total trying to license a balance equal to the funding, terms that do not foot, a
 balance larger than the loan, a target falling between two days — so each is red against
