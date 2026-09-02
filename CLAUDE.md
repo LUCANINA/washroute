@@ -72,3 +72,43 @@ fixes the problem, and prefer one shared helper over N parallel edits.
 `./commit.sh "message"` stages tracked changes and pushes. Plain `git commit` is
 equally safe — the version bump lives in the hook, not the script. Commit only
 when David asks.
+
+## RTK — compress command output
+
+`rtk` (v0.47.0, `~/.local/bin/rtk`) filters noisy command output before it reaches
+context. Prefix a command with `rtk` and it uses a filter if it has one, or passes
+through unchanged. Measured on this repo: `ls -laR` 75% smaller, `git status` 52%,
+`git log` 19%.
+
+Use it for: `rtk ls`, `rtk find`, `rtk git status|log|diff|show`, `rtk log <file>`,
+`rtk err <cmd>`, `rtk json`, `rtk psql`, `rtk curl`, `rtk read <file>`.
+`rtk gain` shows cumulative savings.
+
+**⚠️ NEVER use `rtk grep` when completeness matters.** It truncates: 86 matches in
+`admin-dashboard/index.html` came back as 28 lines. Fine for "does this exist";
+wrong for any audit. Use plain `grep` when finding ALL callers — before a schema
+change, when auditing `pg_proc`, or during migration review. A missed caller is
+exactly the failure `docs/washroute/authorization.md` exists to prevent.
+
+Same rule for `rtk read` on the PROJECT-NOTES files: grep them, don't read them.
+
+## Route grunt work to cheaper agents
+
+Budget = tokens x model. Locating, verifying and mechanical edits don't need the
+full model or the main thread. Three agents in `.claude/agents/`, all on Haiku:
+
+| Agent | Use for | Returns |
+|---|---|---|
+| `locator` | "where is X handled?" | `file:line` only, never code |
+| `verifier` | blind-check a claim after a change | PASS/FAIL + evidence |
+| `worker` | mechanical edits already decided | what changed, file:line |
+
+Send a broad search to `locator` rather than grepping into this thread — 384
+timezone hits across 46 files is ~20,000 tokens read directly, ~900 via the agent.
+
+**Do NOT route these to a smaller model.** They exist because something broke in
+production, and the saving isn't worth the risk:
+`washroute-migration-review`, `washroute-preflight`, `washroute-qa`.
+
+Same rule for the agents: `worker` hands back anything needing judgment, a schema
+change, or anything that could message a customer.
