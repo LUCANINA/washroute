@@ -11870,6 +11870,15 @@
           if (rc.variance) parts.push(`${rc.variance} need attention`);
           const settled = rc.unverified + rc.na + rc.unchecked + rc.byschedule + rc.immaterial;
           if (settled) parts.push(`${settled} settled or waiting`);
+          // ── THE CLOSE GATE (session 262 cont. 3, David's rule) ───────────
+          // A separate sentence, not folded into the counts above, because it
+          // answers a different question: those say how the loans are DOING,
+          // this says whether we hold the evidence to say anything at all. A
+          // month with every loan "reconciled" against documents we never
+          // checked is not closed, it is unexamined -- and until now no surface
+          // could tell the two apart.
+          const _sg = _bkStatementGate(_cvLastMonth());
+          if (_sg.total) parts.push(_sg.sentence);
         } else if (_bkOverviewSeg === 'approvals') {
           // Session 258 cont.: "ready to post" overstated it once pattern-candidate
           // proposals and low-priority info notes joined this list -- neither one
@@ -14672,6 +14681,84 @@
     };
   }
 
+
+  // ── THE CLOSE GATE: EVERY EXPECTED STATEMENT IN, AND CHECKED (session 262 cont. 3)
+  //
+  // David, stating it as the rule it should always have been:
+  //
+  //   "The month cannot be closed without all relevant statements having been
+  //    uploaded and ingested by the system. This excludes loans with fixed
+  //    amortization schedules, where statements help confirm the final figure.
+  //    Somewhere in our dashboard, this needs to be clear. E.g.: 8 of 12
+  //    expected statements uploaded and analyzed against Xero."
+  //
+  // TWO CONDITIONS, AND THE SECOND IS THE ONE NOTHING MEASURED BEFORE. A
+  // statement sitting in the system is not evidence until it has been COMPARED
+  // to Xero — the whole point of holding it. Measured the day this was written,
+  // closing August: ten of the eleven loans that owe a statement had one on
+  // file, but only six had been checked against the books. Four documents were
+  // uploaded and never looked at, and every surface counted them as done.
+  // "Uploaded" and "analysed" differing by four is exactly why David worded the
+  // rule with both halves in it.
+  //
+  // WHAT "ANALYSED" MEANS HERE, precisely: a tie-out exists whose `as_of` is the
+  // SAME DATE as the document the close is anchored on. A tie-out from an older
+  // statement does not count — it checked a different document. That is the
+  // difference between E-Transit E5-4751 (statement 23 Aug, tie-out 12 Aug: NOT
+  // analysed) and E-Transit 4140 (statement 17 Aug, tie-out 17 Aug: analysed),
+  // and no coarser test tells them apart.
+  //
+  // THE EXEMPTION IS A RECORDED POLICY, never an inference. `close_basis ===
+  // 'amortization_schedule'` is a decision somebody made about that loan, the
+  // same field grade B already keys on. A loan is NOT exempt because it happens
+  // to have a schedule on file — most of this book's schedules are ones we
+  // DERIVED from statements (Tech Debt #31), and exempting a loan on the
+  // strength of our own arithmetic would let the close skip the only outside
+  // evidence it has. Exempt loans are COUNTED AND NAMED, never silently
+  // dropped: a denominator that quietly shrinks is how a gate stops being one.
+  function _bkStatementGate(monthLabel) {
+    const cov = _bkStatementCoverage(monthLabel);
+    const byId = new Map([...cov.received, ...cov.rolledBack, ...cov.perSchedule, ...cov.missing]
+      .map(e => [e.account.id, e]));
+    const required = [], exempt = [];
+    for (const a of cov.expected) {
+      (_loanCloseBasis(a) === 'amortization_schedule' ? exempt : required).push(a);
+    }
+    const rows = required.map(a => {
+      const e = byId.get(a.id) || null;
+      const anchor = (e && e.anchor) || null;
+      // Grade A is the lender speaking about this month — directly, or rolled
+      // back from a later document on lender evidence. Nothing else is a
+      // statement for the purposes of this gate.
+      const inHand = !!(anchor && anchor.grade === 'A' && anchor.asOf);
+      const tie = (_loanTieOuts || []).find(t => t.loan_account_id === a.id) || null;
+      const analysed = !!(inHand && tie && tie.as_of === anchor.asOf);
+      return {
+        account: a, anchor, inHand, analysed,
+        name: a.xero_account_name || a.lender_account_number || 'Unknown loan',
+        docDate: inHand ? anchor.asOf : null,
+        tieDate: tie ? tie.as_of : null,
+      };
+    });
+    const awaiting   = rows.filter(r => !r.inHand);
+    const unanalysed = rows.filter(r => r.inHand && !r.analysed);
+    const done = rows.length - awaiting.length - unanalysed.length;
+    return {
+      month: monthLabel, rows, exempt, awaiting, unanalysed,
+      total: rows.length, done,
+      automatic: cov.naCount,
+      // The gate itself. An empty required set is NOT ready -- that is the
+      // no-data state, and a confident "ready" before the loans load is the
+      // false reassurance this module keeps having to remove.
+      ready: rows.length > 0 && !awaiting.length && !unanalysed.length,
+      // ONE sentence, built here so every surface says it identically.
+      sentence: `${done} of ${rows.length} expected statements uploaded and analysed against Xero`,
+      exemptNote: exempt.length
+        ? `${exempt.length} loan${exempt.length === 1 ? '' : 's'} close${exempt.length === 1 ? 's' : ''} on a contractual schedule and need${exempt.length === 1 ? 's' : ''} none`
+        : '',
+    };
+  }
+
   // Has this loan EVER sent a real document? Drives the checklist's wording:
   // "August statement" for a lender that normally delivers, versus "any
   // statement" for one that never has — a different ask, to a different person.
@@ -16719,6 +16806,7 @@
     if (!_bkLoansLoaded || !(_allLoanAccounts || []).length) return null;
     const rf  = _loanCloseRollforward(month);
     const cov = _bkStatementCoverage(month);
+    const _sg = _bkStatementGate(month);
     const unpostedTotal = rf.unpostedRows.reduce((n, r) =>
       n + r.unposted.reduce((m, sp) => m + Number(sp.total_amount || 0), 0), 0);
     return {
@@ -16747,10 +16835,19 @@
       ledgerToResolve: rf.ledgerToResolve,
       circular: rf.circularRows.length,
       unposted: rf.unpostedRows.length,
+      // Session 262 cont. 3: a statement UPLOADED BUT NEVER CHECKED is work
+      // nothing counted. `cov.missing` covers documents that never arrived;
+      // these arrived and no tie-out was ever computed on them, which is the
+      // half of David's rule that had no measurement at all. Deliberately
+      // additive and non-overlapping: `unanalysed` requires inHand, and
+      // `cov.missing` requires the opposite, so nothing is counted twice.
+      stmtGate: _sg,
+      unanalysed: _sg.unanalysed.length,
       // The number of THINGS to deal with, not the number of kinds of thing.
       // Three missing statements plus one unposted split is 4 pieces of work;
       // reporting "2" because they fall in two categories reads as two items.
-      count: cov.missing.length + rf.off.length + rf.ledgerOff.length + rf.unpostedRows.length,
+      count: cov.missing.length + rf.off.length + rf.ledgerOff.length + rf.unpostedRows.length
+        + _sg.unanalysed.length,
     };
   }
 
