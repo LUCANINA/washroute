@@ -2407,6 +2407,10 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**30. 🟠 A posting hold lives in free text, and the guard that reads it is a regex (session 262 cont.).** `loan_splits.review_notes` is where a human writes "DO NOT STAGE THIS PERIOD until Ford confirms a September draft" — a real instruction, on the row, that no code read until now. `_bkSplitPostingHold` matches `/\bdo not (stage|post)\b/i` and, when it hits, removes the row's action entirely and quotes the writer's own sentence. **It is built so it can only ever REMOVE an action** — a false positive costs a button still reachable from the Loans page, a false negative leaves the pre-session-262 behaviour; it never enables a post, never changes a figure, never suppresses a variance. That asymmetry is what makes a prose regex admissible here at all, and it is the only thing that does. **The real fix is a structured column** — `posting_hold_reason text` plus `posting_hold_set_by/at`, written deliberately by whoever knows, with the note field left as commentary. Then every surface can honour a hold without reading English, `loan-xero-post` can refuse a held split server-side (today nothing stops a direct call), and the hold becomes auditable. Do this before any second surface starts matching the same phrase — two regexes over one note field is how they start disagreeing.
+
+**31. 🟠 A derived schedule and a lender's contract schedule are indistinguishable on screen (session 262 cont.).** David caught this: "E-Transit E4-9744 does not have an amortization schedule on file." Correct — it has two `derived_from_statements` schedules that `loan-derive-schedule` computed from its own statements (`contract_id` null, `storage_path` `derived://…`), i.e. **our own arithmetic**, not a document the lender sent. But the split reads `source='amortization_schedule'`, which names the MECHANISM and not the PROVENANCE, and every sentence built from it ("the schedule supports $975.78") therefore states our own projection with the same voice it would use for a contract. This is the same distinction `_openingIsIndependent()` already makes for balances — a figure traceable only to our own record cannot corroborate our own record — applied to schedules, where nothing makes it yet. It matters most exactly where it is worst today: E4-9744's payment day was re-measured from the 20th to the 9th between its two derivations, and **the split waiting in review is tied to the superseded one**. Next step: carry the parent schedule's `source` down to anything that describes a split's basis, and say "a schedule we derived from your statements" where that is what it is. David deferred this deliberately when offered it; it is not forgotten.
+
 **28. 🟡 An Issues row shows ONE of a loan's findings; the rest are on no screen (session 262).** Session 257 narrowed Issues to loan variances and session 258 stopped Approvals from repeating the findings of a loan that already has an Issues row — both deliberate, both right. The consequence nobody costed: `_bkIssueQueueItems` picks the most serious finding with `.find()` and shows that one as the row's Explanation, so a loan with three open findings names one and hides two. Measured, not assumed: E-Transit Loan - 4140 in the current fixture holds three `recon_finding` rows, shows one, and contributes zero items to Approvals. **The data is intact** — `_bkLoanAttentionItems()` still holds all three, so the "N need attention" headline and every count are correct; this is purely a reachability gap, which is why it is amber and not red. Two ways out: let a variance row carry more than one finding (a count plus the detail panel already built for `spec.detailHtml`), or send the surplus back to Approvals for loans whose Issues row cannot name them all. **Not decided — David has not been asked.** Written down in the suite rather than tuned away: `roster-clean-loan-children`'s r1 block now carries two `⚠ REPORTED` assertions that PASS while stating this exactly, so the day the fold changes they go red and announce that they must be rewritten.
 
 **29. 🟢 `closing-evidence` was 183 red for a day and a half because the month rolled (session 262, FIXED — kept here as the pattern).** Not deferred debt; a closed item worth leaving on the list because the shape recurs. A fixture is a snapshot of a moment and every figure verified against it is a figure from that moment, so reading "now" from the wall clock asks July's arithmetic to be true in September. The suite now freezes the page's clock — and its own date arithmetic — to `_meta.pulled_at`, so refreshing the fixture moves the clock in the same commit with no second place to update. **The general rule: any test whose subject is a specific period must take that period from its fixture, never from the calendar.** Grep for `new Date()` in a test file before trusting it; there are none left in `bookkeeping-harness.mjs` and a fixture with no `pulled_at` is now a hard failure rather than a silent fall back to today.
@@ -2665,6 +2669,135 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+---
+
+### Session 262 cont. (2026-09-02) — "WHY DO SOME LOANS HAVE A POST ADJUSTMENT OPTION?" The answer was a defect, and David's follow-up question found a second one.
+
+The Issues table shipped and David read it properly, which is how both of these
+surfaced. Neither was in the build; both were in code that predates it.
+
+#### The question, and what the data said
+
+> David: *"why do some loans contain a 'post adjustment' option while others do not?"*
+
+The rule WAS: any split on the loan in `pending_review` or `needs_attention`
+counts as "a correcting entry is ready for you to review", first match wins. No
+check of its period, its amount, or where it came from. Measured in production
+the day he asked — all three splits then waiting, and **not one was a
+correction**:
+
+| Loan | Period | Amount | Source |
+|---|---|---|---|
+| PCV Good and Green | **2026-10** | $7,138.10 | `amortization_schedule` |
+| Dexter Loan 2 | 2026-09 | $3,810.26 | `amortization_schedule` |
+| E-Transit E4-9744 | 2026-09 | $1,144.55 | `amortization_schedule` |
+
+So PCV's row offered **October's ordinary payment as the fix for an August gap of
+$3,555.17**. Posting it would not have moved the variance at all. `manual_adjustment`
+— the source that actually means a human prepared a fix — had **zero** rows in
+review.
+
+**`_bkSplitKind` is an allowlist, so a new source fails safe** (same construction
+as `_VARIANCE_REAL_ANCHORS`): `manual_adjustment` / `principal_payment` are a
+correction, `amortization_schedule` is a scheduled card, `statement_delta` /
+`explicit_split` are the ordinary monthly split, and anything unrecognised is
+described neutrally rather than promoted. Understating what we have prepared is
+the safe direction; overstating it is what this was doing.
+
+Scheduled and statement splits keep an action — **they are real work** — under a
+name that says what it does (`Approve payment`), and the sentence says in the
+same breath that it is not a fix for the difference. That last clause is the
+point: a reader looking at a variance will otherwise assume the payment card
+sitting beside it is the answer.
+
+#### THE SECOND DEFECT, AND IT IS THE ONE THAT COSTS MONEY
+
+David: *"E-Transit E4-9744 does not have an amortization schedule on file."*
+
+He was right, and the split's own `source='amortization_schedule'` is what made
+it look otherwise. That loan has **no lender schedule at all** — what it has is
+two `derived_from_statements` schedules that `loan-derive-schedule` computed from
+its own statements (`contract_id` null, `storage_path` `derived://…`). A
+CALCULATED projection, not a document Ford sent. `source` on the split names the
+mechanism, not the provenance, and the two are not the same claim.
+
+Chasing that turned up what the split's `review_notes` had been saying since
+session 232, in writing, on the row:
+
+> **DO NOT STAGE THIS PERIOD** until Ford confirms a September draft … CONFIRMED
+> BY THE LENDER (Ford Credit statement 08/20/2026): *"Payment Due 09/09/2026 —
+> $0.00"*, Total Amount Due $0.00, and in Ford's own words *"Your account is paid
+> ahead."*
+
+**The loan owes nothing in September, the lender says so, and the Issues table
+was offering that $1,144.55 card one click from the books under the words "a
+correcting entry is ready for you to review."** The instruction was already on
+the row. No code had ever read it.
+
+A hold now **removes the action entirely** — not a renamed button, not a confirm
+step. There is nothing here for anyone to approve. The row still appears, still
+states its difference, still carries its cause; only the invitation goes, and the
+split stays reachable from the Loans page for whoever wants to act deliberately.
+The row quotes **the writer's own sentence**, not a paraphrase — they wrote it
+knowing why, and a summary of a hold is how a hold gets overridden.
+
+**⚠️ It is a regex over prose, and that is a compromise, not a design.** It is
+built so it can only ever REMOVE an action: a false positive costs a button
+reachable elsewhere, a false negative leaves exactly the old behaviour. It never
+enables a post, never changes a figure, never suppresses a variance. The honest
+fix is a structured `posting_hold_reason` column written by whoever knows —
+**Tech Debt #30**. Until then, reading the sentence beats ignoring it, which is
+what we were doing.
+
+#### The precedence bug hiding underneath both
+
+`attn` — the diagnosis behind the variance — was looked up only `if (!candidate)`.
+So a loan with a real diagnosis on file showed none of it whenever next month's
+ordinary payment happened to be sitting in review. Now gated on `candIsFix`:
+**only something that claims to fix the variance may displace the explanation of
+the variance.** The harness proves this by reverting it and watching a loan lose
+its Review panel.
+
+#### Tests: 25 assertions, three controls, and my control was wrong again
+
+New group **`split-not-a-fix`**. The fixture carries none of these shapes, so
+each is planted; loans are still derived from `_bkIssueQueueItems()`, never named.
+Controls re-install each half of the pre-fix behaviour on the shipped functions'
+own `.toString()`.
+
+**c3 failed first, and for the second time this session the fault was in the
+control rather than the code** — a different mistake from c1/c2's, and worth both
+being written down. It compared `explain`, which **cannot** differ: whenever a
+candidate exists the remedy sentence comes from the `candKind` branch whether or
+not `attn` was looked up. The diagnosis reaches the row through `spec` →
+`detailHtml`, the Review panel.
+
+> **A control that looks in the wrong place reports "no difference" about a
+> difference it never examined.** c1/c2's earlier fault was measuring the wrong
+> PREDICATE; this was measuring the wrong FIELD. Both pass against broken code
+> for the same underlying reason — the assertion and the defect were never in
+> contact.
+
+It now also asserts its own precondition (a scheduled-card loan really does have
+a diagnosis to suppress), so it can never pass vacuously on a fixture where no
+such loan exists.
+
+**25/25.**
+
+#### Left open
+
+* **Tech Debt #30** — the structured hold column.
+* **Provenance is still not stated.** A split from a DERIVED schedule and one
+  from a lender's contract schedule read identically on screen, and E4-9744 is
+  the loan where that matters most: its schedule is our own arithmetic, its
+  payment day was re-measured from the 20th to the 9th between two derivations,
+  and the waiting split is tied to the **superseded** one. David chose to leave
+  this for a later pass (option 3 of the three offered). **Tech Debt #31.**
+* The strict version of the matcher — requiring a candidate to plausibly relate
+  to the gap — remains unbuilt and unasked-for.
 
 ---
 

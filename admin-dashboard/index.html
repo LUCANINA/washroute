@@ -9283,6 +9283,82 @@
     return { onclick: null, detailHtml, bvlGroup };
   }
 
+  // ── WHAT KIND OF SPLIT IS WAITING? (session 262 cont.) ───────────────────
+  //
+  // David, looking at the shipped Issues table: "why do some loans contain a
+  // 'post adjustment' option while others do not?" The answer was that the row
+  // called ANY split in a review status "a correcting entry" -- no check of its
+  // period, its amount, or where it came from. Measured against production the
+  // day he asked, ALL THREE splits then waiting were scheduled-payment cards
+  // and NONE was a correction:
+  //
+  //   PCV Good and Green   period 2026-10   $7,138.10   amortization_schedule
+  //   Dexter Loan 2        period 2026-09   $3,810.26   amortization_schedule
+  //   E-Transit E4-9744    period 2026-09   $1,144.55   amortization_schedule
+  //
+  // So PCV's row offered October's ordinary payment as the fix for an August
+  // gap of $3,555.17. Posting it would not have moved the variance at all.
+  //
+  // AN ALLOWLIST, so a new source fails safe. Same construction as
+  // _VARIANCE_REAL_ANCHORS: only a source NAMED here is a correction, and
+  // anything unrecognised is described neutrally rather than promoted. The safe
+  // direction is understating what we have prepared, never overstating it.
+  // `manual_adjustment` is the one source that means a human prepared an entry
+  // to fix something; `principal_payment` is the hand-booked principal-only
+  // correction. `statement_delta` / `explicit_split` are the ORDINARY monthly
+  // split read off a lender statement, and `amortization_schedule` is a payment
+  // card from a schedule -- both are real work, neither is a fix for a variance.
+  const _CORRECTION_SPLIT_SOURCES = new Set(['manual_adjustment', 'principal_payment']);
+  const _SCHEDULED_SPLIT_SOURCES  = new Set(['amortization_schedule']);
+  const _STATEMENT_SPLIT_SOURCES  = new Set(['statement_delta', 'explicit_split']);
+
+  function _bkSplitKind(s) {
+    const src = s && s.source;
+    if (_CORRECTION_SPLIT_SOURCES.has(src)) return 'correction';
+    if (_SCHEDULED_SPLIT_SOURCES.has(src))  return 'scheduled';
+    if (_STATEMENT_SPLIT_SOURCES.has(src))  return 'statement';
+    return 'other';
+  }
+
+  // ── A HUMAN WROTE "DO NOT POST THIS" AND NOTHING READ IT ─────────────────
+  //
+  // E4-9744's waiting split carries this in its own review_notes, from session
+  // 232: "DO NOT STAGE THIS PERIOD until Ford confirms a September draft ...
+  // CONFIRMED BY THE LENDER (Ford Credit statement 08/20/2026): Payment Due
+  // 09/09/2026 -- $0.00 ... Your account is paid ahead."
+  //
+  // The loan owes nothing in September, the lender says so in writing, and the
+  // Issues table was offering that $1,144.55 card one click from the books
+  // under the words "a correcting entry is ready for you to review". The
+  // instruction was already on the row; no code had ever looked at it.
+  //
+  // ⚠️ THIS IS A REGEX OVER PROSE, which this module is right to be wary of --
+  // so it is built to FAIL SAFE and it can only ever do one thing: REMOVE an
+  // action. A false positive costs a button the reader can still reach from the
+  // Loans page; a false negative leaves exactly today's behaviour. It never
+  // enables a post, never changes a figure, and never suppresses the VARIANCE
+  // itself -- the row still appears, still states its difference, still carries
+  // its cause. Only the invitation to post goes.
+  //
+  // The honest fix is a structured column (`posting_hold_reason`) written by
+  // whoever knows, rather than a phrase matched out of a note field. Filed as
+  // Tech Debt #30. Until then, reading the sentence is strictly better than
+  // ignoring it, which is what we were doing.
+  const _POSTING_HOLD_RE = /\bdo not (?:stage|post)\b/i;
+
+  function _bkSplitPostingHold(s) {
+    const notes = s && s.review_notes;
+    if (!notes || !_POSTING_HOLD_RE.test(notes)) return null;
+    // Give the reader the writer's OWN sentence, not a paraphrase -- they wrote
+    // it knowing why, and a summary of a hold is how a hold gets overridden.
+    // The first sentence containing the directive, trimmed to something a table
+    // cell can hold; the full note is one click away in the split's review view.
+    const sentences = String(notes).split(/(?<=\.)\s+|\s+--\s+/);
+    const hit = sentences.find(x => _POSTING_HOLD_RE.test(x)) || '';
+    const trimmed = hit.trim().replace(/\s+/g, ' ');
+    return trimmed.length > 180 ? trimmed.slice(0, 177) + '…' : trimmed;
+  }
+
   // ── WHY DOES THIS LOAN HAVE A VARIANCE? (session 262) ────────────────────
   //
   // The ONE place anything reads loan_attributions. Every surface -- the Issues
@@ -9421,11 +9497,15 @@
       const amt = Number(v.difference);
       if (!isFinite(amt) || !amt) return;
       const name = a.xero_account_name || a.lender_account_number || 'Unknown loan';
-      // "Post adjustment" only has somewhere to go if a correcting split is
-      // already sitting in review for this loan — otherwise there is nothing
-      // to open yet and the row says so instead of offering a dead button.
+      // A split waiting in review. What it IS decides what the row may claim
+      // about it -- see _bkSplitKind: only a `manual_adjustment` /
+      // `principal_payment` is a fix for a variance, and until session 262 cont.
+      // this line's result was called "a correcting entry" whatever it was.
       const candidate = (_allLoanSplits || []).find(s => s.loan_account_id === a.id
         && (s.status === 'pending_review' || s.status === 'needs_attention'));
+      const candKind = candidate ? _bkSplitKind(candidate) : null;
+      const candHold = candidate ? _bkSplitPostingHold(candidate) : null;
+      const candIsFix = candKind === 'correction';
       // Session 258 cont.: when there's no correcting entry yet, look for the
       // diagnosis already sitting behind this variance -- a split_mismatch,
       // stage_flag or recon_finding tied to this loan. Approvals no longer
@@ -9433,7 +9513,13 @@
       // _bkApprovalQueueItems), precisely so this is where the reason lands
       // instead of a second queue the CPA has to switch to. _bkLoanAttentionItems()
       // is already sorted by severity, so .find() picks the most serious one.
-      const attn = candidate ? null : _bkLoanAttentionItems().find(it =>
+      //
+      // ⚠️ `candIsFix`, NOT `candidate` (session 262 cont.). A scheduled payment
+      // card used to suppress this lookup, so a loan with a real diagnosis on
+      // file showed none of it because next month's ordinary payment happened to
+      // be sitting in review. Only something that actually claims to fix the
+      // variance may displace the explanation of the variance.
+      const attn = candIsFix ? null : _bkLoanAttentionItems().find(it =>
         (it.kind === 'split_mismatch' || it.kind === 'stage_flag' || it.kind === 'recon_finding')
         && _bkIssueLoanId(it) === a.id);
       const spec = attn ? _bkAttnItemActionSpec(attn) : null;
@@ -9450,7 +9536,26 @@
       const at = _bkLoanAttribution(a.id);
       const attrSentence = _bkAttributionSentence(at);
       const attrConf = _bkAttributionConfidence(at);
-      const remedy = candidate ? 'A correcting entry is ready for you to review.'
+      // ── WHAT THE ROW MAY SAY ABOUT THE SPLIT IT FOUND ────────────────────
+      // Each branch states what is actually waiting, and a scheduled or
+      // statement split says IN THE SAME SENTENCE that it is not a fix -- the
+      // reader is looking at a variance, and a payment card sitting nearby is
+      // exactly the thing they would otherwise assume was the answer.
+      const candPeriod = candidate && candidate.period_label
+        ? String(candidate.period_label) : '';
+      const periodPhrase = /^\d{4}-\d{2}$/.test(candPeriod)
+        ? _cvMonthName(candPeriod) : (candPeriod || 'a later period');
+      const remedy = candHold
+        // The writer's own instruction wins over every other description. It is
+        // the one sentence on this row that says DON'T, and it comes first.
+        ? `On hold — ${candHold}`
+        : candIsFix ? 'A correcting entry is ready for you to review.'
+        : candKind === 'scheduled'
+        ? `${periodPhrase}'s scheduled payment is waiting for approval — it is ordinary work, not a fix for this difference.`
+        : candKind === 'statement'
+        ? `A payment split from a lender statement is waiting for approval — it is ordinary work, not a fix for this difference.`
+        : candidate
+        ? 'A split is waiting for approval — it does not claim to fix this difference.'
         : attn ? attn.explain : 'No correcting entry prepared yet.';
       items.push({
         key: 'variance-' + a.id, dot: v.material === false ? 'amber' : 'red',
@@ -9474,9 +9579,25 @@
         attrConfidence: attrConf,
         attrGeneratedAt: (at && at.generatedAt) || null,
         attrUnresolved: (at && at.unresolved) || 0,
-        action: candidate ? 'Post adjustment' : attn ? 'Review' : null,
-        onclick: candidate ? `openLoanReviewModal('${candidate.id}')` : (spec && spec.onclick) || null,
-        detailHtml: (spec && !spec.onclick) ? spec.detailHtml : null,
+        // ⚠️ A HOLD REMOVES THE ACTION ENTIRELY (session 262 cont.). Not a
+        // renamed button, not a confirm step: E4-9744's lender states in
+        // writing that $0.00 is due, so there is nothing here for anyone to
+        // approve, and a button that opens it is an invitation. The split is
+        // still reachable from the Loans page for whoever wants to act on it
+        // deliberately -- this removes the accidental path, not every path.
+        action: candHold ? null
+          : candIsFix ? 'Post adjustment'
+          : candidate ? 'Approve payment'
+          : attn ? 'Review' : null,
+        onclick: candHold ? null
+          : candidate ? `openLoanReviewModal('${candidate.id}')`
+          : (spec && spec.onclick) || null,
+        // The state, for the harness and any export -- never re-derived from
+        // the wording, so a copy edit cannot turn a held split into a postable
+        // one for anything that checks.
+        splitKind: candKind,
+        splitHeld: !!candHold,
+        detailHtml: (!candHold && spec && !spec.onclick) ? spec.detailHtml : null,
         // Ignore is a soft dismissal — same bk_issue_dismissals store as every
         // other queue, substance-keyed so a materially different number comes
         // right back even if this exact loan was dismissed before (session
@@ -9865,7 +9986,7 @@
           return `<tr data-bkkey="${esc(String(it.key))}">
           <td><div class="bk-var-loan"><span class="bk-dot ${it.dot}"></span>${esc(it.name)}</div></td>
           <td class="bk-var-amt">${esc(it.varianceLabel)}</td>
-          <td class="bk-var-explain" data-attr-state="${esc(it.attrState || '')}"${it.attrConfidence ? ` data-attr-confidence="${esc(it.attrConfidence)}"` : ''}${it.attrGeneratedAt ? ` data-attr-generated="${esc(it.attrGeneratedAt)}"` : ''}${it.attrUnresolved ? ` data-attr-unresolved="${it.attrUnresolved}"` : ''}>${esc(it.explain)}${attrTail}${it.explainSub ? `<div class="bk-var-sub">${esc(it.explainSub)}</div>` : ''}${it.unarchived ? `<div class="bk-queue-stale" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af;margin-top:6px" title="A 'Got it' covers a finding as it was, not its id forever.">↩ ${esc(it.unarchived)}</div>` : ''}
+          <td class="bk-var-explain" data-split-kind="${esc(it.splitKind || '')}" data-split-held="${it.splitHeld ? '1' : ''}" data-attr-state="${esc(it.attrState || '')}"${it.attrConfidence ? ` data-attr-confidence="${esc(it.attrConfidence)}"` : ''}${it.attrGeneratedAt ? ` data-attr-generated="${esc(it.attrGeneratedAt)}"` : ''}${it.attrUnresolved ? ` data-attr-unresolved="${it.attrUnresolved}"` : ''}>${esc(it.explain)}${attrTail}${it.explainSub ? `<div class="bk-var-sub">${esc(it.explainSub)}</div>` : ''}${it.unarchived ? `<div class="bk-queue-stale" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af;margin-top:6px" title="A 'Got it' covers a finding as it was, not its id forever.">↩ ${esc(it.unarchived)}</div>` : ''}
             ${panelId ? `<div id="${panelId}" style="display:none;margin-top:8px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12px;color:var(--gray-600)" onclick="event.stopPropagation()">${it.detailHtml}</div>` : ''}
           </td>
           <td class="bk-var-actions">
@@ -44429,12 +44550,15 @@ ${oneCopy}
     _stripeFeesCache.set(key, val);
     _reportCacheSet('wr-stripefees|' + key, val);
   }
-  async function fetchSquareLaborHours(from, to) {
+  // closedTtlMs: callers that know a window is FAR closed can hold it longer.
+  // The 24h default exists because a timesheet can be edited after the fact —
+  // but only until payroll runs. The 12-month trend passes 30 days for months
+  // that ended over 45 days ago, where an edit is no longer possible, which is
+  // what keeps it from re-fetching a year of Square every single day.
+  async function fetchSquareLaborHours(from, to, closedTtlMs) {
     const key = `${from}|${to}`;
     if (_squareLaborCache.has(key)) return _squareLaborCache.get(key);
-    // localStorage layer — 6h for live windows, 24h for closed (timesheets can be
-    // edited after the fact, so we don't hold Square hours as long as Stripe fees).
-    const ls = _reportCacheGet('wr-sqlabor|' + key, _reportTtl(to, 6 * 36e5, 24 * 36e5));
+    const ls = _reportCacheGet('wr-sqlabor|' + key, _reportTtl(to, 6 * 36e5, closedTtlMs || 24 * 36e5));
     if (ls) { _squareLaborCache.set(key, ls); return ls; }
     const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {}, laundry_titles: {} };
     try {
@@ -47771,23 +47895,36 @@ async function _dvIframeLoaded() {
   //   1. Is the FLOOR getting faster?          → the Avg Lbs/Hr line
   //   2. Is one PERSON getting faster, or just → the compare overlay
   //      riding a floor that got faster?
-  // A person can gain lbs/hr while losing ground to the floor, and hold
-  // steady while the floor slows and look like a star. One line cannot
-  // show that; two can.
   //
-  // History starts 2026-03-23 (WashRoute go-live). The Starchup numbers
-  // are gone and cannot be backfilled, so the window renders however many
-  // months exist and fills toward 12 on its own. March 2026 is a PARTIAL
-  // month (go-live was the 23rd) and is labelled as such — it is a real
-  // data point, not a collapse.
-  let _lndrTrendData     = null;   // { anchor, months:[ym], byMonth, launderers }
-  let _lndrTrendChart    = null;
-  let _lndrTrendCompareId = '';    // '' = floor only
+  // History starts 2026-03-23 (WashRoute go-live). Starchup's numbers are
+  // gone and cannot be backfilled, so the window renders however many
+  // months exist and fills toward 12 on its own.
+  //
+  // ── PARTIAL MONTHS ARE THE TRAP HERE, AND THEY LIE IN OPPOSITE
+  //    DIRECTIONS. Pounds come from WashRoute orders; hours come from
+  //    Square. The two sources do not start and stop on the same day, so
+  //    a month can be partial on one side and complete on the other:
+  //
+  //      Mar 2026 — orders start the 23rd, but Square bills the whole
+  //        month (the crew was working retail all along). Nine days of
+  //        pounds over thirty-one days of hours read as 7.5 lbs/hr, and
+  //        anchoring a trend there produced "+598.8% since Mar 26".
+  //      The CURRENT month — orders are counted by delivery window, which
+  //        runs into the FUTURE, while hours only exist for days already
+  //        worked. Future pounds over elapsed hours read as 52.7 lbs/hr.
+  //
+  //    Neither figure is a productivity measurement; both are an artifact
+  //    of the two sources disagreeing about where the month ends. So:
+  //    the current month counts only pounds delivered through today (which
+  //    makes it comparable to the hours actually worked), and partial
+  //    months are kept OUT of the chart and out of the headline while
+  //    staying visible in the table, labelled, with their vs-Prior blanked.
+  //    They are real records; they are not evidence of a trend.
+  let _lndrTrendData      = null;
+  let _lndrTrendChart     = null;
+  let _lndrTrendCompareId = '';
   let _lndrTrendOpen = localStorage.getItem('wr-lndr-trend-open') !== '0';
 
-  // Rolling 12 months ending at the month of the selected "To" date,
-  // oldest first. Rolling (not calendar) per David: he is watching drift,
-  // not comparing against last year's season.
   function _lndrTrendMonths(anchorDate) {
     const [y, m] = anchorDate.slice(0, 7).split('-').map(Number);
     const out = [];
@@ -47809,111 +47946,79 @@ async function _dvIframeLoaded() {
       .toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: BIZ_TZ });
   }
 
-  // Orders across the whole 12-month window. Paginated for the same reason
-  // the main report paginates: PostgREST caps a page at 1000 rows and a
-  // year of orders is ~9,000, so an unpaginated read would silently return
-  // the first 1000 and quietly understate every month but the newest.
-  async function _lndrFetchTrendOrders(fromISO, toISO) {
-    const all = []; const BATCH = 1000; let offset = 0;
-    while (true) {
-      const { data, error } = await db.from('orders')
+  function _lndrTodayPT() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+  }
+
+  // One month of folding credit, cached in localStorage. A closed month's
+  // orders never change, so it is held for 30 days and costs nothing on
+  // every later open — this is what makes the section fast after the first
+  // load. The open month is held 10 minutes so today's work still shows up.
+  async function _lndrLoadMonthBucket(ym) {
+    const todayPT = _lndrTodayPT();
+    const isOpen  = ym >= todayPT.slice(0, 7);
+    const key     = `wr-lndrtrend|${ym}`;
+    const cached  = _reportCacheGet(key, isOpen ? 10 * 60e3 : 30 * 864e5);
+    if (cached) return cached;
+
+    const b = _lndrMonthBounds(ym);
+    // The open month stops at TODAY: pounds are counted by delivery window,
+    // which runs into the future, and there are no hours for days nobody has
+    // worked yet. Counting them would inflate the rate, not measure it.
+    const hardTo = isOpen && todayPT < b.to ? todayPT : b.to;
+    if (isOpen && todayPT < b.from) return null;   // month hasn't started
+
+    const padFrom = new Date(b.from  + 'T00:00:00'); padFrom.setDate(padFrom.getDate() - 1);
+    const padTo   = new Date(hardTo  + 'T00:00:00'); padTo.setDate(padTo.getDate() + 1);
+    const fromISO = padFrom.toISOString().slice(0, 10) + 'T00:00:00Z';
+    const toISO   = padTo.toISOString().slice(0, 10)   + 'T23:59:59Z';
+
+    async function page(build) {
+      const all = []; const BATCH = 1000; let offset = 0;
+      while (true) {
+        const { data, error } = await build().range(offset, offset + BATCH - 1);
+        if (error) throw error;
+        all.push(...(data || []));
+        if (!data || data.length < BATCH) break;
+        offset += BATCH;
+      }
+      return all;
+    }
+
+    const [orders, assignments] = await Promise.all([
+      page(() => db.from('orders')
         .select('id, folded_by_id, total_bags, weight_lbs, delivery_window_start')
         .not('status', 'in', '("cancelled","skipped","pickup_failed")')
         .gte('delivery_window_start', fromISO)
         .lte('delivery_window_start', toISO)
-        .order('delivery_window_start')
-        .range(offset, offset + BATCH - 1);
-      if (error) throw error;
-      all.push(...(data || []));
-      if (!data || data.length < BATCH) break;
-      offset += BATCH;
-    }
-    return all;
-  }
+        .order('delivery_window_start')),
+      // Filtered through the embedded order so only this month's assignment
+      // rows come back — the alternative (every row, then filter here) moved
+      // the whole table across the wire twelve times over.
+      page(() => db.from('order_folding_assignments')
+        .select('order_id, launderer_id, bags, weight_lbs, orders!inner(delivery_window_start)')
+        .gte('orders.delivery_window_start', fromISO)
+        .lte('orders.delivery_window_start', toISO)
+        .order('order_id')),
+    ]);
 
-  // Every split-fold assignment row, paginated. Deliberately NOT filtered
-  // by order id: the whole table is ~7,000 rows (7 requests), whereas an
-  // .in() filter over a year of order ids would be ~90 chunked requests
-  // for the same answer. Revisit if this table grows past ~50k rows.
-  async function _lndrFetchTrendAssignments() {
-    const all = []; const BATCH = 1000; let offset = 0;
-    while (true) {
-      const { data, error } = await db.from('order_folding_assignments')
-        .select('order_id, launderer_id, bags, weight_lbs')
-        .order('order_id')
-        .range(offset, offset + BATCH - 1);
-      if (error) throw error;
-      all.push(...(data || []));
-      if (!data || data.length < BATCH) break;
-      offset += BATCH;
-    }
-    return all;
-  }
-
-  async function loadLaundererTrend() {
-    const toEl = document.getElementById('rpt-to');
-    const wrap = document.getElementById('lndr-trend-body');
-    if (!toEl?.value || !wrap) return;
-    if (!_lndrTrendOpen) return;              // collapsed — don't pay for data nobody asked for
-    const anchor = toEl.value;
-    if (_lndrTrendData && _lndrTrendData.anchor === anchor) { _renderLndrTrend(); return; }
-
-    wrap.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Building the trend…</div>';
-
-    const months  = _lndrTrendMonths(anchor);
-    const winFrom = months[0] + '-01';
-    const winTo   = _lndrMonthBounds(months[months.length - 1]).to;
-
-    // Pad a day either side for UTC skew, then bucket by Pacific date —
-    // same pattern the main report uses.
-    const padFrom = new Date(winFrom + 'T00:00:00'); padFrom.setDate(padFrom.getDate() - 1);
-    const padTo   = new Date(winTo   + 'T00:00:00'); padTo.setDate(padTo.getDate() + 1);
-    const fromISO = padFrom.toISOString().slice(0, 10) + 'T00:00:00Z';
-    const toISO   = padTo.toISOString().slice(0, 10)   + 'T23:59:59Z';
-
-    let orders, assignments, laundererRes, laborByMonth;
-    try {
-      [orders, assignments, laundererRes, laborByMonth] = await Promise.all([
-        _lndrFetchTrendOrders(fromISO, toISO),
-        _lndrFetchTrendAssignments(),
-        db.from('launderers').select('id, name, square_employee_name, pin').eq('is_active', true).order('name'),
-        (async () => {
-          // Square labor is one call per date range, so a 12-month view is
-          // 12 calls. They run in parallel and every closed month is cached
-          // in localStorage, so this is a first-open cost, not a per-render one.
-          const res = await Promise.all(months.map(ym => {
-            const b = _lndrMonthBounds(ym);
-            return fetchSquareLaborHours(b.from, b.to);
-          }));
-          const out = {}; months.forEach((ym, i) => { out[ym] = res[i]; });
-          return out;
-        })(),
-      ]);
-    } catch (e) {
-      wrap.innerHTML = `<div class="rev-empty" style="color:var(--red)">Could not build the trend: ${esc(e.message || String(e))}</div>`;
-      return;
-    }
-
-    // Only rows with MORE than one assignment are real splits — a
-    // single-row assignment says the same thing as folded_by_id, and the
-    // fallback path below already handles that.
     const splitMap = {};
-    (assignments || []).forEach(a => { (splitMap[a.order_id] = splitMap[a.order_id] || []).push(a); });
+    assignments.forEach(a => { (splitMap[a.order_id] = splitMap[a.order_id] || []).push(a); });
     Object.keys(splitMap).forEach(k => { if (splitMap[k].length <= 1) delete splitMap[k]; });
 
-    const byMonth = {};
-    months.forEach(ym => { byMonth[ym] = { per: {}, unassignedLbs: 0, unassignedOrders: 0 }; });
+    const bucket = { per: {}, unassignedLbs: 0, unassignedOrders: 0,
+                     firstDay: null, lastDay: null, cappedTo: hardTo < b.to ? hardTo : null };
 
     orders.forEach(o => {
       if (!o.delivery_window_start) return;
-      const ym = new Date(o.delivery_window_start)
-        .toLocaleDateString('en-CA', { timeZone: BIZ_TZ }).slice(0, 7);
-      const bucket = byMonth[ym];
-      if (!bucket) return;   // a padding day that fell outside the window
+      const day = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      if (day < b.from || day > hardTo) return;      // padding, or past the cap
+      const dom = Number(day.slice(8, 10));
+      if (bucket.firstDay == null || dom < bucket.firstDay) bucket.firstDay = dom;
+      if (bucket.lastDay  == null || dom > bucket.lastDay)  bucket.lastDay  = dom;
+
       const rows = splitMap[o.id];
       if (rows) {
-        // Split fold — credit each participant their measured share, and
-        // count the ORDER fractionally so a 2-way split stays one order.
         const share = 1 / rows.length;
         rows.forEach(a => {
           const p = bucket.per[a.launderer_id] || (bucket.per[a.launderer_id] = { orders: 0, bags: 0, lbs: 0 });
@@ -47934,54 +48039,91 @@ async function _dvIframeLoaded() {
       p.lbs  += parseFloat(o.weight_lbs || 0);
     });
 
-    // Attach that month's Square hours + title to each launderer. Hours are
-    // matched on square_employee_name when set (the display name is kept
-    // short for the POS dropdown and often differs from the timecard).
-    const lmap = {};
-    (laundererRes?.data || []).forEach(l => { lmap[l.id] = l; });
-    months.forEach(ym => {
-      const labor = laborByMonth[ym] || { laundry_hours: {}, laundry_titles: {} };
-      Object.entries(byMonth[ym].per).forEach(([id, p]) => {
-        const l  = lmap[id];
-        const nm = l?.name || 'Unknown';
-        const sq = l?.square_employee_name || nm;
-        p.name        = nm;
-        p.hrs         = labor.laundry_hours[sq] ?? null;
-        p.title       = labor.laundry_titles?.[sq] || '—';
-        p.isAttendant = !!l?.pin;
-      });
-    });
+    _reportCacheSet(key, bucket);
+    return bucket;
+  }
 
-    _lndrTrendData = { anchor, months, byMonth, launderers: laundererRes?.data || [] };
+  async function loadLaundererTrend() {
+    const toEl = document.getElementById('rpt-to');
+    const wrap = document.getElementById('lndr-trend-body');
+    if (!toEl?.value || !wrap) return;
+    if (!_lndrTrendOpen) return;
+    const anchor = toEl.value;
+    if (_lndrTrendData && _lndrTrendData.anchor === anchor) { _renderLndrTrend(); return; }
+
+    wrap.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Building the trend…</div>';
+    const months = _lndrTrendMonths(anchor);
+
+    let buckets = {}, labor = {}, launderers = [];
+    try {
+      const [bucketList, laborList, lndrRes] = await Promise.all([
+        Promise.all(months.map(ym => _lndrLoadMonthBucket(ym).catch(e => { console.warn('trend month', ym, e); return null; }))),
+        // Square labor is one call per range. Closed months are already
+        // cached by fetchSquareLaborHours, so this is a first-open cost.
+        Promise.all(months.map(ym => {
+          const b = _lndrMonthBounds(ym);
+          const todayPT = _lndrTodayPT();
+          // A month that ended over 45 days ago is past any payroll edit, so
+          // its hours are held for 30 days instead of 24 hours.
+          const settled = (new Date(todayPT) - new Date(b.to)) > 45 * 864e5;
+          return fetchSquareLaborHours(b.from, b.to < todayPT ? b.to : todayPT,
+                                       settled ? 30 * 864e5 : undefined)
+            .catch(() => ({ laundry_hours: {}, laundry_titles: {} }));
+        })),
+        db.from('launderers').select('id, name, square_employee_name, pin').eq('is_active', true).order('name'),
+      ]);
+      months.forEach((ym, i) => { if (bucketList[i]) buckets[ym] = bucketList[i]; labor[ym] = laborList[i]; });
+      launderers = lndrRes?.data || [];
+    } catch (e) {
+      wrap.innerHTML = `<div class="rev-empty" style="color:var(--red)">Could not build the trend: ${esc(e.message || String(e))}</div>`;
+      return;
+    }
+
+    const lmap = {};
+    launderers.forEach(l => { lmap[l.id] = l; });
+    _lndrTrendData = { anchor, months, buckets, labor, launderers, lmap };
     _renderLndrTrend();
+  }
+
+  // A month is PARTIAL when its pounds and its hours do not cover the same
+  // days — see the header comment. Two causes, both real here: the month
+  // still running, and the go-live month whose orders start mid-month.
+  function _lndrMonthIsPartial(ym) {
+    const d = _lndrTrendData; if (!d) return false;
+    if (ym >= _lndrTodayPT().slice(0, 7)) return true;
+    const b = d.buckets[ym]; if (!b) return false;
+    const withData = d.months.filter(m => d.buckets[m] && d.buckets[m].firstDay != null);
+    return withData.length > 0 && ym === withData[0] && b.firstDay > 1;
   }
 
   // One month's headline figures, computed the SAME way the KPI tiles are
   // (see _updateLndrStatCards): a launderer contributes to the rate only
   // when they have BOTH matched Square hours and pounds. That is what makes
-  // the newest point on this chart equal the tile above it. If the two ever
-  // disagree on screen, this rule has drifted from the tile's — fix it here,
-  // don't paper over it, because the whole section's credibility rests on
-  // those two numbers agreeing.
-  //
-  // Pounds is the exception: it counts UNASSIGNED pounds too, exactly as the
-  // Lbs. Processed tile does, because pounds that went through the building
-  // are real whether or not anyone was credited for them.
+  // Aug on this chart equal the tile above it — if the two ever disagree on
+  // screen, this rule has drifted from the tile's, and the whole section's
+  // credibility rests on those two numbers agreeing.
   function _lndrTrendMonthStats(ym) {
-    const b = _lndrTrendData?.byMonth?.[ym];
+    const d = _lndrTrendData;
+    const b = d?.buckets?.[ym];
     if (!b) return null;
+    const lab = d.labor[ym] || { laundry_hours: {}, laundry_titles: {} };
     let lbs = 0, hrs = 0, t1l = 0, t1h = 0, t2l = 0, t2h = 0, heads = 0, allLbs = 0;
-    Object.values(b.per).forEach(p => {
-      if (_lndrExcludeAttendants && p.isAttendant) return;
+    Object.entries(b.per).forEach(([id, p]) => {
+      const l = d.lmap[id];
+      if (_lndrExcludeAttendants && l?.pin) return;
       allLbs += p.lbs;
-      if (p.hrs == null || p.hrs <= 0 || p.lbs <= 0) return;
-      lbs += p.lbs; hrs += p.hrs; heads++;
-      const cat = _lndrTitleCategory(p.title);
-      if      (cat === 'II') { t2l += p.lbs; t2h += p.hrs; }
-      else if (cat === 'I')  { t1l += p.lbs; t1h += p.hrs; }
+      const sq  = l?.square_employee_name || l?.name;
+      const h   = sq ? (lab.laundry_hours[sq] ?? null) : null;
+      if (h == null || h <= 0 || p.lbs <= 0) return;
+      lbs += p.lbs; hrs += h; heads++;
+      const cat = _lndrTitleCategory(lab.laundry_titles?.[sq] || '');
+      if      (cat === 'II') { t2l += p.lbs; t2h += h; }
+      else if (cat === 'I')  { t1l += p.lbs; t1h += h; }
     });
     return {
       ym,
+      partial: _lndrMonthIsPartial(ym),
+      cappedTo: b.cappedTo || null,
       lbs:   allLbs + (b.unassignedLbs || 0),
       hrs:   hrs > 0 ? hrs : null,
       rate:  hrs > 0 ? lbs / hrs : null,
@@ -47991,15 +48133,17 @@ async function _dvIframeLoaded() {
     };
   }
 
-  // One person's monthly Lbs/Hr. null for a month they did not work, or a
-  // month whose Square hours did not match — a gap in the line, never a zero,
-  // because "did not work" and "worked at zero pounds an hour" are not the
-  // same claim.
-  function _lndrTrendPersonSeries(id) {
-    return (_lndrTrendData?.months || []).map(ym => {
-      const p = _lndrTrendData.byMonth[ym]?.per[id];
-      if (!p || p.hrs == null || p.hrs <= 0 || p.lbs <= 0) return null;
-      return p.lbs / p.hrs;
+  function _lndrTrendPersonSeries(id, completeOnly) {
+    const d = _lndrTrendData;
+    return d.months.map(ym => {
+      if (completeOnly && _lndrMonthIsPartial(ym)) return null;
+      const p = d.buckets[ym]?.per?.[id];
+      if (!p || p.lbs <= 0) return null;
+      const l   = d.lmap[id];
+      const sq  = l?.square_employee_name || l?.name;
+      const h   = sq ? (d.labor[ym]?.laundry_hours?.[sq] ?? null) : null;
+      if (h == null || h <= 0) return null;
+      return p.lbs / h;
     });
   }
 
@@ -48032,57 +48176,53 @@ async function _dvIframeLoaded() {
   function _renderLndrTrendCompareOptions() {
     const sel = document.getElementById('lndr-trend-compare');
     if (!sel) return;
-    const people = (_lndrTrendData.launderers || [])
-      .filter(l => !(_lndrExcludeAttendants && l.pin));
+    const people = (_lndrTrendData.launderers || []).filter(l => !(_lndrExcludeAttendants && l.pin));
     const cur = _lndrTrendCompareId;
     sel.innerHTML = '<option value="">Floor average only</option>' +
       people.map(l => `<option value="${l.id}"${l.id === cur ? ' selected' : ''}>${esc(l.name)}</option>`).join('');
-    // The selected person may have just been filtered out by the retail
-    // checkbox — fall back to floor-only rather than showing a stale overlay
-    // for someone the rest of the report no longer counts.
     if (cur && !people.some(l => l.id === cur)) { _lndrTrendCompareId = ''; sel.value = ''; }
   }
 
-  // The headline David actually asked for: not twelve numbers, but the
-  // direction and the average size of the monthly step.
+  // Complete months only. A trend anchored on a partial month is not a
+  // slower or faster floor, it is two data sources disagreeing about the
+  // calendar — see the header comment.
+  function _lndrTrendCompletePoints() {
+    return _lndrTrendData.months
+      .map(ym => ({ ym, s: _lndrTrendMonthStats(ym) }))
+      .filter(p => p.s && p.s.rate != null && !p.s.partial);
+  }
+
   function _renderLndrTrendSummary() {
     const el = document.getElementById('lndr-trend-summary');
     if (!el) return;
-    const months = _lndrTrendData.months;
-    const pts = months.map(ym => ({ ym, s: _lndrTrendMonthStats(ym) }))
-                      .filter(p => p.s && p.s.rate != null);
+    const pts = _lndrTrendCompletePoints();
     if (pts.length < 2) {
-      el.innerHTML = `<div style="font-size:12.5px;color:var(--gray-400)">Not enough history yet to show a trend — this fills in as months accumulate.</div>`;
+      el.innerHTML = `<div style="font-size:12.5px;color:var(--gray-400)">Not enough complete months yet to state a trend — this fills in as months close.</div>`;
       return;
     }
+    const months = _lndrTrendData.months;
     const first = pts[0], last = pts[pts.length - 1];
     const steps = months.indexOf(last.ym) - months.indexOf(first.ym);
     const totalPct = (last.s.rate - first.s.rate) / first.s.rate * 100;
     // Compounded, not the mean of the monthly deltas: a mean of percentage
-    // changes overstates a series that moves around, and this figure is
-    // meant to be quoted at people.
+    // changes overstates a series that moves around, and this gets quoted.
     const avgPct = steps > 0 ? (Math.pow(last.s.rate / first.s.rate, 1 / steps) - 1) * 100 : 0;
-    const col = p => p >= 0 ? 'var(--green)' : 'var(--red)';
+    const col = p => Math.abs(p) < 0.05 ? 'var(--gray-500)' : (p > 0 ? 'var(--green)' : 'var(--red)');
     const sgn = p => (p >= 0 ? '+' : '');
-
-    // Is the newest point a month still in progress? Say so — an
-    // in-progress month is a real rate but a moving one.
-    const nowYm = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ }).slice(0, 7);
-    const partial = last.ym === nowYm
-      ? ` <span style="color:var(--gray-400);font-weight:400">(${_lndrMonthLabel(last.ym)} still in progress)</span>` : '';
 
     el.innerHTML = `
       <div style="display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;font-size:13px">
         <div><span style="font-size:22px;font-weight:700">${last.s.rate.toFixed(1)}</span>
-             <span style="color:var(--gray-400);font-size:12px"> lbs/hr in ${_lndrMonthLabel(last.ym)}</span>${partial}</div>
+             <span style="color:var(--gray-400);font-size:12px"> lbs/hr in ${_lndrMonthLabel(last.ym)}</span></div>
         <div style="color:var(--gray-500)">
           <span style="font-weight:700;color:${col(totalPct)}">${sgn(totalPct)}${totalPct.toFixed(1)}%</span>
           since ${_lndrMonthLabel(first.ym)}
         </div>
-        <div style="color:var(--gray-500)" title="Compounded average month-over-month change across ${steps} month${steps === 1 ? '' : 's'} of data">
+        <div style="color:var(--gray-500)" title="Compounded average month-over-month change across ${steps} complete month${steps === 1 ? '' : 's'}">
           averaging <span style="font-weight:700;color:${col(avgPct)}">${sgn(avgPct)}${avgPct.toFixed(1)}%</span> per month
         </div>
-      </div>`;
+      </div>
+      <div style="font-size:11.5px;color:var(--gray-400);margin-top:4px">Complete months only — partial months are listed below but left out of the trend.</div>`;
   }
 
   function _renderLndrTrendChart() {
@@ -48091,38 +48231,34 @@ async function _dvIframeLoaded() {
     if (_lndrTrendChart) { _lndrTrendChart.destroy(); _lndrTrendChart = null; }
 
     const months = _lndrTrendData.months;
-    const stats  = months.map(ym => _lndrTrendMonthStats(ym));
+    // Partial months are dropped to null so the line neither plots them nor
+    // rescales the axis around them.
+    const stats  = months.map(ym => { const s = _lndrTrendMonthStats(ym); return (s && !s.partial) ? s : null; });
     const labels = months.map(_lndrMonthLabel);
 
     const line = (label, data, color, opts = {}) => Object.assign({
       label, data,
-      borderColor: color,
-      backgroundColor: color + '22',
-      borderWidth: 2,
-      pointRadius: 3,
-      pointHoverRadius: 5,
-      tension: 0.25,
+      borderColor: color, backgroundColor: color + '22',
+      borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0.25,
       spanGaps: false,   // a month with no data is a GAP, never a zero
     }, opts);
 
     const datasets = [
-      line('Floor average', stats.map(s => s?.rate ?? null), '#3B82F6', { borderWidth: 3, fill: true }),
+      line('Floor average', stats.map(s => s?.rate  ?? null), '#3B82F6', { borderWidth: 3, fill: true }),
       line('Tech I',        stats.map(s => s?.rate1 ?? null), '#10B981', { borderDash: [5, 4] }),
       line('Tech II',       stats.map(s => s?.rate2 ?? null), '#8B5CF6', { borderDash: [5, 4] }),
     ];
-
     if (_lndrTrendCompareId) {
       const person = (_lndrTrendData.launderers || []).find(l => l.id === _lndrTrendCompareId);
-      datasets.push(line(person ? person.name : 'Selected', _lndrTrendPersonSeries(_lndrTrendCompareId),
-        '#F59E0B', { borderWidth: 3, pointRadius: 4 }));
+      datasets.push(line(person ? person.name : 'Selected',
+        _lndrTrendPersonSeries(_lndrTrendCompareId, true), '#F59E0B', { borderWidth: 3, pointRadius: 4 }));
     }
 
     _lndrTrendChart = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: { labels, datasets },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, usePointStyle: true } },
@@ -48138,12 +48274,9 @@ async function _dvIframeLoaded() {
           },
         },
         scales: {
-          y: {
-            // NOT beginAtZero: the interesting range is 15-40 lbs/hr and
-            // anchoring at zero flattens every real move into a straight line.
-            grid: { color: '#f3f4f6' },
-            ticks: { callback: v => v + ' lbs/hr', font: { size: 11 } },
-          },
+          // NOT beginAtZero: the real range is 15-40 lbs/hr and anchoring at
+          // zero flattens every meaningful move into a straight line.
+          y: { grid: { color: '#f3f4f6' }, ticks: { callback: v => v + ' lbs/hr', font: { size: 11 } } },
           x: { grid: { display: false }, ticks: { font: { size: 11 } } },
         },
       },
@@ -48155,41 +48288,41 @@ async function _dvIframeLoaded() {
     if (!wrap) return;
     const months = _lndrTrendData.months;
     const stats  = months.map(ym => _lndrTrendMonthStats(ym));
-    const nowYm  = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ }).slice(0, 7);
 
-    // Newest first — the same reading order as the Subscriptions trend table.
     const rows = months.map((ym, i) => ({ ym, s: stats[i], prev: i > 0 ? stats[i - 1] : null }))
                        .filter(r => r.s && (r.s.lbs > 0 || r.s.rate != null))
                        .reverse();
     if (!rows.length) { wrap.innerHTML = '<div class="rev-empty">No months with data in this window yet.</div>'; return; }
 
+    // vs Prior is blanked whenever either side is partial — comparing nine
+    // days of pounds to a full month is not a change, it is a category error.
     const delta = (cur, prev) => {
       if (cur?.rate == null || prev?.rate == null) return '<span style="color:var(--gray-300)">—</span>';
+      if (cur.partial || prev.partial) return '<span style="color:var(--gray-300)" title="Not comparable — one of these months is partial">—</span>';
       const pct = (cur.rate - prev.rate) / prev.rate * 100;
       const c = pct >= 0 ? 'var(--green)' : 'var(--red)';
       return `<span style="font-weight:600;color:${c}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
     };
-    const rate = v => v == null
-      ? '<span style="color:var(--gray-300)">—</span>'
-      : `<span style="font-weight:600">${v.toFixed(1)}</span>`;
+    const rate = v => v == null ? '<span style="color:var(--gray-300)">—</span>' : `<span style="font-weight:600">${v.toFixed(1)}</span>`;
 
     wrap.innerHTML = `
       <table class="rev-tbl">
         <thead><tr>
           <th style="text-align:left">Month</th>
-          <th>Pounds</th>
-          <th>Hours</th>
+          <th>Pounds</th><th>Hours</th>
           <th title="Pounds processed per launderer hour, across everyone with matched hours">Avg Lbs/Hr</th>
           <th title="Change in Avg Lbs/Hr against the month before">vs Prior</th>
-          <th>Tech I</th>
-          <th>Tech II</th>
+          <th>Tech I</th><th>Tech II</th>
           <th title="Launderers with both pounds and matched Square hours that month">Launderers</th>
         </tr></thead>
         <tbody>${rows.map(r => {
-          const isPartial = r.ym === nowYm;
-          const note = isPartial
-            ? ' <span style="font-size:10px;font-weight:600;color:var(--gray-400)">in progress</span>' : '';
-          return `<tr>
+          const dim = r.s.partial ? 'opacity:.55;' : '';
+          const why = r.s.cappedTo
+            ? `through ${new Date(r.s.cappedTo + 'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:BIZ_TZ})}`
+            : 'partial month';
+          const note = r.s.partial
+            ? ` <span style="font-size:10px;font-weight:600;color:var(--gray-400)" title="Pounds and hours don't cover the same days, so this month is left out of the chart and the trend above">${why}</span>` : '';
+          return `<tr style="${dim}">
             <td style="font-weight:600;white-space:nowrap">${_lndrMonthLabel(r.ym)}${note}</td>
             <td>${Math.round(r.s.lbs).toLocaleString()}</td>
             <td>${r.s.hrs ? r.s.hrs.toFixed(0) : '<span style="color:var(--gray-300)">—</span>'}</td>
@@ -48203,30 +48336,25 @@ async function _dvIframeLoaded() {
       </table>`;
   }
 
-  // A "vs prior month" chip on the Avg Lbs/Hr tile — but ONLY when the
-  // selected range is exactly one whole calendar month, which is the only
-  // case where that label is true. A week, a quarter or an arbitrary span
-  // gets no chip, because a comparison whose label misdescribes it is worse
-  // than no comparison. The quick-range buttons ("This month" / "Last
-  // month") produce exactly this case, so it shows up when it matters.
+  // A "vs prior month" chip on the Avg Lbs/Hr tile — ONLY when the selected
+  // range is exactly one whole calendar month and both it and the month
+  // before are complete. Any other range gets no chip, because a comparison
+  // whose label misdescribes it is worse than no comparison.
   function _lndrUpdateTileDeltas() {
     const chip   = document.getElementById('lndr-tile-delta');
     const fromEl = document.getElementById('rpt-from');
     const toEl   = document.getElementById('rpt-to');
     if (!chip || !fromEl?.value || !toEl?.value || !_lndrTrendData) return;
     chip.innerHTML = '';
-
     const ym = fromEl.value.slice(0, 7);
     const b  = _lndrMonthBounds(ym);
-    if (fromEl.value !== b.from || toEl.value !== b.to) return;   // not a whole month
-
+    if (fromEl.value !== b.from || toEl.value !== b.to) return;
     const months = _lndrTrendData.months;
     const i = months.indexOf(ym);
     if (i < 1) return;
     const cur = _lndrTrendMonthStats(months[i]);
     const prv = _lndrTrendMonthStats(months[i - 1]);
-    if (cur?.rate == null || prv?.rate == null) return;
-
+    if (cur?.rate == null || prv?.rate == null || cur.partial || prv.partial) return;
     const pct = (cur.rate - prv.rate) / prv.rate * 100;
     const c   = pct >= 0 ? 'var(--green)' : 'var(--red)';
     chip.innerHTML = `<span style="font-size:12px;font-weight:700;color:${c}" title="Against ${_lndrMonthLabel(months[i-1])} (${prv.rate.toFixed(1)} lbs/hr)">${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}%</span>`;

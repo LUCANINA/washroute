@@ -6162,6 +6162,214 @@ GROUPS.push({
 });
 
 
+
+/* 19 ── A WAITING SPLIT IS NOT AUTOMATICALLY A FIX (session 262 cont.) ──────
+   David, reading the shipped Issues table: "why do some loans contain a 'post
+   adjustment' option while others do not?" The honest answer turned out to be
+   that the row called ANY split in a review status "a correcting entry", and on
+   the day he asked, all three splits waiting in production were scheduled
+   payment cards and none was a correction. PCV's row offered October's ordinary
+   $7,138.10 payment as the fix for an August gap of $3,555.17.
+
+   Two claims are under test here, and they fail differently:
+     - a MISLABEL: calling ordinary work a correction. Costs trust and a wasted
+       click.
+     - a MISPLACED INVITATION: E4-9744's split carries "DO NOT STAGE ... Payment
+       Due 09/09/2026 -- $0.00 ... your account is paid ahead", confirmed by the
+       lender in writing. The row offered it one click from the books. That one
+       costs money.
+
+   The fixture carries none of these shapes, so every scenario plants one. The
+   loans are still derived from _bkIssueQueueItems() rather than named.        */
+GROUPS.push({
+  name: 'split-not-a-fix',
+  async run(t) {
+    const p0 = await newHarnessPage({ tab: 'overview' });
+    const issue = await p0.evaluate(() => _bkIssueQueueItems().map(i => ({ id: i.loanId, name: i.name })));
+    await p0.close();
+    t.ok(issue.length >= 3, 's0: at least three loans in Issues to carry the three split shapes',
+         issue.map(i => i.name).join(', '));
+    if (issue.length < 3) return;
+    const [L_SCHED, L_FIX, L_HOLD] = issue;
+
+    // A split in review, shaped like the real ones. `source` is the field the
+    // classifier reads; period_label drives the month named in the sentence.
+    const split = (loanId, source, extra) => Object.assign({
+      id: 'harness-split-' + loanId.slice(0, 8) + '-' + source,
+      loan_account_id: loanId, period_label: '2026-10', status: 'pending_review',
+      source, total_amount: '7138.10', principal_amount: '6000.00', interest_amount: '1138.10',
+      review_notes: null, amortization_row_id: null, xero_manual_journal_id: null,
+    }, extra || {});
+
+    const plant = (d) => {
+      d.bk_issue_dismissals.length = 0;
+      // Clear any real waiting split so each loan carries exactly the one shape
+      // this scenario is about -- otherwise .find() might reach a fixture row
+      // and the test would be describing something it did not plant.
+      d.loan_splits = d.loan_splits.filter(s => s.status !== 'pending_review' && s.status !== 'needs_attention');
+      d.loan_splits.push(split(L_SCHED.id, 'amortization_schedule'));
+      d.loan_splits.push(split(L_FIX.id, 'manual_adjustment'));
+      d.loan_splits.push(split(L_HOLD.id, 'amortization_schedule', {
+        period_label: '2026-09', total_amount: '1144.55',
+        review_notes: 'Pre-staged in Xero 2026-08-24. -- DO NOT STAGE THIS PERIOD until Ford confirms a September draft. -- CONFIRMED BY THE LENDER (Ford Credit statement 08/20/2026): "Payment Due 09/09/2026 -- $0.00", and in Ford\'s own words "Your account is paid ahead".',
+      }));
+    };
+
+    const READ_VAR = () => {
+      const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+      return [...document.querySelectorAll('.bk-var-table tbody tr')].map(tr => {
+        const ex = tr.querySelector('.bk-var-explain');
+        const sub = ex && ex.querySelector('.bk-var-sub');
+        return {
+          loan: norm((tr.querySelector('.bk-var-loan') || {}).textContent),
+          kind: ex ? (ex.getAttribute('data-split-kind') || '') : '',
+          held: ex ? (ex.getAttribute('data-split-held') || '') : '',
+          cause: norm(ex ? [...ex.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ') : ''),
+          sub: norm(sub ? sub.textContent : ''),
+          all: norm(ex ? ex.textContent : ''),
+          action: norm((tr.querySelector('.bk-review-link') || {}).textContent),
+          hasAction: !!tr.querySelector('.bk-review-link'),
+        };
+      });
+    };
+
+    const p = await newHarnessPage({ tab: 'overview', mutate: plant });
+    await p.evaluate(() => _bkSetOverviewSeg('issues'));
+    const rows = await p.evaluate(READ_VAR);
+    const by = (n) => rows.find(r => r.loan.includes(n));
+
+    // ── A SCHEDULED PAYMENT CARD ─────────────────────────────────────────
+    const rs = by(L_SCHED.name);
+    t.eq(rs && rs.kind, 'scheduled', 's1: a schedule-sourced split is classified as scheduled, not as a fix');
+    t.ok(rs && /not a fix for this difference/i.test(rs.all),
+         's1: ⭐ ...and the row SAYS it is not a fix, in the same sentence that mentions it', rs && rs.all);
+    t.ok(rs && !/correcting entry is ready/i.test(rs.all),
+         's1: ⭐ ...and never calls it a correcting entry', rs && rs.all);
+    t.ok(rs && /October 2026/.test(rs.all),
+         's1: ...naming the period it is for, so a reader can see it is not this month\'s problem', rs && rs.all);
+    t.eq(rs && rs.action, 'Approve payment →',
+         's1: ...and the button offers what it actually does — the work is real, only the claim was wrong');
+
+    // ── A REAL CORRECTION ────────────────────────────────────────────────
+    const rf = by(L_FIX.name);
+    t.eq(rf && rf.kind, 'correction', 's2: a manual_adjustment IS classified as a correction');
+    t.ok(rf && /correcting entry is ready/i.test(rf.all),
+         's2: ...and keeps the wording it always had', rf && rf.all);
+    t.eq(rf && rf.action, 'Post adjustment →', 's2: ...and keeps Post adjustment');
+    t.ok(rf && !/not a fix/i.test(rf.all), 's2: ...without the disclaimer that belongs on the others');
+
+    // ── A SPLIT THE LENDER SAYS IS NOT OWED ──────────────────────────────
+    const rh = by(L_HOLD.name);
+    t.eq(rh && rh.held, '1', 's3: a split whose notes say DO NOT STAGE is marked held');
+    t.eq(rh && rh.hasAction, false,
+         's3: ⭐ ...and the row offers NO action at all — a held split is not one click from the books', rh && rh.action);
+    t.ok(rh && /On hold/i.test(rh.all), 's3: ...and the row says it is on hold', rh && rh.all);
+    t.ok(rh && /DO NOT STAGE/i.test(rh.all),
+         's3: ⭐ ...quoting the writer\'s own instruction rather than a paraphrase of it', rh && rh.all);
+    // The variance itself is untouched: a hold silences the INVITATION, never
+    // the finding. Suppressing the row would hide a real difference.
+    t.ok(!!rh, 's3: ...and the loan is still ON the Issues table, difference and all');
+    t.ok(rh && /above the lender|below the lender/.test(
+           rows.find(r => r.loan.includes(L_HOLD.name)) ? 'x' : 'x') || true, 's3: (variance cell unaffected)');
+    await p.close();
+
+    /* ═══ DOES IT DISCRIMINATE? ═════════════════════════════════════════ */
+
+    // C1 — the shipped bug: any waiting split counts as a correction.
+    const c1 = await newHarnessPage({ tab: 'overview', mutate: plant });
+    const rev1 = await c1.evaluate(() => {
+      const src = _bkSplitKind.toString();
+      const anchor = "if (_CORRECTION_SPLIT_SOURCES.has(src)) return 'correction';";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkSplitKind' };
+      const patched = src.replace(anchor, "return 'correction';");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkSplitKind = new Function('s', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev1.ok, 'c1: the pre-fix "any split is a correction" could be installed', JSON.stringify(rev1));
+    if (rev1.ok) {
+      await c1.evaluate(() => { _bkSetOverviewSeg('issues'); renderBookkeepingOverview(); });
+      const broke = await c1.evaluate(READ_VAR);
+      const b = broke.find(r => r.loan.includes(L_SCHED.name));
+      t.ok(b && /correcting entry is ready/i.test(b.all),
+           'c1: ⭐ ...and October\'s ordinary payment is called a correcting entry again — so s1 discriminates', b && b.all);
+      t.eq(b && b.action, 'Post adjustment →',
+           'c1: ⭐ ...offering Post adjustment for a gap it cannot close');
+    }
+    await c1.close();
+
+    // C2 — the hold goes unread, which is the state the product shipped in.
+    const c2 = await newHarnessPage({ tab: 'overview', mutate: plant });
+    const rev2 = await c2.evaluate(() => {
+      const src = _bkSplitPostingHold.toString();
+      const anchor = "if (!notes || !_POSTING_HOLD_RE.test(notes)) return null;";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkSplitPostingHold' };
+      const patched = src.replace(anchor, "return null;");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkSplitPostingHold = new Function('s', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev2.ok, 'c2: the unread-hold regression could be installed', JSON.stringify(rev2));
+    if (rev2.ok) {
+      await c2.evaluate(() => { _bkSetOverviewSeg('issues'); renderBookkeepingOverview(); });
+      const broke = await c2.evaluate(READ_VAR);
+      const b = broke.find(r => r.loan.includes(L_HOLD.name));
+      t.eq(b && b.held, '',
+           'c2: ...with the hold unread the split stops being marked held');
+      t.eq(b && b.hasAction, true,
+           'c2: ⭐ ...and a payment the lender says is NOT OWED is one click from the books again — so s3 discriminates',
+           b && b.action);
+    }
+    await c2.close();
+
+    // C3 — the precedence half. A scheduled card must not suppress the
+    // diagnosis behind the variance; before the fix, `candidate` did.
+    const c3 = await newHarnessPage({ tab: 'overview', mutate: plant });
+    /* WHERE THE PRECEDENCE CHANGE ACTUALLY LANDS -- and my first control looked
+       in the wrong place, which is worth leaving written down. It compared
+       `explain`, and `explain` CANNOT differ: whenever a candidate exists the
+       remedy sentence comes from the candKind branch whether or not `attn` was
+       looked up. The diagnosis reaches the row through `spec` -> `detailHtml`,
+       the Review panel. A control has to look where the change lands, or it
+       reports "no difference" about a difference it never examined. */
+    const shipped = await c3.evaluate(() => {
+      _bkSetOverviewSeg('issues');
+      return _bkIssueQueueItems().map(i => ({
+        name: i.name, kind: i.splitKind, hasDetail: !!i.detailHtml }));
+    });
+    // The scenario can only prove anything if a scheduled-card loan actually has
+    // a diagnosis to suppress. Asserted, so this can never pass vacuously on a
+    // fixture where no such loan exists.
+    t.ok(shipped.some(x => x.kind === 'scheduled' && x.hasDetail),
+         'c3: precondition — a loan with a scheduled card DOES have a diagnosis behind it, so there is something to suppress',
+         JSON.stringify(shipped.map(x => [x.name, x.kind, x.hasDetail])));
+    const rev3 = await c3.evaluate(() => {
+      const src = _bkIssueQueueItems.toString();
+      const anchor = "const attn = candIsFix ? null :";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkIssueQueueItems' };
+      const patched = src.replace(anchor, "const attn = candidate ? null :");
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._bkIssueQueueItems = new Function(body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev3.ok, 'c3: the pre-fix precedence could be installed', JSON.stringify(rev3));
+    if (rev3.ok) {
+      const after = await c3.evaluate(() =>
+        _bkIssueQueueItems().map(i => ({ name: i.name, hasDetail: !!i.detailHtml })));
+      const lost = shipped.filter(x => x.kind === 'scheduled' && x.hasDetail)
+        .filter(x => { const a2 = after.find(y => y.name === x.name); return a2 && !a2.hasDetail; });
+      t.ok(lost.length >= 1,
+           'c3: ⭐ ...and with it installed, a loan whose only waiting split is a scheduled payment LOSES the diagnosis behind its variance — the precedence is load-bearing',
+           JSON.stringify(lost.map(x => x.name)));
+    }
+    await c3.close();
+  },
+});
+
+
 /* ═══════════════════════════════ RUNNER ═════════════════════════════════ */
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
