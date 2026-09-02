@@ -24,3 +24,6 @@ zi[A-Za-z0-9]*
 
 # Supabase CLI scratch — link state and version markers, not source (session 246)
 supabase/.temp/
+
+# Superseded files parked for manual deletion (never committed)
+_to_delete/
