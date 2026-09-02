@@ -8,63 +8,35 @@
 > not capped** — but probe again with `xero-rate-probe`, never `whoami`, which hits a
 > different API and lies about the accounting quota.
 >
-> ### 00. 🟡 `loan-attribution-run` IS BUILT AND DEPLOYED — one deploy left, and DAVID MUST RUN IT
+> ### 00. ✅ CLOSED (session 261, 2026-09-02) — `loan-attribution-run` IS LIVE, PROVEN END TO END, AND ON A CRON
 >
-> Session 261 built it. Read that log entry before touching any of it. State, checked
-> functionally on 2026-09-02 and not by version number:
+> Read the session 261 log entry before touching any of it. Checked FUNCTIONALLY, not by
+> version number, on 2026-09-02:
 >
-> * **`loan-attribution-run` — DEPLOYED, v1, `verify_jwt: false`.** Proven by a dry run
->   that authenticated on the internal secret, read the close date (2026-06-30) and
->   selected the right 5 loans — not by `updated_at`.
-> * **New table `loan_attributions`** — one row per loan, migration
->   `session_261_loan_attributions` + `..._revoke_default_acl`. NOT `loan_tie_outs`: that
->   table is per-run and would orphan the payload on every reconciliation run. Grants
->   verified `authenticated: SELECT`, anon nothing.
-> * **Option (b) is VERIFIED LIVE.** The ORed-GUID `where` clause returns exactly the
->   requested ids with their types in one call. No longer an open question.
-> * **`loan-find-difference` — NOT DEPLOYED, still v24.** Its `x-wr-internal` analyze-only
->   auth path is written, typechecked and committed, but the MCP deploy tool cannot carry
->   it: `index.ts` alone is 123.5KB JSON-escaped against a ~100–130KB ceiling. Two
->   attempts, neither created a version. **Nothing was truncated to force it through.**
+> * **`loan-attribution-run` v2** and **`loan-find-difference`** (its `internal_job`
+>   analyze-only auth path) are both deployed. Proof: an internal call returns `400
+>   loan_account_id is required`, and `post_fix` / `post_exception` / `post_crossloan` each
+>   return `403 The internal job may run analyze only.`
+> * **All five material loans carry real payloads in `loan_attributions`, zero errors.**
+>   E-Transit 4140 and E4-9744 came back **confirmed**; E5-4751, Funding Circle and PCV
+>   **probable**. E4-9744 is the vindication — its variance starts 135 days back, outside
+>   `reconciliation-run`'s 120-day floor, which is exactly why this is a separate job.
+> * **`wr-loan-attribution` (jobid 25) runs every 6h at :20**, created through preflight
+>   only after the loop was proven.
+> * The first full pass **504'd** on a time budget larger than the platform's own limit —
+>   fixed with measured numbers (90s start-cutoff, 45s per loan), redeployed as v2.
 >
-> **⚠️ CHECKED 2026-09-02 AFTER DAVID'S `git push`: STILL v24, STILL 403.** The push landed
-> (`origin/main..HEAD` empty, `internal_job` present in the committed file) — but **pushing
-> does not deploy an edge function.** Vercel auto-deploys the four SPAs on push; Supabase
-> edge functions do not, and never have. This is the third distinct way this block has
-> carried a wrong deploy claim in a week, and the first where the code was genuinely on
-> GitHub while the function was not. **Git state is not deploy state.**
+> **NEXT ON THIS THREAD: nothing reads the table yet.** Phase 1 is SQL-readable by design.
+> The Loans hover / ISSUES surface must distinguish THREE states — `ok`, `error`, and no row
+> at all. Collapsing the last two into "nothing to attribute" would put this module's oldest
+> failure shape at the very end of the pipeline built to prevent it.
 >
-> **THE ONE COMMAND, from David's own terminal:**
->
-> ```
-> supabase functions deploy loan-find-difference \
->   --project-ref umjpbuxrdydwejqtensq \
->   --no-verify-jwt
-> ```
->
-> `--no-verify-jwt` is REQUIRED — omitting it flips the function to `verify_jwt: true` and
-> breaks every caller including the admin dashboard.
->
-> **Then re-run the dry run and check the ROWS, not the version:**
->
+> To see the current answers:
 > ```sql
-> select net.http_post(
->   url := 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/loan-attribution-run',
->   headers := jsonb_build_object('x-wr-internal', public.wr_internal_secret(),
->     'Content-Type','application/json'),
->   body := jsonb_build_object('dry_run', true),
->   timeout_milliseconds := 240000) as rid;
-> -- then: select status_code, content from net._http_response where id = <rid>;
+> select a.xero_account_name, la.run_status, la.generated_at, la.headline
+> from loan_attributions la join loan_accounts a on a.id = la.loan_account_id
+> order by la.generated_at desc;
 > ```
->
-> Today that returns `selected: 5, attempted: 5` and five identical
-> `loan-find-difference 403: Not authorized.` **Those five errors turning into payloads is
-> the proof the deploy landed.** A 403 that persists means the deploy did not take.
->
-> **THE CRON IS DELIBERATELY NOT CREATED** — session 231's corollary: do not schedule
-> something before auditing the guards it makes load-bearing. The loop has never run end
-> to end. Create it only after a real pass produces real payloads, and put it through
-> `washroute-preflight` like any other cron.
 >
 > ### 0c. 🟠 STRIPE PAYOUTS — the code is closed (session 260), TWO BANK LINES ARE NOT
 >
@@ -2773,13 +2745,78 @@ miss there does not throw — the type is undefined and every claim refuses with
 `entry_direction_unknown`. The job would report "we could not determine the direction"
 for a fetch that succeeded completely.
 
+#### ✅ THE LOOP RAN END TO END ON LIVE DATA — and the first full pass found a real bug
+
+David deployed `loan-find-difference` (via `npx`; the `supabase` binary is not on his PATH,
+which is why two earlier attempts did nothing at all). Everything below is measured.
+
+**The auth patch is live, and the guard was tested rather than reasoned about.** An internal
+call with no body returns `400 loan_account_id is required` — it passed the gate. All three
+write modes were then attempted WITH the internal secret:
+
+| Request | Response |
+|---|---|
+| `post_fix: true` | `403 The internal job may run analyze only. Nothing was posted.` |
+| `post_exception: true` | same |
+| `lender_analysis + post_crossloan` | same |
+
+**THE FIRST FULL PASS 504'd, and that was a real defect, not a flake.** `TIME_BUDGET_MS` was
+210s — larger than the platform's own wall-clock limit. The gateway cut the run off past
+150s and it returned **nothing at all**: no payloads, no report, and crucially no
+`not_attempted` list. **A budget above the platform limit is not a budget; it guarantees the
+honest early-exit path never runs.** Re-measured per loan (Funding Circle 18.1s, PCV 29.0s),
+set the start-cutoff to 90s with a 45s per-loan cap so a whole loan still fits inside the
+limit (90 + 45 = 135s), redeployed as **v2**. Aborting mid-walk is safe — analyze writes
+nothing.
+
+**Pass 1 (v2):** `200`, 102.5s, 5 selected, **3 attempted, 3 ok**, 2 named in
+`not_attempted`, 0 cleared.
+**Pass 2:** `200`, 106.5s, **3 attempted, 3 ok** — and they were **the two starved loans
+plus the oldest of the three**. `orderByStaleness` does on live data exactly what `o3`
+asserts in the harness. **All five loans now carry payloads; zero errors.**
+
+| Loan | confirmed | probable | unresolved |
+|---|---|---|---|
+| E-Transit 4140 | **1** | 0 | 0 |
+| E-Transit E4-9744 | **1** | 0 | 1 |
+| E-Transit E5-4751 | 0 | 1 | 1 |
+| Funding Circle | 0 | 1 | 7 |
+| PCV | 0 | 1 | 6 |
+
+**E4-9744 returning a CONFIRMED verdict is the whole design argument, vindicated.** Its
+variance originates 135 days back, outside `reconciliation-run`'s 120-day ledger floor — the
+measurement that killed the free in-process option in cont. 14. The separate job reaches it.
+
+Sample headlines, verbatim from `loan_attributions.headline`:
+
+> A payment dated 2026-07-20 reduced Funding Circle Loan by $1,010.57. The schedule supports
+> $0.00 — a difference of $1,010.57. It is the only entry between 2026-07-01 and 2026-08-03
+> whose effect equals the gap. 7 further differences unaccounted for.
+
+> A journal dated 2026-05-31 increased PCV Good and Green Loan by $1,831.47. … **1 of these
+> was born on or before the 2026-06-30 close.**
+
+That last clause is session 259's `inherited` flag firing on real data, naming the close it
+used — a gap born inside a closed period is a reopen-or-absorb decision, not a correcting
+entry.
+
+**Option (b) confirmed in production, not just in a probe:** Funding Circle resolved 2 of 2
+entry types in **1** Xero call; PCV 1 of 1 in 1 call. `types_missing: 0`, `ids_rejected: 0`,
+`type_errors: []` on every loan.
+
 #### DEPLOY STATE — CHECKED 2026-09-02, FUNCTIONALLY, NOT BY VERSION NUMBER
 
 * **`loan-attribution-run` — DEPLOYED, v1, `verify_jwt: false`** (passed explicitly; the
   deploy tool DEFAULTS IT TO TRUE, which is what silently flipped the watchdog in session
   260). Proven live by a dry run that authenticated on the internal secret, read the close
   date, and selected the right loans.
-* **`loan-find-difference` — NOT DEPLOYED. Still v24.** The MCP deploy tool refused it:
+* **`loan-attribution-run` v2** supersedes v1 (the time-budget fix). Proven by a 200 with
+  `attempted: 3` where v1 returned a 504 — behaviour, not `updated_at`.
+* **`loan-find-difference` — NOW DEPLOYED by David via `npx supabase`.** Proven by the 400
+  and the three 403s above, not by a version number. Two earlier attempts did nothing: the
+  first because `git push` does not deploy an edge function, the second because the
+  `supabase` binary is not on his PATH. Historical note, still true and the reason he has to
+  run it himself: the MCP deploy tool refused this function ---
   `index.ts` alone is **123.5KB JSON-escaped**, and the whole payload 158KB, against a
   ceiling around 100–130KB. Two attempts, both failed with `Entrypoint path does not
   exist`, **neither created a version** (confirmed: still v24, `updated_at` unchanged).
@@ -2824,7 +2861,47 @@ the second answer, so its `verify_jwt` is still false and Stripe's webhook is in
 `loan-ingest-amortization` (known true) was used as the control — a test with no known-true
 control proves nothing about which half of the table you are in.
 
-#### THE CRON IS DELIBERATELY NOT CREATED
+#### THE CRON IS NOW LIVE — `wr-loan-attribution`, jobid 25, every 6h at :20
+
+Created AFTER the loop was proven end to end, and through `washroute-preflight`, because
+session 231's corollary is that scheduling something turns a latent bug in its guards into
+a certainty. The guards this job makes load-bearing all have live evidence from today: the
+three write-mode refusals, the time budget (found by an actual 504, not by reasoning), and
+the rotation (two passes, the starved loans picked up second).
+
+```
+20 */6 * * *   ->  loan-attribution-run, x-wr-internal, timeout 170000
+```
+
+**Why 6-hourly and not nightly.** A pass covers 3 of 5 loans, so nightly would refresh each
+loan only every other day. Four passes a day keeps all five current. `:20` keeps it off the
+hour where the other jobs cluster; a run takes ~105s against a 6-hour interval, so passes
+cannot overlap.
+
+**Preflight findings, for the record:** no triggers on `loan_attributions`; the only trigger
+in scope is `trg_enforce_split_invariant` on `loan_splits`, which this job only ever reads.
+18 SMS templates are enabled and **none is reachable** — the job touches no customer, order
+or route table and calls nothing that sends. Customers who could be contacted: **0**. Xero
+cost ~84 calls/day against 1,000.
+
+**The one destructive operation is the stale-row delete**, and it is bounded: a findings
+query error returns 500 before any delete, a legitimately empty result SHOULD clear the
+table, and every payload is regenerable by re-running. This table is a cache, not a record
+of truth — which is also why `run_status='error'` matters more than it looks: it is the one
+state a reader must never mistake for "nothing found".
+
+#### WHAT IS ACTUALLY LEFT
+
+* **Nothing is reading `loan_attributions` yet.** Phase 1 is SQL-readable by design. The
+  Loans-page hover and the ISSUES surface are the next build, and they should read
+  `headline` + `counts` and distinguish THREE states, not two: a row with `run_status='ok'`,
+  a row with `run_status='error'`, and NO ROW AT ALL. Collapsing the last two into "nothing
+  to attribute" would reintroduce this module's oldest failure shape at the last possible
+  step.
+* Tech Debt #26 (the matcher can claim more than it explains) is unchanged and still not
+  live on any loan.
+
+
 
 Session 231's corollary: *do not schedule or automate something before auditing the guards
 it makes load-bearing* — putting the stage sweep on a cron turned a latent flag-clearing

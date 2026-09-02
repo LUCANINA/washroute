@@ -44,13 +44,24 @@ const cors = {
 
 const FN = (Deno.env.get('SUPABASE_URL') ?? '') + '/functions/v1'
 
-// A pass must end on its own terms rather than being cut off mid-loan by the platform.
-// Whatever is left unvisited is NAMED in the report, and `orderByStaleness` guarantees
-// those loans lead the next pass instead of being starved forever.
-const TIME_BUDGET_MS = 210_000
-// One loan's walk is an 18-month Xero crawl. Bound it so a single slow loan cannot eat
-// the whole budget silently.
-const PER_LOAN_MS = 90_000
+// THESE TWO NUMBERS ARE MEASURED, NOT CHOSEN (session 261, second pass).
+//
+// The first version used 210s / 90s and the whole pass died on a platform **504** — the
+// gateway cut it off somewhere past 150s, so the run returned NOTHING: no payloads, no
+// report, no `not_attempted` list. A budget larger than the platform's own limit is not a
+// budget, it is a guarantee that the honest early-exit path never runs.
+//
+// Measured on live data the same day: Funding Circle 18.1s, PCV 29.0s.
+//
+// So the cutoff is on STARTING a loan, and it leaves room for a whole one to finish:
+// 90s + 45s = 135s, inside the limit that produced the 504. Do not raise either number
+// without re-measuring; raising `START_CUTOFF_MS` alone reintroduces the 504 exactly.
+//
+// Aborting a walk mid-flight is safe: analyze mode writes nothing, to Xero or the DB.
+const TIME_BUDGET_MS = 90_000
+// One loan's walk is an 18-month Xero crawl. Both measured loans finish well inside this;
+// the cap exists so a pathological one cannot eat the pass silently.
+const PER_LOAN_MS = 45_000
 
 function admin() {
   return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
