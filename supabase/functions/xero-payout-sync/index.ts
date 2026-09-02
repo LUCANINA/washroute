@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
+import { classifyPrecheckFailure, nextRetryAt } from '../_shared/payout-retry.ts'
+import { rechain, toCents, fromCents, type ChainEntry } from '../_shared/balance-rechain.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-06-20',
@@ -54,6 +56,23 @@ const NON_REVENUE_TYPES = new Set([
 function emptyBucket() { return { gross: 0, fee: 0, net: 0, count: 0 } }
 const dollars = (c: number) => Math.round(c) / 100
 
+
+// ── SESSION 260: internal caller auth ───────────────────────────────────────
+// The retry sweep in xero-payout-watchdog has to invoke this function, and it
+// cannot present a Supabase user JWT (requireAdmin below needs one). Same shared
+// secret every other internal caller in this project uses -- see migration
+// session_227h_internal_call_secret. Reading wr_internal_auth requires the
+// service-role client, so this cannot be forged from the anon key.
+async function isInternalCall(req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  try {
+    const { data } = await supabase.from('wr_internal_auth').select('secret').maybeSingle()
+    return !!data?.secret && provided === data.secret
+  } catch (_) {
+    return false
+  }
+}
 
 async function requireAdmin(req: Request) {
   const auth = req.headers.get('authorization') || ''
@@ -262,6 +281,81 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   return { lineItems, total, payoutDollars, arrivalDate, safetyFailed, balances, blockedReason, bankTxnPayload, loanPaydown }
 }
 
+
+// ── SESSION 260: THE CHAIN MUST HEAL ITSELF ─────────────────────────────────
+// recordStripeCapitalPaydown computes each snapshot as `previous - paydown`, taking
+// "previous" as the newest row dated on-or-before this payout. That is a CHAIN, and
+// a chain has no memory of what it skipped. When the 2026-08-27 payout never posted,
+// the 08-28 snapshot chained off 08-26 and EVERY balance from 08-28 onward was
+// overstated by exactly the missing $704.09 -- for six days, silently, on a screen
+// whose job is to say "ready for your accountant". Backfilling 08-27 did not fix the
+// later rows; they had already been computed from the wrong base and needed a manual
+// UPDATE.
+//
+// So after writing a snapshot, rebuild the tail from it. Fill a gap and every row
+// after it corrects on the next payout, with no hand repair. The arithmetic lives in
+// _shared/balance-rechain.ts, where it is tested against these exact production
+// figures, and it REFUSES (writing nothing) rather than half-rewriting a chain.
+//
+// Best-effort, like everything else in this function: Xero is what matters
+// financially, this is bookkeeping metadata on top of it.
+async function rechainForwardFrom(loanAccountId: string, fromDate: string, fromBalance: number) {
+  try {
+    const { data: later } = await supabase
+      .from('loan_statements')
+      .select('id, statement_date, principal_balance')
+      .eq('loan_account_id', loanAccountId)
+      .eq('source', 'xero_balance_snapshot')
+      .gt('statement_date', fromDate)
+      .order('statement_date', { ascending: true })
+    if (!later || later.length === 0) return
+
+    const { data: splits } = await supabase
+      .from('loan_splits')
+      .select('period_label, principal_amount')
+      .eq('loan_account_id', loanAccountId)
+      .gt('period_label', fromDate)
+    const paydownByDate = new Map<string, number>()
+    for (const sp of splits || []) paydownByDate.set(String(sp.period_label), toCents(sp.principal_amount))
+
+    const entries: ChainEntry[] = []
+    for (const row of later) {
+      const d = String(row.statement_date)
+      const pay = paydownByDate.get(d)
+      // A snapshot with no matching split is an unexplained movement. Session 247:
+      // a NULL is not a zero -- walking it as though nothing happened puts the error
+      // straight into the answer. Stop the walk here rather than guess.
+      if (pay === undefined) {
+        console.warn(`[xero-payout-sync] rechain stopping at ${d}: no loan_splits row to explain it`)
+        break
+      }
+      entries.push({ date: d, paydownCents: pay, storedBalanceCents: toCents(row.principal_balance) })
+    }
+    if (entries.length === 0) return
+
+    const result = rechain(toCents(fromBalance), entries)
+    if (result.refusal) {
+      console.error(`[xero-payout-sync] rechain REFUSED: ${result.refusal} -- nothing rewritten`)
+      return
+    }
+    if (result.corrections.length === 0) return
+
+    const idByDate = new Map(later.map((r: any) => [String(r.statement_date), r.id]))
+    for (const c of result.corrections) {
+      const id = idByDate.get(c.date)
+      if (!id) continue
+      const { error } = await supabase
+        .from('loan_statements')
+        .update({ principal_balance: fromCents(c.toCents) })
+        .eq('id', id)
+      if (error) console.error(`[xero-payout-sync] rechain could not update ${c.date}: ${error.message}`)
+      else console.log(`[xero-payout-sync] rechain ${c.date}: ${fromCents(c.fromCents)} -> ${fromCents(c.toCents)}`)
+    }
+  } catch (err) {
+    console.error('[xero-payout-sync] rechainForwardFrom threw', err)
+  }
+}
+
 // Session 205 cont.: Stripe Capital's loan_accounts row (added when the loan
 // was onboarded onto the Loans dashboard, ingestion_method='automatic') never
 // gets a statement pulled or a schedule ingested -- its balance/history is
@@ -367,6 +461,11 @@ async function recordStripeCapitalPaydown(payout: any, loanPaydown: number, arri
       // can decide whether same-day payouts need a disambiguated period_label.
       console.error('[xero-payout-sync] failed to insert Stripe Capital loan_splits row', splitErr.message)
     }
+
+    // Session 260: repair any later snapshots that were chained off a stale base.
+    // Normally a no-op -- it only does work when a payout was missed and has since
+    // been backfilled, which is exactly the case nobody was watching for.
+    await rechainForwardFrom(loanAcct.id, arrivalDate, newBalance)
   } catch (err) {
     console.error('[xero-payout-sync] recordStripeCapitalPaydown threw', err)
   }
@@ -390,6 +489,9 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
   if (plan.safetyFailed || !plan.balances) {
     await supabase.from('xero_payout_syncs').update({
       status: 'failed', error_message: plan.blockedReason,
+      // Permanent by construction: an unclassified transaction or an out-of-balance
+      // plan reproduces exactly on a re-run. Retrying it would bury the signal.
+      failure_kind: 'permanent', next_retry_at: null,
       category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail },
     }).eq('id', syncRow.id)
     console.error(`[xero-payout-sync] ${payout.id} blocked: ${plan.blockedReason}`)
@@ -417,15 +519,42 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
   const payoutRef = `Stripe payout ${payout.id}`
   const xeroHeaders = { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json', 'Content-Type': 'application/json' }
   let refJson: any = null
+  // Session 260: the status has to escape the try block -- classifyPrecheckFailure
+  // needs the NUMBER, and parsing it back out of the message string would be the
+  // kind of fragile text-matching this module keeps getting burnt by.
+  let precheckStatus: number | null = null
   try {
     const refRes = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${encodeURIComponent(`Reference=="${payoutRef}"`)}`, { headers: xeroHeaders })
+    precheckStatus = refRes.status
     if (!refRes.ok) throw new Error(`status ${refRes.status}`)
     refJson = await refRes.json()
   } catch (e) {
+    // ── SESSION 260: A REFUSAL IS NOT A VERDICT ─────────────────────────────
+    // Nothing was posted and nothing was classified -- Xero simply would not
+    // answer. On 2026-08-27 and 2026-09-02 that was a 429 against the 1,000/day
+    // accounting cap, and because the row was marked permanently failed with no
+    // retry and no alert, the payout never reached Xero at all. The bank feed
+    // line arrives the NEXT morning, so a human then met an unreconciled line
+    // with nothing to match it to and Xero offered the previous payout's coding
+    // collapsed to one line: $7,813.03 of mixed revenue booked entirely to 405.
+    //
+    // Classify instead of assuming. Only shapes that provably mean "ask again
+    // later" are marked transient; everything else keeps the old behaviour and
+    // waits for a human. Re-running is safe BECAUSE this pre-check exists -- the
+    // retry runs it again and would find any duplicate.
+    const status = precheckStatus
     const msg = `Could not check Xero for an existing "${payoutRef}" before posting (${String((e as Error)?.message || e)}) -- refusing to post blind.`
-    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: msg }).eq('id', syncRow.id)
-    console.error(`[xero-payout-sync] ${payout.id} ${msg}`)
-    return { posted: false, blocked_reason: msg }
+    const kind = classifyPrecheckFailure(status, String((e as Error)?.message || e))
+    const attempts = (Number(existing?.attempt_count) || 0) + 1
+    await supabase.from('xero_payout_syncs').update({
+      status: 'failed',
+      error_message: msg,
+      failure_kind: kind,
+      attempt_count: attempts,
+      next_retry_at: kind === 'transient' ? nextRetryAt(attempts, new Date()).toISOString() : null,
+    }).eq('id', syncRow.id)
+    console.error(`[xero-payout-sync] ${payout.id} ${msg} (kind=${kind}, attempt=${attempts})`)
+    return { posted: false, blocked_reason: msg, failure_kind: kind, attempt_count: attempts }
   }
   const alreadyInXero = (refJson?.BankTransactions || []).find((t: any) =>
     String(t?.Status || '').toUpperCase() !== 'DELETED' && String(t?.Status || '').toUpperCase() !== 'VOIDED')
@@ -434,6 +563,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     const msg = `Xero already holds a live transaction with reference "${payoutRef}" (${id}). This payout IS posted -- our row just did not say so. Nothing was posted a second time; the row has been repaired instead.`
     await supabase.from('xero_payout_syncs').update({
       status: 'posted', xero_bank_transaction_id: id, synced_at: new Date().toISOString(), error_message: msg,
+      failure_kind: null, next_retry_at: null,
     }).eq('id', syncRow.id)
     console.log(`[xero-payout-sync] ${payout.id} self-healed -> ${id}`)
     return { posted: false, skipped: true, reason: 'already in Xero', xero_bank_transaction_id: id, self_healed: true }
@@ -447,7 +577,8 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
   const postJson = await postRes.json()
 
   if (!postRes.ok) {
-    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: JSON.stringify(postJson).slice(0, 2000), category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents } }).eq('id', syncRow.id)
+    // A Xero validation rejection is permanent -- same payload, same rejection.
+    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: JSON.stringify(postJson).slice(0, 2000), failure_kind: 'permanent', next_retry_at: null, category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents } }).eq('id', syncRow.id)
     console.error(`[xero-payout-sync] ${payout.id} Xero post failed`, postJson)
     return { posted: false, xero_error: postJson }
   }
@@ -460,6 +591,11 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
   // but it still has to be SAID rather than swallowed.
   const { error: postedUpdErr } = await supabase.from('xero_payout_syncs').update({
     status: 'posted', xero_bank_transaction_id: createdTxnId, synced_at: new Date().toISOString(),
+    // Session 260: a 'posted' row must not keep its old failure text. After the
+    // Aug 27 repair the row said posted AND still carried "status 429 -- refusing
+    // to post blind", which is a stale sentence beside a correct number: the
+    // hardest kind of wrong to catch, because a reader trusts the words.
+    error_message: null, failure_kind: null, next_retry_at: null,
     category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents },
   }).eq('id', syncRow.id)
   if (postedUpdErr) {
@@ -511,7 +647,11 @@ Deno.serve(async (req) => {
   // Manual / testing path — requires an authenticated admin or manager session,
   // since verify_jwt is off at the gateway (Stripe's calls can't carry a Supabase JWT).
   try {
-    await requireAdmin(req)
+    // Session 260: xero-payout-watchdog's retry sweep authenticates with the shared
+    // internal secret; it has no Supabase user JWT to present. Everyone else still
+    // has to be an admin/manager. Fails CLOSED -- isInternalCall returns false on a
+    // missing header, a mismatch, or any throw.
+    if (!(await isInternalCall(req))) await requireAdmin(req)
 
     const url = new URL(req.url)
     const payoutIdParam = url.searchParams.get('payout_id')

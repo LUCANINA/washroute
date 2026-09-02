@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { mayAutoRetry, retriesExhausted, MAX_AUTO_ATTEMPTS } from '../_shared/payout-retry.ts'
+import { sendAlertSms, alertSmsConfigFromEnv, trimForSms } from '../_shared/alert-sms.ts'
 
 // xero-payout-watchdog (built Aug 7, 2026)
 //
@@ -36,6 +38,31 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 // Body: { stale_minutes?: number }  (default 30)
 
 const DEFAULT_STALE_MINUTES = 30
+
+// ── SESSION 260: WHY THIS FUNCTION NOW RETRIES AND TEXTS ────────────────────
+// The watchdog did its job on 2026-08-27: it turned a stranded row into a row
+// marked 'failed'. And then nothing happened, because 'failed' was written into a
+// table no screen reads, no alert watches, and nothing retries. The payout never
+// reached Xero, the bank feed line arrived the next morning, and the unreconciled
+// line got hand-coded from Xero's "suggest previous entries" -- $7,813.03 of mixed
+// revenue booked entirely to 405 Delivery - Subscription Fees, found six days later
+// by eye. Detecting a failure and telling nobody is the same as not detecting it.
+//
+// Two additions, deliberately narrow:
+//
+//   RETRY, but only the transient class -- failures where the Xero PRE-CHECK could
+//   not answer, so nothing was posted or even classified. The standing rule that
+//   this function "deliberately does NOT retry automatically" is preserved for
+//   every other failure; the carve-out and its reasoning live in
+//   _shared/payout-retry.ts and are unit-tested in tests/payout-recovery.test.mts.
+//
+//   ALERT, at any hour. health-monitor suppresses order alerts outside 8am-9pm
+//   Pacific, which is right for order-rate noise and wrong here: payouts land
+//   ~7pm PT and the feed line arrives next morning, so the entire useful window is
+//   that same evening. A payout alert that waits until 8am arrives after the wrong
+//   entry has already been created.
+const MAX_RETRIES_PER_RUN = 3
+const ALERT_DEDUP_HOURS = 6
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -91,7 +118,11 @@ async function handleRequest(req: Request): Promise<Response> {
       'Flagged automatically by xero-payout-watchdog.'
     const { error: updErr } = await supa
       .from('xero_payout_syncs')
-      .update({ status: 'failed', error_message: msg })
+      // Session 260: 'unknown', NOT 'transient'. A row strands this way when the
+      // isolate died -- possibly AFTER a successful POST. That state is not safe to
+      // re-run on a timer's judgement, so it alerts and waits for a person, exactly
+      // as this function's original design intended.
+      .update({ status: 'failed', error_message: msg, failure_kind: 'unknown', next_retry_at: null })
       .eq('id', row.id)
       .eq('status', 'pending')
     if (!updErr) {
@@ -104,21 +135,99 @@ async function handleRequest(req: Request): Promise<Response> {
     }
   }
 
+  // ── Stage 2: retry the transient failures that are due ────────────────────
+  // Capped per run so a systemic Xero outage cannot turn a 30-minute cron into a
+  // request flood -- and because each attempt costs a call against the same 1,000/day
+  // accounting quota whose exhaustion caused this in the first place.
+  const { data: retryable } = await supa
+    .from('xero_payout_syncs')
+    .select('id, stripe_payout_id, status, failure_kind, attempt_count, next_retry_at')
+    .eq('status', 'failed')
+    .eq('failure_kind', 'transient')
+    .order('payout_arrival_date', { ascending: true })
+
+  const nowD = new Date()
+  const due = (retryable || []).filter((r: any) => mayAutoRetry(r, nowD)).slice(0, MAX_RETRIES_PER_RUN)
+  const retried: any[] = []
+  for (const row of due) {
+    try {
+      // The sweep authenticates with the shared internal secret; it has no user JWT.
+      // xero-payout-sync re-runs its own Xero pre-check on this call, so a duplicate
+      // remains impossible even if this row's state is wrong.
+      const { data: secretRow } = await supa.from('wr_internal_auth').select('secret').maybeSingle()
+      const res = await fetch(
+        `${Deno.env.get('SUPABASE_URL')}/functions/v1/xero-payout-sync?payout_id=${encodeURIComponent(row.stripe_payout_id)}`,
+        { headers: { 'x-wr-internal': secretRow?.secret || '', 'Content-Type': 'application/json' } })
+      retried.push({ stripe_payout_id: row.stripe_payout_id, attempt: (row.attempt_count ?? 0) + 1, http: res.status })
+    } catch (e) {
+      retried.push({ stripe_payout_id: row.stripe_payout_id, error: String((e as Error)?.message || e) })
+    }
+  }
+
   // Everything currently not posted, so one call answers "is any payout missing
   // from Xero right now?" without a second query.
   const { data: outstanding } = await supa
     .from('xero_payout_syncs')
-    .select('stripe_payout_id, payout_amount, payout_arrival_date, status, error_message')
+    // failure_kind + attempt_count are load-bearing for the alert gate below --
+    // retriesExhausted() reads them, and a missing column would make it silently
+    // return false, which is the fail-SILENT direction. Session 245's lesson about
+    // a guard that cannot verify what it suppresses applies here exactly.
+    .select('stripe_payout_id, payout_amount, payout_arrival_date, status, error_message, failure_kind, attempt_count')
     .neq('status', 'posted')
     .order('payout_arrival_date', { ascending: true })
 
   const totalMissing = (outstanding || []).reduce((s: number, r: any) => s + Number(r.payout_amount || 0), 0)
+
+  // ── Stage 3: tell a human, for the rows a human actually has to act on ─────
+  // A transient failure still inside its retry budget is NOT alerted -- it will most
+  // likely heal itself, and an alert per cron tick is how an alarm gets ignored. Once
+  // the budget is spent, or the failure was never auto-retryable, it needs a person.
+  const needsHuman = (outstanding || []).filter((r: any) =>
+    r.status === 'failed' && (r.failure_kind !== 'transient' || retriesExhausted(r)))
+
+  const alerts: any[] = []
+  for (const row of needsHuman) {
+    const dedupSince = new Date(Date.now() - ALERT_DEDUP_HOURS * 3600 * 1000).toISOString()
+    const { data: recent } = await supa.from('_health_alerts')
+      .select('id')
+      .eq('alert_type', 'payout_post_failed')
+      .gte('created_at', dedupSince)
+      .contains('context', { stripe_payout_id: row.stripe_payout_id })
+      .limit(1)
+      .maybeSingle()
+    if (recent) { alerts.push({ stripe_payout_id: row.stripe_payout_id, suppressed: true }); continue }
+
+    // Short and actionable. The reader is on a phone, in the evening, and the one
+    // thing that must not happen next is hand-coding the bank line tomorrow morning.
+    const msg = trimForSms(
+      `WashRoute: Stripe payout $${Number(row.payout_amount).toFixed(2)} (${row.payout_arrival_date}) `
+      + `did NOT reach Xero after ${MAX_AUTO_ATTEMPTS} tries. `
+      + `Do NOT code the bank line by hand -- leave it unreconciled. ${row.stripe_payout_id}`)
+    const smsResult = await sendAlertSms(msg, alertSmsConfigFromEnv((k) => Deno.env.get(k)))
+    await supa.from('_health_alerts').insert({
+      alert_type: 'payout_post_failed',
+      severity: 'critical',
+      message: msg,
+      context: {
+        stripe_payout_id: row.stripe_payout_id,
+        amount: row.payout_amount,
+        arrival_date: row.payout_arrival_date,
+        failure_kind: row.failure_kind,
+        twilio: smsResult,
+      },
+      sent_sms: smsResult.ok,
+      sent_to: smsResult.ok ? (Deno.env.get('ALERT_PHONE') || '+14156085446') : null,
+    })
+    alerts.push({ stripe_payout_id: row.stripe_payout_id, sms: smsResult })
+  }
 
   return new Response(JSON.stringify({
     ok: true,
     stale_minutes: staleMinutes,
     newly_marked_failed: marked.length,
     marked,
+    retried,
+    alerts,
     outstanding_count: (outstanding || []).length,
     // Renamed from `outstanding_total_missing_from_xero` (session 241): these rows
     // are NOT KNOWN to be missing -- nothing here asked Xero. Naming a number

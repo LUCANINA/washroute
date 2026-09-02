@@ -1,12 +1,35 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 259 cont. 14, 2026-09-01)
+> ## ⏭️ START HERE — first thing, next session (left by session 260, 2026-09-02)
 >
 > **Order:** §00 is the next build. Both §00 and §0 need the Xero accounting API, which
 > was at `remaining_day 0` until ~08:40 PT 2026-09-02 — **probe with `xero-rate-probe`
 > first** (never `whoami`; it hits a different API and lies about the accounting quota).
 > §0's one-line job (record the reversing journal's id) is quick — do it in the same
 > quota window.
+>
+> ### 0α. ✅ CLOSED (session 260, 2026-09-02) — the Stripe payout recovery path, deployed and VERIFIED LIVE at 16:35 UTC
+>
+> Aug 27 and Sept 2 payouts are posted and reconciled in our records; the Stripe Capital
+> chain foots to the cent from 8/26 through 9/2. Three fixes shipped, and the deploy state
+> below was checked FUNCTIONALLY, not by version number — read §"THE DEPLOY STATE IS
+> CHECKED, NEVER ASSUMED" and note this entry obeys it:
+>
+> * `xero-payout-watchdog` **v4 live** — proven by its cron response at 16:30 UTC carrying
+>   the new `retried` / `alerts` keys, not by `updated_at`.
+> * `xero-payout-sync` **live** — proven by the internal-secret auth path answering
+>   "No such payout" (that branch exists only in the new build) and by a full dry run
+>   returning `would_post: true`, $4,752.54, 124 txns, 0 unclassified.
+> * `verify_jwt` on `xero-payout-sync` is **still false** — confirmed by an unauthenticated
+>   call reaching the function body. **Never let a deploy flip this**: Stripe's webhook
+>   cannot present a JWT, and `deploy_edge_function`'s `verify_jwt` parameter DEFAULTS TO
+>   TRUE. That default silently flipped the watchdog to `true` on this session's first
+>   deploy (harmless there — the cron sends the anon key, which is a valid JWT — and left
+>   as-is deliberately; see the session log). On the sync it would kill every payout.
+>
+> **One thing a person must still do:** the Aug 27 bank line ($7,813.03) and the Sept 2
+> line ($12,329.03) are unreconciled in Xero, waiting to be MATCHED to the transactions we
+> posted. Sept 2's feed line does not arrive until 9/3 — see the T+1 note in the log.
 >
 > ### 00. ⏭️ THE ACTUAL NEXT BUILD (left by session 259 cont. 14) — `loan-attribution-run`
 >
@@ -2620,6 +2643,141 @@ exact-amount search is not an existence test when the system aggregates).
 `rm -rf _to_delete` locally. Claude cannot delete on the FUSE mount. Also still unresolved:
 `payroll-xero-post` is deployed (v21) but absent from git, so the repo is not yet a reliable answer
 to "what is running".
+
+---
+
+### Session 260 (2026-09-02) — A REFUSAL THAT NOBODY WAS TOLD ABOUT. $7,538.03 misstated for six days; three fixes, 43 assertions, both functions live.
+
+David, reading a Xero account-transactions report: *"there seems to be a mistake on the
+automatic accounting for Stripe payouts on August 27th, where the whole payout was
+allocated to Subscription fees instead of being split."*
+
+He was right, and the transaction was not ours.
+
+**What happened, in order.** The 2026-08-27 payout webhook fired at 02:04 UTC. Xero's
+accounting API was at `remaining_day 0` — the 1,000/day cap, exhausted that evening by our
+own sessions. `xero-payout-sync`'s session-241 pre-check ("ask Xero before posting") got a
+429 and did exactly the right thing: it refused to post blind. It then marked the row
+`failed` and stopped. **Nothing retried it. Nothing told anyone.** The watchdog had
+already converted this class of silence into a visible `failed` row back in session 241 —
+into a table that no screen reads, no alert watches and nothing sweeps. Detecting a
+failure and telling nobody is the same as not detecting it.
+
+The next morning the Wells Fargo feed line arrived. David met an unreconciled $7,813.03
+line with no transaction to match it to, and Xero's **"Suggest previous entries"** offered
+the Aug 25 payout's coding — ten lines, collapsed to one because the totals differed, with
+"Keep as 10 lines" as an opt-in you have to notice. He clicked OK. History & Notes:
+*"Reconciled by David Macquart-Moulin on Aug 28, 2026 at 10:43AM."*
+
+**Three tells identified it as hand-coded rather than ours, before anything was touched:**
+Reference blank (ours always carry `Stripe payout po_…`), a single line item, and a
+description quoting `po_1U87yzGACgbvEugHHVRI6U0V` — *Aug 25's* payout id.
+
+**The misstatement.** 405 Delivery - Subscription Fees overstated by **$7,538.03** (booked
+$7,813.03 against a true $275.00). Net revenue understated $985.13. $281.04 of Stripe fees
+unrecorded. And **$704.09 of Stripe Capital principal repayment never booked** — in Xero
+*or* in our records.
+
+**The second-order damage, which is the part worth remembering.** `recordStripeCapitalPaydown`
+computes each snapshot as `previous - paydown`, taking "previous" as the newest row dated
+on-or-before this payout. That is a CHAIN, and a chain has no memory of what it skipped.
+With 08-27 missing, the 08-28 snapshot chained off 08-26 and **every balance from 08-28
+onward was overstated by exactly $704.09.** Backfilling 08-27 did not repair them — they
+had already been computed from the wrong base. One missed day silently poisons every
+balance after it, on the screen whose job is to say "ready for your accountant".
+
+**The repair, in order (the order is load-bearing).**
+1. Dry run FIRST — before deleting anything. If it had come back blocked, removing the
+   manual entry would have left Aug 27 with no entry at all. It returned `would_post: true`,
+   188 txns, 0 unclassified, balancing to $7,813.03 exactly.
+2. David: **Options → Remove & Redo** in Xero (not plain Unreconcile — that keeps the bad
+   transaction as an unreconciled entry, which is the state that causes a DUPLICATE).
+3. Confirmed via `xero-read` that the only $7,813.03 on 08-27 was `status: DELETED`.
+   **This check is not optional**: `xero-payout-sync`'s idempotency matches on Reference,
+   and a hand-coded entry HAS no Reference — so the pre-check cannot see it, and re-running
+   while it exists posts a second $7,813.03.
+4. Re-ran the sync → `6b09a2bb-96d5-4257-905b-fa316b9a95d7`, nine lines, correct.
+5. Repaired 8/28, 8/31, 9/1 by hand (−$704.09 each). Every drop now equals its recorded
+   paydown to the cent.
+6. Sept 2's payout ($12,329.03) had failed the **identical** 429 way and was still
+   unposted — found only because we went looking. Posted as
+   `98882c06-76c6-4ebf-a8a4-ec786c6b31e2`. `xero_payout_syncs` now has **zero** non-posted
+   rows.
+
+**T+1: THE DEADLINE THAT SHAPES THE WHOLE FIX (David).** *"pre-staged (money received
+today hits Xero tomorrow)."* The payout webhook fires ~7pm PT on day N and the Xero
+transaction is dated day N, but the **bank feed line does not arrive until day N+1**. So
+the useful window to recover a failed payout is *that same evening*. An alert that waits
+for business hours arrives after the wrong entry already exists. This is why the payout
+alert deliberately ignores health-monitor's 8am–9pm suppression.
+
+**The three fixes (all deployed, all verified functionally — see START HERE §0α).**
+
+*1. Nobody was told.* `xero-payout-watchdog` now sends an SMS via the new
+`_shared/alert-sms.ts` (extracted from health-monitor, which keeps its own copy for now —
+tech debt, it is the only working alarm and was not worth destabilising in the same
+change). Deduped 6h per payout id in `_health_alerts` (`alert_type: 'payout_post_failed'`).
+It alerts only for rows a human must act on: `failure_kind !== 'transient'`, or transient
+with the retry budget spent. A transient still retrying is NOT alerted — an alert per cron
+tick is how an alarm gets ignored.
+
+*2. One 429 lost the day permanently.* Transient-only auto-retry, and **this deliberately
+carves out a documented rule** — the watchdog's own comment says it "deliberately does NOT
+retry automatically", written after the payroll incident. The carve-out was put to David
+explicitly rather than assumed, and it is narrow for a reason: a payout whose PRE-CHECK
+failed **never reached Xero at all** — nothing classified, nothing written, no money moved.
+Re-running is not retrying a financial post; it is making the first attempt. And the
+pre-check runs again on the retry, so a duplicate stays impossible. Everything else still
+waits for a human. `_shared/payout-retry.ts` holds the decision; `classifyPrecheckFailure`
+**defaults to `permanent`** for anything it does not positively recognise, and 401/403 are
+deliberately NOT transient (a dead token does not heal itself). Backoff 2/10/30/60/120 min,
+6 attempts, ~5.7h total — chosen to cover the evening-to-morning deadline above.
+
+*3. The chain could not self-heal.* `_shared/balance-rechain.ts` rebuilds the tail from the
+snapshot just written, so filling a gap corrects every later row on the next payout with no
+manual UPDATE. It REFUSES (writing nothing) on a negative paydown, out-of-order or
+duplicated dates, or a walk below zero — a half-rewritten balance chain looks exactly like
+a whole one. It stops rather than guesses at a snapshot with no matching split (session
+247: a NULL is not a zero). All money is integer cents.
+
+**Also fixed:** a `posted` row kept its old failure text — after the Aug 27 repair the row
+said `posted` AND still carried "status 429 — refusing to post blind". A stale sentence
+beside a correct number is the hardest kind of wrong to catch, because a reader trusts the
+sentence (session 247's "a rule can outlive the fact it was written for", again).
+
+**Testing — `tests/payout-recovery.test.mts`, 43 assertions, all green.** Real modules by
+import, no transcriptions. The load-bearing one: fed the actual PRE-repair August figures,
+`rechain` independently produces 124,081.53 / 123,640.62 / 123,263.47 — exactly what was
+written by hand hours earlier. Three explicit DISCRIMINATION assertions confirm the inverse
+of each fix goes red.
+
+**Migration `session_260_payout_retry_state`** adds `failure_kind` / `attempt_count` /
+`next_retry_at`, a CHECK that makes an unrecognised kind non-retryable (fail safe), and a
+partial index for the sweep. Data-API visibility was proven by a REST round-trip BEFORE any
+dependent code deployed (session 176/177's 15-hour outage).
+
+**DEPLOY MECHANICS — READ THIS BEFORE THE NEXT DEPLOY.** `deploy_edge_function`'s
+`verify_jwt` parameter **defaults to `true`** and silently flipped `xero-payout-watchdog`
+from false to true. Harmless there (the cron posts the anon key, itself a valid JWT — and
+it was left true rather than spend another full-file redeploy). On `xero-payout-sync` it
+would have killed every Stripe payout webhook, since Stripe cannot present a JWT. **Always
+pass `verify_jwt: false` explicitly for webhook-facing functions.** Separately: this
+sandbox's `device_bash` runs in a Linux VM that is NOT David's macOS shell, so a
+`supabase login` he performs does not give the sandbox a token — the sandbox cannot use the
+CLI. David deployed `xero-payout-sync` himself with
+`npx supabase@2.116.0 functions deploy xero-payout-sync --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`.
+
+**Open / not done.**
+* Two Xero bank lines await MATCHING by a person (Aug 27, and Sept 2 once its feed line
+  lands on 9/3). Match — never Create.
+* **"Suggest previous entries" is still ticked** on Wells Fargo Checking (4384). It
+  pre-fills the wrong split on every Stripe payout and is one click from repeating this.
+  Worth unticking; not done.
+* health-monitor still carries its own Twilio sender rather than `_shared/alert-sms.ts`.
+* The alert path has never fired in anger — `outstanding_count` was 0 all session, so the
+  SMS itself is untested end-to-end. First real failure is its first real test.
+* `ALERT_PHONE` is still unset in Supabase Secrets; both senders rely on the hardcoded
+  fallback.
 
 ---
 
