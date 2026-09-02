@@ -1,37 +1,66 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 261, 2026-09-02)
+> ## ⏭️ START HERE — first thing, next session (left by session 262, 2026-09-02 21:00 UTC)
 >
-> **Order (session 262, 2026-09-02 18:30 UTC).** Nothing is outstanding on the attribution
-> build, and **the Issues table and Loans hover now READ it** — §00's "nothing reads this
-> yet" is closed; see the session 262 entry. Deploy state re-verified functionally at 17:52
-> UTC (5 loans carrying `run_status='ok'` payloads; cron jobid 25 active on `20 */6 * * *`),
-> after the previous version of THIS paragraph was found stale — it claimed a deploy command
-> was outstanding while §00, forty lines below it and written the same day, recorded David
-> having run it.
+> **This block is rewritten at the END of every session. It has been wrong four days
+> running, always by being written before the thing it describes finished. Everything
+> below was measured at the time stamped above; re-measure rather than trusting it.**
 >
-> 🔒 **NEW STANDING RULE (session 262 cont. 3, David):** *the month cannot be closed
-> without all relevant statements uploaded AND analysed against Xero* — schedule-basis
-> loans exempt by recorded policy. Enforced by `_bkStatementGate()`, which blocks the
-> close band's readiness strip and feeds the period tab's "N to clear". See the session
-> 262 cont. 3 entry, including the one way this could turn from a gate into a nag.
+> ### Where the module stands
 >
-> **What is left, in order:**
-> 1. §0's one-line job — record PayPal 2's reversing-journal id (needs Xero; quota was fine).
-> 2. §0a's cosmetic "Issues (6)" vs "Nothing to close yet" label — **awaiting David's choice**.
-> 3. Tech Debt #28 — an Issues row names one of a loan's findings and hides the rest.
->    **Awaiting David's choice**; stated in the suite as `⚠ REPORTED`, not silently dropped.
-> 4. §0c — match the Sept 2 Stripe payout ($12,329.03) when its feed line lands 9/3.
+> **Deploy / push state — checked 2026-09-02 20:56 UTC, not assumed.** `origin/main ==
+> HEAD == 73f724a`; nothing unpushed. `loan-attribution-run` v2 is live with cron jobid 25
+> (`20 */6 * * *`) and all five material loans carrying `run_status='ok'` payloads. **Note
+> a commit that is not this session's landed mid-work (`7d415ee`, Launderers 12-month
+> trend) — another session is working in this repo, so `git log` before assuming the tree
+> is yours.**
 >
-> ✅ **The suite is a usable baseline again: 1,510 assertions, 1,509 passing, the one red
-> being Tech Debt #19's deliberate report.** `closing-evidence`'s 183 failures were the
-> calendar, not a regression — the harness clock now comes from the fixture's own
-> `_meta.pulled_at`. **§10's old "1468/1469" is superseded; quote this line instead, and
-> re-measure rather than quoting either.**
+> **Suite: 1,591 assertions, 1,590 passing.** The single red is Tech Debt #19's
+> `[history] s240 #10`, self-labelled REPORTED and red ON PURPOSE — tuning it green
+> deletes the only record of that finding. **Any other red is a real failure.** Every
+> earlier count in this file (1468/1469, 1,495, 1,510) is superseded; do not quote them,
+> and prefer re-running to quoting this one.
 >
-> **Xero quota probed 2026-09-02 17:52 UTC: `remaining_day 526`, not capped** — probe again
-> with `xero-rate-probe`, never `whoami`, which hits a different API and lies about the
-> accounting quota.
+> **The harness clock now comes from the fixture** (`_meta.pulled_at`), so a month
+> rollover can no longer turn the suite red. Before session 262 it was 183-red for a day
+> and a half for exactly that reason.
+>
+> 🔒 **STANDING RULE (session 262 cont. 3, David) — THE CLOSE GATE.** *The month cannot be
+> closed without all relevant statements uploaded AND analysed against Xero.* Loans closing
+> on a contractual schedule are exempt **by recorded policy** (`close_basis`), never because
+> a schedule file exists. `_bkStatementGate()` is the single source; it blocks the close
+> band's readiness strip and feeds the period tab's "N to clear". Read the session 262
+> cont. 3 entry, including the one way this could turn from a gate into a nag.
+>
+> 🔒 **STANDING RULE (session 262 cont. 2, David) — ASK, DON'T ASSERT.** *Ask when evidence
+> is what's missing; state the cause when the cause is established.* A gap measured against
+> a statement older than the month being closed is not a gap to investigate — it is one
+> nobody can evaluate, and the row says so and asks for the document. An ESTABLISHED cause
+> always outranks the ask. `balance_vs_lender` is a RESTATEMENT of the gap, not a cause.
+>
+> ### What is left, in order
+>
+> 1. **Tech Debt #32 (🔴) — the ask reaches the wrong person.** The Issues row asks for the
+>    missing statement, but David's own framing is that the upload is the business owner's
+>    chore in the **Client View**. Drive a "waiting on" surface there from the same
+>    `_bkEvidenceAsk()`. This is the difference between a better label and a working loop.
+> 2. **§0 — record PayPal 2's reversing-journal id.** One-line job, needs Xero (quota was
+>    fine at 526 remaining, 17:52 UTC; probe with `xero-rate-probe`, never `whoami`).
+> 3. **Awaiting David's decision, do not guess:** §0a's "Issues (6)" vs "Nothing to close
+>    yet" label; **#28** (an Issues row names one of a loan's findings and hides the rest);
+>    **#31** (a derived schedule reads exactly like a lender's contract schedule).
+> 4. **§0c** — match the Sept 2 Stripe payout ($12,329.03); its feed line lands 9/3.
+> 5. **#30 (🟠)** — the posting hold is a regex over `review_notes`. Structured column.
+>
+> ### Two things about this book that surprised me, worth carrying forward
+>
+> * **Prestaging is live on ELEVEN loans, not four** — six of them carrying live staged
+>   transactions in Xero built from schedules WE derived. The `washroute-bookkeeping` skill
+>   file said four and named the wrong ones; corrected 2026-09-02. Whether prestaging
+>   should run off a derived schedule at all has never been a deliberate decision.
+> * **Uploaded ≠ checked.** Ten of eleven loans owing an August statement had one on file;
+>   only six had been compared to Xero. Four documents sat there uncompared and every
+>   surface counted them as done. That is what the close gate now measures.
 >
 > ### 00. ✅ CLOSED (session 261, 2026-09-02) — `loan-attribution-run` IS LIVE, PROVEN END TO END, AND ON A CRON
 >
