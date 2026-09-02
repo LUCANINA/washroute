@@ -238,6 +238,17 @@ async function newHarnessPage(opts = {}) {
        })();`,
   });
 
+  // Freeze the page's clock to the fixture's own instant, BEFORE navigation so
+  // nothing in the module has already read a real `new Date()`. setFixedTime
+  // rather than clock.install: install fakes timers too, and both this harness's
+  // settle loop and the page's own setTimeout-driven rendering need real ones.
+  // Only Date moves.
+  //
+  // `at: null` opts a scenario out, for a test whose subject genuinely IS the
+  // passage of real time. Nothing needs it today; it exists so that opting out
+  // has to be written down rather than achieved by accident.
+  if (opts.at !== null) await page.clock.setFixedTime(opts.at ? new Date(opts.at) : HARNESS_NOW);
+
   const hash = opts.tab ? `#bookkeeping/${opts.tab}${opts.sub ? '/' + opts.sub : ''}` : '#bookkeeping';
   await page.goto('file://' + INDEX + hash, { waitUntil: 'domcontentloaded' });
 
@@ -648,6 +659,40 @@ function readSurfaces() {
 const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting'];
 
 /* ── phrases that claim "everything is fine" ──────────────────────────────── */
+/* ═══════════ THE FIXTURE'S OWN CLOCK (session 262) ═══════════════════════
+   A fixture is a snapshot of a moment, and every figure in this suite was
+   verified against production AT that moment. Reading "now" from the wall clock
+   therefore asks July's arithmetic to be true in September, which it is not.
+
+   On 2026-09-01 that came due: the close band advanced from July to August and
+   `closing-evidence` went from green to 183 failures overnight, with no commit
+   in between. The group's own first assertion said so out loud -- its author put
+   a loud precondition there for exactly this -- but a tripwire tells you the
+   suite has stopped being usable; it does not keep it usable. 183 red assertions
+   by default is a suite nobody can read a real regression out of, which is how a
+   real one gets through.
+
+   So the PAGE's clock is frozen to the instant the fixture was pulled, and the
+   harness's own date arithmetic reads the same instant. Both sides now agree,
+   permanently, and every group tests the month it was written about instead of
+   whichever month the calendar happens to be in.
+
+   THE DATE COMES FROM THE FIXTURE, never a literal here: refresh the fixture and
+   the clock follows it in the same commit, with no second place to update. A
+   fixture with no `_meta.pulled_at` is a hard failure rather than a silent
+   fallback to the wall clock -- falling back would restore the exact bug this
+   removes, and do it quietly. */
+const HARNESS_NOW = (() => {
+  const t = baseFixture._meta && baseFixture._meta.pulled_at;
+  if (!t || Number.isNaN(Date.parse(t))) {
+    throw new Error('fixture has no usable _meta.pulled_at — the suite cannot pin its clock, and running against the wall clock is what session 262 removed');
+  }
+  return new Date(t);
+})();
+// The Pacific calendar day that instant falls on -- the page reads BIZ_TZ, not
+// UTC, and around a month boundary those are different days.
+const HARNESS_TODAY = HARNESS_NOW.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+
 const ALL_CLEAR = /(Everything is reconciled|nothing needs you right now|ready for your accountant|all \d+ statements in|Nothing outstanding|nothing needs doing|you're all caught up|no issues found)/i;
 const CONFIDENT_ZERO = /\$0(?:\.00)?\b/;
 
@@ -1123,7 +1168,7 @@ GROUPS.push({
   name: 'close-band',
   async run(t) {
     // The month the band closes = the last COMPLETE month.
-    const now = new Date();
+    const now = new Date(HARNESS_NOW);
     const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
     const MONTH_END = new Date(lm.getFullYear(), lm.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -1319,7 +1364,7 @@ GROUPS.push({
       // The books-side opening balance, which renders its own provenance line.
       { name: 'a books-side opening balance on every loan',
         mutate: (d) => {
-          const now = new Date(); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const now = new Date(HARNESS_NOW); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
           const pe = new Date(lm.getFullYear(), lm.getMonth(), 0);
           const iso = `${pe.getFullYear()}-${String(pe.getMonth() + 1).padStart(2, '0')}-${String(pe.getDate()).padStart(2, '0')}`;
           d.loan_book_balances = d.loan_accounts.map((a, i) => ({
@@ -1378,7 +1423,7 @@ GROUPS.push({
       t.ok(!s.client.chartLabels.some(l => /Period/i.test(l)),
            's238: no phantom "Period" bar on the principal/interest chart',
            JSON.stringify(s.client.chartLabels));
-      const now = new Date();
+      const now = new Date(HARNESS_NOW);
       const lastComplete = `${new Date(now.getFullYear(), now.getMonth() - 1, 1).getFullYear()}-${String(new Date(now.getFullYear(), now.getMonth() - 1, 1).getMonth() + 1).padStart(2, '0')}`;
       const future = s.client.chartTitles.filter(x => {
         const m = x.match(/([A-Z][a-z]{2}) (\d{4})/); if (!m) return false;
@@ -1455,7 +1500,7 @@ GROUPS.push({
       await p.close();
       const p2 = await newHarnessPage({ tab: 'loans', mutate: (d) => {
         // Void one live split in the closing month and confirm the tile moves by exactly its amount.
-        const now = new Date(); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const now = new Date(HARNESS_NOW); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
         const target = d.loan_splits.find(sp => String(sp.period_label || '').slice(0, 7) === MONTH && sp.status !== 'voided' && Number(sp.total_amount) > 0);
         if (target) { target.status = 'voided'; target.voided_at = MONTH + '-15'; d.__voided = Number(target.principal_amount) + Number(target.interest_amount); }
@@ -1472,7 +1517,7 @@ GROUPS.push({
       const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
         // Give a PAID-OFF loan a stale non-zero balance. It must not inflate the headline.
         const off = d.loan_accounts.find(a => a.status === 'paid_off');
-        d.loan_statements.push({ id: 'harness-stale', loan_account_id: off.id, statement_date: new Date().toISOString().slice(0, 10),
+        d.loan_statements.push({ id: 'harness-stale', loan_account_id: off.id, statement_date: HARNESS_TODAY,
           principal_balance: 999999.99, source: 'lender_statement', balance_basis: 'principal_only',
           total_amount_due: null, payment_due_date: null, storage_path: null, payoff_amount: null,
           payoff_good_thru: null, pulled_at: null, pulled_by: null, created_at: null, file_sha256: null });
@@ -1486,7 +1531,7 @@ GROUPS.push({
     {
       const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
         // Push two checkable loans equal and opposite; a signed total would read $0.00.
-        const now = new Date(); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const now = new Date(HARNESS_NOW); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
         const live = d.loan_splits.filter(sp => String(sp.period_label || '').slice(0, 7) === MONTH && sp.status !== 'voided' && sp.status !== 'staged');
         if (live[0]) live[0].principal_amount = Number(live[0].principal_amount) + 415.88;
@@ -2085,8 +2130,51 @@ GROUPS.push({
     await p2.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
     const q2 = await p2.evaluate(READ_QUEUE);
     const et = await findingsFor(p2, 'E-Transit Loan - 4140');
-    t.eq((et || []).length, 3, 'r1: an immaterial loan\'s three findings all still reach Approvals', JSON.stringify(et));
-    t.ok((et || []).every(n => q2.text.includes(n)), 'r1: ...and every one is on screen');
+    /* ── THIS ASSERTION USED TO EXPECT 3 AND WENT RED ON 09-01 (session 262) ──
+       It was NOT a calendar casualty like the rest of that morning's failures --
+       it fails against a frozen clock too, and it was failing on git HEAD before
+       this session touched anything. It encodes PRE-258 behaviour.
+
+       What actually happens now, measured rather than assumed: this loan lands
+       in ISSUES (group 'immaterial'), and session 258 deliberately stopped
+       Approvals from repeating the findings of a loan that already has an Issues
+       row -- so its findings reach Approvals zero times, ON PURPOSE. Tuning this
+       to 0 and calling it fixed would delete the record of what that fold costs,
+       which is the one thing here worth keeping. So it is stated instead.
+
+       ⚠ THE HOLE, EXACTLY: _bkIssueQueueItems takes the most serious finding via
+       .find() and shows THAT ONE as the row's explanation. This loan has three.
+       The other two are named on no screen at all -- not in Issues, not in
+       Approvals. They are not lost from the DATA (_bkLoanAttentionItems still
+       holds all three, so nothing that counts is undercounting), but a reader
+       cannot reach them. Filed as Tech Debt #28; David has not been asked which
+       way he wants it.
+
+       These assertions PASS while saying that. The day the fold changes they go
+       red and announce that they must be rewritten -- which is the point. */
+    t.eq((et || []).length, 0,
+         'r1 ⚠ REPORTED: an immaterial loan\'s findings reach Approvals ZERO times — session 258 folds them into its Issues row instead',
+         JSON.stringify(et));
+    const etFold = await p2.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'E-Transit Loan - 4140');
+      const held = _bkLoanAttentionItems().filter(it => _bkIssueLoanId(it) === a.id);
+      const shown = _bkIssueQueueItems().filter(i => i.loanId === a.id);
+      return { held: held.length, shownRows: shown.length, explain: (shown[0] || {}).explain || '' };
+    });
+    t.eq(etFold.held, 3, 'r1: ...the loan really does carry three open findings, so the fold has something to lose');
+    t.eq(etFold.shownRows, 1, 'r1: ...and Issues gives it exactly one row');
+    // Read the ISSUES pane for this one, not q2 -- q2 was captured with the
+    // Approvals segment on screen, and asking whether an Issues row reached the
+    // DOM by searching Approvals' text is a question that can only answer no.
+    const etIssuesText = await p2.evaluate(() => {
+      _bkSetOverviewSeg('issues'); renderBookkeepingOverview();
+      return (document.getElementById('bk-ov-queue-list') || {}).textContent || '';
+    });
+    t.ok(etFold.explain && etIssuesText.includes(etFold.explain.slice(0, 40)),
+         'r1: ...whose explanation is one of them, on screen and reachable', etFold.explain.slice(0, 60));
+    t.ok(etFold.held > etFold.shownRows,
+         'r1 ⚠ REPORTED: ...leaving 2 of its 3 findings named on NO screen — data intact, reader cannot reach them (Tech Debt #28)',
+         `${etFold.held} held, ${etFold.shownRows} shown`);
     await p2.close();
 
     // ── does it discriminate? ──
@@ -2961,7 +3049,7 @@ GROUPS.push({
     // Every figure below is a July figure verified against production, so a run
     // whose clock has moved on must fail HERE, loudly, rather than fifty
     // assertions later with numbers nobody can place.
-    const now = new Date();
+    const now = new Date(HARNESS_NOW);
     const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
     t.eq(MONTH, '2026-07',

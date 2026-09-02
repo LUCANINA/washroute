@@ -11,13 +11,17 @@
 > having run it.
 >
 > **What is left, in order:**
-> 1. 🔴 **`closing-evidence` is 183 assertions red on git HEAD and it is the CALENDAR, not a
->    regression** — the group is pinned to a fixture pulled 2026-08-28 and asserts July, and
->    the close band rolled to August on 09-01. Until it is pinned or refreshed, §10's
->    "1468/1469" is not a usable baseline. Full diagnosis and both options: session 262 entry.
-> 2. §0's one-line job — record PayPal 2's reversing-journal id (needs Xero; quota was fine).
-> 3. §0a's cosmetic "Issues (6)" vs "Nothing to close yet" label — **awaiting David's choice**.
+> 1. §0's one-line job — record PayPal 2's reversing-journal id (needs Xero; quota was fine).
+> 2. §0a's cosmetic "Issues (6)" vs "Nothing to close yet" label — **awaiting David's choice**.
+> 3. Tech Debt #28 — an Issues row names one of a loan's findings and hides the rest.
+>    **Awaiting David's choice**; stated in the suite as `⚠ REPORTED`, not silently dropped.
 > 4. §0c — match the Sept 2 Stripe payout ($12,329.03) when its feed line lands 9/3.
+>
+> ✅ **The suite is a usable baseline again: 1,510 assertions, 1,509 passing, the one red
+> being Tech Debt #19's deliberate report.** `closing-evidence`'s 183 failures were the
+> calendar, not a regression — the harness clock now comes from the fixture's own
+> `_meta.pulled_at`. **§10's old "1468/1469" is superseded; quote this line instead, and
+> re-measure rather than quoting either.**
 >
 > **Xero quota probed 2026-09-02 17:52 UTC: `remaining_day 526`, not capped** — probe again
 > with `xero-rate-probe`, never `whoami`, which hits a different API and lies about the
@@ -178,7 +182,8 @@
 >
 > Also this session: fixed the four `roster-*` test-harness groups (plus
 > `roster-classification`) that read red against session 257's Overview redesign —
-> see §1d below for what changed and why. Full suite now 1468/1469 passing, the one
+> see §1d below for what changed and why. Full suite was then 1468/1469 passing (**superseded
+> — see the Order block at the top: it is 1,510/1,509 as of session 262**), the one
 > red assertion being the pre-existing, self-labeled Tech Debt #19 report, not a test
 > bug. Diff ported back and committed locally (`07db656`) — not pushed, David pushes
 > himself.
@@ -261,7 +266,8 @@
 > forEach the rest of `_bkApprovalQueueItems()` uses. `READ_QUEUE`'s `itemNames` was
 > also hardcoded to `_bkIssueQueueItems()` regardless of segment (fixed: segment-aware
 > now), and Approvals' CAP=5 truncation is expanded before DOM assertions that need
-> every row. Full suite: **1468/1469 passing** — the one red assertion is Tech Debt
+> every row. Full suite at the time: **1468/1469 passing** — **superseded by session 262's
+> 1,510/1,509; do not quote this figure** — the one red assertion is Tech Debt
 > #19 (`[history] s240 #10`), self-labeled `REPORTED, NOT A STALE EXPECTATION`, not a
 > test bug. Verified in the cloud container (this device's Playwright still lacks
 > `sudo` for `install-deps`) before porting the diff back here.
@@ -2401,6 +2407,10 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**28. 🟡 An Issues row shows ONE of a loan's findings; the rest are on no screen (session 262).** Session 257 narrowed Issues to loan variances and session 258 stopped Approvals from repeating the findings of a loan that already has an Issues row — both deliberate, both right. The consequence nobody costed: `_bkIssueQueueItems` picks the most serious finding with `.find()` and shows that one as the row's Explanation, so a loan with three open findings names one and hides two. Measured, not assumed: E-Transit Loan - 4140 in the current fixture holds three `recon_finding` rows, shows one, and contributes zero items to Approvals. **The data is intact** — `_bkLoanAttentionItems()` still holds all three, so the "N need attention" headline and every count are correct; this is purely a reachability gap, which is why it is amber and not red. Two ways out: let a variance row carry more than one finding (a count plus the detail panel already built for `spec.detailHtml`), or send the surplus back to Approvals for loans whose Issues row cannot name them all. **Not decided — David has not been asked.** Written down in the suite rather than tuned away: `roster-clean-loan-children`'s r1 block now carries two `⚠ REPORTED` assertions that PASS while stating this exactly, so the day the fold changes they go red and announce that they must be rewritten.
+
+**29. 🟢 `closing-evidence` was 183 red for a day and a half because the month rolled (session 262, FIXED — kept here as the pattern).** Not deferred debt; a closed item worth leaving on the list because the shape recurs. A fixture is a snapshot of a moment and every figure verified against it is a figure from that moment, so reading "now" from the wall clock asks July's arithmetic to be true in September. The suite now freezes the page's clock — and its own date arithmetic — to `_meta.pulled_at`, so refreshing the fixture moves the clock in the same commit with no second place to update. **The general rule: any test whose subject is a specific period must take that period from its fixture, never from the calendar.** Grep for `new Date()` in a test file before trusting it; there are none left in `bookkeeping-harness.mjs` and a fixture with no `pulled_at` is now a hard failure rather than a silent fall back to today.
+
 **27. 🟡 `balance_vs_lender` and `derived_drift` findings can go stale-forever the same way lumped_payment used to (session 253 audit).** Not the same bug session 252 fixed — a MILDER cousin of it, found while auditing the other check types for it per David's ask (item 13a). Both checks refuse to raise a finding once its underlying date (the lender-statement anchor for `balance_vs_lender`, the stored-balance date for `derived_drift`) falls before `windowFrom` — `computeTieOut`'s `anchor_before_window` reason code, and `checkDerivedDrift`'s own `if (d.statement_date < windowFrom) continue`. That's correct and deliberate: neither check can trust a rebuild that reaches outside the pulled ledger. But once that happens, the OLD finding (raised back when its date WAS in-window) is never revisited and never resolved either — `resolvedNow`'s window guard blocks it (see Tech Debt entry below and `_shared/resolve-scope.ts`), and unlike `lumped_payment`, nothing analogous to `examinedSrcIds` exists for these two check types, because their fingerprints are keyed by the anchor/statement date itself (`balance_vs_lender:${code}:${tie.as_of}`, `derived_drift:${code}:${d.statement_date}`) rather than by a transaction id — a newer anchor just produces a NEW fingerprint, orphaning the old row rather than recycling it. Net effect: a ghost finding can sit open in `reconciliation_findings` forever, showing whatever it said the day its anchor aged out, even after later data would show it's fine. Lower stakes than the double-reallocation bug fixed this session (this can only make a queue too noisy, never make a real problem silently disappear), but it's the same root pattern and belongs on the list.
 
 *Next step: needs a design decision, not just a patch — should an aged-out `balance_vs_lender`/`derived_drift` finding auto-resolve on some rule (e.g. a newer anchor/statement exists and ties), or should it require a human close via the dismissal system? Not attempted this session; flagged rather than guessed at.*
@@ -2782,7 +2792,56 @@ Final: **38/38 in the group.**
   finding clears, so the window is small), and there is no staleness banding today.
 * Tech Debt #26 unchanged.
 
-#### ⚠️ A 183-FAILURE FINDING THAT IS NOT MINE AND IS NOT A CODE REGRESSION
+#### ✅ AND THEN FIXED — the suite is a usable baseline again: 1,510 assertions, 1,509 passing
+
+David: *"fix first."* Done, in the same session.
+
+**The clock now comes from the fixture.** `HARNESS_NOW` is read from
+`_meta.pulled_at`, `newHarnessPage` freezes the PAGE's clock to it with
+`page.clock.setFixedTime` before navigation, and the harness's own seven
+`new Date()` calls read the same instant. Both sides agree permanently, and
+refreshing the fixture moves the clock in the same commit — there is no second
+place to update. A fixture with no `pulled_at` is a hard failure, not a silent
+fall back to today: falling back would restore this exact bug, quietly.
+
+`setFixedTime` rather than `clock.install` — install fakes timers too, and both
+the settle loop and the page's own setTimeout-driven rendering need real ones.
+Only `Date` moves. `at: null` opts a scenario out, so opting out has to be
+written down rather than achieved by accident. Nothing uses it.
+
+| | assertions | passed | failed |
+|---|---|---|---|
+| git HEAD that morning | 1,292 | 1,104 | 188 |
+| after the build, before the clock fix | 1,330 | 1,142 | 188 |
+| **after the clock fix** | **1,510** | **1,509** | **1** |
+
+`closing-evidence` went 183-red → **664/664**, and it now runs to completion
+instead of throwing partway (the `group threw` was a later block dereferencing a
+row the earlier failures had never found — one cause, not two). `two-surfaces`'
+two also cleared: same root.
+
+**The last red is Tech Debt #19's `[history] s240 #10`, self-labelled REPORTED
+and red on purpose.** That is the intended steady state.
+
+#### One failure was NOT the calendar, and it is now written down instead of tuned away
+
+`roster-clean-loan-children`'s r1 failed against a frozen clock too, and had been
+failing on HEAD. It expected an immaterial loan's three findings to reach
+Approvals; it gets zero. **That is session 258 working as designed** — Approvals
+stopped repeating the findings of a loan that already has an Issues row.
+
+Measured rather than assumed: E-Transit Loan - 4140 holds three `recon_finding`
+rows, Issues gives it ONE row, `.find()` picks the most serious for the
+Explanation, and **the other two are named on no screen at all.** The data is
+intact (`_bkLoanAttentionItems` still holds all three, so no count is wrong), so
+this is a reachability gap, not a loss — **Tech Debt #28**, David not yet asked.
+
+Setting the expectation to 0 and calling it fixed would have deleted the only
+record of what the fold costs. Instead r1 carries two `⚠ REPORTED` assertions
+that PASS while stating it exactly, so the day the fold changes they go red and
+announce that they must be rewritten — the pattern `ce32` established.
+
+#### ⚠️ THE 183-FAILURE FINDING, AS IT WAS FOUND (kept for the diagnosis)
 
 Running the whole suite to check for regressions turned up **188 failures on git HEAD
 itself**, against §10's standing claim of 1468/1469. Before assuming anything, both
