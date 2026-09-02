@@ -2407,6 +2407,8 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**32. 🔴 The ask reaches the CPA; the upload is the business owner's job (session 262 cont. 2).** The Issues row now says "a statement dated August 31 or later settles this — there is nothing to investigate until then" and offers **Upload statement**. But David's own framing is that the chore belongs to the business owner, who works in the **Client View**, not to the CPA reading Issues. So the request is currently shown to the one person who is not going to act on it. This is the difference between a better label and a working loop, and it is why this is red rather than amber. Next step: a "documents we're waiting on" surface in the Client View, driven by the same `_bkEvidenceAsk()` — one function, both surfaces, so they can never disagree about what is outstanding (the shared-function rule this module lives by). Worth carrying the loan's lender and the month-end date so the owner knows exactly what to fetch. Longer term David's answer is better than either: lender integrations remove the chore instead of routing it.
+
 **30. 🟠 A posting hold lives in free text, and the guard that reads it is a regex (session 262 cont.).** `loan_splits.review_notes` is where a human writes "DO NOT STAGE THIS PERIOD until Ford confirms a September draft" — a real instruction, on the row, that no code read until now. `_bkSplitPostingHold` matches `/\bdo not (stage|post)\b/i` and, when it hits, removes the row's action entirely and quotes the writer's own sentence. **It is built so it can only ever REMOVE an action** — a false positive costs a button still reachable from the Loans page, a false negative leaves the pre-session-262 behaviour; it never enables a post, never changes a figure, never suppresses a variance. That asymmetry is what makes a prose regex admissible here at all, and it is the only thing that does. **The real fix is a structured column** — `posting_hold_reason text` plus `posting_hold_set_by/at`, written deliberately by whoever knows, with the note field left as commentary. Then every surface can honour a hold without reading English, `loan-xero-post` can refuse a held split server-side (today nothing stops a direct call), and the hold becomes auditable. Do this before any second surface starts matching the same phrase — two regexes over one note field is how they start disagreeing.
 
 **31. 🟠 A derived schedule and a lender's contract schedule are indistinguishable on screen (session 262 cont.).** David caught this: "E-Transit E4-9744 does not have an amortization schedule on file." Correct — it has two `derived_from_statements` schedules that `loan-derive-schedule` computed from its own statements (`contract_id` null, `storage_path` `derived://…`), i.e. **our own arithmetic**, not a document the lender sent. But the split reads `source='amortization_schedule'`, which names the MECHANISM and not the PROVENANCE, and every sentence built from it ("the schedule supports $975.78") therefore states our own projection with the same voice it would use for a contract. This is the same distinction `_openingIsIndependent()` already makes for balances — a figure traceable only to our own record cannot corroborate our own record — applied to schedules, where nothing makes it yet. It matters most exactly where it is worst today: E4-9744's payment day was re-measured from the 20th to the 9th between its two derivations, and **the split waiting in review is tied to the superseded one**. Next step: carry the parent schedule's `source` down to anything that describes a split's basis, and say "a schedule we derived from your statements" where that is what it is. David deferred this deliberately when offered it; it is not forgotten.
@@ -2671,6 +2673,126 @@ exact-amount search is not an existence test when the system aggregates).
 to "what is running".
 
 ---
+
+---
+
+---
+
+### Session 262 cont. 2 (2026-09-02) — ASK WHEN EVIDENCE IS MISSING; STATE THE CAUSE WHEN IT IS ESTABLISHED. David reframed what the Explanation column is for, and he was right.
+
+> **David:** "the goal is to make the CPA's job easier, not have them scrambling to
+> identify whether a gap is 'real'. Instead of making claims regarding gap, perhaps
+> another solution would be to ask for missing information such as current month
+> statements, because uploading a new statement is 100% easier than scrambling."
+>
+> And, correcting my objection: "ultimately the chore is for the business owner
+> (they upload via the client view), not the CPA."
+
+#### The data made the case better than the argument did
+
+Closing August, measured 2026-09-02 — **not one of the six loans in Issues had a
+lender figure dated on or after 31 August:**
+
+| Loan | Most recent lender figure |
+|---|---|
+| PCV Good and Green | **1 Aug** |
+| Funding Circle | 3 Aug |
+| E-Transit 4140 | 17 Aug |
+| E-Transit E4-9744 | 20 Aug |
+| E-Transit E5-4751 | 23 Aug |
+| EIDL SBA | 25 Aug |
+
+So PCV's row was reporting a **$3,555.17 difference against a statement a month
+older than the month being closed**. That is not a gap to investigate; it is a gap
+nobody can yet evaluate. The product was asserting where it should have been asking.
+
+**This is not a new doctrine — session 245 already reached it for Stripe.**
+`settlement-lag.ts` refuses to call a gap explained without the lender's own export,
+states its arithmetic as an assumption rather than a measurement, and makes "upload
+a current export" the actionable step. Loan variances never got the same treatment.
+The rule existed; it had simply never been applied to the surface a CPA reads.
+
+#### The half that keeps it honest
+
+**An established cause always outranks the ask.** E-Transit 4140's two periods coded
+against one bank transaction is an error inside Xero; Verdant's six hand-corrections
+are a posting problem at source. A September statement resolves neither, and asking
+for one would waste a trip AND bury something fixable under paperwork.
+
+Nothing here re-judges what counts as established — the engine already decided:
+
+* `confirmed` — loan-attribution-run can name the single entry whose effect equals
+  the gap → **state it**.
+* `probable` / unresolved — it picked the best of several. A guess, and a guess is
+  exactly what should stand aside for evidence → **ask**.
+* A `split_mismatch` / `stage_flag`, or a `recon_finding` that is not in
+  `_GAP_RESTATING_CHECKS` → **state it**.
+
+**`balance_vs_lender` and `derived_drift` are RESTATEMENTS, not causes**, and that
+distinction is the load-bearing one in this change. "Our books and the lender
+disagree" is the thing the row is already about. Counting it as an established cause
+would have the product answer *why is there a difference?* with *because there is a
+difference* — and then decline to ask for the document that ends the question.
+
+#### What a row says now
+
+In ask mode the request takes the column, names what we hold and its date, and says
+the quiet part out loud:
+
+> The most recent Pacific Community Ventures figure on file is dated August 1, 2026,
+> before the month being closed. A statement dated August 31, 2026 or later settles
+> this — **there is nothing to investigate until then.**
+
+The engine's guess drops to the muted line (kept, not deleted — cut the words, keep
+the claim), the confidence chip is suppressed because an ask asserts nothing to be
+confident about, and the action becomes **Upload statement** wired to the intake
+modal. **The variance figure, the dot and the row are untouched:** asking changes the
+NEXT STEP, never the finding.
+
+Two guards, both proven on the live path by the harness: a loan whose recorded
+closing basis IS its contractual schedule is never asked for a statement that is
+never coming (`_bkRosterState`'s own comments call that sentence a lie), and an
+immaterial rounding difference is not worth a document.
+
+#### A precedence bug this exposed in the renderer
+
+`actionClick` preferred the panel toggle whenever a detail panel existed. That was
+safe while a row could carry only one of the two — and this change makes rows that
+carry both, so the primary button would have silently become a disclosure triangle
+and "Upload statement" would have opened a panel instead. `it.onclick` now wins, and
+an orphaned panel keeps its own way in via a quiet **Details** link. It would have
+shipped invisible: the button is present, correctly labelled, and does the wrong
+thing.
+
+#### Tests: 25 assertions, three controls — and the control was wrong AGAIN
+
+New group **`ask-not-claim`**. c1 failed first, and for the **third time this
+session** the fault was in my control rather than the code. It planted a confirmed
+cause on `issue[1]` and expected the revert to flip that row to an ask. `issue[1]`
+was **Verdant, which closes on its own contractual schedule**, so `_bkEvidenceAsk`
+refuses it regardless — the row could never flip however broken the code was.
+
+> **Three control failures, three different mistakes, one shared root: the
+> assertion and the defect were never in contact.** c1/c2 of `attribution-states`
+> measured the wrong PREDICATE; c3 of `split-not-a-fix` measured the wrong FIELD;
+> this one measured the wrong ROW. A control has to be *positioned* on the defect,
+> not merely adjacent to it — and the only reliable way to check is to watch it go
+> red, which is the whole reason these exist.
+
+Fixed by DERIVING the target: run once with every anchor stale, take a loan the
+render proves asks, then plant the cause on that one. The flip is now attributable
+to the attribution and nothing else.
+
+**25/25.**
+
+#### Left open
+
+* **The ask appears on the CPA's Issues page, but the upload is the business
+  owner's job in the Client View.** The person who does the chore does not yet see
+  the request. That is the obvious next build and it is the difference between this
+  being a better label and being a working loop. **Tech Debt #32.**
+* Integrations would remove the chore entirely for portal lenders — David's own
+  framing, and the right long-term answer.
 
 ---
 

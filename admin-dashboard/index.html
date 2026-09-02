@@ -3730,6 +3730,12 @@
             .bk-var-sub { margin-top: 4px; color: var(--gray-400); font-size: 12px; }
             /* The engine's verdict on its own sentence. Weight and size do the
                separating; deliberately no colour, so the row's dot keeps it. */
+            /* The secondary way into a finding panel, on a row whose primary
+               button does something else. One quiet word; it is a disclosure,
+               not an action, and it must not compete with the action. */
+            .bk-var-details { margin-left: 10px; font-size: 12px; color: var(--gray-400);
+              cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+            .bk-var-details:hover { color: var(--gray-600); }
             .bk-var-conf { margin-left: 6px; font-size: 11px; font-weight: 600;
               text-transform: uppercase; letter-spacing: .03em; color: var(--gray-400);
               white-space: nowrap; cursor: help; }
@@ -9283,6 +9289,99 @@
     return { onclick: null, detailHtml, bvlGroup };
   }
 
+  // ── WHAT WOULD ACTUALLY SETTLE THIS ROW? (session 262 cont. 2) ───────────
+  //
+  // David, after reading the shipped table: "the goal is to make the CPA's job
+  // easier, not have them scrambling to identify whether a gap is 'real'.
+  // Instead of making claims regarding gap, perhaps another solution would be
+  // to ask for missing information such as current month statements, because
+  // uploading a new statement is 100% easier than scrambling."
+  //
+  // He is right, and the rule he gave is the one this function implements:
+  //
+  //     ASK WHEN EVIDENCE IS WHAT'S MISSING;
+  //     STATE THE CAUSE WHEN THE CAUSE IS ESTABLISHED.
+  //
+  // This is NOT a new doctrine — session 245 already reached it for Stripe.
+  // `settlement-lag.ts` refuses to call a gap explained without the lender's own
+  // export, states its arithmetic as an assumption rather than a measurement,
+  // and makes "upload a current export" the actionable step. Loan variances
+  // never got the same treatment: they asserted where Stripe asked.
+  //
+  // WHAT THE DATA SAID when this was written (2026-09-02, closing August):
+  // not ONE of the six loans in Issues had a lender figure dated at or after
+  // 31 August. PCV's most recent was 1 August — so its row was reporting a
+  // $3,555.17 difference against a statement a month older than the month being
+  // closed. That is not a gap to investigate; it is a gap nobody can yet
+  // evaluate, and saying so out loud costs a CPA nothing.
+  //
+  // ⚠️ THE LIMIT, AND IT IS THE HALF THAT MATTERS. This must NOT fire on every
+  // row, or the findings worth a person's time get buried under paperwork
+  // requests. E-Transit 4140's two periods coded to one bank transaction is an
+  // error inside Xero; Verdant's six hand-corrections are a posting problem at
+  // source. A September statement resolves neither, and asking for one would
+  // waste a trip AND hide something fixable. An ESTABLISHED cause always wins.
+  //
+  // The engine already makes the distinction, so nothing here re-judges it:
+  // `confirmed` means loan-attribution-run can name the single entry whose
+  // effect equals the gap. `probable` means it picked the best of several — a
+  // guess, and a guess is exactly what should stand aside for evidence.
+
+  // Findings that RESTATE the gap rather than explain it. `balance_vs_lender`
+  // says "our books and the lender disagree", which is the thing the row is
+  // already about -- treating it as an established cause would mean the product
+  // answers "why is there a difference?" with "because there is a difference",
+  // and then declines to ask for the document that would end the question.
+  const _GAP_RESTATING_CHECKS = new Set(['balance_vs_lender', 'derived_drift']);
+
+  function _bkAttnIsEstablishedCause(attn) {
+    if (!attn) return false;
+    // A split mismatch or a staging flag is a structural fact about our own
+    // records -- true regardless of what any statement says.
+    if (attn.kind === 'split_mismatch' || attn.kind === 'stage_flag') return true;
+    if (attn.kind !== 'recon_finding') return false;
+    return !_GAP_RESTATING_CHECKS.has(String(attn.tag || ''));
+  }
+
+  // The last day of the month currently being closed. A lender figure dated
+  // before this cannot speak to that month's closing balance, however recent it
+  // feels -- EIDL's 25 August statement is six days short of answering the
+  // question August is asking.
+  function _bkClosingMonthEnd() {
+    const m = _cvLastMonth();                    // 'YYYY-MM', Pacific, via today()
+    const [y, mo] = m.split('-').map(Number);
+    return `${m}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`;
+  }
+
+  // Returns null when nothing should be asked for. Never invents a request the
+  // lender cannot satisfy: a loan whose recorded closing basis IS the
+  // contractual schedule has no statement coming, and "needs a statement" on it
+  // is the lie _bkRosterState's own comments warn about.
+  function _bkEvidenceAsk(a, v) {
+    if (!a || !v) return null;
+    if (v.material === false) return null;        // a rounding difference is not worth a document
+    if (_loanCloseBasis(a) === 'amortization_schedule') return null;
+    const asOf = v.asOf || null;
+    const monthEnd = _bkClosingMonthEnd();
+    // No anchor at all is ALSO a reason to ask -- and a stronger one.
+    if (asOf && asOf >= monthEnd) return null;    // the lender has already spoken for this month
+    const lender = a.lender || 'the lender';
+    return {
+      asOf, monthEnd, lender,
+      sentence: asOf
+        ? `The most recent ${lender} figure on file is dated ${fmtDatePlain(asOf)}, before the month being closed. A statement dated ${fmtDatePlain(monthEnd)} or later settles this — there is nothing to investigate until then.`
+        : `No ${lender} statement is on file for this loan. One dated ${fmtDatePlain(monthEnd)} or later settles this — there is nothing to investigate until then.`,
+    };
+  }
+
+  // Dates in these sentences are formatted from the string's own parts. The
+  // shared fmtDate() builds a Date and lands a day early off Pacific, which on a
+  // month-end date would ask for the 30th of a 31-day month.
+  function fmtDatePlain(iso) {
+    const MON = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return `${MON[Number(String(iso).slice(5, 7)) - 1]} ${Number(String(iso).slice(8, 10))}, ${String(iso).slice(0, 4)}`;
+  }
+
   // ── WHAT KIND OF SPLIT IS WAITING? (session 262 cont.) ───────────────────
   //
   // David, looking at the shipped Issues table: "why do some loans contain a
@@ -9536,6 +9635,13 @@
       const at = _bkLoanAttribution(a.id);
       const attrSentence = _bkAttributionSentence(at);
       const attrConf = _bkAttributionConfidence(at);
+      // ── ASK, OR STATE? (session 262 cont. 2 — David's rule) ───────────────
+      // An ESTABLISHED cause always wins: something we can name is worth more
+      // than a document we could go and fetch. Only when the cause is a guess —
+      // or absent — does missing evidence take the row.
+      const causeEstablished = (at.state === 'ok' && at.confirmed > 0)
+        || _bkAttnIsEstablishedCause(attn);
+      const ask = causeEstablished ? null : _bkEvidenceAsk(a, v);
       // ── WHAT THE ROW MAY SAY ABOUT THE SPLIT IT FOUND ────────────────────
       // Each branch states what is actually waiting, and a scheduled or
       // statement split says IN THE SAME SENTENCE that it is not a fix -- the
@@ -9545,6 +9651,10 @@
         ? String(candidate.period_label) : '';
       const periodPhrase = /^\d{4}-\d{2}$/.test(candPeriod)
         ? _cvMonthName(candPeriod) : (candPeriod || 'a later period');
+      // In ASK mode the request takes the column and the engine's guess drops to
+      // the muted line — kept, never deleted (the LESS IS BEST limit: cut the
+      // words, keep the claim), but no longer presented as the answer. Nothing
+      // about the variance itself changes: same figure, same row, same dot.
       const remedy = candHold
         // The writer's own instruction wins over every other description. It is
         // the one sentence on this row that says DON'T, and it comes first.
@@ -9568,15 +9678,19 @@
         // wording -- the same fact, worded the same way, everywhere it appears.
         varianceLabel: `${fmtMoney(Math.abs(amt))} ${amt < 0 ? 'below' : 'above'} ${v.against}`
           + (v.material === false ? ' — rounding' : ''),
-        explain: attrSentence || remedy,
-        // Only when the cause displaced it -- otherwise `explain` IS the remedy
+        explain: ask ? ask.sentence : (attrSentence || remedy),
+        // Only when something displaced it -- otherwise `explain` IS the remedy
         // and repeating it underneath would be the redundancy this replaced.
-        explainSub: attrSentence ? remedy : null,
+        // In ask mode the guess goes here; when there is no guess, the remedy does.
+        explainSub: ask ? (attrSentence || remedy) : (attrSentence ? remedy : null),
+        nextStep: candHold ? 'hold' : ask ? 'ask' : causeEstablished ? 'cause' : 'none',
         // The state, not the prose. The harness and any future export read this
         // rather than matching on wording, so a copy edit can never silently
         // turn a failed analysis into a clean one for anything that checks.
         attrState: at.state,
-        attrConfidence: attrConf,
+        // Suppressed in ask mode: 'probable' beside a request for a document
+        // would attach a confidence to a sentence that asserts nothing.
+        attrConfidence: ask ? null : attrConf,
         attrGeneratedAt: (at && at.generatedAt) || null,
         attrUnresolved: (at && at.unresolved) || 0,
         // ⚠️ A HOLD REMOVES THE ACTION ENTIRELY (session 262 cont.). Not a
@@ -9585,12 +9699,18 @@
         // approve, and a button that opens it is an invitation. The split is
         // still reachable from the Loans page for whoever wants to act on it
         // deliberately -- this removes the accidental path, not every path.
+        // The ask outranks Review — it is the cheaper, more certain path, and
+        // it is work for the business owner in the Client View rather than the
+        // CPA. It does NOT outrank a real correcting entry: if something is
+        // prepared, posting it is still the next step.
         action: candHold ? null
           : candIsFix ? 'Post adjustment'
           : candidate ? 'Approve payment'
+          : ask ? 'Upload statement'
           : attn ? 'Review' : null,
         onclick: candHold ? null
           : candidate ? `openLoanReviewModal('${candidate.id}')`
+          : ask ? `openLoanIntakeModal('${a.id}')`
           : (spec && spec.onclick) || null,
         // The state, for the harness and any export -- never re-derived from
         // the wording, so a copy edit cannot turn a held split into a postable
@@ -9963,7 +10083,15 @@
           // -- "Review" toggles it open in place instead of sending the CPA to
           // a second queue to find the reason behind this row.
           const panelId = it.detailHtml ? 'bk-var-qd-' + String(it.key).replace(/[^a-zA-Z0-9_-]/g, '') : null;
-          const actionClick = panelId ? `_bkToggleAttnDetail('${panelId}', null)` : (it.onclick || '');
+          // ⚠️ ONCLICK WINS (session 262 cont. 2). This used to prefer the panel
+          // toggle whenever a panel existed, which was fine while a row could
+          // only ever have one of the two. It can now have both -- an "Upload
+          // statement" ask, or a "Post adjustment" candidate, on a loan that
+          // also carries a finding panel -- and the old precedence silently
+          // turned the primary button into a disclosure triangle. The panel
+          // keeps its own way in (the Details link below), so nothing is lost.
+          const actionClick = it.onclick || (panelId ? `_bkToggleAttnDetail('${panelId}', null)` : '');
+          const panelIsOrphaned = !!(panelId && it.onclick);
           // Session 262. The engine's own verdict on its own sentence, in one
           // muted word. It is NOT decoration: 'confirmed' means that entry's
           // effect is the only thing in the window equal to the gap, 'probable'
@@ -9991,6 +10119,7 @@
           </td>
           <td class="bk-var-actions">
             ${it.action ? `<span class="bk-review-link" onclick="${actionClick}">${esc(it.action)} →</span>` : ''}
+            ${panelIsOrphaned ? `<span class="bk-var-details" onclick="_bkToggleAttnDetail('${panelId}', null)" title="Show what the reconciliation check found on this loan">Details</span>` : ''}
             <button class="bk-gotit-btn" title="${esc(it.archiveTitle || 'Archive this note')}" onclick="bkArchiveIssue('${encodeURIComponent(String(it.key))}')">${esc(it.archiveLabel || 'Got it ✓')}</button>
           </td>
         </tr>`;
