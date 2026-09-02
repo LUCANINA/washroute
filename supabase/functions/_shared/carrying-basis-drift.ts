@@ -161,19 +161,173 @@ function money(n: number): string {
  * applied instead, so the net model is given its fairest possible shot. Testing
  * a model against numbers arranged to favour the other one proves nothing.
  */
+/**
+ * WHICH BALANCE IS THIS CHECK ALLOWED TO LOOK AT (Tech Debt #34, session 263 cont. 3)
+ *
+ * The models below predict what OUR BOOKS should hold. For two years this
+ * function then compared them against `balances[last]` — whatever row happened to
+ * be newest, of any source, on any basis. On this book that is usually a LENDER
+ * statement, so the check answered a question nobody asked ("does the lender's
+ * figure match a model of our books?") and reported the answer as a diagnosis of
+ * how we carry the loan. Two separate defects, and they compounded:
+ *
+ *   1. WRONG PARTY. A lender's balance says what the lender is owed. The
+ *      carrying basis is a fact about our ledger. `balance_vs_lender` already
+ *      compares those two properly and is better at it; this check has no
+ *      business doing it badly alongside.
+ *   2. WRONG QUANTITY. The gross model predicts a payoff figure. Compared with a
+ *      `principal_only` balance it misses by the unearned fee — EVERY TIME, ON
+ *      EVERY LOAN OF THAT SHAPE, FOREVER. The `balance_basis` sat on the very
+ *      record being read and was never consulted. On PayPal 2 the miss was
+ *      $2,689.01 and that is the unearned fee to the cent, which is what gave the
+ *      bug away: a defect that lands on an exact meaningful quantity is not
+ *      noise, it is arithmetic doing precisely what it was told.
+ *
+ * The result was `fits_neither` at severity ERROR on healthy loans, which is why
+ * 21 of 22 carry `carrying_basis = 'unknown'` — the one check that could settle
+ * it could not pass.
+ *
+ * So the observation is chosen deliberately, from the books, and its declared
+ * basis decides which models may be compared to it at all.
+ */
+const BOOK_BALANCE_SOURCES = ['xero_derived', 'xero_balance_snapshot', 'xero_rebuild']
+
+export type ObservationBasis = 'total_payback' | 'principal_only' | 'unlabelled'
+export type ObservationRefusal = 'no_balances' | 'no_source_on_rows' | 'no_book_balance'
+
+export interface ChosenObservation {
+  statement_date: string
+  principal_balance: number
+  basis: ObservationBasis
+  source: string
+}
+
+export interface ObservationChoice {
+  chosen: ChosenObservation | null
+  refused_because: ObservationRefusal | null
+  /** Plain English, always populated, and it names the party and the quantity. */
+  statement: string
+}
+
+/**
+ * The newest BOOK balance, and what it says it measures.
+ *
+ * An allowlist, so a source nobody has thought about is excluded rather than
+ * quietly trusted — the same shape as `_VARIANCE_REAL_ANCHORS`, pointed the
+ * other way. `amortization_schedule` and `contract_origination` are excluded
+ * deliberately as well: they are OUR OWN record of what should be true, and a
+ * check whose inputs share a source cannot fail (§246).
+ *
+ * A row with no `source` at all is REFUSED rather than skipped. Skipping it
+ * would turn a caller that forgot to pass the field into a check that silently
+ * never runs, which is the failure this module keeps calling "an unlabelled
+ * balance is an invisible one".
+ */
+export function chooseObservation(balances: BasisBalance[]): ObservationChoice {
+  const usable = balances.filter(b => Number.isFinite(Number(b.principal_balance)))
+  if (!usable.length) {
+    return { chosen: null, refused_because: 'no_balances',
+      statement: `There is no balance on file for this loan, so there is nothing for a model to be checked against.` }
+  }
+  if (usable.some(b => !b.source)) {
+    return { chosen: null, refused_because: 'no_source_on_rows',
+      statement: `The balances handed to this check do not say where they came from, and a balance whose source is unknown cannot be told apart from the lender's own figure. Nothing was checked rather than checking the wrong party's number.` }
+  }
+  const books = usable
+    .filter(b => BOOK_BALANCE_SOURCES.includes(String(b.source)))
+    .slice().sort((a, b) => a.statement_date.localeCompare(b.statement_date))
+  if (!books.length) {
+    return { chosen: null, refused_because: 'no_book_balance',
+      statement: `Every balance on file for this loan came from the lender or from our own schedule; none is a balance rebuilt from the books. How a loan is CARRIED is a fact about our ledger, so it cannot be established from the lender's statement of what it is owed.` }
+  }
+  const row = books[books.length - 1]
+  const newestOverall = usable.slice().sort((a, b) => a.statement_date.localeCompare(b.statement_date))[usable.length - 1]
+  // A book balance can be far behind the newest thing on file — EIDL's is from
+  // 2024 while its lender rows run to 2026. The verdict is still valid: the
+  // payments are cut to the same date. But it speaks for THAT day, and a reader
+  // who is not told will take it for today's.
+  const staleDays = Math.round(
+    (Date.parse(newestOverall.statement_date) - Date.parse(row.statement_date)) / 86_400_000)
+  const staleNote = Number.isFinite(staleDays) && staleDays > 120
+    ? ` This is the most recent balance the books have produced for this account, and it is ${staleDays} days behind the newest figure on file — so this says how the loan was carried then, not necessarily now.`
+    : ''
+  const declared = String(row.balance_basis || '')
+  const basis: ObservationBasis =
+    declared === 'total_payback' ? 'total_payback'
+    : declared === 'principal_only' ? 'principal_only'
+    : 'unlabelled'
+  return {
+    chosen: { statement_date: row.statement_date, principal_balance: Number(row.principal_balance), basis, source: String(row.source) },
+    refused_because: null,
+    statement: basis === 'unlabelled'
+      ? `Checked against the books' own balance at ${row.statement_date} (${money(Number(row.principal_balance))}), which does not record what it measures — so both ways of carrying this loan are tested against it, and whichever one predicts it is the answer.${staleNote}`
+      : `Checked against the books' own balance at ${row.statement_date} (${money(Number(row.principal_balance))}), which records itself as ${basis === 'total_payback' ? 'the whole payback, fee included' : 'principal only'} — so only that way of carrying the loan is tested against it.${staleNote}`,
+  }
+}
+
+/**
+ * The splits that had happened by `asOf`, or null when they cannot be placed.
+ *
+ * Mirrors reconciliation-run's own windowing, deliberately and to the letter:
+ * a 'YYYY-MM-DD' label is compared directly; a 'YYYY-MM' label carries no day,
+ * so its month must have CLOSED before the balance date (unless the balance is
+ * itself a month end, in which case its own month is complete and counts); and a
+ * label naming no date at all — Verdant's 'Period 84' — makes the whole loan
+ * unanswerable, because excluding it understates the payments and including it
+ * overstates them, and neither is a judgement worth making silently.
+ */
+function splitsAsOf(splits: BasisSplit[], asOf: string): BasisSplit[] | null {
+  const alive = splits.filter(s => !s.voided_at)
+  if (alive.some(s => !/^\d{4}-\d{2}(-\d{2})?/.test(String(s.period_label || '')))) return null
+  const asOfMonth = asOf.slice(0, 7)
+  const asOfIsMonthEnd = (() => {
+    const [y, m] = asOfMonth.split('-').map(Number)
+    if (!y || !m) return false
+    return asOf === new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+  })()
+  return alive.filter(s => {
+    const label = String(s.period_label).slice(0, 10)
+    if (label.length === 7) return asOfIsMonthEnd ? label <= asOfMonth : label < asOfMonth
+    return label <= asOf
+  })
+}
+
 export function fitBasis(input: DriftInput): BasisFit[] {
+  return fitBasisAgainst(input, chooseObservation(input.balances).chosen)
+}
+
+/**
+ * The models, restricted to those that predict the quantity the observation
+ * actually measures.
+ *
+ * This restriction IS the fix. A `total_payback` book balance can only be
+ * predicted by the gross model; running the net model against it and calling the
+ * miss a finding is comparing two different quantities and reporting the
+ * difference between them as a fault. An UNLABELLED book balance is the
+ * productive case and the one this check exists for: the two models predict
+ * genuinely different numbers, so whichever one lands names the basis.
+ */
+export function fitBasisAgainst(input: DriftInput, obs: ChosenObservation | null): BasisFit[] {
   const fitTol = input.fitTolerance ?? DEFAULT_FIT_TOL
   const { loan_amount, total_repayment_amount } = input.terms
-  // Sort rather than trust the caller's "ascending by date" contract. detectSteps
-  // already sorts; this one did not, and picking the wrong row as "latest"
-  // silently compares a mid-history balance against all-time payments.
-  const live = input.balances
-    .filter(b => Number.isFinite(Number(b.principal_balance)))
-    .slice().sort((a, b) => a.statement_date.localeCompare(b.statement_date))
-  if (!live.length) return []
-  const observed = Number(live[live.length - 1].principal_balance)
+  if (!obs) return []
+  const observed = obs.principal_balance
 
-  const alive = input.splits.filter(s => !s.voided_at)
+  // BOTH SIDES CUT AT THE SAME DATE, AND THE DATE IS THE OBSERVATION'S.
+  //
+  // The balance is a point in time; the payments are a sum of movements. The
+  // caller used to cut its splits at the newest balance of ANY source, which was
+  // right while this function observed that same row — and became wrong the
+  // moment it started choosing a book balance that can be older. EIDL's newest
+  // book balance is from 2024-03-31 and its newest balance overall is 2026-08-25:
+  // under the caller's window, two and a half years of payments would have been
+  // subtracted from a 2024 balance.
+  //
+  // Doing the cut HERE makes the module correct whatever the caller does, and a
+  // caller that also windows can only narrow it further, which is harmless.
+  const cut = splitsAsOf(input.splits, obs.statement_date)
+  if (cut === null) return []
+  const alive = cut.filter(s => !s.voided_at)
   const paidTotal = alive.reduce((a, s) => a + Number(s.total_amount || 0), 0)
   const bookedPrincipal = alive.reduce((a, s) => a + Number(s.principal_amount || 0), 0)
   const anyInterest = alive.some(s => Number(s.interest_amount || 0) !== 0)
@@ -184,12 +338,15 @@ export function fitBasis(input: DriftInput): BasisFit[] {
     fits.push({ basis, predicted, observed, difference, fits: Math.abs(difference) <= fitTol, means })
   }
 
-  if (total_repayment_amount !== null) {
+  const grossAllowed = obs.basis === 'total_payback' || obs.basis === 'unlabelled'
+  const netAllowed = obs.basis === 'principal_only' || obs.basis === 'unlabelled'
+
+  if (grossAllowed && total_repayment_amount !== null) {
     add('gross_payback', total_repayment_amount - paidTotal,
       'the fee sits inside the balance, and every payment correctly reduces it dollar for dollar')
   }
 
-  if (loan_amount !== null) {
+  if (netAllowed && loan_amount !== null) {
     // The correctly-split net model. Prefer the principal actually booked; if
     // nothing booked any interest, the splits cannot distinguish the models on
     // their own, so give this model its fairest shot using the agreement's own
@@ -278,7 +435,8 @@ export function detectSteps(input: DriftInput): BasisStep[] {
 }
 
 export function detectCarryingBasisDrift(input: DriftInput): DriftResult {
-  const fits = fitBasis(input)
+  const observation = chooseObservation(input.balances)
+  const fits = fitBasisAgainst(input, observation.chosen)
   const steps = detectSteps(input)
   const recorded = input.recorded_basis
   const fee = input.terms.fixed_fee
@@ -288,10 +446,18 @@ export function detectCarryingBasisDrift(input: DriftInput): DriftResult {
   const passing = fits.filter(f => f.fits)
   const winner: BasisModel | null = passing.length === 1 ? passing[0].basis : null
   const unsplit = winner === 'net_principal_unsplit'
+  // A book balance that RECORDS what it measures has already answered the
+  // question. The models are then a consistency check on the arithmetic, not a
+  // vote on the basis, and the answer comes from the label either way.
+  const declaredBasis: CarryingBasis | null =
+    observation.chosen?.basis === 'total_payback' ? 'gross_payback'
+    : observation.chosen?.basis === 'principal_only' ? 'net_principal'
+    : null
   const observed: CarryingBasis =
-    winner === 'gross_payback' ? 'gross_payback'
-    : winner === 'net_principal' || unsplit ? 'net_principal'
-    : 'unknown'
+    declaredBasis ??
+    (winner === 'gross_payback' ? 'gross_payback'
+     : winner === 'net_principal' || unsplit ? 'net_principal'
+     : 'unknown')
 
   // How much financing cost is sitting in the loan account because payments
   // were never split. A number beats an adjective.
@@ -325,14 +491,64 @@ export function detectCarryingBasisDrift(input: DriftInput): DriftResult {
     terms: input.terms,
     balances_considered: input.balances.length,
     splits_considered: input.splits.length,
+    // WHICH balance this verdict actually spoke about. Its absence is how a
+    // finding could claim to diagnose our ledger from the lender's figure and
+    // leave nothing behind to show it had.
+    observation: observation.chosen,
+    observation_refused_because: observation.refused_because,
+    observation_statement: observation.statement,
   }
 
   const stepSentence = steps.length
     ? ` The change is visible on ${steps.map(s => s.date).join(', ')}, where the balance moved by ${steps.map(s => money(Math.abs(s.unexplained))).join(' and ')} with no payment behind it${fee !== null ? ` — which is the fixed fee of ${money(fee)}` : ''}.`
     : ''
 
+  // ── The payments cannot be placed in time ───────────────────────────────
+  if (observation.chosen && splitsAsOf(input.splits, observation.chosen.statement_date) === null) {
+    return {
+      verdict: 'not_enough_evidence', observed_basis: 'unknown', recorded_basis: recorded,
+      payments_need_splitting: null, fits, steps, severity: 'info',
+      title: `${label}: how this loan is carried cannot be checked yet`,
+      plain_english:
+        `Some of this loan's payments are labelled with a period that names no date, so they cannot be placed either side of a balance date. Counting them would overstate what has been repaid and leaving them out would understate it, so nothing was checked rather than checking against a number that is wrong in a direction nobody can predict.`,
+      suggested_next_step:
+        `Give those periods real dates — a payment that cannot be placed in time cannot take part in any balance check, not just this one.`,
+      detail,
+    }
+  }
+
+  // ── Nothing to check against ────────────────────────────────────────────
+  // Distinct from "not enough terms", and it used to be indistinguishable from
+  // it: the old code compared against whatever balance was newest, so this
+  // branch could not be reached and a loan with no book balance at all was
+  // silently diagnosed off the lender's figure instead.
+  if (observation.refused_because) {
+    return {
+      verdict: 'not_enough_evidence', observed_basis: 'unknown', recorded_basis: recorded,
+      payments_need_splitting: null, fits, steps, severity: 'info',
+      title: `${label}: how this loan is carried cannot be checked yet`,
+      plain_english: observation.statement,
+      suggested_next_step: observation.refused_because === 'no_book_balance'
+        ? `Nothing to fix on the loan. This check needs a balance rebuilt from your own ledger; until the books produce one for this account, how it is carried has to be recorded by a person rather than measured.`
+        : `Nothing to do here — this is a gap in what the check was given, not a problem with the loan.`,
+      detail,
+    }
+  }
+
   // ── Not enough to say ───────────────────────────────────────────────────
-  if (fits.length < 2) {
+  // Only when a TERM is missing. A single model because the book balance
+  // declares its own basis is not a shortage of evidence — it is the evidence.
+  // `fits.length === 0` FIRST, unconditionally. With `&& declaredBasis === null`
+  // alone, a book balance that declares its basis on a loan whose terms are not
+  // on file skipped this branch, skipped the declared-basis branch below (which
+  // needs exactly one fit), and fell into the closest-of-N branch — where
+  // `closest` is undefined and the whole check throws a TypeError instead of
+  // returning a verdict. Not reachable on today's data only because every
+  // xero-sourced row currently carries `balance_basis = 'unknown'`; it becomes
+  // reachable the day the rebuild starts labelling them, which is the direction
+  // this work is going. Found by an adversarial pass over the new branches, not
+  // by a failing test — so there is now a failing-first test for it too.
+  if (fits.length === 0 || (fits.length < 2 && declaredBasis === null)) {
     return {
       verdict: 'not_enough_evidence', observed_basis: 'unknown', recorded_basis: recorded,
       payments_need_splitting: null, fits, steps, severity: 'info',
@@ -340,6 +556,30 @@ export function detectCarryingBasisDrift(input: DriftInput): DriftResult {
       plain_english:
         `To tell whether this loan's balance means "everything still owed including the fee" or "cash still owed", the amount borrowed and the total repayable both need to be on file. ${fits.length === 0 ? 'Neither is.' : 'Only one of them is.'} Until then, nothing can check that payments are being booked the right way.`,
       suggested_next_step: `Upload the loan agreement. The amounts come straight off its first page and everything else follows from them.`,
+      detail,
+    }
+  }
+
+  // ── The books declare their basis, and the arithmetic agrees ────────────
+  if (declaredBasis !== null && fits.length === 1 && passing.length === 1) {
+    if (recorded === declaredBasis) {
+      return {
+        verdict: 'consistent', observed_basis: declaredBasis, recorded_basis: recorded,
+        payments_need_splitting: null, fits, steps, severity: 'info',
+        title: `${label}: carried the way it is recorded`,
+        plain_english: `${observation.statement} It comes to ${money(fits[0].predicted)} on that basis, and the books hold ${money(fits[0].observed)}.`,
+        suggested_next_step: `Nothing to do.`,
+        detail,
+      }
+    }
+    return {
+      verdict: 'basis_changed', observed_basis: declaredBasis, recorded_basis: recorded,
+      payments_need_splitting: null, fits, steps, severity: recorded === 'unknown' ? 'warn' : 'error',
+      title: recorded === 'unknown'
+        ? `${label}: how this loan is carried has never been recorded, and the books say which it is`
+        : `${label}: this loan is not carried the way it is recorded`,
+      plain_english: `${observation.statement} It comes to ${money(fits[0].predicted)} on that basis, and the books hold ${money(fits[0].observed)} — so this loan is carried as ${declaredBasis === 'gross_payback' ? 'the whole payback, fee included' : 'principal only, with the fee held outside it'}${recorded === 'unknown' ? ', and that has never been written down' : `, not as ${recorded === 'gross_payback' ? 'the whole payback' : 'principal only'} as recorded`}.`,
+      suggested_next_step: `Confirm the basis on the loan so every payment from here on is booked the right way.`,
       detail,
     }
   }

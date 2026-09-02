@@ -779,7 +779,16 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     loan_id: loan.id, loan_label: loan.xero_account_name || loan.lender,
     recorded_basis: (loan.carrying_basis ?? 'unknown'),
     terms: { loan_amount: termNum('loan_amount'), fixed_fee: termNum('fixed_fee'), total_repayment_amount: termNum('total_repayment_amount') },
-    balances: ctx.statements.map(s => ({ statement_date: s.statement_date, principal_balance: s.principal_balance })),
+    // THE LABELS TRAVEL WITH THE ROWS (Tech Debt #34). This mapped away
+    // `source` and `balance_basis`, so the fitter here has never once known
+    // whether it was looking at our books or the lender's letter, nor what
+    // either figure measured. reconciliation-run passed them all along; this
+    // caller quietly did not, which is why the same loan could be diagnosed
+    // differently depending on which surface asked.
+    balances: ctx.statements.map(s => ({
+      statement_date: s.statement_date, principal_balance: s.principal_balance,
+      balance_basis: (s as any).balance_basis, source: (s as any).source,
+    })),
     splits: ctx.splits,
   })
   if (drift.verdict === 'payments_unsplit' || drift.verdict === 'fits_neither') {
@@ -797,21 +806,23 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     // On this loan the gross model misses by exactly the unearned fee, which is
     // the fingerprint of Tech Debt #34 rather than of anything wrong with the
     // loan — and a reader can only see that if the misses are printed.
-    const asOfRow = [...(ctx.statements || [])]
-      .filter((r: any) => r.principal_balance != null)
-      .sort((a: any, b: any) => String(a.statement_date).localeCompare(String(b.statement_date)))
-      .slice(-1)[0]
+    // The date the check ACTUALLY spoke about, which since Tech Debt #34 is the
+    // observation's own date and not the newest row on file. Taking the newest
+    // would print a date the verdict never looked at — the stale-anchor problem
+    // this card was fixed for, reintroduced one level up.
+    const asOfDate = (drift.detail as any)?.observation?.statement_date ?? null
     plan.conflicts.push({
       key: `carrying_basis_${drift.verdict}`, statement: drift.title,
       expected: describeBasisMiss(drift.fits),
-      found: describeBasisObserved(drift.fits, asOfRow?.statement_date ?? null),
+      found: describeBasisObserved(drift.fits, asOfDate),
       sources: ['agreement', 'loan history'], severity: drift.severity as any,
       caveat: [
         drift.suggested_next_step,
         // The comparison is against the newest book row, which on a bundle
         // carrying a fresher lender screen is NOT today. Saying which day it
         // speaks for is the difference between a finding and a nag.
-        asOfRow ? `This compares the newest balance on file, dated ${asOfRow.statement_date}. A lender figure in this bundle for a later day is not what was measured here.` : '',
+        asOfDate ? `This compares the books' own balance, dated ${asOfDate}. A lender figure in this bundle for a later day is not what was measured here.` : '',
+        (drift.detail as any)?.observation_statement || '',
       ].filter(Boolean).join(' '),
     })
   }

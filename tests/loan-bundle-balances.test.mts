@@ -1325,13 +1325,19 @@ section('C — the loan record is checked against terms from ANY lender document
 
 section('E — the basis card says which shape was tried and by how much it missed')
 {
+  // The balance must be one the check is ALLOWED to look at, and unlabelled, or
+  // it never reaches the two-model comparison this card describes. Updated with
+  // Tech Debt #34 rather than left to go red on deploy for a reason that is not
+  // a bug — the figures are PayPal 2's real ones, now as a book row.
   const drift = detectCarryingBasisDrift({
     loan_id: 'x', loan_label: 'Paypal 2', recorded_basis: 'unknown',
     terms: { loan_amount: 157000, fixed_fee: 20565.12, total_repayment_amount: 177565.12 },
-    balances: [{ statement_date: '2026-08-05', principal_balance: 58775.97 }],
+    balances: [{ statement_date: '2026-08-05', principal_balance: 58775.97,
+                 balance_basis: 'unknown', source: 'xero_derived' }],
     splits: [{ period_label: '2026-08-05', principal_amount: 117058.53, interest_amount: -958.39, total_amount: 116100.14 }],
-  })
-  ok('the real loan still comes back fits_neither', drift.verdict === 'fits_neither', drift.verdict)
+  } as any)
+  ok('a book balance matching neither model still comes back fits_neither',
+     drift.verdict === 'fits_neither', drift.verdict)
 
   const expected = describeBasisMiss(drift.fits)
   ok('the placeholder is gone', !/one of the expected shapes/.test(expected), expected)

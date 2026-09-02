@@ -53,11 +53,12 @@
 >    Then check it FUNCTIONALLY, not by version: a screenshot that itemises its balance
 >    should come back with `amount_remaining_basis` set. **This block says "not deployed"
 >    because a deploy was never attempted, not because anything was measured.**
-> 2. **Tech Debt #34 (🔴) is the blocker on `carrying_basis`, and it is bigger than PayPal 2.**
->    David asked for PayPal 2's basis to be set; it was NOT, because `fitBasis` compares a
->    gross prediction against a principal-only observation and so misses by the unearned fee
->    on every loan of that shape. 21 of 22 loans are `unknown`. Read session 263 §4 for the
->    measured working before touching it.
+> 2. **✅ #34 is CLOSED (cont. 3) — and the note about it was wrong.** The arithmetic is
+>    fixed and 27 assertions cover it, but measuring the real book showed **no loan was
+>    producing `fits_neither` at all**: 13 of 14 have no contract terms and bail before the
+>    basis check runs. **The real blocker is Tech Debt #35 (missing terms), and session 263's
+>    ledger-terms reader is the half-built fix for it.** #36 covers the 7 loans with no
+>    book-sourced balance. Read cont. 3 before picking either up.
 > 3. **Tech Debt #33 (🟠)** — a projected schedule row is never reconciled against the
 >    lender's later actual, and on a prestaged loan those rows are what reach Xero.
 > 4. **PayPal 2's data was corrected by hand** (two amortization rows, 2026-08-19 and
@@ -2487,7 +2488,11 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
-**34. 🔴 `fitBasis` never reads the `balance_basis` it is handed, so the gross model cannot fit a principal-only book (session 263).** `carrying-basis-drift.ts` predicts `total_repayment − everything paid` for the gross model and compares it against `BasisBalance.principal_balance`. That field carries a `balance_basis` alongside it, and `fitBasis` ignores it. Where the balances on file are `principal_only` — which is most of this book — the gross prediction is therefore compared against a quantity that excludes the unearned fee, and it **misses by exactly the unearned fee, every time, forever**. Measured on PayPal 2 at the 2026-08-05 anchor: gross predicts $61,464.98 against an observed $58,775.97, a miss of $2,689.01, which is the unearned fee at that date to the cent. The verdict comes back `fits_neither` and the loan cannot have its basis established. **21 of 22 loans are still `carrying_basis = 'unknown'`**, and this is a plausible reason why more than one of them is stuck there. Next step: read `balance_basis` and predict the quantity the observation actually measures — a principal-only observation is compared against `loan_amount − principal paid` under BOTH bases, and the models are told apart by how the PAYMENTS behave rather than by which total the prediction starts from. Do not "fix" it by converting the observation, which needs the unearned fee and so needs a fee schedule the check does not have. This is the blocker on setting PayPal 2's basis; see session 263 §4 for the full working, including the separate $18,834.50 net-model miss that points at that loan's four open `double_reallocation` findings rather than at this bug.
+**36. 🟠 Seven active loans have no book-sourced balance at all (session 263 cont. 3).** `chooseObservation` needs a balance rebuilt from our own ledger, and E-Transit ×4, Paypal 2, PCV Good and Green and Verdant Capital have none — every row on them is `portal_manual_pull`, `lender_statement` or `amortization_schedule`. Those loans now correctly answer `not_enough_evidence / no_book_balance` instead of being diagnosed off the lender's figure, which is honest but not useful. Next step: extend whatever produces `xero_derived` rows to cover them, or record the basis by hand with the evidence beside it. Note the shape of the remaining ones too — **EIDL's newest book balance is 2024-03-31**, so its account has produced nothing for two and a half years; the verdict there is valid but speaks for 2024, and the module now says so on the row rather than letting a reader take it for today.
+
+**35. 🔴 Thirteen of fourteen active loans have NO `loan_contract_terms` rows (session 263 cont. 3).** Measured, not assumed, while closing #34. This — not the basis arithmetic — is the actual reason `carrying_basis` is `unknown` almost everywhere: with no `loan_amount` / `total_repayment_amount` on file the check cannot build two models and bails before anything else runs. Only Stripe Capital has terms, and it is the only loan with its basis settled. That is the whole correlation. Next step is already half-built: **session 263's `paypal-history.ts` extracts terms from a lender's transaction export**, which is the document type these loans actually have — none of them sends an agreement PDF we have parsed. Generalise that to the other lenders' exports and statements, or add a plain "record this loan's terms" form for figures a person can read off a document. Until terms exist, every downstream basis, rollforward and decomposition check is standing on nothing.
+
+**34. ✅ CLOSED (session 263 cont. 3) — `fitBasis` now reads the basis, and the party, of the balance it is handed.** `chooseObservation()` takes the newest BOOK balance (allowlisted sources), refuses when there is none rather than diagnosing our ledger from the lender's statement, and the declared `balance_basis` restricts which models may be compared to it. Both sides are cut at the observation's own date inside the module. Two further defects were found and fixed in the same pass: a TypeError when a labelled balance met a loan with no terms, and the split window being cut at the wrong date. 27 assertions in `tests/carrying-basis.test.mts`. **The note this replaced was wrong about the impact** — measured against production, no loan was actually producing `fits_neither`, because 13 of 14 bail on missing terms first. See #35 for the real blocker and session 263 cont. 3 for the working.
 
 **33. 🟠 Nothing reconciles a projected schedule row against the lender's later actual (session 263).** PayPal 2's schedule is `amort_type='actual_payment_history_from_lender_csv'` — an earlier parse of the lender's own history CSV, with rows past the parse date projected forward. When a newer CSV arrives, the PayPal ingest path files **statements** and never touches the schedule, so a projected row stays a projection permanently even once the lender has settled the period. Session 263 found two such rows (2026-08-19 and 2026-09-02) each a penny out, and corrected them by hand; 36 of 38 agreed, so the projection is good, which is exactly what makes this easy to leave broken. **It matters because on a `prestage_enabled` loan those projected rows are what get created in Xero** — the 2026-09-02 stage carries the projection's 3180.34/234.37 against the lender's 3180.33/234.38. Next step: when a lender history CSV is ingested for a loan whose schedule is of this `amort_type`, reconcile past rows against the file and correct any that the lender has since settled, recording the supersession on the row. Never touch rows on or after a period whose split has left `pending_review` without saying so — a corrected row under a staged split is a discrepancy someone must be told about, not one to silently paper over.
 
@@ -3011,12 +3016,82 @@ convenience"* — so it is passed only on the evidence that licenses it, `csvCov
 true when the export carries the loan's own advance row. There is nothing earlier for the
 file to be missing.
 
+#### 7. (cont. 3, same day) TECH DEBT #34 — CLOSED, AND MY OWN NOTE ABOUT IT WAS WRONG
+
+`fitBasis` predicted a book balance and compared it against `balances[last]` — whatever row
+happened to be newest, of any source, on any basis. Two defects, compounding:
+
+* **Wrong party.** On this book the newest row is almost always a LENDER statement. So a
+  check whose entire subject is *how OUR ledger carries the liability* was answering it from
+  the lender's statement of what it is owed. `balance_vs_lender` already does that comparison
+  properly; this one was doing it badly alongside and calling the answer a diagnosis.
+* **Wrong quantity.** The gross model predicts a payoff figure. Against a `principal_only`
+  balance it misses by the unearned fee — every time, on every loan of that shape, forever.
+  The `balance_basis` sat on the very record being read. That the miss was exactly $2,689.01
+  on PayPal 2 is what gave it away: **a defect that lands on an exact meaningful quantity is
+  not noise, it is arithmetic doing precisely what it was told.**
+
+`chooseObservation()` now picks the newest BOOK balance — `xero_derived`,
+`xero_balance_snapshot`, `xero_rebuild`, an allowlist so a new source is excluded rather than
+quietly trusted. `amortization_schedule` and `contract_origination` are excluded too: they
+are our own record, and §246 says a check whose inputs share a source cannot fail. A row with
+**no** `source` is refused loudly rather than skipped, or a caller that forgets the field
+turns the check into one that silently never runs.
+
+Then the declared basis decides which models may run at all. A payoff balance gets only the
+gross model; a principal-only balance only the net ones; an **unlabelled** book balance is the
+productive case and gets both, whichever lands naming the basis. A labelled balance settles
+the basis outright and the models become a consistency check rather than a vote — with a
+labelled balance that does not foot still reported, because that is a real finding.
+
+**Two more defects found while verifying, one of them mine and newly introduced:**
+
+* **A crash.** The new guard read `fits.length < 2 && declaredBasis === null`. A book balance
+  that DECLARES its basis on a loan whose terms are not on file skipped that guard, skipped
+  the declared-basis branch (which needs exactly one fit), and fell into the closest-of-N
+  branch, where `closest` is undefined — a TypeError instead of a verdict. Not reachable
+  today only because every xero-sourced row currently carries `balance_basis = 'unknown'`;
+  reachable the moment the rebuild starts labelling them, which is the direction this work is
+  going. Found by an adversarial pass over the new branches, not by a failing test — so there
+  is a failing-first test for it now.
+* **Both sides must be cut at the OBSERVATION's date.** The caller cut its splits at the
+  newest balance of any source. That was right while the fitter observed that same row and
+  became wrong the moment it started choosing a book balance that can be older. **EIDL's
+  newest book balance is 2024-03-31 and its newest row overall is 2026-08-25** — two and a
+  half years of payments would have been subtracted from a 2024 balance and reported as
+  drift. The cut now happens inside the module, so it is correct whatever the caller does,
+  and a payment whose period names no date (Verdant's `Period 84`) refuses the whole check
+  rather than being counted or dropped.
+
+##### The part I got wrong, measured
+
+My own Tech Debt #34 note, written this morning, said this bug "plausibly blocks establishing
+the basis on more than this one loan" and pointed at 21 of 22 loans sitting at `unknown`.
+**Running the real data through both the old and new code says otherwise.** Of 14 active
+loans, **13 have no `loan_contract_terms` rows at all**, so the old code built fewer than two
+models and bailed on missing terms long before the observation choice mattered. **Not one
+loan was actually producing `fits_neither` in production.** Stripe Capital — the only loan
+with terms — happened to have a book snapshot as its newest row, so the old code picked the
+right observation by luck and fit to the cent.
+
+So the fix changes a *reason*, not yet a verdict: PayPal 2 moves from `fits_neither` at
+severity **error** to `not_enough_evidence` at **info**, saying it cannot diagnose our ledger
+from the lender's figure. Nothing regressed — zero loans gain a `fits_neither` they did not
+have, and no severity rises.
+
+**The real blocker on `carrying_basis` is missing contract terms, not this arithmetic.** That
+reframes the work: session 263's ledger-terms reader is the actual unblocker, because it
+extracts terms from documents lenders DO send when no agreement PDF exists. Filed as Tech
+Debt #35. And even with terms, 7 of the 14 have no book-sourced balance at all, which is
+Tech Debt #36.
+
 #### Verification
 
 `portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
 `loan-bundle-balances` 283/283 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
 `settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
-112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13 — **948 green, 0 red.**
+112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13, `carrying-basis` 27/27 (new)
+— **975 green, 0 red.**
 
 Every session-263-cont.-2 assertion has its inverse beside it: strip the itemised figures
 and the anchor goes back to being unproposable; feed a payoff-basis book row and the tie
