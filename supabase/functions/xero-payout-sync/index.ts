@@ -5,6 +5,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { classifyPrecheckFailure, nextRetryAt } from '../_shared/payout-retry.ts'
 import { rechain, toCents, fromCents, type ChainEntry } from '../_shared/balance-rechain.ts'
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
+import { findConflictingDeposit } from '../_shared/existing-deposit.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-06-20',
@@ -614,6 +615,82 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     }).eq('id', syncRow.id)
     console.log(`[xero-payout-sync] ${payout.id} self-healed -> ${id}`)
     return { posted: false, skipped: true, reason: 'already in Xero', xero_bank_transaction_id: id, self_healed: true }
+  }
+
+  // ── SESSION 266: THE CHECK WHOSE ABSENCE PUT $10,630.05 IN THE BOOKS TWICE ──
+  //
+  // On 2026-09-03 the 2026-07-22 payout was posted through this function when it
+  // should have gone through xero-payout-reallocate. The bank feed had ALREADY
+  // created the deposit (ce40f5c4, contact "Family Laundry", reconciled, coded in
+  // full to 403); this function created a second transaction beside it, and July
+  // revenue and the bank account were each overstated by the whole payout until a
+  // person spotted it on the P&L.
+  //
+  // The pre-check above ran and saw nothing, because it asks Xero a narrower
+  // question than the one that matters: "is there a transaction carrying MY
+  // reference?" A bank-feed deposit carries no reference at all, so the guard was
+  // blind to the only case that could hurt. It was not missing. It was the wrong
+  // question.
+  //
+  // THE RIGHT QUESTION IS ABOUT THE MONEY, NOT ABOUT OUR LABEL: is there already a
+  // live transaction on this bank account, on this date, for this amount? If there
+  // is, this payout is in Xero in a shape this function cannot post alongside, and
+  // the correct tool is a reallocation journal against that transaction.
+  //
+  // Two properties, both deliberate:
+  //   * force DOES NOT BYPASS THIS. force may override our own bookkeeping; it may
+  //     never override what is actually in Xero. Session 241 double-posted a full
+  //     day of revenue by following advice to force past the only idempotency
+  //     check there was.
+  //   * A failed lookup REFUSES. Not being able to see is not evidence of absence,
+  //     and this is the check that stands between a catch-up run and a duplicate.
+  //
+  // Live payouts are unaffected: they arrive around 7pm Pacific and the feed line
+  // lands the next morning, so at post time there is nothing to find. This costs a
+  // historical catch-up one extra Xero call and refuses it when it would double.
+  const fmtXeroDate = (d: Date) => `${d.getUTCFullYear()},${d.getUTCMonth() + 1},${d.getUTCDate()}`
+  const arrivalD = new Date(payout.arrival_date * 1000)
+  const winFrom = new Date(arrivalD); winFrom.setUTCDate(winFrom.getUTCDate() - 2)
+  const winTo = new Date(arrivalD); winTo.setUTCDate(winTo.getUTCDate() + 2)
+  let sameMoney: any[] = []
+  try {
+    const where = `Date >= DateTime(${fmtXeroDate(winFrom)}) && Date <= DateTime(${fmtXeroDate(winTo)})`
+    const dupRes = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${encodeURIComponent(where)}`, { headers: xeroHeaders })
+    if (!dupRes.ok) throw new Error(`status ${dupRes.status}`)
+    const dupJson = await dupRes.json()
+    // The decision itself lives in _shared/existing-deposit.ts so it can be tested
+    // directly rather than only through a mocked Xero.
+    const conflict = findConflictingDeposit(dupJson?.BankTransactions, {
+      bankAccountId: XERO_BANK_ACCOUNT_ID, amount: plan.payoutDollars, ourReference: payoutRef,
+    })
+    sameMoney = conflict ? [conflict] : []
+  } catch (e) {
+    const msg = `Could not check Xero for an existing deposit of $${plan.payoutDollars.toFixed(2)} around ${plan.arrivalDate} before posting (${String((e as Error)?.message || e)}) -- refusing to post blind.`
+    const kind = classifyPrecheckFailure(null, String((e as Error)?.message || e))
+    const attempts = (Number(existing?.attempt_count) || 0) + 1
+    await supabase.from('xero_payout_syncs').update({
+      status: 'failed', error_message: msg, failure_kind: kind, attempt_count: attempts,
+      next_retry_at: kind === 'transient' ? nextRetryAt(attempts, new Date()).toISOString() : null,
+    }).eq('id', syncRow.id)
+    console.error(`[xero-payout-sync] ${payout.id} ${msg}`)
+    return { posted: false, blocked_reason: msg, failure_kind: kind, attempt_count: attempts }
+  }
+  if (sameMoney.length) {
+    const t = sameMoney[0]
+    const msg = `Xero already holds a live transaction for $${plan.payoutDollars.toFixed(2)} on this bank account around ${plan.arrivalDate} `
+      + `(${t.BankTransactionID}, contact "${t?.Contact?.Name || 'unknown'}"${t?.IsReconciled ? ', reconciled' : ''}) `
+      + `that does NOT carry our reference -- almost certainly the bank feed's own deposit. Posting a second transaction here would `
+      + `double this payout in both revenue and the bank account, which is exactly what happened on 2026-09-03. `
+      + `Nothing was posted. The right tool is xero-payout-reallocate, which posts a journal against that deposit and leaves it untouched.`
+    await supabase.from('xero_payout_syncs').update({
+      // Permanent by construction: the deposit is not going to stop existing, and
+      // a retry would ask the same question and get the same answer. This needs a
+      // person to choose the reallocation route.
+      status: 'failed', error_message: msg, failure_kind: 'permanent', next_retry_at: null,
+      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied },
+    }).eq('id', syncRow.id)
+    console.error(`[xero-payout-sync] ${payout.id} refused: existing deposit ${t.BankTransactionID}`)
+    return { posted: false, blocked_reason: msg, existing_bank_transaction_id: t.BankTransactionID, needs_reallocation: true }
   }
 
   const postRes = await fetch('https://api.xero.com/api.xro/2.0/BankTransactions', {
