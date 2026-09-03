@@ -1090,6 +1090,173 @@ GROUPS.push({
   },
 });
 
+/* 2c ── AGREEMENT · SOURCE · ACTION COLUMNS ──────────────────────────────────
+   Session 267, David's three columns. Asserted against the FIXTURE'S OWN rows
+   rather than a hand-typed list, so the test cannot drift from the data: the
+   expectation is recomputed from loan_documents and loan_accounts.close_basis
+   the same way a reader would, and then checked against what rendered.
+
+   The Source column is the one with a trap. It must read the RECORDED
+   close_basis and never infer "schedule" from the presence of a schedule file —
+   most schedules on this book were derived from the loan's own statements, so
+   inferring would let a loan excuse itself from its only outside evidence on
+   the strength of our own arithmetic (session 262's close gate). The fixture
+   contains loans in exactly that shape, so the assertion below discriminates
+   rather than merely passing. */
+GROUPS.push({
+  name: 'close-band-columns',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    const seen = await p.evaluate(() => {
+      const head = [...document.querySelectorAll('#lcb-table thead th')]
+        .map(th => th.innerText.replace(/\s+/g, ' ').trim());
+      const rows = [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => ({
+        loan: (tr.querySelector('.td-name') || {}).innerText || '',
+        agreement: tr.children[1] ? tr.children[1].getAttribute('data-agreement') : null,
+        basis: tr.children[2] ? tr.children[2].getAttribute('data-close-basis') : null,
+        basisText: tr.children[2] ? tr.children[2].innerText.trim() : '',
+        action: tr.lastElementChild ? tr.lastElementChild.getAttribute('data-action') : null,
+        actionText: tr.lastElementChild ? tr.lastElementChild.innerText.trim() : '',
+        band: tr.querySelector('[data-band]') ? tr.querySelector('[data-band]').getAttribute('data-band') : '',
+      }));
+      const cellCounts = [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => tr.children.length);
+      const footCounts = [...document.querySelectorAll('#lcb-table tfoot tr')].map(tr => tr.children.length);
+      return { head, rows, cellCounts, footCounts };
+    });
+
+    // Every row must have as many cells as the header has columns, and so must
+    // the totals row — a column added to one and not the others silently shears
+    // every figure one place to the left.
+    const cols = seen.head.length;
+    t.ok(seen.cellCounts.every(n => n === cols),
+         `every body row has ${cols} cells, matching the header`,
+         `saw ${[...new Set(seen.cellCounts)].join('/')}`);
+    t.ok(seen.footCounts.every(n => n === cols),
+         'the totals row has the same number of cells as the header',
+         `saw ${[...new Set(seen.footCounts)].join('/')}`);
+
+    // The header is uppercased by CSS, so innerText comes back shouting. Compare
+    // case-insensitively — asserting the rendered casing would be testing the
+    // stylesheet, not the column order.
+    const h = seen.head.map(x => x.toLowerCase());
+    t.ok(h[1] === 'agreement', 'Agreement is the second column', seen.head.join(' | '));
+    t.ok(h[2] === 'source', 'Source is the third column', seen.head.join(' | '));
+    t.ok(h[cols - 1] === 'action', 'Action is the far-right column', seen.head.join(' | '));
+
+    // Expectation rebuilt from the fixture, not typed in.
+    const expect = await p.evaluate(() => {
+      const accounts = window.__WR_FIXTURE.loan_accounts || [];
+      const docs = window.__WR_FIXTURE.loan_documents || [];
+      const byName = {};
+      for (const a of accounts) {
+        const name = a.xero_account_name || a.lender_account_number || '';
+        byName[name] = {
+          agreement: docs.some(d => d.loan_account_id === a.id && d.doc_type === 'agreement') ? '1' : '0',
+          basis: a.close_basis || '',
+          // The population that MATTERS is loans carrying amortization schedule
+          // ROWS, not schedule documents: only one schedule document exists on
+          // this book and it sits on a loan whose basis really is Schedule, so
+          // an assertion keyed on documents is satisfied by an empty set and
+          // proves nothing. Schedule ROWS are the shape a wrong implementation
+          // would key on, and a dozen loans have them.
+          // The schedule's loan_account_id is nested on the row's joined
+          // loan_amortization_schedules object, not on the row itself.
+          hasScheduleRows: (window.__WR_FIXTURE.loan_amortization_rows || [])
+            .some(r2 => (r2.loan_amortization_schedules || {}).loan_account_id === a.id),
+        };
+      }
+      return byName;
+    });
+
+    let agreeOk = 0, basisOk = 0;
+    const agreeBad = [], basisBad = [];
+    for (const r of seen.rows) {
+      const e = expect[r.loan];
+      if (!e) continue;
+      if (r.agreement === e.agreement) agreeOk++; else agreeBad.push(`${r.loan}: showed ${r.agreement}, file says ${e.agreement}`);
+      if (r.basis === e.basis) basisOk++; else basisBad.push(`${r.loan}: showed "${r.basis}", record says "${e.basis}"`);
+    }
+    t.ok(agreeBad.length === 0, `Agreement matches the documents on file (${agreeOk} rows)`, agreeBad.join(' · '));
+    t.ok(basisBad.length === 0, `Source matches the RECORDED close basis (${basisOk} rows)`, basisBad.join(' · '));
+
+    // THE TRAP, ASSERTED DIRECTLY. A loan holding a schedule document while its
+    // recorded basis is the lender's statements must still read "Statements".
+    // Without this, an implementation that inferred the basis from the file
+    // would pass every assertion above on a book where the two happen to agree.
+    const trap = seen.rows.filter(r => expect[r.loan] && expect[r.loan].hasScheduleRows
+                                       && expect[r.loan].basis !== 'amortization_schedule');
+    // An empty population here would make the assertion vacuous, so the size of
+    // it is asserted too. A test that never runs is indistinguishable from one
+    // that always passes.
+    t.ok(trap.length >= 5,
+         `the schedule-rows-but-statement-basis population is real (${trap.length} loans), so the next assertion is not vacuous`,
+         trap.map(r => r.loan).join(' · '));
+    t.ok(trap.every(r => r.basisText.startsWith('Statements')),
+         'a loan carrying an amortization SCHEDULE but closed on statements still reads Statements',
+         trap.filter(r => !r.basisText.startsWith('Statements')).map(r => `${r.loan}: "${r.basisText}"`).join(' · '));
+
+    // THE UNUSED GENUINE SCHEDULE (David spotted this on PCV before the column
+    // did). A loan closed on statements that ALSO holds a lender-issued schedule
+    // gets a marker; one whose only schedule was derived from its own statements
+    // must NOT, because closing against that would agree by construction.
+    const schedProv = await p.evaluate(() => {
+      const rows = window.__WR_FIXTURE.loan_amortization_rows || [];
+      const byLoan = {};
+      for (const r of rows) {
+        const sc = r.loan_amortization_schedules; if (!sc || !sc.loan_account_id) continue;
+        (byLoan[sc.loan_account_id] = byLoan[sc.loan_account_id] || new Set()).add(sc.source || '');
+      }
+      const out = {};
+      for (const a of (window.__WR_FIXTURE.loan_accounts || [])) {
+        const srcs = [...(byLoan[a.id] || [])];
+        out[a.xero_account_name || a.lender_account_number || ''] = {
+          // Mirrors the page's allowlist. An unknown source is NOT genuine.
+          real: srcs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x)),
+          derivedOnly: srcs.length > 0 && !srcs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x)),
+          basis: a.close_basis || '',
+        };
+      }
+      return out;
+    });
+    const marked = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr')]
+      .filter(tr => tr.children[2] && tr.children[2].querySelector('.lcb-basis-alt'))
+      .map(tr => (tr.querySelector('.td-name') || {}).innerText || ''));
+
+    const shouldMark = Object.entries(schedProv)
+      .filter(([, v]) => v.real && v.basis !== 'amortization_schedule')
+      .map(([k]) => k)
+      .filter(n => seen.rows.some(r => r.loan === n));
+    t.ok(shouldMark.length > 0,
+         `at least one loan has a genuine schedule it is not closing on (${shouldMark.join(', ')}) — the marker assertion is not vacuous`);
+    t.ok(shouldMark.every(n => marked.includes(n)),
+         'a loan holding a genuine lender schedule but closed on statements is marked',
+         `expected ${shouldMark.join(', ')}; marked ${marked.join(', ') || 'none'}`);
+
+    const derivedMarked = marked.filter(n => schedProv[n] && schedProv[n].derivedOnly);
+    t.ok(derivedMarked.length === 0,
+         'a loan whose ONLY schedule was derived from its own statements is NOT marked',
+         derivedMarked.join(' · '));
+
+    // A row that ties gets no action: a column that always says something is a
+    // column people stop reading.
+    const tiedWithAction = seen.rows.filter(r => r.band === 'tie' && r.actionText);
+    t.ok(tiedWithAction.length === 0, 'a row that ties offers no action',
+         tiedWithAction.map(r => `${r.loan}: "${r.actionText}"`).join(' · '));
+
+    // AND THE RULE THAT MATTERS MOST: a difference with no established cause is
+    // never offered a one-click journal. Booking it to make the books agree
+    // would hide the reason rather than find it — the reasoning that produced
+    // the v14/v15 payroll double-count.
+    const postsOffered = seen.rows.filter(r => r.action === 'post');
+    t.ok(postsOffered.every(r => r.band === 'unbooked'),
+         'a "post" action appears ONLY where unposted payments already explain the difference',
+         postsOffered.map(r => `${r.loan}: band=${r.band}`).join(' · '));
+
+    await p.close();
+  },
+});
+
 /* 3 ── TAB-SWITCH RACES ──────────────────────────────────────────────────── */
 GROUPS.push({
   name: 'tab-races',

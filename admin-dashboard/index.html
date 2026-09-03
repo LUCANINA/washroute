@@ -3545,6 +3545,31 @@
             .lcb-mark { display: inline-grid; place-items: center; width: 19px; height: 19px;
                         border-radius: 50%; font-size: 11px; font-weight: 800; line-height: 1;
                         border: 1.5px solid var(--gray-200); color: var(--gray-400); background: #fff; }
+            /* Session 267 — Agreement / Source / Action columns. */
+            .lcb-c { text-align: center; white-space: nowrap; }
+            .lcb-basis { font-size: 11px; font-weight: 600; letter-spacing: .01em;
+                         padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+            .lcb-basis.stmt  { background: var(--gray-100); color: var(--gray-600); }
+            /* Schedule is the exception, so it is the one that reads differently.
+               Not an alarm colour: it is a recorded policy, not a problem. */
+            .lcb-basis.sched { background: #eef2ff; color: #4338ca; }
+            /* A lender schedule exists but is not the basis. A dot, not a badge:
+               it is a "you could" and never a "you should". */
+            .lcb-basis-alt { margin-left: 5px; color: #4338ca; font-weight: 700; cursor: help; }
+            .lcb-action { white-space: nowrap; }
+            .lcb-do { font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 7px;
+                      border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700);
+                      cursor: pointer; line-height: 1.4; }
+            .lcb-do:hover { border-color: var(--gray-300); background: var(--gray-50); color: var(--gray-900); }
+            .lcb-noact { font-size: 11.5px; color: var(--gray-400); cursor: help; }
+            /* The dropzone answering an Action click. A brief ring, then gone —
+               it says "here", it does not decorate the page. */
+            @keyframes bkIntakePulse {
+              0%   { box-shadow: 0 0 0 0 rgba(37,99,235,.32); }
+              70%  { box-shadow: 0 0 0 12px rgba(37,99,235,0); }
+              100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
+            }
+            .bk-dropzone.pulse { animation: bkIntakePulse 1.4s ease-out 1; border-color: #93c5fd; }
             .lcb-mark-ok  { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
             .lcb-mark-bad { border-color: #fecaca; background: #fef2f2; color: #dc2626; }
             .lcb-mark-na  { border-color: var(--gray-200); background: #fff; color: var(--gray-300); font-size: 13px; }
@@ -13943,7 +13968,7 @@
     // dates, and BayFirst SBA 2 holds two generated a day apart. Without this
     // column the tie-break has nothing to read and the pick becomes sort order,
     // which is to say luck.
-    + 'loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, created_at, loan_account_id, balance_basis, amort_type)';
+    + 'loan_amortization_schedules(storage_path, contract_id, schedule_generated_date, created_at, loan_account_id, balance_basis, amort_type, source)';
 
   async function _loadAmortRowsPaged() {
     const out = [];
@@ -17505,6 +17530,81 @@
     //      hovers must not then have to open a tooltip to finish the thought.
     const row = (r) => {
       const a = r.a;
+
+      // ── AGREEMENT · SOURCE · ACTION (session 267, David) ────────────────
+      // Three columns he asked for. Each one states a fact this table already
+      // depends on but never showed.
+
+      // AGREEMENT — is the signed contract itself on file? This is a genuine
+      // yes/no, so it gets a mark rather than prose. Note what it does NOT
+      // claim: that the contract agrees with the books. It says only that the
+      // document exists to check against, which is the difference between "a
+      // typed number is never evidence" (session 230, where four Ford rates and
+      // a Funding Circle payment were all wrong on file) and having something
+      // outside our own records to compare a typed figure with.
+      const agreementDocs = (_allLoanDocuments || []).filter(d =>
+        d.loan_account_id === a.id && d.doc_type === 'agreement');
+      const agreement = agreementDocs.length
+        ? { has: true, cell: '<span class="lcb-mark lcb-mark-ok" aria-label="Agreement on file">✓</span>',
+            title: `Signed agreement on file${agreementDocs[0].file_name ? ` — ${agreementDocs[0].file_name}` : ''}. The original amount, rate and term can be checked against the contract rather than against a typed field.` }
+        : { has: false, cell: '<span class="lcb-mark lcb-mark-bad" aria-label="No agreement on file">✗</span>',
+            title: 'No signed agreement uploaded for this loan. Nothing is wrong with the month because of it — but the rate, original amount and term on file are somebody\'s typed notes, with no contract behind them to check against. Drop the agreement in the box at the top of this page.' };
+
+      // SOURCE — what settles this loan's month. Reads the RECORDED close basis
+      // and nothing else. The temptation is to infer "schedule" from the
+      // presence of a schedule file; that is forbidden, because most schedules
+      // on this book were DERIVED from the loan's own statements, so inferring
+      // it would let a loan excuse itself from its only outside evidence on the
+      // strength of our own arithmetic (the close-gate rule, session 262).
+      // A genuine lender schedule sitting unused is worth saying out loud: it is
+      // the one case where the recorded basis could reasonably be something else,
+      // and David spotted it on PCV before this column did. Derived schedules
+      // are deliberately NOT counted here — see _bkRealSchedulesFor.
+      const realSched = (typeof _bkRealSchedulesFor === 'function') ? _bkRealSchedulesFor(a.id) : [];
+      const basis = (a.close_basis === 'amortization_schedule')
+        ? { cell: '<span class="lcb-basis sched">Schedule</span>',
+            title: `Closed against the contractual amortization schedule — a recorded policy${a.close_basis_reason ? `: ${a.close_basis_reason}` : ''}. No lender statement is expected for this loan, and it is excluded from the statement gate by that policy rather than by accident. Where the opening and closing both trace to that same schedule, the variance cannot fail and is reported as agreeing by construction, not as a pass.` }
+        : { cell: `<span class="lcb-basis stmt">Statements</span>${realSched.length ? '<span class="lcb-basis-alt" title="A lender-issued amortization schedule is also on file for this loan, but the recorded policy still closes it on statements. That is a legitimate choice — statements are outside evidence and a schedule is not — but it is the one case where the basis could reasonably be the other. Open the loan to switch it.">·</span>' : ''}`,
+            title: 'Closed against the lender\'s own statements. A current statement is expected each month, and the month cannot close until one has been uploaded AND compared.' };
+
+      // ACTION — one suggestion, and only where there is one worth making.
+      // Two rules from this module decide what may appear here:
+      //   · ASK WHEN EVIDENCE IS MISSING (session 262). A variance measured
+      //     against a document older than the month being closed is not a gap to
+      //     investigate; it is one nobody can evaluate. Uploading a statement is
+      //     far easier than scrambling to explain a difference, and the chore
+      //     falls on the business owner rather than the CPA.
+      //   · NEVER INVENT A CATCH-UP TO ABSORB A DIFFERENCE. A plug journal makes
+      //     the books agree without anyone knowing why, which is exactly the
+      //     reasoning that produced the v14/v15 payroll double-count. So a row
+      //     whose cause is unknown is NEVER offered a post here.
+      // A row that ties gets nothing at all — a column that always says
+      // something teaches people to stop reading it.
+      const action = (() => {
+        const noClosing = !r.perLender && !r.automatic;
+        if (noClosing && a.close_basis !== 'amortization_schedule') {
+          return { kind: 'upload',
+                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">Upload statement</button>` };
+        }
+        if (r.band === 'tie' || r.circular || r.variance == null) return { kind: '', cell: '' };
+        if (r.unbooked) {
+          return { kind: 'post',
+                   cell: `<button type="button" class="lcb-do" onclick="openLoanDetailModal('${esc(a.id)}')" title="This difference is explained by payments already prepared but not yet posted. Open the loan to review and post them — nothing is written from this table without a preview.">Review &amp; post</button>` };
+        }
+        // STALE ANCHOR, measured rather than assumed: the newest lender
+        // document settling this row is dated on or before the PRIOR month end,
+        // so it examined a different month. Session 262's rule — a variance
+        // measured against a stale document is not a gap to investigate, it is
+        // one nobody can evaluate, and the fix is to ask for the document.
+        const staleAnchor = !!(r.perLender && r.perLender.asOf && rf.priorEnd
+                               && r.perLender.asOf <= rf.priorEnd);
+        if (staleAnchor) {
+          return { kind: 'ask',
+                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file predates the month being closed, so this difference is measured against a stale anchor — nobody can evaluate it as it stands. Upload the current statement before treating it as a gap.">Ask for statement</button>` };
+        }
+        return { kind: 'investigate',
+                 cell: '<span class="lcb-quiet lcb-noact" title="A real difference with no established cause. Deliberately NO one-click journal here: booking the difference to make the books agree would hide the reason rather than find it. Open the loan, or hover the Variance cell for what is known.">Needs a look</span>' };
+      })();
       const openCell = r.opening
         ? bare(r.opening.amount)
         : '<span class="lcb-none">no opening balance</span>';
@@ -17722,6 +17822,8 @@
 
       return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
         <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
+        <td class="lcb-c" data-agreement="${agreement.has ? '1' : '0'}" title="${esc(agreement.title)}">${agreement.cell}</td>
+        <td class="lcb-c" data-close-basis="${esc(a.close_basis || '')}" title="${esc(basis.title)}">${basis.cell}</td>
         <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
         <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
         <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
@@ -17732,6 +17834,7 @@
         <td>${bookedCell}</td>
         <td>${booked}</td>
         <td>${ledgerCell}</td>
+        <td class="lcb-action" data-action="${esc(action.kind)}">${action.cell}</td>
       </tr>`;
     };
 
@@ -17766,6 +17869,7 @@
     const closingMark = ta.closingCovers ? '' : mark(ta.closingCount);
     const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" data-drawn-measured="${ta.drawnMeasured}" class="lcb-total">
       <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}</td>
+      <td></td><td></td>
       <td class="lcb-n" data-amount="${ta.opening}">${money(ta.opening)}${rollMark}</td>
       <td class="lcb-n" data-amount="${ta.drawn}">${money(ta.drawn)}${ta.drawnMeasured === ta.rollCount ? '' : `<span class="lcb-quiet" style="font-size:11px"> ${ta.drawnMeasured} of ${ta.rollCount} measured</span>`}</td>
       <td class="lcb-n" data-amount="${ta.principal}">${money(ta.principal)}</td>
@@ -17773,7 +17877,7 @@
       <td class="lcb-n" data-amount="${ta.computed}">${money(ta.computed)}${rollMark}</td>
       <td class="lcb-n" data-amount="${ta.perLender}">${money(ta.perLender)}${closingMark}</td>
       <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}">${varianceCell(ta)}${closingMark}</td>
-      <td></td><td></td><td></td>
+      <td></td><td></td><td></td><td></td>
     </tr>`;
 
     // The close date is NOT stated here. It moved to the period bar, beside the
@@ -17839,12 +17943,15 @@
           <table class="lcb-table" id="lcb-table">
             <thead><tr>
               <th>Loan</th>
+              <th title="Is a signed loan agreement on file? A green tick means the contract itself has been uploaded, so the original amount, rate and term can be checked against something the lender signed rather than against a figure somebody typed.">Agreement</th>
+              <th title="What this loan is CLOSED against — its source of truth. Statements means an outside document from the lender settles the month. Schedule means a recorded policy to close against the contractual amortization instead, so no statement is expected. This reads the recorded close basis, never the mere presence of a schedule file: most schedules on this book were derived from the loan's own statements, and closing against those would let a loan excuse itself from its only outside evidence on the strength of our own arithmetic.">Source</th>
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
               <th class="lcb-n">Drawn</th>
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what the closing balance should be.">Computed</th>
               <th class="lcb-n">Closing</th>
               <th class="lcb-n">Variance</th><th>Booked</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
+              <th title="The next thing to do about this row. A difference nobody can evaluate asks for the document that would settle it — uploading a current statement is far easier than investigating a gap measured against a stale one. Nothing appears here for a row that ties.">Action</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
@@ -19773,6 +19880,113 @@
     openLoanDetailModal(loanId);
   }
 
+  // The Action column's Upload answer. Scrolls to the dropzone that now heads
+  // this page and pulses it, rather than opening a modal: the person has just
+  // read a row saying "we need August's statement", and the thing that answers
+  // it is twenty lines up. Only possible because intake moved here — from the
+  // Overview tab this would have meant a tab switch and losing the row.
+  function bkFocusIntake() {
+    const dz = document.getElementById('bk-dropzone');
+    if (!dz) return;
+    dz.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    dz.classList.remove('pulse');
+    void dz.offsetWidth;            // restart the animation if it is mid-flight
+    dz.classList.add('pulse');
+    setTimeout(() => dz.classList.remove('pulse'), 1800);
+  }
+
+  // ── WHAT SETTLES THIS LOAN'S MONTH (session 267, David) ──────────────────
+  // close_basis decides whether this loan owes a lender statement every month
+  // or is closed against its contractual schedule instead. It is a RECORDED
+  // POLICY and the close gate keys on it, so it gets a control here rather than
+  // being editable only in the database.
+  //
+  // THE GUARD IS THE POINT. Switching to Schedule may be offered ONLY when a
+  // genuine lender schedule exists — one PARSED FROM A DOCUMENT, never one we
+  // derived from this loan's own statements. Closing against a derived schedule
+  // is the Verdant shape (session 246): the opening, the movement and the
+  // closing all trace back to our own arithmetic, so the variance is zero by
+  // construction and a green tick means nothing. Nine of this book's schedules
+  // are derived; four are real. The difference is loan_amortization_schedules
+  // .source, and it is the only thing that may decide this.
+  // AN ALLOWLIST, so an unrecognised source FAILS SAFE — the same discipline as
+  // _VARIANCE_REAL_ANCHORS. This was a denylist for about ten minutes and it was
+  // wrong in the dangerous direction: `source` was not being loaded at all, so
+  // every schedule read as `undefined`, which "is not derived_from_statements"
+  // and would have offered the Schedule switch on nine loans whose schedules we
+  // computed from their own statements. Unknown provenance is not permission.
+  const _REAL_SCHEDULE_SOURCES = ['claude_assisted_parse', 'client_parsed_verified'];
+
+  function _bkRealSchedulesFor(loanId) {
+    const seen = new Map();
+    for (const r of (_allLoanAmortRows || [])) {
+      const sc = r.loan_amortization_schedules;
+      if (!sc || sc.loan_account_id !== loanId || !sc.id) continue;
+      if (!_REAL_SCHEDULE_SOURCES.includes(sc.source)) continue;
+      if (!seen.has(sc.id)) seen.set(sc.id, sc);
+    }
+    return [...seen.values()];
+  }
+
+  function _bkCloseBasisHtml(a) {
+    const onSchedule = a.close_basis === 'amortization_schedule';
+    const real = _bkRealSchedulesFor(a.id);
+    const canSwitchToSchedule = real.length > 0;
+    const when = a.close_basis_set_at ? _bkPlainDate(a.close_basis_set_at) : null;
+
+    const now = onSchedule
+      ? `<b>The contractual amortization schedule.</b> No lender statement is expected for this loan, so it is excluded from the statement gate by recorded policy rather than by accident.`
+      : `<b>The lender's own statements.</b> A current statement is expected each month, and the month cannot close until one has been uploaded and compared.`;
+
+    const provenance = real.length
+      ? `A genuine lender schedule is on file${real[0].schedule_generated_date ? ` (generated ${esc(real[0].schedule_generated_date)})` : ''} — parsed from a document, not derived from this loan's statements.`
+      : `<b>No genuine lender schedule is on file.</b> Any schedule this loan carries was derived from its own statements, so closing against it would be checking our arithmetic against itself — the variance could not fail. Upload the lender's schedule first if this loan should close that way.`;
+
+    const btn = onSchedule
+      ? `<button type="button" class="btn btn-secondary" onclick="bkSetCloseBasis('${esc(a.id)}','lender_statement')">Close on statements instead</button>`
+      : canSwitchToSchedule
+        ? `<button type="button" class="btn btn-secondary" onclick="bkSetCloseBasis('${esc(a.id)}','amortization_schedule')">Close on the schedule instead</button>`
+        : `<button type="button" class="btn btn-secondary" disabled title="There is no lender-issued schedule on file for this loan — only one derived from its own statements. Closing against that would make the variance agree by construction.">Close on the schedule instead</button>`;
+
+    return `<div style="font-size:13px;color:var(--gray-700);line-height:1.6">
+        <div>${now}</div>
+        <div style="margin-top:6px;color:var(--gray-600);font-size:12.5px">${provenance}</div>
+        ${a.close_basis_reason ? `<div style="margin-top:6px;font-size:12.5px;color:var(--gray-600)">Reason on file: ${esc(a.close_basis_reason)}${when ? ` · set ${esc(when)}${a.close_basis_set_by ? ' by ' + esc(a.close_basis_set_by) : ''}` : ''}</div>` : ''}
+        <div style="margin-top:10px">${btn}</div>
+      </div>`;
+  }
+
+  async function bkSetCloseBasis(loanId, basis) {
+    const a = (_allLoanAccounts || []).find(x => x.id === loanId);
+    if (!a) return;
+    // Re-check the guard HERE, not only on the button. A disabled button is a
+    // hint; the branch that writes is where the rule has to live, or the next
+    // caller walks straight past it (session 231).
+    if (basis === 'amortization_schedule' && _bkRealSchedulesFor(loanId).length === 0) {
+      showToast('No lender-issued schedule is on file for this loan — closing against a schedule derived from its own statements would make the variance agree by construction.', 'error');
+      return;
+    }
+    const what = basis === 'amortization_schedule'
+      ? 'close against the contractual schedule (no lender statement will be expected)'
+      : 'close against the lender\'s statements (a current statement will be required each month)';
+    const reason = prompt(`Why should this loan ${what}?\n\nThis is recorded as the policy behind the change, and the close gate reads it.`);
+    if (reason == null) return;
+    if (!reason.trim()) { showToast('A reason is required — the exemption is a recorded policy, not a setting.', 'error'); return; }
+
+    const payload = {
+      close_basis: basis,
+      close_basis_reason: reason.trim(),
+      close_basis_set_at: new Date().toISOString(),
+      close_basis_set_by: currentUserDisplayName || currentUserFirstName || currentUserRole || 'admin',
+    };
+    const { error } = await db.from('loan_accounts').update(payload).eq('id', loanId);
+    if (error) { showToast('Could not save: ' + error.message, 'error'); return; }
+    Object.assign(a, payload);
+    showToast(basis === 'amortization_schedule' ? 'Now closing on the schedule.' : 'Now closing on statements.', 'success');
+    openLoanDetailModal(loanId);
+    if (typeof renderLoansCloseBand === 'function') renderLoansCloseBand();
+  }
+
   function openLoanDetailModal(loanAccountId) {
     const a = _allLoanAccounts.find(x => x.id === loanAccountId);
     if (!a) return;
@@ -19856,6 +20070,7 @@
     document.getElementById('loan-history-body').innerHTML = `
       <div style="display:flex;flex-wrap:wrap;gap:14px 28px;padding:4px 0 2px">${chips.join('')}</div>
       ${actions}
+      ${section('What settles this loan\'s month', _bkCloseBasisHtml(a))}
       ${section('How this loan is structured', _bkStructureNoteHtml(a))}
       ${section('Where the accounting can be better', _bkLoanImprovementsHtml(a.id))}
       ${section(`Split history (${_allLoanSplits.filter(s => s.loan_account_id === a.id).length})`, _loanSplitHistoryTableHtml(a.id))}
