@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 263 cont. 7, 2026-09-03)
+> ## ⏭️ START HERE — first thing, next session (left by session 263 cont. 9, 2026-09-03)
 >
 > **This block is rewritten at the END of every session. It has been wrong four days
 > running, always by being written before the thing it describes finished. Everything
@@ -19,8 +19,8 @@
 > `reconciliation-run`.** Both read cont. 7's new `_shared/book-balances.ts`; deploying one
 > without the other leaves half the module answering the old way.
 >
-> **Suite: the fifteen Node suites were swept end-to-end at the close of cont. 7 —
-> 1,045 assertions, 0 red** (`book-balances` 25 is new). That count covers the `.test.mts`
+> **Suite: the sixteen Node suites were swept end-to-end at the close of cont. 9 —
+> 1,082 assertions, 0 red** (`book-balances` 25 and `evidence-gate` 37 are new). That count covers the `.test.mts`
 > suites only; the wider figure including the browser/history suites was **1,591 with 1
 > deliberate red** (Tech Debt #19's `[history] s240 #10`, self-labelled REPORTED and red ON
 > PURPOSE — tuning it green deletes the only record of that finding). **Any other red is a
@@ -59,26 +59,54 @@
 > nobody can evaluate, and the row says so and asks for the document. An ESTABLISHED cause
 > always outranks the ask. `balance_vs_lender` is a RESTATEMENT of the gap, not a cause.
 >
-> ### Session 263 left this, and item 0 is a DEPLOY OF TWO FUNCTIONS
+> ### 🌅 TOMORROW MORNING — David's priorities, in this order
+>
+> **David (cont. 9): "Write this up in Notes as priorities tomorrow morning. We'll start fresh."**
+> These three came out of cont. 8–9 and supersede the older ordering below.
+>
+> **1. 🔴 FIX TECH DEBT #38 FIRST — it is a WRONG ANSWER, not noise.** The basis check counts
+>    PayPal 2's seven month-end correction journals as if they were payments, double-counting
+>    ~$18,834.50, and tells a bookkeeper the balance *"does not match any expected shape"* at
+>    severity error. **The control is measurable and already known:** fixed, the net model must
+>    land within ~$21.66 of the books' $49,346.58 at 2026-08-31. Read cont. 9 for the arithmetic
+>    before touching the code, and do not widen the fit tolerance to make it pass.
+>
+> **2. 🟠 WIRE `_shared/evidence-gate.ts` into `reconciliation-run`.** Built and green in cont. 8
+>    (37 assertions, 4 mutations proven red), **wired into nothing.** Build the per-loan
+>    `LoanEvidence` from what the run already loads — newest REAL anchor (`REAL_ANCHOR_SOURCES`),
+>    `contractTerms`, `schedAnchors`, `bookBalances` — pass the closing month's FIRST day as
+>    `coversFrom`, gate the four registered checks, and push `awaitingEvidenceFinding()` once per
+>    loan. **The existing silent `if (haveCheckpoint)` skip on `derived_drift` is exactly the blank
+>    this replaces — make it visible, do not leave both.** Wire EVERY consumer in one change; this
+>    session made the stop-at-the-first-consumer mistake five times.
+>
+> **3. 🟢 CHASE THE $21.66** on PayPal 2 — the only real residual on that loan. Small, but it is
+>    now the whole gap, and Xero's daily cap resets before morning.
+>
+> ⚠️ **Two conclusions from earlier in session 263 are WITHDRAWN. Do not act on them:**
+> PayPal 2 is **`net_principal`**, not gross — and the **$1,874.27** it was going to be sent to
+> chase is the miss on a model that does not apply to this loan. Tech Debt **#36 was never true**
+> (all fourteen active loans have a book balance). See cont. 9 and cont. 7.
+>
+> ### Still outstanding from cont. 7 — a DEPLOY OF TWO FUNCTIONS
 >
 > 0a. **🔴 REDEPLOY BOTH `loan-bundle` AND `reconciliation-run` — cont. 7 added
 >    `_shared/book-balances.ts` and both read it.** From the repo root, after pushing:
 >    `npx -y supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
 >    then the same for `reconciliation-run`. `--no-verify-jwt` is **not optional** on either.
->    Check FUNCTIONALLY, never by version: run PayPal 2's bundle and confirm the books-vs-lender
->    card **no longer says "no balance from your own books is on file"** — `loan_book_balances`
->    holds $49,346.58 at 2026-08-31 for that loan, and the old copy was flatly false.
+>    **Check FUNCTIONALLY, never by version.** NOTE: David ran the bundle during cont. 8 and the
+>    books-vs-lender card DID read `loan_book_balances` ($49,346.58 at 2026-08-31), so `loan-bundle`
+>    appears live — **confirm `reconciliation-run` separately rather than assuming both went.**
 >
-> 0b. **✅ Tech Debt #36 is CLOSED and was never true.** All fourteen active loans have a
->    non-zero 2026-08-31 `xero_rebuild` balance in `loan_book_balances` — the "seven loans
->    with none" and the "EIDL speaks for 2024" warning were both artefacts of reading
->    `loan_statements` alone. **#35 (13 of 14 loans have no contract terms) is now the SOLE
->    blocker on `carrying_basis`.** Read cont. 7 before picking up any basis work.
+> 0b. **Still unanswered by David, asked four times:** the account reference. The proposal is to
+>    pass intake's `ai_account_claimed` (already in the browser at
+>    `admin-dashboard/index.html:10599`) through to the bundle rather than paying a second model
+>    to re-read it. Do not build it without his answer.
 >
-> 0c. **Still unanswered by David, asked four times:** the account reference. The proposal is
->    to pass intake's `ai_account_claimed` (already in the browser at
->    `admin-dashboard/index.html:10599`) through to the bundle rather than paying a second
->    model to re-read it. Do not build it without his answer.
+> 0c. **David has NOT applied the PayPal 2 bundle yet** as of cont. 9 — the modal was open with
+>    5 changes ticked (file both documents, origination date → 2025-12-10, 4 opening figures,
+>    lender balance $46,144.59 at 2026-09-02). The opening-balance action is correctly held back
+>    pending the carrying basis. Ask before assuming the DB reflects it.
 >
 > ### The cont. 2 deploy note, kept for its command and its functional check
 >
@@ -2564,6 +2592,8 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**38. 🔴 The basis check counts a CORRECTION as a PAYMENT — a live wrong answer on PayPal 2 (session 263 cont. 9).** `fitBasisAgainst()` sums our own `loan_splits` to get principal repaid. PayPal 2 carries seven month-end true-up journals (session 258, CPA correcting a Xero bank rule that coded auto-drafts entirely to principal), so roughly **$18,834.50 is counted twice** — once as the weekly split, again as the correction. The net model predicts **$30,490.42** where the lender's own principal balance says ~**$49,325**, and the card tells a bookkeeper *"the balance does not match any expected shape"* at severity **error**. **A reclassification journal moves money between two accounts and repays nothing; it must not reduce the modelled balance.** Next step: exclude `source='manual_adjustment'` rows (and any split whose `posting_method='manual_journal'` with a zero `total_amount`) from the repaid sums in `fitBasisAgainst`, or better, derive principal repaid from the lender's own balance movement where a lender document exists. **The control is already known and measurable:** with it fixed, PayPal 2's net model must land within ~$21.66 of the books' $49,346.58 at 2026-08-31 — see cont. 9 for the full arithmetic. Do NOT 'fix' this by widening the fit tolerance.
+
 **37. 🔴 The browser harness cannot run on the machine that ships the dashboard (session 263 cont. 6).** `tests/bookkeeping-harness.mjs` loads `admin-dashboard/index.html` in headless Chromium and would have caught cont. 6's temporal-dead-zone crash in seconds. It cannot run: the device VM has no Playwright browser installed (`Executable doesn't exist at /opt/pw-browsers/...`), and the cloud container that HAS one does not have the repo. So every dashboard change this session shipped on source-text assertions alone — which proved the code was present and could not prove it ran, and a crash went out. Next step: install the browser on the device (`npx playwright install chromium`, one command, ~150MB) so the harness is runnable where the edits happen. Until then, treat any `index.html` change as unverified and lean on ordering/consistency lints, which are cheap and catch a real subset — see cont. 6 for the shape.
 
 **36. ✅ CLOSED — WAS NEVER TRUE (filed session 263 cont. 3, withdrawn cont. 7).** This item said seven active loans have no book-sourced balance, and warned that EIDL's newest book balance was 2024-03-31 so its verdict "speaks for 2024". Both statements were measured against `loan_statements` alone. **`loan_book_balances` holds a 2026-08-31 `xero_rebuild` balance for ALL FOURTEEN active loans, every one non-zero** — including EIDL. Nothing was missing; the query named the wrong table. cont. 7 added `_shared/book-balances.ts` as the single reader over both tables and wired it into `loan-bundle-plan` §5, `loan-bundle` and `reconciliation-run`, so the basis check and the books-vs-lender comparison now see these rows. **The verdicts do not move: #35 (missing contract terms, 13 of 14) is now the sole remaining blocker on `carrying_basis`, not one of two.** Standing lesson: before filing "we don't have X", check every table that could hold X.
@@ -3408,6 +3438,145 @@ now waits on terms alone.** That makes #35 the whole of the remaining work on
 item:** a measurement is only as good as the table it read. #36 was written with real SQL
 and a real count, and it was wrong in every particular, because the query named the wrong
 source. Before filing "we don't have X", check every table that could hold X.
+
+#### 13. (cont. 8) DAVID REFRAMES THE JOB: STOP REPORTING VARIANCES WE CANNOT YET JUSTIFY
+
+> **David:** "If my bookkeepers rely on end of month adjustments to clean up our accounts,
+> then perhaps that's what our focus should be on: providing the adjustments that bring
+> variances to $0. There's no need to show a 12,000 variance on Paypal if we know it will
+> probably be resolved when the statements are uploaded. Instead, only ONCE everything is in
+> (statements, loan agreement for new loans, amortization schedule for new loans), does the
+> system do its calculations. thoughts?"
+
+Two proposals in one message. **One was built; the other was argued against, and David agreed
+to hold it.** Recording both, because the one that was NOT built is the more important note.
+
+##### The half that was built: gate each check on the evidence IT consumes
+
+A variance measured against evidence we do not have is not a finding — it is a report about
+our own inbox with a dollar sign on it. `_shared/evidence-gate.ts` declares, per `check_key`,
+what that check actually consumes, and pauses only the checks whose inputs are missing.
+
+**Two design rules make a gate safe rather than merely quiet, and both are asserted:**
+
+1. **NOT CALCULATED IS A STATE, NOT A BLANK.** Every paused check is named on the loan with
+   the document that would start it. A gate that just hides things is worse than the noise it
+   removes: **noise is visible and silence is not.** `awaitingEvidenceFinding()` returns null
+   ONLY when nothing is paused.
+2. **PER CHECK, NEVER PER LOAN.** "The screen's own balances add up" needs one screenshot and
+   is valid alone; "does our balance match the lender's" needs a lender document. Gating the
+   first because the second is unsatisfiable throws away a free, correct answer.
+
+**And it FAILS OPEN.** A `check_key` absent from `CHECK_NEEDS` is never gated. An unregistered
+check that keeps running makes noise somebody notices and fixes; an unregistered check
+silently gated is a finding that disappears with nobody to miss it.
+
+##### The boundary that took a second pass, and would have caused a silent regression
+
+The first cut compared a document's date against the period's **END**. On an August close
+that rejects PayPal 2's own **5 August** statement as stale and silently pauses its balance
+check — a gate suppressing good evidence, which is the exact failure mode rule 1 exists to
+prevent. The boundary is the period's **FIRST day**: a document dated inside the month is
+evidence for that month and speaks as at its own date, which the tie-out already records.
+What must still be refused is a document from BEFORE the month — David's session 262 cont. 2
+rule. `tests/evidence-gate.test.mts` pins the 2026-08-05 case by name.
+
+##### The half that was NOT built, and why — read this before building it later
+
+**"Provide the adjustments that bring variances to $0" is, taken literally, a request for
+plugs, and this book already shows what that costs.** PayPal 2 carries seven month-end
+journals moving a net **$18,834.50** out of interest and into principal. They DID bring the
+account to a tidy figure every month. They also left `carrying_basis` unanswerable and are
+now actively corrupting the check that tries to answer it (§14).
+
+The line drawn, and David agreed: **the tool proposes an adjustment only when it can NAME the
+cause and SHOW the arithmetic.** The PCV case in session 222 is the good shape — payment
+posted gross 08-03, correcting journal 08-31, net −$5,335.52 exactly, therefore not a data
+error. That is a correcting entry. What must never exist is a "close the gap" button: a plug
+wearing a confident journal is harder to catch than an open variance.
+
+**The idea worth stealing from David's message**, not yet built: *"we know it will probably be
+resolved when the statements are uploaded"* — make the system SAY that as a prediction, name
+the document, and then CHECK it when the document lands. A variance we predicted would close
+and which then did not is a far stronger signal than either fact alone.
+
+##### Tests: 37 assertions, and four mutations to prove they discriminate
+
+Green is not the claim. Each was run against a deliberately broken gate:
+
+* gate FAILS CLOSED (unregistered check gated) → **2 red**
+* gate goes SILENT (paused checks emit no row) → **red**
+* staleness ignored (a July statement closes August) → **2 red**
+* a waiting row carries a dollar figure → **2 red**
+
+**Wired into nothing yet.** The module and its tests exist; `reconciliation-run` still calls
+every check ungated. That is deliberate — §14 arrived mid-build and outranks it.
+
+#### 14. (cont. 9) PAYPAL 2 IS ON NET PRINCIPAL, AGREES WITH THE LENDER TO $21.66 — AND I HAD IT BACKWARDS
+
+> **David:** "if they are reclassifying as gross, it could simply be because the fixed portion
+> was already allocated to interest expense at the start of the loan. Check this."
+
+The hypothesis is wrong, the instinct to check was right, and **checking it overturned a
+conclusion I had already given him.**
+
+##### What I said, and why it was wrong
+
+Reading the seven month-end journals — a net $18,834.50 moved from interest into principal,
+leaving $69.06 of interest standing against $129,758.98 of payments — I concluded the loan
+behaves as if every dollar reduces the balance, i.e. **gross payback**, and told David to
+chase the gross model's **$1,874.27** miss.
+
+**The arithmetic says the opposite, and it is not close:**
+
+| | |
+|---|---|
+| Lender's principal-only balance, 2026-08-05 | **$58,775.97** |
+| less principal on the three payments to 08-31 (3,135.43 + 3,150.32 + 3,165.30) | **−$9,451.05** |
+| Lender's principal, rolled to 2026-08-31 | **$49,324.92** |
+| Our books at 2026-08-31 (`loan_book_balances`, xero_rebuild) | **$49,346.58** |
+| **Difference** | **$21.66** |
+
+**The books track the lender's PRINCIPAL to twenty-one dollars.** That is `net_principal`,
+cleanly. The $1,874.27 was the miss on a model that does not apply to this loan, and chasing
+it would have been a day spent on a wild goose. **David called it off before it ran.**
+
+##### What the seven journals actually are — already in our own database since session 258
+
+No Xero call was needed; `loan_splits.review_notes` had it, including David's own diagnosis.
+The narrations are explicit: *"To record adjustment interest of Paypal Loan 2 to match end
+balance Jan 26"*, *"To reverse part of the adjustment from march"*, *"To reclass the payment
+made for paypal"*.
+
+**Root cause, recorded session 258:** PayPal's bank rule in Xero applied the auto-drafts
+**entirely to principal** (account 284) at the time of the draft; the CPA corrected the split
+by hand at month end, truing up to the lender's balance. Not a fee expensed at origination.
+
+**It is already fixed at source.** The note on the July entry records that pre-staged
+calculated splits went live **2026-08-25**, removing the root cause. July was the last one.
+
+So the answer to "policy or cleanup?" is **cleanup** — and the fix was the bank rule, not more
+true-ups. That is §13's argument, made by this loan's own history.
+
+##### The bug this exposes, and it is a live wrong answer on David's screen
+
+`fitBasisAgainst()` computes principal repaid by summing OUR `loan_splits`. Those rows include
+the seven true-ups, so roughly **$18,834.50 is counted twice** — once as the weekly split and
+again as the correction. The net model therefore predicts **$30,490.42** where the lender's own
+principal says ~**$49,325**, misses by $18,856.16, and the card reads *"the balance does not
+match any expected shape for this loan"* at severity **error**.
+
+**A correction is not a payment.** The check is treating a reclassification journal — which
+moves money BETWEEN two accounts and repays nothing — as if it reduced the loan. Filed as
+**Tech Debt #38**, and it is the first thing to fix: it is not noise, it is a wrong answer.
+
+##### Not checked, and saying so
+
+Xero could not be read: the daily cap was **exhausted, 0 of 1,000 remaining**, ~769 minutes to
+reset (`xero-rate-probe`, 2026-09-03 02:50 UTC). The origination entry itself was therefore
+**never looked at**. The conclusion above rests on our own database and on arithmetic against
+the lender's stated balances, which is sufficient for the basis question but is NOT a visual
+confirmation of how the fee was booked on day one. If that matters later, it is one call.
 
 #### Verification
 
