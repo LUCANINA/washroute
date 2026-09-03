@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
 
 // Retroactively fixes a Stripe payout that was already posted to Xero as a single
 // lumped line (e.g. every July 2026 payout, posted before the categorized
@@ -109,6 +110,11 @@ async function classifyPayout(payout: any) {
 
   const buckets: Record<string, any> = {}
   for (const key of Object.keys(CATS)) buckets[key] = emptyBucket()
+  // Session 266: this function carries its own copy of classifyPayout, and that
+  // copy had no override lookup — so it refused the very payout the sync's fix had
+  // just unblocked. Imported, not copied; see _shared/txn-overrides.ts.
+  const txnOverrides = await loadTxnOverrides(supabase)
+  const overridesApplied: any[] = []
   buckets.unclassified = emptyBucket()
   const unclassifiedDetail: any[] = []
   const nonRevenue: Record<string, any> = {}
@@ -156,6 +162,14 @@ async function classifyPayout(payout: any) {
     creditsTotalCents += creditCents
     discountsTotalCents += discountCents
     const grossUpCents = creditCents + discountCents
+
+    {
+      const ovr = applyTxnOverride(txnOverrides, bt.id, category, splitOverride, buckets)
+      if (ovr.applied) {
+        category = ovr.category
+        overridesApplied.push({ id: bt.id, amount: bt.amount, bucket: ovr.applied.bucket, reason: ovr.applied.reason })
+      }
+    }
 
     if (splitOverride) {
       splitOverride.forEach(({ cat, fraction }) => { buckets[cat].gross += (bt.amount + grossUpCents) * fraction; buckets[cat].fee += bt.fee * fraction; buckets[cat].net += bt.net * fraction; buckets[cat].count += fraction })

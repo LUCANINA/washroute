@@ -19907,7 +19907,30 @@
     // 100+ Stripe calls and legitimately outlives _loanFn's 25s default.
     const r = await _loanFn('xero-payout-reallocate', { payout_id: payoutId }, 180000);
     if (!r.ok || r.data.error) {
-      body.innerHTML = `<div style="padding:20px;font-size:13px;color:var(--gray-700)"><div style="font-weight:600;margin-bottom:6px">Cannot prepare this journal</div><div>${esc(r.data && r.data.error || 'Unknown error')}</div></div>`;
+      // The function answers a refusal with error:'blocked' and the ACTUAL reason
+      // in blocked_reason, plus a list naming the transactions it could not place.
+      // Rendering only `error` showed the reader the single word "blocked", which
+      // is a refusal with the evidence removed — the exact thing this module's
+      // copy rules forbid. Show the reason, and name what it could not place.
+      const d = r.data || {};
+      const why = d.blocked_reason || d.error || 'Unknown error';
+      const unplaced = Array.isArray(d.unclassified_detail) ? d.unclassified_detail : [];
+      const excluded = Array.isArray(d.excluded_non_live) ? d.excluded_non_live : [];
+      const dupes = Array.isArray(d.existing_journals) ? d.existing_journals : [];
+      body.innerHTML = `
+        <div style="padding:20px;font-size:13px;color:var(--gray-700)">
+          <div style="font-weight:600;margin-bottom:6px">Cannot prepare this journal</div>
+          <div>${esc(why)}</div>
+          ${unplaced.length ? `<div style="margin-top:12px"><div style="font-weight:600;font-size:12.5px;margin-bottom:4px">Could not be classified</div>${
+            unplaced.map((u) => `<div style="font-size:12px;color:var(--gray-600)">$${(Number(u.amount || 0) / 100).toFixed(2)} — ${esc(u.reason || '')}<div class="td-mono" style="font-size:11px;color:var(--gray-400)">${esc(u.id || '')}</div></div>`).join('')
+          }</div>` : ''}
+          ${excluded.length ? `<div style="margin-top:12px"><div style="font-weight:600;font-size:12.5px;margin-bottom:4px">Matching transactions that are not live</div>${
+            excluded.map((c) => `<div style="font-size:12px;color:var(--gray-600)">${esc(c.status || '')} — <span class="td-mono">${esc(c.id || '')}</span></div>`).join('')
+          }</div>` : ''}
+          ${dupes.length ? `<div style="margin-top:12px"><div style="font-weight:600;font-size:12.5px;margin-bottom:4px">Journal already in Xero</div>${
+            dupes.map((j) => `<div style="font-size:12px;color:var(--gray-600)">${esc(j.date || '')} — <span class="td-mono">${esc(j.id || '')}</span></div>`).join('')
+          }</div>` : ''}
+        </div>`;
       return;
     }
     const lines = (r.data.proposed_journal && r.data.proposed_journal.JournalLines) || [];

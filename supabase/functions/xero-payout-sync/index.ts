@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { classifyPrecheckFailure, nextRetryAt } from '../_shared/payout-retry.ts'
 import { rechain, toCents, fromCents, type ChainEntry } from '../_shared/balance-rechain.ts'
+import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-06-20',
@@ -126,11 +127,7 @@ async function classifyPayout(payout: any) {
   // Loaded once per payout rather than per transaction: this is a small table and
   // the classifier is already making 100+ Stripe calls, which is the budget that
   // actually matters here.
-  const { data: overrideRows } = await supabase
-    .from('stripe_txn_overrides')
-    .select('stripe_balance_transaction_id, bucket, reason')
-  const txnOverrides = new Map<string, { bucket: string; reason: string }>(
-    (overrideRows || []).map((r: any) => [r.stripe_balance_transaction_id, { bucket: r.bucket, reason: r.reason }]))
+  const txnOverrides = await loadTxnOverrides(supabase)
   const overridesApplied: any[] = []
 
   const buckets: Record<string, any> = {}
@@ -236,11 +233,11 @@ async function classifyPayout(payout: any) {
     // identified correctly, which is a different and much worse tool than the one
     // this is meant to be. The `category === 'unclassified' && !splitOverride`
     // guard is the whole safety property; do not relax it.
-    if (category === 'unclassified' && !splitOverride) {
-      const ov = txnOverrides.get(bt.id)
-      if (ov && Object.prototype.hasOwnProperty.call(buckets, ov.bucket)) {
-        category = ov.bucket
-        overridesApplied.push({ id: bt.id, chargeId: charge.id, amount: bt.amount, bucket: ov.bucket, reason: ov.reason })
+    {
+      const ovr = applyTxnOverride(txnOverrides, bt.id, category, splitOverride, buckets)
+      if (ovr.applied) {
+        category = ovr.category
+        overridesApplied.push({ id: bt.id, chargeId: charge.id, amount: bt.amount, bucket: ovr.applied.bucket, reason: ovr.applied.reason })
       }
     }
 
