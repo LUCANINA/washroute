@@ -48,9 +48,13 @@
 > `xero-read bank_transactions` call on the date and amount. Our own records and the
 > function's own guard are not the same thing as looking.
 >
-> ⚠️ **STILL OPEN: `xero-payout-sync` does not do this check.** David chose it ("check the
-> account first — refuse rather than post alongside") and it is NOT built. Until it is, the
-> only thing standing between a historical catch-up and a second double-post is remembering.
+> ✅ **BUILT, same session.** `xero-payout-sync` now searches the bank account for a live
+> transaction at that date and amount REGARDLESS OF REFERENCE and refuses rather than posting
+> beside it, naming the deposit and pointing at `xero-payout-reallocate`. **force does not
+> bypass it** and a failed lookup refuses. The decision is `_shared/existing-deposit.ts`
+> (pure, so it is testable at all) with `tests/existing-deposit.test.mts` — 17 assertions,
+> every rejection paired with one proving it discriminates. ⚠️ **Verify it is DEPLOYED before
+> trusting this bullet** — that is what this block keeps getting wrong.
 >
 > ### ⚠️ THE OTHER TRAP THIS SESSION FOUND, and it is not about payouts
 >
@@ -69,12 +73,9 @@
 >
 > ### 🌅 NEXT — in this order
 >
-> **0. 🔴 BUILD THE PRE-POST ACCOUNT CHECK IN `xero-payout-sync`.** David asked for it, it is
->    the direct root-cause fix for the double-post above, and it is the one item on this list
->    whose absence can lose money rather than time. Before posting, look for an existing
->    transaction at that date and amount on the bank account REGARDLESS OF REFERENCE, and
->    refuse rather than posting alongside it. Reference-matching is not enough and that is
->    precisely what was proven today.
+> **0. ✅ DONE — the pre-post account check is built and tested** (see above). What is left is
+>    to CONFIRM IT RUNS: post a historical payout that already has a feed deposit and check it
+>    refuses. Nothing in the suite can prove the deployed function calls the predicate.
 >
 > **1. 🟠 `stripe-terminal` never writes its PaymentIntent back to an order.** The
 >    `charge_reader` action creates a PI with description "WashRoute POS sale" and nothing links
@@ -2167,6 +2168,37 @@ other work. **All ten department accounts tie to the source data exactly, to the
 * **Nothing in the product performs the check this session performed by hand.** Payroll
   reports that it posted; no surface asks whether it is still right afterwards. Under the
   scope reduction that is a kind-2 row waiting to exist, not a new tab.
+
+#### Addendum — the 2026-08-21 payroll block, and two more `xero-read` quirks
+
+`payroll-xero-post` **does** carry the balance gate (line ~328, a hard 409 on confirm) — an
+earlier claim this session that it was advisory came from reading only the first 275 lines of
+the function. *Absence read off a partial file is not absence.*
+
+**Why 08-21 is blocked:** the gate calls `getAccountAvailableBalance`, which reads Xero's
+**TrialBalance report dated today** and takes `ytdDebit − ytdCredit`. Account **171 Direct
+Payroll Taxes is at −$955.80** and the period needs $639.18, hence "short $1,594.98". 170 is
+fine ($46,321.79 against $20,859.62).
+
+171 is a CLEARING account: the EDD remittance debits it, the payroll allocation credits it.
+Posted journals credit it **$6,217.30** across Jul–Aug (`−803.49`, `−3,661.72` catch-up,
+`−1,120.51`, `−3.50`, `−628.08`), so YTD debits are only **$5,261.50**. Roughly **$955.80 of
+employee CA tax has been allocated out of 171 that was never remitted into it** — and 08-21's
+own $639.18 is not yet allocated, so the true gap on posted periods is at least that. Given the
+`668-MISROUTE-FIX` precedent (a bank rule coding Square drafts to the wrong account), a
+miscoded or missing EDD remittance is the first thing to suspect. **Not resolved.**
+
+⚠️ **`Reference.Contains(...)` is rejected on BankTransactions — 400 `QueryParseException`,
+ErrorNumber 16.** Same shape as the already-documented `Contact.Name.Contains` refusal, but
+`xero-read`'s own `buildWhere` still offers it for that mode, so it fails only at Xero. Filter
+bank transactions by AMOUNT or date.
+
+⚠️ **`with_lines` silently under-delivers at scale and the number to read is `not_attempted`.**
+A 2.5-month BankTransactions pull returned `count: 708` with **`not_attempted: 633`** — lines
+fetched for 75. A ManualJournals pull returned `count: 120, not_attempted: 45` AND omitted all
+four August payroll journals outright. A first net built on that set showed six-figure
+shortfalls on every account and was entirely an artifact of the missing rows. **Narrow the
+window until `not_attempted` is 0 before netting anything.**
 
 ### Session 265 (2026-09-03) — THE TEST SUITE COULD NOT SEE THE ROWS IT WAS TESTING, AND TWO SURFACES WERE ELEVEN APART
 
