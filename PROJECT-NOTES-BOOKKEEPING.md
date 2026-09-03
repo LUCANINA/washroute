@@ -1,6 +1,24 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 266, 2026-09-03 18:05 UTC)
+> ## ⏭️ START HERE — first thing, next session (left by session 267, 2026-09-03 20:35 UTC)
+>
+> ### 🔴 ONE THING IS WAITING ON A HUMAN IN XERO — $1,752.09
+>
+> Post this manual journal, dated **2026-08-31**, and 171's negative balance is gone:
+> **DEBIT 171 Direct Payroll Taxes $1,752.09 / CREDIT 170 Direct Wages $1,752.09.** It moves
+> the Aug 7 / 11 / 14 payroll credits out of 171 and into 170, where their EDD remittances
+> actually landed. Leaves 171 at **+$796.29**, which is the Feb 2026 EDD payment ($796.15) plus
+> 14¢ of IRS-refund rounding — both pre-system, both Ramona's call. **DO NOT also "fix" July:
+> it nets to exactly zero and is correct as it stands.** Full reasoning: session 267 log.
+>
+> Payroll itself is unblocked and PROVEN live — 2026-08-21 posted at 20:26 UTC as journal
+> `85b8abf8`, one credit to 170, no 171 line. **`payroll-xero-post` v23 (`verify_jwt: true`)
+> and `payroll-check-attention` v5 (`verify_jwt: false`) — the two flags DIFFER, do not deploy
+> them alike.** Commit `60f181f`, **not yet pushed** — David pushes from his own terminal.
+> The 2026-08-28 payroll has still never been imported.
+>
+> **Everything below this line was left by session 266 (18:05 UTC) and is still current
+> unless session 267 contradicted it.**
 >
 > **This block is rewritten at the END of every session. Its deploy claim has been wrong on
 > and off for a week. Everything below was measured at the time stamped above — including,
@@ -2249,6 +2267,52 @@ on David's machine**, `supabase login` is interactive.
 deposit, Apr 2026"*). Federal money in the California clearing account. The legacy-171 notice
 now names it explicitly. It is dormant while 171 is negative; reclassify it and 171 goes to
 **+$3,637.14** and the notice fires — which is correct, not a regression.
+
+#### LIVE PROOF, and the one journal that still has to be posted by hand
+
+**The 2026-08-21 payroll posted at 20:26 UTC under v21 — Xero Manual Journal
+`85b8abf8-2348-4865-99ac-e6529beeb86a`, read back from Xero, not assumed.** ONE credit line,
+`170 -$21,498.80`, described *"Payroll cash draw (net pay + EE fed + EE CA + ER tax)"*, and **no
+171 line at all**. Debits foot to $22,090.89 against credits of $22,090.89. This is the
+behavioural proof the version number could not give.
+
+##### WHAT 171 HOLDS — the standing answer, so nobody re-derives it
+
+August's first three payrolls posted under the OLD model: they credited 171 while their EDD
+cash was landing in 170. Those three credits are simply in the wrong account.
+
+| Aug 7 | $1,120.51 |
+| Aug 11 | $3.50 |
+| Aug 14 | $628.08 |
+| **Total** | **$1,752.09** |
+
+**The remediation is ONE journal, two lines, and it is a human posting it in Xero — not a new
+edge function.** A one-time correction of three rows does not earn a `payroll-fix-*` function;
+that is the LESS IS BEST default answer applied to code we were about to write.
+
+> **DEBIT** 171 Direct Payroll Taxes **$1,752.09**
+> **CREDIT** 170 Direct Wages **$1,752.09**
+> *Reallocate the Aug 7 / 11 / 14 payroll credits from 171 to 170, where the matching EDD
+> remittances were actually coded.* Date **2026-08-31** — August is open (`books_closed_through`
+> = 2026-06-30, Xero carries no lock date).
+
+**After it, 171 sits at +$796.29 and that figure is exactly two things:**
+
+* **$796.15** — the 2026-02-06 EDD payment, never allocated out. Predates this system.
+* **$0.14** — the 2026-02-06 IRS payment ($4,593.08) less its August refund ($4,592.94).
+
+Check: `4,593.08 + 796.15 - 4,592.94 = 796.29`. Neither will ever be cleared by a payroll
+period, which is precisely what the legacy-171 notice is for. **Ramona decides**; do not clear
+either from this system.
+
+⚠️ **LEAVE JULY ALONE.** It is the tempting second half of this fix and it would break
+something correct. In July the EDD payments WERE coded to 171 and the allocations credited 171
+— **$4,465.21 in, $4,465.21 out, netting to exactly zero.** July was internally consistent
+under the old model. Only August straddles the change.
+
+**Watch after the correction:** 170 lands near $23,071, and the **2026-08-28 period is still not
+imported** — it will want roughly $21,500. Its own EDD ($655.16) and IRS ($4,230.38) payments
+have already landed in 170, so it should clear, but with less headroom than usual.
 
 ### Session 265 (2026-09-03) — THE TEST SUITE COULD NOT SEE THE ROWS IT WAS TESTING, AND TWO SURFACES WERE ELEVEN APART
 
