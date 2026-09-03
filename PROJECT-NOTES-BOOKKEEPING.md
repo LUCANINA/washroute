@@ -1,74 +1,70 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 265, 2026-09-03 16:10 UTC)
+> ## ⏭️ START HERE — first thing, next session (left by session 266, 2026-09-03 18:05 UTC)
 >
-> **This block is rewritten at the END of every session. Its deploy claim has been wrong
-> five days running — twice by saying "not deployed" about something live, once by saying
-> "live" about a function that had never booted. Everything below was measured at the time
-> stamped above. Re-measure rather than trusting it.**
+> **This block is rewritten at the END of every session. Its deploy claim has been wrong on
+> and off for a week. Everything below was measured at the time stamped above — including,
+> this time, by READING THE DEPLOYED SOURCE rather than trusting a version number.**
 >
-> ### 🔴 DO THIS FIRST — the module is reading yesterday evening's answers
+> ### ✅ RESOLVED since session 265 — do not re-do these
 >
-> **No reconciliation run has COMPLETED since 2026-09-02 20:51 UTC.** Every variance, every
-> close-gate verdict and every Issues row currently on screen predates both session 264's and
-> session 265's changes. The function itself is healthy again — a `net.http_post` probe
-> returns a clean **403 "Not authorized"** rather than the 503-on-preflight that the
-> never-booting v64 gave — but **there is no cron for `reconciliation-run`** (`cron.job` has
-> only `wr-loan-attribution`, `20 */6 * * *`), so it runs only when someone presses **Check**.
-> Press it, then confirm a `reconciliation_runs` row appears with `finished_at` set. See Tech
-> Debt #41, which also covers the three dead runs stuck in `running`.
+> * **Reconciliation is CURRENT.** Session 265's red "nothing has RECONCILED since 2026-09-02"
+>   is stale. Three runs completed today (17:11, 17:43 and **17:58 UTC**), the last one AFTER
+>   this session's Xero post, so every verdict on screen reflects the corrected books. There is
+>   still no cron for `reconciliation-run` (Tech Debt #41 stands) — it ran because someone
+>   pressed Check.
+> * **July's P&L ties to Stripe.** See the session 266 log entry. 403 Delivery - Wash & Fold was
+>   overstated by $690.73 and the Stripe Capital chain was missing a link.
 >
-> ### Deploy / push state — MEASURED, not assumed
+> ### Deploy / push state — MEASURED, and for once measured properly
 >
-> * **Session 265 changed only `admin-dashboard/index.html` and `tests/`. Nothing to deploy**
->   — no edge function was touched. Two local commits, `2adbce8` and `b6208c6`.
-> * ⚠️ **NOT PUSHED.** This sandbox has no network; `git push` from David's own Terminal.
->   `d585116` (another session's reconciliation-run boot fix) is also unpushed.
-> * **`reconciliation-run` boots** — checked functionally, above, not by version number.
-> * **Session 264's `_shared/carrying-basis-drift.ts` fix:** `loan-bundle` v50 (13:52 UTC) and
->   `reconciliation-run` v66 (14:44 UTC) both deployed after commit `833f7a2` (04:40 UTC), so
->   the code should be there — **but this session did NOT verify it functionally** and a
->   version number is precisely the coincidence this file keeps being burned by. The check is
->   one line: PayPal 2's basis card must show the net model at **$49,324.92**, not $30,490.42.
->   Do that before believing this bullet.
-> * **Another session was live in this repo today** and its uncommitted notes edits were merged
->   into this file rather than overwritten. `git log` and `git status` before assuming the tree
->   is yours. `supabase/functions/_shared/xero-meter.ts` is still untracked and is NOT session
->   265's — leave it alone.
+> * **`xero-payout-sync` v22, `xero-payout-watchdog` v5, `xero-payout-coverage` v2** — all three
+>   verified by `get_edge_function` and reading the returned SOURCE for the specific session-266
+>   lines, not by comparing timestamps. The `not_applicable` guard was verified this way ON
+>   PURPOSE: the only behavioural test for it is to re-run the $125,000 drawdown, and if the
+>   guard were absent that test would post $125,000 of invented revenue. **Do not "just try it".**
+> * `xero-payout-coverage` and `xero-payout-sync` are `verify_jwt: false` and MUST keep
+>   `--no-verify-jwt`. `xero-payout-watchdog` is `verify_jwt: true` and must NOT get the flag.
+> * Commits `f18f155`, `8d9a8ff`, `739d5c1`. **David pushed mid-session**; check `git status`
+>   before assuming anything is unpushed.
+> * Migrations applied: `session_266_stripe_txn_overrides`,
+>   `session_266_stripe_txn_overrides_revoke_anon`,
+>   `session_266_payout_sync_not_applicable_status`.
+> * New cron **`wr-xero-payout-coverage`, `30 15 * * *`** (08:30 Pacific), jobid 26. Its exact
+>   payload was fired manually once and returned 200 with the default 45-day window — the job
+>   is proven, not assumed.
 >
-> ### Suite — and the one thing that changed about how it is run
+> ### ⚠️ THE TRAP THIS SESSION FOUND, and it is not about payouts
 >
-> **Browser harness: 1,654 assertions, 1,653 passing.** The single red is `[history] s240 #10`,
-> self-labelled REPORTED and red ON PURPOSE — it is where Tech Debt #19 is written down, and
-> tuning it green deletes the only record of that finding. **Any other red is a real failure.**
-> **Node suites: 1,127 assertions across 18 files, 0 red** (`loan-bundle.test.mts` still cannot
-> import `pdfjs-dist` here — pre-existing, unrelated).
+> **A `dry_run` writes nothing — including no record that a decision is pending.** The 22 July
+> payout was BLOCKED by a correct safety check (one unclassifiable $18.27 charge). Whoever ran
+> the 4 August catch-up found that with `dry_run=true`, skipped it, and moved on. Because the
+> dry-run path returns before `processPayout` ever claims a row, the refusal left **no trace
+> anywhere**: no row, no status, no error. A payout blocked for a real reason became
+> indistinguishable from one nobody had looked at, and stayed that way for six weeks.
 >
-> ✅ **THE HARNESS NOW RUNS ON DAVID'S MACHINE (Tech Debt #37 closed).** Use
-> `bash tests/run-harness.sh` — never `node tests/bookkeeping-harness.mjs` directly, which
-> cannot find a browser. ⚠️ **The browser lives under `$HOME`, a per-session sandbox, so your
-> session almost certainly starts without it**; the script prints the exact recovery commands
-> and it takes about a minute. Do not try `npx playwright install chromium` — **it hangs at 0%
-> on that VM** though the network is fine. A full sweep exceeds one `device_bash` call's time
-> budget: run it in two halves by group name from `--list`.
->
-> 🧊 **THERE ARE TWO FIXTURES NOW.** `bookkeeping-fixture.json` is live and moves with every
-> refresh; `bookkeeping-fixture-2026-07.json` is **frozen at 2026-08-28** and the harness throws
-> if its `pulled_at` changes. Six groups declare `fixture: 'july'` because their subject is the
-> JULY close, whose figures were verified once against Xero and real lender documents —
-> re-pinning them to today would turn a test into a transcript. Refresh the live one with
-> `node tests/refresh-bookkeeping-fixture.mjs` (see Tech Debt #40 for the side-car it needs).
+> `xero-payout-watchdog` could never have caught it — it reads `xero_payout_syncs` and asks
+> which rows are stuck. **A payout with no row is invisible to it, permanently.** That is the
+> hole `xero-payout-coverage` exists to close, and the general lesson is worth more than the
+> function: *an alarm that inspects our own records can only ever find problems our records
+> know about.* Ask the outside system what it thinks happened.
 >
 > ### 🌅 NEXT — in this order
 >
-> **1. 🔴 Press Check and get a current reconciliation run** (above / Tech Debt #41), then
->    decide about the three dead `running` rows and whether this belongs on a cron.
+> **1. 🟠 `stripe-terminal` never writes its PaymentIntent back to an order.** The
+>    `charge_reader` action creates a PI with description "WashRoute POS sale" and nothing links
+>    it to anything. Every card sale typed straight into the reader therefore lands in
+>    `unclassified` and can block a whole payout until a human classifies it.
+>    `stripe_txn_overrides` makes that survivable, not fixed — it is a manual answer to a
+>    question that should not be asked. **This is the root-cause fix and it is not done.**
+>    ⚠️ Note the near-miss when investigating: walk-in order #10329 is also exactly $18.27 on
+>    18 July and is NOT the charge — it was paid CASH. Amount matching is not evidence.
 >
-> **2. ❓ ONE DECISION, carried over from session 264 and still unanswered.** PayPal 2's basis
->    card misses by **$21.66** against a fit tolerance of **$1.00**, so it reads `fits_neither`
->    at severity **ERROR** — a true sentence at a severity that trains a bookkeeper to ignore
->    the card. The answer is a **materiality band** (a percentage-of-balance floor beside the
->    absolute one), **never a wider tolerance**. Ask David before building it.
+> **2. ❓ ONE DECISION, carried from sessions 264 and 265 and still unanswered.** PayPal 2's
+>    basis card misses by **$21.66** against a fit tolerance of **$1.00**, so it reads
+>    `fits_neither` at severity **ERROR** — a true sentence at a severity that trains a
+>    bookkeeper to ignore the card. The answer is a **materiality band** (a percentage-of-balance
+>    floor beside the absolute one), **never a wider tolerance**. Ask David before building it.
 >
 > **3. 🟠 WIRE `_shared/evidence-gate.ts` into `reconciliation-run`.** Built and green in
 >    session 263 cont. 8 (37 assertions, 4 mutations proven red), **wired into nothing.** Build
@@ -78,24 +74,29 @@
 >    `awaitingEvidenceFinding()` once per loan. **The existing silent `if (haveCheckpoint)` skip
 >    on `derived_drift` is exactly the blank this replaces — make it visible, do not leave
 >    both.** Wire EVERY consumer in one change; session 263 made the
->    stop-at-the-first-consumer mistake five times. ⚠️ **Read session 265 §5 first:** it is the
->    same question this gate answers, and the answer there was that *what makes a gap
->    unevaluable is its anchor, not the calendar*. A gate keyed on `coversFrom` alone would
->    reintroduce exactly the eleven-to-one disagreement that was just removed.
+>    stop-at-the-first-consumer mistake five times. ⚠️ **Read session 265 §5 first:** a gate
+>    keyed on `coversFrom` alone would reintroduce the eleven-to-one disagreement just removed.
 >
 > **4. 🟠 TECH DEBT #35 — thirteen of fourteen active loans have NO `loan_contract_terms`.**
->    Untouched this session; it was the planned third item and was displaced by #32 turning out
->    to be a live defect. Still the sole remaining blocker on `carrying_basis`.
+>    Untouched for two sessions now. Still the sole remaining blocker on `carrying_basis`.
 >
 > **5. 🟡 What is left of #32:** the `unverified` population — loans whose balance nothing
 >    outside our books has confirmed — reaches NEITHER the Issues table nor the client
 >    checklist. Nobody is being asked for the statement that would make those real checks.
+>
+> **6. 🟡 Tech Debt #41:** no cron for `reconciliation-run`, plus three dead runs stuck in
+>    `running`. Untouched this session.
 >
 > ### 📋 The real books, measured 2026-09-03
 >
 > **August cannot be closed: 10 of 11 expected statements are in and analysed, and BayFirst
 > SBA 2 is the one outstanding.** Dexter 2 and Verdant are exempt by recorded policy and are
 > named rather than dropped from the denominator. This needs a document, not code.
+>
+> **`books_closed_through` = 2026-06-30, `xero_period_lock_date` = NULL.** July and August are
+> both open, which is why this session's 22 July post was permitted. **If David mentions the CPA
+> or month-end, ask whether Xero's lock date is being set yet** — a manual field that goes stale
+> is worse than none.
 >
 > 🔧 **OPERATIONAL — `git` from the sandbox leaves a lock file every time; use
 > `--no-optional-locks` for reads.** The device mount refuses `unlink`, so every git command
@@ -110,6 +111,11 @@
 > ⚠️ **`git checkout -- <file>` FAILS on this mount** ("unable to unlink old ...") and can leave
 > the file in a half-restored state. To restore a file, `git show HEAD:<path>` to a temp file and
 > write it back with python, which truncates in place instead of unlinking.
+>
+> ⚠️ **Backticks in a `git commit -m "..."` string are COMMAND-SUBSTITUTED by the shell** and
+> silently eat the word between them — session 266 lost `` `outstanding` `` from a commit
+> message that way and had to `--amend -F` from a file. **Write any commit message containing
+> backticks to a file and use `-F`.**
 >
 > 🔒 **STANDING RULE (session 262 cont. 3, David) — THE CLOSE GATE.** *The month cannot be
 > closed without all relevant statements uploaded AND analysed against Xero.* Loans closing on a
@@ -6728,6 +6734,140 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 266 (2026-09-03) — A DRY RUN LEAVES NO TRACE, AND THAT IS HOW $10,630 SAT UNBOOKED FOR SIX WEEKS
+
+**Trigger.** David: *"Our stripe payout report does not sync with our July P&L. It seems like
+the automated stripe payout splits may not have been working properly until August."* He
+supplied a Xero account-transaction export for **403 Delivery - Wash & Fold** (July, cash
+basis) and Stripe's **July Balance Summary** PDF.
+
+**The arithmetic, first, because it settles the scope in one line.** The 403 report showed 23
+bank deposits ($157,028.46) and 22 reallocation journals (netting −$13,571.84), leaving
+$143,456.62. The 22 payouts that HAD been processed carry a combined Delivery gross of
+$132,826.57 in `xero_payout_syncs.category_breakdown`. The difference is **$10,630.05 — the
+22 July payout, to the cent**, sitting in 403 whole and unsplit. Every other journal had posted
+exactly as computed. One payout, not a systemic split failure.
+
+**My first root-cause was WRONG and worth recording as such.** July predates the payout→Xero
+sync entirely (it shipped 2026-08-03, session 199) and was caught up by hand on 4 August as 23
+individual `?payout_id=` calls, newest-first — the row `created_at` timestamps run 19:35→19:44
+UTC in reverse date order and step straight from 7/23 to 7/21. I concluded a hand-typed list had
+dropped an entry. **The dry run disproved that.** The payout was ACTIVELY REFUSED:
+`blocked_reason: "1 unclassified transactions need manual review"`. One $18.27 charge described
+"WashRoute POS sale" had no matching WashRoute order, so `buildPlan`'s safety check refused to
+post a bank transaction that would not balance. The system behaved correctly.
+
+#### 🔑 THE REAL LESSON — A DRY RUN IS A DECISION WITH NO RECORD
+
+`xero-payout-sync`'s `dry_run=true` path returns **before `processPayout` ever claims a row**.
+So when the 4 August operator checked this payout, saw it blocked, and moved on, the refusal
+left no trace anywhere: no `xero_payout_syncs` row, no status, no error, nothing. **A payout
+blocked for a real reason became indistinguishable from a payout nobody had ever looked at.**
+
+And `xero-payout-watchdog` — a good alarm, built in session 207 for exactly this family of
+problem — could never have found it. It reads `xero_payout_syncs` and asks which rows are stuck
+or failed. **A payout with no row is invisible to it, permanently.** Detecting a stuck record
+and detecting an ABSENT one are different questions, and only the outside system can answer the
+second.
+
+> **The generalisable rule: an alarm that inspects our own records can only find problems our
+> records already know about. To find what is missing, ask the outside system what it thinks
+> happened, and diff.**
+
+`xero-payout-coverage` (new, read-only by construction — no Xero import, no write branch on
+`xero_payout_syncs`, no call to the sync) lists Stripe's payouts for a window and diffs them
+against our rows. Cron `wr-xero-payout-coverage`, `30 15 * * *`.
+
+#### What the coverage check found on its FIRST run — 6 payouts, and only one was the bug
+
+| Payout | Amount | Verdict |
+|---|---|---|
+| 2026-07-22 | $10,630.05 | the actual gap — booked this session |
+| 2026-07-01 | **$125,000.00** | Stripe Capital DRAWDOWN, already correct in Xero |
+| 4 × late June | ~$24k | predate the sync; June is CLOSED |
+
+**The $125,000 taught the more interesting lesson.** Verified via `xero-read payment_picture`:
+an AUTHORISED, reconciled RECEIVE dated 2026-07-01, contact "Stripe Capital"
+(`6ba892fa-c8f1-47bc-afe2-3d9b738e37b7`); a second same-date same-amount candidate
+(`442354f1`) is DELETED and is not it. Loan proceeds, not revenue, nothing to split.
+
+But **recording that fact opened a duplicate hazard that had to be closed in the same change.**
+The sync's idempotency pre-check searches Xero for Reference `Stripe payout <id>`, and a
+hand-booked drawdown carries no such reference. A re-run would have found nothing, concluded
+the payout was never posted, and created **$125,000 of invented revenue on top of a correct loan
+advance**. `processPayout` now refuses a `not_applicable` row as firmly as a `posted` one — that
+status is the only thing standing in the way. **It is load-bearing code, not a label.**
+
+⚠️ **This is also why the guard was verified by READING THE DEPLOYED SOURCE.** The only
+behavioural test for it is to re-run the $125,000 payout, and if the guard were missing, the
+test would BE the disaster. `get_edge_function` + read is the right tool when the failure mode
+of the probe is the thing you are probing for. Do not "just try it".
+
+The four June payouts drove the other half: **the close date now gates the ALERT, not the
+report.** They will never be booked (June is closed) and texting about them daily is precisely
+how an alarm becomes wallpaper — session 230's rule, which was written about proposals, and an
+alert is a proposal with a phone number. They stay listed, counted and named;
+`missing_in_closed_period` is its own field so the denominator does not quietly shrink.
+
+#### The $18.27, and a near-miss worth recording
+
+`stripe-terminal`'s `charge_reader` action creates a PaymentIntent with description "WashRoute
+POS sale" and **nothing ever writes it back to an order**. So a card sale typed straight into
+the reader is unclassifiable by construction.
+
+⚠️ **I nearly pinned it to walk-in order #10329 — also exactly $18.27, 18 July, same window.
+That order was paid CASH.** Amount matching is not evidence; the `billing_payment_method` check
+is what caught it. Session 247's netting is admissible only because the pairing is same-loan
+same-month exact-to-the-cent AND documented mechanics; this had neither.
+
+David classified it as **404 Retail - Wash & Fold** ($16.50 + 10.75% tax = $18.27; taxable means
+retail goods on this chart of accounts). New table `stripe_txn_overrides` records one row per
+human classification **with a mandatory reason**, and `classifyPayout` consults it ONLY where
+`category === 'unclassified' && !splitOverride`. **An override may ANSWER an unanswered question
+and may never contradict a successful match — that guard is the entire safety property.**
+`overridesApplied` rides into `category_breakdown` on every path, so a posted payout carries the
+record of the human decision that let it post.
+
+#### Two allowlists, both behaving correctly, one of which did not exist
+
+`method` is CHECK-constrained and refused both a made-up value AND a NULL when I tried to record
+the drawdown. **That is the fail-safe direction working**, so it was WIDENED deliberately rather
+than dropped or made nullable — a payout settled by human judgement does have a method, and
+naming it beats a NULL that reads as "unknown". Meanwhile `status` had **no allowlist at all**,
+which is how `not_applicable` was accepted unchallenged; it has one now, so the next new state
+has to be a decision. Same reasoning as `_VARIANCE_REAL_ANCHORS`.
+
+Also: `stripe_txn_overrides` came back with FULL anon privileges despite the migration granting
+only `authenticated`/`service_role` — this project's `public` schema still carries default ACLs
+until the 2026-10-30 cutover, and they apply at CREATE time regardless of what the migration
+asks for. RLS was already the real boundary (the probe returned `[]`, not rows), but a table
+whose grants say "anon may DELETE" is one policy mistake from meaning it.
+`session_266_stripe_txn_overrides_revoke_anon` fixes it. **Check grants after every CREATE TABLE
+until the cutover; the GRANT in the migration is not the last word.**
+
+#### What actually changed in the books
+
+* Xero bank transaction **`633d4439-f389-48bd-ae0e-634b263bbb3e`**, dated 2026-07-22, ten line
+  items totalling **$10,630.05** — the payout to the cent, nothing unclassified.
+* **403 Delivery - Wash & Fold, July: $143,456.62 → $142,765.89.** It had been overstated by
+  $690.73 (gross payout instead of delivery share). 404, 405, 401, 461, 605, 828, 345 and 346
+  each picked up their piece.
+* **The Stripe Capital chain healed.** Balances are written payout-by-payout, each chained off
+  the last, and the chain ran 7/21 → 7/23 with the link missing. A 7/22 snapshot now exists at
+  $139,381.12 and `rechainForwardFrom` corrected 32 later rows: **31 July closes at $135,620.94,
+  not $136,578.25** — the figure the loan rollforward rests on — and today reads $120,504.29,
+  not $121,461.60. Predicted exactly at preflight, then verified against the rows.
+* Coverage now reports **51 payouts due, 0 missing, 0 not-posted, 1 acknowledged, 4 in a closed
+  period.** Reconciliation run `46f52aa5` (17:58 UTC) completed AFTER the post; Stripe Capital
+  carries no open findings.
+
+#### Where to pick up
+
+The **root-cause fix is not done**: `stripe-terminal` still does not write its PaymentIntent
+back to an order, so the next reader-typed sale will block the next payout.
+`stripe_txn_overrides` makes that survivable, not fixed — it is a manual answer to a question
+that should not have to be asked. See START HERE §1.
 
 ### Session 251 (cont., 2026-08-29) — overview roster: Needs Attention only
 
