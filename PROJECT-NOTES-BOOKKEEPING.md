@@ -1,965 +1,129 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 264, 2026-09-03)
+> ## ⏭️ START HERE — first thing, next session (left by session 265, 2026-09-03 16:10 UTC)
 >
-> **This block is rewritten at the END of every session. It has been wrong four days
-> running, always by being written before the thing it describes finished. Everything
-> below was measured at the time stamped above; re-measure rather than trusting it.**
+> **This block is rewritten at the END of every session. Its deploy claim has been wrong
+> five days running — twice by saying "not deployed" about something live, once by saying
+> "live" about a function that had never booted. Everything below was measured at the time
+> stamped above. Re-measure rather than trusting it.**
 >
-> ### Where the module stands
+> ### 🔴 DO THIS FIRST — the module is reading yesterday evening's answers
 >
-> **Deploy / push state — MEASURED 2026-09-03 04:45 UTC, not assumed. Two claims that
-> stood in this block yesterday were wrong, and both were wrong in the SAFE-sounding
-> direction, which is why this is measured every time.**
+> **No reconciliation run has COMPLETED since 2026-09-02 20:51 UTC.** Every variance, every
+> close-gate verdict and every Issues row currently on screen predates both session 264's and
+> session 265's changes. The function itself is healthy again — a `net.http_post` probe
+> returns a clean **403 "Not authorized"** rather than the 503-on-preflight that the
+> never-booting v64 gave — but **there is no cron for `reconciliation-run`** (`cron.job` has
+> only `wr-loan-attribution`, `20 */6 * * *`), so it runs only when someone presses **Check**.
+> Press it, then confirm a `reconciliation_runs` row appears with `finished_at` set. See Tech
+> Debt #41, which also covers the three dead runs stuck in `running`.
 >
-> * **The push happened.** `HEAD == origin/main == 833f7a2` (session 264's commit).
->   The tracking ref advanced at 04:42 UTC, two minutes after the 04:40 commit, and it can
->   only hold a SHA the remote actually reports — so the remote has it. **This session did
->   not push** (the sandbox has no network), so something else did; confirm with
->   `git log origin/main -1` from your own Terminal before relying on it.
-> * **Cont. 7's "TWO functions are behind the repo" was already stale when it was
->   written.** `reconciliation-run` v64 and `loan-bundle` v49 both deployed at
->   **2026-09-03 02:27:5x UTC** — 84 seconds AFTER cont. 7's commit `6adff69`. So
->   `_shared/book-balances.ts` IS live on both, and the redeploy that block asks for has
->   already been done.
-> * 🔴 **What IS outstanding: session 264's fix to `_shared/carrying-basis-drift.ts`.**
->   Both functions read it, both are behind it by exactly one commit, and deploying one
->   without the other leaves half the module answering the old way. From the repo root:
->   `npx -y supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
->   then the same for `reconciliation-run`. `--no-verify-jwt` is **not optional** on either
->   (both are currently `verify_jwt: false`), and `loan-bundle` is the ~404KB bundle that
->   must go through the CLI from David's own terminal.
-> * **Check it FUNCTIONALLY, never by version:** PayPal 2's basis card must show the net
->   model at **$49,324.92**, not $30,490.42.
-> * **Another session is working in this repo.** `admin-dashboard/index.html` and
->   `tests/bookkeeping-harness.mjs` carried uncommitted changes that were not session 264's
->   (104 and 35 lines). **Those were session 264 cont. 2's, and they are now committed** —
->   David's emptying of the "Not ready to close" strip and the "Paid in <month>" line. Still:
->   `git log` and `git status` before assuming the tree is yours.
+> ### Deploy / push state — MEASURED, not assumed
 >
-> **Suite: the sixteen runnable Node suites were swept end-to-end at the close of session
-> 264 — 1,089 assertions, 0 red** (`carrying-basis` is now 34, up 7 for Tech Debt #38). That count covers the `.test.mts`
-> suites only; the browser harness was re-measured at the close of **264 cont. 2** and is
-> **1,620 assertions, 1,619 passing** (up from 1,591 — cont. 2 added the strip-is-only-a-verdict
-> assertions, a control that puts the chips back, and one that runs the CSV export and reads its
-> bytes). The one red is Tech Debt #19's `[history] s240 #10`, self-labelled REPORTED and red ON
-> PURPOSE — tuning it green deletes the only record of that finding. **Any other red is a
-> real failure.** ⚠️ **The browser harness CANNOT run on the device VM — it has no Playwright
-> browser.** Stage `admin-dashboard/index.html`, `tests/bookkeeping-harness.mjs`,
-> `tests/bk-stub.js` and `tests/fixtures/bookkeeping-fixture.json` into the cloud container and
-> run it there with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`.
-> `tests/loan-bundle.test.mts` cannot import `pdfjs-dist` on this machine —
-> pre-existing, unrelated. Prefer re-running to quoting any of these.
+> * **Session 265 changed only `admin-dashboard/index.html` and `tests/`. Nothing to deploy**
+>   — no edge function was touched. Two local commits, `2adbce8` and `b6208c6`.
+> * ⚠️ **NOT PUSHED.** This sandbox has no network; `git push` from David's own Terminal.
+>   `d585116` (another session's reconciliation-run boot fix) is also unpushed.
+> * **`reconciliation-run` boots** — checked functionally, above, not by version number.
+> * **Session 264's `_shared/carrying-basis-drift.ts` fix:** `loan-bundle` v50 (13:52 UTC) and
+>   `reconciliation-run` v66 (14:44 UTC) both deployed after commit `833f7a2` (04:40 UTC), so
+>   the code should be there — **but this session did NOT verify it functionally** and a
+>   version number is precisely the coincidence this file keeps being burned by. The check is
+>   one line: PayPal 2's basis card must show the net model at **$49,324.92**, not $30,490.42.
+>   Do that before believing this bullet.
+> * **Another session was live in this repo today** and its uncommitted notes edits were merged
+>   into this file rather than overwritten. `git log` and `git status` before assuming the tree
+>   is yours. `supabase/functions/_shared/xero-meter.ts` is still untracked and is NOT session
+>   265's — leave it alone.
 >
-> **The harness clock now comes from the fixture** (`_meta.pulled_at`), so a month
-> rollover can no longer turn the suite red. Before session 262 it was 183-red for a day
-> and a half for exactly that reason.
+> ### Suite — and the one thing that changed about how it is run
 >
-> 🔧 **OPERATIONAL (session 263 cont. 7) — `git` from the sandbox leaves a lock file every
-> time; use `--no-optional-locks` for reads.** The device mount refuses `unlink`, so every git
-> command that takes a lock (`status`, `add`, `commit`) creates `.git/index.lock` or
-> `.git/HEAD.lock` and then **cannot remove it** — the next git command dies with *"another
-> git process seems to be running"*. It is not a crashed process and `rm` is not available
-> here. **87 of these had accumulated since March**; cont. 7 quarantined 94 files into
-> `.git/_to_delete/` (nothing was deleted, per the standing rule). Two things worth knowing:
-> `git --no-optional-locks status` takes no lock and leaves nothing behind — **use it for
-> every read**; and for a write, `mv .git/index.lock .git/HEAD.lock` aside first, then commit.
-> **This is a sandbox-mount limitation only.** In David's own Terminal git deletes its locks
-> normally, so he never sees this. `.git/_to_delete/` is his to `rm -rf` whenever.
+> **Browser harness: 1,654 assertions, 1,653 passing.** The single red is `[history] s240 #10`,
+> self-labelled REPORTED and red ON PURPOSE — it is where Tech Debt #19 is written down, and
+> tuning it green deletes the only record of that finding. **Any other red is a real failure.**
+> **Node suites: 1,127 assertions across 18 files, 0 red** (`loan-bundle.test.mts` still cannot
+> import `pdfjs-dist` here — pre-existing, unrelated).
 >
-> ⚠️ Do NOT sweep on the glob `*lock*`: `.git/worktrees/wr-test-main/locked` is a REAL git
-> file (13 bytes, marks a locked worktree). Match `*.lock` and `*.lock.*` only.
+> ✅ **THE HARNESS NOW RUNS ON DAVID'S MACHINE (Tech Debt #37 closed).** Use
+> `bash tests/run-harness.sh` — never `node tests/bookkeeping-harness.mjs` directly, which
+> cannot find a browser. ⚠️ **The browser lives under `$HOME`, a per-session sandbox, so your
+> session almost certainly starts without it**; the script prints the exact recovery commands
+> and it takes about a minute. Do not try `npx playwright install chromium` — **it hangs at 0%
+> on that VM** though the network is fine. A full sweep exceeds one `device_bash` call's time
+> budget: run it in two halves by group name from `--list`.
 >
-> 🔒 **STANDING RULE (session 262 cont. 3, David) — THE CLOSE GATE.** *The month cannot be
-> closed without all relevant statements uploaded AND analysed against Xero.* Loans closing
-> on a contractual schedule are exempt **by recorded policy** (`close_basis`), never because
-> a schedule file exists. `_bkStatementGate()` is the single source; it blocks the close
-> band's readiness strip and feeds the period tab's "N to clear". Read the session 262
-> cont. 3 entry, including the one way this could turn from a gate into a nag.
->
-> 🔒 **STANDING RULE (session 262 cont. 2, David) — ASK, DON'T ASSERT.** *Ask when evidence
-> is what's missing; state the cause when the cause is established.* A gap measured against
-> a statement older than the month being closed is not a gap to investigate — it is one
-> nobody can evaluate, and the row says so and asks for the document. An ESTABLISHED cause
-> always outranks the ask. `balance_vs_lender` is a RESTATEMENT of the gap, not a cause.
+> 🧊 **THERE ARE TWO FIXTURES NOW.** `bookkeeping-fixture.json` is live and moves with every
+> refresh; `bookkeeping-fixture-2026-07.json` is **frozen at 2026-08-28** and the harness throws
+> if its `pulled_at` changes. Six groups declare `fixture: 'july'` because their subject is the
+> JULY close, whose figures were verified once against Xero and real lender documents —
+> re-pinning them to today would turn a test into a transcript. Refresh the live one with
+> `node tests/refresh-bookkeeping-fixture.mjs` (see Tech Debt #40 for the side-car it needs).
 >
 > ### 🌅 NEXT — in this order
 >
-> These come out of session 264. Priority 1 from cont. 9's list (Tech Debt #38) is DONE;
-> what follows is what it left behind, plus cont. 9's own 2 and 3 unchanged.
+> **1. 🔴 Press Check and get a current reconciliation run** (above / Tech Debt #41), then
+>    decide about the three dead `running` rows and whether this belongs on a cron.
 >
-> **1. 🔴 DEPLOY — see the state block above.** Session 264's fix is committed and pushed
->    and live on nothing. Two functions, one command each, checked by behaviour.
->
-> **2. ❓ ONE DECISION FROM DAVID, and it is small but it blocks nothing else.** PayPal 2's
->    basis card now misses by **$21.66** against a fit tolerance of **$1.00**, so it still
->    reads `fits_neither` at severity **ERROR** — a true sentence at a severity that will
->    train a bookkeeper to ignore the card. The answer is a **materiality band** (a
->    percentage-of-balance floor beside the absolute one), **never a wider tolerance**;
->    cont. 9 was explicit about that and it still holds. Ask before building it.
+> **2. ❓ ONE DECISION, carried over from session 264 and still unanswered.** PayPal 2's basis
+>    card misses by **$21.66** against a fit tolerance of **$1.00**, so it reads `fits_neither`
+>    at severity **ERROR** — a true sentence at a severity that trains a bookkeeper to ignore
+>    the card. The answer is a **materiality band** (a percentage-of-balance floor beside the
+>    absolute one), **never a wider tolerance**. Ask David before building it.
 >
 > **3. 🟠 WIRE `_shared/evidence-gate.ts` into `reconciliation-run`.** Built and green in
->    session 263 cont. 8 (37 assertions, 4 mutations proven red), **wired into nothing.**
->    Build the per-loan `LoanEvidence` from what the run already loads — newest REAL anchor
->    (`REAL_ANCHOR_SOURCES`), `contractTerms`, `schedAnchors`, `bookBalances` — pass the
->    closing month's FIRST day as `coversFrom`, gate the four registered checks, and push
->    `awaitingEvidenceFinding()` once per loan. **The existing silent `if (haveCheckpoint)`
->    skip on `derived_drift` is exactly the blank this replaces — make it visible, do not
->    leave both.** Wire EVERY consumer in one change; session 263 made the
->    stop-at-the-first-consumer mistake five times.
->
-> **4. 🟢 CHASE THE $21.66** on PayPal 2 — now the whole gap on that loan, and the only one.
->    Xero's daily cap (exhausted at 02:50 UTC on 2026-09-03, ~769 min to reset) should be
->    back.
->
-> **5. 🟠 TECH DEBT #39 — the same defect one file away, deliberately left open.**
->    `_loanPrincipalReconciliation()` in the dashboard counts PayPal 2's seven corrections
->    against the LENDER's own balance movement ($16,229.95 in the live window). It was not
->    fixed with #38 because a SECOND, unrelated cause sits on the same figure: the window's
->    closing lender balance is dated 2026-08-05 while `recorded` runs to month end, so
->    $9,451.05 of August payments are counted against a balance taken before they happened.
->    Fixing either alone leaves the loan flagged for a reason nobody wrote down. Both in one
->    measured change, across all fourteen loans — and it is `index.html`, so **Tech Debt #37
->    (the browser harness cannot run on this machine) blocks it.** Installing that browser
->    is one command and would unblock this.
->
-> ⚠️ **Two conclusions from session 263 are WITHDRAWN. Do not act on them:** PayPal 2 is
-> **`net_principal`**, not gross — and the **$1,874.27** it was going to be sent to chase is
-> the miss on a model that does not apply to this loan. Tech Debt **#36 was never true** (all
-> fourteen active loans have a book balance). See session 263 cont. 9 and cont. 7.
->
-> ### Still open from session 263, and NOT superseded
->
-> 0a. ✅ **The cont. 7 redeploy is DONE** — both functions carry `_shared/book-balances.ts`
->    as of 2026-09-03 02:27 UTC, measured against `list_edge_functions`. The outstanding
->    deploy is session 264's, in the state block at the top. **This is the fourth time this
->    block's deploy claim has been wrong; it was wrong here by saying not-deployed about
->    something that had shipped 84 seconds after the commit.**
->
-> 0b. **Still unanswered by David, asked four times:** the account reference. The proposal is to
->    pass intake's `ai_account_claimed` (already in the browser at
->    `admin-dashboard/index.html:10599`) through to the bundle rather than paying a second model
->    to re-read it. Do not build it without his answer.
->
-> 0c. **David has NOT applied the PayPal 2 bundle yet** as of cont. 9 — the modal was open with
->    5 changes ticked (file both documents, origination date → 2025-12-10, 4 opening figures,
->    lender balance $46,144.59 at 2026-09-02). The opening-balance action is correctly held back
->    pending the carrying basis. Ask before assuming the DB reflects it.
->
-> ### The cont. 2 deploy note, kept for its command and its functional check
->
-> 0. **🔴 REDEPLOY `loan-bundle` — session 263 cont. 2 fixed five defects the first live
->    run exposed. The v41 deploy predates them.** Check FUNCTIONALLY: an itemised screenshot
->    with no printed date should come back DATED, and the basis card should name each
->    model's miss instead of "one of the expected shapes".
-> 1. **The earlier deploy note, kept for the command:** Three of the four
->    changed files are its dependencies (`_shared/portal-figures.ts`,
->    `_shared/ledger-dating.ts`, `_shared/loan-bundle-plan.ts`). `loan-bundle` is the
->    ~404KB bundle that **must** go through the CLI from David's own terminal —
->    `deploy_edge_function` cannot carry it. From the repo root:
->    `npx -y supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`.
->    Then check it FUNCTIONALLY, not by version: a screenshot that itemises its balance
->    should come back with `amount_remaining_basis` set. **This block says "not deployed"
->    because a deploy was never attempted, not because anything was measured.**
-> 2. **✅ #34 is CLOSED (cont. 3) — and the note about it was wrong.** The arithmetic is
->    fixed and 27 assertions cover it, but measuring the real book showed **no loan was
->    producing `fits_neither` at all**: 13 of 14 have no contract terms and bail before the
->    basis check runs. **The real blocker is Tech Debt #35 (missing terms), and session 263's
->    ledger-terms reader is the half-built fix for it.** **#36 is now CLOSED — see 0b; it was measured against the
->    wrong table.** Read cont. 3 and cont. 7 before picking this up.
-> 3. **Tech Debt #33 (🟠)** — a projected schedule row is never reconciled against the
->    lender's later actual, and on a prestaged loan those rows are what reach Xero.
-> 4. **PayPal 2's data was corrected by hand** (two amortization rows, 2026-08-19 and
->    2026-09-02, to the lender's own figures). The staged 2026-09-02 Xero transaction was
->    deliberately left holding 3180.34/234.37 — one cent, total unchanged, precedent set by
->    session 259 on 2026-08-19. Nothing is waiting on it.
-> 5. **David's PayPal CSV and screenshot have NOT been filed.** The prediction was the ask;
->    the upload is still his to make. The CSV will route to "your call" (the loan is already
->    tracked by a schedule) and adds 4 new statement dates, 08-12 through 09-02.
->
-> ### What is left, in order
->
-> 1. **Tech Debt #32 (🔴) — the ask reaches the wrong person.** The Issues row asks for the
->    missing statement, but David's own framing is that the upload is the business owner's
->    chore in the **Client View**. Drive a "waiting on" surface there from the same
->    `_bkEvidenceAsk()`. This is the difference between a better label and a working loop.
-> 2. **§0 — record PayPal 2's reversing-journal id.** One-line job, needs Xero (quota was
->    fine at 526 remaining, 17:52 UTC; probe with `xero-rate-probe`, never `whoami`).
-> 3. **Awaiting David's decision, do not guess:** §0a's "Issues (6)" vs "Nothing to close
->    yet" label; **#28** (an Issues row names one of a loan's findings and hides the rest);
->    **#31** (a derived schedule reads exactly like a lender's contract schedule).
-> 4. **§0c** — match the Sept 2 Stripe payout ($12,329.03); its feed line lands 9/3.
-> 5. **#30 (🟠)** — the posting hold is a regex over `review_notes`. Structured column.
->
-> ### Two things about this book that surprised me, worth carrying forward
->
-> * **Prestaging is live on ELEVEN loans, not four** — six of them carrying live staged
->   transactions in Xero built from schedules WE derived. The `washroute-bookkeeping` skill
->   file said four and named the wrong ones; corrected 2026-09-02. Whether prestaging
->   should run off a derived schedule at all has never been a deliberate decision.
-> * **Uploaded ≠ checked.** Ten of eleven loans owing an August statement had one on file;
->   only six had been compared to Xero. Four documents sat there uncompared and every
->   surface counted them as done. That is what the close gate now measures.
->
-> ### 00. ✅ CLOSED (session 261, 2026-09-02) — `loan-attribution-run` IS LIVE, PROVEN END TO END, AND ON A CRON
->
-> Read the session 261 log entry before touching any of it. Checked FUNCTIONALLY, not by
-> version number, on 2026-09-02:
->
-> * **`loan-attribution-run` v2** and **`loan-find-difference`** (its `internal_job`
->   analyze-only auth path) are both deployed. Proof: an internal call returns `400
->   loan_account_id is required`, and `post_fix` / `post_exception` / `post_crossloan` each
->   return `403 The internal job may run analyze only.`
-> * **All five material loans carry real payloads in `loan_attributions`, zero errors.**
->   E-Transit 4140 and E4-9744 came back **confirmed**; E5-4751, Funding Circle and PCV
->   **probable**. E4-9744 is the vindication — its variance starts 135 days back, outside
->   `reconciliation-run`'s 120-day floor, which is exactly why this is a separate job.
-> * **`wr-loan-attribution` (jobid 25) runs every 6h at :20**, created through preflight
->   only after the loop was proven. **Its first automatic fire at 18:20 UTC is confirmed —
->   from `generated_at` moving, not from `cron.job_run_details`, which reports success for
->   any queued `net.http_post` regardless of what the function did.**
-> * The first full pass **504'd** on a time budget larger than the platform's own limit —
->   fixed with measured numbers (90s start-cutoff, 45s per loan), redeployed as v2.
->
-> **✅ CLOSED BY SESSION 262 — the table is read now.** The Issues Explanation column and the
-> Loans rollforward hover both go through `_bkLoanAttribution`, the single accessor. It
-> returns **five** states, not the three asked for here: `ok`, `empty` (ran, found nothing),
-> `error`, `none` (no row) and `unread` (the read itself failed) — the two extras are
-> distinctions that collapse just as expensively, and `unread` in particular is why the
-> fail-soft read does not simply empty the array. 38 assertions, three controls. See the
-> session 262 entry.
->
-> To see the current answers:
-> ```sql
-> select a.xero_account_name, la.run_status, la.generated_at, la.headline
-> from loan_attributions la join loan_accounts a on a.id = la.loan_account_id
-> order by la.generated_at desc;
-> ```
->
-> ### 0c. 🟠 STRIPE PAYOUTS — the code is closed (session 260), TWO BANK LINES ARE NOT
->
-> Session 260's recovery path is deployed and verified live; the Stripe Capital chain foots
-> to the cent 8/26 → 9/2, and `xero-payout-watchdog` v4 / `xero-payout-sync` were both
-> proven FUNCTIONALLY (the watchdog by its cron response carrying the new `retried`/`alerts`
-> keys, the sync by its internal-auth branch answering and a full dry run: `would_post:
-> true`, $4,752.54, 124 txns, 0 unclassified). That entry is closed and condensed here.
->
-> **`verify_jwt` on `xero-payout-sync` is still false and MUST stay false** — Stripe's
-> webhook cannot present a JWT, and `deploy_edge_function`'s `verify_jwt` DEFAULTS TO TRUE.
-> That default silently flipped the watchdog on session 260's first deploy (harmless there;
-> the cron sends the anon key). On the sync it would kill every payout.
->
-> **Aug 27 ($7,813.03) is MATCHED AND RECONCILED in Xero — David, 2026-09-02.** One left:
-> **Sept 2 ($12,329.03)**, whose feed line does not arrive until **9/3** (T+1). Match it
-> when it lands; nothing in the code is waiting on it.
->
-> ### 0a. ✅ CLOSED (session 259, 2026-09-01 15:05 UTC) — Overview's period bar
-> VISUALLY VERIFIED live, with one cosmetic mismatch left open
->
-> Session 258 cont. 3 left this "NOT verified: an actual click-through in a live
-> browser." Done now, against the real deployed site
-> (`admin.familylaundry.com/#bookkeeping/overview`, signed in as David in his own
-> Chrome — Claude's browser pane has no session on that host). Everything the
-> pickup item asked for behaves as designed:
-> * The period bar renders above Issues/Approvals/Staged: **Closing August 2026
->   · 8 to clear** | **This month September 2026**.
-> * **Closing** → Issues shows its real 6-row variance table (PCV, Funding Circle,
->   E-Transit 4140, E5-4751, E4-9744, EIDL), statusline "5 of 14 loans reconciled ·
->   5 need attention · 4 settled or waiting".
-> * **This month** → the quiet "Nothing to close yet" panel, and the statusline
->   correctly overrides to "nothing to close yet for September 2026". The two
->   cannot disagree, which was the point.
-> * **Approvals and Staged are byte-identical in both periods** (checked
->   Approvals: the same single payroll card either way), as intended.
-> * **The shared `_loansPeriod` state works in BOTH directions across pages** —
->   toggling on Loans and navigating to Overview carries, and vice versa. One
->   source of truth confirmed live, not just in the diff.
->
-> **The one thing left open — a cosmetic instance of this module's own worst
-> failure shape.** Under **This month**, the segment pill still reads **"Issues
-> (6)"** while the body says "Nothing to close yet". Two numbers on one screen with
-> no way to tell which is real — the exact pattern `_bkRosterCounts`' comment warns
-> about, in miniature. It is only a label (nothing miscomputes, and the count is
-> genuinely August's), but a CPA reading "Issues (6)" beside "nothing to close" has
-> to work out which one is lying. Options if it gets fixed: drop the count under
-> `inflight`, or show `Issues (0)`. **Not fixed — David has not been asked yet.**
-> ### 0. ✅ PAYPAL 2 IS CLOSED (2026-09-01 evening) — one item left, and it needs Xero
->
-> **Verified end to end.** Ramona's 2026-07-31 journal `a2c49ead` ($3,142.26, `284` Dr /
-> `800` Cr) over-reduced the loan. Authorship confirmed from Xero's own History panel —
-> **created and posted by Ramona Cedeno, 12 Aug 2026 06:43 EST**, dated back to 31 July,
-> i.e. after the 08-06 draft had already landed. David reversed it via Xero's
-> ⋮ → Reversing journal, dated 2026-07-31.
->
-> **The reversal is CONFIRMED, from a report we did not predict it in:** Xero's Balance
-> Sheet shows **Paypal 2 = $49,346.58**, the exact target (PayPal's own $49,324.91 after
-> the 08-26 payment, plus the standing **$21.66** that predates July). Note the first
-> attempt did NOT take — Xero's reversing-journal flow opens an unsaved entry and it sat
-> unposted. **Always confirm the balance, never the click.**
->
-> **Three August splits backfilled** (`2026-08-05 / -12 / -19`, `already_in_xero`,
-> `direct_split`, each tied to its amortization row and its Xero bank transaction).
-> August principal booked now totals **$12,571.65**, matching the ledger movement
-> measured from Xero this morning (`net_after_anchor −12,571.65`) to the cent.
-> Two modelling choices, both deliberate:
-> * **`period_label` uses the SCHEDULE date, not the bank date** (drafts landed 08-06/13/20,
->   a day after the schedule). That is this loan's existing convention.
-> * **The 08-19 row carries XERO'S amounts, 3150.32/264.39, not the schedule's
->   3150.33/264.38.** `already_in_xero` asserts what the ledger holds, so the row matches
->   the ledger; the 1¢ divergence from the amortization row is intentional and inside
->   tolerance. Reverse it if you disagree — the reasoning is in the row's `review_notes`.
->
-> **⏳ THE ONE REMAINING ITEM.** Our DB still has `2026-07-31-adj` recording Ramona's
-> original journal with **no row beside it for the reversal**. Her journal does still
-> exist in Xero, so that row is not wrong — but the picture is half-told. Adding the
-> reversal row needs the new journal's Xero id, and the accounting API hit its daily cap
-> tonight (`remaining_day 0`, retry ~08:40 PT 2026-09-02) after this session spent it on
-> the 14-loan walk. **First action next session: probe the quota (`xero-rate-probe`,
-> never `whoami`), fetch the reversing journal's id from 2026-07-31, and record it.**
->
-> ### 0b. 🔎 SESSION 258 (2026-08-31, closed) — Verdant's August interest split
-> already exists in Xero; ask David who posted it
->
-> Working down the priority list David asked for, item 2 (fix Verdant's missing
-> August interest split, described below in §1's "open work") turned out to already
-> be done. `xero-read` `payment_picture` for the 2026-08-10 / $4,543.32 transaction
-> shows a **POSTED** manual journal dated **2026-08-31** (today), narration
-> `[VERDANT-AUG2026-INTEREST-SPLIT]`, splitting $1,835.75 interest off account 394 —
-> nets to $2,707.57 principal, matching the schedule's $2,707.61 to within the
-> loan's known 4-cent quirk (see §"exact matching gave way to residual banding" in
-> the session 247 cont. 4 entry). **Grepped the whole codebase for the narration
-> string — no match** — so no automated code path made this journal; it reads like
-> a person composed it directly in Xero, the same pattern as the Funding Circle fix
-> in session 252. Not confirmed who or when beyond "today." **Ask David whether he
-> made this journal** before treating Verdant as closed — if confirmed, this item
-> is done and `loan_splits`' `Period 14` row (already `status='posted'` with no
-> `xero_manual_journal_id`, same as several of Verdant's other historical rows) may
-> not need any change; if nobody made it, that is worth knowing too.
->
-> **Confirmed by David (2026-08-31): he split this transaction directly in Xero
-> himself.** Verdant's August interest split is closed in Xero — but session 258
-> cont. (2026-09-01) found the DB conclusion above was wrong: `Period 14` is
-> INVISIBLE to the Close Rollforward. `_monthSplits()` matches on
-> `period_label.slice(0,7) === 'YYYY-MM'`, and `"Period 14".slice(0,7)` is
-> `"Period "`, never a month label — so August's payment was correctly split in
-> Xero but had ZERO representation in any month the rollforward can actually see.
-> Fixed by inserting a real `2026-08-10` row with the ACTUAL posted split
-> (2,707.57 / 1,835.75, not the schedule's 2,707.61 / 1,835.71) and linking both
-> July's and August's correction journals directly onto their period rows. Full
-> writeup: session 258 cont. log entry below, dated 2026-09-01.
->
-> Also this session: corrected two more stale "not deployed" claims in this same
-> block — see §1 and §13a, both now marked deployed and checked against `git log` /
-> the deployed function timestamps, not assumed. Deleted E-Transit 4140's two
-> duplicate loan documents (David confirmed) and applied the deferred
-> `loan_documents_loan_sha_uniq` uniqueness guard — see §5 below, closed.
->
-> Also this session: fixed the four `roster-*` test-harness groups (plus
-> `roster-classification`) that read red against session 257's Overview redesign —
-> see §1d below for what changed and why. Full suite was then 1468/1469 passing (**superseded
-> — see the Order block at the top: it is 1,510/1,509 as of session 262**), the one
-> red assertion being the pre-existing, self-labeled Tech Debt #19 report, not a test
-> bug. Diff ported back and committed locally (`07db656`) — not pushed, David pushes
-> himself.
->
-> ### 1. ✅ DEPLOYED, RUN, AND PUSHED — nothing outstanding here
->
-> **Checked against the live project, not inferred (2026-08-29 01:47 UTC for the
-> functions; push checked fresh 2026-08-31 20:50 UTC by session 258).** This block
-> went stale three days running — twice claiming "not deployed" when it was, once
-> claiming "unpushed" when `git status` on 2026-08-31 showed `main` already up to
-> date with `origin/main`, `a661921` included. **Do not re-open this as a task —
-> verify with `git status` / `git log --oneline origin/main..HEAD` (should be empty)
-> before believing either this line or a future session's claim otherwise.**
->
-> | | |
-> |---|---|
-> | `reconciliation-run` | **v58**, deployed 2026-08-28 22:19:37 UTC |
-> | `loan-bundle` | **v26**, deployed 2026-08-29 01:38:53 UTC |
-> | `origin/main` | matches `HEAD` as of 2026-08-31 20:50 UTC — nothing unpushed |
->
-> **The draws work is live and has run three times** (22:20, 00:28, 01:40), each
-> writing **44 `loan_book_balances` rows with 0 refusals**. The proof it is really
-> deployed is in the stored data, not the version number: the 7/31 rows now carry
-> `drawn`, `reduced` and `mixed_sign_entries` in `detail`, where two days ago they
-> carried none. **That is how to check it next time.**
->
-> Stripe is the acceptance case and it foots exactly:
->
-> | | |
-> |---|---|
-> | books 6/30 | **$0.00** |
-> | drawn in July | **$145,875.00** |
-> | reduced | **$9,296.75** |
-> | books 7/31 | **$136,578.25** |
->
-> `0.00 + 145,875.00 − 9,296.75 = 136,578.25`, and `mixed_sign_entries` is **0** on
-> every loan, so nothing is hiding inside a two-signed journal.
->
-> **Nothing is pending here except the push.**
->
-> ### 1d. 🎨 NEW — ISSUES IS NOW LOAN VARIANCES ONLY, IN A FLAT TABLE (session 257)
->
-> David: "I'd like a whole rethink of the issues section so that it focuses on one
-> thing: reconciling variances," then, after seeing it shipped: "split ISSUES into 4
-> distinct rows: Loan name, Variance, brief explanation, Action... Remove all click to
-> expand portion." **Read the session 257 log entry (two parts, same day) before
-> touching `_bkIssueQueueItems`, `_bkVarianceTableHtml`, `_bkApprovalQueueItems`, or
-> `renderLoansCloseBand`'s notes block.**
->
-> **What moved where, load-bearing:**
-> * **Issues** = `_bkIssueQueueItems()`, sourced straight from `_bkRosterState(a)` —
->   one row per active loan where `group === 'variance'` or `'immaterial'`. Nothing
->   else renders here any more: no payroll, no loan-flag notes, no split/stage/recon
->   findings. Rendered by **`_bkVarianceTableHtml`**, a plain `<table>` — Loan /
->   Variance / Explanation / actions. **`_bkRosterHtml` (session 247's lender-grouped,
->   click-to-expand roster) is no longer called by Issues** — left in the file
->   untouched, not deleted, in case a future segment needs lender grouping again, but
->   do not assume Issues still uses it.
-> * **Loan notes** (`flagged_note`) moved to the **Loans page**, under the close-band
->   footnote (`renderLoansCloseBand`'s new "Notes on these loans" block). No month
->   column exists on `flagged_note` — the block says so in its own header rather than
->   implying a date match the data can't support.
-> * **`split_mismatch` / `stage_flag` / `recon_finding`** moved into
->   **`_bkApprovalQueueItems()`** (David's explicit call, over a second Issues-adjacent
->   list) — session 228's lender-folding and the Find-the-difference / Upload-statement
->   actions carried over almost verbatim. Confirmed live in the DOM, not just present in
->   the JS array.
-> * `_bkLoanAttentionItems()` and `_bkRosterCounts()` — the shared source these three
->   kinds are drawn from, and what feeds the "N need attention" headline — are
->   **untouched**. The headline's accuracy does not depend on any of the above.
->
-> **Known debt — CLOSED (session 258).** The four `roster-*` harness groups
-> (`roster-clean-loan-children`, `roster-orphan-findings`, `roster-empty-denominator`,
-> `roster-confetti-gate`) plus `roster-classification` (R0), which also queried the
-> deleted `.bk-lender-row` markup in one assertion, are rewritten against the current
-> page: Issues' flat `_bkVarianceTableHtml` (`<table>`/`.bk-var-loan`), Approvals'
-> flat `_bkApprovalQueueItems()`/`_bkQueueRowHtml`, and — for R1's two info-severity
-> test loans (Rapid Credit Line, Dexter Loan 2) — the separate `_bkReconInfoFindings()`
-> block, which is a genuinely different code path from the split/stage/recon-finding
-> forEach the rest of `_bkApprovalQueueItems()` uses. `READ_QUEUE`'s `itemNames` was
-> also hardcoded to `_bkIssueQueueItems()` regardless of segment (fixed: segment-aware
-> now), and Approvals' CAP=5 truncation is expanded before DOM assertions that need
-> every row. Full suite at the time: **1468/1469 passing** — **superseded by session 262's
-> 1,510/1,509; do not quote this figure** — the one red assertion is Tech Debt
-> #19 (`[history] s240 #10`), self-labeled `REPORTED, NOT A STALE EXPECTATION`, not a
-> test bug. Verified in the cloud container (this device's Playwright still lacks
-> `sudo` for `install-deps`) before porting the diff back here.
-
-> ### 1c. 🎨 NEW — THE LOANS ROLLFORWARD IS NINE COLUMNS NOW (session 249)
->
-> David asked for the Client View's voice on the Loans page. Read the session 249
-> log entry before touching that table. Three things are load-bearing and easy to
-> undo by accident:
->
-> * **Lender / Opening source / Closing date / Closing source are NOT gone.** They
->   are `data-` attributes on the cell whose figure they describe, read by three
->   consumers — the CSV export, the harness, and `data-hint`. Do not re-add them as
->   columns and do not drop an attribute because nothing visible uses it.
-> * **`exportRollforwardCSV()` reads attributes, never rendered text.** A CSV built
->   from `textContent` exports what the screen chose to show, which is the opposite
->   of what a workpaper is for. The strip's `·` separators are CSS pseudo-elements
->   and prove the point.
-> * **One red on the page:** the blocking chips in the status strip. `.lcb-off` is
->   near-black semibold on purpose — silence around a figure beats colour on it, and
->   it survives print. The green strip is set by `blocked` and cannot be faked.
->
-> ### 1b. 🎨 NEW — THE OVERVIEW IS ONE ROW PER LENDER NOW (session 247)
->
-> The queue card is **631 px with ten rows**, down from about three screens.
-> Findings live behind a click; every row carries its own count. **Before editing
-> anything on that page, read the session 247 (cont.) log entry** — in particular
-> why the seven group headings became three bands without losing session 246's
-> distinctions, and why the band count (lenders) legitimately differs from the
-> statusline count (loans).
->
-> **Two rules that are load-bearing and easy to undo by accident:**
-> * A row's status sentence comes from `_bkLenderSummary` and NOTHING else. Never
->   let a row inherit its band's label — "Settled or waiting" is a sort order,
->   "settled on the contractual schedule" is a claim, and session 246 exists
->   because a check that cannot fail once posed as one that passed.
-> * A lender-level finding is filed under its lender **by the ABSENT loan id,
->   never by name**. `r2b` in the harness constructs the collision the real data
->   never produces and proves the guard discriminates; if you touch that filter,
->   run it.
->
-> ### 2. ✅ STRIPE'S LENDER ANCHOR — DEPLOYED AND FILED (session 251, closed)
->
-> All three functions are live: `loan-ingest-amortization` v18 (2026-08-29 17:29:46
-> UTC), `loan-ingest-statement` v37 (17:58:19 UTC), `loan-bundle` v32 (21:34:43 UTC,
-> deployed by David from his own terminal — the MCP deploy tool hit a real size
-> ceiling on this one; full story in the session log). All three re-fetched and
-> grepped for the fix after deploying, not just version-checked.
->
-> Stripe's first-ever `portal_manual_pull` row is filed: **2026-08-26, $123,091.66,
-> `total_payback`** — sitting beside the same-date `xero_balance_snapshot` row
-> ($125,257.71) instead of being blocked by it, which is the fix working as
-> intended. Gap between them: $2,166.05, settlement lag, matching session 245's
-> earlier measurement exactly.
->
-> **One loose thread:** that row has no stored evidence file (`storage_path` is
-> null) — it was filed by direct SQL insert because the original Stripe screenshot
-> wasn't available to re-attach this session. If David provides it, re-ingest
-> through the normal upload path so the evidence is on record; the figure itself
-> doesn't need to change.
->
-> **A limit worth remembering:** `deploy_edge_function` from this sandbox tops out
-> around 100–130KB of literal file content in one call. Six files fit
-> (`loan-ingest-statement`); twelve (`loan-bundle`, ~404KB) did not — hand David
-> the `supabase functions deploy` CLI command for anything that size, per session
-> 232's rule. See the session log for the number.
->
-> ### 3. 🟠 UNLABELLED BALANCES — AND A CORRECTION TO WHAT SESSION 245 WROTE HERE
->
-> Still **11 `portal_manual_pull` rows with `balance_basis='unknown'`**, verified
-> today. Still a real-anchor source, still silently excluded from the
-> lender-comparison checks. E-Transit **E5-4751 (2026-08-23)** and **E6-7410
-> (2026-08-20)** each carry one and it is still their NEWEST row. Find the writer
-> before labelling, or they come back.
->
-> **The correction: Dexter Loan 2's 61 unlabelled rows are `xero_derived`, NOT
-> `portal_manual_pull`.** Session 245's block put them in the wrong bucket and the
-> remedy is completely different. `xero_derived` is **our own books**, not the
-> lender speaking, and it is a **frozen one-time backfill** — written 2026-08-06
-> to 08-15, nothing has written that source since. **Labelling a books row does not
-> create a lender anchor.** What Dexter needs is a lender balance or a books-side
-> rebuild, and the second one is now automatic the moment §1's deploy happens.
->
-> This mattered more than a filing error: those 61 rows agree with the contractual
-> schedule **to the cent on every same-dated row**, which is why they could pose as
-> an independent opening and nearly shipped acceptance criterion #1 as a tautology.
-> See the session 246 entry.
->
-> ### 4. 🟢 FUNDING CIRCLE'S OVERVIEW FINDING IS RESOLVED (2026-04-20); OUR OWN RECORD STILL ISN'T
->
-> Sessions 241 through 246 left it unresolved on the Xero side. **Session 252: David fixed
-> the Xero side himself** — split the 2026-04-20 BankTransaction directly to $980.93
-> principal / $1,052.84 interest (confirmed live via `xero-read`, `UpdatedDateUTC`
-> 2026-08-29 17:53:22 UTC) — and separately found + fixed the reason the Overview kept
-> showing the stale "no interest split" finding anyway (a `reconciliation-run` bug: an
-> out-of-window finding could never learn that Xero told the engine it had changed and
-> the engine had already re-checked it clean — see the session 252 log entry for the
-> full mechanism). v59 deployed and confirmed live, but David re-ran reconciliation and
-> **still saw the same finding** — a second, real bug in the first fix (a one-shot
-> `If-Modified-Since` cursor that had already aged past the edit before v59 was even
-> deployed; see the session 252 cont. 4 log entry for the full mechanism). Second fix
-> (`pullXero` force-fetches specific transaction ids directly by id, independent of the
-> cursor) deployed as **v60** (2026-08-30 00:23:27 UTC) and **confirmed resolved in the
-> database, not just off the screen** — `reconciliation_findings` for
-> `lumped_payment:253:868db3ce-…` is `status='resolved'` as of 00:24:24 UTC, tied to the
-> run right after the deploy. This half is DONE.
->
-> **Still open, and David has decided the approach:** `loan_splits` `dcd896b3-…`
-> (2026-04-20, `posted`) and the duplicate card `4dfd8dd5-…` (`2026-04`,
-> `already_in_xero`) both still say the OLD, wrong numbers in our own database, and
-> `void_loan_split` refuses to touch either one — it hard-refuses `posted` and
-> `already_in_xero` alike. Same `markSplitAlreadyInXero`-is-one-way gap session 231
-> flagged; nobody has built the fix since. **David chose: build the proper un-mark /
-> revert-to-pending-review path first, as its own dedicated session** (schema + RPC
-> change, needs `washroute-migration-review` first) — explicitly NOT a same-session
-> quick SQL patch. Read the session 252 entry for the full detail before starting
-> that session.
->
-> ### 5. ✅ CLOSED (session 258) — duplicate documents deleted, the guard index is live
->
-> David confirmed which to keep: the earliest upload (`861b6093`, 2026-08-24
-> 21:32:13 UTC). The two later duplicates (`49f93485`, `029f7439`, same sha
-> `679ff195…`) are deleted — checked first, nothing referenced them
-> (`loan_contract_terms.source_document_id` had zero matches). Verified zero
-> remaining `(loan_account_id, file_sha256)` duplicates table-wide, then applied
-> `loan_documents_loan_sha_uniq` (the index `session_242b_bundle_upsert_arbiter.sql`
-> deliberately left undone) as its own migration,
-> `session_258_loan_documents_sha_uniq`. Confirmed live via `pg_indexes`.
->
-> ### 6. ⚖️ THE STRIPE CAPITAL FEE: STILL A QUESTION FOR RAMONA
->
-> Unchanged. The $20,875 fixed fee was expensed in one lump on 2026-06-30 (journal
-> `#52168`), which is why `carrying_basis='gross_payback'` — verified still — and
-> why every payment being 100% principal is **correct**. The open question is
-> timing: June is closed, so spreading it is a prior-period adjustment and Ramona's
-> call. **Session 246 gives this a second reason to be asked** — see §7: that same
-> gross basis is what puts $125,257.71 of non-principal into a published total.
-> If she does reverse it, the order matters: reverse in Xero → flip
-> `carrying_basis` to `net_principal` → then rebuild July/August splits.
->
-> **RESOLVED 2026-08-29 — the origination no longer straddles, and this is how it
-> went.** Journal `#52168` had recognised the $20,875 fee on **30 June** while the
-> $125,000 principal was not advanced until **1 July**, so at 6/30 the books carried
-> a liability and an expense **for a loan that had not been advanced** — $20,875.00,
-> describing neither the loan ($145,875 per the agreement) nor zero. The session's
-> first answer was **option C** (change no journals; have the tool state the
-> difference), and it shipped. **David then took option A anyway and re-dated the
-> journal to 7/1** — the correct accounting, and it makes the books say one thing
-> instead of two. Stripe now opens at **$0.00** on 6/30, draws **$145,875.00** in
-> July and closes at **$136,578.25**, footing to the cent.
->
-> **Two consequences, both handled, both worth knowing:**
->
-> 1. **A label went stale the moment the journal moved.** The rollforward kept
-> printing *"origination straddles the period"* on Stripe, because the rule compares
-> a `contract_origination` anchor against the books opening and a row was still filed
-> at 6/30 for $145,875. The rule was right; the word had stopped being true. It now
-> tells the two shapes apart — a books opening **between zero and the contract figure**
-> still *straddles*, a **zero** opening reads *recognised this month* — because at a
-> zero opening the whole loan rides on the period question, not part of it. **A rule
-> can outlive the fact it was written for; when a decision changes the books, grep the
-> words the interface says about them.**
->
-> 2. **That 6/30 anchor row is DELETED** (`68c00b32-…`, `contract_origination`,
-> $145,875.00). It asserted a balance nothing was owed on. Checked first, not
-> assumed: no `loan_splits.prior/current_statement_id`, no `loan_tie_outs.statement_id`
-> and no schedule anchor referenced it. Everything it carried survives elsewhere — the
-> agreement PDF is filed, the 12 terms are in `loan_contract_terms`, and the 7/1
-> `xero_balance_snapshot` holds $145,875.00 — and it is no longer needed to open
-> Stripe's rollforward, because `loan_book_balances` does that now. **There are now
-> ZERO `contract_origination` rows in the database.** The source and its label stay in
-> the code deliberately: the mechanism is right for a loan that genuinely needs a
-> day-one balance from a signed agreement, and session 245's rule still holds — it can
-> OPEN a rollforward and can never CLOSE one.
->
-> **Root cause note:** intake bundle `6d20c11d` is still marked `applied` and its
-> `attach`/`terms` actions filed that row's siblings. Re-applying that bundle would
-> re-file the 6/30 anchor. Nobody should, but if Stripe's anchor reappears at 6/30,
-> that is where it came from.
->
-> **Still with Ramona:** whether the $20,875 fee should be spread over the repayments
-> rather than expensed in one lump. Option B (accruing the principal at 6/30) was
-> **rejected and should not be re-proposed**: the cash did not move until 7/1, so it
-> would recognise a $125,000 asset the business did not hold.
->
-> ### 7. 🔴 $265,668.31 OF "TOTAL OUTSTANDING" IS NOT MEASURED IN PRINCIPAL
->
-> **Tech Debt #19, now with a number on it.** A harness assertion is **deliberately
-> red** and that red assertion IS the finding — do not tune it green. Four active
-> loans, re-measured live 2026-08-29:
->
-> | | | |
-> |---|---|---|
-> | Stripe Capital | $124,785.62 | `unknown` |
-> | Dexter Loan 2 | $89,411.25 | `unknown` |
-> | E-Transit E5-4751 | $29,302.52 | `unknown` |
-> | E-Transit E6-7410 | $22,168.92 | `unknown` |
->
-> **The total moves daily and that is itself part of the finding.** Re-measured
-> 2026-08-29 it is **$265,668.31**, down from $266,140.40 two days earlier, because
-> Stripe's balance is whatever its most recent daily sweep row says — $124,785.62 at
-> 2026-08-28. Stripe's basis now reads `unknown` rather than `total_payback` for the
-> same reason: the newest row is an `xero_balance_snapshot` from the sweep, not the
-> relabelled `total_payback` row. **The defect is unchanged** — four active loans
-> whose published balance nobody has said what it measures — but do not quote a
-> stale figure at David; re-run the query.
->
-> Stripe is the sharp one: `total_payback` is principal **plus the whole remaining
-> fee**, and it is being summed into the "Total outstanding" on the Debt Schedule
-> the CPA exports. The other three are §3's unlabelled-balance problem seen from
-> the other side — a balance nobody has said what it measures, published as though
-> it measured principal. Verified against HEAD and the previous fixture: a real
-> open defect, not fixture fallout. Full next step in Tech Debt #19.
->
-> ### 8. 🟠 NEW — FOUR SMALLER THINGS SESSION 246 TURNED UP, EACH WITH A NEXT STEP
->
-> * **PayPal 2's August close misses the `unbooked` band by $44.70 — SESSION 247
->   DIAGNOSED THIS, AND THE ANSWER IS NOT A TOLERANCE.** A $3,120.60 variance
->   against a staged split carrying $3,165.30 of principal. The cause: the module
->   has **no split rows for periods 2026-08-05, -12 and -19**, though all three
->   feed lines are reconciled in Xero and were coded correctly by hand (08-20
->   verified: $3,150.32 to 284 + $264.39 to 800). The ledger jumps 2026-07-29 →
->   2026-08-26. So the band measures the gap left by the **08-05** payment and
->   tries to close it with the **08-26** split — two different weeks, $44.70 apart.
->   **Backfill the three missing splits as `already_in_xero`; do not widen the
->   tolerance.** A band that de-escalates on an approximate match is a band that
->   hides real money. Full detail in the session 247 entry.
-> * **Dexter Loan 2 has three `payment` rows sharing 2021-09-30 in one schedule**
->   (`866e60ac…`, generated 2021-10-13) with balances 254,962.56 / 258,022.52 /
->   258,197.52 and payments 3,059.96 / 175.00 / 604.42. "The balance on this date"
->   is currently decided by **sort stability**, and `loan_amortization_rows` has no
->   ordinal column to resolve it. Harmless today (the date is five years old);
->   structural. See Tech Debt #22.
-> * **`carrying_basis` is `'unknown'` on both grade-B loans** — Dexter 2 and
->   Verdant — verified today. Grade B's entire walk is *opening minus PRINCIPAL*,
->   and session 242's rule is "never propose a split while this is unknown". The
->   grade-B figures are the schedule's own balances so they are not wrong, but the
->   loans are being closed on a basis nobody has recorded. Ask David. (It is
->   `'unknown'` on most of the book, not just these two — Stripe is the only loan
->   with a recorded basis. Session 242 set the column; nobody has filled it in.)
-> * **`REAL_ANCHOR_SOURCES` had nine live copies; session 246 removed two.** Both
->   were re-declarations **inside `reconciliation-run` itself**, 549 and 893 lines
->   below the constant already in scope. **Seven remain** and they are the cheapest
->   safety win on the board. See Tech Debt #23.
->
-> ### 8b. 🔴 NEW — THREE LEDGER FINDINGS, AND A VERDANT PAYMENT POSTED WHOLE TO PRINCIPAL
->
-> These come from the **second** check the rollforward now runs. The variance asks
-> *do the books agree with the lender*; this one asks *do our splits explain what
-> the ledger actually did*. **All four are real and — as of the v58 deploy — all
-> four are now VISIBLE on screen.** They are open work, not pending plumbing.
->
-> * **Verdant Capital — August's payment was posted entirely to principal, with
->   nothing split out for interest.** This is the −$1,835.75 relocated from a
->   standing gap to a single dated event, and it is now fully explained: the books
->   track the contract to **four cents** through July (books 7/31 $250,894.29 vs the
->   schedule's $250,894.33), then fall the **whole $4,543.32** payment between 7/31
->   and 8/10, while the contract reduces principal by only **$2,707.61**. The
->   difference is **$1,835.71 — August's scheduled interest** — plus the four cents.
->   There is no posted August split behind it (the splits jump from `Period 6` to a
->   staged `2026-09`). **Fix the posting, then re-run.** Do not "correct" the
->   tie-out; the tie-out is right.
-> * **PayPal 2 — `unexplained` −$3,142.26.** Principal came off the ledger with no
->   split behind it. Note this loan already appears in §8 for a $44.70 band miss;
->   check whether these are one event before treating them as two.
-> * **BayFirst SBA 2 — `unexplained` +$858.66.** Same figure as its tie-out
->   difference, and the same $858.66 session 246's `_loanBookBalanceAsOf` comment
->   names as the invented variance a stale books row would have produced. Same money,
->   now measured rather than hypothesised.
-> * **Funding Circle — `unexplained` +$15.14.** Derived by hand from SQL one round
->   before the check found it independently, which is the useful part: the check
->   reproduced a human result it was not fitted to.
->
-> ### 8c. 🟠 NEW — TWO THINGS LEFT DELIBERATELY UNDONE, EACH NEEDING A DECISION
->
-> * **The matcher can still claim more than it explains (Tech Debt #26).** Strict
->   reduction bounds the RESIDUAL but not the amount CLAIMED, so an unposted split
->   up to roughly twice a gap can still "explain" it — a planted $2,000.00 gap
->   absorbed by a $2,462.79 split, leaving **−$462.79 with the opposite sign**,
->   which bands immaterial and stops blocking. **Not live on any loan today**, which
->   is why it is filed rather than patched, and the harness carries it as a set of
->   `ce32 ⚠ REPORTED` assertions that pass while stating the hole. Proposed fix:
->   refuse a candidate that overshoots the gap by more than the materiality floor.
-> * **The four-colour palette stops at the rollforward.** The design pass took that
->   surface to black / blue / green / red with no amber, but four shared classes
->   elsewhere still use it: Client View's `.cv-mark.open`, `.bk-queue-stale`, the
->   roster's tier-2 treatment, and the four Payroll correction cards. They were left
->   alone on purpose — they are shared, and changing them changes screens nobody
->   asked about. **Ask David whether he wants the four-colour palette everywhere**
->   before touching any of them.
->
-> ### 9. ✅ WHAT SESSION 246 BUILT — read `DESIGN-CLOSING-EVIDENCE.md`
->
-> A three-grade closing-evidence model: **A** confirmed by lender (a real document,
-> dated in the month or rolled back from a later one), **B** per amortization
-> schedule under a recorded per-loan `close_basis` policy, **C** no evidence.
-> Grades partition the **13 non-automatic active loans**; Stripe is reported
-> separately as *swept from Xero*, never as *no evidence*. `_loanClosingAnchor` is
-> the single place a closing figure is chosen, so the close band, the statement
-> gate and the Client View checklist cannot drift apart.
->
-> **Read the AMENDMENTS section of the design doc, not just the spec above it** —
-> where the two disagree the amendments win, and they are where the live-data traps
-> are written down.
->
-> The migration is **APPLIED and verified** —
-> `migrations/session_246_closing_evidence.sql` is the file of record and its
-> header now states the applied state and the follow-up `revoke` the default ACL
-> made necessary.
->
-> ### 10. 🧪 THE TEST SUITE
->
-> ```
-> PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/bookkeeping-harness.mjs
-> PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/bookkeeping-harness.mjs --only=closing-evidence
-> npx tsx tests/loan-bundle.test.mts        # 68 assertions
-> ```
->
-> **1,495 assertions, 1,494 passing, one deliberately red (§7).** **Every one was
-> proved to discriminate** — 39 revert anchors
-> that apply the inverse of each fix to the shipped function's own `.toString()`
-> in page context and confirm the assertion goes red. Never by editing
-> `index.html`. **An assertion that passes against both the fixed and the broken
-> code is decoration**, and this module has shipped 52 of those before.
->
-> **Three pre-existing assertions were fixed PRE-EMPTIVELY and this is worth
-> copying.** They asserted `opening − principal = computed`, which is only true
-> when nothing was borrowed, and passed solely because Drawn is $0.00 on every
-> fixture row today. They would have gone red **on deploy**, for a reason that is
-> not a bug — the most expensive kind of red, because it arrives when attention is
-> on the deploy and it teaches people that red means "ignore me". When you change
-> an invariant, grep the suite for assertions that encode the OLD one and fix them
-> in the same commit, even where they are still green.
->
->
-> **Session 257 addendum — the totals above predate this session and are not
-> re-verified here; what changed is additive, not a replacement count.** Four
-> `roster-*` groups now read red for a reason connected to a real, approved product
-> change, not a regression — see §1d above for the full explanation:
-> * `roster-confetti-gate` — 3 failures, confirmed **pre-existing** (identical on the
->   unmodified pre-257 file: hardcoded "5 of 14 reconciled" / "6 reconciled"
->   expectations the current fixture no longer matches). Not caused by session 257,
->   not fixed by it either.
-> * `roster-clean-loan-children` (14 new, on top of 9 pre-existing),
->   `roster-orphan-findings` (7 new, 0 pre-existing), `roster-empty-denominator` (1
->   new, 0 pre-existing) — all three assert that findings render NESTED under a loan
->   or as an "orphan" inside the Issues roster. That structure is gone from Issues by
->   design (§1d); the underlying findings were hand-verified to still reach Approvals.
->   **These need rewriting against Approvals' flat-list DOM (`_bkQueueRowHtml`, no
->   `.bk-lender-row`/`.bk-lr-loan` nesting to read), not against Issues** — Issues has
->   no lender-roster markup left to test at all as of session 257 cont.
-
-> ### 11. 📋 STILL OPEN FROM SESSION 241's AUDITS
->
-> Unchanged and unworked: the 57 deploy-only edge functions
-> (`retail-cash-reclass-monthly`'s duplicate guard failing open twice on a live
-> Approve button is still the worst), `loan-xero-post` checking a period LABEL and
-> never the journal DATE, no optimistic-concurrency predicate on any status
-> transition **except** `loan-bundle`'s, the close band's missing recency floor,
-> and the 70 future-dated Verdant projection rows. Full list in the session 241 log
-> entry.
->
-> ### 12. ✅ NEW — THE STAGING ENGINE CLOSED ITS FIRST LIVE LOOP (session 247)
->
-> PayPal 2 `2026-08-26` went stage → match → post → next card on real money, and
-> the lender's own portal confirms the split to the cent ($3,165.30 principal /
-> $249.41 fee). Next card `2026-09-02` is on the board in `pending_review`. Nothing
-> to fix here — recorded because the auto-stage cron (Task 7) has been parked
-> pending exactly this proof. **Enabling it is still a separate decision** and
-> should not be taken as done.
->
-> One thing it turned up that IS a small open item: a **DELETED** Xero transaction
-> `3c507a68…` carries the *same* reference `WR-STAGE 284 2026-08-26` as the live
-> one — a leftover from an earlier unstage. Any lookup of a stage **by reference**
-> must filter `status != 'DELETED'`. Check the sweep's lookup before the next
-> unstage.
->
-> ### 13. ✅ CLOSED — both of session 252's follow-ups deployed and verified against live data
->
-> Both raised by David after the Funding Circle fix went live (`reconciliation-run`
-> v59, deployed 2026-08-30). Part (a) (session 253) and part (b) (session 254) are both
-> **live** as of `reconciliation-run` v62, deployed 2026-08-30 01:00:54 UTC — confirmed
-> by data, not version number: re-ran the check afterward and the Funding Circle
-> `balance_vs_lender` finding's `detail` now carries a `self_diagnosis` key (`null` this
-> run, since no schedule row or sibling finding lined up on its later-entry date — a
-> correct "no lead" result, checked against the loan's actual amortization rows, not
-> assumed). Read the session 253 and 254 log entries for the full per-check-type
-> breakdown and design reasoning before touching any of this.
->
-> **a) Audit the other check types for the same window-blindness bug — DONE, one real
-> bug found and fixed, not yet deployed.** `carrying_basis_drift` is clean (recomputes
-> from full history every run, immune by construction). `settlement-lag` isn't a
-> separate check — it's embedded in `balance_vs_lender`'s own detail, no separate
-> staleness risk. `balance_vs_lender` and `derived_drift` have a MILDER cousin of the
-> bug (an aged-out finding is orphaned rather than recycled, so it can sit open too
-> long but can never falsely resolve) — filed as **Tech Debt #27**, not fixed this
-> session, needs a design call. `double-reallocation.ts`'s `double_reallocation` and
-> `split_collision` findings had a REAL, unfixed version: they write the same
-> `bank_transaction_id` detail field `examinedSrcIds`/`wasExamined` keys off (session
-> 252's "one writer, one reader" claim only grepped `index.ts`; `double-reallocation.ts`
-> is a separate file), and the `resolvedNow` read of that field wasn't scoped by
-> `check_key` — so a double-count finding could theoretically auto-resolve without ever
-> being re-verified, if its transaction got re-pulled for an unrelated reason. **Fixed**:
-> new `_shared/resolve-scope.ts` (`isExaminedForResolve`), scoped to `lumped_payment*`
-> the same way the other two reads of that field already are. `deno check` clean, new
-> `resolve-scope.test.ts` (6/6, proved to discriminate against the old unscoped logic),
-> `double-reallocation.test.ts` unaffected (4/4). **DEPLOYED — checked, not assumed
-> (session 258).** The note here used to say "committed locally, NOT deployed" because
-> the sandbox's deploy tool can't push a 231KB/6-file bundle. But `git log` shows the
-> last commit touching `index.ts` / `resolve-scope.ts` / `double-reallocation.ts` landed
-> 2026-08-30 00:59:43 UTC, and `reconciliation-run` **v62** deployed 2026-08-30
-> 01:00:54 UTC — 71 seconds later. `index.ts` on disk imports and calls
-> `isExaminedForResolve` at the exact line the fix describes, so v62 carries it. This
-> was the deploy-command hand-off item on this file's own list; **it was already done,
-> and the note just hadn't been corrected.** Still true and unchanged:
-> `double-reallocation.ts` itself doesn't reference `resolve-scope.ts` — its own
-> `wasExamined` read was never the thing this fix touched — and no loan currently has
-> both an open `lumped_payment` and an open `double_reallocation`/`split_collision`
-> finding on the same transaction, so there's nothing to visibly verify until that
-> combination occurs.
->
-> **b) Findings should self-diagnose from sources already in the system, instead of
-> theorizing — DONE (first pass), not yet deployed.** Session 254 shipped the "cheap
-> check" David chose over the full loan-find-difference walk (that walk is a genuine
-> 18-month Xero crawl that already needed its own 3-minute timeout — running it
-> automatically for every gap risked timing out the whole scheduled run, not just the
-> one loan). `checkBalanceVsLender`'s generic "either missing from Xero or recorded
-> twice" fallback now cross-references, IN MEMORY ONLY (no new Xero call): the loan's
-> own amortization schedule (does the residual match that period's scheduled interest
-> or principal, on the SAME date a real ledger entry moved the balance?), then — only
-> if nothing dollar-matches — the loan's other OPEN findings (is there one dated on
-> the same later-entry date?). New `_shared/gap-diagnosis.ts` (`diagnoseUnexplainedGap`),
-> 10 passing tests, proved to discriminate (3 assertions confirmed red against a
-> date-blind version). Scoped to `balance_vs_lender` only for this first pass, per
-> David's choice — `derived_drift`'s similarly generic wording is a candidate for the
-> same treatment later, not touched here. Read the session 254 log entry before
-> touching `checkBalanceVsLender` or `gap-diagnosis.ts`. Deliberately hedged wording
-> ("suggests", "not confirmed") — this is a lead, not a verdict, and severity is
-> untouched by it. The expensive full-history walk (`loan-find-difference`) stays a
-> manual "Find the difference" button, unchanged — that decision (go bigger later) is
-> still open, not abandoned.
->
-
-> ### 14. 🟠 NEW — OVERVIEW DESIGN PASS: less red, no clean loans in Needs Attention, the ledger check finally shows up (session 255)
-
-> David reviewed the live Overview page after the item 13 deploy and raised four things
-> in one sitting. All four are committed locally, **NOT pushed** (sandbox has no
-> network) — `admin-dashboard/index.html` has no separate deploy step, but it needs
-> `git push` to reach anything other than this device; each commit already bumped
-> `build-version.txt` locally, which is what makes open tablets reload once it's live.
->
-> **Vague Verdant sentence — cut, not reworded.** "...so this gap is the answer rather
-> than a placeholder" read as filler. David: "Better not say anything rather than
-> something unhelpful." The trailing clause is gone; the real claim (books disagree
-> with the contractual schedule, no statement is coming) is untouched.
->
-> **A clean loan sat inside a red "Needs Attention" group.** Ford Pro FinSimple groups
-> 4 E-Transit loans (session 247's "one row per lender"); E6-7410 is fully reconciled
-> but was still rendered as a sub-row inside the flagged group, because the per-loan
-> breakdown loop rendered every sibling unconditionally. Now skipped when a loan is
-> both `reconciled` AND carries no open item — the group's own "3 of 4 disagree" spread
-> is computed independently from the full roster, so the denominator survives.
->
-> **Red was doing a job that weight and dots could do alone.** One real problem could
-> carry red in three places — the lender group headline, that loan's own sub-row, and
-> the finding card itself. Only the finding card (border + tint + bold headline, right
-> where "Review" lives) keeps red text now; the group and sub-row headlines render in a
-> dark neutral color, dots stay red at every level as the quiet scan signal. No claim
-> dropped, only duplicate ink.
->
-> **"3 loans the ledger does not explain — \$5,011.49" had no mention in Issues.**
-> Confirmed real and a different question from `balance_vs_lender`: whether OUR
-> recorded splits explain what actually moved in the Xero ledger this month (see item 1
-> above and `_loanCloseRollforward`'s "THE LEDGER CHECK, AS A POPULATION" comment) —
-> PayPal 2 is the standing example of a loan that ties to the lender exactly while
-> failing this. It was computed only inside the Loans page's Close Rollforward band and
-> never reached `_bkLoanAttentionItems()`, the one shared source every attention
-> surface reads. Now it does — one item per loan in `ledgerOff`, no new fetch (reuses
-> data already loaded for the Loans page). **This surfaced a real pre-existing gap,
-> not just a missing check**: the roster only ever showed a lender whose WORST loan
-> balance state was `variance`, so ANY open item on an otherwise balance-clean loan —
-> not just this new ledger one, a stale `loan_flag` or a `needs_attention` split would
-> hit the same hole — could be sitting on a loan that never appeared in Needs Attention
-> at all. Widened the roster's `inBand` filter and `_bkRosterCounts()`'s header tally to
-> the same rule (variance OR any open item), both reading `_bkLoanAttentionItems()` so
-> the "N need attention" headline and the roster under it can't drift apart — this
-> module's own repeated failure shape ("two numbers, no way to tell which is real").
->
-> **Not done, and worth knowing about:** whether a *previously invisible* `loan_flag` or
-> `needs_attention` split now appears on the Overview roster for the first time (because
-> of the `inBand`/`_bkRosterCounts` widening, not because anything new was raised) was
-> not checked against live data this session — next session, after this deploys, is a
-> good time to look at whether the "N need attention" count jumped by more than the
-> ledger-check loans alone, and if so, confirm those items are real rather than stale.
->
-
-## Why this file exists (session 217)
-
-David asked for the Bookkeeping module (Loans, Payroll, Reconciliation — the
-"Bookkeeping" tab set in `admin-dashboard/index.html`) to get its own notes
-file and its own skill (`washroute-bookkeeping`) instead of sharing
-`PROJECT-NOTES.md` / the base `washroute` skill with the rest of the laundry
-app. Reasoning: Bookkeeping has a genuinely different risk profile —
-double-entry correctness and Xero sync idempotency, where a subtle bug means
-misstated books or a duplicate journal entry, not a missed SMS — and folding
-its history into the laundry notes file bloats the context every ordinary
-laundry-app session has to load.
-
-**What did and didn't move:** The session log below (session 212 (cont. 2)
-through 217) was **copied, not moved**, from `PROJECT-NOTES.md` — nothing
-was deleted from the main file, so no history was put at risk during the
-split. Everything from session 212 (cont. 2) backward — including any
-earlier Bookkeeping work interleaved with laundry-app sessions — still only
-lives in `PROJECT-NOTES.md`; if you need it, grep that file for "Loan",
-"Payroll", "Reconciliation", "Xero journal", or "Bookkeeping". **Going
-forward (session 218+), new Bookkeeping-module work is logged ONLY here**,
-not in `PROJECT-NOTES.md`.
-
+>    session 263 cont. 8 (37 assertions, 4 mutations proven red), **wired into nothing.** Build
+>    the per-loan `LoanEvidence` from what the run already loads — newest REAL anchor
+>    (`REAL_ANCHOR_SOURCES`), `contractTerms`, `schedAnchors`, `bookBalances` — pass the closing
+>    month's FIRST day as `coversFrom`, gate the four registered checks, and push
+>    `awaitingEvidenceFinding()` once per loan. **The existing silent `if (haveCheckpoint)` skip
+>    on `derived_drift` is exactly the blank this replaces — make it visible, do not leave
+>    both.** Wire EVERY consumer in one change; session 263 made the
+>    stop-at-the-first-consumer mistake five times. ⚠️ **Read session 265 §5 first:** it is the
+>    same question this gate answers, and the answer there was that *what makes a gap
+>    unevaluable is its anchor, not the calendar*. A gate keyed on `coversFrom` alone would
+>    reintroduce exactly the eleven-to-one disagreement that was just removed.
+>
+> **4. 🟠 TECH DEBT #35 — thirteen of fourteen active loans have NO `loan_contract_terms`.**
+>    Untouched this session; it was the planned third item and was displaced by #32 turning out
+>    to be a live defect. Still the sole remaining blocker on `carrying_basis`.
+>
+> **5. 🟡 What is left of #32:** the `unverified` population — loans whose balance nothing
+>    outside our books has confirmed — reaches NEITHER the Issues table nor the client
+>    checklist. Nobody is being asked for the statement that would make those real checks.
+>
+> ### 📋 The real books, measured 2026-09-03
+>
+> **August cannot be closed: 10 of 11 expected statements are in and analysed, and BayFirst
+> SBA 2 is the one outstanding.** Dexter 2 and Verdant are exempt by recorded policy and are
+> named rather than dropped from the denominator. This needs a document, not code.
+>
+> 🔧 **OPERATIONAL — `git` from the sandbox leaves a lock file every time; use
+> `--no-optional-locks` for reads.** The device mount refuses `unlink`, so every git command
+> that takes a lock creates `.git/index.lock` or `.git/HEAD.lock` and cannot remove it; the next
+> command then dies with *"another git process seems to be running"*. Not a crashed process, and
+> `rm` is unavailable. `git --no-optional-locks status` takes no lock — **use it for every
+> read**; for a write, `mv` the lock aside first. In David's own Terminal git deletes its locks
+> normally, so he never sees this. `.git/_to_delete/` is his to `rm -rf` whenever.
+> ⚠️ Do NOT sweep on `*lock*`: `.git/worktrees/wr-test-main/locked` is a REAL git file. Match
+> `*.lock` and `*.lock.*` only.
+>
+> ⚠️ **`git checkout -- <file>` FAILS on this mount** ("unable to unlink old ...") and can leave
+> the file in a half-restored state. To restore a file, `git show HEAD:<path>` to a temp file and
+> write it back with python, which truncates in place instead of unlinking.
+>
+> 🔒 **STANDING RULE (session 262 cont. 3, David) — THE CLOSE GATE.** *The month cannot be
+> closed without all relevant statements uploaded AND analysed against Xero.* Loans closing on a
+> contractual schedule are exempt **by recorded policy** (`close_basis`), never because a
+> schedule file exists. `_bkStatementGate()` is the single source.
+>
+> 🔒 **STANDING RULE (session 262 cont. 2, David) — ASK, DON'T ASSERT.** *Ask when evidence is
+> what's missing; state the cause when the cause is established.* ⚠️ **Session 265 corrected
+> what "missing evidence" MEANS:** it is not a statement older than the month being closed — it
+> is a gap with **no lender document behind it at all**. `loan_tie_outs` rebuilds the books side
+> at the statement's own date, so a gap measured on 5 August is real on 5 August. The old
+> reading put paperwork requests on six of the CPA's eight rows while the close gate said one
+> document was outstanding. An ESTABLISHED cause still outranks the ask, and `balance_vs_lender`
+> is still a RESTATEMENT of the gap, not a cause.
 ---
 
 ## Bookkeeping Module at a Glance
@@ -2630,11 +1794,15 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
-**39. 🟠 The dashboard's principal reconciliation counts the same corrections, against the lender's own balance movement (session 264).** `_loanPrincipalReconciliation()` in `admin-dashboard/index.html` compares the principal WE recorded in a window against how far the LENDER's balance actually moved. A lender's balance contains no reclassification journal, so ours must not either — this is Tech Debt #38's defect, one file away, on a surface #38's fix does not reach. Measured on PayPal 2 over the live 6-month window (2026-03 → 2026-08): `recorded` is overstated by **$16,229.95** of true-ups. **It was NOT fixed in session 264, deliberately, because a second and unrelated cause sits on the same figure:** the window's closing lender balance is dated **2026-08-05** while `recorded` runs to the month end, so three August payments totalling **$9,451.05** are counted against a balance taken before they happened. Fixing the reclassification alone would take the delta from $25,680.99 to $9,451.05 — still `over`, still suppressing this loan's recurring payment, and now wrong for a reason nobody has written down. Next step: cut `recorded` at `close.asOf` rather than at the month end, AND exclude zero-cash corrections, in one change, measured across all fourteen loans. **Blocked on Tech Debt #37** — this is `index.html`, and the browser harness cannot run on the machine that ships it, so the measurement has to be real or not made at all.
+**41. 🔴 THREE reconciliation runs are stuck in `running`, and nothing has COMPLETED since 2026-09-02 20:51 UTC (found session 265).** `reconciliation-run` boots again — a `net.http_post` probe returns a clean 403 "Not authorized" rather than the 503-on-preflight that the never-booting v64 gave, which is the functional check, not a version comparison. But **there is no cron for this function** (`cron.job` carries only `wr-loan-attribution`, `20 */6 * * *`), so it only runs when someone presses Check — and nobody has since it broke. **Every tie-out the dashboard is reading is from yesterday evening**, which means every variance, every close-gate verdict and every Issues row on screen right now predates both session 264's and session 265's changes. First action for whoever reads this: press Check, then confirm a row appears in `reconciliation_runs` with `finished_at` set. Two further things to decide: the three rows sitting in `running` with no `finished_at` (2026-09-01 21:57, 2026-09-02 00:09, 2026-09-02 13:45) are dead v64 attempts that will never finish and should be marked failed rather than left ambiguous — `loadReconciliation` picks the newest FINISHED non-failed run so they are harmless today, but "running" is a lie about a process that is not; and whether this function should be on a cron at all, given the module now depends on its output being current.
+
+**40. 🟠 The fixture refresh needs a privileged connection, and there is no un-hacky way to give it one (session 265).** `tests/refresh-bookkeeping-fixture.mjs` pulls production rows over PostgREST, but the browser's anon key reads **nothing** — RLS returns `[]` for the tables it can see and 401 for seven others (`loan_documents`, `loan_book_balances`, `bookkeeping_kpi_snapshots`, `reconciliation_runs`, `reconciliation_findings`, `loan_tie_outs`, `loan_attributions`). ⚠️ **The obvious "fix" — granting anon read — is the exact inverse of Tech Debt #14 and must never be done to make this script simpler.** Today those seven come from a privileged connection into `tests/fixtures/.denied-tables.json` (gitignored; the `SIDE_CAR_SQL` query is at the bottom of the script), and the script REFUSES to write without it rather than emitting a fixture whose splits are from today and whose tie-outs are from last week. ⚠️ **The trap that cost an hour: `res.ok` was 200 on every empty response**, because RLS returning no rows is not an error — checking status rather than row count is how a refresh silently produces a fixture of nothing, and the script now pages explicitly and would notice. Next step is a decision, not code: either a service-role key kept in an env var on David's machine (never in the repo, never in a session's context), or a single read-only SQL function returning the whole fixture as one JSON value, exposed only to an authenticated role. The second is cleaner and needs a migration review.
+
+**39. ✅ CLOSED (session 265) — both causes in one measured change, and PayPal 2 ties to the cent.** `_loanPrincipalReconciliation()` no longer counts what a lender's balance cannot contain. The $25,681.00 it was accusing PayPal 2 of splits exactly: **$16,229.95** of zero-cash reclassification journals (Tech Debt #38's defect, one file away — same `ZERO_CASH_MOVEMENT_SOURCES` allowlist, hand-copied into `index.html` because a no-build SPA cannot import from the functions tree, and `recon-window` now asserts the two copies match) and **$9,451.05** of August drafts charged against a closing statement dated 2026-08-05, before those payments happened. The window arguments now choose which ANCHORS to look for; the splits counted are those the anchors actually bracket, both ends. PayPal 2 goes to **$0.00**, rejoins the owner's principal and interest totals, and its recurring payment can be measured again. **Measured across all fourteen active loans, nothing else moves** — Funding Circle's real duplication ($4,976.80) and E4-9744's incomplete history (−$4,903.21) both survive, which is what distinguishes a fix from a tidied-away red. ⚠️ **ONLY DAY-LABELLED SPLITS ARE PLACED, and the first cut got this wrong:** placing a month-labelled split at its month end looks more careful, but a lender dating its statement mid-month then makes every month-labelled payment look late, and four loans that tie exactly went `under` by about a payment each. That mistake is kept as mutation (d) in `recon-window` — it is the one a future change is most likely to remake. A guess is not a date.
 
 **38. ✅ CLOSED (session 264) — a reclassification is no longer a repayment, and the control landed to the cent.** `fitBasisAgainst()` now excludes zero-cash rows from the payments side, and PayPal 2's net model predicts **$49,324.92** against books of **$49,346.58** — the $21.66 the arithmetic promised, from $18,856.16 out. **The prescription in the original note would have been wrong, and finding that out was the work.** Excluding by `source='manual_adjustment'` was too narrow (a label is a name for a mechanism, and names get added); excluding by zero cash alone was too BROAD, and that is the part nobody had measured: **seven other loans carry zero-cash rows of exactly the same shape** — BayFirst SBA 2 at −2,155.49/+2,155.49, Bluevine, Funding Circle's twenty-seven — and those are capitalised interest read off the LENDER's own statement, where the amount owed genuinely rose. A cash-only test would have traded one wrong prediction for seven. Only PROVENANCE separates them, which is this module's own rule that you never infer from shape what a document can be asked directly. So the exclusion is an allowlist, `ZERO_CASH_MOVEMENT_SOURCES = ['statement_delta']`, pointed the same way as `BOOK_BALANCE_SOURCES`: a zero-cash row from an unlisted source is left OUT of the repaid sums rather than quietly counted. What was excluded is reported in `detail.reclassifications_excluded` — an exclusion nobody can see is evidence deleted. 7 new assertions in `tests/carrying-basis.test.mts`, both mutations proven red: revert the exclusion and the predicted figure comes back as **$30,490.42** exactly, and widen it to cash-only and BayFirst's capitalised interest goes red on its own. **See Tech Debt #39 for the same defect on the dashboard, which this fix does NOT reach.**
 
-**37. 🔴 The browser harness cannot run on the machine that ships the dashboard (session 263 cont. 6).** `tests/bookkeeping-harness.mjs` loads `admin-dashboard/index.html` in headless Chromium and would have caught cont. 6's temporal-dead-zone crash in seconds. It cannot run: the device VM has no Playwright browser installed (`Executable doesn't exist at /opt/pw-browsers/...`), and the cloud container that HAS one does not have the repo. So every dashboard change this session shipped on source-text assertions alone — which proved the code was present and could not prove it ran, and a crash went out. Next step: install the browser on the device (`npx playwright install chromium`, one command, ~150MB) so the harness is runnable where the edits happen. Until then, treat any `index.html` change as unverified and lean on ordering/consistency lints, which are cheap and catch a real subset — see cont. 6 for the shape.
+**37. ✅ CLOSED (session 265) — the harness runs on the machine that ships the dashboard.** Two blockers, neither guessable. **`npx playwright install chromium` hangs at 0% on that VM** although the network is fine (`curl` pulls the same URL at ~6 MB/s) — do not wait for it; fetch the zip with curl and unpack it by hand. And **exactly one missing system library, `libXdamage.so.1`, with no root available**, so `apt-get install` and `playwright install-deps` are both out; the `.deb` is extracted into `~/syslibs` and reached through `LD_LIBRARY_PATH`. Check a newer build with `ldd <chrome> | grep "not found"`. **`tests/run-harness.sh` encodes the whole recipe** and refuses with the exact recovery commands if either piece is missing. ⚠️ **Both live under `$HOME`, which is a per-session sandbox (`/sessions/<id>/`), so a future session starts without them** — that is deliberate: 500 MB of browser inside a git working tree is a worse problem than the one-minute reinstall the script's error message walks you through.
 
 **36. ✅ CLOSED — WAS NEVER TRUE (filed session 263 cont. 3, withdrawn cont. 7).** This item said seven active loans have no book-sourced balance, and warned that EIDL's newest book balance was 2024-03-31 so its verdict "speaks for 2024". Both statements were measured against `loan_statements` alone. **`loan_book_balances` holds a 2026-08-31 `xero_rebuild` balance for ALL FOURTEEN active loans, every one non-zero** — including EIDL. Nothing was missing; the query named the wrong table. cont. 7 added `_shared/book-balances.ts` as the single reader over both tables and wired it into `loan-bundle-plan` §5, `loan-bundle` and `reconciliation-run`, so the basis check and the books-vs-lender comparison now see these rows. **The verdicts do not move: #35 (missing contract terms, 13 of 14) is now the sole remaining blocker on `carrying_basis`, not one of two.** Standing lesson: before filing "we don't have X", check every table that could hold X.
 
@@ -2644,7 +1812,7 @@ an explanation of this gap; it is a different event that happens to be nearby. W
 
 **33. 🟠 Nothing reconciles a projected schedule row against the lender's later actual (session 263).** PayPal 2's schedule is `amort_type='actual_payment_history_from_lender_csv'` — an earlier parse of the lender's own history CSV, with rows past the parse date projected forward. When a newer CSV arrives, the PayPal ingest path files **statements** and never touches the schedule, so a projected row stays a projection permanently even once the lender has settled the period. Session 263 found two such rows (2026-08-19 and 2026-09-02) each a penny out, and corrected them by hand; 36 of 38 agreed, so the projection is good, which is exactly what makes this easy to leave broken. **It matters because on a `prestage_enabled` loan those projected rows are what get created in Xero** — the 2026-09-02 stage carries the projection's 3180.34/234.37 against the lender's 3180.33/234.38. Next step: when a lender history CSV is ingested for a loan whose schedule is of this `amort_type`, reconcile past rows against the file and correct any that the lender has since settled, recording the supersession on the row. Never touch rows on or after a period whose split has left `pending_review` without saying so — a corrected row under a staged split is a discrepancy someone must be told about, not one to silently paper over.
 
-**32. 🔴 The ask reaches the CPA; the upload is the business owner's job (session 262 cont. 2).** The Issues row now says "a statement dated August 31 or later settles this — there is nothing to investigate until then" and offers **Upload statement**. But David's own framing is that the chore belongs to the business owner, who works in the **Client View**, not to the CPA reading Issues. So the request is currently shown to the one person who is not going to act on it. This is the difference between a better label and a working loop, and it is why this is red rather than amber. Next step: a "documents we're waiting on" surface in the Client View, driven by the same `_bkEvidenceAsk()` — one function, both surfaces, so they can never disagree about what is outstanding (the shared-function rule this module lives by). Worth carrying the loan's lender and the month-end date so the owner knows exactly what to fetch. Longer term David's answer is better than either: lender integrations remove the chore instead of routing it.
+**32. 🟡 NARROWED (session 265) — the ask was WRONG before it was misrouted, and fixing it emptied most of this item.** The original note assumed the request was right and pointed at the wrong reader. Measuring it first found the request itself was wrong on **six of the eight rows the CPA reads**: `_bkEvidenceAsk` asked whenever the newest lender figure predated the month END, so closing August it fired on Ford's 17 August statement, PayPal's 5 August and BayFirst's 5 August, while the close gate and the client's own checklist said ten of eleven statements were in and exactly ONE loan was outstanding — **two surfaces, one question, answers eleven apart**, with the genuinely-missing document buried under five requests for paper we hold. The test now asks whether a REAL LENDER DOCUMENT speaks for the date the gap is measured at (the relation `_bkStatementGate` calls `analysed`), because `loan_tie_outs` rebuilds the books side at the statement's own date — so a gap measured on 5 August is real on 5 August. **Structural consequence: the ask can never fire on the Issues table at all**, since everything reaching it either has a real lender anchor by definition or is a schedule-policy loan the function refuses. Twelve asks became one. **What remains, and it is the honest residue of this item:** the `unverified` population — loans whose balance nothing outside our books has confirmed — reaches NEITHER surface. They are excluded from Issues by `_bkIssueQueueItems` (deliberately, per David's mockup note) and they only reach the Client View checklist if `_bkStatementCoverage` counts them missing. Those are precisely the loans where "a statement would turn this into a real check", and nobody is being asked for one. `ask-not-claim` k4 now pins the gate and the checklist to the same documents and the same count, so the eleven-to-one shape cannot return unnoticed. Longer term David's answer is still better than any of this: lender integrations remove the chore instead of routing it.
 
 **30. 🟠 A posting hold lives in free text, and the guard that reads it is a regex (session 262 cont.).** `loan_splits.review_notes` is where a human writes "DO NOT STAGE THIS PERIOD until Ford confirms a September draft" — a real instruction, on the row, that no code read until now. `_bkSplitPostingHold` matches `/\bdo not (stage|post)\b/i` and, when it hits, removes the row's action entirely and quotes the writer's own sentence. **It is built so it can only ever REMOVE an action** — a false positive costs a button still reachable from the Loans page, a false negative leaves the pre-session-262 behaviour; it never enables a post, never changes a figure, never suppresses a variance. That asymmetry is what makes a prose regex admissible here at all, and it is the only thing that does. **The real fix is a structured column** — `posting_hold_reason text` plus `posting_hold_set_by/at`, written deliberately by whoever knows, with the note field left as commentary. Then every surface can honour a hold without reading English, `loan-xero-post` can refuse a held split server-side (today nothing stops a direct call), and the hold becomes auditable. Do this before any second surface starts matching the same phrase — two regexes over one note field is how they start disagreeing.
 
@@ -2914,6 +2082,205 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 265 (2026-09-03) — THE TEST SUITE COULD NOT SEE THE ROWS IT WAS TESTING, AND TWO SURFACES WERE ELEVEN APART
+
+**David's brief:** *"start working on the top 3 bookkeeping module tech debt, starting with
+#38."* #38 was already closed by session 264 nine hours earlier, so the list he was reading
+was stale — the actual chain, agreed with him, became **#37 → #39 → #32**. Worth saying
+plainly because it recurs: the tech-debt list is the thing most likely to be out of date in
+this file, and the first move on any "work the list" session is to check whether the top item
+is still open.
+
+Also: **another session was committing to this repo while this one started** (`d585116`
+landed ten minutes in). David closed it. `git log` before assuming the tree is yours.
+
+---
+
+#### 1. ✅ TECH DEBT #37 CLOSED — the harness runs where the dashboard is edited
+
+For six days every `index.html` change shipped on source-text assertions alone, which prove
+code is present and cannot prove it runs; a crash went out that way in session 263 cont. 6.
+Two blockers, neither guessable:
+
+* **`npx playwright install chromium` HANGS AT 0% on the device VM.** The network is fine —
+  `curl` pulls the identical URL at ~6 MB/s. Do not wait for it. The browser was installed by
+  fetching the zip with curl and unpacking it by hand.
+* **Exactly one missing system library, `libXdamage.so.1`, and there is no root on that VM**,
+  so `apt-get install` / `playwright install-deps` are both unavailable. The `.deb` is
+  extracted into `~/syslibs` and reached through `LD_LIBRARY_PATH`.
+  `ldd <chrome> | grep "not found"` is how you check whether a newer build needs more.
+
+**`tests/run-harness.sh` encodes the whole recipe** and refuses with the exact commands if
+either piece is missing. ⚠️ **Both live under `$HOME`, which is a per-session sandbox
+(`/sessions/<id>/`), so a future session starts without them** — the script's error message
+is the recovery path, and it takes about a minute. Moving them into the repo was rejected:
+500 MB of browser in a git working tree is a worse problem than a one-minute reinstall.
+
+First run: **1,620 assertions, 1,619 passing**, matching the recorded figure exactly.
+
+---
+
+#### 2. ✅ TECH DEBT #39 CLOSED — and it needed a fixture refresh to be testable at all
+
+`_loanPrincipalReconciliation()` had PayPal 2 **over by $25,681.00**, which suppressed its
+recurring payment and dropped it out of the owner's principal and interest totals. It
+decomposes exactly, to the cent:
+
+| | | |
+|---|---:|---|
+| zero-cash reclassification journals | **$16,229.95** | 5 rows — #38's defect, one file away |
+| drafts dated after the closing anchor | **$9,451.05** | 3 August payments vs a 2026-08-05 statement |
+| | **$25,681.00** | the whole gap |
+
+Both fixed in one change; PayPal 2 now ties at **$0.00**. Measured across all fourteen active
+loans, **nothing else moves** — Funding Circle's real duplication ($4,976.80) and E4-9744's
+incomplete history (−$4,903.21) both survive, which is the result that says this is a fix and
+not a red being tidied away.
+
+**The allowlist is copied, not shared, and that is now checked.** `RECON_ZERO_CASH_SOURCES` in
+`index.html` is a hand copy of `ZERO_CASH_MOVEMENT_SOURCES` in `_shared/carrying-basis-drift.ts`
+— a single-page app with no build step cannot import from the functions tree (Tech Debt #23's
+shape). `recon-window` reads both and asserts they match, so the copy cannot drift silently.
+
+**⚠️ THE MISTAKE THIS FIX MADE FIRST, and it is kept as a mutation.** The first cut placed a
+month-labelled split ('2026-07') at its month END, reasoning that a month is not closed until
+its last transaction. That looks more careful and is not: a lender dating its statement
+mid-month then makes every month-labelled payment look late, and **four loans that tie exactly
+went `under` by about one payment each** — the fix manufacturing the very kind of false
+accusation it was written to remove, in the opposite direction. Only DAY-labelled splits are
+placed now. A guess is not a date; being unable to place a row is a reason to leave it alone.
+
+**The scratch transcription disagreed with the shipped function and the shipped one was
+right.** The throwaway probe used while measuring predicted the month-end variant would change
+nothing. It was wrong because it compared `'2026-08' > '2026-08'` where the real code compared
+`'2026-08-31' > '2026-08-20'`. Session 245's rule earned its keep inside a single session.
+
+---
+
+#### 3. 🔄 THE FIXTURE WAS SIX DAYS STALE AND HAD NEVER SEEN THE ROWS #38 WAS BUILT FOR
+
+`#39` was **untestable** until this was fixed: not one of PayPal 2's five `manual_adjustment`
+corrections existed in the 28 August fixture. They are dated March–July but were WRITTEN later,
+so a snapshot taken on the 28th does not contain them. **A whole class of row — the class
+session 264 spent a day reasoning about — was invisible to this suite for as long as it
+existed.**
+
+**`tests/refresh-bookkeeping-fixture.mjs`** now does the refresh in one command. The `.sql`
+file remains the specification for every SHAPE and the two must be kept in step; what it was
+not is runnable, being seventeen SELECTs whose results are pasted into a 3 MB JSON by hand,
+which is why the fixture only got refreshed when someone had an afternoon.
+
+**⚠️ ANON CANNOT READ THIS DATA AND MUST NOT BE GRANTED IT.** The first version fetched over
+PostgREST with the browser key and returned `[]` for every table — RLS, working correctly, and
+`res.ok` was 200 so an empty array looked like an empty table. **Checking `ok` rather than row
+count is how a refresh silently produces a fixture of nothing.** Seven tables also 401 outright.
+Widening any grant to make this script simpler would be the exact inverse of Tech Debt #14; the
+data comes through a privileged connection into a gitignored side-car, and the script REFUSES
+to write without it rather than emitting a fixture whose splits are from today and whose
+tie-outs are from last week.
+
+**Refreshing moved 274 assertions**, and not one was a defect.
+
+---
+
+#### 4. 🧊 TWO FIXTURES NOW, AND THE REASON IS NOT CONVENIENCE
+
+The refresh rolled the month being closed from July to August. No August statement has arrived
+for any loan, so the close gate correctly refuses to close it — and `closing-evidence`, 660
+assertions about **closing July 2026**, went 256 red. Its own precondition assertion fired
+first and said so.
+
+Those figures were each verified once against Xero and against real lender documents. That
+verification is the expensive part and cannot be redone from a screen; re-pinning them to
+today's numbers would turn a test into a transcript, which is session 245's failure mode
+written large. So a group now declares which snapshot its question belongs to:
+
+```
+GROUPS.push({ name: 'closing-evidence', fixture: 'july', ... })
+```
+
+`live` (default) moves with every refresh. **`july` is frozen at 2026-08-28 and the harness
+throws if its `pulled_at` ever changes** — refreshing it would rewrite the answers instead of
+checking them. Six groups are pinned: `closing-evidence`, `two-surfaces`,
+`roster-classification`, `roster-clean-loan-children`, `attribution-states`, `split-not-a-fix`.
+The clock follows the group's own fixture, so session 262's "the date comes from the fixture"
+rule still holds with two of them.
+
+**This makes refreshing cheap, which is the actual repair.** The fixture went stale because
+refreshing it was frightening.
+
+---
+
+#### 5. ✅ TECH DEBT #32 — the ask was wrong before it was misrouted
+
+#32 says the statement request reaches the CPA when the chore belongs to the business owner.
+Measuring it first — per David's own ask-don't-assert framing — found the request itself was
+wrong, on six of the eight rows the CPA reads.
+
+`_bkEvidenceAsk` asked whenever the newest lender figure predated the month **END**. Closing
+August that fired on twelve loans — Ford's 17 August statement, PayPal's 5 August, BayFirst's
+5 August — each row reading *"there is nothing to investigate until a 31 August statement
+arrives"*. **The close gate and the client's own checklist, reading the same book, said ten of
+eleven statements were in and exactly ONE loan was outstanding.** Two surfaces, one question,
+answers eleven apart, and the loan that genuinely has nothing for August (BayFirst SBA 2) was
+buried under five requests for paper we already hold.
+
+**Why the old test was wrong:** `loan_tie_outs` does not compare a 5 August lender balance
+against a 31 August Xero balance. It rebuilds the BOOKS side at the statement's own date and
+reports the remainder — *"this loan comes to $61,918.23 on 2026-08-05, against $58,775.97 on
+the lender's own statement for that date … leaving $12,609.73 unexplained."* Both sides speak
+for the same day. That gap is real this morning and will not be more investigable on the 31st.
+
+So the test is now whether **a real lender document speaks for the date the gap is measured
+at** — the same relation `_bkStatementGate` calls `analysed`. Allowlisted on
+`_VARIANCE_REAL_ANCHORS`, so an anchor source nobody has added yet asks rather than going quiet.
+
+**🔑 THE STRUCTURAL CONSEQUENCE, and it is the sharpest thing in this session.** Stated
+correctly, **the ask can never fire on the Issues table at all.** Everything reaching that
+table is either a `variance` — which by definition has a real lender anchor — or a
+schedule-policy loan, which `_bkEvidenceAsk` refuses outright because no statement is coming.
+The ask was only ever visible there because date-staleness was standing in for missing
+evidence, and it is not that. Twelve asks become **one**: Stripe Capital, which really has no
+statement on file.
+
+**What this means for the rest of #32.** The Client View checklist already exists, already
+lists what the month needs, and already agrees with the gate — one outstanding document, named.
+So the "route it to the owner" half is in substance already built and correct; what was broken
+was the CPA-side ask that contradicted it. `ask-not-claim` now asserts that the two surfaces
+name the same documents and count the same number, which is the assertion that would have
+caught an eleven-to-one disagreement the day it appeared. **What remains of #32 is narrower:
+the `unverified` population — loans whose balance nothing outside our books has confirmed —
+reaches neither surface. See the revised #32 note.**
+
+---
+
+#### 6. 📋 THE REAL BOOKS: AUGUST CANNOT BE CLOSED, AND THE GATE IS RIGHT ABOUT WHY
+
+Measured against production this session: **10 of 11 expected statements are in and analysed;
+BayFirst SBA 2 is the one outstanding.** Two loans (Dexter 2, Verdant) are exempt by recorded
+policy and are named rather than quietly dropped from the denominator. Nothing here needs code
+— it needs the document.
+
+---
+
+#### Verification
+
+* **Browser harness: 1,654 assertions, 1,653 passing.** The single red is `[history] s240 #10`,
+  self-labelled REPORTED and red ON PURPOSE — it is where Tech Debt #19 is written down.
+  **Any other red is a real failure.** Run it with `bash tests/run-harness.sh`; the full sweep
+  exceeds one sandbox call's time budget, so run it in two halves by group if you are in the
+  bridge.
+* **Node suites: 1,127 assertions across 18 files, 0 red.** `loan-bundle.test.mts` still cannot
+  import `pdfjs-dist` on this machine — pre-existing, unrelated.
+* **41 new assertions in `recon-window`**, four mutations proven red, including the month-end
+  placement mistake this session made and caught.
+* **18 assertions in the rewritten `ask-not-claim`**, one mutation proven red: reinstate the
+  month-end rule and the CPA's table floods with five requests for statements we hold.
+* Isolation proof for the refresh: with the OLD fixture and the NEW `index.html`, every group
+  passes except the deliberate red. **All 274 moved assertions are the data, not the code.**
 
 ---
 
