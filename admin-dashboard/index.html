@@ -9360,19 +9360,54 @@
   // lender cannot satisfy: a loan whose recorded closing basis IS the
   // contractual schedule has no statement coming, and "needs a statement" on it
   // is the lie _bkRosterState's own comments warn about.
+  //
+  // ⚠️ WHAT MAKES A GAP UNEVALUABLE IS ITS ANCHOR, NOT THE CALENDAR (session 265)
+  //
+  // This used to ask whenever the newest lender figure predated the month END.
+  // That sounds like the same thing and is not, and the difference was costing
+  // the CPA her screen: closing August, SIX of the eight rows in the Issues
+  // table read "there is nothing to investigate until a 31 August statement
+  // arrives" — Ford's 17 August statement, PayPal's 5 August, BayFirst's 5
+  // August, all of them. Meanwhile the close gate and the client's own
+  // checklist, reading the same book, said TEN of eleven statements were in and
+  // exactly one was outstanding. Two surfaces, one question, answers eleven
+  // apart — and the one loan that genuinely has nothing for August was buried
+  // under five requests for documents we already hold.
+  //
+  // The reason the old test was wrong: `loan_tie_outs` does not compare a 5
+  // August lender balance against a 31 August Xero balance. It rebuilds the
+  // BOOKS side at the statement's own date and reports what is left over —
+  // "this loan comes to $61,918.23 on 2026-08-05, against $58,775.97 on the
+  // lender's own statement for that date ... leaving $12,609.73 unexplained."
+  // Both sides speak for the same day, so the gap is real, and it is
+  // investigable this morning. It will not be any more investigable on the
+  // 31st; it will just be a month older.
+  //
+  // So the question is whether a REAL LENDER DOCUMENT speaks for the date the
+  // gap is measured at — which is exactly the relation `_bkStatementGate` calls
+  // `analysed`. Where one does, state the finding. Where none does, ask.
+  //
+  // David's rule is unchanged and this serves it better: ask when EVIDENCE is
+  // what is missing. A gap we can measure against the lender's own paper is not
+  // missing evidence. It is a finding, and burying it under paperwork requests
+  // is the failure mode the rule's own limit warns about.
   function _bkEvidenceAsk(a, v) {
     if (!a || !v) return null;
     if (v.material === false) return null;        // a rounding difference is not worth a document
     if (_loanCloseBasis(a) === 'amortization_schedule') return null;
     const asOf = v.asOf || null;
     const monthEnd = _bkClosingMonthEnd();
-    // No anchor at all is ALSO a reason to ask -- and a stronger one.
-    if (asOf && asOf >= monthEnd) return null;    // the lender has already spoken for this month
+    // The lender's own paper, speaking for the day the gap is measured on.
+    // ALLOWLIST, so an anchor source nobody has thought about is treated as our
+    // own record and asks — the safe direction, and the same one
+    // _VARIANCE_REAL_ANCHORS is pointed in everywhere else.
+    if (asOf && _VARIANCE_REAL_ANCHORS.includes(String(v.anchorSource || ''))) return null;
     const lender = a.lender || 'the lender';
     return {
       asOf, monthEnd, lender,
+      // Two different asks, and the difference matters to whoever fetches it.
       sentence: asOf
-        ? `The most recent ${lender} figure on file is dated ${fmtDatePlain(asOf)}, before the month being closed. A statement dated ${fmtDatePlain(monthEnd)} or later settles this — there is nothing to investigate until then.`
+        ? `This gap is measured against our own projected schedule rather than anything ${lender} has sent, so there is nothing to investigate until a real statement arrives. One dated ${fmtDatePlain(monthEnd)} or later settles it.`
         : `No ${lender} statement is on file for this loan. One dated ${fmtDatePlain(monthEnd)} or later settles this — there is nothing to investigate until then.`,
     };
   }

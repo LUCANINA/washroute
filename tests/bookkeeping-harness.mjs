@@ -6628,238 +6628,151 @@ GROUPS.push({
 
 
 
-/* 20 ── ASK WHEN EVIDENCE IS MISSING; STATE THE CAUSE WHEN IT IS ESTABLISHED
-   (session 262 cont. 2) ─────────────────────────────────────────────────────
-   David: "the goal is to make the CPA's job easier, not have them scrambling to
-   identify whether a gap is 'real'. Instead of making claims regarding gap,
-   perhaps another solution would be to ask for missing information such as
-   current month statements, because uploading a new statement is 100% easier
-   than scrambling." And on who pays that cost: "ultimately the chore is for the
-   business owner (they upload via the client view), not the CPA."
+/* 20 ── ASK, OR STATE? — AND WHAT ACTUALLY MAKES A GAP UNEVALUABLE
+   (session 262, David's rule; the trigger corrected in session 265)
 
-   Measured the day this was written, closing August: NOT ONE of the six loans
-   in Issues had a lender figure dated on or after 31 August. PCV's most recent
-   was 1 August, so its row reported a $3,555.17 difference against a statement
-   older than the month being closed.
+   David: ask when EVIDENCE is what is missing; state the cause when the cause
+   is established. This group tests the first half, which was keyed on the
+   wrong thing for three sessions.
 
-   TWO HALVES, AND THE SECOND IS THE ONE THAT KEEPS THIS HONEST:
-     1. a gap nobody can evaluate should ask for the document, not assert;
-     2. a gap whose cause IS established must still state it -- otherwise the
-        findings worth someone's time get buried under paperwork requests, and
-        the product asks for a statement that cannot resolve a coding error.   */
+   The old test was "is the newest lender figure older than the month END".
+   That sounds equivalent to "we have no evidence" and is not. Closing August
+   it fired on SIX of the eight rows in the Issues table — Ford's 17 August
+   statement, PayPal's 5 August, BayFirst's 5 August — each reading "there is
+   nothing to investigate until a 31 August statement arrives", while the close
+   gate and the client's own checklist, reading the same book, said ten of
+   eleven statements were in and exactly ONE loan was outstanding. Two
+   surfaces, one question, answers eleven apart. The single loan that genuinely
+   had nothing for August was buried under five requests for paper we hold.
+
+   Why the old test was wrong: `loan_tie_outs` does not compare a 5 August
+   lender balance against a 31 August Xero balance. It rebuilds the BOOKS side
+   at the statement's own date — "this loan comes to $61,918.23 on 2026-08-05,
+   against $58,775.97 on the lender's own statement for that date ... leaving
+   $12,609.73 unexplained". Both sides speak for the same day. That gap is real
+   this morning and will not be more investigable on the 31st.
+
+   THE STRUCTURAL CONSEQUENCE, and it is the sharpest thing here: stated
+   correctly, the ask can NEVER fire on the Issues table. Everything reaching
+   that table is either a `variance` (a real lender anchor, by definition) or a
+   schedule-policy loan (which _bkEvidenceAsk refuses outright, because no
+   statement is coming). The ask was only ever visible there by mistake. That
+   is asserted below rather than left as a remark, and k3 proves the table
+   floods the moment the old rule comes back. */
 GROUPS.push({
   name: 'ask-not-claim',
   async run(t) {
-    const p0 = await newHarnessPage({ tab: 'overview' });
-    const seed = await p0.evaluate(() => ({
-      issue: _bkIssueQueueItems().map(i => ({ id: i.loanId, name: i.name })),
-      monthEnd: _bkClosingMonthEnd(),
-    }));
-    await p0.close();
-    const { issue, monthEnd } = seed;
+    const p = await newHarnessPage({ tab: 'overview' });
+    await p.evaluate(() => _bkSetOverviewSeg('issues'));
+
+    const monthEnd = await p.evaluate(() => _bkClosingMonthEnd());
     t.ok(/^\d{4}-\d{2}-\d{2}$/.test(monthEnd),
          'k0: the closing month-end is a real date derived from the page clock', monthEnd);
-    t.ok(issue.length >= 2, 'k0: at least two loans in Issues', issue.map(i => i.name).join(', '));
-    if (issue.length < 2) return;
 
-    // Every loan's anchor pushed BEFORE the month being closed, so the ask is
-    // available on all of them. What separates the two loans below is then
-    // purely whether a cause is established -- which is the thing under test.
-    const staleAll = (d) => {
-      d.bk_issue_dismissals.length = 0;
-      d.loan_splits = d.loan_splits.filter(s => s.status !== 'pending_review' && s.status !== 'needs_attention');
-      const cutoff = monthEnd.slice(0, 8) + '01';   // the 1st of the closing month
-      d.loan_tie_outs.forEach(x => { if (x.as_of && x.as_of >= cutoff) x.as_of = cutoff; });
-      d.loan_attributions = [];
-    };
+    /* ── 1. THE RULE ITSELF, on the shipped function ────────────────────── */
+    const cases = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Paypal 2');
+      const sched = (_allLoanAccounts || []).find(x => _loanCloseBasis(x) === 'amortization_schedule');
+      const ask = (acct, v) => { const r = _bkEvidenceAsk(acct, v); return r && r.sentence; };
+      return {
+        lenderAnchor:   ask(a, { asOf: '2026-08-05', anchorSource: 'lender_statement' }),
+        portalAnchor:   ask(a, { asOf: '2026-08-05', anchorSource: 'portal_manual_pull' }),
+        ancientLender:  ask(a, { asOf: '2025-01-31', anchorSource: 'lender_statement' }),
+        ourSchedule:    ask(a, { asOf: '2026-08-05', anchorSource: 'amortization_schedule' }),
+        unknownSource:  ask(a, { asOf: '2026-08-05', anchorSource: 'something_nobody_added_yet' }),
+        noAnchor:       ask(a, { asOf: null, anchorSource: null }),
+        immaterial:     ask(a, { asOf: null, anchorSource: null, material: false }),
+        schedulePolicy: sched ? ask(sched, { asOf: null, anchorSource: null }) : 'NO SUCH LOAN',
+      };
+    });
 
-    // ── HALF 1: no established cause → ASK ────────────────────────────────
-    const p = await newHarnessPage({ tab: 'overview', mutate: staleAll });
-    await p.evaluate(() => _bkSetOverviewSeg('issues'));
-    const READ = () => {
-      const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
-      return [...document.querySelectorAll('.bk-var-table tbody tr')].map(tr => {
-        const ex = tr.querySelector('.bk-var-explain');
-        const sub = ex && ex.querySelector('.bk-var-sub');
-        const conf = ex && ex.querySelector('.bk-var-conf');
-        const act = tr.querySelector('.bk-var-actions .bk-review-link');
-        return {
-          loan: norm((tr.querySelector('.bk-var-loan') || {}).textContent),
-          variance: norm((tr.querySelector('.bk-var-amt') || {}).textContent),
-          cause: norm(ex ? [...ex.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ') : ''),
-          sub: norm(sub ? sub.textContent : ''),
-          conf: norm(conf ? conf.textContent : ''),
-          action: norm(act ? act.textContent : ''),
-          onclick: act ? (act.getAttribute('onclick') || '') : '',
-          details: !!tr.querySelector('.bk-var-details'),
-        };
-      });
-    };
-    const rows = await p.evaluate(READ);
-    const steps = await p.evaluate(() =>
-      _bkIssueQueueItems().map(i => ({ name: i.name, step: i.nextStep })));
-    const stepOf = (n) => (steps.find(x => x.name === n) || {}).step;
+    t.eq(cases.lenderAnchor, null,
+         'k1: ⭐ a gap measured against the lender’s own statement is a FINDING, not a paperwork request');
+    t.eq(cases.portalAnchor, null, 'k1: ...and a portal pull is the lender speaking too');
+    t.eq(cases.ancientLender, null,
+         'k1: ⭐ ...however old that statement is — age is not what makes a gap unevaluable',
+         String(cases.ancientLender));
+    t.ok(typeof cases.ourSchedule === 'string' && /our own projected schedule/.test(cases.ourSchedule),
+         'k1: ⭐ a gap measured against OUR OWN projection asks for a document, and says that is why',
+         String(cases.ourSchedule));
+    t.ok(typeof cases.unknownSource === 'string',
+         'k1: ⭐ ...and so does an anchor source nobody has thought about — an allowlist, failing safe',
+         String(cases.unknownSource));
+    t.ok(typeof cases.noAnchor === 'string' && /statement is on file/.test(cases.noAnchor),
+         'k1: no anchor at all asks, and names what is missing', String(cases.noAnchor));
+    t.eq(cases.immaterial, null, 'k1: a rounding difference is never worth a document');
+    t.eq(cases.schedulePolicy, null,
+         'k1: ...and a loan closing on its contractual schedule is never asked for a statement that is not coming');
+    t.ok(String(cases.noAnchor).includes(monthEnd.slice(0, 4)),
+         'k1: every ask names a specific date, so it is checkable', String(cases.noAnchor));
 
-    const asked = steps.filter(x => x.step === 'ask');
-    t.ok(asked.length >= 1, 'k1: with every anchor older than the close, at least one row asks for a statement',
-         JSON.stringify(steps));
-    if (!asked.length) return;
-    /* ── WHICH LOAN CARRIES HALF 2, DERIVED RATHER THAN PICKED ────────────
-       My first version took issue[1] and planted a confirmed cause on it. That
-       was Verdant, which closes on its own contractual schedule -- so
-       _bkEvidenceAsk refuses it anyway (c3's guard), and the control could
-       never flip it however broken the code was. The scenario proved nothing
-       about the rule it claimed to test.
-       Taking a loan PROVEN to ask in the render above makes the flip
-       attributable to the attribution and to nothing else. */
-    const L_ASK = { name: asked[0].name };
-    const L_CAUSE_NAME = asked[0].name;
-    const L_CAUSE = { name: L_CAUSE_NAME, id: (issue.find(i => i.name === L_CAUSE_NAME) || {}).id };
-    t.ok(!!L_CAUSE.id, 'k1: ...and that loan is addressable by id for the half-2 scenario', L_CAUSE_NAME);
+    /* ── 2. THE STRUCTURAL FACT ──────────────────────────────────────────── */
+    const table = await p.evaluate(() => {
+      const host = document.getElementById('bk-ov-queue-list');
+      const txt = host ? host.innerText : '';
+      return {
+        rows: host ? host.querySelectorAll('.bk-var-table tbody tr').length : -1,
+        asks: (txt.match(/nothing to investigate until/g) || []).length,
+        askSteps: _bkIssueQueueItems().filter(i => i.nextStep === 'ask').map(i => i.name),
+      };
+    });
+    t.ok(table.rows >= 2, 'k2: the Issues table has rows to be wrong about', String(table.rows));
+    t.eq(table.asks, 0,
+         'k2: ⭐ and NONE of them asks for paperwork — every gap here has a lender document behind it');
+    t.eq(table.askSteps.length, 0,
+         'k2: ...which the queue items agree about, so a row and its next step cannot diverge',
+         table.askSteps.join(', '));
 
-    const ra = rows.find(r => r.loan.includes(asked[0].name));
-    t.ok(ra && /statement dated .* or later settles this/i.test(ra.cause),
-         'k1: ⭐ the row asks for a specific document instead of asserting a cause', ra && ra.cause);
-    t.ok(ra && /most recent .* figure on file is dated/i.test(ra.cause),
-         'k1: ...naming what we already hold and how old it is, so the ask is checkable', ra && ra.cause);
-    t.ok(ra && /nothing to investigate until then/i.test(ra.cause),
-         'k1: ⭐ ...and saying plainly that nobody should be scrambling — the point of the whole change');
-    t.eq(ra && ra.action, 'Upload statement →', 'k1: ...with the action being the upload');
-    t.ok(ra && /openLoanIntakeModal/.test(ra.onclick),
-         'k1: ⭐ ...wired to the intake modal, NOT to a panel toggle', ra && ra.onclick);
-    t.eq(ra && ra.conf, '',
-         'k1: ⭐ ...and no confidence word beside it — an ask asserts nothing to be confident about', ra && ra.conf);
-    // The variance itself is untouched. Asking is a change of NEXT STEP, never
-    // a softening of the finding.
-    t.ok(ra && /(above|below) the lender|schedule/.test(ra.variance),
-         'k1: ...while the variance figure itself is unchanged', ra && ra.variance);
+    /* ── 3. IT DISCRIMINATES ──────────────────────────────────────────────
+     * The old rule reinstated on the shipped function in page context — never
+     * by editing index.html. If the table does not flood, k2 is decoration. */
+    const flood = await p.evaluate(() => {
+      const src = _bkEvidenceAsk.toString();
+      const mutated = src.replace(
+        "if (asOf && _VARIANCE_REAL_ANCHORS.includes(String(v.anchorSource || ''))) return null;",
+        'if (asOf && asOf >= monthEnd) return null;');
+      if (mutated === src) return { installed: false };
+      const fn = (0, eval)('(' + mutated + ')');
+      const named = [];
+      for (const a of (_allLoanAccounts || []).filter(x => x.status === 'active')) {
+        const v = _bkRosterState(a);
+        if (v.group !== 'variance' && v.group !== 'immaterial') continue;
+        if (fn(a, v)) named.push(a.xero_account_name);
+      }
+      return { installed: true, named };
+    });
+    t.ok(flood.installed, 'k3: the month-end rule could be reinstated');
+    t.ok(flood.named.length >= 5,
+         'k3: ⭐ ...and the CPA’s table fills with requests for statements we already hold — so k2 discriminates',
+         `${flood.named.length}: ${flood.named.join(', ')}`);
+
+    /* ── 4. THE SURFACE THAT SHOULD CARRY THE ASK (Tech Debt #32) ─────────
+     * The chore belongs to the business owner in the Client View, not to the
+     * CPA reading Issues. That checklist and the close gate must name the same
+     * outstanding documents — this is the assertion that would have caught the
+     * eleven-to-one disagreement above the moment it appeared. */
+    const both = await p.evaluate(() => {
+      const gate = _bkStatementGate(_cvLastMonth());
+      renderClientChecklist();
+      const el = document.getElementById('cv-checklist');
+      const count = document.getElementById('cv-checklist-count');
+      return {
+        awaiting: gate.awaiting.map(r => r.name),
+        clientCount: count ? count.textContent : '',
+        clientText: el ? el.innerText : '',
+      };
+    });
+    t.ok(both.awaiting.length >= 1,
+         'k4: the gate names at least one outstanding document', both.awaiting.join(', '));
+    for (const name of both.awaiting) {
+      t.ok(both.clientText.includes(name),
+           `k4: ⭐ the client’s own checklist names it too: ${name}`);
+    }
+    t.ok(both.clientCount.includes(String(both.awaiting.length)),
+         'k4: ⭐ ...and counts the same number the gate does — one question, one answer',
+         `${both.clientCount} vs gate ${both.awaiting.length}`);
+
     await p.close();
-
-    // ── HALF 2: an established cause OUTRANKS the ask ─────────────────────
-    // Same stale anchors, plus a confirmed attribution on one loan. That loan
-    // must state its cause; a statement cannot resolve a coding error and
-    // asking for one would bury a fixable finding under paperwork.
-    const HEAD = 'A payment dated 2026-06-17 reduced this loan by $764.44. The schedule supports $1,047.51 — a difference of $283.07.';
-    const p2 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
-      staleAll(d);
-      d.loan_attributions = [{
-        loan_account_id: L_CAUSE.id, schema_version: 1, run_status: 'ok', headline: HEAD,
-        generated_at: '2026-08-28T00:00:00Z', updated_at: '2026-08-28T00:00:00Z', error_message: null,
-        payload: { counts: { confirmed: 1, probable: 0, unresolved: 0, omitted: 0, malformed: 0, violations: 0 } },
-      }];
-    } });
-    await p2.evaluate(() => _bkSetOverviewSeg('issues'));
-    const rows2 = await p2.evaluate(READ);
-    const steps2 = await p2.evaluate(() =>
-      _bkIssueQueueItems().map(i => ({ name: i.name, step: i.nextStep })));
-    const rc = rows2.find(r => r.loan.includes(L_CAUSE.name));
-    t.eq((steps2.find(x => x.name === L_CAUSE.name) || {}).step, 'cause',
-         'k2: ⭐ a CONFIRMED cause outranks the ask on a loan that PROVABLY asked without it, anchor still a month stale',
-         L_CAUSE.name);
-    t.ok(rc && rc.cause.includes('$764.44'),
-         'k2: ...and the row states that cause rather than requesting paperwork', rc && rc.cause);
-    t.ok(rc && !/settles this/i.test(rc.cause),
-         'k2: ⭐ ...with no statement request anywhere in the sentence', rc && rc.cause);
-    t.eq(rc && rc.conf, 'confirmed', 'k2: ...keeping the engine\'s verdict beside it');
-    // And the other loans in the same render still ask -- proving k2 is a
-    // per-row decision, not the feature having switched off.
-    t.ok(steps2.some(x => x.step === 'ask'),
-         'k2: ...while other rows in the SAME table still ask — the decision is per row',
-         JSON.stringify(steps2));
-    await p2.close();
-
-    /* ═══ DOES IT DISCRIMINATE? ═════════════════════════════════════════ */
-
-    // C1 — the ask fires regardless of whether a cause is established. This is
-    // the failure David named: paperwork requests burying real findings.
-    const c1 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
-      staleAll(d);
-      d.loan_attributions = [{
-        loan_account_id: L_CAUSE.id, schema_version: 1, run_status: 'ok', headline: HEAD,
-        generated_at: '2026-08-28T00:00:00Z', updated_at: '2026-08-28T00:00:00Z', error_message: null,
-        payload: { counts: { confirmed: 1, probable: 0, unresolved: 0, omitted: 0, malformed: 0, violations: 0 } },
-      }];
-    } });
-    const rev1 = await c1.evaluate(() => {
-      const src = _bkIssueQueueItems.toString();
-      const anchor = "const ask = causeEstablished ? null : _bkEvidenceAsk(a, v);";
-      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkIssueQueueItems' };
-      const patched = src.replace(anchor, "const ask = _bkEvidenceAsk(a, v);");
-      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
-      try { window._bkIssueQueueItems = new Function(body); }
-      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
-      return { ok: true };
-    });
-    t.ok(rev1.ok, 'c1: the ask-over-everything regression could be installed', JSON.stringify(rev1));
-    if (rev1.ok) {
-      await c1.evaluate(() => { _bkSetOverviewSeg('issues'); renderBookkeepingOverview(); });
-      const broke = await c1.evaluate(READ);
-      const b = broke.find(r => r.loan.includes(L_CAUSE.name));
-      t.ok(b && /settles this/i.test(b.cause),
-           'c1: ⭐ ...and the loan with a CONFIRMED cause is asked for paperwork instead — so k2 discriminates',
-           b && b.cause);
-      t.ok(b && !b.cause.includes('$764.44'),
-           'c1: ⭐ ...with the cause it already knew demoted off the line a reader acts on');
-    }
-    await c1.close();
-
-    // C2 — the staleness test inverted: ask only when the anchor is NEWER than
-    // the close. Nothing would ever ask, which is exactly today's shipped
-    // behaviour before this change, and it must be visible as a difference.
-    const c2 = await newHarnessPage({ tab: 'overview', mutate: staleAll });
-    const rev2 = await c2.evaluate(() => {
-      const src = _bkEvidenceAsk.toString();
-      const anchor = "if (asOf && asOf >= monthEnd) return null;";
-      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved in _bkEvidenceAsk' };
-      const patched = src.replace(anchor, "if (asOf && asOf < monthEnd) return null;");
-      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
-      try { window._bkEvidenceAsk = new Function('a', 'v', body); }
-      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
-      return { ok: true };
-    });
-    t.ok(rev2.ok, 'c2: the inverted staleness test could be installed', JSON.stringify(rev2));
-    if (rev2.ok) {
-      const after = await c2.evaluate(() => {
-        _bkSetOverviewSeg('issues'); renderBookkeepingOverview();
-        return _bkIssueQueueItems().map(i => i.nextStep);
-      });
-      t.eq(after.filter(x => x === 'ask').length, 0,
-           'c2: ⭐ ...and with the comparison the wrong way round NOTHING asks — so k1 discriminates',
-           JSON.stringify(after));
-    }
-    await c2.close();
-
-    // C3 — a loan that closes on its own contractual schedule must never be
-    // asked for a statement: none is coming. _bkRosterState's own comments call
-    // that sentence a lie, and this proves the guard is on the live path.
-    const c3 = await newHarnessPage({ tab: 'overview', mutate: staleAll });
-    const sched = await c3.evaluate(() =>
-      (_allLoanAccounts || []).filter(a => a.status === 'active' && _loanCloseBasis(a) === 'amortization_schedule')
-        .map(a => ({ name: a.xero_account_name, ask: !!_bkEvidenceAsk(a, _bkRosterState(a)) })));
-    t.ok(sched.length >= 1, 'c3: precondition — at least one loan closes on its contractual schedule',
-         JSON.stringify(sched));
-    t.ok(sched.every(x => !x.ask),
-         'c3: ⭐ ...and NONE of them is asked for a statement that is never coming', JSON.stringify(sched));
-    const rev3 = await c3.evaluate(() => {
-      const src = _bkEvidenceAsk.toString();
-      const anchor = "if (_loanCloseBasis(a) === 'amortization_schedule') return null;";
-      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved' };
-      const body = src.replace(anchor, "").slice(src.replace(anchor, "").indexOf('{') + 1,
-        src.replace(anchor, "").lastIndexOf('}'));
-      try { window._bkEvidenceAsk = new Function('a', 'v', body); }
-      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
-      return { ok: true };
-    });
-    t.ok(rev3.ok, 'c3: the missing schedule-basis guard could be installed', JSON.stringify(rev3));
-    if (rev3.ok) {
-      const after = await c3.evaluate(() =>
-        (_allLoanAccounts || []).filter(a => a.status === 'active' && _loanCloseBasis(a) === 'amortization_schedule')
-          .map(a => ({ name: a.xero_account_name, ask: !!_bkEvidenceAsk(a, _bkRosterState(a)) })));
-      t.ok(after.some(x => x.ask),
-           'c3: ⭐ ...and without it a schedule-closing loan IS asked for one — so the guard is load-bearing',
-           JSON.stringify(after));
-    }
-    await c3.close();
   },
 });
 
