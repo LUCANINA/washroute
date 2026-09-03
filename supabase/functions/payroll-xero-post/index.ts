@@ -26,6 +26,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 // payroll-ingest v17 adjustment upload path). Without this, two journals for
 // the same period were only distinguishable by their (different) pay_date.
 // Cosmetic only; posting logic unchanged.
+// v21 (Sep 3) EE California tax now credits 170, not 171 -- the EDD payments
+//             were always coded to 170 and the split blocked a correct payroll.
+//             Balance gate now only judges accounts a posting actually draws on.
 //
 // ===================== WHY v16 WAS STILL INCOMPLETE =====================
 // v16 debited only wages + employer tax and credited only 170/171. That left
@@ -37,13 +40,17 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 //     gross - EE federal - EE CA - EE health - EE 401k + insurance reimb = net pay
 // (gross INCLUDES paycheck tips.)
 //
-// Where the cash actually goes each period:
+// Where the cash actually goes each period (CORRECTED v21, measured Sep 3 2026):
 //     Square draws NET PAY .......................... 170
 //     IRS draws EE federal + ER federal tax ......... 170
 //     EDD draws ER California tax ................... 170
-//     EDD draws EE California tax ................... 171
-//   =>  170 cash = net pay + EE federal + ALL employer tax
-//       171 cash = EE California
+//     EDD draws EE California tax ................... 170  <- NOT 171
+//   =>  170 cash = net pay + EE federal + EE California + ALL employer tax
+//       171 = dormant since Sep 2021; holds only legacy/CPA items
+//
+// The "EE California -> 171" line above was WRONG from v17 until v21. It was
+// never measured, only assumed, and the bank codes those payments to 170. See
+// the v21 block at the credit calculation for what it cost.
 //
 // Employee withholding is ALREADY inside gross pay. It is never an extra
 // department debit -- it only determines WHICH account the credit comes from.
@@ -53,20 +60,22 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 // ===================== THE JOURNAL (matches the CPA's own) =====================
 // Confirmed against the CPA's "To Allocate the Square payroll" journals for
 // Apr/May/Jun 2026 pulled from Xero -- identical shape, and their June credit to
-// 170 (-110,787.59) matches June's real bank cash exactly.
+// 170 (-110,787.59) matches June's real bank cash exactly. Note those journals
+// predate 171 being used at all, which is corroboration for v21: the CPA was
+// crediting everything from 170 before this system started splitting it out.
 //
 //   DEBIT  department wage account  = wages + paycheck tips
 //   DEBIT  department tax account   = employer tax ONLY
 //   DEBIT  675 Insurance - Medical  = insurance reimbursement stipend
-//   CREDIT 170 Direct Wages         = net pay + EE federal + employer tax
-//   CREDIT 171 Direct Payroll Taxes = EE California tax
+//   CREDIT 170 Direct Wages         = net pay + EE federal + EE California + employer tax
 //   CREDIT 675 Insurance - Medical  = EE health withheld
 //   CREDIT 358 401k contributions   = EE 401k withheld
 //
 // Tips ride in the department WAGE accounts per David (Aug 7): they are paid out
 // monthly and land only in Delivery (173) and Laundry (172).
 //
-// This clears 170 and 171 to exactly zero for the period. If a leftover ever
+// This clears 170 to exactly zero for the period (v21: 171 is no longer part of
+// it -- see _shared/payroll-clearing.ts). If a leftover ever
 // appears, something real is unaccounted for -- investigate it, do NOT invent a
 // catch-up to absorb it. That reasoning is what produced v14/v15.
 //
@@ -84,11 +93,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 // Body: { import_id, confirm?, posted_by? }. Default is a dry run.
 // admin/manager/cpa may preview; only admin/manager may post.
 
-const ACCT_DIRECT_WAGES = '170'
-const ACCT_DIRECT_PAYROLL_TAXES = '171'
+import { cashDraw, overdraws, shortfall,
+         ACCT_DIRECT_WAGES, ACCT_DIRECT_PAYROLL_TAXES, BALANCE_TOLERANCE }
+  from '../_shared/payroll-clearing.ts'
+
 const ACCT_401K = '358'
 const ACCT_HEALTH = '675'
-const BALANCE_TOLERANCE = 0.01
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -247,13 +257,18 @@ async function handleRequest(req: Request): Promise<Response> {
       journalLines.push({ AccountCode: ACCT_HEALTH, LineAmount: tInsReimb, Description: `Insurance reimbursement`, TaxType: 'NONE' })
     }
 
-    const creditFrom171 = tEeCa
-    const creditFrom170 = money(tNetPay + tEeFed + tErTax)
+    // v21 (Sep 3, 2026): ONE clearing account, not two. Both the split and the
+    // overdraw rule now live in _shared/payroll-clearing.ts, imported here AND
+    // by payroll-check-attention -- read that file for why 171 stopped being
+    // drawn on, and what the two-account model cost.
+    const draw = cashDraw({ netPay: tNetPay, eeFederal: tEeFed, eeCalifornia: tEeCa, erTax: tErTax })
+    const creditFrom171 = draw.from171
+    const creditFrom170 = draw.from170
 
     if (creditFrom170 <= 0 && creditFrom171 <= 0) {
       return new Response(JSON.stringify({ error: 'Nothing to post -- this period has no payroll cash.' }), { status: 400 })
     }
-    if (creditFrom170 > 0) journalLines.push({ AccountCode: ACCT_DIRECT_WAGES, LineAmount: -creditFrom170, Description: `Payroll cash draw (net pay + EE fed + ER tax)`, TaxType: 'NONE' })
+    if (creditFrom170 > 0) journalLines.push({ AccountCode: ACCT_DIRECT_WAGES, LineAmount: -creditFrom170, Description: `Payroll cash draw (net pay + EE fed + EE CA + ER tax)`, TaxType: 'NONE' })
     if (creditFrom171 > 0) journalLines.push({ AccountCode: ACCT_DIRECT_PAYROLL_TAXES, LineAmount: -creditFrom171, Description: `EE CA tax to EDD`, TaxType: 'NONE' })
     if (tEeHealth > 0) journalLines.push({ AccountCode: ACCT_HEALTH, LineAmount: -tEeHealth, Description: `EE health withheld`, TaxType: 'NONE' })
     if (tEe401k > 0) journalLines.push({ AccountCode: ACCT_401K, LineAmount: -tEe401k, Description: `EE 401k withheld`, TaxType: 'NONE' })
@@ -288,10 +303,10 @@ async function handleRequest(req: Request): Promise<Response> {
     ])
     const avail170 = bc170.available ?? 0
     const avail171 = bc171.available ?? 0
-    const short170 = bc170.ok ? money(creditFrom170 - avail170) : null
-    const short171 = bc171.ok ? money(creditFrom171 - avail171) : null
-    const over170 = bc170.ok ? short170! > BALANCE_TOLERANCE : creditFrom170 > 0
-    const over171 = bc171.ok ? short171! > BALANCE_TOLERANCE : creditFrom171 > 0
+    const short170 = shortfall(creditFrom170, bc170)
+    const short171 = shortfall(creditFrom171, bc171)
+    const over170 = overdraws(creditFrom170, bc170)
+    const over171 = overdraws(creditFrom171, bc171)
     const anyBlocked = over170 || over171
     const anyCheckFailed = (creditFrom170 > 0 && !bc170.ok) || (creditFrom171 > 0 && !bc171.ok)
 
@@ -306,7 +321,7 @@ async function handleRequest(req: Request): Promise<Response> {
       else if (over170 && over171) note = `Blocked: this would take BOTH "170 Direct Wages" (short $${short170!.toFixed(2)}) and "171 Direct Payroll Taxes" (short $${short171!.toFixed(2)}) negative.`
       else if (over170) note = `Blocked: this would credit $${creditFrom170.toFixed(2)} out of "170 Direct Wages" but only $${avail170.toFixed(2)} is there (short $${short170!.toFixed(2)}). Usually this period's Square draft or IRS deposit hasn't hit the bank feed yet.`
       else if (over171) note = `Blocked: this would credit $${creditFrom171.toFixed(2)} out of "171 Direct Payroll Taxes" but only $${avail171.toFixed(2)} is there (short $${short171!.toFixed(2)}). Usually the EDD remittance hasn't cleared yet.`
-      else note = 'Dry run only -- nothing has been sent to Xero. This fits within the real cash in both 170 and 171, and the journal balances to zero.'
+      else note = 'Dry run only -- nothing has been sent to Xero. This fits within the real cash in 170, and the journal balances to zero.'
       return new Response(JSON.stringify({
         dry_run: true,
         import: imp,

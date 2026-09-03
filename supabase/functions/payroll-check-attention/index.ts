@@ -1,7 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 
-// payroll-check-attention v4 (built Aug 6, 2026; corrected Aug 7; Aug 8)
+// payroll-check-attention v5 (built Aug 6, 2026; corrected Aug 7; Aug 8; Sep 3)
+//
+// ===================== v5: one clearing account (Sep 3, 2026) =================
+// MIRRORS payroll-xero-post v21. Employee CA tax is now part of the 170 draw,
+// not a separate 171 draw, because that is where the EDD payments are actually
+// coded. This function MUST keep mirroring payroll-xero-post -- if that changes,
+// change this too. It was the second of the two branches that produced the false
+// "insufficient_balance" flag on the 2026-08-21 period.
 //
 // ===================== v4: reimbursement-only lines (Aug 8) =====================
 // A reimbursement_only line (Square's monthly insurance-reimbursement-only
@@ -43,6 +50,11 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 //    payroll-xero-post v17 credits 170 by (net pay + employee federal tax +
 //    employer tax) and 171 by employee CA tax. MUST mirror payroll-xero-post --
 //    if that changes, change this too.
+//    ^^ SUPERSEDED BY v5: it changed, and the comment above did not stop both
+//    functions carrying the same wrong model for a month. The mirroring is now
+//    enforced by both importing _shared/payroll-clearing.ts. Left in place
+//    because "keep these two in step by hand" failing is the reason that module
+//    exists.
 //
 // 3) STANDING NOTICES -> payroll_notices, for problems not tied to a pay
 //    period. Computed live so they clear themselves when resolved.
@@ -50,9 +62,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 // Flags: unmapped_employees | insufficient_balance | xero_check_failed
 // This function never posts to Xero and never changes an import's status.
 
-const ACCT_DIRECT_WAGES = '170'
-const ACCT_DIRECT_PAYROLL_TAXES = '171'
-const BALANCE_TOLERANCE = 0.01
+import { cashDraw, overdraws,
+         ACCT_DIRECT_WAGES, ACCT_DIRECT_PAYROLL_TAXES, BALANCE_TOLERANCE }
+  from '../_shared/payroll-clearing.ts'
+
 const LEGACY_171_NOTICE_KEY = 'legacy_171_balance'
 
 const cors = {
@@ -143,10 +156,10 @@ async function handleRequest(_req: Request): Promise<Response> {
     balanceError = String((err as any)?.message || err)
   }
 
-  // Employee CA tax still owed by periods that haven't posted yet. Excluded
-  // from the legacy-171 figure so a normal mid-week EDD payment sitting in 171
-  // waiting for its period to post never looks like a legacy problem.
-  let pendingEeCa = 0
+  // v5 removed `pendingEeCa`. It existed to net unposted periods' EE CA tax off
+  // the legacy-171 figure, which only made sense while payroll drew on 171.
+  // Nothing draws on it now, so the whole balance is legacy and the subtraction
+  // would understate it.
 
   for (const imp of imports || []) {
     const impLines = (lines || []).filter((l: any) => l.import_id === imp.id)
@@ -156,21 +169,25 @@ async function handleRequest(_req: Request): Promise<Response> {
     let summary: string | null = null
     let detail: string | null = null
 
-    const impEeCa = money(impLines.reduce((s: number, l: any) => s + n(l.ee_ca_state_income_amount) + n(l.ee_ca_state_disability_amount), 0))
-    pendingEeCa = money(pendingEeCa + impEeCa)
-
     if (unmatched.length) {
       flag = 'unmapped_employees'
       summary = `${unmatched.length} employee${unmatched.length === 1 ? '' : 's'} still need${unmatched.length === 1 ? 's' : ''} a department`
       detail = `On the pay period ${imp.pay_period_start} to ${imp.pay_period_end}, these names on the Square report don't match anyone in the department mapping yet: ${[...new Set(unmatched.map((u: any) => u.raw_full_name))].join(', ')}. Open the review screen to map them.`
     } else if (imp.status === 'reviewed') {
       const missingFields = impLines.some((l: any) => l.net_pay_amount === null || l.ee_health_amount === null)
-      // Mirrors payroll-xero-post v17 exactly.
-      const needFrom170 = money(impLines.reduce((s: number, l: any) =>
-        s + n(l.net_pay_amount)
-          + n(l.ee_fed_income_amount) + n(l.ee_social_security_amount) + n(l.ee_medicare_amount)
-          + n(l.er_tax_amount), 0))
-      const needFrom171 = impEeCa
+      // v5 (Sep 3, 2026): the split and the overdraw rule come from
+      // _shared/payroll-clearing.ts, the same module payroll-xero-post uses, so
+      // this function cannot drift from what actually posts. It used to be kept
+      // in step by a comment, and the comment did not stop both from carrying
+      // the same wrong model.
+      const need = cashDraw({
+        netPay: impLines.reduce((a: number, l: any) => a + n(l.net_pay_amount), 0),
+        eeFederal: impLines.reduce((a: number, l: any) => a + n(l.ee_fed_income_amount) + n(l.ee_social_security_amount) + n(l.ee_medicare_amount), 0),
+        eeCalifornia: impLines.reduce((a: number, l: any) => a + n(l.ee_ca_state_income_amount) + n(l.ee_ca_state_disability_amount), 0),
+        erTax: impLines.reduce((a: number, l: any) => a + n(l.er_tax_amount), 0),
+      })
+      const needFrom170 = need.from170
+      const needFrom171 = need.from171
 
       if (missingFields) {
         flag = 'unmapped_employees'
@@ -180,13 +197,13 @@ async function handleRequest(_req: Request): Promise<Response> {
         flag = 'xero_check_failed'
         summary = `Couldn't verify the Xero balance before this can post`
         detail = `The last check of the payroll clearing accounts failed: ${balanceError}. This doesn't mean anything is wrong with this period -- it means the Xero connection needs a look before it can be safely posted.`
-      } else if (needFrom170 > avail170 + BALANCE_TOLERANCE || needFrom171 > avail171 + BALANCE_TOLERANCE) {
+      } else if (overdraws(needFrom170, { ok: true, available: avail170 }) || overdraws(needFrom171, { ok: true, available: avail171 })) {
         const parts: string[] = []
-        if (needFrom170 > avail170 + BALANCE_TOLERANCE) parts.push(`$${money(needFrom170 - avail170).toFixed(2)} short in "170 Direct Wages"`)
-        if (needFrom171 > avail171 + BALANCE_TOLERANCE) parts.push(`$${money(needFrom171 - avail171).toFixed(2)} short in "171 Direct Payroll Taxes"`)
+        if (overdraws(needFrom170, { ok: true, available: avail170 })) parts.push(`$${money(needFrom170 - avail170).toFixed(2)} short in "170 Direct Wages"`)
+        if (overdraws(needFrom171, { ok: true, available: avail171 })) parts.push(`$${money(needFrom171 - avail171).toFixed(2)} short in "171 Direct Payroll Taxes"`)
         flag = 'insufficient_balance'
         summary = `Not enough cash landed in Xero yet to post (${parts.join('; ')})`
-        detail = `Posting this period would credit $${needFrom170.toFixed(2)} out of "170 Direct Wages" (net pay + employee federal tax + employer tax) and $${needFrom171.toFixed(2)} out of "171 Direct Payroll Taxes" (employee CA tax). Right now those accounts hold $${avail170.toFixed(2)} and $${avail171.toFixed(2)} (after accounting for any earlier periods that would post first). This normally clears on its own once the Square draft, the IRS deposit and the EDD remittance all land in the bank feed -- no action needed unless it's been sitting for a while.`
+        detail = `Posting this period would credit $${needFrom170.toFixed(2)} out of "170 Direct Wages" (net pay + employee federal tax + employee CA tax + employer tax). Right now that account holds $${avail170.toFixed(2)} (after accounting for any earlier periods that would post first). This normally clears on its own once the Square draft, the IRS deposit and the EDD remittance all land in the bank feed -- no action needed unless it's been sitting for a while.`
       } else {
         avail170 = money(avail170 - needFrom170)
         avail171 = money(avail171 - needFrom171)
@@ -206,25 +223,26 @@ async function handleRequest(_req: Request): Promise<Response> {
     }).eq('id', u.id)
   }
 
-  // ---- Standing notice: legacy balance in 171 Direct Payroll Taxes ----
-  // 171 receives the EDD draw of employee CA tax withholding, and
-  // payroll-xero-post clears each period's share when that period posts. So a
-  // residual beyond what unposted periods still owe is money nobody has ever
-  // reallocated -- currently $5,389.23 dating to May 2026, predating this
-  // system. It matters because employee withholding is already inside gross
-  // wages, so leaving it in a cost account may double-count the same dollars
-  // in the CPA's books. Flagged for a human, never auto-cleared.
+  // ---- Standing notice: leftover balance in 171 Direct Payroll Taxes ----
+  // v5 (Sep 3, 2026): payroll no longer touches 171 at all -- see
+  // payroll-xero-post v21. The EDD payments this account was supposed to
+  // receive have always been coded to 170, so 171 has been dormant since
+  // September 2021 apart from items that are nobody's business but the CPA's.
+  // That makes this notice SIMPLER, not obsolete: whatever sits in 171 is now
+  // by definition unreallocated, with no pending-period arithmetic to net off.
+  // It matters because employee withholding is already inside gross wages, so
+  // leaving it in a cost account may double-count the same dollars in the CPA's
+  // books. Flagged for a human, never auto-cleared.
   let notice: any = null
   if (balanceOk) {
-    // avail171 has already been drawn down by the reviewed periods above that
-    // would post, so what remains is the legacy portion.
+    // Nothing draws on 171 any more, so the whole balance is the leftover.
     const legacy = money(avail171)
     if (legacy > BALANCE_TOLERANCE) {
       notice = {
         key: LEGACY_171_NOTICE_KEY,
         severity: 'warning',
         title: `$${legacy.toFixed(2)} sitting in "171 Direct Payroll Taxes" that nobody has ever reallocated`,
-        detail: `Account 171 holds employee California tax withheld from paychecks and remitted to the EDD. Every pay period this system posts now clears its own share automatically, so this balance is left over from before that -- it dates to May 2026 and no journal has ever moved it.\n\nWhy it matters: employee withholding is already included in gross wages, which are expensed to the department Wages accounts. If this balance is also sitting in a cost account, the same dollars may be counted twice on the P&L. That is exactly the mistake that was found and corrected inside this system on Aug 7, 2026 -- but this portion predates the system and lives in your CPA's own bookkeeping.\n\nSuggested next step: ask your CPA whether 171 is meant to carry a balance at all, or whether it should be cleared against wages. Don't clear it here without their answer.${pendingEeCa > BALANCE_TOLERANCE ? `\n\nNote: $${pendingEeCa.toFixed(2)} of employee CA tax belonging to pay periods that haven't posted yet is already excluded from this figure.` : ''}`,
+        detail: `Account 171 was set up to hold employee California tax withheld from paychecks and remitted to the EDD. In practice those EDD payments are coded to 170 Direct Wages, so as of Sep 3 2026 payroll posts nothing to 171 at all and the account is dormant. Everything in it is therefore left over -- no payroll period will ever clear it.\n\nWhy it matters: employee withholding is already included in gross wages, which are expensed to the department Wages accounts. If this balance is also sitting in a cost account, the same dollars may be counted twice on the P&L. That is exactly the mistake that was found and corrected inside this system on Aug 7, 2026 -- but this portion lives in your CPA's own bookkeeping.\n\nKnown item: an IRS Form 941 refund received Aug 17 2026 put $4,592.94 of FEDERAL money into this account. That is not California withholding and does not belong here.\n\nSuggested next step: ask your CPA what 171 should hold, if anything. Don't clear it here without their answer.`,
         amount: legacy,
         active: true,
         checked_at: new Date().toISOString(),

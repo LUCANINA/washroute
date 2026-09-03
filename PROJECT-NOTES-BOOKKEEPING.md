@@ -2200,6 +2200,56 @@ four August payroll journals outright. A first net built on that set showed six-
 shortfalls on every account and was entirely an artifact of the missing rows. **Narrow the
 window until `not_attempted` is 0 before netting anything.**
 
+#### The fix: ONE clearing account (payroll-xero-post v21 / payroll-check-attention v5)
+
+**David's call, and it is the scope reduction applied to code:** given the choice between
+recoding six EDD payments into 171 every week forever, or changing the model to match where
+the money actually is, take the second.
+
+* **`_shared/payroll-clearing.ts` is new and is the point.** `cashDraw()` and `overdraws()`
+  live there and are imported by BOTH functions. Until today the only thing keeping them in
+  step was a comment in `payroll-check-attention` reading *"MUST mirror payroll-xero-post -- if
+  that changes, change this too."* **A comment is not a mechanism**: both carried the same wrong
+  model for a month and both had to be found by hand. The old comment is left in place, marked
+  superseded, because its failure is the file's reason to exist.
+* `cashDraw` puts EE California tax in the 170 draw. `from171` is a **named zero, not a
+  deletion**, so the overdraw gate keeps both branches: a future 171 draw gets checked rather
+  than silently skipping an account nobody watches.
+* **The `draw > 0` guard in `overdraws()` is load-bearing, not padding.** With a zero draw
+  against 171's −$955.80, `draw − available` is **+955.80 > tolerance** — so removing the split
+  WITHOUT the guard blocks every payroll forever. The bug reappears as arithmetic. Mutation-
+  tested: dropping that one line turns 3 assertions red.
+* Stale copy fixed in the same commit (the session-247 rule): the header's cash map, the
+  "clears 170 and 171 to zero" line, the CPA-journal shape block, the dry-run success note, the
+  legacy-171 notice prose, and the dashboard's own "(170, 171, 675, 358)" sentence.
+* `pendingEeCa` deleted — it netted unposted periods off the legacy-171 figure, which only made
+  sense while payroll drew on 171.
+
+**`tests/payroll-clearing.test.mts`, 17 assertions, and it discriminates.** Built on the REAL
+2026-08-21 period (net pay $16,820.87, EE fed $2,474.95, EE CA $639.18, ER tax $1,563.80) and
+the REAL balances that blocked it (170 = $46,321.79, 171 = −$955.80). The identity that makes
+those figures checkable rather than invented: the old model's two credits, **$20,859.62 +
+$639.18 = $21,498.80**, are exactly the one credit now — and $20,859.62 is the figure printed on
+the Post to Xero screen. Two mutations proven red: restoring the split (7 red), dropping the
+guard (3 red). ⚠️ I first wrote this test with two INVENTED inputs that happened to total within
+62¢ of the truth. Check figures against the database; a plausible total is not a correct one.
+
+**DEPLOYED AND PROVEN BEHAVIOURALLY, 2026-09-03 ~19:57 UTC.** `payroll-xero-post` **v23**
+(`verify_jwt: true`, unchanged), `payroll-check-attention` **v5** (`verify_jwt: false`,
+unchanged) — the two differ, do not deploy them with the same flag. Proof is not the version
+number: `payroll-check-attention` was invoked live and returned **`flagged: 0`** with
+`flag: null` on import `08ea6dc8` (the 2026-08-21 period), where it had said
+*"$1,594.98 short in 171"* an hour earlier. Deployed via the Supabase MCP with nested paths
+(`supabase/functions/<name>/index.ts` plus `supabase/functions/_shared/payroll-clearing.ts`) so
+the `../_shared/` import resolves; the CLI is unusable from here — **no `SUPABASE_ACCESS_TOKEN`
+on David's machine**, `supabase login` is interactive.
+
+**Still open, and it is the CPA's call, not ours:** the Aug 17 2026 IRS Form 941 refund
+(receipt $4,655.91, split **$4,592.94 to 171** and $62.97 to 470, ref *"cancelled payroll tax
+deposit, Apr 2026"*). Federal money in the California clearing account. The legacy-171 notice
+now names it explicitly. It is dormant while 171 is negative; reclassify it and 171 goes to
+**+$3,637.14** and the notice fires — which is correct, not a regression.
+
 ### Session 265 (2026-09-03) — THE TEST SUITE COULD NOT SEE THE ROWS IT WAS TESTING, AND TWO SURFACES WERE ELEVEN APART
 
 **David's brief:** *"start working on the top 3 bookkeeping module tech debt, starting with
