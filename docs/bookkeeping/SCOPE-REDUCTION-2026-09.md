@@ -73,6 +73,24 @@ No tiles. No badges. No grades. No severity colours. No second opinion about a n
 stated elsewhere on the page. This is the existing **LESS IS BEST** rule (session 250)
 applied to the module as a whole rather than to one card.
 
+### 4a. The dropzone moves, and it heads the page
+
+**David, 2026-09-03: he wants the "Drop your documents here" intake at the TOP of loan
+management.**
+
+Today it sits on the **Overview** tab (`#bk-dropzone`, `admin-dashboard/index.html` ~line 3943,
+with its `#bk-batch-card` results pile directly beneath). Overview is on the hide list in §5, so
+**if the dropzone does not move it disappears with the tab** — losing the module's only entry
+point for statements, schedules and payroll reports.
+
+It belongs above the list for a plain reason: **most of the four row kinds are resolved by
+uploading a document.** A kind-3 row asks for a statement; a kind-2 variance usually needs the
+lender's current figures before anyone can judge it. Putting intake at the top of the page means
+the answer to "what do I do about this?" sits directly above the question.
+
+Move the dropzone and its batch card together — files land in the pile beneath it, so splitting
+them breaks the flow.
+
 ## 5. What gets hidden
 
 **Posture: hide the UI hard, keep the code. Restore on demand, one item at a time —
