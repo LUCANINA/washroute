@@ -11829,7 +11829,12 @@
     }
     const b = _loansCloseBlockers(closingMonth);
     const pip = b == null ? 'live' : (b.count ? 'warn' : 'ok');
-    const badge = b && b.count ? `<span class="lpb-count">${b.count} to clear</span>` : '';
+    // Session 267, David: "remove '10 to clear' (the list is self explanatory)".
+    // LESS IS BEST test 2 — the rows are RIGHT THERE underneath; two statements
+    // of one fact is the defect, not the redundancy. The pip still carries the
+    // blocked/clear state, which the list alone does not say at a glance, and
+    // Overview keeps its own copy of the count because Overview has no list.
+    const badge = '';
     el.innerHTML = `
       <div class="lpb-seg" role="tablist" aria-label="Accounting period">
         <button id="bk-ov-lpb-closing" role="tab" class="${_loansPeriod === 'closing' ? 'on' : ''}"
@@ -17817,9 +17822,13 @@
     const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. The <b>Ledger</b> column is a second, different check — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. Both columns use the same mark: <b>✓</b> ties or is fully explained, <b>✗</b> is a real dollar difference to resolve, and <b>·</b> means the check was not run this month — either the numbers trace back to the same one document (so agreeing proves nothing) or there is nothing yet to compare it against. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
 
     el.innerHTML = `
+      <!-- Session 267, David: "remove the rollforward section (same)" — the
+           column headers already say Opening / Drawn / Principal / Computed /
+           Closing / Variance, so the heading and its sentence restated what the
+           table states. CUT THE WORDS, KEEP THE CLAIM: the equation itself is
+           now the Computed header's tooltip, so it costs no width and still
+           reaches anyone who wonders what Computed means. -->
       <div class="lcb-head">
-        <h3>Rollforward</h3>
-        <span class="lcb-why">Opening, plus anything drawn, minus principal paid, should equal the closing balance on file.</span>
         <span class="lcb-act"><button type="button" class="lcb-export" onclick="exportRollforwardCSV()" title="Save this rollforward as a spreadsheet — including the sources, dates and notes shown on hover">⤓ Export CSV</button></span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}" data-blocked="${blocked ? '1' : '0'}" data-gates="${gatesAttr}">
@@ -17833,7 +17842,7 @@
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
               <th class="lcb-n">Drawn</th>
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
-              <th class="lcb-n">Computed</th>
+              <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what the closing balance should be.">Computed</th>
               <th class="lcb-n">Closing</th>
               <th class="lcb-n">Variance</th><th>Booked</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
             </tr></thead>
