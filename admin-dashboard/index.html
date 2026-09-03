@@ -19927,13 +19927,14 @@
   // David caught this before the code did: "I don't remember Paypal having an
   // amortization schedule per se."
   //
-  // 'Customer' is here because Dexter's two schedules carry it — the label the
-  // parse took off a Dexter Financial customer-copy amortization PDF (the files
-  // are literally *_Amortization.pdf, 86 and 97 dated rows, principal_only).
-  // It is an unhelpful label on a genuine schedule; see the notes for the
-  // normalisation that should replace it. Allowlist, so any NEW amort_type is
-  // excluded until someone looks at it.
-  const _SCHEDULE_AMORT_TYPES = ['amortization_schedule', 'Customer'];
+  // This list was briefly ['amortization_schedule', 'Customer'] — 'Customer' being
+  // a scrap the old parser lifted off Dexter Financial's customer-copy PDFs. A
+  // label that means nothing does not belong in a rule, so the two rows carrying
+  // it were normalised to 'amortization_schedule' in the database (session 267)
+  // and the code shrank to one value. New schedules have been labelled correctly
+  // by the upload path for some time; those two were legacy.
+  // Allowlist, so any NEW amort_type is excluded until a person looks at it.
+  const _SCHEDULE_AMORT_TYPES = ['amortization_schedule'];
 
   function _bkRealSchedulesFor(loanId) {
     const seen = new Map();

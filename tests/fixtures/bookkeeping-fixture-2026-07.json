@@ -36771,7 +36771,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36794,7 +36794,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36817,7 +36817,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36840,7 +36840,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36863,7 +36863,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36886,7 +36886,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36909,7 +36909,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36932,7 +36932,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36955,7 +36955,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -36978,7 +36978,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37001,7 +37001,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37024,7 +37024,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37047,7 +37047,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37070,7 +37070,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37093,7 +37093,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37116,7 +37116,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37139,7 +37139,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37162,7 +37162,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37185,7 +37185,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37208,7 +37208,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37231,7 +37231,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37254,7 +37254,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37277,7 +37277,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37300,7 +37300,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37323,7 +37323,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37346,7 +37346,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37369,7 +37369,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37392,7 +37392,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37415,7 +37415,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37438,7 +37438,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37461,7 +37461,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37484,7 +37484,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37507,7 +37507,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37530,7 +37530,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37553,7 +37553,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37576,7 +37576,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37599,7 +37599,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37622,7 +37622,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37645,7 +37645,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37668,7 +37668,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37691,7 +37691,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37714,7 +37714,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37737,7 +37737,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37760,7 +37760,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37783,7 +37783,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37806,7 +37806,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37829,7 +37829,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37852,7 +37852,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37875,7 +37875,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37898,7 +37898,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37921,7 +37921,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37944,7 +37944,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37967,7 +37967,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -37990,7 +37990,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38013,7 +38013,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38036,7 +38036,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38059,7 +38059,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38082,7 +38082,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38105,7 +38105,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38128,7 +38128,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38151,7 +38151,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38174,7 +38174,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38197,7 +38197,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38220,7 +38220,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38243,7 +38243,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38266,7 +38266,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38289,7 +38289,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38312,7 +38312,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38335,7 +38335,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38358,7 +38358,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38381,7 +38381,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38404,7 +38404,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38427,7 +38427,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38450,7 +38450,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38473,7 +38473,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38496,7 +38496,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38519,7 +38519,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38542,7 +38542,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38565,7 +38565,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38588,7 +38588,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38611,7 +38611,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38634,7 +38634,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38657,7 +38657,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38680,7 +38680,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38703,7 +38703,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38726,7 +38726,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38749,7 +38749,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38772,7 +38772,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38795,7 +38795,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38818,7 +38818,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38841,7 +38841,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38864,7 +38864,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38887,7 +38887,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38910,7 +38910,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38933,7 +38933,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38956,7 +38956,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -38979,7 +38979,7 @@
    "schedule_id": "866e60ac-3b04-427e-89da-7069545508da",
    "loan_amortization_schedules": {
     "id": "866e60ac-3b04-427e-89da-7069545508da",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-04T18:15:07.108609+00:00",
     "contract_id": "103973-SP2",
     "storage_path": "cba4240f-08cc-43d7-9d32-d37d695b5e2c/amortization/2021-10-13-Dexter2_103973SP2_Amortization.pdf",
@@ -43579,7 +43579,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43602,7 +43602,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43625,7 +43625,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43648,7 +43648,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43671,7 +43671,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43694,7 +43694,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43717,7 +43717,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43740,7 +43740,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43763,7 +43763,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43786,7 +43786,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43809,7 +43809,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43832,7 +43832,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43855,7 +43855,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43878,7 +43878,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43901,7 +43901,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43924,7 +43924,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43947,7 +43947,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43970,7 +43970,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -43993,7 +43993,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44016,7 +44016,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44039,7 +44039,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44062,7 +44062,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44085,7 +44085,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44108,7 +44108,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44131,7 +44131,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44154,7 +44154,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44177,7 +44177,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44200,7 +44200,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44223,7 +44223,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44246,7 +44246,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44269,7 +44269,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44292,7 +44292,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44315,7 +44315,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44338,7 +44338,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44361,7 +44361,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44384,7 +44384,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44407,7 +44407,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44430,7 +44430,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44453,7 +44453,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44476,7 +44476,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44499,7 +44499,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44522,7 +44522,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44545,7 +44545,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44568,7 +44568,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44591,7 +44591,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44614,7 +44614,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44637,7 +44637,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44660,7 +44660,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44683,7 +44683,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44706,7 +44706,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44729,7 +44729,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44752,7 +44752,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44775,7 +44775,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44798,7 +44798,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44821,7 +44821,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44844,7 +44844,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44867,7 +44867,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44890,7 +44890,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44913,7 +44913,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44936,7 +44936,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44959,7 +44959,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -44982,7 +44982,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45005,7 +45005,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45028,7 +45028,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45051,7 +45051,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45074,7 +45074,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45097,7 +45097,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45120,7 +45120,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45143,7 +45143,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45166,7 +45166,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45189,7 +45189,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45212,7 +45212,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45235,7 +45235,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45258,7 +45258,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45281,7 +45281,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45304,7 +45304,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45327,7 +45327,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45350,7 +45350,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45373,7 +45373,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45396,7 +45396,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45419,7 +45419,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45442,7 +45442,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45465,7 +45465,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45488,7 +45488,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45511,7 +45511,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",
@@ -45534,7 +45534,7 @@
    "schedule_id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
    "loan_amortization_schedules": {
     "id": "a13a2edc-bc23-46f4-9860-83b41ed5c740",
-    "amort_type": "Customer",
+    "amort_type": "amortization_schedule",
     "created_at": "2026-08-08T16:53:40.454211+00:00",
     "contract_id": "103973-SP1",
     "storage_path": "a1a88e88-8571-4b22-a781-a581da1a4a2c/amortization/2021-10-13-Dexter1_103973SP1_Amortization.pdf",

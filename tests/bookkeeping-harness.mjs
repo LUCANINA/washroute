@@ -1216,9 +1216,9 @@ GROUPS.push({
           // Mirrors the page: parse-sourced AND actually a schedule. A payment
           // history parses the same way a contract does and is not one.
           real: pairs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x.source)
-                              && ['amortization_schedule', 'Customer'].includes(x.amort_type)),
+                              && ['amortization_schedule'].includes(x.amort_type)),
           derivedOnly: pairs.length > 0 && !pairs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x.source)
-                              && ['amortization_schedule', 'Customer'].includes(x.amort_type)),
+                              && ['amortization_schedule'].includes(x.amort_type)),
           basis: a.close_basis || '',
         };
       }
