@@ -1,6 +1,6 @@
 -- session 246 (2026-08-28) — closing evidence: a grade for every month-end balance
 --
--- APPLIED 2026-08-28. Written from DESIGN-CLOSING-EVIDENCE.md, reviewed with
+-- APPLIED 2026-08-28. Written from docs/bookkeeping/DESIGN-CLOSING-EVIDENCE.md, reviewed with
 -- washroute-migration-review, applied to the live project, and then VERIFIED
 -- against it rather than assumed (see APPLIED STATE below). This file is the file
 -- of record: if it and the database ever disagree, one of them is wrong and it

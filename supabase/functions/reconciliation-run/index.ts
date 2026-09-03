@@ -156,7 +156,7 @@ async function fetchPaged(baseUrl: string, token: string, tenantId: string, key:
   // which Xero accepts with HTTP 200 and then SILENTLY IGNORES, returning the full
   // unfiltered set -- so this "incremental" pull was never incremental. Verified live
   // 2026-08-19: RFC 1123 returned 1183/1183 manual journals, ISO returned 1/1183.
-  // See DESIGN-LOAN-POSTING-MODEL.md constraint C8.
+  // See docs/bookkeeping/DESIGN-LOAN-POSTING-MODEL.md constraint C8.
   if (modifiedSince) headers['If-Modified-Since'] = new Date(modifiedSince).toISOString().slice(0, 19)
   for (let page = 1; page <= maxPages; page++) {
     const sep = baseUrl.includes('?') ? '&' : '?'

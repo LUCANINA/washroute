@@ -4042,6 +4042,14 @@
               </div>
               <div id="bk-ov-period-bar" class="lpb" style="padding:0 24px 16px"></div>
               <div id="bk-ov-queue-list"></div>
+              <!-- Stripe payouts not booked (session 266). Hidden unless there is
+                   something to show: on a healthy book this card does not exist,
+                   which is the LESS IS BEST rule applied to a section rather than
+                   a column. Filled by _bkLoadPayoutReallocations(). -->
+              <div id="bk-payout-realloc-card" style="display:none;padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
+                <div style="font-size:12.5px;font-weight:600;color:var(--gray-500);margin-bottom:8px">Stripe payouts not booked</div>
+                <div id="bk-payout-realloc-list"></div>
+              </div>
               <!-- History (session 223 cont. 3, per David): ONE record of
                    everything settled — resolved issues with who/when,
                    informational notes, and the reconciliation reports they came
@@ -4696,6 +4704,22 @@
             </div>
             <div class="modal-body" id="loan-review-body">Loading…</div>
             <div class="modal-footer" id="loan-review-footer"></div>
+          </div>
+        </div>
+
+        <!-- Stripe payout reallocation modal (session 266) -->
+        <div class="modal-overlay" id="modal-payout-realloc">
+          <div class="modal" style="width:760px">
+            <div class="modal-header">
+              <div class="modal-title" id="payout-realloc-title">Reallocation journal</div>
+              <button class="modal-close" onclick="closePayoutReallocModal()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="payout-realloc-body">Loading…</div>
+            <div class="modal-footer" id="payout-realloc-footer">
+              <button class="btn btn-ghost" onclick="closePayoutReallocModal()">Close</button>
+            </div>
           </div>
         </div>
 
@@ -11800,6 +11824,9 @@
   }
 
   function renderBookkeepingOverview() {
+    // Session 266: fire-and-forget — this reaches Stripe and must never hold up
+    // the rest of the Overview render.
+    try { _bkLoadPayoutReallocations(); } catch (_) {}
     const tilesEl = document.getElementById('bk-kpi-tiles');
     const listEl = document.getElementById('bk-ov-queue-list');
     if (!tilesEl || !listEl) return;
@@ -19807,6 +19834,168 @@
   }
   // Back-compat: anything still calling the old history modal gets the full detail.
   function openLoanHistoryModal(loanAccountId) { openLoanDetailModal(loanAccountId); }
+  // ── SESSION 266: Stripe payouts that never reached Xero ────────────────────
+  // Why this exists: on 2026-09-03 the 22 July payout was found sitting unbooked
+  // for six weeks, and the only way to correct it was to hand-type a ten-line
+  // journal into Xero. This is the same preview-then-post shape the loan splits
+  // use — the figures are computed from Stripe, shown in full, and nothing
+  // reaches Xero until someone reads them and clicks.
+  //
+  // The list comes from xero-payout-coverage rather than a direct table read:
+  // the dashboard has never had a read path to xero_payout_syncs, and adding one
+  // would mean new RLS for a table only edge functions touch.
+  // renderBookkeepingOverview() runs on every segment toggle, every archive
+  // toggle and every data refresh — thirteen call sites. xero-payout-coverage
+  // reaches Stripe's payout list, so calling it per render would fire a Stripe API
+  // request every time someone clicks between Issues and Approvals. Cache it, and
+  // never let two requests be in flight at once.
+  let _bkPayoutCovCache = null;      // { at: epochMs, items: [...] }
+  let _bkPayoutCovInFlight = null;
+  const BK_PAYOUT_COV_TTL_MS = 5 * 60 * 1000;
+
+  async function _bkLoadPayoutReallocations(opts) {
+    const card = document.getElementById('bk-payout-realloc-card');
+    const list = document.getElementById('bk-payout-realloc-list');
+    if (!card || !list) return;
+    const force = !!(opts && opts.force);
+    if (!force && _bkPayoutCovCache && (Date.now() - _bkPayoutCovCache.at) < BK_PAYOUT_COV_TTL_MS) {
+      _bkRenderPayoutReallocList(_bkPayoutCovCache.items);
+      return;
+    }
+    if (_bkPayoutCovInFlight) return _bkPayoutCovInFlight;
+    _bkPayoutCovInFlight = (async () => {
+    const r = await _loanFn('xero-payout-coverage', {}, 60000);
+    // A card that cannot load its own data hides rather than showing a broken
+    // shell — but it says so in the console, because a silent empty section and a
+    // healthy book look identical and only one of them is fine.
+    if (!r.ok) { console.warn('[bk] payout coverage unavailable:', r.data && r.data.error); card.style.display = 'none'; return; }
+    const items = [...(r.data.not_posted || []), ...(r.data.missing || [])];
+    _bkPayoutCovCache = { at: Date.now(), items };
+    _bkRenderPayoutReallocList(items);
+    })().finally(() => { _bkPayoutCovInFlight = null; });
+    return _bkPayoutCovInFlight;
+  }
+
+  function _bkRenderPayoutReallocList(items) {
+    const card = document.getElementById('bk-payout-realloc-card');
+    const list = document.getElementById('bk-payout-realloc-list');
+    if (!card || !list) return;
+    if (!items || !items.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    list.innerHTML = items.map((it) => `
+      <div class="bk-queue-row" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--gray-100)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">$${Number(it.amount).toFixed(2)}<span style="font-weight:400;color:var(--gray-500)"> — ${esc(it.arrival_date)}</span></div>
+          <div style="font-size:11.5px;color:var(--gray-400);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.stripe_payout_id)}</div>
+        </div>
+        <span onclick="openPayoutReallocModal('${escJS(it.stripe_payout_id)}')" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">Preview journal</span>
+      </div>`).join('');
+  }
+
+  // Preview only. xero-payout-reallocate defaults to a dry run, so opening this
+  // modal cannot write anything — the first click is safe by construction and the
+  // only irreversible one is Post, below.
+  async function openPayoutReallocModal(payoutId) {
+    const body = document.getElementById('payout-realloc-body');
+    const footer = document.getElementById('payout-realloc-footer');
+    document.getElementById('payout-realloc-title').textContent = 'Reallocation journal — ' + payoutId;
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">Reading the payout from Stripe… this takes about a minute.</div>';
+    footer.innerHTML = '<button class="btn btn-ghost" onclick="closePayoutReallocModal()">Close</button>';
+    document.getElementById('modal-payout-realloc').classList.add('open');
+
+    // 180s: this re-classifies every balance transaction in the payout, which is
+    // 100+ Stripe calls and legitimately outlives _loanFn's 25s default.
+    const r = await _loanFn('xero-payout-reallocate', { payout_id: payoutId }, 180000);
+    if (!r.ok || r.data.error) {
+      body.innerHTML = `<div style="padding:20px;font-size:13px;color:var(--gray-700)"><div style="font-weight:600;margin-bottom:6px">Cannot prepare this journal</div><div>${esc(r.data && r.data.error || 'Unknown error')}</div></div>`;
+      return;
+    }
+    const lines = (r.data.proposed_journal && r.data.proposed_journal.JournalLines) || [];
+    // Xero's LineAmount is signed: positive debits, negative credits. Showing the
+    // two columns separately is the difference between a CPA being able to check
+    // this at a glance and having to decode signs.
+    let dr = 0, cr = 0;
+    const rows = lines.map((l) => {
+      const amt = Number(l.LineAmount);
+      if (amt >= 0) dr += amt; else cr += -amt;
+      return `<tr>
+        <td class="td-mono" style="white-space:nowrap">${esc(l.AccountCode)}</td>
+        <td style="font-size:12px;color:var(--gray-600)">${esc(l.Description || '')}</td>
+        <td style="text-align:right">${amt >= 0 ? '$' + amt.toFixed(2) : ''}</td>
+        <td style="text-align:right">${amt < 0 ? '$' + (-amt).toFixed(2) : ''}</td>
+      </tr>`;
+    }).join('');
+    const balanced = Math.abs(dr - cr) < 0.005;
+    const ob = r.data.original_bank_transaction || {};
+    body.innerHTML = `
+      <div style="padding:4px 4px 12px;font-size:12.5px;color:var(--gray-600)">
+        Moves the non-Delivery portion of this payout out of 403, leaving the bank deposit untouched.
+        Against deposit <span class="td-mono">${esc(String(ob.id || '—')).slice(0, 8)}…</span>
+        dated ${esc(String(ob.date || '—'))}${ob.reconciled ? ' (reconciled)' : ''}.
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr><th>Account</th><th>Description</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="font-weight:600;border-top:2px solid var(--gray-300)">
+          <td colspan="2">Total</td>
+          <td style="text-align:right">$${dr.toFixed(2)}</td>
+          <td style="text-align:right">$${cr.toFixed(2)}</td>
+        </tr></tfoot>
+      </table></div>
+      ${balanced ? '' : '<div style="margin-top:10px;padding:10px;font-size:12.5px;color:var(--red);background:var(--red-light);border-radius:6px">Debits and credits do not agree. Do not post this.</div>'}`;
+    footer.innerHTML = balanced
+      ? `<button class="btn btn-ghost" onclick="closePayoutReallocModal()">Cancel</button>
+         <button class="btn btn-primary" id="payout-realloc-post" onclick="postPayoutRealloc('${escJS(payoutId)}', this)">Post journal to Xero</button>`
+      : `<button class="btn btn-ghost" onclick="closePayoutReallocModal()">Close</button>`;
+  }
+
+  async function postPayoutRealloc(payoutId, btnEl) {
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Posting…'; }
+    const r = await _loanFn('xero-payout-reallocate', { payout_id: payoutId, confirm: true }, 180000, { write: true });
+    // A write whose outcome we could not read must never re-offer the button --
+    // that is how a payout gets posted twice. Same handler the loan splits use.
+    // _loanShowUnknownOutcome() writes into #loan-review-body — a DIFFERENT modal.
+    // Calling it from here put the single most important message in this whole flow
+    // into an element the user cannot see, and its toast fallback never fired
+    // because that element exists in the DOM regardless. An ambiguous write is
+    // exactly the moment the message must land.
+    if (r.data && r.data.outcome_unknown) {
+      document.getElementById('payout-realloc-body').innerHTML = `
+        <div style="padding:18px 20px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px">
+          <div style="font-weight:700;font-size:14.5px;color:#9a3412;margin-bottom:8px">Check Xero before doing anything else</div>
+          <div style="font-size:13px;color:var(--gray-800);line-height:1.6">${esc(r.data.error || '')}</div>
+          <div style="font-size:12.5px;color:var(--gray-600);margin-top:12px">
+            The journal may or may not have posted. Posting again could put the same entry in your books twice.
+            Search Xero's manual journals for this payout id before retrying.
+          </div>
+        </div>`;
+      // The button is REMOVED, not re-enabled. Re-offering it here is how a
+      // correction gets made twice.
+      document.getElementById('payout-realloc-footer').innerHTML =
+        '<button class="btn btn-ghost" onclick="closePayoutReallocModal()">Close</button>';
+      return;
+    }
+    if (!r.ok || r.data.error) {
+      showToast(r.data && r.data.error || 'Could not post the journal', 'error');
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Post journal to Xero'; }
+      return;
+    }
+    showToast('Reallocation journal posted to Xero', 'success');
+    closePayoutReallocModal();
+    _bkLoadPayoutReallocations({ force: true });
+  }
+
+  function closePayoutReallocModal() {
+    document.getElementById('modal-payout-realloc').classList.remove('open');
+  }
+  // The global Escape handler matches [id$="-modal"]; this one is `modal-payout-realloc`,
+  // the wrong way round — the same gap the loan bundle modal hit. Own it here.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const m = document.getElementById('modal-payout-realloc');
+    if (m && m.classList.contains('open')) closePayoutReallocModal();
+  });
+
   function closeLoanHistoryModal() {
     document.getElementById('modal-loan-history').classList.remove('open');
   }
@@ -21571,7 +21760,7 @@ ${noActivityNote}
   // fact — it's STAGED: loan-xero-post v41 creates the bank transaction in Xero,
   // already split into principal/interest, before the payment happens. When the feed
   // line lands, the reconcile screen offers it as a Match and the CPA clicks once.
-  // One clean two-line transaction, no journal. Design: DESIGN-LOAN-POSTING-MODEL.md §4.
+  // One clean two-line transaction, no journal. Design: docs/bookkeeping/DESIGN-LOAN-POSTING-MODEL.md §4.
 
   // Is this split one that should be staged rather than approved? True only when:
   // the split is pending review, schedule-sourced with a linked amortization row,

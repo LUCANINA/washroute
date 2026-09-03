@@ -77,4 +77,4 @@ Never trim these to save tokens:
 Re-measure in a week: read the first request's usage block in this session's
 transcript under `~/.claude/projects/`, and add
 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`.
-Full method in `TOKEN-BASELINE.md`.
+Full method in `docs/TOKEN-BASELINE.md`.

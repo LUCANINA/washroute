@@ -238,11 +238,73 @@ Deno.serve(async (req) => {
     const r1 = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${encodeURIComponent(whereClause)}&order=Date DESC`, { headers })
     const list = r1.ok ? ((await r1.json()).BankTransactions || []) : []
     const target = plan.payoutDollars
-    const candidates = list.filter((t: any) => t.BankAccount?.AccountID?.toLowerCase() === XERO_BANK_ACCOUNT_ID.toLowerCase() && Math.abs(Number(t.Total) - target) < 0.02)
+    // ── SESSION 266 FIX 1: a DELETED transaction is not a candidate ───────────
+    // Xero keeps deleted bank transactions in the API response with
+    // Status: 'DELETED'. They have no effect on the ledger, but they still match
+    // on date, amount and bank account -- so a single deleted duplicate makes this
+    // function see TWO candidates and refuse forever. That is exactly the state
+    // this book was in on 2026-09-03 after a double-post was removed: the live
+    // deposit and its deleted twin, both $10,630.05 on 22 July.
+    //
+    // Filtering by status is not a loosening of the "exactly 1" rule -- it is what
+    // makes that rule mean "exactly one transaction that actually affects the
+    // books". Anything not AUTHORISED is excluded, so an unexpected status fails
+    // safe by being ignored rather than silently accepted.
+    const LIVE_STATUSES = new Set(['AUTHORISED'])
+    const allMatches = list.filter((t: any) => t.BankAccount?.AccountID?.toLowerCase() === XERO_BANK_ACCOUNT_ID.toLowerCase() && Math.abs(Number(t.Total) - target) < 0.02)
+    const candidates = allMatches.filter((t: any) => LIVE_STATUSES.has(String(t.Status || '').toUpperCase()))
+    const excluded = allMatches.filter((t: any) => !LIVE_STATUSES.has(String(t.Status || '').toUpperCase()))
     if (candidates.length !== 1) {
-      return new Response(JSON.stringify({ error: `expected exactly 1 matching bank transaction near ${plan.arrivalDate} for $${target}, found ${candidates.length}`, candidates: candidates.map((c: any) => ({ id: c.BankTransactionID, date: c.DateString, total: c.Total, reference: c.Reference })) }), { status: 409 })
+      return new Response(JSON.stringify({
+        error: `expected exactly 1 live (AUTHORISED) bank transaction near ${plan.arrivalDate} for $${target}, found ${candidates.length}`,
+        candidates: candidates.map((c: any) => ({ id: c.BankTransactionID, date: c.DateString, total: c.Total, reference: c.Reference, status: c.Status })),
+        // Named, not hidden. A reader who sees "found 0" needs to know a deleted
+        // twin exists, or they will go looking for a transaction that is right there.
+        excluded_non_live: excluded.map((c: any) => ({ id: c.BankTransactionID, status: c.Status, reference: c.Reference })),
+      }), { status: 409 })
     }
     const original = candidates[0]
+
+    // ── SESSION 266 FIX 2: refuse a transaction THIS PIPELINE created ─────────
+    // A reallocation journal assumes the bank transaction codes the whole payout
+    // to 403, which is what the bank feed does. A transaction carrying our own
+    // Reference was created by xero-payout-sync and is ALREADY split across every
+    // account -- reallocating it would move money a second time.
+    const ourReference = `Stripe payout ${payout.id}`
+    if (String(original.Reference || '').trim() === ourReference) {
+      return new Response(JSON.stringify({
+        error: 'refusing to reallocate: the matched bank transaction was created by xero-payout-sync and is already split across accounts. A reallocation journal would double-count it. This payout does not need reallocating.',
+        bank_transaction: { id: original.BankTransactionID, reference: original.Reference, status: original.Status },
+      }), { status: 409 })
+    }
+
+    // ── SESSION 266 FIX 3: never post a second journal for the same payout ────
+    // The original version upserted status='posted' with a fresh
+    // xero_manual_journal_id and no guard whatsoever, so a re-run silently created
+    // a duplicate journal and orphaned the first one -- our row would name the new
+    // journal while the old one stayed live in Xero, doubling the correction.
+    //
+    // XERO IS THE AUTHORITY HERE, NOT OUR ROW. A row can be missing or wrong
+    // (session 241 put a full day of revenue in twice by trusting one), so this
+    // asks Xero directly: any live journal in the window whose Narration names
+    // this payout means the work is already done.
+    const jFrom = new Date(arrival); jFrom.setDate(jFrom.getDate() - 5)
+    const jTo = new Date(arrival); jTo.setDate(jTo.getDate() + 5)
+    const jWhere = `Date >= DateTime(${fmt(jFrom)}) && Date <= DateTime(${fmt(jTo)})`
+    const rj = await fetch(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${encodeURIComponent(jWhere)}`, { headers })
+    if (!rj.ok) {
+      // Cannot answer "is it already done?" -> refuse rather than post blind. Same
+      // stance xero-payout-sync takes when its own pre-check cannot reach Xero.
+      return new Response(JSON.stringify({ error: `could not check Xero for an existing reallocation journal (${rj.status}) -- refusing to post blind` }), { status: 502 })
+    }
+    const existingJournals = ((await rj.json()).ManualJournals || []).filter((j: any) =>
+      String(j.Status || '').toUpperCase() === 'POSTED' && String(j.Narration || '').includes(payout.id))
+    if (existingJournals.length) {
+      return new Response(JSON.stringify({
+        error: 'a reallocation journal for this payout already exists in Xero -- nothing posted',
+        existing_journals: existingJournals.map((j: any) => ({ id: j.ManualJournalID, date: j.DateString, narration: j.Narration })),
+      }), { status: 409 })
+    }
 
     // Build the correction journal (see buildJournalLines header comment for the
     // debit/credit sign reasoning -- this replaces the session-205-bug version).

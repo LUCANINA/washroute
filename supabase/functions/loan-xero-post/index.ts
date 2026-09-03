@@ -270,7 +270,7 @@ async function callerRole(req: Request) {
 // doc constraint C11. Still no change to accounts, amounts, dates, signs, or any
 // posting logic -- every wording change in this function has been narration-only.
 
-// v41 (session 226, 2026-08-21): TIER 1 PRE-STAGING (DESIGN-LOAN-POSTING-MODEL.md §4).
+// v41 (session 226, 2026-08-21): TIER 1 PRE-STAGING (docs/bookkeeping/DESIGN-LOAN-POSTING-MODEL.md §4).
 // The inversion David asked for on 2026-08-19 ("Park it. Reuse the function for the trx
 // 'pre-split'"): instead of trying to edit a bank transaction that already exists
 // (impossible once reconciled -- C1+C4), CREATE the transaction ourselves, already

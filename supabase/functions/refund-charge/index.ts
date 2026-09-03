@@ -20,7 +20,7 @@ const cors = {
 // --- Staging kill-switch (Track A3, Aug 2026) ---------------------------
 // Fail-closed: if we can't PROVE this project is production, refuse to
 // issue a real Stripe refund (and the SMS it triggers below). Never rely
-// on client-side env detection — see WashRoute-Staging-Config-Scope.md
+// on client-side env detection — see archive/WashRoute-Staging-Config-Scope.md
 // and the Golden Rule in washroute-preflight: assume an action WILL reach
 // a real person / real money unless proven otherwise.
 async function assertProductionOrRefuse(db: any): Promise<{ ok: true } | { ok: false; reason: string }> {

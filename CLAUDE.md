@@ -31,7 +31,18 @@ Notes files (large — grep them, don't read them whole):
 - `PROJECT-NOTES.md` — laundry app history through today. Sessions are logged newest-first at the top.
 - `PROJECT-NOTES-BOOKKEEPING.md` — Bookkeeping module only, from session 218 onward.
 - `PROJECT-NOTES-ARCHIVE.md` — older history.
-- `TECH-STACK.md`, `MONITORING.md`, `DESIGN-*.md` — stack, alerting, and per-feature design docs.
+- `TECH-STACK.md`, `MONITORING.md` — stack and alerting.
+
+Where the rest lives (tidied 2026-09-03):
+- `docs/bookkeeping/` — every Bookkeeping design doc and finding: `DESIGN-LOAN-POSTING-MODEL.md`,
+  `DESIGN-CLOSING-EVIDENCE.md`, `DESIGN-VARIANCE-ATTRIBUTION.md`, `DESIGN-STAGING-EXPANSION.md`,
+  `DESIGN-LOAN-BUNDLE-INTAKE.md`, `BOOKKEEPING-OPERATING-NOTES.md`, `FORD-FINDINGS-2026-08-22.md`,
+  `LOAN-CORRECTIONS-2026-09-01.md`, and the Ramona pre-staged-payments PDF.
+  (`PROJECT-NOTES-BOOKKEEPING.md` stays at the root, beside the other notes files.)
+- `docs/washroute/` — architecture, authorization, coding patterns, status.
+- `docs/` — `TOKEN-HABITS.md`, `TOKEN-BASELINE.md`, `TOKEN-STEP2-CONTEXT-DIET.md`.
+- `archive/` — finished or superseded: old planning docs, one-off console scripts,
+  one-off spreadsheets and incident CSVs. Kept for history, not current reference.
 
 ---
 

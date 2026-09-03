@@ -12,7 +12,7 @@
 //
 // So a move to a standard OAuth 2.0 app is inevitable for any multi-client future, and
 // it is also the most likely route to scopes a Custom Connection does not offer --
-// `accounting.journals.read` chief among them (see DESIGN-LOAN-POSTING-MODEL.md §9-§10).
+// `accounting.journals.read` chief among them (see docs/bookkeeping/DESIGN-LOAN-POSTING-MODEL.md §9-§10).
 //
 // Under that flow, getting a token stops being a single stateless call and becomes:
 //   look up this org's stored refresh token -> refresh it -> PERSIST THE ROTATED ONE
@@ -60,7 +60,7 @@ export async function getXeroAuth(orgRef?: string): Promise<XeroAuth> {
     throw new Error(
       `getXeroAuth() was asked for org "${orgRef}" but this deployment is a Custom ` +
       `Connection bound to the single tenant "${tenantId}". Multi-org requires ` +
-      `migrating to a standard OAuth 2.0 app -- see DESIGN-LOAN-POSTING-MODEL.md §10.`,
+      `migrating to a standard OAuth 2.0 app -- see docs/bookkeeping/DESIGN-LOAN-POSTING-MODEL.md §10.`,
     )
   }
 

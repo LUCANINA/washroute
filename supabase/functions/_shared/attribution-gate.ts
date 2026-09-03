@@ -14,7 +14,7 @@
 //     identity, presented as a habit and as an intent.
 //
 // A person forgets to check both halves. A gate cannot. Rules A1-A4 of
-// DESIGN-VARIANCE-ATTRIBUTION.md §0c, in executable form.
+// docs/bookkeeping/DESIGN-VARIANCE-ATTRIBUTION.md §0c, in executable form.
 //
 // THE v1 GATE WAS BROKEN AND THE REVIEW CAUGHT IT. Recorded here because the bugs are
 // instructive and must not come back:
