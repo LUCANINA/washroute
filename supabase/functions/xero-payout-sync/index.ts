@@ -112,6 +112,27 @@ async function classifyPayout(payout: any) {
     return data
   }
 
+  // ── SESSION 266: human classification for a transaction we cannot match ────
+  // A card sale taken directly on the POS reader as a typed amount
+  // (stripe-terminal's `charge_reader`) creates a PaymentIntent that is never
+  // written back to an order, so getOrderByPI finds nothing and the charge lands
+  // in `unclassified`. buildPlan then fails the whole payout's safety check --
+  // correctly, because guessing a revenue account is worse than refusing. But
+  // with no way for a person to ANSWER, the refusal is permanent: the 2026-07-22
+  // payout ($10,630.05) sat unbooked for six weeks over one $18.27 charge, and
+  // because the operator found it via dry_run (which writes nothing), it left no
+  // record anywhere that a decision was even pending.
+  //
+  // Loaded once per payout rather than per transaction: this is a small table and
+  // the classifier is already making 100+ Stripe calls, which is the budget that
+  // actually matters here.
+  const { data: overrideRows } = await supabase
+    .from('stripe_txn_overrides')
+    .select('stripe_balance_transaction_id, bucket, reason')
+  const txnOverrides = new Map<string, { bucket: string; reason: string }>(
+    (overrideRows || []).map((r: any) => [r.stripe_balance_transaction_id, { bucket: r.bucket, reason: r.reason }]))
+  const overridesApplied: any[] = []
+
   const buckets: Record<string, any> = {}
   for (const key of Object.keys(CATS)) buckets[key] = emptyBucket()
   buckets.unclassified = emptyBucket()
@@ -209,6 +230,20 @@ async function classifyPayout(payout: any) {
     discountsTotalCents += discountCents
     const grossUpCents = creditCents + discountCents
 
+    // An override may only ANSWER an unanswered question -- never contradict a
+    // successful match. If this ever ran ahead of the automatic classification it
+    // would become a way to silently re-route revenue that the system had already
+    // identified correctly, which is a different and much worse tool than the one
+    // this is meant to be. The `category === 'unclassified' && !splitOverride`
+    // guard is the whole safety property; do not relax it.
+    if (category === 'unclassified' && !splitOverride) {
+      const ov = txnOverrides.get(bt.id)
+      if (ov && Object.prototype.hasOwnProperty.call(buckets, ov.bucket)) {
+        category = ov.bucket
+        overridesApplied.push({ id: bt.id, chargeId: charge.id, amount: bt.amount, bucket: ov.bucket, reason: ov.reason })
+      }
+    }
+
     if (splitOverride) {
       splitOverride.forEach(({ cat, fraction }) => {
         buckets[cat].gross += (bt.amount + grossUpCents) * fraction; buckets[cat].fee += bt.fee * fraction
@@ -229,7 +264,7 @@ async function classifyPayout(payout: any) {
 
   return {
     buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents,
-    creditDiscountExamples, unclassifiedDetail, transactionCount: btxns.length,
+    creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount: btxns.length,
   }
 }
 
@@ -478,7 +513,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     return { skipped: true, reason: 'already posted', existing }
   }
 
-  const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail } = await classifyPayout(payout)
+  const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied } = await classifyPayout(payout)
   const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents)
 
   const { data: syncRow, error: upsertErr } = await supabase.from('xero_payout_syncs').upsert({
@@ -492,7 +527,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
       // Permanent by construction: an unclassified transaction or an out-of-balance
       // plan reproduces exactly on a re-run. Retrying it would bury the signal.
       failure_kind: 'permanent', next_retry_at: null,
-      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail },
+      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied },
     }).eq('id', syncRow.id)
     console.error(`[xero-payout-sync] ${payout.id} blocked: ${plan.blockedReason}`)
     return { posted: false, blocked_reason: plan.blockedReason }
@@ -578,7 +613,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
 
   if (!postRes.ok) {
     // A Xero validation rejection is permanent -- same payload, same rejection.
-    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: JSON.stringify(postJson).slice(0, 2000), failure_kind: 'permanent', next_retry_at: null, category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents } }).eq('id', syncRow.id)
+    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: JSON.stringify(postJson).slice(0, 2000), failure_kind: 'permanent', next_retry_at: null, category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied } }).eq('id', syncRow.id)
     console.error(`[xero-payout-sync] ${payout.id} Xero post failed`, postJson)
     return { posted: false, xero_error: postJson }
   }
@@ -596,7 +631,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     // to post blind", which is a stale sentence beside a correct number: the
     // hardest kind of wrong to catch, because a reader trusts the words.
     error_message: null, failure_kind: null, next_retry_at: null,
-    category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents },
+    category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied },
   }).eq('id', syncRow.id)
   if (postedUpdErr) {
     console.error(`[xero-payout-sync] ${payout.id} XERO AHEAD OF US: posted ${createdTxnId} but row update failed: ${postedUpdErr.message}`)
@@ -667,7 +702,7 @@ Deno.serve(async (req) => {
     }
 
     if (dryRun) {
-      const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, transactionCount } = await classifyPayout(payout)
+      const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount } = await classifyPayout(payout)
       const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents)
       return new Response(JSON.stringify({
         would_post: !plan.safetyFailed && plan.balances,
@@ -680,6 +715,10 @@ Deno.serve(async (req) => {
         refunds_total: dollars(refundsBucket.gross),
         credit_discount_examples: creditDiscountExamples,
         unclassified_detail: unclassifiedDetail,
+        // Shown so a reviewer sees WHICH transactions only classify because a human
+        // said so, and the reason they gave -- a dry run that hid this would look
+        // identical to one where the code worked it out on its own.
+        overrides_applied: overridesApplied,
         transaction_count: transactionCount,
       }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }

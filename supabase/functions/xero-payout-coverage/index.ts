@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { sendAlertSms, alertSmsConfigFromEnv, trimForSms } from '../_shared/alert-sms.ts'
+import { effectiveCloseDate } from '../_shared/close-date.ts'
 
 // xero-payout-coverage (built Sep 3, 2026 — session 266)
 //
@@ -139,9 +140,26 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // NO ROW AT ALL -- the case this function exists for, and the one nothing else
   // in the system can see.
-  const missing = due
+  const allMissing = due
     .filter((p) => !byId.has(p.id))
     .map((p) => ({ stripe_payout_id: p.id, amount: p.amount / 100, arrival_date: arrivalDateOf(p) }))
+
+  // ── THE CLOSE DATE, applied to an ALARM rather than to a proposal ──────────
+  // Four late-June payouts have no row and never will: they predate the sync,
+  // which shipped 2026-08-03, and June is closed. Booking them now would mean
+  // posting into a month the CPA has settled, which nobody is going to do. An
+  // alarm that fires every day about work nobody can perform is the queue people
+  // learn to ignore -- and the day it finally names something real, they scroll
+  // past that too.
+  //
+  // So the close date splits REPORTING from ALERTING here, and only there. The
+  // rows are still listed, still counted, still named. What stops is the text
+  // message. Session 230's rule is that a closed period stops generating WORK; it
+  // was written about proposals, and an alert is a proposal with a phone number.
+  const close = await effectiveCloseDate(supabase)
+  const isClosed = (arrival: string) => !!close.date && arrival <= close.date
+  const missing = allMissing.filter((m) => !isClosed(m.arrival_date))
+  const missingInClosedPeriod = allMissing.filter((m) => isClosed(m.arrival_date))
 
   // A row exists but has not reached Xero. xero-payout-watchdog owns this class
   // and alerts on it already, so this function REPORTS it and does not alert --
@@ -202,6 +220,11 @@ async function handleRequest(req: Request): Promise<Response> {
     missing_count: missing.length,
     missing_total: missingTotal,
     missing,
+    // Listed, never alerted. A denominator that quietly shrinks is not a
+    // coverage check, so these are named rather than dropped.
+    missing_in_closed_period: missingInClosedPeriod,
+    books_closed_through: close.date,
+    close_date_source: close.source,
     not_posted: notPosted,
     unmatched_sync_rows: unmatchedRows,
     excluded: {
