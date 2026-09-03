@@ -41,8 +41,10 @@ Where the rest lives (tidied 2026-09-03):
   (`PROJECT-NOTES-BOOKKEEPING.md` stays at the root, beside the other notes files.)
 - `docs/washroute/` — architecture, authorization, coding patterns, status.
 - `docs/` — `TOKEN-HABITS.md`, `TOKEN-BASELINE.md`, `TOKEN-STEP2-CONTEXT-DIET.md`.
-- `archive/` — finished or superseded: old planning docs, one-off console scripts,
-  one-off spreadsheets and incident CSVs. Kept for history, not current reference.
+- `scripts/console/` — browser-console recovery/outreach scripts, still live:
+  `batch-charge-retry.js`, `outreach-sms.js`, `outreach-email.js` (see skill `washroute`).
+- `archive/` — finished or superseded: old planning docs, one-off spreadsheets
+  and incident CSVs. Kept for history, not current reference.
 
 ---
 
