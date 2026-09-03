@@ -4149,7 +4149,7 @@
                permanently once the correction journal is posted (checked via
                payroll-fix-668-misroute, which itself checks Xero for the tagged
                journal so it can never double-post). Hidden by default; shown
-               only if check668FixStatus() confirms it's still outstanding. -->
+               only if _refreshPayrollFixCards() confirms it's still outstanding. -->
           <div class="card" style="margin-bottom:20px;display:none;border:1px solid #fcd34d" id="payroll-668fix-card">
             <div class="card-header" style="padding:20px 24px">
               <div style="flex:1">
@@ -12662,10 +12662,7 @@
     _allPayrollEmployees = employees || [];
     renderPayrollSummary();
     _pkUpdateStaleHint();
-    check668FixStatus();
-    check171CatchupStatus();
-    checkCaDupeStatus();
-    checkTipsBenStatus();
+    _refreshPayrollFixCards();
     checkRetailCashReclassStatus();
     renderPayrollTable();
     renderPayrollEmployeesTable();
@@ -13374,31 +13371,7 @@
   // allowing a post), so this UI just needs to check + hide the banner once
   // it's done; there's no local "posted" flag to keep in sync.
   //
-  // FIX (Aug 7, 2026): this used to be a permanent once-per-page-load latch
-  // (_payroll668FixChecked stayed true forever after the first check), so if
-  // the correction was posted from another tab/session -- or even from this
-  // same tab's modal after the initial check already ran -- a long-lived tab
-  // would show a stale card until a full browser reload. Re-verifying with
-  // Xero on every Payroll-tab visit is cheap (one read), so this now only
-  // guards against overlapping concurrent calls, not repeat calls over time.
-  let _payroll668FixInFlight = false;
 
-  async function check668FixStatus() {
-    if (_payroll668FixInFlight) return;
-    _payroll668FixInFlight = true;
-    try {
-      const card = document.getElementById('payroll-668fix-card');
-      if (!card) return;
-      const { ok, data } = await _payrollFn('payroll-fix-668-misroute', {});
-      if (ok && data && !data.error) {
-        card.style.display = data.already_posted ? 'none' : '';
-      }
-      // If the check itself failed (network/auth/Xero hiccup), leave the card
-      // as-is -- re-checked the next time the Payroll tab loads or refreshes.
-    } finally {
-      _payroll668FixInFlight = false;
-    }
-  }
 
   async function openPayroll668CorrectionModal() {
     document.getElementById('modal-668-correction').classList.add('open');
@@ -13458,26 +13431,122 @@
     }
   }
 
-  // 171 catch-up one-time correction (Aug 6, 2026) -- same pattern as the 668
-  // correction above. See payroll-fix-171-catchup for the full background.
-  // FIX (Aug 7, 2026): see the matching note on check668FixStatus -- guard is
-  // now in-flight-only, not a permanent per-page-load latch.
-  let _payroll171CatchupInFlight = false;
+  // ── THE FOUR ONE-TIME FIXES ASK XERO A SETTLED QUESTION ────────────────────
+  //
+  // Each of these four edge functions answers "was this correction already
+  // posted?" by scanning Xero for a journal carrying its unique tag. None of
+  // them has a database short-circuit -- the check IS the Xero call. loadPayroll
+  // ran all four on EVERY render: measured at six api.xero.com requests per page
+  // load, two of them Trial Balance reports (the most expensive endpoint of the
+  // set, and computed before the preview even short-circuits), and ~276 calls a
+  // day against a tenant budget of 1,000/day. On 2026-09-03 that budget ran out
+  // and staging a loan payment failed with "refusing to stage blind".
+  //
+  // A fix posted in July is still posted. So the answer is cached in
+  // payroll_fix_status and re-verified on a bounded schedule instead:
+  //
+  //   no cached row                -> ask Xero
+  //   cached already_posted = false -> ask Xero. The card is up, and we want it
+  //                                    down the moment the fix lands -- which is
+  //                                    also what makes the post-from-modal path
+  //                                    self-healing with no extra code.
+  //   cached true, checked < 7 days -> use the cache, no Xero call at all
+  //   cached true, older            -> ask Xero once, then rest for another week
+  //
+  // Steady state: four calls a WEEK rather than ~276 a day.
+  //
+  // THE IDEMPOTENCY INVARIANT IS UNTOUCHED, and this is the only thing about
+  // this change that could matter. Posting still proves itself against Xero at
+  // CONFIRM time, inside the edge function, on a path nothing here can reach.
+  // What is cached is what decides whether a CARD IS VISIBLE. The worst a wrong
+  // cache can do is show a card that is done, or hide one that is not -- never
+  // post a journal, never suppress one.
+  //
+  // Fails toward asking. A cache read that errors, a row that cannot be parsed,
+  // a slug we have never seen: all of them fall through to the Xero check. The
+  // failure mode of caching is a hidden card, and a card hidden because a SELECT
+  // failed is exactly the silence this module keeps writing rules about.
+  const _PAYROLL_FIX_CARDS = [
+    { slug: 'payroll-fix-668-misroute',          cardId: 'payroll-668fix-card' },
+    { slug: 'payroll-fix-171-catchup',           cardId: 'payroll-171catchup-card' },
+    { slug: 'payroll-fix-ca-doublecount',        cardId: 'payroll-cadupe-card' },
+    { slug: 'payroll-fix-tips-benefits-catchup', cardId: 'payroll-tipsben-card' },
+  ];
+  const _PAYROLL_FIX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-  async function check171CatchupStatus() {
-    if (_payroll171CatchupInFlight) return;
-    _payroll171CatchupInFlight = true;
+  // Exported onto window for the test harness: the decision is the whole point
+  // of the change and deserves to be testable without a browser round trip.
+  function _payrollFixNeedsXero(cached, nowMs) {
+    if (!cached) return true;                       // never checked
+    if (cached.already_posted !== true) return true; // still outstanding
+    const at = Date.parse(cached.checked_at || '');
+    if (!Number.isFinite(at)) return true;           // unreadable timestamp
+    return (nowMs - at) >= _PAYROLL_FIX_TTL_MS;      // stale
+  }
+
+  let _payrollFixCardsInFlight = false;
+
+  async function _refreshPayrollFixCards() {
+    if (_payrollFixCardsInFlight) return;
+    _payrollFixCardsInFlight = true;
     try {
-      const card = document.getElementById('payroll-171catchup-card');
-      if (!card) return;
-      const { ok, data } = await _payrollFn('payroll-fix-171-catchup', {});
-      if (ok && data && !data.error) {
-        card.style.display = data.already_posted ? 'none' : '';
-      }
+      let cache = {};
+      try {
+        const { data, error } = await db.from('payroll_fix_status')
+          .select('fix_slug, already_posted, manual_journal_id, checked_at');
+        if (!error && Array.isArray(data)) {
+          for (const row of data) cache[row.fix_slug] = row;
+        }
+        // An error here is deliberately not fatal and not reported: every slug
+        // simply has no cached row, so all four ask Xero, which is exactly the
+        // behaviour this replaced.
+      } catch (_) { cache = {}; }
+
+      const nowMs = Date.now();
+      await Promise.all(_PAYROLL_FIX_CARDS.map(async ({ slug, cardId }) => {
+        const card = document.getElementById(cardId);
+        if (!card) return;
+        const cached = cache[slug];
+
+        if (!_payrollFixNeedsXero(cached, nowMs)) {
+          card.style.display = 'none';   // cached true is the only way to get here
+          return;
+        }
+
+        const { ok, data } = await _payrollFn(slug, {});
+        if (!(ok && data && !data.error)) return;
+        // If the check itself failed (network/auth/Xero hiccup), leave the card
+        // as-is -- re-checked the next time the Payroll tab loads.
+        const posted = data.already_posted === true;
+        card.style.display = posted ? 'none' : '';
+
+        try {
+          await db.rpc('payroll_fix_status_record', {
+            p_fix_slug: slug,
+            p_already_posted: posted,
+            p_manual_journal_id: data.manual_journal_id || null,
+          });
+        } catch (_) {
+          // Recording is an optimisation. Failing to record costs one Xero call
+          // next time; failing loudly here would cost the operator a red toast
+          // about a table they have never heard of.
+        }
+      }));
     } finally {
-      _payroll171CatchupInFlight = false;
+      _payrollFixCardsInFlight = false;
     }
   }
+  window._payrollFixNeedsXero = _payrollFixNeedsXero;
+  window._PAYROLL_FIX_CARDS = _PAYROLL_FIX_CARDS;
+  window._PAYROLL_FIX_TTL_MS = _PAYROLL_FIX_TTL_MS;
+
+  // 171 catch-up one-time correction (Aug 6, 2026) -- same pattern as the 668
+  // correction above. See payroll-fix-171-catchup for the full background.
+  // Its card's visibility is decided by _refreshPayrollFixCards() above, which
+  // as of session 265 reads a cached answer rather than asking Xero on every
+  // render. (This note used to describe an Aug 7, 2026 change to a per-function
+  // in-flight latch; that function is gone and the latch is now shared.)
+
 
   async function openPayroll171CatchupModal() {
     document.getElementById('modal-171-catchup').classList.add('open');
@@ -13535,24 +13604,11 @@
     }
   }
 
-  // FIX (Aug 7, 2026): see the matching note on check668FixStatus -- guard is
-  // now in-flight-only, not a permanent per-page-load latch.
-  let _payrollCaDupeInFlight = false;
+  // Its card's visibility is decided by _refreshPayrollFixCards() above, which
+  // as of session 265 reads a cached answer rather than asking Xero on every
+  // render. (This note used to describe an Aug 7, 2026 change to a per-function
+  // in-flight latch; that function is gone and the latch is now shared.)
 
-  async function checkCaDupeStatus() {
-    if (_payrollCaDupeInFlight) return;
-    _payrollCaDupeInFlight = true;
-    try {
-      const card = document.getElementById('payroll-cadupe-card');
-      if (!card) return;
-      const { ok, data } = await _payrollFn('payroll-fix-ca-doublecount', {});
-      if (ok && data && !data.error) {
-        card.style.display = data.already_posted ? 'none' : '';
-      }
-    } finally {
-      _payrollCaDupeInFlight = false;
-    }
-  }
 
   async function openPayrollCaDupeModal() {
     document.getElementById('modal-ca-dupe').classList.add('open');
@@ -13611,22 +13667,11 @@
     }
   }
 
-  // FIX (Aug 7, 2026): see the matching note on check668FixStatus -- guard is
-  // now in-flight-only, not a permanent per-page-load latch.
-  let _payrollTipsBenInFlight = false;
+  // Its card's visibility is decided by _refreshPayrollFixCards() above, which
+  // as of session 265 reads a cached answer rather than asking Xero on every
+  // render. (This note used to describe an Aug 7, 2026 change to a per-function
+  // in-flight latch; that function is gone and the latch is now shared.)
 
-  async function checkTipsBenStatus() {
-    if (_payrollTipsBenInFlight) return;
-    _payrollTipsBenInFlight = true;
-    try {
-      const card = document.getElementById('payroll-tipsben-card');
-      if (!card) return;
-      const { ok, data } = await _payrollFn('payroll-fix-tips-benefits-catchup', {});
-      if (ok && data && !data.error) card.style.display = data.already_posted ? 'none' : '';
-    } finally {
-      _payrollTipsBenInFlight = false;
-    }
-  }
 
   async function openPayrollTipsBenModal() {
     document.getElementById('modal-tips-benefits').classList.add('open');

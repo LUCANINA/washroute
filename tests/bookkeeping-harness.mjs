@@ -6962,6 +6962,108 @@ GROUPS.push({
 
 
 /* ═══════════════════════════════ RUNNER ═════════════════════════════════ */
+/* ── PAYROLL FIX CARDS — a settled question, asked once a week ─────────────
+ *
+ * Session 265. loadPayroll() used to preview all four one-time payroll-fix edge
+ * functions on EVERY render. None of them has a database short-circuit, so that
+ * was six api.xero.com requests per page load (two of them Trial Balance
+ * reports) and ~276 a day against a 1,000/day tenant budget — spent deciding
+ * whether to hide four cards for corrections posted months ago. The morning it
+ * was found, the budget was exhausted and staging a loan payment failed with
+ * "refusing to stage blind".
+ *
+ * The decision now lives in _payrollFixNeedsXero(), and this group tests the
+ * shipped function itself — never a transcription of it (session 245).
+ */
+GROUPS.push({
+  name: 'payroll-fix-cards',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'payroll' });
+
+    const DAY = 24 * 60 * 60 * 1000;
+    const NOW = Date.parse('2026-09-03T14:00:00Z');
+
+    const shape = await p.evaluate(() => ({
+      slugs: (window._PAYROLL_FIX_CARDS || []).map(c => c.slug),
+      cardsPresent: (window._PAYROLL_FIX_CARDS || []).map(c => !!document.getElementById(c.cardId)),
+      ttl: window._PAYROLL_FIX_TTL_MS,
+      hasFn: typeof window._payrollFixNeedsXero === 'function',
+    }));
+
+    t.ok(shape.hasFn, 'the decision is a real function on the page');
+    t.eq(shape.slugs.length, 4, 'four one-time fixes are covered');
+    t.ok(shape.slugs.every(s => /^payroll-fix-/.test(s)),
+         'every slug is a payroll-fix function', shape.slugs.join(', '));
+    t.ok(shape.cardsPresent.every(Boolean),
+         'every card id in the table exists in the DOM',
+         JSON.stringify(shape.cardsPresent));
+    // A card id that has drifted would hide nothing and show nothing, silently.
+    t.eq(shape.ttl, 7 * DAY, 're-verification is bounded at seven days');
+
+    const ask = (cached) => p.evaluate(
+      ({ cached, now }) => window._payrollFixNeedsXero(cached, now), { cached, now: NOW });
+
+    t.eq(await ask(null), true, 'never checked → ask Xero');
+    t.eq(await ask({ already_posted: false, checked_at: new Date(NOW - 60_000).toISOString() }), true,
+         'still outstanding → ask Xero every render, however fresh the row');
+    t.eq(await ask({ already_posted: true, checked_at: new Date(NOW - 2 * DAY).toISOString() }), false,
+         'posted and checked two days ago → no Xero call');
+    t.eq(await ask({ already_posted: true, checked_at: new Date(NOW - 8 * DAY).toISOString() }), true,
+         'posted but checked eight days ago → ask once more');
+    t.eq(await ask({ already_posted: true, checked_at: 'not a date' }), true,
+         'an unreadable timestamp asks rather than assumes');
+    t.eq(await ask({ already_posted: true }), true,
+         'a row with no timestamp asks rather than assumes');
+
+    // The outstanding case is the one that must never be cached away: the card
+    // is on screen precisely because there is money still miscoded, and it is
+    // also what makes posting-from-the-modal self-healing with no extra code.
+    t.eq(await ask({ already_posted: false, checked_at: new Date(NOW - 8 * DAY).toISOString() }), true,
+         'outstanding and stale → still ask');
+
+    /* ── IT DISCRIMINATES ──────────────────────────────────────────────────
+     * The inverse of the guard, applied to the SHIPPED function's own source in
+     * page context — never by editing index.html. An assertion that passes
+     * against both the fixed and the broken code is decoration.
+     */
+    const broken = await p.evaluate(({ now }) => {
+      const src = window._payrollFixNeedsXero.toString();
+      // The failure this guard exists to prevent: treating "no cached row" as
+      // "nothing to do", which hides a card nobody has ever checked.
+      const mutated = src.replace('if (!cached) return true;', 'if (!cached) return false;');
+      if (mutated === src) return { installed: false };
+      const fn = new Function('return ' + mutated)();
+      return { installed: true, missing: fn(null, now) };
+    }, { now: NOW });
+
+    t.ok(broken.installed, 'the never-checked regression could be installed');
+    t.eq(broken.missing, false,
+         '⭐ ...and an unchecked fix would then be silently skipped — so the first assertion discriminates');
+
+    const broken2 = await p.evaluate(({ now, day }) => {
+      const src = window._payrollFixNeedsXero.toString();
+      // The other direction: a TTL of Infinity never re-verifies, so a fix
+      // someone voided in Xero would stay hidden forever.
+      const mutated = src.replace('_PAYROLL_FIX_TTL_MS', 'Infinity');
+      if (mutated === src) return { installed: false };
+      const fn = new Function('return ' + mutated)();
+      return { installed: true, stale: fn({ already_posted: true, checked_at: new Date(now - 400 * day).toISOString() }, now) };
+    }, { now: NOW, day: DAY });
+
+    t.ok(broken2.installed, 'the never-re-verify regression could be installed');
+    t.eq(broken2.stale, false,
+         '⭐ ...and a year-old answer would never be rechecked — so the seven-day assertion discriminates');
+
+    // And the old per-function checks are gone, not merely bypassed. A dead
+    // function left on the page is a second answer waiting to be called.
+    const leftovers = await p.evaluate(() => ['check668FixStatus', 'check171CatchupStatus',
+      'checkCaDupeStatus', 'checkTipsBenStatus'].filter(n => typeof window[n] === 'function'));
+    t.eq(leftovers.length, 0, 'the four per-fix checkers are gone', leftovers.join(', '));
+
+    await p.close();
+  },
+});
+
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
 const cr = await getChromium();

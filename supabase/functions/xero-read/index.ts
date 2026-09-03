@@ -1,6 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth, getGrantedScopes } from "../_shared/xero-auth.ts"
+// Every outbound call to Xero in this file goes through the meter, so the daily
+// budget is a reading rather than an estimate. See _shared/xero-meter.ts; the
+// meter is threaded as a parameter rather than held at module scope because
+// Deno.serve handles requests concurrently and two invocations sharing a counter
+// would produce a number that belongs to neither.
+import { createXeroMeter, type XeroMeter } from "../_shared/xero-meter.ts"
 
 // xero-read — v1 (session 232, 2026-08-25)
 // =============================================================================
@@ -238,8 +244,8 @@ const xdate = (s: string) => {
   return `DateTime(${y},${m},${day})`
 }
 
-async function xeroGet(path: string, headers: Record<string, string>) {
-  const res = await fetch(`${XERO}/${path}`, { method: 'GET', headers })
+async function xeroGet(path: string, headers: Record<string, string>, meter: XeroMeter) {
+  const res = await meter.fetch(`${XERO}/${path}`, { method: 'GET', headers })
   const text = await res.text()
   if (!res.ok) throw new Error(`Xero read failed (${res.status}) on /${path.split('?')[0]}: ${text.slice(0, 400)}`)
   return JSON.parse(text)
@@ -290,10 +296,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // Generalised from fetchOneJournal (session 242). BankTransactions omit their
 // LineItems in a list exactly as ManualJournals omit JournalLines, so the same
 // hydrate-by-id dance — and the same rate-limit courtesy — is needed for both.
-async function fetchOneById(endpoint: string, id: string, headers: Record<string, string>) {
+async function fetchOneById(endpoint: string, id: string, headers: Record<string, string>, meter: XeroMeter) {
   for (let attempt = 0; attempt <= JOURNAL_RETRIES; attempt++) {
     try {
-      const res = await fetch(`${XERO}/${endpoint}/${encodeURIComponent(id)}`, { method: 'GET', headers })
+      const res = await meter.fetch(`${XERO}/${endpoint}/${encodeURIComponent(id)}`, { method: 'GET', headers })
       if (res.status === 429) {
         const wait = Math.min(Number(res.headers.get('Retry-After') || 0) || 5, 30)
         await res.text().catch(() => '')
@@ -312,7 +318,7 @@ async function fetchOneById(endpoint: string, id: string, headers: Record<string
   return undefined
 }
 
-async function fetchWithLines(endpoint: string, ids: string[], headers: Record<string, string>) {
+async function fetchWithLines(endpoint: string, ids: string[], headers: Record<string, string>, meter: XeroMeter) {
   const journals: any[] = []
   let unreadable = 0
   let notAttempted = 0
@@ -322,7 +328,7 @@ async function fetchWithLines(endpoint: string, ids: string[], headers: Record<s
     if (Date.now() - began > JOURNAL_TIME_BUDGET_MS) { notAttempted = ids.length - i; break }
     const startedAt = Date.now()
     const chunk = ids.slice(i, i + JOURNAL_FETCH_CONCURRENCY)
-    const settled = await Promise.all(chunk.map((id) => fetchOneById(endpoint, id, headers)))
+    const settled = await Promise.all(chunk.map((id) => fetchOneById(endpoint, id, headers, meter)))
     for (const j of settled) {
       if (j === undefined) unreadable++      // undefined = could not read, null = not found
       else if (j) journals.push(j)
@@ -336,14 +342,14 @@ async function fetchWithLines(endpoint: string, ids: string[], headers: Record<s
   return { journals, unreadable, notAttempted }
 }
 
-async function paymentPicture(b: any): Promise<Response> {
+async function paymentPicture(b: any, meter: XeroMeter): Promise<Response> {
   const windowDays = typeof b.window_days === 'number' ? Math.min(Math.max(b.window_days, 1), 730) : 120
   const { headers } = await getXeroAuth()
 
   // 1. the transaction
   let txns: any[]
   if (typeof b.id === 'string' && b.id) {
-    txns = (await xeroGet(`BankTransactions/${encodeURIComponent(b.id)}`, headers)).BankTransactions ?? []
+    txns = (await xeroGet(`BankTransactions/${encodeURIComponent(b.id)}`, headers, meter)).BankTransactions ?? []
   } else {
     if (typeof b.date !== 'string' || typeof b.amount !== 'number') {
       return new Response(JSON.stringify({
@@ -353,7 +359,7 @@ async function paymentPicture(b: any): Promise<Response> {
     const next = new Date(b.date + 'T00:00:00Z')
     next.setUTCDate(next.getUTCDate() + 1)
     const where = `Date >= ${xdate(b.date)} AND Date < ${xdate(next.toISOString().slice(0, 10))} AND Total == ${b.amount}`
-    txns = (await xeroGet(`BankTransactions?where=${encodeURIComponent(where)}`, headers)).BankTransactions ?? []
+    txns = (await xeroGet(`BankTransactions?where=${encodeURIComponent(where)}`, headers, meter)).BankTransactions ?? []
   }
   if (!txns.length) {
     return new Response(JSON.stringify({ ok: true, mode: 'payment_picture', found: false, note: 'No bank transaction matched.' }), { headers: cors })
@@ -369,7 +375,7 @@ async function paymentPicture(b: any): Promise<Response> {
   // A transaction fetched by id carries its lines; one from a list search may not.
   let txn = txns[0]
   if (!(txn.LineItems || []).length && txn.BankTransactionID) {
-    const one = (await xeroGet(`BankTransactions/${txn.BankTransactionID}`, headers)).BankTransactions ?? []
+    const one = (await xeroGet(`BankTransactions/${txn.BankTransactionID}`, headers, meter)).BankTransactions ?? []
     if (one.length) txn = one[0]
   }
   const t = trimBankTransaction(txn)
@@ -381,13 +387,13 @@ async function paymentPicture(b: any): Promise<Response> {
   toDate.setUTCDate(toDate.getUTCDate() + windowDays)
   const to = toDate.toISOString().slice(0, 10)
   const jWhere = `Date >= ${xdate(from)} AND Date <= ${xdate(to)}`
-  const listed = (await xeroGet(`ManualJournals?where=${encodeURIComponent(jWhere)}`, headers)).ManualJournals ?? []
+  const listed = (await xeroGet(`ManualJournals?where=${encodeURIComponent(jWhere)}`, headers, meter)).ManualJournals ?? []
   // The list gives ids and dates; it does NOT give lines. See fetchJournalsWithLines.
   const capped = listed.length > JOURNAL_FETCH_CAP
   const ids = listed.slice(0, JOURNAL_FETCH_CAP)
     .map((j: any) => String(j.ManualJournalID || ''))
     .filter(Boolean)
-  const { journals, unreadable, notAttempted } = await fetchWithLines('ManualJournals', ids, headers)
+  const { journals, unreadable, notAttempted } = await fetchWithLines('ManualJournals', ids, headers, meter)
 
   const touching = journals
     .map(trimManualJournal)
@@ -420,7 +426,7 @@ async function paymentPicture(b: any): Promise<Response> {
     const codeList = Object.keys(net)
     if (codeList.length) {
       const w = codeList.map((c) => `Code=="${c}"`).join(' OR ')
-      const accts = (await xeroGet(`Accounts?where=${encodeURIComponent(w)}`, headers)).Accounts ?? []
+      const accts = (await xeroGet(`Accounts?where=${encodeURIComponent(w)}`, headers, meter)).Accounts ?? []
       names = Object.fromEntries(accts.map((a: any) => [String(a.Code), a.Name]))
     }
   } catch (_) { /* names are a nicety, never a reason to fail the answer */ }
@@ -472,7 +478,7 @@ async function paymentPicture(b: any): Promise<Response> {
   }, null, 2), { headers: cors })
 }
 
-async function handle(req: Request): Promise<Response> {
+async function handle(req: Request, meter: XeroMeter): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'POST only' }), { status: 405, headers: cors })
@@ -487,6 +493,7 @@ async function handle(req: Request): Promise<Response> {
 
   const b = await req.json().catch(() => ({}))
   const mode = String(b.mode ?? '')
+  meter.setMode(mode)
 
   if (mode === 'whoami') {
     const { tenantId } = await getXeroAuth()
@@ -497,7 +504,7 @@ async function handle(req: Request): Promise<Response> {
     }, null, 2), { headers: cors })
   }
 
-  if (mode === 'payment_picture') return await paymentPicture(b)
+  if (mode === 'payment_picture') return await paymentPicture(b, meter)
 
   const endpoint = ENDPOINTS[mode]
   if (!endpoint) {
@@ -520,7 +527,7 @@ async function handle(req: Request): Promise<Response> {
   if (qs.length) url += `?${qs.join('&')}`
 
   const { headers } = await getXeroAuth()
-  const res = await fetch(url, { method: 'GET', headers })
+  const res = await meter.fetch(url, { method: 'GET', headers })
   const text = await res.text()
   if (!res.ok) {
     // ── Session 259: SURFACE THE RATE-LIMIT HEADERS ─────────────────────────
@@ -579,7 +586,7 @@ async function handle(req: Request): Promise<Response> {
   if (b.with_lines === true && (mode === 'manual_journals' || mode === 'bank_transactions')) {
     const idKey = mode === 'manual_journals' ? 'ManualJournalID' : 'BankTransactionID'
     const ids = rows.map((r: any) => String(r[idKey] ?? '')).filter(Boolean)
-    const { journals, unreadable, notAttempted } = await fetchWithLines(ENDPOINTS[mode], ids, headers)
+    const { journals, unreadable, notAttempted } = await fetchWithLines(ENDPOINTS[mode], ids, headers, meter)
     const hydrated = b.full === true ? journals : journals.map(TRIM[mode])
     return new Response(JSON.stringify({
       ok: true, mode, count: ids.length,
@@ -600,9 +607,18 @@ async function handle(req: Request): Promise<Response> {
 }
 
 Deno.serve(async (req) => {
+  const meter = createXeroMeter('xero-read')
   try {
-    return await handle(req)
+    return await handle(req, meter)
   } catch (e) {
     return new Response(JSON.stringify({ error: String((e as any)?.message ?? e) }), { status: 500, headers: cors })
+  } finally {
+    // In a finally, not on the success path: an invocation that threw halfway
+    // through payment_picture still spent every call it had already made, and
+    // that is precisely the shape that empties a daily budget unnoticed.
+    // flush() never throws and writes nothing when no billed call was made, so
+    // an OPTIONS preflight or a rejected role leaves no row.
+    const r = await meter.flush(admin())
+    if (r.error) console.error('xero-read: could not record Xero usage:', r.error)
   }
 })
