@@ -1039,6 +1039,57 @@ GROUPS.push({
   },
 });
 
+/* 2b ── DOCUMENT INTAKE LIVES ON LOANS ───────────────────────────────────────
+   Session 267. David asked for the dropzone to head loan management, and the
+   reason it MATTERS is not placement: Overview is on the hide list in the scope
+   reduction (docs/bookkeeping/SCOPE-REDUCTION-2026-09.md §5), so a dropzone left
+   on Overview disappears with the tab, taking the module's only entry point for
+   statements, schedules and payroll reports with it.
+
+   This group exists so that regression is loud instead of silent. It asserts
+   containment, not just presence: "the element exists somewhere" would stay
+   green with the dropzone back on the tab that is about to be hidden, which is
+   exactly the failure it is meant to catch. */
+GROUPS.push({
+  name: 'intake-on-loans',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    const where = await p.evaluate(() => {
+      const dz = document.getElementById('bk-dropzone');
+      const card = document.getElementById('bk-batch-card');
+      const loans = document.getElementById('bk-view-loans');
+      const overview = document.getElementById('bk-view-overview');
+      const vis = (el) => !!(el && el.offsetParent !== null);
+      return {
+        dropzoneExists: !!dz,
+        cardExists: !!card,
+        dropzoneInLoans: !!(dz && loans && loans.contains(dz)),
+        dropzoneInOverview: !!(dz && overview && overview.contains(dz)),
+        cardInLoans: !!(card && loans && loans.contains(card)),
+        // The pile has to sit AFTER the dropzone: dropped files land in it.
+        dropzoneBeforeCard: !!(dz && card &&
+          (dz.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        dropzoneVisibleOnLoans: vis(dz),
+        inputExists: !!document.getElementById('bk-batch-input'),
+      };
+    });
+
+    t.ok(where.dropzoneExists, 'the document dropzone still exists');
+    t.ok(where.cardExists, 'the batch results card still exists');
+    t.ok(where.dropzoneInLoans, 'the dropzone is inside the LOANS view');
+    t.ok(!where.dropzoneInOverview,
+         'the dropzone is NOT on Overview (Overview is on the hide list — it would vanish with the tab)');
+    t.ok(where.cardInLoans, 'the batch results card moved with it, not left behind on Overview');
+    t.ok(where.dropzoneBeforeCard,
+         'the results pile sits AFTER the dropzone (dropped files land beneath it)');
+    t.ok(where.dropzoneVisibleOnLoans, 'the dropzone is actually visible when Loans is open');
+    t.ok(where.inputExists, 'the hidden file input came along too (the dropzone is dead without it)');
+
+    await p.close();
+  },
+});
+
 /* 3 ── TAB-SWITCH RACES ──────────────────────────────────────────────────── */
 GROUPS.push({
   name: 'tab-races',

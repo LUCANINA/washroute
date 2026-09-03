@@ -3927,44 +3927,6 @@
                  APPROVALS queue item (it's a ready-to-post journal, nothing is
                  wrong) instead of its former red standalone card —
                  checkRetailCashReclassStatus() feeds _retailReclassPeriod. -->
-            <!-- Session 223 cont. 2 (David's next pass): dropzone first, queue
-                 second, KPIs at the bottom — the client-view mockup's order.
-                 The dropzone replaces the per-tab Upload Statement / Upload
-                 Payroll Report topbar buttons: one entry point, and until the
-                 ingestion engine can recognize document types itself (next up),
-                 a one-tap "what is this?" routes into the existing loan-intake
-                 or payroll-upload modal, carrying a dragged file straight into
-                 the modal's file picker. -->
-            <!-- Session 224: the dropzone is now a dump-everything batch intake.
-                 Any number of files, any mix — each runs the 3-rung ladder
-                 (browser fingerprints → server classify → human fallback) and
-                 lands in a pile below. The old "What are you uploading?" tap
-                 lives on inside the batch card's "needs a look" pile. -->
-            <div class="bk-dropzone" id="bk-dropzone" onclick="document.getElementById('bk-batch-input').click()"
-                 ondragover="event.preventDefault();this.classList.add('drag')"
-                 ondragleave="this.classList.remove('drag')"
-                 ondrop="bkHandleDrop(event)">
-              <div class="bk-drop-icon">↑</div>
-              <div class="bk-drop-title">Drop your documents here</div>
-              <div class="bk-drop-sub">Statements · schedules · payroll reports · invoices · screenshots — any mix, any amount. They'll be sorted automatically.</div>
-              <input type="file" id="bk-batch-input" multiple accept=".pdf,.csv,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="bkBatchFilesChosen(event)">
-            </div>
-
-            <div class="card" id="bk-batch-card" style="display:none;margin-bottom:20px">
-              <div class="card-header" style="padding:16px 24px">
-                <div style="flex:1">
-                  <div class="card-title" id="bk-batch-title">Sorting…</div>
-                  <div class="card-sub" id="bk-batch-sub"></div>
-                </div>
-                <span style="display:flex;gap:10px;align-items:center">
-                  <button class="btn btn-primary" id="bk-batch-fileall" style="display:none" onclick="bkFileAllBatch()">File all</button>
-                  <button class="btn btn-secondary" id="bk-batch-bundle" style="display:none" onclick="bkStartBundle()" title="Read every one of these documents together and cross-check them against each other before anything is filed">Read together</button>
-                  <button class="btn btn-ghost" id="bk-batch-clear" onclick="bkClearBatch()">Clear</button>
-                </span>
-              </div>
-              <div id="bk-batch-list"></div>
-              <div id="bk-batch-notes" style="display:none;padding:10px 20px 14px;border-top:1px solid var(--gray-100);font-size:12.5px;color:var(--gray-600)"></div>
-            </div>
 
             <!-- Multi-document intake (session 242). Several files about ONE loan,
                  read as a single piece of evidence rather than one at a time.
@@ -4074,6 +4036,67 @@
           <div id="bk-view-loans" style="display:none">
             <div class="bk-load-banner"></div>
           <div id="loans-subview-manage">
+
+          <!-- ── INTAKE HEADS THIS PAGE (session 267, David) ─────────────────
+               The dropzone and its results pile moved here from the Overview
+               tab. Two reasons, and the second is the load-bearing one:
+
+                 1. Most of what this page asks of a person is answered by
+                    UPLOADING A DOCUMENT. A row that says "we need August's
+                    statement" is asking for a file; a balance variance usually
+                    cannot be judged until the lender's current figures arrive.
+                    Intake at the top puts the answer directly above the
+                    question, instead of on another tab.
+                 2. Overview is on the hide list in the scope reduction
+                     (docs/bookkeeping/SCOPE-REDUCTION-2026-09.md §5). Left where
+                     it was, the module's ONLY entry point for statements,
+                     schedules and payroll reports would have disappeared with
+                     the tab it sat on.
+
+               The dropzone and #bk-batch-card move as a PAIR — dropped files
+               land in the pile immediately beneath, so splitting them breaks
+               the flow. The intake modals and the peek viewer stayed behind in
+               the Overview block on purpose: they are position:fixed overlays,
+               not part of any tab's layout. -->
+            <!-- Session 223 cont. 2 (David's next pass): dropzone first, queue
+                 second, KPIs at the bottom — the client-view mockup's order.
+                 The dropzone replaces the per-tab Upload Statement / Upload
+                 Payroll Report topbar buttons: one entry point, and until the
+                 ingestion engine can recognize document types itself (next up),
+                 a one-tap "what is this?" routes into the existing loan-intake
+                 or payroll-upload modal, carrying a dragged file straight into
+                 the modal's file picker. -->
+            <!-- Session 224: the dropzone is now a dump-everything batch intake.
+                 Any number of files, any mix — each runs the 3-rung ladder
+                 (browser fingerprints → server classify → human fallback) and
+                 lands in a pile below. The old "What are you uploading?" tap
+                 lives on inside the batch card's "needs a look" pile. -->
+            <div class="bk-dropzone" id="bk-dropzone" onclick="document.getElementById('bk-batch-input').click()"
+                 ondragover="event.preventDefault();this.classList.add('drag')"
+                 ondragleave="this.classList.remove('drag')"
+                 ondrop="bkHandleDrop(event)">
+              <div class="bk-drop-icon">↑</div>
+              <div class="bk-drop-title">Drop your documents here</div>
+              <div class="bk-drop-sub">Statements · schedules · payroll reports · invoices · screenshots — any mix, any amount. They'll be sorted automatically.</div>
+              <input type="file" id="bk-batch-input" multiple accept=".pdf,.csv,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="bkBatchFilesChosen(event)">
+            </div>
+
+            <div class="card" id="bk-batch-card" style="display:none;margin-bottom:20px">
+              <div class="card-header" style="padding:16px 24px">
+                <div style="flex:1">
+                  <div class="card-title" id="bk-batch-title">Sorting…</div>
+                  <div class="card-sub" id="bk-batch-sub"></div>
+                </div>
+                <span style="display:flex;gap:10px;align-items:center">
+                  <button class="btn btn-primary" id="bk-batch-fileall" style="display:none" onclick="bkFileAllBatch()">File all</button>
+                  <button class="btn btn-secondary" id="bk-batch-bundle" style="display:none" onclick="bkStartBundle()" title="Read every one of these documents together and cross-check them against each other before anything is filed">Read together</button>
+                  <button class="btn btn-ghost" id="bk-batch-clear" onclick="bkClearBatch()">Clear</button>
+                </span>
+              </div>
+              <div id="bk-batch-list"></div>
+              <div id="bk-batch-notes" style="display:none;padding:10px 20px 14px;border-top:1px solid var(--gray-100);font-size:12.5px;color:var(--gray-600)"></div>
+            </div>
+
 
           <!-- ── THE PERIOD BAR (session 241) ────────────────────────────────
                Session 239 stacked the two months, past on top, and wrote down
