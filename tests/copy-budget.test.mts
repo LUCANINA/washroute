@@ -197,6 +197,24 @@ section('the queue rows stay one line, with the rest one click away')
   ok('questions render their working', /\$\{working\(u\.working\)\}/.test(dash))
   ok('conflicts render their working', /c\.working \?/.test(dash))
   ok('...behind a real disclosure, not a paragraph', /<details/.test(dash) && /Show the working/.test(dash))
+
+  // AND IT MUST BE DECLARED BEFORE IT IS CALLED (session 263 cont. 6, found live).
+  //
+  // `const` is block-scoped and hoisted into a temporal dead zone, so calling the
+  // helper from a `.map()` that runs EARLIER in the same function does not read
+  // undefined — it throws. On this surface that means the modal spins forever
+  // while the edge function has already returned a perfectly good plan. David sat
+  // through it; the row was in `intake_bundles` the whole time.
+  //
+  // The three "does it render" assertions above passed on the broken build,
+  // because they prove the code is THERE, not that it RUNS. That is the standing
+  // limitation of a source-text assertion, and this is the cheapest thing that
+  // closes it without a browser.
+  const declAt = dash.indexOf('const working = (w, label)')
+  const calls = [...dash.matchAll(/\$\{working\(/g)].map(m => m.index ?? -1)
+  ok('the working helper is declared', declAt > -1)
+  ok('...before every call site', calls.length > 0 && calls.every(i => i > declAt),
+     `declared at ${declAt}, calls at ${calls.join(', ')}`)
 }
 
 

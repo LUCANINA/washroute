@@ -2522,6 +2522,8 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**37. 🔴 The browser harness cannot run on the machine that ships the dashboard (session 263 cont. 6).** `tests/bookkeeping-harness.mjs` loads `admin-dashboard/index.html` in headless Chromium and would have caught cont. 6's temporal-dead-zone crash in seconds. It cannot run: the device VM has no Playwright browser installed (`Executable doesn't exist at /opt/pw-browsers/...`), and the cloud container that HAS one does not have the repo. So every dashboard change this session shipped on source-text assertions alone — which proved the code was present and could not prove it ran, and a crash went out. Next step: install the browser on the device (`npx playwright install chromium`, one command, ~150MB) so the harness is runnable where the edits happen. Until then, treat any `index.html` change as unverified and lean on ordering/consistency lints, which are cheap and catch a real subset — see cont. 6 for the shape.
+
 **36. 🟠 Seven active loans have no book-sourced balance at all (session 263 cont. 3).** `chooseObservation` needs a balance rebuilt from our own ledger, and E-Transit ×4, Paypal 2, PCV Good and Green and Verdant Capital have none — every row on them is `portal_manual_pull`, `lender_statement` or `amortization_schedule`. Those loans now correctly answer `not_enough_evidence / no_book_balance` instead of being diagnosed off the lender's figure, which is honest but not useful. Next step: extend whatever produces `xero_derived` rows to cover them, or record the basis by hand with the evidence beside it. Note the shape of the remaining ones too — **EIDL's newest book balance is 2024-03-31**, so its account has produced nothing for two and a half years; the verdict there is valid but speaks for 2024, and the module now says so on the row rather than letting a reader take it for today.
 
 **35. 🔴 Thirteen of fourteen active loans have NO `loan_contract_terms` rows (session 263 cont. 3).** Measured, not assumed, while closing #34. This — not the basis arithmetic — is the actual reason `carrying_basis` is `unknown` almost everywhere: with no `loan_amount` / `total_repayment_amount` on file the check cannot build two models and bails before anything else runs. Only Stripe Capital has terms, and it is the only loan with its basis settled. That is the whole correlation. Next step is already half-built: **session 263's `paypal-history.ts` extracts terms from a lender's transaction export**, which is the document type these loans actually have — none of them sends an agreement PDF we have parsed. Generalise that to the other lenders' exports and statements, or add a plain "record this loan's terms" form for figures a person can read off a document. Until terms exist, every downstream basis, rollforward and decomposition check is standing on nothing.
@@ -3242,13 +3244,42 @@ surfaces that carry it — actions, questions, conflicts — as a `<details>` el
 JavaScript, keyboard-reachable, expanded when printed. `copy-budget` asserts all three call
 sites exist, because a field written and never rendered is evidence deleted with extra steps.
 
+#### 11. (cont. 6, live) THE MODAL SPUN FOREVER ON A PLAN THAT HAD ALREADY SUCCEEDED
+
+David uploaded, and the modal sat on *"Reading 2 documents and cross-checking them against
+each other…"* indefinitely. Supabase's log endpoint was erroring, so the diagnosis came from
+the data instead: **`intake_bundles` held a completed row, status `planned`, written two
+minutes earlier.** The edge function had done its work and returned; nothing downstream ever
+drew it.
+
+The cause is one line of mine from the copy split. The `working()` helper was declared
+immediately above `const actions`, and `${working(u.working)}` is called in the `unresolved`
+map ELEVEN LINES EARLIER. `const` is block-scoped and hoisted into a temporal dead zone, so
+that is not an `undefined` — it throws, the render aborts, and the spinner never clears.
+
+**The three "does it render" assertions passed on the broken build**, and that is the lesson
+worth keeping. A source-text assertion proves the code is THERE; it cannot prove the code
+RUNS. Both of today's lint-shaped tests — this one and `transcriber-instructions` — share that
+limit, and it is not a reason to stop writing them, only to know what they buy.
+
+The cheapest thing that closes this particular gap needs no browser: assert that the helper's
+declaration appears BEFORE every call site by string index. Against the shipped build it goes
+red and prints `declared at 767570, calls at 767134, 768740`, which is the whole diagnosis in
+one line. **Where a browser harness cannot run, an ordering check is the next best thing, and
+it is nearly free.**
+
+Related and worth stating plainly: `tests/bookkeeping-harness.mjs` would have caught this in
+seconds, and it could not be run — the device VM has no Playwright browser installed. That is
+now a real hole in the loop rather than a theoretical one, since this session changed
+`admin-dashboard/index.html` and shipped a crash. Filed as Tech Debt #37.
+
 #### Verification
 
 `portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
 `loan-bundle-balances` 283/283 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
 `settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
 112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13, `carrying-basis` 27/27 (new)
-— **1,018 green, 0 red**, including `transcriber-instructions` 9/9 and `copy-budget` 16/16 (both new).
+— **1,020 green, 0 red**, including `transcriber-instructions` 9/9 and `copy-budget` 18/18 (both new).
 
 Every session-263-cont.-2 assertion has its inverse beside it: strip the itemised figures
 and the anchor goes back to being unproposable; feed a payoff-basis book row and the tie
