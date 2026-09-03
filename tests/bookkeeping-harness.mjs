@@ -541,20 +541,49 @@ function readSurfaces() {
     };
     const subtotals = {};
     footTr.forEach(tr => { const k = att(tr, 'data-subtotal'); if (k) subtotals[k] = subtotalOf(tr); });
-    // gates[] is NOT index-stable: three of the six chips render only when they
+    // gates[] is NOT index-stable: three of the six gates exist only when they
     // are non-zero, so gates[1] means a different thing on different months.
-    // Every chip carries data-gate; index nothing, look up by name.
-    const gates = [...cb.querySelectorAll('.lcb-gate')].map(g => ({
-      key: att(g, 'data-gate'),
-      count: numA(g, 'data-count'),
-      text: g.textContent.replace(/\s+/g, ' ').trim(),
-      ok: g.classList.contains('ok'),
+    // Every gate carries its own key; index nothing, look up by name.
+    //
+    // ── SESSION 264: THEY ARE NO LONGER CHIPS ─────────────────────────────
+    // David removed everything from the strip but its verdict, so there are no
+    // `.lcb-gate` spans left to read. The gates are still COMPUTED — `blocked`,
+    // and therefore the verdict itself, is still their sum — and the page now
+    // carries them on the strip as `data-gates`, per its own LESS IS BEST rule
+    // that a fact which leaves the screen attaches to the element it describes.
+    //
+    // This reader moved to that attribute rather than the ~150 assertions below
+    // being deleted with the chips. That is the whole point: an assertion that
+    // reads only the visible half goes green when a claim is DELETED and red
+    // when it is merely relocated, which is exactly backwards. Reading the data
+    // keeps every one of them discriminating — the `chips-lose-their-name`
+    // mutation below still proves it.
+    //
+    // The shape is deliberately identical to what the chips produced, ✓ prefix
+    // included, so that every text assertion written against the rendered chip
+    // still means precisely what its author wrote.
+    const stripEl = cb.querySelector('.lcb-strip');
+    let gatesRaw = [];
+    try { gatesRaw = JSON.parse(att(stripEl, 'data-gates') || '[]'); } catch (_) { gatesRaw = []; }
+    const gates = gatesRaw.map(g => ({
+      key: g.key,
+      count: g.n == null ? null : Number(g.n),
+      text: ((g.bad || g.tick === false || g.key === 'immaterial') ? '' : '\u2713 ') + String(g.text || ''),
+      ok: !g.bad,
     }));
     const gateByKey = {};
     gates.forEach(g => { if (g.key) gateByKey[g.key] = g; });
     closeBand = {
       head: txt('#loans-close-band .lcb-head h3'),
       lead: txt('#loans-close-band .lcb-lead'),
+      // Session 264: everything the strip RENDERS, so "the strip shows the
+      // verdict and nothing else" is a property with a test rather than a
+      // sentence in a comment. Kept separate from `lead` on purpose — if the
+      // two ever diverge, something was added back to the strip.
+      stripText: txt('#loans-close-band .lcb-strip'),
+      // The slot above the strip, which held "Paid in <month>" until David
+      // removed it. Empty is the assertion; the container staying is not.
+      tilesText: txt('#loans-close-tiles'),
       gates, gateByKey,
       headers: heads, columnIndex: C,
       rows, foot, subtotals,
@@ -1130,6 +1159,44 @@ GROUPS.push({
       }
     }
 
+    // (e0) ── THE EXPORT IS WHERE THE CHIPS WENT (session 264) ─────────────
+    // David removed every chip from the strip. Under LESS IS BEST a cut may
+    // drop words and never a CLAIM, and the CSV footer is the surviving home
+    // of the full close position. That makes this assertion the one thing
+    // standing between "we tightened the screen" and "we deleted the record",
+    // so the export is actually RUN and its bytes are read — a claim that only
+    // exists in a comment is a claim that is gone.
+    {
+      const csv = await p.evaluate(() => {
+        let captured = '';
+        const RealBlob = window.Blob, realCreate = URL.createObjectURL, realRevoke = URL.revokeObjectURL;
+        // The export builds a Blob and clicks an anchor. Intercept both so the
+        // harness reads the file's real content and no download is attempted.
+        window.Blob = function (parts) { captured = (parts || []).join(''); return new RealBlob(parts, { type: 'text/plain' }); };
+        URL.createObjectURL = () => 'blob:stub';
+        URL.revokeObjectURL = () => {};
+        const realClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function () {};
+        try { exportRollforwardCSV(); } catch (e) { captured = 'THREW: ' + e.message; }
+        window.Blob = RealBlob; URL.createObjectURL = realCreate; URL.revokeObjectURL = realRevoke;
+        HTMLAnchorElement.prototype.click = realClick;
+        return captured;
+      });
+      t.ok(csv && !/^THREW/.test(csv), 'close band: the rollforward exports without throwing', csv.slice(0, 200));
+      const stripLine = (csv.split(/\r?\n/).find(l => /Not ready to close|Ready for your accountant/.test(l)) || '');
+      t.ok(!!stripLine, 'close band: ...and the file carries the close verdict');
+      // Every gate the strip stopped printing must be IN that line. Compared
+      // against the gates themselves, not a typed list, so a gate added later
+      // is covered the day it is added.
+      const missing = cb.gates.filter(g => !stripLine.includes(String(g.text || '').trim()));
+      t.eq(missing.length, 0,
+           'close band: ⭐ ...and every gate the strip no longer prints is still in the export, in full',
+           `missing: ${JSON.stringify(missing.map(g => g.key))} · line: ${stripLine.slice(0, 300)}`);
+      t.ok(cb.gates.length >= 4,
+           'close band: ...with enough gates in play for that to mean something',
+           `${cb.gates.length} gates`);
+    }
+
     // (e) statement coverage: the close band's gate vs the Client View checklist
     //
     // Looked up by data-gate, never by index. gates[0] happened to still be the
@@ -1323,6 +1390,19 @@ GROUPS.push({
       // rather than a skip. The `if` below runs only after a hard assertion
       // that the chip exists, so the check can never be silently skipped again.
       const gate = (k) => (cb.gateByKey || {})[k] || null;
+      // ── SESSION 264: THE STRIP IS THE VERDICT AND NOTHING ELSE ───────────
+      // David: "remove all the content in the Not ready to close section."
+      // Asserted in EVERY scenario, not once, because the gates are still all
+      // computed and a single `.map(chip)` would put any of them back on
+      // screen. The pair is the point: the strip must render only its verdict
+      // AND the gates behind it must still be there to be read — an assertion
+      // on either alone goes green on the wrong change.
+      t.eq((cb.stripText || '').trim(), (cb.lead || '').trim(),
+           `close band — ${c.name}: the strip renders its verdict and nothing else`,
+           `strip=${JSON.stringify(cb.stripText)}`);
+      t.eq((cb.tilesText || '').trim(), '',
+           `close band — ${c.name}: ...and the "Paid in <month>" line is gone from above it`,
+           `tiles=${JSON.stringify(cb.tilesText)}`);
       t.ok(cb.gates.length > 0 && cb.gates.every(g => !!g.key),
            `close band — ${c.name}: every chip on the strip carries a data-gate name`,
            `chips: ${JSON.stringify(cb.gates.map(g => ({ key: g.key, text: g.text })))}`);
@@ -3071,9 +3151,20 @@ const CLOSE_REVERTS = {
   // Undated splits stop being reported, so seven posted Verdant payments that
   // sit in no month at all are closed over in silence.
   'undated-invisible': ['return (_allLoanSplits || []).filter(sp =>', 'return [].filter(sp =>'],
-  // The chips stop carrying data-gate. Nothing about the strip LOOKS different;
-  // what changes is that anything reading it by name can no longer find it.
-  'chips-lose-their-name': ['data-gate="${esc(g.key)}"', ''],
+  // The gates stop carrying their name. Nothing about the strip LOOKS different
+  // — since session 264 the strip shows only its verdict anyway — and every
+  // gate is still computed and still on the element. What changes is that
+  // anything reading them by name can no longer find one, which is the whole
+  // property the close-band group's by-name lookups depend on.
+  'chips-lose-their-name': ['({ key: g.key, bad:', '({ key: null, bad:'],
+  // Session 264 CONTROL: put the chips back on the strip. This is the inverse
+  // of the change David asked for, and it exists so "the strip renders its
+  // verdict and nothing else" is a claim with a proof rather than an equality
+  // that happens to hold. Reinstating them must turn that assertion red — if
+  // it does not, the assertion is decoration and the chips could come back
+  // unnoticed.
+  'chips-come-back': ["'Ready for your accountant'}</span>",
+                      "'Ready for your accountant'}</span>${gates.map(g => '<span class=\"lcb-gate\">' + esc(g.text) + '</span>').join('')}"],
 };
 
 /* A revert entry is one [from, to] pair or a list of them. Normalised here so a
@@ -3639,11 +3730,20 @@ GROUPS.push({
       t.ok(/\$5\.00/.test((cb2.gateByKey['immaterial'] || {}).text || ''),
            'ce5: ...still printed on the chip, not hidden',
            `chip=${JSON.stringify((cb2.gateByKey['immaterial'] || {}).text)}`);
-      t.ok(/2 per schedule/.test(cb2.text || ''),
-           'ce5: ...and the strip reads "N confirmed by lender · 2 per schedule", never "3 statements outstanding"',
-           `strip: ${JSON.stringify(cb2.gates.map(g => g.text))}`);
-      t.notMatch(cb2.text, /statements? outstanding/,
-                 'ce5: ...with no queue for documents that are never coming');
+      // Session 264: these two read the strip's rendered TEXT, and David has
+      // since removed everything from the strip but its verdict. Reading the
+      // text would now make BOTH pass for the wrong reason — the second one
+      // especially, since "no queue for documents that are never coming" is
+      // trivially true of a strip that says nothing at all. They read the
+      // gates, which is where the claim actually lives now; the point of the
+      // pair is unchanged and it still fails if the grading goes wrong.
+      const perSched = cb2.gateByKey['per-schedule'];
+      t.eq(perSched && perSched.count, 2,
+           'ce5: ...and the close position counts "2 per schedule", never "3 statements outstanding"',
+           `gates: ${JSON.stringify(cb2.gates.map(g => g.text))}`);
+      t.ok(!cb2.gates.some(g => /statements? outstanding/.test(g.text || '')),
+           'ce5: ...with no queue for documents that are never coming',
+           `gates: ${JSON.stringify(cb2.gates.map(g => g.text))}`);
       await pClean.close();
 
       // ── CONTROL a ── no roll-back at all
@@ -4013,6 +4113,24 @@ GROUPS.push({
              'ce11 CONTROL: ...but none of them can be found by name');
         t.ok(b.gates.every(g => g.key === null),
              'ce11 CONTROL: ...so every by-name lookup in the close-band group fails LOUDLY instead of skipping');
+      }
+      await restoreFns(p);
+
+      // ── CONTROL ── put the chips back (session 264) ────────────────────
+      // The close-band group now asserts, in every scenario, that the strip
+      // renders its verdict and nothing else. That assertion is only worth
+      // having if the opposite state fails it, so here the opposite state is
+      // built and measured.
+      const revBack = await revertFn(p, 'renderLoansCloseBand', EDITS('chips-come-back'));
+      t.ok(revBack.ok, 'ce11 CONTROL: a strip with the chips back on it could be rebuilt',
+           JSON.stringify(revBack.missing));
+      if (revBack.ok) {
+        const back = (await p.surfaces()).loans.closeBand;
+        t.ok((back.stripText || '').trim() !== (back.lead || '').trim(),
+             'ce11 CONTROL: ⭐ ...and the strip then says more than its verdict — so the session-264 assertion discriminates',
+             `strip=${JSON.stringify(back.stripText)}`);
+        t.ok(back.gates.length > 0,
+             'ce11 CONTROL: ...with the gates unchanged, proving the assertion measures what is SHOWN, not what is computed');
       }
       await restoreFns(p);
       await p.close();
@@ -6747,12 +6865,17 @@ GROUPS.push({
     const strip = await p.evaluate(() => {
       const el = document.querySelector('.lcb-strip');
       if (!el) return null;
+      // Session 264: the strip prints its verdict and nothing else, so the
+      // gates are read from the element's own data rather than from chip
+      // spans that no longer exist. Same gates, same names, same sentences —
+      // including the loan names the session-256 rule requires, which is what
+      // the assertions below are actually about.
+      let raw = [];
+      try { raw = JSON.parse(el.getAttribute('data-gates') || '[]'); } catch (_) { raw = []; }
       return {
         lead: (el.querySelector('.lcb-lead') || {}).textContent || '',
         clear: el.classList.contains('clear'),
-        chips: [...el.querySelectorAll('[data-gate]')].map(c => ({
-          gate: c.getAttribute('data-gate'), text: (c.textContent || '').replace(/\s+/g, ' ').trim(),
-          bad: /bad/.test(c.className) })),
+        chips: raw.map(c => ({ gate: c.key, text: String(c.text || ''), bad: !!c.bad })),
       };
     });
     t.ok(!!strip, 'g5: the close band renders its readiness strip');

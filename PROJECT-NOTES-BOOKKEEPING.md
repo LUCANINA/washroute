@@ -32,16 +32,23 @@
 > * **Check it FUNCTIONALLY, never by version:** PayPal 2's basis card must show the net
 >   model at **$49,324.92**, not $30,490.42.
 > * **Another session is working in this repo.** `admin-dashboard/index.html` and
->   `tests/bookkeeping-harness.mjs` carry uncommitted changes that are not session 264's
->   (104 and 35 lines). They were left alone. `git log` and `git status` before assuming
->   the tree is yours.
+>   `tests/bookkeeping-harness.mjs` carried uncommitted changes that were not session 264's
+>   (104 and 35 lines). **Those were session 264 cont. 2's, and they are now committed** —
+>   David's emptying of the "Not ready to close" strip and the "Paid in <month>" line. Still:
+>   `git log` and `git status` before assuming the tree is yours.
 >
 > **Suite: the sixteen runnable Node suites were swept end-to-end at the close of session
 > 264 — 1,089 assertions, 0 red** (`carrying-basis` is now 34, up 7 for Tech Debt #38). That count covers the `.test.mts`
-> suites only; the wider figure including the browser/history suites was **1,591 with 1
-> deliberate red** (Tech Debt #19's `[history] s240 #10`, self-labelled REPORTED and red ON
-> PURPOSE — tuning it green deletes the only record of that finding). **Any other red is a
-> real failure.** `tests/loan-bundle.test.mts` cannot import `pdfjs-dist` on this machine —
+> suites only; the browser harness was re-measured at the close of **264 cont. 2** and is
+> **1,620 assertions, 1,619 passing** (up from 1,591 — cont. 2 added the strip-is-only-a-verdict
+> assertions, a control that puts the chips back, and one that runs the CSV export and reads its
+> bytes). The one red is Tech Debt #19's `[history] s240 #10`, self-labelled REPORTED and red ON
+> PURPOSE — tuning it green deletes the only record of that finding. **Any other red is a
+> real failure.** ⚠️ **The browser harness CANNOT run on the device VM — it has no Playwright
+> browser.** Stage `admin-dashboard/index.html`, `tests/bookkeeping-harness.mjs`,
+> `tests/bk-stub.js` and `tests/fixtures/bookkeeping-fixture.json` into the cloud container and
+> run it there with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`.
+> `tests/loan-bundle.test.mts` cannot import `pdfjs-dist` on this machine —
 > pre-existing, unrelated. Prefer re-running to quoting any of these.
 >
 > **The harness clock now comes from the fixture** (`_meta.pulled_at`), so a month
@@ -2909,6 +2916,90 @@ to "what is running".
 ---
 
 ---
+
+### Session 264 cont. 2 (2026-09-03) — DAVID EMPTIES THE STRIP, AND THE TESTS ARE THE REASON IT IS SAFE
+
+**What David asked, in full:** *"remove all the content in the Not ready to close section."*
+Then, over a screenshot of the "Paid in August" line: *"remove."* Two cuts on the Loans
+rollforward page, both under LESS IS BEST.
+
+**One question was asked before touching anything,** because "all the content in the section"
+has two readings and they are not close: drop the chips and keep the verdict, or delete the
+band entirely. David chose **keep the verdict, drop the chips**. The strip is now one line —
+*Not ready to close* / *Ready for your accountant* — and nothing else.
+
+#### What was removed
+
+| Gone from the screen | Where the claim now lives |
+|---|---|
+| the coverage chip (`N statements outstanding: …`) | `_bkStatementGate()` — period tab's "N to clear", Overview statusline, and the CSV footer |
+| `N not yet checked against Xero: …` | same |
+| `N confirmed by lender` / `N per schedule` | the footnote's population sentence, and the CSV footer |
+| `N loans off — $X to resolve: …` | the Status column, per row |
+| `N loans the ledger does not explain — $X` | the Ledger column, per row |
+| `N splits unposted` / `everything booked` | the Booked column, per row |
+| `Paid in <month>: $X — $Y principal · $Z interest` | the Principal and Interest columns and the table's Total row |
+
+**Nothing was deleted, which is the limit on the rule and the only part worth checking.**
+The strip now carries `data-gates` — every gate's key, count, blocking state and full
+sentence, loan names included — on the element whose verdict they add up to. That is the
+module's own LESS IS BEST test 3 (*"can it attach to the figure it describes instead of
+standing on its own? A `data-` attribute reaches every reader, exports in full, and costs no
+width"*), the same move session 249 made on four provenance columns.
+
+**The gates are still all COMPUTED.** `blocked` — and therefore the verdict the strip prints
+— is still their sum. This cut changed what is SHOWN, never what is CHECKED, and there is now
+an assertion pair saying exactly that in every close-band scenario.
+
+#### The part that took the time, and the part that mattered
+
+**~150 assertions read the chips.** The tempting move was to delete them along with the
+chips. That is precisely the failure this file has warned about since session 245: *an
+assertion that reads only the visible half goes red on a relocation and green on a deletion,
+which is exactly backwards.* Deleting them would have left David's strip with no test at all
+and every gate free to rot silently.
+
+So the harness's **single** gate reader moved from `.lcb-gate` spans to `data-gates`, in one
+place, reconstructing the identical shape (✓ prefix and all) so that every text assertion
+still means what its author wrote. All ~150 went green unchanged. Four assertions that read
+the strip's *rendered text* rather than its gates were rewritten to read the gates — including
+one (`ce5: with no queue for documents that are never coming`) that would otherwise have
+**passed for the wrong reason forever**, since "no queue" is trivially true of a strip that
+says nothing.
+
+**Three new things, and each exists because the others could be faked:**
+
+1. **The rule itself, asserted in every scenario** — the strip's rendered text must equal its
+   lead exactly, and the tiles slot must be empty.
+2. **A control that puts the chips back** (`chips-come-back`), proving that assertion goes red
+   when the strip says more than its verdict. Without it the equality is decoration.
+3. **The export is actually RUN and its bytes are read.** The CSV footer is the surviving home
+   of the full close position, so the assertion compares the file against the gates
+   themselves — not a typed list, so a gate added next year is covered the day it is added.
+   A claim that lives only in a comment is a claim that is gone.
+
+#### Two things nearly broken on the way, both the session-231 shape
+
+* **`.lcb-gate` was deleted from the stylesheet and had to come back.** The rollforward strip
+  stopped drawing chips; the **Manage view's** strip (`renderLoansTable`, ~19026) still draws
+  them, reusing the same classes. Deleting the rules because the surface being edited had
+  stopped using them would have quietly unstyled a different screen. *A stylesheet is shared
+  state, and "grep every other branch that reaches the same thing" applies to CSS selectors
+  exactly as it does to guards.*
+* **`exportRollforwardCSV` scraped `.lcb-lead, .lcb-gate`** and would have started exporting a
+  four-word file with no error and no test. It reads `data-gates` now.
+
+`renderLoansCloseTiles()` and its container are kept, rendering nothing: the slot is the
+natural home for whatever goes above the strip next, and an empty render is honest about a
+deliberately blank slot rather than a broken one.
+
+**Suite: 1,620 assertions, 1,619 passing**, the single red being Tech Debt #19's own report
+(`[history] s240 #10`), red ON PURPOSE. Measured in the cloud container — **the device VM has
+no Playwright browser**, so the harness cannot run there; stage `admin-dashboard/index.html`,
+`tests/bookkeeping-harness.mjs`, `tests/bk-stub.js` and `tests/fixtures/bookkeeping-fixture.json`
+and run it with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`.
+
+**Not pushed.** The sandbox has no network; `git push` is David's to run.
 
 ### Session 264 (2026-09-03) — A CORRECTION IS NOT A PAYMENT, AND THE OBVIOUS FIX FOR IT WAS WRONG TWICE
 

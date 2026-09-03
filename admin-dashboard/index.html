@@ -3424,16 +3424,18 @@
                the class is set by `blocked`, which is the gates themselves. */
             .lcb-strip.clear { border-color: #bbf7d0; background: #f6fdf9; color: var(--gray-600); }
             .lcb-strip.clear .lcb-lead { color: #166534; }
-            .lcb-strip.clear .lcb-gate.ok { color: var(--gray-600); }
             .lcb-lead { font-weight: 700; color: var(--gray-900); }
-            /* Session 256, round 3: what used to be the "Paid in <month>" TILE
-               -- the one of four that was never a to-do -- demoted to a plain
-               reference line. Same size/colour family as .lcb-why just above
-               it (the "Opening, plus anything drawn..." caption), on purpose:
-               that line is also "context, not a task", and the two should
-               read as one register, not two competing subheads. */
-            .lcb-paid { font-size: 12px; color: var(--gray-400); margin: 0 2px 10px; }
-            .lcb-paid b { color: var(--gray-700); font-weight: 650; }
+            /* Session 264: .lcb-paid is gone with the "Paid in <month>" line —
+               nothing renders that class any more.
+               .lcb-gate STAYS, and the reason is worth writing down: the Loans
+               ROLLFORWARD strip no longer prints chips, but the Manage view's
+               own strip (renderLoansTable, ~line 19026) still does, reusing
+               these exact classes. Deleting them because the surface I was
+               editing had stopped using them would have quietly unstyled a
+               different screen — a stylesheet is shared state, and "grep every
+               other branch that reaches the same thing" (session 231) applies
+               to CSS selectors just as it does to guards. */
+            .lcb-paid { display: none; }
             /* THE one red. Everything else on this page defers to it. */
             .lcb-gate { display: inline-flex; align-items: center; font-weight: 600; color: #dc2626; }
             .lcb-lead + .lcb-gate::before,
@@ -3443,6 +3445,7 @@
                the expected state, and it should read as calmly as it behaves. */
             .lcb-gate.ok { color: var(--gray-500); font-weight: 500; }
             .lcb-gate.ok[data-gate="immaterial"] { color: var(--gray-400); font-weight: 400; }
+            .lcb-strip.clear .lcb-gate.ok { color: var(--gray-600); }
 
             /* ── the rollforward table ──────────────────────────────────────
                NINE COLUMNS (session 249, David). It was thirteen, and four of
@@ -16993,21 +16996,28 @@
   // blocking chip in renderLoansCloseBand() now names the loans it counts,
   // directly in the chip, not on hover. This comment stays as the record of
   // the wrong call, not the current design.
+  // ── SESSION 264: THE LAST TILE GOES TOO ────────────────────────────────
+  // David, looking at the Loans page: "remove". The "Paid in <month>" line was
+  // the survivor of session 256's tile cull, kept because it was the one figure
+  // that duplicated nothing. It is still not a duplicate — it is simply not a
+  // DECISION. Under LESS IS BEST test 1 (would a reader act differently without
+  // it?) the answer is no: a bookkeeper closing this month acts on the strip's
+  // verdict and the table's rows, never on the month's total payments, which is
+  // client-facing background this page's reader does not use.
+  //
+  // The CLAIM is not dropped, per the limit on that rule: principal and interest
+  // are columns in the rollforward table below, they foot in its Total row, and
+  // the CSV export carries both per loan. Nothing here was the only home for a
+  // fact.
+  //
+  // The function and its container stay rather than being deleted: the container
+  // is the natural home for whatever David next wants above the strip, and an
+  // empty render is honest about the fact that this slot is deliberately blank
+  // rather than broken.
   function renderLoansCloseTiles() {
     const el = document.getElementById('loans-close-tiles');
     if (!el) return;
-    const month = _cvLastMonth();
-    const b = _loansCloseBlockers(month);
-    if (!b) { el.innerHTML = ''; return; }
-    const name = _cvMonthShort(month);
-    const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-    // Paid in the closing month, from the same rollforward the table foots to.
-    const paidP = b.rf.totals.principal + b.rf.excluded.principal;
-    const paidI = b.rf.totals.interest  + b.rf.excluded.interest;
-
-    el.innerHTML = `<div class="lcb-paid">Paid in ${esc(name)}: <b>${money(paidP + paidI)}</b>` +
-      ` — ${money(paidP)} principal · ${money(paidI)} interest</div>`;
+    el.innerHTML = '';
   }
 
   function renderLoansCloseBand() {
@@ -17171,12 +17181,47 @@
       : { key: 'posting', bad: false, n: 0, text: 'everything booked' });
     const blocked = gates.some(g => g.bad);
 
-    // No tick on the immaterial chip, nor on any chip that opts out with
-    // tick:false. Such a chip is not bad enough to block and not good enough to
-    // congratulate — a real difference nobody is chasing today, or a difference
-    // whose cause has not been measured — and a ✓ in front of either would be
-    // the tool agreeing with itself.
-    const chip = (g) => `<span class="lcb-gate${g.bad ? '' : ' ok'}" data-gate="${esc(g.key)}" data-count="${g.n == null ? '' : g.n}">${(g.bad || g.tick === false || g.key === 'immaterial') ? '' : '✓ '}${esc(g.text)}</span>`;
+    // ── SESSION 264: THE CHIPS COME OFF THE STRIP ─────────────────────────
+    // David: "remove all the content in the Not ready to close section." The
+    // strip is now the VERDICT and nothing else — one line saying whether this
+    // month can go to the accountant.
+    //
+    // The gates above are still computed, and that is deliberate: `blocked` is
+    // derived from them, so the verdict this strip prints is still the honest
+    // sum of every gate rather than a second, looser rule written for a shorter
+    // line. Removing the chips changes what is SHOWN, never what is CHECKED.
+    //
+    // On the LESS IS BEST limit — cutting must not drop a CLAIM — every chip's
+    // fact has a per-row home in the table directly below, which is the reason
+    // this cut is safe where session 256 round 3's was not: the coverage and
+    // checked-against-Xero gates read from _bkStatementGate(), whose loans are
+    // still named on the period tab's "N to clear" and in the Overview
+    // statusline; variance ties/offs are the Status column; unposted splits are
+    // the Booked column; the ledger check is the Ledger column; and the
+    // footnote under the table states each population by count. What is gone is
+    // the second telling, not the fact.
+    //
+    // The chip renderer itself is deleted rather than left unused. A renderer
+    // nothing calls is the kind of thing a later session reinstates by
+    // accident; the strip's markup below is now short enough to read in full.
+    //
+    // ── THE GATES STAY ON THE ELEMENT, AS DATA (LESS IS BEST, test 3) ──────
+    // "Can it attach to the figure it describes instead of standing on its
+    // own? A data- attribute reaches every reader, exports in full, and costs
+    // no width." That is exactly this case, and it is what session 249 did to
+    // four provenance columns. `data-gates` carries every gate this strip used
+    // to print — key, count, blocking or not, and the full sentence including
+    // the loan names — on the element whose verdict they add up to.
+    //
+    // This is NOT a hedge or a hidden chip. Nothing renders it, and nothing
+    // should: the reader's answer to "which loans" is the table below. It is
+    // here because the claim must survive the cut, and because the suite's
+    // ~150 close-band assertions are the written record of what each gate
+    // means. Deleting them along with the chips would have left the rule with
+    // no test at all — an assertion that goes green on a deletion is the
+    // failure mode this module has been bitten by before.
+    const gatesAttr = esc(JSON.stringify(gates.map(g =>
+      ({ key: g.key, bad: !!g.bad, n: g.n == null ? null : g.n, tick: g.tick, text: g.text }))));
 
     // Bare figures in the body; the currency symbol survives only on the total,
     // which is the anchor a reader checks. Fourteen dollar signs down a column
@@ -17546,9 +17591,8 @@
         <span class="lcb-why">Opening, plus anything drawn, minus principal paid, should equal the closing balance on file.</span>
         <span class="lcb-act"><button type="button" class="lcb-export" onclick="exportRollforwardCSV()" title="Save this rollforward as a spreadsheet — including the sources, dates and notes shown on hover">⤓ Export CSV</button></span>
       </div>
-      <div class="lcb-strip${blocked ? '' : ' clear'}">
+      <div class="lcb-strip${blocked ? '' : ' clear'}" data-blocked="${blocked ? '1' : '0'}" data-gates="${gatesAttr}">
         <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
-        ${gates.map(chip).join('')}
       </div>
       <div class="card" style="overflow:hidden;box-shadow:0 1px 2px rgba(15,37,71,.04);border-color:var(--gray-200);border-radius:14px">
         <div style="overflow-x:auto;padding:14px 6px 0">
@@ -17672,13 +17716,27 @@
     // screen has to say what it is and what was true when it was taken.
     rows.push([]);
     rows.push([`${_cvOrgName()} — Loan rollforward, ${_cvMonthName(_cvLastMonth())}`]);
-    // The strip's separators are CSS ::before pseudo-elements — invisible to
-    // textContent — so scraping it produced "all 13 accounted for✓ 11 confirmed
-    // by lender", one run-on claim. Rebuild the line from the parts instead.
-    // Anything a stylesheet draws is not a thing an export can read.
+    // The strip's separators used to be CSS ::before pseudo-elements —
+    // invisible to textContent — so scraping it produced "all 13 accounted
+    // for✓ 11 confirmed by lender", one run-on claim. The line is rebuilt from
+    // the parts instead. Anything a stylesheet draws is not a thing an export
+    // can read.
+    //
+    // ── SESSION 264: AND THIS IS WHERE THE CHIPS WENT ─────────────────────
+    // David took the chips off the strip, and the LESS IS BEST limit is that a
+    // cut may drop words and never a CLAIM. The export is a workpaper: it is
+    // exactly the place the full close position still belongs, and it costs no
+    // width here. So the file's footer carries every gate — coverage, checked,
+    // confirmed, per-schedule, variance, ledger, posting, loan names and all —
+    // read from the strip's own data rather than from chips that are no longer
+    // drawn. The screen got shorter; the record did not.
     const strip = document.querySelector('#loans-close-band .lcb-strip');
-    rows.push([!strip ? '' : [...strip.querySelectorAll('.lcb-lead, .lcb-gate')]
-      .map(x => (x.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ')]);
+    let stripGates = [];
+    try { stripGates = JSON.parse((strip && strip.getAttribute('data-gates')) || '[]'); } catch (_) { stripGates = []; }
+    const leadText = strip ? ((strip.querySelector('.lcb-lead') || {}).textContent || '').trim() : '';
+    rows.push([[leadText].concat(stripGates.map(g =>
+      ((g.bad || g.tick === false || g.key === 'immaterial') ? '' : '\u2713 ') + String(g.text || '')))
+      .map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ')]);
     rows.push([`Exported ${_cvTodayLong()}`]);
 
     const csv = rows.map(r => r.map(q).join(',')).join('\r\n');
