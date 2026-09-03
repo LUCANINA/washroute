@@ -174,6 +174,11 @@ async function handleRequest(req: Request): Promise<Response> {
     // a guard that cannot verify what it suppresses applies here exactly.
     .select('stripe_payout_id, payout_amount, payout_arrival_date, status, error_message, failure_kind, attempt_count')
     .neq('status', 'posted')
+    // Session 266: 'not_applicable' is a settled outcome, not an outstanding one --
+    // a payout accounted for outside the revenue-split pipeline (a Stripe Capital
+    // drawdown, booked against the loan). Leaving it here would inflate
+    // outstanding_total_unconfirmed_in_xero forever with money that is not missing.
+    .neq('status', 'not_applicable')
     .order('payout_arrival_date', { ascending: true })
 
   const totalMissing = (outstanding || []).reduce((s: number, r: any) => s + Number(r.payout_amount || 0), 0)

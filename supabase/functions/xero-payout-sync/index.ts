@@ -512,6 +512,21 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     console.log(`[xero-payout-sync] ${payout.id} already posted, skipping`)
     return { skipped: true, reason: 'already posted', existing }
   }
+  // ── SESSION 266: 'not_applicable' must block a post as firmly as 'posted' ───
+  // A payout that is not revenue at all -- the 2026-07-01 Stripe Capital drawdown
+  // of $125,000, booked in Xero as a RECEIVE against the loan and reconciled --
+  // gets a row so xero-payout-coverage stops reporting it as unaccounted for.
+  //
+  // That row is a DUPLICATE HAZARD unless it is honoured here. The Xero pre-check
+  // below searches for a transaction whose Reference is "Stripe payout <id>", and
+  // a drawdown booked by hand carries no such reference. So the pre-check would
+  // find nothing, conclude the payout was never posted, and create a second
+  // transaction -- $125,000 of invented revenue on top of a correctly-booked loan
+  // advance. The status is the only thing standing between a re-run and that.
+  if (existing?.status === 'not_applicable' && !opts.force) {
+    console.log(`[xero-payout-sync] ${payout.id} marked not_applicable, skipping`)
+    return { skipped: true, reason: 'marked not_applicable -- this payout is accounted for outside the revenue-split pipeline', existing }
+  }
 
   const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied } = await classifyPayout(payout)
   const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents)

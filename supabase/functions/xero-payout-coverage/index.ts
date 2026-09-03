@@ -166,8 +166,19 @@ async function handleRequest(req: Request): Promise<Response> {
   // two alarms on one condition is how both end up ignored. It is listed because
   // a person reading a coverage report wants one answer to "is all of it in
   // Xero?", not two half-answers.
+  // 'not_applicable' is a settled outcome, deliberately recorded by a person: the
+  // payout is accounted for, just not through the revenue-split pipeline (a Stripe
+  // Capital drawdown is a loan advance, and has no revenue to split). It is listed
+  // separately rather than folded into the posted count, because "a human decided
+  // this needs nothing" and "the system booked this" are different claims and the
+  // report should not blur them.
+  const SETTLED = new Set(['posted', 'not_applicable'])
+  const acknowledged = due
+    .filter((p) => byId.get(p.id)?.status === 'not_applicable')
+    .map((p) => ({ stripe_payout_id: p.id, amount: p.amount / 100, arrival_date: arrivalDateOf(p) }))
+
   const notPosted = due
-    .filter((p) => byId.has(p.id) && byId.get(p.id)!.status !== 'posted')
+    .filter((p) => byId.has(p.id) && !SETTLED.has(byId.get(p.id)!.status))
     .map((p) => ({
       stripe_payout_id: p.id, amount: p.amount / 100, arrival_date: arrivalDateOf(p),
       status: byId.get(p.id)!.status,
@@ -225,6 +236,7 @@ async function handleRequest(req: Request): Promise<Response> {
     missing_in_closed_period: missingInClosedPeriod,
     books_closed_through: close.date,
     close_date_source: close.source,
+    acknowledged_not_applicable: acknowledged,
     not_posted: notPosted,
     unmatched_sync_rows: unmatchedRows,
     excluded: {
