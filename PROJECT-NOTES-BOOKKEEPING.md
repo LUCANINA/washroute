@@ -3135,13 +3135,54 @@ Two smaller ones from the same run:
 and each time the code was right to refuse. Worth naming as a habit rather than an accident:
 when a fixture and an assertion disagree here, the fixture is usually the thing that is wrong.
 
+#### 9. (cont. 5) THREE INSTRUCTIONS, ONE CHANGED — THE SAME MISTAKE, A FOURTH TIME
+
+The run after cont. 4 was clean on everything it was meant to fix. The $12,631.38 phantom is
+gone, replaced by an honest **"Do your books agree with the lender on this loan?"** under
+*Questions these documents cannot answer* — nothing on file for PayPal 2 is a balance rebuilt
+from our ledger, so there is genuinely nothing to compare and the plan now says so instead of
+inventing a disagreement. The anchor card describes the screen correctly at last ("its two
+lines add up: $46,144.59 of principal and $1,661.55 of fee still owed come to the $47,806.14 it
+prints"). The dating, the origination-date correction, the $65.12 and the both-bases line all
+held.
+
+**And the account number went unread for a third time.** `lender_account_ref` is in the schema
+and has been since cont. 2; cont. 4 fixed the system prompt that said *"report only figures"*.
+What neither pass touched was that **three separate strings instruct this model**:
+
+| | Said |
+|---|---|
+| `PORTAL_TOOL.description` | "Transcribe the labelled totals… Report only figures printed on the image." |
+| the user turn beside the image | "Transcribe the labelled totals on this lender portal screenshot." |
+| the system prompt | *(fixed in cont. 4)* |
+
+Two of the three still said totals and figures, and the model followed them. That is the same
+defect as §5, as §5a, as the `hasAgreement` gate and as `fitBasis` — **a rule changed on one
+branch of several that reach the same behaviour** — committed four times in one day in the file
+whose notes carry the rule against it. The pattern is not "guards"; it is anything that exists
+in more than one place and is changed in one.
+
+`tests/transcriber-instructions.test.mts` is the answer, and it is a shape worth copying. A
+model's OUTPUT cannot be asserted offline, so it does not try: it reads the source as text and
+asserts that **the instructions do not contradict the schema**, which is the actual defect both
+times. Against the version David had just run it goes 3 red and names the two strings that were
+missed. It reads the file rather than importing it because `loan-bundle/index.ts` pulls in
+pdf.js and cannot be imported into a test.
+
+**The habit this session should leave behind**, since the principle plainly was not enough:
+when changing a rule, an instruction or a source of truth, `grep` for every other place that
+states the same thing and change them in the SAME commit. Not "consider the blast radius" —
+run the search. The blast-radius pass in cont. 4's QA did find one of these and missed the
+others because it searched for consumers of a symbol; two of the three here are English prose
+in a string literal, which no symbol search reaches.
+
 #### Verification
 
 `portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
 `loan-bundle-balances` 283/283 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
 `settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
 112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13, `carrying-basis` 27/27 (new)
-— **993 green, 0 red.**
+— **1,002 green, 0 red**, including `transcriber-instructions` 9/9 (new).
 
 Every session-263-cont.-2 assertion has its inverse beside it: strip the itemised figures
 and the anchor goes back to being unproposable; feed a payoff-basis book row and the tie

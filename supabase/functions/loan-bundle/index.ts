@@ -142,7 +142,7 @@ async function extractPdfText(bytes: Uint8Array): Promise<string> {
 
 const PORTAL_TOOL = {
   name: 'report_portal_totals',
-  description: 'Transcribe the labelled totals shown on a lender portal screenshot. Report only figures printed on the image.',
+  description: 'Transcribe the labelled totals shown on a lender portal screenshot, and the loan or account identifier printed on it. Report only what is printed on the image.',
   input_schema: {
     type: 'object',
     properties: {
@@ -180,6 +180,11 @@ async function readPortalScreenshot(base64: string, mediaType: string): Promise<
         system:
           'You transcribe labelled totals from a lender portal screenshot for a bookkeeping system.\n' +
           'You are a TRANSCRIBER, not an analyst.\n' +
+          // THREE PLACES INSTRUCT THIS MODEL AND THEY MUST AGREE (session 263 cont. 5).
+          // This block was fixed and the other two were not, so the tool description
+          // and the user turn both still said "totals" / "figures" and the account
+          // number went unread a second time. When changing what this transcriber is
+          // asked for, change PORTAL_TOOL.description and the user text below it too.
           'Most of what you report is money, but one field is not: the loan or account identifier\n' +
           'printed on the screen, often in a heading such as "Loan (A00845102)". Report it in\n' +
           'lender_account_ref, exactly as printed. It said "report only FIGURES" here, which read as\n' +
@@ -195,7 +200,7 @@ async function readPortalScreenshot(base64: string, mediaType: string): Promise<
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: 'Transcribe the labelled totals on this lender portal screenshot.' },
+            { type: 'text', text: 'Transcribe the labelled totals on this lender portal screenshot, and its loan or account identifier if it prints one.' },
           ],
         }],
       }),
