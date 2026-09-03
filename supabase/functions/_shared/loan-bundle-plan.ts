@@ -107,6 +107,8 @@ export interface Corroboration {
 }
 
 export interface Conflict {
+  /** Evidence, relocated. See the note on `Unresolved` for the rule. */
+  working?: string
   key: string
   statement: string
   expected: string
@@ -134,6 +136,8 @@ export type ActionKind =
   | 'raise_finding'
 
 export interface PlannedAction {
+  /** Evidence, relocated. See the note on `Unresolved` for the rule. */
+  working?: string
   id: string
   kind: ActionKind
   title: string
@@ -145,10 +149,30 @@ export interface PlannedAction {
   blocked_reason?: string
 }
 
+/**
+ * THE CARD IS THE DECISION, NOT THE EVIDENCE (session 263 cont. 6).
+ *
+ * Everything a person reads here is read against the clock, by a bookkeeper or a
+ * junior accountant deciding whether to tick a box. The visible text gets a word
+ * budget — `WORD_BUDGET`, enforced by tests/copy-budget.test.mts over the
+ * RENDERED string, because the worst offenders are assembled from four or five
+ * fragments that each look reasonable alone. The 247-word lender-balance card
+ * was built from pieces none of which exceeded 90 words.
+ *
+ * `working` is where the rest goes: complete, unabridged, one click away, and
+ * exported in full. NOTHING IS DELETED. A claim that leaves the visible text
+ * must survive in `working`, or the cut is a lie rather than a trim — session
+ * 250's ce17 limit, applied to length instead of labels.
+ *
+ * When a card cannot state its decision inside the budget, the usual cause is
+ * that the action is doing two things and should be two actions.
+ */
 export interface Unresolved {
   question: string
   why_it_matters: string
   what_would_answer_it: string
+  /** Evidence, relocated. Never a summary of what was cut. */
+  working?: string
 }
 
 export interface BundlePlan {
@@ -432,7 +456,9 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
       kind: 'record_contract_terms',
       title: `Record ${ctx.agreementTerms.length} contract terms from the agreement`,
       plain_english:
-        `Saves what the signed agreement actually says — the amounts, the dates, the payment rules — each with the line of the document it was read from. This is kept separately from the notes already on the loan, so a figure someone typed in by hand can never quietly overwrite what the lender put in writing.`,
+        `Files ${ctx.agreementTerms.length} figures the signed agreement states, each with the line it was read from.`,
+      working:
+        `Kept separately from the notes already on the loan, so a figure someone typed by hand can never quietly overwrite what the lender put in writing. The amounts, the dates and the payment rules all come from the agreement itself rather than from anyone's recollection of it.`,
       // Which document these came from, so the evidence row can point at the
       // AGREEMENT rather than whichever file happened to be attached first.
       // source_document_id is the whole difference between a term that is
@@ -508,7 +534,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           found: `${money(onFileAmt)} on the loan record`,
           sources: ['loan record', "lender's own documents"],
           severity: 'warn',
-          caveat: `A typed note, and it is out by ${totalRepayment !== null ? money(Math.abs(totalRepayment - onFileAmt)) : money(Math.abs(loanAmount! - onFileAmt))} against the closer of the two. Nothing is proposed for it: the field can hold either the cash advanced or the whole payback, and choosing between them is the carrying-basis question rather than a typo to correct. Recording ${sourceOf('loan_amount')}'s figures above puts both on file with the row each was read from, which is the durable fix — the typed note stops being the only thing anyone can consult.`,
+          caveat: `A typed note, out by ${totalRepayment !== null ? money(Math.abs(totalRepayment - onFileAmt)) : money(Math.abs(loanAmount! - onFileAmt))} against the closer of the two. Nothing is proposed: choosing between them is the carrying-basis question, not a typo.`,
+          working: `The field can hold either the cash advanced or the whole payback, and nothing here settles which. Recording ${sourceOf('loan_amount')}'s figures above puts both on file with the row each was read from, which is the durable fix — the typed note stops being the only thing anyone can consult.`,
         })
       }
     }
@@ -536,9 +563,12 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         id: nextId('applyterm'),
         kind: 'apply_term_to_loan',
         title: `${c.label}: ${wasBlank ? 'set to' : 'change to'} ${c.fromDoc}${wasBlank ? '' : ` (currently ${c.onFile})`}`,
+        // LEAD WITH THE VALUE. "The loan record has no origination date" made the
+        // reader reach sentence two to learn what would be written; the budget is
+        // not the only thing that decides whether a card can be read in a hurry.
         plain_english: wasBlank
-          ? `The loan record has no ${c.label.toLowerCase()}. ${sourceOf(c.term) === 'the agreement' ? 'The agreement' : "The lender's own transaction history"} gives it as ${c.fromDoc}.`
-          : `The loan record says ${c.onFile}. ${sourceOf(c.term) === 'the agreement' ? 'The signed agreement' : "The lender's own transaction history"} says ${c.fromDoc}, and a document from the lender is better evidence than a note someone typed.`,
+          ? `Sets ${c.label.toLowerCase()} to ${c.fromDoc}, which is what ${sourceOf(c.term)} states. The loan record has none.`
+          : `Changes ${c.label.toLowerCase()} to ${c.fromDoc} from ${c.onFile} — ${sourceOf(c.term)} states it, and a lender's document beats a typed note.`,
         // The source document rides along so the apply step can mark THIS
         // document's term applied rather than every document's term for this key.
         payload: {
@@ -582,7 +612,9 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
       kind: 'record_contract_terms',
       title: `Record ${ledgerTerms.length} opening figure${ledgerTerms.length === 1 ? '' : 's'} from the lender's transaction history`,
       plain_english:
-        `The lender's own export${src} states what it advanced and what it charged, so those figures are recorded as this loan's terms — each with the row it was read from. This is the lender's record of what actually moved, not a signed agreement, and it is filed as exactly that. It matters beyond the record: without these figures nothing can turn a balance still owed into an amount paid, which is what lets an undated screenshot be dated against this same ledger.`,
+        `Files ${ledgerTerms.length} opening figures the lender's own export${src} states — what it advanced and what it charged, each with the row it was read from.`,
+      working:
+        `This is the lender's record of what actually moved, not a signed agreement, and it is filed as exactly that. It matters beyond the record: without these figures nothing can turn a balance still owed into an amount paid, which is what lets an undated screenshot be dated against this same ledger.`,
       payload: {
         terms: ledgerTerms,
         extracted_by: 'deterministic_parser:paypal_loan_history_v1',
@@ -599,8 +631,9 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
   if (termConflicts.length) {
     unresolved.push({
       question: `Which of this lender's own documents states this loan's terms correctly?`,
-      why_it_matters: `These figures are what turn a balance still owed into an amount paid, which is how an undated screenshot gets a date. A date built on a contested figure does not fail loudly — it moves the variance on the one screen whose job is to say this loan is ready for the accountant.`,
-      what_would_answer_it: `Two documents disagree: ${termConflicts.join('; ')}. Neither was used and nothing below rests on either. Decide which document is the operative one, and remove or supersede the other.`,
+      why_it_matters: `These figures turn a balance still owed into an amount paid, which is how an undated screenshot gets a date.`,
+      what_would_answer_it: `Decide which document is the operative one, and remove or supersede the other.`,
+      working: `Two documents disagree: ${termConflicts.join('; ')}. Neither was used and nothing below rests on either. A date built on a contested figure does not fail loudly — it moves the variance on the one screen whose job is to say this loan is ready for the accountant.`,
     })
   }
 
@@ -723,7 +756,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         id: nextId('basisfix'),
         kind: 'correct_statement_basis',
         title: `Label ${wrong.length} unlabelled balance${wrong.length === 1 ? '' : 's'} (${from} to ${to})`,
-        plain_english: `These balances came from the same place, on the same basis, as every other balance on this loan — they were just never labelled. Labelling them puts them back inside the lender-comparison checks.`,
+        plain_english: `Labels ${wrong.length} unlabelled balance${wrong.length === 1 ? '' : 's'} as ${wanted}, which puts ${wrong.length === 1 ? 'it' : 'them'} back inside the lender-comparison checks.`,
+        working: `They came from the same place, on the same basis, as every other balance on this loan — they were simply never labelled, and an unlabelled balance is excluded from every comparison rather than being checked and passing.`,
         payload: { statement_dates: wrong.map(s => s.statement_date), balance_basis: wanted },
         default_checked: true,
       })
@@ -830,11 +864,13 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         title: dayOne !== null
           ? `Record the opening balance of ${money(dayOne)} at ${dayOneDate}`
           : `Record this loan's opening balance at ${dayOneDate}`,
-        plain_english: [
+        plain_english: dayOne !== null
+          ? `Opens this loan at ${money(dayOne)} on ${dayOneDate} — ${settledBasis === 'gross_payback' ? 'the whole payback, fee included' : 'the cash borrowed, fee held outside'}. Without it the month-end rollforward has nothing to open on.`
+          : `Would open this loan at ${dayOneDate}. Your books hold no balance on or before that day, so the rollforward has nothing to open on and this loan drops out of the close.`,
+        working: [
           dayOne !== null
-            ? `On the day this loan was signed nothing had been repaid, so the balance was ${money(dayOne)} — ${settledBasis === 'gross_payback' ? 'the whole payback, fee included, which is what this loan is carried at' : 'the cash borrowed, with the financing cost carried outside the balance'}.`
-            : `This would record what this loan's balance was on the day it was signed.`,
-          `Your books hold no balance on or before ${dayOneDate}, so the month-end rollforward has nothing to open on and this loan drops out of the close entirely.`,
+            ? `Nothing had been repaid on the day this loan was signed, so the balance was the whole of it. Your books hold no balance on or before ${dayOneDate}, which is why this loan currently drops out of the close entirely.`
+            : '',
           corroboratedBy
             ? `The earliest balance already on file (${corroboratedBy.statement_date}, ${money(Number(corroboratedBy.principal_balance))}) is the same figure to the cent, arrived at independently — this fills in the day before it.`
             : '',
@@ -1017,7 +1053,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
       unresolved.push({
         question: `Do your books agree with the lender on this loan?`,
         why_it_matters: `This is the check a close rests on, and it is the one thing these documents cannot answer by themselves.`,
-        what_would_answer_it: `Nothing on file for this loan is a balance rebuilt from your own ledger — every row came from the lender or from a schedule. The lender's figure has been recorded${asOf ? ` at ${asOf}` : ''}; what it needs to be measured against is what your books actually hold on the same day.`,
+        what_would_answer_it: `A balance rebuilt from your own ledger${asOf ? `, dated ${asOf}` : ''}.`,
+        working: `Nothing on file for this loan is one — every row came from the lender or from a schedule. The lender's figure has been recorded${asOf ? ` at ${asOf}` : ''}; what it needs to be measured against is what your books actually hold on the same day.`,
       })
     }
 
@@ -1060,7 +1097,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         unresolved.push({
           question: `Do your books agree with the lender on this loan?`,
           why_it_matters: `A balance is a point in time. Your books' most recent balance is dated ${book.statement_date} and the lender's is dated ${asOf}; everything repaid in between would read as a disagreement, when it is simply time passing.`,
-          what_would_answer_it: `There is no lender export in this set covering ${book.statement_date} to ${asOf}, so what moved between those days cannot be measured and no verdict was reached. A balance from your books dated ${asOf}, or the lender's transaction export covering that window, settles it.`,
+          what_would_answer_it: `A balance from your books dated ${asOf}, or the lender's export covering ${book.statement_date} to ${asOf}.`,
+          working: `There is no lender export in this set covering those days, so what moved between them cannot be measured and no verdict was reached.`,
         })
       }
     }
@@ -1219,7 +1257,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             id: nextId('finding'),
             kind: 'raise_finding',
             title: `Flag the ${money(Math.abs(diff))} difference between your books and the lender`,
-            plain_english: `The lender says ${money(picked.value)} is still owed; your books say ${money(bookValue!)}.${rollNote} That is a ${money(Math.abs(diff))} difference and it needs explaining before this loan is relied on in a close. ${lag.statement} Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
+            plain_english: `Raises a ${money(Math.abs(diff))} difference: the lender says ${money(picked.value)} is still owed at ${asOf ?? 'the date shown'}, your books ${money(bookValue!)}.`,
+            working: `${rollNote ? rollNote.trim() + ' ' : ''}${lag.statement} It needs explaining before this loan is relied on in a close. Raising it puts it in Needs Attention, where it stays until someone resolves it.`,
             payload: {
               check_key: 'balance_vs_lender', severity: 'error',
               title: `${ctx.loan.xero_account_name ?? ctx.loan.lender}: books and lender disagree by ${money(Math.abs(diff))}`,
@@ -1389,10 +1428,16 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
             : `Record the lender's balance of ${money(bal)} — needs the date it was taken`,
           plain_english: [
             asOf
-              ? `The lender's own screen says ${money(bal)} was still owed at ${asOf}, and the screen proves it: ${usingItemised
-              ? `its two lines add up: ${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed come to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints`
-              : `the total due less the amount paid to date comes to exactly that`}.`
+              ? `Files ${money(bal)} as the lender's balance at ${asOf}, read from ${screens.join(' and ') || 'the screenshot'}, which states that date itself.`
               : derivedDate
+              ? `Files ${money(bal)} as the lender's balance at ${derivedDate}. The screen prints no date; this one was measured from the export, where the running total reaches the screen's own paid figure on that day and no other.`
+              : `Files ${money(bal)} as the lender's balance — the screen prints no date, so it cannot be filed until someone supplies one.`,
+          ].filter(Boolean).join(' '),
+          working: [
+            usingItemised
+              ? `The screen proves its own figure: ${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed come to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints.`
+              : `The screen proves its own figure: the total due less the amount paid to date comes to exactly that.`,
+            asOf ? '' : derivedDate
               // SHOW THE WORKING. This module's standing rule is that a derived
               // number says how it was derived, and a derived DATE is the sharpest
               // case for it: nothing downstream can tell a measured date from a
@@ -1400,12 +1445,13 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
               // The sentence names the figures that agreed, the day they agreed on
               // and the next day's total, which is enough for a person to check it
               // against the export by hand rather than take it on trust.
-              ? `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: ${usingItemised
-              ? `its two lines add up: ${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed come to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints`
-              : `the total due less the amount paid to date comes to exactly that`}. What the screen never says is which day that is the balance for — so it was measured rather than guessed. ${dating!.statement} That is why this is filed at ${derivedDate}. The date is only as good as the export it was measured from, which is why it was taken only when more than one figure landed on the same day; if that export later turns out to be missing transactions, this date moves with it.`
-              : `The lender's own screen says ${money(bal)} is still owed, and the screen proves it: ${usingItemised
-              ? `its two lines add up: ${money(bal)} of principal and ${money(ctx.portal!.fee_balance ?? 0)} of fee still owed come to the ${money(ctx.portal!.lender_balance_gross_payback ?? 0)} it prints`
-              : `the total due less the amount paid to date comes to exactly that`}. What it does not say is which day that is the balance for.`,
+              // SHOW THE WORKING. A derived number says how it was derived, and a
+              // derived DATE is the sharpest case: nothing downstream can tell a
+              // measured date from a typed one, so this is the only place the
+              // difference can be seen. It names the figures that agreed, the day
+              // they agreed on and the next day's total — enough to check by hand.
+              ? `${dating!.statement} The date is only as good as the export it was measured from, which is why it was taken only when more than one figure landed on the same day; if that export later turns out to be missing transactions, this date moves with it.`
+              : '',
             `Filing it as a lender balance is what makes this loan checkable. Every balance currently on file for it was swept out of your own ledger, so today the books are only ever compared with themselves — the month-end screen says "n/a" against this loan rather than a figure your accountant can sign.`,
             screens.length ? `Read from ${screens.join(' and ')}.` : '',
           ].filter(Boolean).join(' '),
@@ -1456,9 +1502,11 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
           unresolved.push({
             question: `What date was this screenshot of the lender's screen taken?`,
             why_it_matters:
-              `The lender's balance is the one figure on this loan that is not our own arithmetic, and a balance means nothing without the day it belongs to. Filed on the wrong date it does not look wrong: it counts as a real lender anchor, so it silently shifts the variance on the month-end close screen — the screen whose entire job is to say this loan is ready for your accountant. Left out, this loan simply has no lender figure at all, which is at least visible.`,
+              `This is the only figure on this loan that is not our own arithmetic, and a balance means nothing without the day it belongs to.`,
             what_would_answer_it:
-              `The date the screen was captured, or a screenshot that prints an "as of" date beside the ${money(bal)}. The screen we have shows a period and a period-to-date total, which is why it was not read off it. With a date this becomes the lender anchor this loan has never had.${exportNote}`,
+              `The date the screen was captured, or a screenshot printing an "as of" date beside the ${money(bal)}.`,
+            working:
+              `Filed on the wrong date it does not look wrong: it counts as a real lender anchor, so it silently shifts the variance on the month-end close screen — the screen whose entire job is to say this loan is ready for your accountant. Left out, this loan simply has no lender figure at all, which is at least visible. The screen we have shows a period and a period-to-date total, which is why no date was read off it. With one, this becomes the lender anchor this loan has never had.${exportNote}`,
           })
         }
       }

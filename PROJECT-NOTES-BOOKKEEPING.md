@@ -914,6 +914,40 @@ session — see the session log below for why).
 
 ## Design conventions
 
+**THE CARD IS THE DECISION, NOT THE EVIDENCE (session 263 cont. 6, David's standing rule).**
+David, on the bundle modal: *"The first half of the page was legible. However, the second half
+was way too verbose… the person reading (a bookkeeper or junior accountant) has a very limited
+time to make a decision."*
+
+Everything on an action card is read against the clock by someone deciding whether to tick a
+box. **The visible text gets 40 words**, answering three things in this order:
+
+1. **What gets written** — the figure and the date, in the first sentence.
+2. **The one check that would have failed if it were wrong.** Not every check. The strongest.
+3. **What would change the answer** — only when the action is blocked or conditional.
+
+Everything else moves to `working`, rendered behind **Show the working**: complete, unabridged,
+keyboard-reachable, expanded when printed.
+
+**The limit, and it is the whole rule: the budget applies to what is VISIBLE. NOTHING IS
+DELETED.** A claim that leaves the visible text must survive in `working`, or the cut is a lie
+rather than a trim — session 250's ce17 limit, applied to length instead of labels. The
+lender-balance card went 247 words → 34 visible and lost not one figure.
+
+**The tell that the budget is wrong rather than the copy:** if a card cannot state its decision
+in 40 words, the action is usually doing two things and should be two actions.
+
+**One rule, two expressions, and the older one got there first.** The Overview queue has done
+this since session 249 — `_bkOneLine()` at 130 characters with the full text in a `detailHtml`
+expander — which is why the Issues page read well while the bundle modal did not.
+`tests/copy-budget.test.mts` enforces both, and measures the RENDERED string, because the worst
+offenders are assembled from four or five fragments that each look reasonable alone: the
+247-word card was built from pieces none of which exceeded 90 words.
+
+**Assertions elsewhere must read `plain_english` AND `working`.** One that searches only the
+visible half goes red on a relocation and green on a deletion, exactly backwards — `said()` in
+`tests/loan-bundle-balances.test.mts` is the helper for it.
+
 **LESS IS BEST (session 250, David's standing rule).** The existing "keep words at a
 minimum" rule covers copy. This one covers everything else on a surface: columns,
 colours, borders, badges, tiles, sub-lines, footnotes, chrome.
@@ -3176,13 +3210,45 @@ run the search. The blast-radius pass in cont. 4's QA did find one of these and 
 others because it searched for consumers of a symbol; two of the three here are English prose
 in a string literal, which no symbol search reaches.
 
+#### 10. (cont. 6) 480 WORDS OF ACTION CARDS BECOME 110, AND NOTHING IS LOST
+
+David read the finished panel and said the top half was legible and the bottom half was not. He
+was right, and the reason is structural rather than stylistic: *Checked against each other* and
+*Disagreements* are one or two sentences each, while the action cards had grown to 75–104 words
+apiece because every card carried its whole evidence trail inline. The lender-balance card
+rendered at **247 words**. The rule is in Design conventions above; what belongs here is how it
+was found and bounded.
+
+**The measurement had to be of the RENDERED string.** Grepping the source for long literals
+found a worst case of 87 words and would have declared the problem half-solved — the 247-word
+card is assembled at render time from five fragments, none over 90 words, each defensible
+alone. `tests/copy-budget.test.mts` builds eight real plans and measures what comes out. It
+goes **8 red** against the version that was live when David complained.
+
+**Nothing was deleted, and the tests had to be taught that.** Eleven existing assertions went
+red on the split, every one of them looking in `plain_english` for a claim that had moved to
+`working`. The repair is a `said()` helper reading both halves: an assertion that searches only
+the visible text goes red on a relocation and green on a deletion, which is exactly backwards
+for a rule whose entire limit is *nothing is deleted*.
+
+**It surfaced a test bug older than any of this.** One assertion in the dated-screenshot
+scenario referenced `a` — the derived-date action from the scenario ABOVE it — where its three
+neighbours all used `sa`. It was asserting that a card which *did* measure a date does not
+describe measuring one, and passed only because the phrase it looked for sat in a fragment that
+scenario never rendered.
+
+**On the dashboard the split is real or it is a deletion.** `working` renders on all three
+surfaces that carry it — actions, questions, conflicts — as a `<details>` element: no
+JavaScript, keyboard-reachable, expanded when printed. `copy-budget` asserts all three call
+sites exist, because a field written and never rendered is evidence deleted with extra steps.
+
 #### Verification
 
 `portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
 `loan-bundle-balances` 283/283 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
 `settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
 112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13, `carrying-basis` 27/27 (new)
-— **1,002 green, 0 red**, including `transcriber-instructions` 9/9 (new).
+— **1,018 green, 0 red**, including `transcriber-instructions` 9/9 and `copy-budget` 16/16 (both new).
 
 Every session-263-cont.-2 assertion has its inverse beside it: strip the itemised figures
 and the anchor goes back to being unproposable; feed a payoff-basis book row and the tie

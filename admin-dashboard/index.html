@@ -11390,6 +11390,7 @@
         <div style="font-size:12.5px;color:var(--gray-600);margin-top:5px">
           <strong>Expected:</strong> ${esc(c.expected)}<br><strong>Found:</strong> ${esc(c.found)}</div>
         ${c.caveat ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:6px;line-height:1.55;font-style:italic">${esc(c.caveat)}</div>` : ''}
+        ${c.working ? `<details style="margin-top:5px"><summary style="font-size:12px;color:var(--gray-500);cursor:pointer;list-style:revert">Show the working</summary><div style="font-size:12.5px;color:var(--gray-600);line-height:1.55;margin-top:5px;white-space:pre-wrap">${esc(c.working)}</div></details>` : ''}
       </div>`;
     }).join('');
 
@@ -11402,7 +11403,19 @@
          <div style="font-size:12.5px;color:var(--gray-700);margin-top:6px;line-height:1.55">${esc(u.why_it_matters)}</div>
          <div style="font-size:12.5px;color:var(--gray-600);margin-top:6px;line-height:1.55">
            <strong>What would answer it:</strong> ${esc(u.what_would_answer_it)}</div>
+         ${working(u.working)}
        </div>`).join('');
+
+    // THE CARD IS THE DECISION, NOT THE EVIDENCE (session 263 cont. 6).
+    // The visible text is budgeted; `working` is where the rest lives. It is
+    // relocated, never dropped, so this MUST render — a split with no disclosure
+    // is not a shorter card, it is a card that lost its evidence. <details> so it
+    // needs no JS, stays keyboard-reachable, and prints expanded.
+    const working = (w, label) => !w ? '' :
+      `<details style="margin-top:5px">
+         <summary style="font-size:12px;color:var(--gray-500);cursor:pointer;list-style:revert">${esc(label || 'Show the working')}</summary>
+         <div style="font-size:12.5px;color:var(--gray-600);line-height:1.55;margin-top:5px;white-space:pre-wrap">${esc(w)}</div>
+       </details>`;
 
     const actions = (p.actions || []).map(a =>
       `<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--gray-50);${a.blocked_reason ? 'opacity:.55' : 'cursor:pointer'}">
@@ -11411,6 +11424,7 @@
            <span style="font-size:13px;font-weight:500">${esc(a.title)}</span>
            <span style="display:block;font-size:12.5px;color:var(--gray-600);line-height:1.55;margin-top:2px">${esc(a.plain_english)}</span>
            ${a.blocked_reason ? `<span style="display:block;font-size:12px;color:#b45309;margin-top:4px">${esc(a.blocked_reason)}</span>` : ''}
+           ${working(a.working)}
          </span>
        </label>`).join('');
 

@@ -96,6 +96,14 @@ const portalOf = (over: Record<string, unknown> = {}): PlanContext['portal'] => 
   ...over,
 } as any)
 
+// THE CLAIM MUST SURVIVE, WHEREVER IT IS RENDERED (session 263 cont. 6).
+// The visible text is budgeted and the evidence moved behind "Show the working".
+// These assertions exist to prove a CLAIM is made, not to police which half of
+// the card makes it — so they read both. An assertion that only searched the
+// visible half would go red on a relocation and green on a deletion, which is
+// exactly backwards.
+const said = (x: any) => `${x?.plain_english || ''} ${x?.working || ''}`
+
 const of = (plan: BundlePlan, kind: string): PlannedAction | undefined =>
   plan.actions.find(a => a.kind === kind)
 const all = (plan: BundlePlan, kind: string) => plan.actions.filter(a => a.kind === kind)
@@ -182,8 +190,8 @@ section('2 — the day-one figure is the carrying basis, restated')
 
   // The corroboration the wording is supposed to carry: the sweep's own first
   // reading, one day later, to the cent.
-  ok('the 2026-07-01 sweep row is quoted as corroboration', /2026-07-01/.test(gross.plain_english) &&
-     /same figure to the cent/.test(gross.plain_english), gross.plain_english)
+  ok('the 2026-07-01 sweep row is quoted as corroboration', /2026-07-01/.test(said(gross)) &&
+     /same figure to the cent/.test(said(gross)), gross.plain_english)
   ok('...and recorded in the payload, not just the prose',
      (gross.payload as any).corroborated_by?.statement_date === '2026-07-01')
   const uncorroborated = of(buildPlan(ctxOf({
@@ -192,7 +200,7 @@ section('2 — the day-one figure is the carrying basis, restated')
   })), 'open_at_origination')!
   ok('a first row that does NOT agree is not claimed as corroboration',
      (uncorroborated.payload as any).corroborated_by === null &&
-     !/same figure to the cent/.test(uncorroborated.plain_english))
+     !/same figure to the cent/.test(said(uncorroborated)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -298,8 +306,8 @@ section('5 — no as-of date: blocked, and asked about')
   ok('an Unresolved question asks for the date', !!q, JSON.stringify(plan.unresolved.map(u => u.question)))
   ok('...in the three parts every other question uses',
      !!q && !!q.question && !!q.why_it_matters && !!q.what_would_answer_it)
-  ok('...and says what it costs to get it wrong', !!q && /variance/i.test(q.why_it_matters))
-  ok('...and names the figure waiting on it', !!q && /\$123,091\.66/.test(q.what_would_answer_it))
+  ok('...and says what it costs to get it wrong', !!q && /variance/i.test(`${q.why_it_matters} ${q.working || ''}`))
+  ok('...and names the figure waiting on it', !!q && /\$123,091\.66/.test(`${q.what_would_answer_it} ${q.working || ''}`))
 
   // The dated case must NOT raise the question, or it becomes noise.
   const dated = buildPlan(ctxOf({ portal: portalOf() }))
@@ -656,15 +664,19 @@ section('5c — the derived date reaches the action, the payload and the screen'
   ok('...and the working in words', /2026-08-26/.test(String(ev?.statement)))
 
   // SHOW THE WORKING. A person has to be able to check this rather than trust it.
-  ok('the description names the day it was dated to', /2026-08-26/.test(a.plain_english))
-  ok('...the figure that was matched', /\$22,783\.34/.test(a.plain_english))
+  ok('the description names the day it was dated to', /2026-08-26/.test(said(a)))
+  ok('...the figure that was matched', /\$22,783\.34/.test(said(a)))
   ok('...both halves of the split that agreed',
-     /\$19,522\.72/.test(a.plain_english) && /\$3,260\.62/.test(a.plain_english))
+     /\$19,522\.72/.test(said(a)) && /\$3,260\.62/.test(said(a)))
   ok('...the next day and how far past it is',
-     /\$23,131\.77/.test(a.plain_english) && /\$348\.43/.test(a.plain_english))
-  ok('...says the date was measured rather than stated', /measured rather than guessed/.test(a.plain_english))
+     /\$23,131\.77/.test(said(a)) && /\$348\.43/.test(said(a)))
+  // Both halves of the claim, not one phrasing of it: the screen states no date,
+  // AND the one filed was measured. Stronger than the single phrase this
+  // replaced, which the cont. 6 rewrite happened to reword.
+  ok('...says the date was measured rather than stated',
+     /measured/.test(said(a)) && /prints no date|never says which day/.test(said(a)), said(a))
   ok('...and that the date is only as good as the export',
-     /only as good as the export/.test(a.plain_english), a.plain_english)
+     /only as good as the export/.test(said(a)), said(a))
   ok('the title says the date was derived, before anyone opens the description',
      /2026-08-26/.test(a.title) && /dated from the transaction export/.test(a.title), a.title)
 
@@ -688,8 +700,17 @@ section('5c — the derived date reaches the action, the payload and the screen'
      (sa.payload as any).statement_date === '2026-08-20')
   ok('...even though the export would have said 2026-08-26',
      (sa.payload as any).date_source === 'screen' && (sa.payload as any).dated_by_export === null)
+  // The screen stated its own date, so no ledger measurement was made and none
+  // may be described — in EITHER half of the card. Reverted to a negative over
+  // the whole card rather than the visible half: a claim that moved into
+  // `working` would still be a claim the tool never earned.
+  // `sa`, not `a`. Every line around it tests the STATED-date plan; this one
+  // reached back to the derived-date action from the scenario above, so it was
+  // asserting that a card which DID measure a date does not describe measuring
+  // one. It passed only because the phrase it looked for happened to sit in a
+  // fragment that scenario did not render. Caught when cont. 6 moved the working.
   ok('...and the description does not show working it never did',
-     !/running total/.test(sa.plain_english), sa.plain_english)
+     !/running total is/.test(said(sa)), said(sa))
 
   // ── NO EXPORT: BLOCKED, EXACTLY AS BEFORE ────────────────────────────────
   const bare = buildPlan(ctxOf({ agreementTerms: AGREEMENT_DATED, portal: overviewOf(), csv: null }))
@@ -708,7 +729,7 @@ section('5c — the derived date reaches the action, the payload and the screen'
      'a note about an export that is not in the set would be a report on a search nobody ran')
   ok('...and the question ends where it always did too',
      bare.unresolved.some(u => /date was this screenshot/i.test(u.question) &&
-       /lender anchor this loan has never had\.$/.test(u.what_would_answer_it)))
+       /lender anchor this loan has never had\.$/.test(`${u.what_would_answer_it} ${u.working || ''}`)))
   ok('...and it still cannot be approved', checkApproveList(bare, [ba.id])?.code === 'blocked_actions')
 }
 
@@ -734,7 +755,7 @@ section('5d — when the export is there and still cannot say')
      /One figure agreeing is not enough/.test(split.a.blocked_reason!))
   ok('...and the question stays open, with the candidate in it',
      split.plan.unresolved.some(u => /date was this screenshot/i.test(u.question) &&
-       /2026-08-26/.test(u.what_would_answer_it)))
+       /2026-08-26/.test(`${u.what_would_answer_it} ${u.working || ''}`)))
 
   // ── ONLY THE AUGUST FILE. The critical case, end to end: the running total is
   // $11,192.29 light from the first day, so an unguarded match would be weeks out.
@@ -1148,7 +1169,7 @@ section('the PayPal bundle, wired end to end (session 263 cont.)')
      conflicted.unresolved.some(u => /which of this lender's own documents/i.test(u.question)),
      JSON.stringify(conflicted.unresolved.map(u => u.question)))
   ok('...and it says neither figure was used',
-     conflicted.unresolved.some(u => /Neither was used/.test(u.what_would_answer_it)))
+     conflicted.unresolved.some(u => /Neither was used/.test(`${u.what_would_answer_it} ${u.working || ''}`)))
 }
 
 section('the ledger and the agreement are not the same kind of evidence')
@@ -1309,7 +1330,7 @@ section('C — the loan record is checked against terms from ANY lender document
   const dateAct = plan.actions.find(a => a.kind === 'apply_term_to_loan' && (a.payload as any)?.field === 'original_date')
   ok('the blank origination date is offered from the ledger', !!dateAct, JSON.stringify(plan.actions.map(a => a.title)))
   ok('...and the row names the transaction history, not an agreement',
-     !!dateAct && /transaction history/.test(dateAct.plain_english), dateAct?.plain_english)
+     !!dateAct && /transaction history/.test(said(dateAct)), dateAct?.plain_english)
 
   // A record that already matches one basis is corroborated, not challenged.
   const right = buildPlan(ctxOf({
@@ -1406,7 +1427,7 @@ section('§5 — whose balance is "your books", and is it the same day (cont. 4)
      !JSON.stringify(lenderOnly.conflicts).includes('12,631.38'))
   ok('...replaced by a question naming what is missing',
      lenderOnly.unresolved.some(u => /Do your books agree with the lender/.test(u.question) &&
-                                     /rebuilt from your own ledger/.test(u.what_would_answer_it)),
+                                     /rebuilt from your own ledger/.test(`${u.what_would_answer_it} ${u.working || ''}`)),
      JSON.stringify(lenderOnly.unresolved.map(u => u.question)))
 
   // ── SAME DAY, BOOK-SOURCED: compares exactly as before ────────────────
@@ -1452,7 +1473,7 @@ section('§5 — whose balance is "your books", and is it the same day (cont. 4)
      !uncovered.conflicts.some(c => c.key === 'balance_vs_lender'),
      JSON.stringify(uncovered.conflicts.map(c => c.key)))
   ok('...and asks for the thing that would settle it',
-     uncovered.unresolved.some(u => /balance is dated 2026-01-05 and the lender's is dated 2026-09-02/.test(u.why_it_matters)),
+     uncovered.unresolved.some(u => /balance is dated 2026-01-05 and the lender's is dated 2026-09-02/.test(`${u.why_it_matters} ${u.working || ''}`)),
      JSON.stringify(uncovered.unresolved.map(u => u.why_it_matters)).slice(0, 260))
 
   // A gross-basis book row must be rolled by the TOTAL taken, not the principal.
@@ -1483,7 +1504,7 @@ section('the itemised screen is not described by the paid identity (cont. 4)')
   ok('it does NOT claim the screen states total-due-less-paid',
      !/total due less the amount paid to date/.test(text), text.slice(0, 200))
   ok('it describes what this screen actually prints',
-     /two lines add up/.test(text), text.slice(0, 260))
+     /of principal and .* of fee still owed come to/.test(text), text.slice(0, 300))
 }
 
 
