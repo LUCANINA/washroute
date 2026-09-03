@@ -212,7 +212,23 @@ function buildJournalLines(lineItems: any[]) {
   ]
 }
 
-Deno.serve(async (req) => {
+// ── SESSION 266: CORS. This function had NONE ────────────────────────────────
+// It was written in session 205 and only ever called from a script, so nothing
+// ever sent it a browser preflight. The moment the Bookkeeping module called it
+// from the dashboard, every request died as "Failed to fetch" before reaching
+// the server: a POST with Content-Type: application/json triggers an OPTIONS
+// preflight, this function had no OPTIONS branch, and it answered by trying to
+// read a JSON body that a preflight does not have.
+//
+// Identical to the fix loan-xero-post, loan-ingest-statement and
+// loan-generate-schedule-split all needed on 2026-08-05 (commit 350b33e). Third
+// time for this exact shape: a function is browser-callable only if it says so.
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+async function handleRequest(req: Request): Promise<Response> {
   try {
     await requireAdmin(req)
     const { payout_id, confirm } = await req.json()
@@ -360,4 +376,19 @@ Deno.serve(async (req) => {
   } catch (err) {
     return new Response(JSON.stringify({ error: String((err as any)?.message || err) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
+}
+
+Deno.serve(async (req) => {
+  // Before requireAdmin and before any body read: a preflight carries neither a
+  // session nor a body, and answering it is the whole point.
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
+  const res = await handleRequest(req)
+  // Merge onto EVERY response, not just the happy path. A 409 or 502 without CORS
+  // headers reaches the browser as "Failed to fetch" -- the error the user sees
+  // would hide the error the function actually returned, which is worse than the
+  // failure itself.
+  const merged = new Headers(res.headers)
+  for (const [k, v] of Object.entries(cors)) merged.set(k, v)
+  if (!merged.has('Content-Type')) merged.set('Content-Type', 'application/json')
+  return new Response(res.body, { status: res.status, headers: merged })
 })
