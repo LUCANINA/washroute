@@ -1205,15 +1205,20 @@ GROUPS.push({
       const byLoan = {};
       for (const r of rows) {
         const sc = r.loan_amortization_schedules; if (!sc || !sc.loan_account_id) continue;
-        (byLoan[sc.loan_account_id] = byLoan[sc.loan_account_id] || new Set()).add(sc.source || '');
+        (byLoan[sc.loan_account_id] = byLoan[sc.loan_account_id] || []).push({ source: sc.source || '', amort_type: sc.amort_type || '', id: sc.id });
       }
       const out = {};
       for (const a of (window.__WR_FIXTURE.loan_accounts || [])) {
-        const srcs = [...(byLoan[a.id] || [])];
+        const seenIds = new Set();
+        const pairs = (byLoan[a.id] || []).filter(x => !seenIds.has(x.id) && seenIds.add(x.id));
         out[a.xero_account_name || a.lender_account_number || ''] = {
           // Mirrors the page's allowlist. An unknown source is NOT genuine.
-          real: srcs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x)),
-          derivedOnly: srcs.length > 0 && !srcs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x)),
+          // Mirrors the page: parse-sourced AND actually a schedule. A payment
+          // history parses the same way a contract does and is not one.
+          real: pairs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x.source)
+                              && ['amortization_schedule', 'Customer'].includes(x.amort_type)),
+          derivedOnly: pairs.length > 0 && !pairs.some(x => ['claude_assisted_parse', 'client_parsed_verified'].includes(x.source)
+                              && ['amortization_schedule', 'Customer'].includes(x.amort_type)),
           basis: a.close_basis || '',
         };
       }
@@ -1232,6 +1237,27 @@ GROUPS.push({
     t.ok(shouldMark.every(n => marked.includes(n)),
          'a loan holding a genuine lender schedule but closed on statements is marked',
          `expected ${shouldMark.join(', ')}; marked ${marked.join(', ') || 'none'}`);
+
+    // A LOAN WHOSE ONLY PARSED ARTEFACT IS A PAYMENT HISTORY IS NOT MARKED.
+    // PayPal 2 is that loan: its CSV parses like a contract and records what was
+    // paid, on a total_payback basis. Provenance alone would have marked it.
+    const payHist = await p.evaluate(() => {
+      const rows = window.__WR_FIXTURE.loan_amortization_rows || [];
+      const out = new Set();
+      for (const r of rows) {
+        const sc = r.loan_amortization_schedules; if (!sc) continue;
+        if (sc.amort_type === 'actual_payment_history_from_lender_csv') out.add(sc.loan_account_id);
+      }
+      const names = [];
+      for (const a of (window.__WR_FIXTURE.loan_accounts || [])) {
+        if (out.has(a.id)) names.push(a.xero_account_name || a.lender_account_number || '');
+      }
+      return names;
+    });
+    t.ok(payHist.length > 0, `a payment-history artefact exists to test against (${payHist.join(', ')})`);
+    t.ok(payHist.every(n => !marked.includes(n)),
+         'a loan whose parsed artefact is a PAYMENT HISTORY is not offered the schedule basis',
+         payHist.filter(n => marked.includes(n)).join(' · '));
 
     const derivedMarked = marked.filter(n => schedProv[n] && schedProv[n].derivedOnly);
     t.ok(derivedMarked.length === 0,

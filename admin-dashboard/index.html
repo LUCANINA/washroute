@@ -19917,12 +19917,31 @@
   // computed from their own statements. Unknown provenance is not permission.
   const _REAL_SCHEDULE_SOURCES = ['claude_assisted_parse', 'client_parsed_verified'];
 
+  // PROVENANCE IS NOT ENOUGH — THE ARTEFACT HAS TO BE A SCHEDULE.
+  // `source` says how a file was read; it does NOT say what the file is. Both
+  // of these parse the same way:
+  //     PCV      amort_type 'amortization_schedule'                 — a contract
+  //     PayPal 2 amort_type 'actual_payment_history_from_lender_csv' — what was PAID
+  // A payment history is a record of the past on a total_payback basis. Closing
+  // a month against it is not closing against the contractual schedule, and
+  // David caught this before the code did: "I don't remember Paypal having an
+  // amortization schedule per se."
+  //
+  // 'Customer' is here because Dexter's two schedules carry it — the label the
+  // parse took off a Dexter Financial customer-copy amortization PDF (the files
+  // are literally *_Amortization.pdf, 86 and 97 dated rows, principal_only).
+  // It is an unhelpful label on a genuine schedule; see the notes for the
+  // normalisation that should replace it. Allowlist, so any NEW amort_type is
+  // excluded until someone looks at it.
+  const _SCHEDULE_AMORT_TYPES = ['amortization_schedule', 'Customer'];
+
   function _bkRealSchedulesFor(loanId) {
     const seen = new Map();
     for (const r of (_allLoanAmortRows || [])) {
       const sc = r.loan_amortization_schedules;
       if (!sc || sc.loan_account_id !== loanId || !sc.id) continue;
-      if (!_REAL_SCHEDULE_SOURCES.includes(sc.source)) continue;
+      if (!_REAL_SCHEDULE_SOURCES.includes(sc.source)) continue;   // how it was read
+      if (!_SCHEDULE_AMORT_TYPES.includes(sc.amort_type)) continue; // what it IS
       if (!seen.has(sc.id)) seen.set(sc.id, sc);
     }
     return [...seen.values()];
