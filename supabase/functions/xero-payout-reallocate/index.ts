@@ -379,7 +379,15 @@ async function handleRequest(req: Request): Promise<Response> {
       xero_bank_transaction_id: original.BankTransactionID,
       xero_manual_journal_id: journal?.ManualJournalID ?? null,
       synced_at: new Date().toISOString(),
-      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents },
+      // Session 266: clear the failure state, or a row that is now CORRECT keeps
+      // wearing the panic message that was true before it was fixed. This row
+      // carried "DOUBLE-POSTED ... NOT yet corrected" straight through a
+      // successful post, which is worse than no message: the next reader trusts
+      // it, and xero-payout-watchdog's retry gate reads failure_kind.
+      error_message: null,
+      failure_kind: null,
+      next_retry_at: null,
+      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied },
     }, { onConflict: 'stripe_payout_id' })
 
     return new Response(JSON.stringify({

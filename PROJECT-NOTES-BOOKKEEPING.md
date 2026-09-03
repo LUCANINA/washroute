@@ -34,7 +34,25 @@
 >   payload was fired manually once and returned 200 with the default 45-day window — the job
 >   is proven, not assumed.
 >
-> ### ⚠️ THE TRAP THIS SESSION FOUND, and it is not about payouts
+> ### 🔴 THE RULE THIS SESSION PAID FOR — CHECK THE ACCOUNT, NOT JUST THE PIPELINE
+>
+> **Session 266 double-posted $10,630.05 into July.** The 22 July payout was booked through
+> `new_bank_transaction` when July's payouts use `reallocation_journal`, so a second
+> transaction landed beside the bank-feed deposit that was already there. The idempotency
+> pre-check searches for Reference `Stripe payout <id>`; a bank-feed deposit has no reference,
+> so the guard ran and saw nothing. **The preflight asked whether the pipeline would duplicate
+> and never asked whether the money was already in Xero in a different shape.** Corrected the
+> same afternoon (633d4439 deleted; journal `4ca27ebc` posted instead).
+>
+> **Before posting ANYTHING to Xero, read the account you are about to post into** — one
+> `xero-read bank_transactions` call on the date and amount. Our own records and the
+> function's own guard are not the same thing as looking.
+>
+> ⚠️ **STILL OPEN: `xero-payout-sync` does not do this check.** David chose it ("check the
+> account first — refuse rather than post alongside") and it is NOT built. Until it is, the
+> only thing standing between a historical catch-up and a second double-post is remembering.
+>
+> ### ⚠️ THE OTHER TRAP THIS SESSION FOUND, and it is not about payouts
 >
 > **A `dry_run` writes nothing — including no record that a decision is pending.** The 22 July
 > payout was BLOCKED by a correct safety check (one unclassifiable $18.27 charge). Whoever ran
@@ -50,6 +68,13 @@
 > know about.* Ask the outside system what it thinks happened.
 >
 > ### 🌅 NEXT — in this order
+>
+> **0. 🔴 BUILD THE PRE-POST ACCOUNT CHECK IN `xero-payout-sync`.** David asked for it, it is
+>    the direct root-cause fix for the double-post above, and it is the one item on this list
+>    whose absence can lose money rather than time. Before posting, look for an existing
+>    transaction at that date and amount on the bank account REGARDLESS OF REFERENCE, and
+>    refuse rather than posting alongside it. Reference-matching is not enough and that is
+>    precisely what was proven today.
 >
 > **1. 🟠 `stripe-terminal` never writes its PaymentIntent back to an order.** The
 >    `charge_reader` action creates a PI with description "WashRoute POS sale" and nothing links
@@ -2090,6 +2115,58 @@ to "what is running".
 ---
 
 ---
+
+### Session 267 (2026-09-03) — SCOPE REDUCTION DECIDED, AND PAYROLL VERIFIED CLEAN TO THE CENT
+
+**David called the module out of focus and asked to cut it back.** The decisions are in
+`docs/bookkeeping/SCOPE-REDUCTION-2026-09.md` and that document, not this entry, is the
+reference. Headlines: the one job is loan payments → Xero; the surface target is ONE page
+with one list of exceptions and four permitted row kinds; the cut posture is hide the UI
+hard and keep the code; **pre-staging is the feature David actually wants** (Ramona's Match
+in Xero is less work than his Post here), so the one-click flow is the FALLBACK, not the
+main road.
+
+#### The payroll department mapping is correct — measured, not assumed
+
+David kept Payroll but was not sure it was right, so it got a verification pass before any
+other work. **All ten department accounts tie to the source data exactly, to the cent.**
+
+* **Config:** all 5 departments' wage and tax codes verified against Xero itself
+  (`xero-read` mode `accounts`) — every code exists, is ACTIVE, is class EXPENSE, and its
+  name matches what `payroll_departments` records. Not one drifted.
+* **Employee mapping:** 254 of 255 import lines matched an employee, and every matched
+  line's department agrees with that employee's. The single unmatched line is the Square
+  insurance-reimbursement run (`line_type='reimbursement_only'`, $0 wages) which has no
+  department by design.
+* **Journals:** DB source totals vs the net of every POSTED journal touching each account —
+  **0.00 difference on 9 of 10.** 668 nets −$81,295.86 because the `668-MISROUTE-FIX`
+  journal corrects eight Square PAYROLL *bank transactions* a since-deleted bank rule coded
+  straight into 668; add those back and 668 ties too.
+
+#### Two traps this hit, both instances of rules already in this file
+
+1. **Per-journal, two periods looked WRONG. Netted, both were right.** 2026-07-03's tax
+   accounts were over by exactly its EE CA withholding ($803.49) and 2026-07-10's wage
+   accounts were under by exactly its tips ($7,038.00) — and `CA-DOUBLECOUNT-REVERSAL`,
+   `171-CATCHUP` and `TIPS-BENEFITS-CATCHUP` (all dated 2026-07-31) resolve them to zero.
+   A textbook run of **A TRANSACTION IS NEVER THE WHOLE ANSWER**; reading either journal
+   alone would have raised a false alarm on money that was already fixed.
+2. **Two incomplete result sets nearly became two wrong conclusions.** `Narration.Contains`
+   in Xero is CASE-SENSITIVE, so filtering on `"Payroll"` silently dropped all five July
+   journals, which use the older `"Allocate Square payroll …"` wording. Then a date-range
+   pull returned `count: 120` with **`not_attempted: 45`** and omitted all four August
+   payroll journals, producing a first net that showed six-figure shortfalls across every
+   account. Both looked like findings. **Check that the set you netted contains the rows you
+   meant to net** — `not_attempted` is not zero-cost metadata, it is the size of the blind
+   spot.
+
+#### Open, not investigated
+
+* The 2026-08-21 import sits at `reviewed` with `attention_flag='insufficient_balance'`,
+  unposted. Nothing after it: **no import exists for the 8/28 pay date.**
+* **Nothing in the product performs the check this session performed by hand.** Payroll
+  reports that it posted; no surface asks whether it is still right afterwards. Under the
+  scope reduction that is a kind-2 row waiting to exist, not a new tab.
 
 ### Session 265 (2026-09-03) — THE TEST SUITE COULD NOT SEE THE ROWS IT WAS TESTING, AND TWO SURFACES WERE ELEVEN APART
 
@@ -6846,10 +6923,68 @@ whose grants say "anon may DELETE" is one policy mistake from meaning it.
 `session_266_stripe_txn_overrides_revoke_anon` fixes it. **Check grants after every CREATE TABLE
 until the cutover; the GRANT in the migration is not the last word.**
 
+#### ⛔ AND THEN I DOUBLE-POSTED IT — the most expensive lesson of the day
+
+**The 22 July payout was booked through the WRONG MECHANISM and put $10,630.05 into the
+books twice.** David caught it by eye on the August P&L: July's Delivery - Wash & Fold read
+$153,395.94 against the $143,456.62 on the account report he had sent that morning, and the
+difference was exactly the delivery share of the payout I had just posted.
+
+**July payouts use `reallocation_journal`; August onward uses `new_bank_transaction`. I had
+established that in the first twenty minutes, written it down, and then posted July through
+the August path anyway.** The bank feed had already created the deposit (ce40f5c4, contact
+"Family Laundry", reconciled, coded in full to 403); `xero-payout-sync` created a SECOND
+transaction beside it.
+
+**The idempotency pre-check could not see it.** It searches Xero for a transaction whose
+Reference is `Stripe payout <id>` — and a bank-feed deposit carries no reference at all. So
+it found nothing, concluded the payout was unbooked, and posted. The guard was real, it ran,
+and it was blind to the only case that mattered.
+
+> **The preflight asked whether the PIPELINE would duplicate. It never asked whether the money
+> was already in Xero in a different SHAPE.** One `xero-read` call before posting would have
+> answered it. This is session 232's rule — a transaction is never the whole answer — turned
+> around: I checked our records and the pipeline's own guard, and never looked at the account
+> I was about to post into.
+
+Recovery: David deleted 633d4439 in Xero (unreconciled, so `Remove & Redo` removed it
+cleanly), and the correct reallocation journal was posted instead — **4ca27ebc-9901-4856-bb25-84e2f2593603**,
+POSTED, 2026-07-22, the only journal on that date. Verified by reading Xero, not by trusting
+the response.
+
+**Four defects surfaced only because a real person clicked the button:**
+
+1. **`xero-payout-reallocate` had NO CORS.** Written session 205, only ever called from a
+   script, so no browser had ever sent it a preflight. Every click died as "Failed to fetch"
+   before reaching the server. Third time for this exact shape (350b33e fixed three others on
+   2026-08-05). Headers now go on EVERY response — a 409 or 502 without them reaches the
+   browser as a generic fetch failure, hiding the message the reader most needs.
+2. **The override lookup existed in only one of two classifiers.** `xero-payout-reallocate`
+   carries its own copy of `classifyPayout`; adding `stripe_txn_overrides` to the sync did not
+   reach it, so it refused the very payout that fix had unblocked. Fixed by EXTRACTION
+   (`_shared/txn-overrides.ts`), not by pasting it into the second file — the copy is what
+   caused this, and a third copy was the obvious next mistake. **The two 180-line
+   `classifyPayout` implementations remain live tech debt.**
+3. **The modal rendered `error` and not `blocked_reason`**, so a refusal that knew exactly
+   what was wrong displayed the single word "blocked". A refusal with its evidence deleted.
+4. **The reallocate upsert never cleared `error_message`/`failure_kind`,** so the row wore
+   "DOUBLE-POSTED ... NOT yet corrected" straight through a successful post. Worse than no
+   message, because the next reader believes it — and the watchdog's retry gate reads
+   `failure_kind`.
+
+**And four found in my own UI during QA, before it shipped:** `esc()` used where `escJS()` is
+required inside an onclick; a Stripe payout-list request fired on every one of thirteen
+re-render paths; the ambiguous-write handler writing into a DIFFERENT modal's body (the most
+important message in the flow, sent somewhere invisible, with its toast fallback dead because
+the element exists regardless); and Escape not closing the modal.
+
 #### What actually changed in the books
 
-* Xero bank transaction **`633d4439-f389-48bd-ae0e-634b263bbb3e`**, dated 2026-07-22, ten line
-  items totalling **$10,630.05** — the payout to the cent, nothing unclassified.
+* ⚠️ **Xero bank transaction `633d4439` was the double-post and is DELETED.** The correct
+  entry is manual journal **`4ca27ebc-9901-4856-bb25-84e2f2593603`**, dated 2026-07-22,
+  $2,218.78 each side, against the untouched bank deposit `ce40f5c4`. Its ten lines were
+  computed twice independently — by hand from the sync's dry run, and by
+  `xero-payout-reallocate` from Stripe — and agreed to the cent on every line.
 * **403 Delivery - Wash & Fold, July: $143,456.62 → $142,765.89.** It had been overstated by
   $690.73 (gross payout instead of delivery share). 404, 405, 401, 461, 605, 828, 345 and 346
   each picked up their piece.
