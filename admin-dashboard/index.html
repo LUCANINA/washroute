@@ -11871,12 +11871,12 @@
     }
     const b = _loansCloseBlockers(closingMonth);
     const pip = b == null ? 'live' : (b.count ? 'warn' : 'ok');
-    // Session 267, David: "remove '10 to clear' (the list is self explanatory)".
-    // LESS IS BEST test 2 — the rows are RIGHT THERE underneath; two statements
-    // of one fact is the defect, not the redundancy. The pip still carries the
-    // blocked/clear state, which the list alone does not say at a glance, and
-    // Overview keeps its own copy of the count because Overview has no list.
-    const badge = '';
+    // Overview KEEPS its count. David's "the list is self explanatory" is true on
+    // the Loans page, where the rows sit directly under the bar — it is not true
+    // here, where there is no such list and this badge is the only statement of
+    // how much is left. (Removed from here by mistake first: two near-identical
+    // call sites, and I read the wrong one.)
+    const badge = b && b.count ? `<span class="lpb-count">${b.count} to clear</span>` : '';
     el.innerHTML = `
       <div class="lpb-seg" role="tablist" aria-label="Accounting period">
         <button id="bk-ov-lpb-closing" role="tab" class="${_loansPeriod === 'closing' ? 'on' : ''}"
@@ -17202,8 +17202,11 @@
     }
 
     const pip = b == null ? 'live' : (b.count ? 'warn' : 'ok');
-    const badge = b && b.count
-      ? `<span class="lpb-count">${b.count} to clear</span>` : '';
+    // Session 267, David: "remove '10 to clear' (the list is self explanatory)".
+    // LESS IS BEST test 2 — the rows are RIGHT THERE underneath this bar, so the
+    // count restates what the list shows. The pip keeps the blocked/clear state,
+    // which the list alone does not say at a glance.
+    const badge = '';
 
     // ── THE CLOSE DATE, BESIDE THE TABS ──────────────────────────────────
     // David: "If 'Books closed through 2026-06-30' is load bearing put it to the

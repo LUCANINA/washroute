@@ -1326,6 +1326,43 @@ GROUPS.push({
   },
 });
 
+/* 2d ── THE COUNT BADGE BELONGS ON OVERVIEW ONLY ─────────────────────────────
+   Session 267. David asked twice for "N to clear" to go, and the first attempt
+   removed it from the WRONG page — two near-identical call sites, one in
+   renderOverviewPeriodBar and one in renderLoansPeriodBar. This pins both ends
+   so the same mistake cannot be made silently again.
+
+   It is not symmetric and that is the point: on Loans the rows sit directly
+   under the bar, so the count restates the list; on Overview there is no list
+   and the badge is the only statement of how much is left. */
+GROUPS.push({
+  name: 'period-bar-count',
+  async run(t) {
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const seen = await p.evaluate(() => {
+        const bar = document.getElementById('bk-loans-period-bar') ||
+                    document.querySelector('#bk-view-loans .lpb-seg')?.parentElement;
+        return { text: bar ? bar.innerText.replace(/\s+/g, ' ') : '(no bar)',
+                 counts: bar ? bar.querySelectorAll('.lpb-count').length : -1 };
+      });
+      t.ok(seen.counts === 0, 'the LOANS period bar carries no "N to clear" badge', JSON.stringify(seen));
+      t.ok(!/to clear/i.test(seen.text), 'and the words do not appear on it either', seen.text);
+      await p.close();
+    }
+    {
+      const p = await newHarnessPage({ tab: 'overview' });
+      const seen = await p.evaluate(() => {
+        const el = document.getElementById('bk-view-overview');
+        return { counts: el ? el.querySelectorAll('.lpb-count').length : -1,
+                 text: el ? (el.innerText.match(/\d+ to clear/) || ['(none)'])[0] : '(no view)' };
+      });
+      t.ok(seen.counts >= 1, 'OVERVIEW keeps its count — it has no list beneath it', JSON.stringify(seen));
+      await p.close();
+    }
+  },
+});
+
 /* 3 ── TAB-SWITCH RACES ──────────────────────────────────────────────────── */
 GROUPS.push({
   name: 'tab-races',
