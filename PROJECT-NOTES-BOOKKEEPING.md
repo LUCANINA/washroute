@@ -2,20 +2,33 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 267, 2026-09-03 20:35 UTC)
 >
-> ### 🔴 ONE THING IS WAITING ON A HUMAN IN XERO — $1,752.09
+> ### ✅ PAYROLL IS DONE AND MEASURED — nothing here is waiting on anyone
 >
-> Post this manual journal, dated **2026-08-31**, and 171's negative balance is gone:
-> **DEBIT 171 Direct Payroll Taxes $1,752.09 / CREDIT 170 Direct Wages $1,752.09.** It moves
-> the Aug 7 / 11 / 14 payroll credits out of 171 and into 170, where their EDD remittances
-> actually landed. Leaves 171 at **+$796.29**, which is the Feb 2026 EDD payment ($796.15) plus
-> 14¢ of IRS-refund rounding — both pre-system, both Ramona's call. **DO NOT also "fix" July:
-> it nets to exactly zero and is correct as it stands.** Full reasoning: session 267 log.
+> Everything session 267 opened is closed, and closed by MEASUREMENT rather than by assuming:
 >
-> Payroll itself is unblocked and PROVEN live — 2026-08-21 posted at 20:26 UTC as journal
-> `85b8abf8`, one credit to 170, no 171 line. **`payroll-xero-post` v23 (`verify_jwt: true`)
-> and `payroll-check-attention` v5 (`verify_jwt: false`) — the two flags DIFFER, do not deploy
-> them alike.** Commit `60f181f`, **not yet pushed** — David pushes from his own terminal.
-> The 2026-08-28 payroll has still never been imported.
+> * **The 2026-08-21 payroll posted** at 20:26 UTC — Xero journal `85b8abf8`, read back from
+>   Xero: one credit line `170 -$21,498.80`, **no 171 line**, both sides $22,090.89.
+> * **David posted the $1,752.09 correction** (DEBIT 171 / CREDIT 170, dated 2026-08-31),
+>   moving the Aug 7 / 11 / 14 credits to where their EDD cash landed. **Verified live:**
+>   `payroll-check-attention` re-read Xero's trial balance and returned the legacy-171 notice
+>   at **`amount: 796.29`** — the predicted figure to the cent.
+> * **171 now holds exactly $796.29 and nothing else will ever clear it:** the 2026-02-06 EDD
+>   payment ($796.15) plus 14¢ (the Feb IRS payment $4,593.08 less its Aug refund $4,592.94).
+>   Both predate this system. **Ramona's call — do not clear either from here.** The standing
+>   notice now says so on screen, and it is ACTIVE (it was dormant while 171 was negative).
+> * **DO NOT "fix" July.** $4,465.21 in, $4,465.21 out, nets to zero, correct as it stands.
+>   Only August straddled the model change. This is the tempting wrong move.
+>
+> **`payroll-xero-post` v23 (`verify_jwt: true`) and `payroll-check-attention` v5
+> (`verify_jwt: false`) — the two flags DIFFER, do not deploy them alike.** Commits `60f181f`
+> and `5f83ae0`, **pushed**.
+>
+> ### ⏭️ The one payroll thing left, and it is an upload, not a bug
+>
+> **The 2026-08-28 period has never been imported.** Its EDD ($655.16) and IRS ($4,230.38)
+> payments already landed in 170 on the 28th, so the period is real and the cash is there — the
+> Square CSV just has not been uploaded. Expect a draw near $21,500 against a 170 balance of
+> roughly $23,071, so it should clear with less headroom than usual.
 >
 > **Everything below this line was left by session 266 (18:05 UTC) and is still current
 > unless session 267 contradicted it.**
