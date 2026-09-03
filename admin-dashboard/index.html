@@ -3961,6 +3961,23 @@
                  assuming it, and a portal screenshot's "amount remaining" is what
                  says which of two possible meanings the books' balance carries.
                  Nothing here writes until the tickboxes are approved. -->
+            <!-- Session 267: host for the Action column's "Find the fix". The
+                 analysis and posting are bkFindDifference / bkPostFdiffFix,
+                 unchanged — this only gives them somewhere to render when they
+                 are reached from a rollforward row instead of a findings card. -->
+            <div class="modal-overlay" id="modal-loan-fix" style="display:none;z-index:900">
+              <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+                <div class="modal-header" style="flex-shrink:0">
+                  <div class="modal-title" id="loan-fix-title">Find the difference</div>
+                  <button class="modal-close" onclick="bkCloseFixModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="loan-fix-body" style="overflow-y:auto;flex:1 1 auto;min-height:0"></div>
+                <div class="modal-footer" style="flex-shrink:0">
+                  <button class="btn btn-ghost" onclick="bkCloseFixModal()">Close</button>
+                </div>
+              </div>
+            </div>
+
             <div class="modal-overlay" id="modal-loan-bundle" style="display:none;z-index:900">
               <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
                 <div class="modal-header" style="flex-shrink:0">
@@ -14416,6 +14433,22 @@
     // checked" until something else happens to repaint the table, which reads as
     // "nothing has been reconciled" on the screen David closes the month from.
     renderLoansTable();
+    // Session 267: the rollforward's Action column reads _reconFindings too — a
+    // row only offers "Find the fix" when an open balance_vs_lender finding
+    // exists to walk. The close band paints during the FIRST load, before this
+    // second fetch resolves, so without this the column silently loses the fix
+    // route on every page load and the screen looks perfectly fine without it.
+    // Measured, not assumed: 0 fix buttons before this call, 6 after.
+    // This is the third surface in this function that reads findings and has to
+    // repaint when they arrive. If a fourth starts reading them, add it here.
+    //
+    // GUARDED, because this tail also runs on the FAILURE path. Repainting the
+    // close band with no loan data does not degrade it — it renders nothing at
+    // all, wiping a table that the first load had drawn correctly. A repaint
+    // that can destroy a good render is worse than a missing one, and the
+    // loader-failure suite caught exactly that: 91 assertions became one error
+    // reading "no Loan column — headers are []".
+    if ((_allLoanAccounts || []).length) renderLoansCloseBand();
     _bkRefreshVisibleBookkeeping();
   }
 
@@ -17602,8 +17635,25 @@
           return { kind: 'ask',
                    cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file predates the month being closed, so this difference is measured against a stale anchor — nobody can evaluate it as it stands. Upload the current statement before treating it as a gap.">Ask for statement</button>` };
         }
+        // A REAL DIFFERENCE, ANCHORED ON A CURRENT DOCUMENT. This goes to the
+        // EXISTING "Find the difference" flow, which already does the whole safe
+        // job: re-walks both histories, states the diagnosis, shows the proposed
+        // correcting journal, gates the button on role, dates the entry past the
+        // close date, re-runs the analysis on approval and refuses if anything
+        // moved. A second posting path beside it would be the duplicate-journal
+        // risk, not a feature — what was missing was never the machinery, it was
+        // a way in from the row where the problem is actually noticed.
+        //
+        // It still proposes NOTHING where the shape is not mechanically safe;
+        // that refusal lives on the server and this button cannot talk it round.
+        const finding = (_reconFindings || []).find(f =>
+          f.loan_account_id === a.id && f.check_key === 'balance_vs_lender' && f.status === 'open');
+        if (finding) {
+          return { kind: 'fix',
+                   cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="Walk this loan's history against the lender's. Where the difference has one mechanically safe explanation, the correcting journal is shown for your approval. Read-only until you approve it.">Find the fix</button>` };
+        }
         return { kind: 'investigate',
-                 cell: '<span class="lcb-quiet lcb-noact" title="A real difference with no established cause. Deliberately NO one-click journal here: booking the difference to make the books agree would hide the reason rather than find it. Open the loan, or hover the Variance cell for what is known.">Needs a look</span>' };
+                 cell: '<span class="lcb-quiet lcb-noact" title="A real difference with no open balance-vs-lender finding to walk, so there is nothing for the analyser to work from. Deliberately NO one-click journal: booking a difference to make the books agree hides the reason rather than finding it.">Needs a look</span>' };
       })();
       const openCell = r.opening
         ? bare(r.opening.amount)
@@ -20005,6 +20055,31 @@
     showToast(basis === 'amortization_schedule' ? 'Now closing on the schedule.' : 'Now closing on statements.', 'success');
     openLoanDetailModal(loanId);
     if (typeof renderLoansCloseBand === 'function') renderLoansCloseBand();
+  }
+
+  // Host for the existing "Find the difference" detective, opened from the
+  // rollforward's Action column. It builds the two containers bkFindDifference
+  // writes into (#fdiff-btn-<id> and #fdiff-out-<id>) and then calls it — so the
+  // analysis, the approval gate and the posting are the SAME code the findings
+  // card uses. Nothing about how a correction reaches Xero is duplicated here.
+  function bkOpenFixModal(findingId, loanId) {
+    const a = (_allLoanAccounts || []).find(x => x.id === loanId);
+    const host = document.getElementById('modal-loan-fix');
+    if (!host) return;
+    document.getElementById('loan-fix-title').textContent =
+      `${(a && (a.xero_account_name || a.lender_account_number)) || 'Loan'} — find the difference`;
+    document.getElementById('loan-fix-body').innerHTML =
+      `<div id="fdiff-out-${esc(findingId)}"><div style="font-size:13px;color:var(--gray-500)">Walking this loan's history against the lender's — this takes up to a minute. Nothing is written until you approve it.</div></div>
+       <button type="button" id="fdiff-btn-${esc(findingId)}" style="display:none"></button>`;
+    host.classList.add('open');
+    host.style.display = '';
+    bkFindDifference(findingId, loanId);
+  }
+  function bkCloseFixModal() {
+    const host = document.getElementById('modal-loan-fix');
+    if (!host) return;
+    host.classList.remove('open');
+    host.style.display = 'none';
   }
 
   function openLoanDetailModal(loanAccountId) {

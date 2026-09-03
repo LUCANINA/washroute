@@ -1264,6 +1264,49 @@ GROUPS.push({
          'a loan whose ONLY schedule was derived from its own statements is NOT marked',
          derivedMarked.join(' · '));
 
+    // THE FIX ROUTE. A red row with an open balance_vs_lender finding offers
+    // "Find the fix", which opens the EXISTING analyser. The assertion that
+    // matters is not that a button exists — it is that the button never appears
+    // on a row with no finding to walk, because the analyser would have nothing
+    // to work from and the person would be sent to a dead end.
+    const dbg = await p.evaluate(() => {
+      try {
+        const f = (typeof _reconFindings !== 'undefined') ? _reconFindings : null;
+        return { visible: f !== null, len: f ? f.length : -1,
+                 sample: f && f[0] ? Object.keys(f[0]).slice(0, 12) : [],
+                 openBvl: f ? f.filter(x => x.check_key === 'balance_vs_lender' && x.status === 'open').length : -1 };
+      } catch (e) { return { err: String(e && e.message) }; }
+    });
+    // THE FIRST PAINT MUST ALREADY BE RIGHT. The close band renders before the
+    // findings fetch resolves, so a surface that reads findings has to repaint
+    // when they arrive. Forcing a re-render must change NOTHING — if it adds
+    // buttons, the page a person actually looks at is missing them.
+    const rerender = await p.evaluate(() => {
+      const count = () => [...document.querySelectorAll('#lcb-table tbody tr')]
+        .filter(tr => tr.lastElementChild && tr.lastElementChild.getAttribute('data-action') === 'fix').length;
+      const before = count();
+      if (typeof renderLoansCloseBand === 'function') renderLoansCloseBand();
+      return { before, after: count() };
+    });
+    t.ok(rerender.after === rerender.before,
+         'the rendered page already shows every fix button — a re-render adds none',
+         JSON.stringify(rerender));
+    const fixRows = seen.rows.filter(r => r.action === 'fix');
+    const findingLoans = await p.evaluate(() => {
+      const f = (window.__WR_FIXTURE.reconciliation_findings || [])
+        .filter(x => x.check_key === 'balance_vs_lender' && x.status === 'open')
+        .map(x => x.loan_account_id);
+      const set = new Set(f);
+      return (window.__WR_FIXTURE.loan_accounts || [])
+        .filter(a => set.has(a.id))
+        .map(a => a.xero_account_name || a.lender_account_number || '');
+    });
+    t.ok(fixRows.length > 0, `at least one row offers the fix route (${fixRows.map(r => r.loan).join(', ')})`,
+         'actions seen: ' + seen.rows.map(r => `${r.loan}=${r.action || 'none'}/band=${r.band||'-'}`).join(' | '));
+    t.ok(fixRows.every(r => findingLoans.includes(r.loan)),
+         'the fix route is only offered where an open balance_vs_lender finding exists to walk',
+         fixRows.filter(r => !findingLoans.includes(r.loan)).map(r => r.loan).join(' · '));
+
     // A row that ties gets no action: a column that always says something is a
     // column people stop reading.
     const tiedWithAction = seen.rows.filter(r => r.band === 'tie' && r.actionText);
