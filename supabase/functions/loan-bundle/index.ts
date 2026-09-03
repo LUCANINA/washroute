@@ -75,6 +75,7 @@ import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
 import { detectPayPalHistoryCsv, parsePayPalHistoryCsv, type PayPalHistoryParseResult } from '../_shared/paypal-history.ts'
 import { describeBasisMiss, describeBasisObserved } from '../_shared/carrying-basis-drift.ts'
+import { allBalancesForLoan } from '../_shared/book-balances.ts'
 import { findOriginationFeeJournal, classifyFeeDebit, normaliseLedgerEntry, type LedgerEntry, type FeeSearchResult } from '../_shared/origination-fee.ts'
 import { rankFeeCandidates } from './candidates.ts'
 
@@ -524,19 +525,24 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
   }
 
   // ── Everything the planner needs ──────────────────────────────────────────
-  const [stRes, spRes] = await Promise.all([
+  const [stRes, spRes, bbRes] = await Promise.all([
     supa.from('loan_statements').select('*').eq('loan_account_id', loan.id).order('statement_date', { ascending: true }),
     supa.from('loan_splits').select('*').eq('loan_account_id', loan.id).is('voided_at', null),
+    // OUR OWN LEDGER, REBUILT (session 263 cont. 7). Never read here, which is
+    // why the plan could tell David no such balance existed on a loan carrying
+    // three of them. See _shared/book-balances.ts.
+    supa.from('loan_book_balances').select('as_of, balance, basis')
+      .eq('loan_account_id', loan.id).order('as_of', { ascending: true }),
   ])
   // These two are load-bearing for every judgement below. A failed read leaves
   // the arrays empty, which does not look like an error — it looks like a loan
   // with no history, and the planner then reports "not enough evidence" or, far
   // worse, corroborates a carrying basis from arithmetic built on zero payments.
   // Refuse rather than plan against a partial picture.
-  if (stRes.error || spRes.error) {
-    return json({ error: `Could not read this loan's history: ${(stRes.error || spRes.error)!.message}`, wrote_nothing_financial: true }, 500)
+  if (stRes.error || spRes.error || bbRes.error) {
+    return json({ error: `Could not read this loan's history: ${(stRes.error || spRes.error || bbRes.error)!.message}`, wrote_nothing_financial: true }, 500)
   }
-  const statements = stRes.data, splits = spRes.data
+  const statements = stRes.data, splits = spRes.data, bookBalances = bbRes.data
   const cd = await effectiveCloseDate(supa)
 
   // ── COMBINING TWO EXPORTS OF THE SAME LEDGER ──────────────────────────────
@@ -747,6 +753,7 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     } : null,
     agreementTerms, agreementChecks, agreementUnresolved,
     ledgerTerms, ledgerTermsSource, termConflicts, csvCoversFromOrigination,
+    bookBalances,
     csv, csvNote: csvMergeNote, decomposition,
     portal: portal ? {
       as_of: portal.as_of, amount_remaining: portal.amount_remaining,
@@ -795,10 +802,10 @@ async function planBundle(req: Request, supa: any, who: string, body: any) {
     // either figure measured. reconciliation-run passed them all along; this
     // caller quietly did not, which is why the same loan could be diagnosed
     // differently depending on which surface asked.
-    balances: ctx.statements.map(s => ({
-      statement_date: s.statement_date, principal_balance: s.principal_balance,
-      balance_basis: (s as any).balance_basis, source: (s as any).source,
-    })),
+    // BOTH TABLES, same as §5 — the basis check needs a BOOK balance to say
+    // anything, and until cont. 7 the only ones it could see were whatever
+    // loan_statements happened to carry.
+    balances: allBalancesForLoan(ctx.statements, (ctx as any).bookBalances),
     splits: ctx.splits,
   })
   if (drift.verdict === 'payments_unsplit' || drift.verdict === 'fits_neither') {

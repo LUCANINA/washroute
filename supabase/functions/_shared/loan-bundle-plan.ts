@@ -53,6 +53,7 @@ import type { ContractTerm, StripeCsvParseResult, DecompositionResult } from './
 import { explainBalanceGap, dailyWithholdingFromMonths, lenderExportFromCsv, RATE_SOURCES } from './settlement-lag.ts'
 import { dateFromLedger, paidFromOutstanding, type LedgerDatingResult, type LedgerDatingFigures } from './ledger-dating.ts'
 import { BOOK_BALANCE_SOURCES } from './carrying-basis-drift.ts'
+import { allBalancesForLoan, type BookBalanceRow } from './book-balances.ts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -238,6 +239,14 @@ export interface PlanContext {
    * because the period start falls a week before the first withholding. That is
    * the refusal doing its job with the wrong input, not a file that is short.
    */
+  /**
+   * `loan_book_balances` — our ledger rebuilt from Xero, the purpose-built answer
+   * to "what do our books hold". Kept separate from `statements` because it is a
+   * separate table; merged by `allBalancesForLoan` wherever the question is
+   * asked. Absent on a caller that has not loaded it, which reads as "no books
+   * balance" — the state that produced a false claim on a loan that had three.
+   */
+  bookBalances?: BookBalanceRow[]
   csvCoversFromOrigination?: boolean
   ledgerTerms?: ContractTerm[]
   /** The file those terms were read from, for the action's title. */
@@ -1044,8 +1053,11 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     // The books side is now book-sourced or there is no comparison, using the
     // same allowlist and for the same reason: a source nobody has classified is
     // excluded rather than assumed to be ours.
-    const bookRows = (ctx.statements || [])
-      .filter(st => BOOK_BALANCE_SOURCES.includes(String((st as any).source || '')))
+    // BOTH TABLES (session 263 cont. 7). This read `ctx.statements` alone and
+    // told David no books balance existed for a loan whose ledger had been
+    // rebuilt the night before — the rebuild lives in `loan_book_balances`.
+    const bookRows = allBalancesForLoan(ctx.statements, ctx.bookBalances)
+      .filter(st => BOOK_BALANCE_SOURCES.includes(st.source))
       .filter(st => !asOf || st.statement_date <= asOf)
     const book = bookRows.slice(-1)[0]
 
@@ -1053,8 +1065,8 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
       unresolved.push({
         question: `Do your books agree with the lender on this loan?`,
         why_it_matters: `This is the check a close rests on, and it is the one thing these documents cannot answer by themselves.`,
-        what_would_answer_it: `A balance rebuilt from your own ledger${asOf ? `, dated ${asOf}` : ''}.`,
-        working: `Nothing on file for this loan is one — every row came from the lender or from a schedule. The lender's figure has been recorded${asOf ? ` at ${asOf}` : ''}; what it needs to be measured against is what your books actually hold on the same day.`,
+        what_would_answer_it: `A balance rebuilt from your own ledger${asOf ? `, dated ${asOf} or earlier` : ''}.`,
+        working: `Your books have not produced one for this loan${asOf ? ` on or before ${asOf}` : ''} — every balance on file came from the lender or from a schedule. A reconciliation run rebuilds this account from Xero's own transactions and journals; once it has, this comparison answers itself.`,
       })
     }
 

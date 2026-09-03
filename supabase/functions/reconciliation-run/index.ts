@@ -12,6 +12,7 @@ import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './d
 // good as the branch it sits on, so the two paths that need this answer must
 // read it from one place rather than each growing their own copy.
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
+import { allBalancesForLoan } from '../_shared/book-balances.ts'
 import { explainBalanceGap, dailyWithholdingFromBalances } from '../_shared/settlement-lag.ts'
 import { isExaminedForResolve } from '../_shared/resolve-scope.ts'
 import { diagnoseUnexplainedGap, type LaterEntry, type AmortRow, type SiblingFinding } from '../_shared/gap-diagnosis.ts'
@@ -1729,7 +1730,7 @@ async function handle(req: Request): Promise<Response> {
   }).select().single()
 
   try {
-    const [{ data: loans }, { data: statements }, { data: splits }, { data: amortRows }, { data: contractTerms }] = await Promise.all([
+    const [{ data: loans }, { data: statements }, { data: splits }, { data: amortRows }, { data: contractTerms }, { data: bookBalances }] = await Promise.all([
       supa.from('loan_accounts').select('*'),
       supa.from('loan_statements').select('*').order('statement_date', { ascending: false }),
       supa.from('loan_splits').select('*'),
@@ -1766,6 +1767,12 @@ async function handle(req: Request): Promise<Response> {
       supa.from('loan_contract_terms')
         .select('loan_account_id, term_key, value_numeric, superseded_at')
         .is('superseded_at', null),
+      // ── OUR OWN LEDGER, REBUILT (session 263 cont. 7) ────────────────────────
+      // This run WRITES loan_book_balances and never read it back, so the
+      // carrying-basis check below — whose whole subject is what OUR books hold —
+      // could only ever see whatever loan_statements happened to carry. On this
+      // book that is lender pulls, which is the wrong party entirely.
+      supa.from('loan_book_balances').select('loan_account_id, as_of, balance, basis'),
     ])
     if (!contractTerms) console.error('reconciliation-run: loan_contract_terms read returned no data; the carrying-basis check will stay silent this run')
     // A truncated amortization read is not a smaller answer, it is a DIFFERENT one:
@@ -2155,7 +2162,13 @@ async function handle(req: Request): Promise<Response> {
       // Window-independent by construction: reads loan_accounts, loan_contract_terms,
       // loan_statements and loan_splits, none of which are windowed. So it cannot go
       // stale the way a ledger-derived finding can.
-      findings.push(...checkCarryingBasis(loan, contractTerms || [], mine, mySplits, today))
+      // BOTH TABLES. `mine` is every party's claim; the books' own rebuild lives
+      // in loan_book_balances, and without it this check has nothing of ours to
+      // measure against. See _shared/book-balances.ts.
+      findings.push(...checkCarryingBasis(
+        loan, contractTerms || [],
+        allBalancesForLoan(mine, (bookBalances || []).filter((b: any) => b.loan_account_id === loan.id)),
+        mySplits, today))
     }
 
     // Session 258: flush newly-recognized journal ids onto their pattern rows. One

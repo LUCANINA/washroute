@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 263, 2026-09-02)
+> ## ⏭️ START HERE — first thing, next session (left by session 263 cont. 7, 2026-09-03)
 >
 > **This block is rewritten at the END of every session. It has been wrong four days
 > running, always by being written before the thing it describes finished. Everything
@@ -8,18 +8,24 @@
 >
 > ### Where the module stands
 >
-> **Deploy / push state — checked 2026-09-02 20:56 UTC, not assumed.** `origin/main ==
-> HEAD == 73f724a`; nothing unpushed. `loan-attribution-run` v2 is live with cron jobid 25
-> (`20 */6 * * *`) and all five material loans carrying `run_status='ok'` payloads. **Note
-> a commit that is not this session's landed mid-work (`7d415ee`, Launderers 12-month
-> trend) — another session is working in this repo, so `git log` before assuming the tree
-> is yours.**
+> **Deploy / push state — checked 2026-09-03, not assumed.** `HEAD == origin/main ==
+> ed0aa55` at the start of cont. 7; cont. 7's own commit is local and **NOT PUSHED — the
+> sandbox has no network and `git push` always 403s, so this is David's to run.** **Note a
+> commit that is not this session's landed mid-work (`7d415ee`, Launderers 12-month trend)
+> — another session is working in this repo, so `git log` before assuming the tree is
+> yours.**
 >
-> **Suite: 1,591 assertions, 1,590 passing.** The single red is Tech Debt #19's
-> `[history] s240 #10`, self-labelled REPORTED and red ON PURPOSE — tuning it green
-> deletes the only record of that finding. **Any other red is a real failure.** Every
-> earlier count in this file (1468/1469, 1,495, 1,510) is superseded; do not quote them,
-> and prefer re-running to quoting this one.
+> 🔴 **TWO functions are now behind the repo, not one: `loan-bundle` AND
+> `reconciliation-run`.** Both read cont. 7's new `_shared/book-balances.ts`; deploying one
+> without the other leaves half the module answering the old way.
+>
+> **Suite: the fifteen Node suites were swept end-to-end at the close of cont. 7 —
+> 1,045 assertions, 0 red** (`book-balances` 25 is new). That count covers the `.test.mts`
+> suites only; the wider figure including the browser/history suites was **1,591 with 1
+> deliberate red** (Tech Debt #19's `[history] s240 #10`, self-labelled REPORTED and red ON
+> PURPOSE — tuning it green deletes the only record of that finding). **Any other red is a
+> real failure.** `tests/loan-bundle.test.mts` cannot import `pdfjs-dist` on this machine —
+> pre-existing, unrelated. Prefer re-running to quoting any of these.
 >
 > **The harness clock now comes from the fixture** (`_meta.pulled_at`), so a month
 > rollover can no longer turn the suite red. Before session 262 it was 183-red for a day
@@ -38,7 +44,28 @@
 > nobody can evaluate, and the row says so and asks for the document. An ESTABLISHED cause
 > always outranks the ask. `balance_vs_lender` is a RESTATEMENT of the gap, not a cause.
 >
-> ### Session 263 left this, and item 1 is a DEPLOY
+> ### Session 263 left this, and item 0 is a DEPLOY OF TWO FUNCTIONS
+>
+> 0a. **🔴 REDEPLOY BOTH `loan-bundle` AND `reconciliation-run` — cont. 7 added
+>    `_shared/book-balances.ts` and both read it.** From the repo root, after pushing:
+>    `npx -y supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
+>    then the same for `reconciliation-run`. `--no-verify-jwt` is **not optional** on either.
+>    Check FUNCTIONALLY, never by version: run PayPal 2's bundle and confirm the books-vs-lender
+>    card **no longer says "no balance from your own books is on file"** — `loan_book_balances`
+>    holds $49,346.58 at 2026-08-31 for that loan, and the old copy was flatly false.
+>
+> 0b. **✅ Tech Debt #36 is CLOSED and was never true.** All fourteen active loans have a
+>    non-zero 2026-08-31 `xero_rebuild` balance in `loan_book_balances` — the "seven loans
+>    with none" and the "EIDL speaks for 2024" warning were both artefacts of reading
+>    `loan_statements` alone. **#35 (13 of 14 loans have no contract terms) is now the SOLE
+>    blocker on `carrying_basis`.** Read cont. 7 before picking up any basis work.
+>
+> 0c. **Still unanswered by David, asked four times:** the account reference. The proposal is
+>    to pass intake's `ai_account_claimed` (already in the browser at
+>    `admin-dashboard/index.html:10599`) through to the bundle rather than paying a second
+>    model to re-read it. Do not build it without his answer.
+>
+> ### The cont. 2 deploy note, kept for its command and its functional check
 >
 > 0. **🔴 REDEPLOY `loan-bundle` — session 263 cont. 2 fixed five defects the first live
 >    run exposed. The v41 deploy predates them.** Check FUNCTIONALLY: an itemised screenshot
@@ -57,8 +84,8 @@
 >    fixed and 27 assertions cover it, but measuring the real book showed **no loan was
 >    producing `fits_neither` at all**: 13 of 14 have no contract terms and bail before the
 >    basis check runs. **The real blocker is Tech Debt #35 (missing terms), and session 263's
->    ledger-terms reader is the half-built fix for it.** #36 covers the 7 loans with no
->    book-sourced balance. Read cont. 3 before picking either up.
+>    ledger-terms reader is the half-built fix for it.** **#36 is now CLOSED — see 0b; it was measured against the
+>    wrong table.** Read cont. 3 and cont. 7 before picking this up.
 > 3. **Tech Debt #33 (🟠)** — a projected schedule row is never reconciled against the
 >    lender's later actual, and on a prestaged loan those rows are what reach Xero.
 > 4. **PayPal 2's data was corrected by hand** (two amortization rows, 2026-08-19 and
@@ -2524,7 +2551,7 @@ an explanation of this gap; it is a different event that happens to be nearby. W
 
 **37. 🔴 The browser harness cannot run on the machine that ships the dashboard (session 263 cont. 6).** `tests/bookkeeping-harness.mjs` loads `admin-dashboard/index.html` in headless Chromium and would have caught cont. 6's temporal-dead-zone crash in seconds. It cannot run: the device VM has no Playwright browser installed (`Executable doesn't exist at /opt/pw-browsers/...`), and the cloud container that HAS one does not have the repo. So every dashboard change this session shipped on source-text assertions alone — which proved the code was present and could not prove it ran, and a crash went out. Next step: install the browser on the device (`npx playwright install chromium`, one command, ~150MB) so the harness is runnable where the edits happen. Until then, treat any `index.html` change as unverified and lean on ordering/consistency lints, which are cheap and catch a real subset — see cont. 6 for the shape.
 
-**36. 🟠 Seven active loans have no book-sourced balance at all (session 263 cont. 3).** `chooseObservation` needs a balance rebuilt from our own ledger, and E-Transit ×4, Paypal 2, PCV Good and Green and Verdant Capital have none — every row on them is `portal_manual_pull`, `lender_statement` or `amortization_schedule`. Those loans now correctly answer `not_enough_evidence / no_book_balance` instead of being diagnosed off the lender's figure, which is honest but not useful. Next step: extend whatever produces `xero_derived` rows to cover them, or record the basis by hand with the evidence beside it. Note the shape of the remaining ones too — **EIDL's newest book balance is 2024-03-31**, so its account has produced nothing for two and a half years; the verdict there is valid but speaks for 2024, and the module now says so on the row rather than letting a reader take it for today.
+**36. ✅ CLOSED — WAS NEVER TRUE (filed session 263 cont. 3, withdrawn cont. 7).** This item said seven active loans have no book-sourced balance, and warned that EIDL's newest book balance was 2024-03-31 so its verdict "speaks for 2024". Both statements were measured against `loan_statements` alone. **`loan_book_balances` holds a 2026-08-31 `xero_rebuild` balance for ALL FOURTEEN active loans, every one non-zero** — including EIDL. Nothing was missing; the query named the wrong table. cont. 7 added `_shared/book-balances.ts` as the single reader over both tables and wired it into `loan-bundle-plan` §5, `loan-bundle` and `reconciliation-run`, so the basis check and the books-vs-lender comparison now see these rows. **The verdicts do not move: #35 (missing contract terms, 13 of 14) is now the sole remaining blocker on `carrying_basis`, not one of two.** Standing lesson: before filing "we don't have X", check every table that could hold X.
 
 **35. 🔴 Thirteen of fourteen active loans have NO `loan_contract_terms` rows (session 263 cont. 3).** Measured, not assumed, while closing #34. This — not the basis arithmetic — is the actual reason `carrying_basis` is `unknown` almost everywhere: with no `loan_amount` / `total_repayment_amount` on file the check cannot build two models and bails before anything else runs. Only Stripe Capital has terms, and it is the only loan with its basis settled. That is the whole correlation. Next step is already half-built: **session 263's `paypal-history.ts` extracts terms from a lender's transaction export**, which is the document type these loans actually have — none of them sends an agreement PDF we have parsed. Generalise that to the other lenders' exports and statements, or add a plain "record this loan's terms" form for figures a person can read off a document. Until terms exist, every downstream basis, rollforward and decomposition check is standing on nothing.
 
@@ -3273,13 +3300,108 @@ seconds, and it could not be run — the device VM has no Playwright browser ins
 now a real hole in the loop rather than a theoretical one, since this session changed
 `admin-dashboard/index.html` and shipped a crash. Filed as Tech Debt #37.
 
+#### 12. (cont. 7) "DON'T WE HAVE INSTANT ACCESS TO OUR LEDGER?" — TWO TABLES, ONE READ
+
+> **David:** "I don't understand this. Don't we have instant access to our ledger?"
+
+He was right, and the message he was reading was false. The plan told him:
+
+> *"No balance from your own books is on file for this loan."*
+
+**`loan_book_balances` held PayPal 2 at $49,346.58 as of 2026-08-31, `basis =
+'xero_rebuild'`, rebuilt from Xero's own transactions.** Also $61,918.23 at 2026-07-31 and
+$77,301.26 at 2026-06-30. Three monthly closes, sitting there, while the card said nothing
+of the kind existed.
+
+**The cause is the session's own recurring defect, a fifth time: two tables hold balances,
+and the check read one.** `loan_statements` carries what LENDERS send (every PayPal 2 row
+is a `portal_manual_pull`); `loan_book_balances` carries what OUR books say. §5's question
+is literally "what do our books hold" — and it was asking the table that does not answer it.
+The message was not a bug in the wording. It was an accurate report about the wrong table.
+
+##### The translation that makes this dangerous, and is now written down in the module
+
+The two tables use the same word for different things, and getting this backwards would
+silently poison the basis check:
+
+* `loan_book_balances.basis` = **where the figure CAME FROM** (`'xero_rebuild'`). A SOURCE.
+* `loan_statements.balance_basis` = **what the figure MEASURES** (`principal_only`,
+  `gross_payback`). A QUANTITY.
+
+`normaliseBookBalances()` maps `basis → source` and sets `balance_basis: 'unknown'`
+**deliberately**. A rebuild from the ledger does not declare which quantity it measured, and
+inventing `principal_only` because the number looks like principal is exactly the derivation
+this module refuses. `unknown` is the productive case for `chooseObservation()` — it is the
+observation the basis fit is supposed to explain, not a label handed to it in advance.
+
+##### One reader, used by every consumer — because two lists is how this happened
+
+`_shared/book-balances.ts` is the single answer to "what do our books hold", and all three
+places that ask now call `allBalancesForLoan(statements, bookBalances)`:
+
+* `loan-bundle-plan.ts` §5 — books side, then filtered by `BOOK_BALANCE_SOURCES`
+* `loan-bundle/index.ts` — loads the table, **refuses the plan on `bbRes.error`** rather than
+  planning against a books list that failed to load, and passes it to both the planner and
+  the basis check
+* `reconciliation-run/index.ts` — merges it into `checkCarryingBasis`
+
+**All three, deliberately in one change.** Stopping at the first consumer is the mistake this
+session made four times before lunch, and the fifth one is this entry.
+
+##### The copy, when the claim is actually true
+
+The old sentence asserted a fact about the world. The new one says what is on file and what
+would change it:
+
+> *"Your books have not produced one for this loan on or before {asOf} — every balance on
+> file came from the lender or from a schedule. A reconciliation run rebuilds this account
+> from Xero's own transactions and journals; once it has, this comparison answers itself."*
+
+Same length band as the rest under the cont. 6 copy rule; it names the missing thing and the
+action that produces it, and it can no longer be false while a `xero_rebuild` row exists.
+
+##### What this is expected to change on the next run — stated as a prediction, not a result
+
+Books $49,346.58 at 2026-08-31 against the lender rolled forward from its last real row
+($58,775.97 at 2026-08-05) through the CSV's August payments. **The lender-side figure is
+produced by the run from the uploaded CSV and is not in the database yet, so it is not
+quoted here as measured.** The prediction is that the false "nothing on file" is replaced by
+a real, small difference — and that the books figure being far below a gross-payback carry
+(~$51,220.85) is the first book-sourced evidence this loan's basis is principal-only.
+##### And Tech Debt #36 does not shrink — it was never true. CLOSED.
+
+Having built the reader, I ran the obvious query, and it is the bigger finding: **all
+fourteen active loans have a book balance at 2026-08-31 in `loan_book_balances`, every one
+of them non-zero and `xero_rebuild`.** BayFirst ×2, Dexter, Ford Pro ×4, iBusiness, PCV,
+PayPal 2, Rapid, EIDL, Stripe Capital, Verdant. Not seven loans missing a book balance —
+**zero.**
+
+**#36 was measured against `loan_statements` and only ever described that table.** So was the
+EIDL note beside it: cont. 3 recorded EIDL's newest book balance as **2024-03-31** and warned
+its verdict "speaks for 2024". Its actual newest book balance is **2026-08-31**, like every
+other loan. That warning was an artefact of the same single-table read, and it is withdrawn.
+
+**What this does NOT do, and the distinction matters.** The verdicts do not move. Tech Debt
+#35 is still the blocker — 13 of 14 loans have no `loan_contract_terms`, so
+`checkCarryingBasis` builds fewer than two models and bails on missing terms long before the
+observation is reached. What changes is the REASON a loan cannot answer: it is no longer
+"we have nothing from our own books", which was false on all fourteen. **Every one of them
+now waits on terms alone.** That makes #35 the whole of the remaining work on
+`carrying_basis`, rather than one of two obstacles.
+
+**The lesson is the session's, stated once more because it just cost a fabricated tech-debt
+item:** a measurement is only as good as the table it read. #36 was written with real SQL
+and a real count, and it was wrong in every particular, because the query named the wrong
+source. Before filing "we don't have X", check every table that could hold X.
+
 #### Verification
 
-`portal-figures` 123/123 (was 79), `paypal-history` 35/35 (new),
-`loan-bundle-balances` 283/283 (was 233), `audit-regressions` 33/33, `apply-bundle` 88/88,
-`settlement-lag` 159/159, `export-merge` 30/30, `loan-matcher` 29/29, `origination-fee`
-112/112, `payout-recovery` 43/43, `queue-hygiene` 13/13, `carrying-basis` 27/27 (new)
-— **1,020 green, 0 red**, including `transcriber-instructions` 9/9 and `copy-budget` 18/18 (both new).
+**Re-measured at the end of cont. 7, not carried forward.** All fifteen suites, run in one
+sweep: `copy-budget` 18, `transcriber-instructions` 9, `carrying-basis` 27, `portal-figures`
+123, `paypal-history` 35, **`book-balances` 25 (new)**, `loan-bundle-balances` 301,
+`audit-regressions` 33, `apply-bundle` 88, `settlement-lag` 159, `export-merge` 30,
+`loan-matcher` 29, `origination-fee` 112, `payout-recovery` 43, `queue-hygiene` 13 —
+**1,045 green, 0 red.** Supersedes the 1,020 quoted earlier in this entry.
 
 Every session-263-cont.-2 assertion has its inverse beside it: strip the itemised figures
 and the anchor goes back to being unproposable; feed a payoff-basis book row and the tie
@@ -3290,15 +3412,25 @@ derived total trying to license a balance equal to the funding, terms that do no
 balance larger than the loan, a target falling between two days — so each is red against
 the un-fixed behaviour rather than merely green against the fixed one.
 
-`admin-dashboard/index.html` is **untouched** this session, so `bookkeeping-harness.mjs`
-was not re-run: its subject did not change, and the device VM has no Playwright browser
-installed in any case. `tests/loan-bundle.test.mts` fails to import `pdfjs-dist` on this
-machine — pre-existing, unrelated to this diff.
+`book-balances` carries a section titled **THE FALSE CLAIM, PINNED** — the old "no balance
+from your own books is on file" sentence asserted against a context that DOES hold a
+`xero_rebuild` row, so the regression cannot come back quietly — and an **"EVERY consumer
+looks in both tables"** section that asserts the call across all three deployables. Those
+last are source-text assertions and carry cont. 6's known limit: they prove the code is
+THERE, not that it RUNS.
 
-**Deploy state: NOTHING IS DEPLOYED.** `loan-bundle` is the ~404KB bundle that must go
-through the CLI from David's own terminal, and it carries three of this session's four
-changed files. Checked by nothing — this is a statement about a deploy not attempted, not
-a claim about what is live.
+**Correction to an earlier claim in this entry:** the cont. 5 text said
+`admin-dashboard/index.html` was untouched this session. It was not — cont. 6 added the
+`working()` disclosure helper to it, and cont. 7 (§11) is the crash that caused. The
+harness still could not be run: the device VM has no Playwright browser installed
+(Tech Debt #37). `tests/loan-bundle.test.mts` fails to import `pdfjs-dist` on this machine
+— pre-existing, unrelated to this diff, and re-confirmed at the end of cont. 7.
+
+**Deploy state: NOTHING FROM CONT. 7 IS DEPLOYED, and this stretch changed TWO functions,
+not one.** `loan-bundle` (the ~404KB bundle that must go through the CLI from David's own
+terminal) **and** `reconciliation-run`. Both read the new `_shared/book-balances.ts`; a
+deploy of one without the other leaves half the module answering the old way. Checked by
+nothing — this is a statement about a deploy not attempted, not a claim about what is live.
 
 
 ---
