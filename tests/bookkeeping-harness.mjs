@@ -200,10 +200,65 @@ const FIXTURE_TABLES = [
   'loan_book_balances',
 ];
 
-const baseFixture = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-for (const t of FIXTURE_TABLES) {
-  if (!Array.isArray(baseFixture[t])) throw new Error(`fixture is missing table array: ${t}`);
+/* ═══ TWO FIXTURES, AND THE REASON IS NOT CONVENIENCE (session 265) ═════════
+ *
+ * A fixture is a snapshot of a moment, so every figure verified against it is a
+ * figure from that moment. Most groups want the NEWEST snapshot: they ask "does
+ * the shipped code handle the rows production actually has", and a stale
+ * snapshot means a whole class of row goes untested — which is exactly what
+ * happened to Tech Debt #38's zero-cash corrections, invisible to this suite
+ * for the six days they existed.
+ *
+ * But some groups are not about current data at all. `closing-evidence` is 660
+ * assertions about CLOSING JULY 2026, each figure checked once against Xero and
+ * against real lender documents. That verification is the expensive part and it
+ * cannot be redone from a screen. Point those groups at a newer snapshot and
+ * they do not find bugs — they find that it is September, that August's
+ * statements have not arrived, and that the close gate is correctly refusing to
+ * close a month it has no evidence for. 256 red assertions, not one of them a
+ * defect.
+ *
+ * So a group declares which snapshot its question belongs to:
+ *
+ *   GROUPS.push({ name: 'closing-evidence', fixture: 'july', ... })
+ *
+ * `live` (the default) moves every refresh. `july` is frozen at
+ * 2026-08-28 and closes July; it is committed and must NOT be refreshed —
+ * refreshing it would silently rewrite the answers those assertions were
+ * written to check, which is the difference between a test and a transcript.
+ *
+ * The clock follows the group's own fixture, so `_meta.pulled_at` remains the
+ * single source of "now" (session 262) and a frozen group keeps a frozen today.
+ */
+const FIXTURE_JULY = path.join(HERE, 'fixtures', 'bookkeeping-fixture-2026-07.json');
+
+function loadFixture(file) {
+  const f = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const t of FIXTURE_TABLES) {
+    if (!Array.isArray(f[t])) throw new Error(`fixture is missing table array: ${t} (${file})`);
+  }
+  const at = f._meta && f._meta.pulled_at;
+  if (!at || Number.isNaN(Date.parse(at))) {
+    throw new Error(`fixture has no usable _meta.pulled_at: ${file} — the suite cannot pin its clock, and running against the wall clock is what session 262 removed`);
+  }
+  return f;
 }
+
+const FIXTURES = { live: loadFixture(FIXTURE), july: loadFixture(FIXTURE_JULY) };
+
+/* The frozen one is frozen. If someone refreshes it in place this fires on the
+ * next run, before any assertion has a chance to be quietly re-pinned. */
+if (FIXTURES.july._meta.pulled_at !== '2026-08-28T23:10:31.000Z') {
+  throw new Error(
+    `bookkeeping-fixture-2026-07.json has been refreshed (pulled_at is now ${FIXTURES.july._meta.pulled_at}).\n` +
+    '  It is frozen on purpose: its groups assert figures verified against Xero and lender documents\n' +
+    '  for the JULY 2026 close. Refreshing it rewrites the answers instead of checking them.\n' +
+    '  Restore it from git, and put new data in bookkeeping-fixture.json instead.');
+}
+
+/* Set per group by the runner. Everything below reads these, never FIXTURES
+ * directly — one place to change, so a new group cannot get half of each. */
+let baseFixture = FIXTURES.live;
 const stubSrc = fs.readFileSync(STUB, 'utf8');
 
 let browser;
@@ -753,16 +808,20 @@ const alignTieOutsToAnchors = (p) => p.evaluate(() => {
    fixture with no `_meta.pulled_at` is a hard failure rather than a silent
    fallback to the wall clock -- falling back would restore the exact bug this
    removes, and do it quietly. */
-const HARNESS_NOW = (() => {
-  const t = baseFixture._meta && baseFixture._meta.pulled_at;
-  if (!t || Number.isNaN(Date.parse(t))) {
-    throw new Error('fixture has no usable _meta.pulled_at — the suite cannot pin its clock, and running against the wall clock is what session 262 removed');
-  }
-  return new Date(t);
-})();
+// Both follow whichever fixture the running group declared — validated in
+// loadFixture, so there is no fallback path here to go wrong.
+let HARNESS_NOW = new Date(baseFixture._meta.pulled_at);
 // The Pacific calendar day that instant falls on -- the page reads BIZ_TZ, not
 // UTC, and around a month boundary those are different days.
-const HARNESS_TODAY = HARNESS_NOW.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+let HARNESS_TODAY = HARNESS_NOW.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+
+function useFixture(which) {
+  const f = FIXTURES[which || 'live'];
+  if (!f) throw new Error(`unknown fixture "${which}" — expected one of: ${Object.keys(FIXTURES).join(', ')}`);
+  baseFixture   = f;
+  HARNESS_NOW   = new Date(f._meta.pulled_at);
+  HARNESS_TODAY = HARNESS_NOW.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
 
 const ALL_CLEAR = /(Everything is reconciled|nothing needs you right now|ready for your accountant|all \d+ statements in|Nothing outstanding|nothing needs doing|you're all caught up|no issues found)/i;
 const CONFIDENT_ZERO = /\$0(?:\.00)?\b/;
@@ -1058,6 +1117,11 @@ function firstDiff(a, b) {
 /* 4 ── SAME QUANTITY, TWO SURFACES ───────────────────────────────────────── */
 GROUPS.push({
   name: 'two-surfaces',
+  /* Frozen on the JULY 2026 close — see the fixture registry near the top of
+   * this file. These figures were verified against Xero and against real lender
+   * documents for that month; a newer snapshot changes the question, not the
+   * answer, and re-pinning them to today would turn a test into a transcript. */
+  fixture: 'july',
   async run(t) {
     const p = await newHarnessPage({ tab: 'overview' });
     // Render every tab once so all surfaces are populated, then read them all.
@@ -1964,6 +2028,11 @@ const kidsFor = (q, name) => rowFor(q, name) || { childRows: 0, childNames: [] }
 // different states, and the roster must never merge them.
 GROUPS.push({
   name: 'roster-classification',
+  /* Frozen on the JULY 2026 close — see the fixture registry near the top of
+   * this file. These figures were verified against Xero and against real lender
+   * documents for that month; a newer snapshot changes the question, not the
+   * answer, and re-pinning them to today would turn a test into a transcript. */
+  fixture: 'july',
   async run(t) {
     const p = await newHarnessPage({ tab: 'overview' });
 
@@ -2186,6 +2255,11 @@ GROUPS.push({
 // and does go through that forEach. Both paths get their own control below.
 GROUPS.push({
   name: 'roster-clean-loan-children',
+  /* Frozen on the JULY 2026 close — see the fixture registry near the top of
+   * this file. These figures were verified against Xero and against real lender
+   * documents for that month; a newer snapshot changes the question, not the
+   * answer, and re-pinning them to today would turn a test into a transcript. */
+  fixture: 'july',
   async run(t) {
     const noDismissals = (d) => { d.bk_issue_dismissals.length = 0; };
     const findingsFor = (p, loanName) => p.evaluate((name) => {
@@ -3177,6 +3251,11 @@ const EDITS = (k) => {
 
 GROUPS.push({
   name: 'closing-evidence',
+  /* Frozen on the JULY 2026 close — see the fixture registry near the top of
+   * this file. These figures were verified against Xero and against real lender
+   * documents for that month; a newer snapshot changes the question, not the
+   * answer, and re-pinning them to today would turn a test into a transcript. */
+  fixture: 'july',
   async run(t) {
     // The fixture is a point-in-time snapshot whose closing month is 2026-07.
     // Every figure below is a July figure verified against production, so a run
@@ -6060,6 +6139,11 @@ GROUPS.push({
    CPA the analysis has an opinion when it has never run.                    */
 GROUPS.push({
   name: 'attribution-states',
+  /* Frozen on the JULY 2026 close — see the fixture registry near the top of
+   * this file. These figures were verified against Xero and against real lender
+   * documents for that month; a newer snapshot changes the question, not the
+   * answer, and re-pinning them to today would turn a test into a transcript. */
+  fixture: 'july',
   async run(t) {
     // ── Which loans does Issues actually show? Derived, never typed. ───────
     // Same discipline as r2's derived finding names: the fixture is a real
@@ -6351,6 +6435,11 @@ GROUPS.push({
    loans are still derived from _bkIssueQueueItems() rather than named.        */
 GROUPS.push({
   name: 'split-not-a-fix',
+  /* Frozen on the JULY 2026 close — see the fixture registry near the top of
+   * this file. These figures were verified against Xero and against real lender
+   * documents for that month; a newer snapshot changes the question, not the
+   * answer, and re-pinning them to today would turn a test into a transcript. */
+  fixture: 'july',
   async run(t) {
     const p0 = await newHarnessPage({ tab: 'overview' });
     const issue = await p0.evaluate(() => _bkIssueQueueItems().map(i => ({ id: i.loanId, name: i.name })));
@@ -7064,6 +7153,194 @@ GROUPS.push({
   },
 });
 
+/* ═══ RECON WINDOW — what `recorded` may contain (Tech Debt #39) ════════════
+ *
+ * `_loanPrincipalReconciliation()` asks whether the principal WE recorded
+ * agrees with how far the LENDER's balance moved. Two things were being counted
+ * that a lender's balance can never contain, and PayPal 2 had both: five
+ * zero-cash reclassification journals ($16,229.95) and three August drafts
+ * dated AFTER the closing statement they were being charged against
+ * ($9,451.05). Together, to the cent, the entire $25,681.00 that had the loan
+ * flagged as double-recorded — which suppressed its recurring payment and took
+ * it out of the owner's own principal and interest totals.
+ *
+ * These assertions drive the SHIPPED function against real production rows.
+ * Never a transcription (session 245) — and this group is why that rule earns
+ * its keep: the scratch transcription used while measuring this fix DISAGREED
+ * with the shipped function about month-labelled splits, and the shipped one
+ * was right.
+ */
+GROUPS.push({
+  name: 'recon-window',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    const read = () => p.evaluate(() => {
+      const from = _cvMonthsBack(CV_PAYMENT_WINDOW_MONTHS);
+      const to   = _cvLastMonth();
+      const out = {};
+      for (const a of (_allLoanAccounts || []).filter(x => x.status === 'active')) {
+        const r = _loanPrincipalReconciliation(a, from, to);
+        out[a.xero_account_name] = r.checkable
+          ? { v: r.over ? 'over' : r.under ? 'under' : 'ok',
+              recorded: +r.recorded.toFixed(2), moved: +r.lenderMoved.toFixed(2),
+              delta: +r.delta.toFixed(2), closeAsOf: r.closeAsOf, openAsOf: r.openAsOf,
+              reclassified: +r.reclassified.toFixed(2), reclassifiedRows: r.reclassifiedRows,
+              outsideAnchors: +r.outsideAnchors.toFixed(2), outsideAnchorsRows: r.outsideAnchorsRows }
+          : { v: 'n/a' };
+      }
+      return { from, to, out };
+    });
+
+    const { out } = await read();
+    const pp = out['Paypal 2'];
+
+    /* ── 1. THE LOAN THE FIX IS ABOUT ─────────────────────────────────────── */
+    t.ok(pp && pp.v === 'ok',
+         'PayPal 2 reconciles against its lender', pp && `${pp.v} delta=${pp && pp.delta}`);
+    t.eq(pp.delta, 0, '...exactly, not within tolerance');
+
+    /* ── 2. THE EXCLUSIONS ARE REPORTED, NOT MERELY DONE ──────────────────── */
+    /* An exclusion nobody can see is evidence deleted. Both figures are on the
+     * result so a reader can reconstruct the gap that used to be claimed. */
+    t.eq(pp.reclassifiedRows, 5, 'five zero-cash reclassifications were named');
+    t.eq(pp.reclassified, 16229.95, '...totalling the CPA\'s recoding, to the cent');
+    t.eq(pp.outsideAnchorsRows, 3, 'three drafts fall outside the anchor dates');
+    t.eq(pp.outsideAnchors, 9451.05, '...totalling the August payments the closing statement predates');
+    t.eq(+(pp.reclassified + pp.outsideAnchors).toFixed(2), 25681.00,
+         '⭐ the two exclusions ARE the whole gap that was being reported');
+    t.ok(pp.closeAsOf < '2026-08-31',
+         'and the closing anchor really does predate the month end — the condition that caused it',
+         pp.closeAsOf);
+
+    /* ── 3. EVERY OTHER LOAN IS UNTOUCHED ─────────────────────────────────
+     * The point of a fix like this is not that a red went away. Funding Circle
+     * is genuinely double-recorded and E4-9744 genuinely has incomplete
+     * history; a change that quietly tidied either of those away would be a
+     * regression wearing a fix's clothes. Pinned by name.
+     */
+    const EXPECTED = {
+      'Dexter Loan 2': 'n/a', 'EIDL SBA Loan': 'n/a', 'Verdant Capital Loan': 'n/a',
+      'PCV Good and Green Loan': 'ok', 'Rapid Credit Line': 'n/a', 'BayFirst SBA Loan': 'n/a',
+      'Funding Circle Loan': 'over', 'E-Transit Loan - 4140': 'ok',
+      'E-Transit Loan E4 -9744': 'under', 'E-Transit Loan E5-4751': 'ok',
+      'E-Transit Loan E6-7410': 'ok', 'BayFirst SBA 2': 'n/a', 'Paypal 2': 'ok',
+      'Stripe Capital Loan': 'n/a',
+    };
+    for (const [name, want] of Object.entries(EXPECTED)) {
+      t.eq(out[name] && out[name].v, want, `verdict unchanged: ${name}`);
+    }
+    t.eq(Object.keys(out).length, Object.keys(EXPECTED).length,
+         'and no active loan is missing from that table');
+    t.eq(out['Funding Circle Loan'].delta, 4976.80,
+         '⭐ Funding Circle\'s real duplication survives the fix unchanged');
+    t.eq(out['E-Transit Loan E4 -9744'].delta, -4903.21,
+         '⭐ ...and so does E4-9744\'s incomplete history');
+
+    /* ── 4. THE CONSEQUENCE THE OWNER SEES ────────────────────────────────
+     * `over` is not a label, it is a suppression: a loan carrying one is
+     * dropped from the principal and interest totals and its recurring payment
+     * refuses to compute. That is what the false accusation was costing.
+     */
+    const consequence = await p.evaluate(() => {
+      const acct = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Paypal 2');
+      return {
+        failing: _loansFailingReconciliation().map(x => x.a.xero_account_name),
+        payment: _loanRecurringPayment(acct.id),
+      };
+    });
+    t.ok(!consequence.failing.includes('Paypal 2'),
+         '⭐ PayPal 2 is no longer withheld from the owner\'s totals',
+         consequence.failing.join(', '));
+    t.ok(consequence.payment != null && consequence.payment > 0,
+         '...and its recurring payment can be measured again', String(consequence.payment));
+    t.ok(consequence.failing.includes('Funding Circle Loan'),
+         'while the loan that really is double-recorded stays withheld');
+
+    /* ── 5. THE ALLOWLIST HAS A TWIN, AND THEY MUST AGREE ──────────────────
+     * `RECON_ZERO_CASH_SOURCES` here is a hand copy of
+     * `ZERO_CASH_MOVEMENT_SOURCES` in the functions tree, because a single-page
+     * app with no build step cannot import from it (Tech Debt #23's shape).
+     * A copy nobody compares is a copy that drifts, so compare them.
+     */
+    const shared = fs.readFileSync(
+      path.join(HERE, '..', 'supabase/functions/_shared/carrying-basis-drift.ts'), 'utf8');
+    const m = shared.match(/ZERO_CASH_MOVEMENT_SOURCES\s*=\s*\[([^\]]*)\]/);
+    const sharedList = m ? m[1].split(',').map(x => x.trim().replace(/['"]/g, '')).filter(Boolean) : null;
+    const pageList = await p.evaluate(() => RECON_ZERO_CASH_SOURCES);
+    t.ok(sharedList !== null, 'the shared allowlist could be read');
+    t.eq(JSON.stringify(pageList), JSON.stringify(sharedList),
+         '⭐ the dashboard\'s allowlist matches the functions tree\'s, exactly');
+
+    /* ── 6. IT DISCRIMINATES ───────────────────────────────────────────────
+     * Each mutation is the inverse of one decision, applied to the SHIPPED
+     * function's own source in page context — never by editing index.html.
+     */
+    const mutate = (find, repl) => p.evaluate(({ find, repl }) => {
+      const src = _loanPrincipalReconciliation.toString();
+      const mutated = src.replace(find, repl);
+      if (mutated === src) return { installed: false };
+      // The rebuilt function needs the page's own helpers, which are in scope
+      // here because indirect eval runs in global scope.
+      const fn = (0, eval)('(' + mutated + ')');
+      const from = _cvMonthsBack(CV_PAYMENT_WINDOW_MONTHS), to = _cvLastMonth();
+      const res = {};
+      for (const a of (_allLoanAccounts || []).filter(x => x.status === 'active')) {
+        const r = fn(a, from, to);
+        res[a.xero_account_name] = r.checkable
+          ? { v: r.over ? 'over' : r.under ? 'under' : 'ok', delta: +r.delta.toFixed(2) }
+          : { v: 'n/a' };
+      }
+      return { installed: true, res };
+    }, { find, repl });
+
+    /* (a) A reclassification counted as a repayment — Tech Debt #38's defect. */
+    const a1 = await mutate('if (_splitIsReclassification(sp)) { reclassified += pr; reclassifiedRows++; continue; }', '');
+    t.ok(a1.installed, 'the reclassification regression could be installed');
+    t.eq(a1.res['Paypal 2'].delta, 16229.95,
+         '⭐ ...and PayPal 2 is accused of the CPA\'s own recoding — so assertion 1 discriminates');
+    t.eq(a1.res['Paypal 2'].v, 'over', '...at a severity that suppresses the loan');
+
+    /* (b) The anchor-date cut removed: August drafts charged against a
+     *     statement dated before them. */
+    const a2 = await mutate('if (end && (end > close.asOf || end <= open.asOf)) {', 'if (false) {');
+    t.ok(a2.installed, 'the anchor-window regression could be installed');
+    t.eq(a2.res['Paypal 2'].delta, 9451.05,
+         '⭐ ...and three unposted-yet payments are charged against an older balance');
+
+    /* (c) BOTH removed — the state this fix found, reproduced exactly. */
+    const a3 = await p.evaluate(() => {
+      let src = _loanPrincipalReconciliation.toString();
+      src = src.replace('if (_splitIsReclassification(sp)) { reclassified += pr; reclassifiedRows++; continue; }', '')
+               .replace('if (end && (end > close.asOf || end <= open.asOf)) {', 'if (false) {');
+      const fn = (0, eval)('(' + src + ')');
+      const a = (_allLoanAccounts || []).find(x => x.xero_account_name === 'Paypal 2');
+      const r = fn(a, _cvMonthsBack(CV_PAYMENT_WINDOW_MONTHS), _cvLastMonth());
+      return +r.delta.toFixed(2);
+    });
+    t.eq(a3, 25681.00, '⭐ both regressions together reproduce the original $25,681.00 exactly');
+
+    /* (d) THE MISTAKE THIS FIX MADE FIRST, kept as a mutation because it is the
+     *     one a future change is most likely to reintroduce. Placing a
+     *     month-labelled split at its month END looks more careful and is not:
+     *     a lender that dates its statement mid-month then makes every
+     *     month-labelled payment look late, and four loans that tie exactly go
+     *     `under` by about one payment each. A guess is not a date. */
+    const a4 = await mutate(
+      'const end = _splitAnchorDay(sp);',
+      "const end = (function(){const l=String(sp.period_label||'');const d=l.match(/^(\\d{4}-\\d{2}-\\d{2})/);if(d)return d[1];const mm=l.slice(0,7);return CV_MONTH_RE.test(mm)?_lastDayOfMonth(mm):null;})();");
+    t.ok(a4.installed, 'the month-end placement regression could be installed');
+    t.eq(a4.res['E-Transit Loan - 4140'].v, 'under',
+         '⭐ ...and a loan that ties exactly is accused of underpaying — so guessing at a day is worse than not knowing');
+    t.eq(a4.res['E-Transit Loan E5-4751'].v, 'under', '...and so is a second');
+    t.eq(a4.res['E-Transit Loan E6-7410'].v, 'under', '...and a third');
+    t.eq(a4.res['Paypal 2'].v, 'ok',
+         'while PayPal 2 still ties — which is why this mistake was easy to miss');
+
+    await p.close();
+  },
+});
+
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
 const cr = await getChromium();
@@ -7079,7 +7356,10 @@ console.log(`  rows    ${FIXTURE_TABLES.map(t => `${t}=${baseFixture[t].length}`
 for (const g of GROUPS) {
   if (ONLY && g.name !== ONLY) continue;
   currentGroup = g.name;
-  console.log(`${C.y}▸ ${g.name}${C.x}`);
+  useFixture(g.fixture);
+  const tag = g.fixture && g.fixture !== 'live'
+    ? ` ${C.y}[${g.fixture} fixture · ${HARNESS_TODAY}]${C.x}` : '';
+  console.log(`${C.y}▸ ${g.name}${C.x}${tag}`);
   try { await g.run(T); }
   catch (e) { T.ok(false, `${g.name}: group threw`, String(e && e.stack || e)); }
   console.log('');

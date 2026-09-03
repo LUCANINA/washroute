@@ -27,3 +27,4 @@ supabase/.temp/
 
 # Superseded files parked for manual deletion (never committed)
 _to_delete/
+tests/fixtures/.denied-tables.json

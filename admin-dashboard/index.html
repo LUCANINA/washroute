@@ -14554,6 +14554,92 @@
   const RECON_TOLERANCE = 1.00;          // rounding only — a duplicate is never this small
   const CV_MIN_MONTHS_TO_MEASURE = 3;    // a median of one month is not a measurement
 
+  /* ══ WHAT `recorded` MAY CONTAIN (Tech Debt #39, session 265) ═══════════════
+   *
+   * This check asks whether the principal WE recorded agrees with how far the
+   * LENDER's balance actually moved. For that to be a test rather than a
+   * coincidence, the two sides have to be talking about the same money over the
+   * same days. Two ways they were not, and PayPal 2 had both at once — a
+   * $25,681.00 accusation of double-recording against a loan whose books were
+   * right to the cent.
+   *
+   * ── 1. A RECLASSIFICATION IS NOT A REPAYMENT ──────────────────────────────
+   *
+   * This is Tech Debt #38's defect, one file away. A lender's balance contains
+   * no bookkeeping journal, so ours must not either: when the CPA corrects how
+   * a draft was coded in Xero she writes a row with principal and interest
+   * equal and opposite and `total_amount` zero. Nothing left the bank. Counting
+   * it as principal repaid claims a payment the lender never saw.
+   *
+   * `ZERO_CASH_MOVEMENT_SOURCES` is an ALLOWLIST and must stay one, for the
+   * reason session 264 measured rather than assumed: seven other loans carry
+   * zero-cash rows of exactly the same SHAPE — BayFirst SBA 2 at
+   * -2,155.49/+2,155.49, Bluevine, Funding Circle's twenty-seven — and those are
+   * capitalised interest read off the LENDER's own statement, where the amount
+   * owed genuinely rose. Excluding by shape alone would trade one wrong answer
+   * for seven. Only PROVENANCE separates them, which is this module's own rule:
+   * never infer from shape what a document can be asked directly.
+   *
+   * KEEP THIS LIST IN STEP WITH `ZERO_CASH_MOVEMENT_SOURCES` in
+   * `supabase/functions/_shared/carrying-basis-drift.ts`. It is a second copy
+   * because this file is a single-page app with no build step and cannot import
+   * from the functions tree — the same unhappy duplication as
+   * `_VARIANCE_REAL_ANCHORS` (Tech Debt #23). `recon-window` asserts the two
+   * agree, so a change to one goes red rather than silently diverging.
+   */
+  const RECON_ZERO_CASH_SOURCES = ['statement_delta'];
+
+  function _splitIsReclassification(sp) {
+    const cents = n => Math.round(Number(n || 0) * 100);
+    if (cents(sp.total_amount) !== 0) return false;
+    // Both legs zero is an empty row, not a reclassification.
+    if (cents(sp.principal_amount) === 0 && cents(sp.interest_amount) === 0) return false;
+    return !RECON_ZERO_CASH_SOURCES.includes(String(sp.source || ''));
+  }
+
+  /* ── 2. THE SPLITS MUST COVER THE DAYS THE TWO BALANCES BRACKET ────────────
+   *
+   * The window arguments are MONTHS, but the balances this check compares are
+   * two lender documents with their own dates, and a lender does not issue
+   * statements on month ends to suit us. PayPal 2's closing balance is dated
+   * 2026-08-05 while `recorded` ran to 2026-08-31, so three August drafts
+   * totalling $9,451.05 were counted against a balance taken before they
+   * happened — money the lender had not seen yet, charged against it anyway.
+   *
+   * So the months choose WHICH anchors to look for; this decides which splits
+   * are counted, and the answer is the half-open interval the anchors actually
+   * bracket: after `open.asOf`, on or before `close.asOf`.
+   *
+   * Both ends, not just the late one. Cutting only the closing side leaves the
+   * window aligned at one end and ragged at the other, which is the same defect
+   * wearing the other shoe — and a check whose two sides measure different
+   * spans is not a check. Measured across all fourteen active loans the opening
+   * cut changes nothing today; it is here so it cannot come back when a lender
+   * moves its statement day.
+   *
+   * ONLY A DAY-LABELLED SPLIT IS PLACED. '2026-08-12' (and '2026-07-31-adj')
+   * name their own day and can be compared with a statement date. '2026-07'
+   * does not, and the first cut of this fix guessed at its month END on the
+   * reasoning that a month is not closed until its last transaction. That was
+   * wrong, and measuring caught it: a lender that dates its statement the 20th
+   * makes every month-labelled payment in that month look later than the
+   * anchor, so four loans that had tied exactly — E-Transit 4140, E5, E6 and a
+   * chunk of Funding Circle's — went `under` by roughly one payment each. The
+   * fix had manufactured the very kind of false accusation it was written to
+   * remove, in the opposite direction.
+   *
+   * A guess is not a date (session 245). Where we know the day we use it; where
+   * we do not, the split keeps the old month-window behaviour and is counted,
+   * because dropping it would shrink `recorded` on no evidence and an
+   * understated `recorded` reads as `under` — a finding about a loan nobody has
+   * looked at. Being unable to place a row is a reason to leave it alone, not a
+   * reason to act on it.
+   */
+  function _splitAnchorDay(sp) {
+    const day = String(sp.period_label || '').match(/^(\d{4}-\d{2}-\d{2})/);
+    return day ? day[1] : null;
+  }
+
   function _loanPrincipalReconciliation(a, fromMonth, toMonth) {
     if (!a) return { checkable: false, reason: 'no such loan' };
     const open  = _loanBalanceAsOf(a, _priorMonthEnd(fromMonth),  { realOnly: true });
@@ -14568,13 +14654,27 @@
       return { checkable: false, reason: 'only one lender balance in this window' };
     }
     let recorded = 0, rows = 0;
+    // What was left out, and why. Reported rather than merely done: an
+    // exclusion nobody can see is evidence deleted, and on this book it is the
+    // difference between accusing PayPal 2 of $25,681.00 of double-recording
+    // and finding that it ties exactly.
+    let reclassified = 0, reclassifiedRows = 0, outsideAnchors = 0, outsideAnchorsRows = 0;
     for (const sp of (_allLoanSplits || [])) {
       if (sp.loan_account_id !== a.id) continue;
       if (CLOSE_EXCLUDED_STATUSES.includes(sp.status)) continue;
       const m = (sp.period_label || '').slice(0, 7);
       if (!CV_MONTH_RE.test(m)) continue;
       if (m < fromMonth || m > toMonth) continue;
-      recorded += Number(sp.principal_amount || 0);
+      const pr = Number(sp.principal_amount || 0);
+      if (_splitIsReclassification(sp)) { reclassified += pr; reclassifiedRows++; continue; }
+      // A split we cannot place on a day keeps the old month-window behaviour
+      // and is counted — see _splitAnchorDay for why guessing at one is worse
+      // than not knowing.
+      const end = _splitAnchorDay(sp);
+      if (end && (end > close.asOf || end <= open.asOf)) {
+        outsideAnchors += pr; outsideAnchorsRows++; continue;
+      }
+      recorded += pr;
       rows++;
     }
     const lenderMoved = open.amount - close.amount;
@@ -14597,6 +14697,7 @@
       over: delta > RECON_TOLERANCE, under: delta < -RECON_TOLERANCE,
       recorded, lenderMoved, delta, rows,
       openAsOf: open.asOf, closeAsOf: close.asOf,
+      reclassified, reclassifiedRows, outsideAnchors, outsideAnchorsRows,
     };
   }
 
