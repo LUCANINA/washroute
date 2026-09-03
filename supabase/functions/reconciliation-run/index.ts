@@ -1730,7 +1730,7 @@ async function handle(req: Request): Promise<Response> {
   }).select().single()
 
   try {
-    const [{ data: loans }, { data: statements }, { data: splits }, { data: amortRows }, { data: contractTerms }, { data: bookBalances }] = await Promise.all([
+    const [{ data: loans }, { data: statements }, { data: splits }, { data: amortRows }, { data: contractTerms }, { data: bookBalanceRows }] = await Promise.all([
       supa.from('loan_accounts').select('*'),
       supa.from('loan_statements').select('*').order('statement_date', { ascending: false }),
       supa.from('loan_splits').select('*'),
@@ -2167,7 +2167,7 @@ async function handle(req: Request): Promise<Response> {
       // measure against. See _shared/book-balances.ts.
       findings.push(...checkCarryingBasis(
         loan, contractTerms || [],
-        allBalancesForLoan(mine, (bookBalances || []).filter((b: any) => b.loan_account_id === loan.id)),
+        allBalancesForLoan(mine, (bookBalanceRows || []).filter((b: any) => b.loan_account_id === loan.id)),
         mySplits, today))
     }
 
