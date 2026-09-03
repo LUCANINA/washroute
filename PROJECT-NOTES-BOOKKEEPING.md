@@ -31,6 +31,21 @@
 > rollover can no longer turn the suite red. Before session 262 it was 183-red for a day
 > and a half for exactly that reason.
 >
+> 🔧 **OPERATIONAL (session 263 cont. 7) — `git` from the sandbox leaves a lock file every
+> time; use `--no-optional-locks` for reads.** The device mount refuses `unlink`, so every git
+> command that takes a lock (`status`, `add`, `commit`) creates `.git/index.lock` or
+> `.git/HEAD.lock` and then **cannot remove it** — the next git command dies with *"another
+> git process seems to be running"*. It is not a crashed process and `rm` is not available
+> here. **87 of these had accumulated since March**; cont. 7 quarantined 94 files into
+> `.git/_to_delete/` (nothing was deleted, per the standing rule). Two things worth knowing:
+> `git --no-optional-locks status` takes no lock and leaves nothing behind — **use it for
+> every read**; and for a write, `mv .git/index.lock .git/HEAD.lock` aside first, then commit.
+> **This is a sandbox-mount limitation only.** In David's own Terminal git deletes its locks
+> normally, so he never sees this. `.git/_to_delete/` is his to `rm -rf` whenever.
+>
+> ⚠️ Do NOT sweep on the glob `*lock*`: `.git/worktrees/wr-test-main/locked` is a REAL git
+> file (13 bytes, marks a locked worktree). Match `*.lock` and `*.lock.*` only.
+>
 > 🔒 **STANDING RULE (session 262 cont. 3, David) — THE CLOSE GATE.** *The month cannot be
 > closed without all relevant statements uploaded AND analysed against Xero.* Loans closing
 > on a contractual schedule are exempt **by recorded policy** (`close_basis`), never because
