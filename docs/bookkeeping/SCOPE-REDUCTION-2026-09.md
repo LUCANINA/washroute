@@ -95,14 +95,44 @@ remaining in the file.
 **Nothing is deleted.** This is the same discipline as the 40-word card rule: a claim that
 leaves the visible surface has to survive somewhere, or the cut is a lie rather than a trim.
 
-## 6. Payroll
+## 6. Payroll — KEEP IT. It earned its place.
 
-**Stays visible. Stays frozen. No investment.**
+**Revised 2026-09-03, after the verification pass. David: "let's keep the payroll feature
+live because it works well."**
 
-David keeps it but is not sure it is right, so it gets **one verification pass before any
-other work in this reduction**: check `payroll_departments` mapping against what has
-actually posted. A wrong `wage_account_code` does not fail loudly — it puts real money in
-the wrong GL account silently.
+The pass that decided this is worth stating, because "it works well" is now a MEASURED claim
+rather than an impression:
+
+* All five departments' wage and tax codes verified against Xero itself — every code exists,
+  is ACTIVE, is class EXPENSE, and its name matches what `payroll_departments` records.
+* 254 of 255 import lines matched an employee, every one agreeing with that employee's
+  department. The odd line is the Square insurance-reimbursement run, which has no department
+  by design.
+* **Every one of the ten department accounts ties to the source data to the cent**, once the
+  correction journals are netted. Nine at $0.00; the tenth explained by the 668 bank-rule
+  misroute, spot-checked against two real transactions in Xero.
+
+One real fault was found and fixed the same day (the 170/171 split — see §6a). By the end of
+the day all eleven periods through 2026-08-28 were posted with no flags outstanding.
+
+**So Payroll is not "frozen pending a decision" any more — it is a working feature that stays
+visible and keeps working.** It still gets no new investment: the one job (§1) is loans. But
+it is no longer a candidate for hiding, and the one-page rule in §4 does not apply to it.
+
+### 6a. What the verification pass changed
+
+`payroll-xero-post` v21 / `payroll-check-attention` v5: the whole payroll cash draw now credits
+**170 Direct Wages**, including employee California tax. The old model drew EE CA tax from 171,
+which is not where the EDD payments land, so 171 walked negative every period until the balance
+gate refused a payroll whose remittances had all been paid on time. Both functions now import
+`_shared/payroll-clearing.ts` so they cannot drift apart — they were previously kept in step by
+a comment, and both carried the same wrong model for a month.
+
+**This is the reduction working as intended.** The 170/171 split was an invented distinction
+the real world did not follow, bought a check that never once answered correctly, and produced
+a false alarm on correct books. Removing it was cheaper than maintaining it — which is the §5
+test ("would a reader act differently without it?") applied to a mechanism rather than a
+screen.
 
 ## 7. What this does NOT change
 

@@ -23,12 +23,18 @@
 > (`verify_jwt: false`) — the two flags DIFFER, do not deploy them alike.** Commits `60f181f`
 > and `5f83ae0`, **pushed**.
 >
-> ### ⏭️ The one payroll thing left, and it is an upload, not a bug
+> ### ✅ AUGUST PAYROLL IS FULLY POSTED — and Payroll STAYS
 >
-> **The 2026-08-28 period has never been imported.** Its EDD ($655.16) and IRS ($4,230.38)
-> payments already landed in 170 on the 28th, so the period is real and the cash is there — the
-> Square CSV just has not been uploaded. Expect a draw near $21,500 against a 170 balance of
-> roughly $23,071, so it should clear with less headroom than usual.
+> The 2026-08-28 period was uploaded and posted at 21:15 UTC (journal
+> `c05cbbb7-5787-4b41-8cfe-109d8b54f1f7`). **All ELEVEN imports are `posted` with no attention
+> flags outstanding.** Nothing in Payroll is waiting on anyone.
+>
+> **David, after seeing the verification pass: "let's keep the payroll feature live because it
+> works well."** This REVERSES the morning's "keep it but I'm not sure it's right" — Payroll is
+> no longer a candidate for hiding under the scope reduction, and §4's one-page rule does not
+> apply to it. It still gets no new investment; the one job is loans.
+> `docs/bookkeeping/SCOPE-REDUCTION-2026-09.md` §6 carries the decision and the measurements
+> behind it.
 >
 > **Everything below this line was left by session 266 (18:05 UTC) and is still current
 > unless session 267 contradicted it.**
