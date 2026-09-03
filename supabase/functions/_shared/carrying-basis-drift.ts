@@ -299,6 +299,70 @@ function splitsAsOf(splits: BasisSplit[], asOf: string): BasisSplit[] | null {
   })
 }
 
+/**
+ * Sources whose rows record a movement the LENDER would recognise.
+ *
+ * A zero-cash row is ambiguous by shape and cannot be read by shape. On this
+ * book two completely different things wear the same face — `principal` and
+ * `interest` equal and opposite, `total_amount` zero:
+ *
+ *   BayFirst SBA 2, 2025-02-28   −2,155.49 / +2,155.49   interest capitalised;
+ *                                the lender's own statement balance really rose
+ *   PayPal 2,       2026-02-28   +2,544.96 / −2,544.96   the CPA correcting how
+ *                                a draft was coded in Xero; nothing was paid
+ *
+ * The first must count — the amount owed changed. The second must not — the
+ * payment it corrects is already on file, with its own row and its own split.
+ * Only PROVENANCE separates them, which is this module's own standing rule:
+ * never infer from shape what a document can be asked directly.
+ *
+ * So this is an allowlist, and deliberately the same shape as
+ * `BOOK_BALANCE_SOURCES` above and `_VARIANCE_REAL_ANCHORS` in the dashboard: a
+ * zero-cash row from a source nobody has thought about is left OUT of the
+ * payments side rather than quietly counted as a repayment. That is the safe
+ * direction here, because counting one is what produced Tech Debt #38 — a
+ * $30,490.42 prediction on a loan whose lender says $49,325. Add a source here
+ * when a new one genuinely records the lender's own balance moving, and only
+ * then.
+ */
+export const ZERO_CASH_MOVEMENT_SOURCES = ['statement_delta']
+
+/**
+ * A row that moved no cash and is not the lender's own statement moving: a
+ * bookkeeping reclassification, and never a repayment.
+ *
+ * `total_amount` is what left the bank. Zero, with a principal or interest leg,
+ * is a journal moving an amount between two accounts — the loan is neither paid
+ * down nor drawn on by a single cent. A correction that DID move cash (an extra
+ * principal payment, a refund) is not caught here and should not be: it really
+ * did change what is owed.
+ */
+export function isReclassification(s: BasisSplit): boolean {
+  const cents = (n: unknown) => Math.round(Number(n || 0) * 100)
+  if (cents(s.total_amount) !== 0) return false
+  if (cents(s.principal_amount) === 0 && cents(s.interest_amount) === 0) return false
+  return !ZERO_CASH_MOVEMENT_SOURCES.includes(String(s.source || ''))
+}
+
+/**
+ * What was left out of the payments side, and how much of it. Reported rather
+ * than merely done: an exclusion nobody can see is evidence deleted, and on this
+ * book it is the difference between a $30,490.42 prediction and a $49,324.92 one.
+ * Null when the splits cannot be placed in time — the same refusal `splitsAsOf`
+ * makes, for the same reason.
+ */
+export function reclassificationsAsOf(
+  splits: BasisSplit[], asOf: string,
+): { count: number; principal_reclassified: number } | null {
+  const cut = splitsAsOf(splits, asOf)
+  if (cut === null) return null
+  const rows = cut.filter(s => !s.voided_at && isReclassification(s))
+  return {
+    count: rows.length,
+    principal_reclassified: Number(rows.reduce((a, s) => a + Number(s.principal_amount || 0), 0).toFixed(2)),
+  }
+}
+
 export function fitBasis(input: DriftInput): BasisFit[] {
   return fitBasisAgainst(input, chooseObservation(input.balances).chosen)
 }
@@ -334,9 +398,32 @@ export function fitBasisAgainst(input: DriftInput, obs: ChosenObservation | null
   // caller that also windows can only narrow it further, which is harmless.
   const cut = splitsAsOf(input.splits, obs.statement_date)
   if (cut === null) return []
-  const alive = cut.filter(s => !s.voided_at)
+  // A RECLASSIFICATION IS NOT A REPAYMENT (Tech Debt #38, session 263 cont. 9).
+  //
+  // These sums are the PAYMENTS side of every model below. A journal that moves
+  // money between two accounts and settles nothing has no business in them, and
+  // for seven months one did: PayPal 2's CPA corrected a Xero bank rule that
+  // coded the weekly auto-drafts entirely to principal, and each correction was
+  // backfilled here as its own row. The weekly row already carried the correct
+  // split, so the correction restated a movement that was on file, and
+  // $18,834.50 of principal was counted twice. The net model predicted
+  // $30,490.42 against a lender principal of ~$49,325 and the card told a
+  // bookkeeper "the balance does not match any expected shape", at severity
+  // error, about a loan that agrees with its lender to $21.66.
+  //
+  // It is NOT enough to test for zero cash. Seven other loans on this book carry
+  // zero-cash rows of exactly the same shape — BayFirst, Bluevine, Funding
+  // Circle — and those are capitalised interest read off the lender's own
+  // statement, where the amount owed genuinely rose. Excluding them would have
+  // traded one wrong prediction for seven. Only provenance tells the two apart:
+  // see `isReclassification` and `ZERO_CASH_MOVEMENT_SOURCES`.
+  const alive = cut.filter(s => !s.voided_at && !isReclassification(s))
   const paidTotal = alive.reduce((a, s) => a + Number(s.total_amount || 0), 0)
   const bookedPrincipal = alive.reduce((a, s) => a + Number(s.principal_amount || 0), 0)
+  // Interest on a reclassification row is the correction's own other leg, not
+  // evidence that payments are being split. Counting it would let seven journals
+  // vouch for a splitting practice that may not exist, which is the same
+  // mistake pointed at the other model.
   const anyInterest = alive.some(s => Number(s.interest_amount || 0) !== 0)
 
   const fits: BasisFit[] = []
@@ -498,6 +585,10 @@ export function detectCarryingBasisDrift(input: DriftInput): DriftResult {
     terms: input.terms,
     balances_considered: input.balances.length,
     splits_considered: input.splits.length,
+    // What the payments side deliberately did NOT count, and how much of it.
+    reclassifications_excluded: observation.chosen
+      ? reclassificationsAsOf(input.splits, observation.chosen.statement_date)
+      : null,
     // WHICH balance this verdict actually spoke about. Its absence is how a
     // finding could claim to diagnose our ledger from the lender's figure and
     // leave nothing behind to show it had.

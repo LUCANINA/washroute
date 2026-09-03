@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 263 cont. 9, 2026-09-03)
+> ## ⏭️ START HERE — first thing, next session (left by session 264, 2026-09-03)
 >
 > **This block is rewritten at the END of every session. It has been wrong four days
 > running, always by being written before the thing it describes finished. Everything
@@ -15,12 +15,15 @@
 > — another session is working in this repo, so `git log` before assuming the tree is
 > yours.**
 >
-> 🔴 **TWO functions are now behind the repo, not one: `loan-bundle` AND
-> `reconciliation-run`.** Both read cont. 7's new `_shared/book-balances.ts`; deploying one
-> without the other leaves half the module answering the old way.
+> 🔴 **TWO functions are behind the repo: `loan-bundle` AND `reconciliation-run`.** Both
+> read cont. 7's `_shared/book-balances.ts` AND session 264's fix to
+> `_shared/carrying-basis-drift.ts`; deploying one without the other leaves half the module
+> answering the old way. **Session 264's commit is local and unpushed as well** — the
+> sandbox has no network. Check the fix FUNCTIONALLY, never by version: PayPal 2's basis
+> card must show the net model at **$49,324.92**, not $30,490.42.
 >
-> **Suite: the sixteen Node suites were swept end-to-end at the close of cont. 9 —
-> 1,082 assertions, 0 red** (`book-balances` 25 and `evidence-gate` 37 are new). That count covers the `.test.mts`
+> **Suite: the sixteen runnable Node suites were swept end-to-end at the close of session
+> 264 — 1,089 assertions, 0 red** (`carrying-basis` is now 34, up 7 for Tech Debt #38). That count covers the `.test.mts`
 > suites only; the wider figure including the browser/history suites was **1,591 with 1
 > deliberate red** (Tech Debt #19's `[history] s240 #10`, self-labelled REPORTED and red ON
 > PURPOSE — tuning it green deletes the only record of that finding). **Any other red is a
@@ -64,12 +67,13 @@
 > **David (cont. 9): "Write this up in Notes as priorities tomorrow morning. We'll start fresh."**
 > These three came out of cont. 8–9 and supersede the older ordering below.
 >
-> **1. 🔴 FIX TECH DEBT #38 FIRST — it is a WRONG ANSWER, not noise.** The basis check counts
->    PayPal 2's seven month-end correction journals as if they were payments, double-counting
->    ~$18,834.50, and tells a bookkeeper the balance *"does not match any expected shape"* at
->    severity error. **The control is measurable and already known:** fixed, the net model must
->    land within ~$21.66 of the books' $49,346.58 at 2026-08-31. Read cont. 9 for the arithmetic
->    before touching the code, and do not widen the fit tolerance to make it pass.
+> **1. ✅ TECH DEBT #38 — DONE (session 264), not deployed.** The net model now predicts
+>    $49,324.92 against books of $49,346.58: the $21.66 the control promised, from $18,856.16
+>    out. The note's own prescription turned out to be wrong twice — see the session 264 entry,
+>    and **Tech Debt #39, which is the same defect on the dashboard and was deliberately left
+>    open** because a second unrelated cause sits on the same figure. One decision is waiting
+>    for David there: a $21.66 miss still reads as severity ERROR, and the answer is a
+>    materiality band, never a wider tolerance.
 >
 > **2. 🟠 WIRE `_shared/evidence-gate.ts` into `reconciliation-run`.** Built and green in cont. 8
 >    (37 assertions, 4 mutations proven red), **wired into nothing.** Build the per-loan
@@ -2592,7 +2596,9 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
-**38. 🔴 The basis check counts a CORRECTION as a PAYMENT — a live wrong answer on PayPal 2 (session 263 cont. 9).** `fitBasisAgainst()` sums our own `loan_splits` to get principal repaid. PayPal 2 carries seven month-end true-up journals (session 258, CPA correcting a Xero bank rule that coded auto-drafts entirely to principal), so roughly **$18,834.50 is counted twice** — once as the weekly split, again as the correction. The net model predicts **$30,490.42** where the lender's own principal balance says ~**$49,325**, and the card tells a bookkeeper *"the balance does not match any expected shape"* at severity **error**. **A reclassification journal moves money between two accounts and repays nothing; it must not reduce the modelled balance.** Next step: exclude `source='manual_adjustment'` rows (and any split whose `posting_method='manual_journal'` with a zero `total_amount`) from the repaid sums in `fitBasisAgainst`, or better, derive principal repaid from the lender's own balance movement where a lender document exists. **The control is already known and measurable:** with it fixed, PayPal 2's net model must land within ~$21.66 of the books' $49,346.58 at 2026-08-31 — see cont. 9 for the full arithmetic. Do NOT 'fix' this by widening the fit tolerance.
+**39. 🟠 The dashboard's principal reconciliation counts the same corrections, against the lender's own balance movement (session 264).** `_loanPrincipalReconciliation()` in `admin-dashboard/index.html` compares the principal WE recorded in a window against how far the LENDER's balance actually moved. A lender's balance contains no reclassification journal, so ours must not either — this is Tech Debt #38's defect, one file away, on a surface #38's fix does not reach. Measured on PayPal 2 over the live 6-month window (2026-03 → 2026-08): `recorded` is overstated by **$16,229.95** of true-ups. **It was NOT fixed in session 264, deliberately, because a second and unrelated cause sits on the same figure:** the window's closing lender balance is dated **2026-08-05** while `recorded` runs to the month end, so three August payments totalling **$9,451.05** are counted against a balance taken before they happened. Fixing the reclassification alone would take the delta from $25,680.99 to $9,451.05 — still `over`, still suppressing this loan's recurring payment, and now wrong for a reason nobody has written down. Next step: cut `recorded` at `close.asOf` rather than at the month end, AND exclude zero-cash corrections, in one change, measured across all fourteen loans. **Blocked on Tech Debt #37** — this is `index.html`, and the browser harness cannot run on the machine that ships it, so the measurement has to be real or not made at all.
+
+**38. ✅ CLOSED (session 264) — a reclassification is no longer a repayment, and the control landed to the cent.** `fitBasisAgainst()` now excludes zero-cash rows from the payments side, and PayPal 2's net model predicts **$49,324.92** against books of **$49,346.58** — the $21.66 the arithmetic promised, from $18,856.16 out. **The prescription in the original note would have been wrong, and finding that out was the work.** Excluding by `source='manual_adjustment'` was too narrow (a label is a name for a mechanism, and names get added); excluding by zero cash alone was too BROAD, and that is the part nobody had measured: **seven other loans carry zero-cash rows of exactly the same shape** — BayFirst SBA 2 at −2,155.49/+2,155.49, Bluevine, Funding Circle's twenty-seven — and those are capitalised interest read off the LENDER's own statement, where the amount owed genuinely rose. A cash-only test would have traded one wrong prediction for seven. Only PROVENANCE separates them, which is this module's own rule that you never infer from shape what a document can be asked directly. So the exclusion is an allowlist, `ZERO_CASH_MOVEMENT_SOURCES = ['statement_delta']`, pointed the same way as `BOOK_BALANCE_SOURCES`: a zero-cash row from an unlisted source is left OUT of the repaid sums rather than quietly counted. What was excluded is reported in `detail.reclassifications_excluded` — an exclusion nobody can see is evidence deleted. 7 new assertions in `tests/carrying-basis.test.mts`, both mutations proven red: revert the exclusion and the predicted figure comes back as **$30,490.42** exactly, and widen it to cash-only and BayFirst's capitalised interest goes red on its own. **See Tech Debt #39 for the same defect on the dashboard, which this fix does NOT reach.**
 
 **37. 🔴 The browser harness cannot run on the machine that ships the dashboard (session 263 cont. 6).** `tests/bookkeeping-harness.mjs` loads `admin-dashboard/index.html` in headless Chromium and would have caught cont. 6's temporal-dead-zone crash in seconds. It cannot run: the device VM has no Playwright browser installed (`Executable doesn't exist at /opt/pw-browsers/...`), and the cloud container that HAS one does not have the repo. So every dashboard change this session shipped on source-text assertions alone — which proved the code was present and could not prove it ran, and a crash went out. Next step: install the browser on the device (`npx playwright install chromium`, one command, ~150MB) so the harness is runnable where the edits happen. Until then, treat any `index.html` change as unverified and lean on ordering/consistency lints, which are cheap and catch a real subset — see cont. 6 for the shape.
 
@@ -2874,6 +2880,106 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 264 (2026-09-03) — A CORRECTION IS NOT A PAYMENT, AND THE OBVIOUS FIX FOR IT WAS WRONG TWICE
+
+David: *"start work on tech Debt #38."* It was the first of the three priorities cont. 9
+left, and the reason it was first is that it is a **wrong answer on a screen**, not a
+gap: PayPal 2's basis card told a bookkeeper *"the balance does not match any expected
+shape for this loan"* at severity **error**, about a loan that agrees with its lender to
+twenty-one dollars.
+
+#### The bug, restated in one line
+
+`fitBasisAgainst()` builds the payments side of every model by summing our own
+`loan_splits`. PayPal 2 carries the weekly draft AND, seven times, the CPA's month-end
+journal correcting how Xero's bank rule coded that same draft. Both rows are in the sum.
+$18,834.50 of principal counted twice; the net model predicted $30,490.42 where the
+lender's principal says $49,324.92.
+
+#### THE PRESCRIPTION IN THE TECH DEBT NOTE WAS WRONG, AND CHECKING IT WAS THE WORK
+
+cont. 9 wrote the next step as *"exclude `source='manual_adjustment'` rows"*. Two things
+came out of testing that against production before writing it:
+
+**Too narrow.** A `source` is a name for a mechanism and names get added; the day someone
+introduces a new label for a correcting entry, the double-count comes back silently. The
+module's own doctrine says an allowlist, so a source nobody has thought about fails safe.
+
+**And the obvious generalisation — "no cash moved, so nothing was repaid" — is too
+BROAD, which nobody had measured.** Seven other loans carry zero-cash rows of the
+identical shape, principal and interest equal and opposite:
+
+| | | |
+|---|---|---|
+| BayFirst SBA 2, 2025-02-28 | −2,155.49 / +2,155.49 | interest capitalised — the lender's own balance really rose |
+| PayPal 2, 2026-02-28 | +2,544.96 / −2,544.96 | the CPA re-coding a draft in Xero — nothing was paid |
+
+Funding Circle has twenty-seven of the first kind. **A cash-only test would have traded
+one wrong prediction for seven** — and it would have looked like a cleaner fix while
+doing it. Nothing about the row distinguishes them; only **provenance** does, which is
+the rule already written a few hundred lines above the code being changed: *never infer
+from shape what a document can be asked directly.*
+
+#### What shipped
+
+`ZERO_CASH_MOVEMENT_SOURCES = ['statement_delta']` — a zero-cash row counts only when it
+is the LENDER's own statement moving. Everything else with no cash behind it is our
+bookkeeping and is left out of the repaid sums, along with its interest leg (a correction
+is not evidence that payments are being split, and letting it vouch for that is the same
+mistake pointed at the other model). A correction that DID move cash still counts,
+because it really did change what is owed. The exclusion is reported in
+`detail.reclassifications_excluded`, count and amount: an exclusion nobody can see is
+evidence deleted.
+
+#### The control, and it landed to the cent
+
+Stated in cont. 9 before any code was written, and unchanged since:
+
+| | |
+|---|---|
+| net model, corrections excluded | **$49,324.92** |
+| the books at 2026-08-31 (`xero_rebuild`) | **$49,346.58** |
+| **difference** | **$21.66** |
+
+Corroborated independently by a figure nobody was looking at: the August book row's own
+`detail.reduced` is **12,571.65**, which is the four weekly PRINCIPAL amounts to the cent
+— so the books really do move by the split, not by the gross draft, and that is measured
+from Xero rather than assumed from our splits.
+
+#### Verification
+
+`tests/carrying-basis.test.mts` 27 → **34**, with production figures rather than invented
+ones. Both mutations proven red, in a scratch copy and never by editing the file under
+test: revert the exclusion and the predicted figure comes back as **$30,490.42** exactly
+— the number cont. 9 recorded off the live card, which is the strongest evidence the test
+models the real bug — and relax it to cash-only and BayFirst's capitalised interest goes
+red on its own, and only that one. All sixteen runnable `.test.mts` suites swept
+afterwards: **1,089 assertions, 0 red** (was 1,082). `tests/loan-bundle.test.mts` still
+cannot import `pdfjs-dist` on this machine — pre-existing, unrelated, re-confirmed.
+
+#### The same defect one file away, NOT fixed — Tech Debt #39
+
+Grepping every branch that sums splits as repayment (session 231's rule) found one more:
+`_loanPrincipalReconciliation()` compares our recorded principal against the LENDER's
+balance movement, and counts the same seven corrections — $16,229.95 in the live window.
+It is **not** fixed here, because a second, unrelated cause sits on the same figure: the
+window's closing lender balance is dated 2026-08-05 while `recorded` runs to month end,
+so $9,451.05 of August payments are counted against a balance taken before they happened.
+Fixing one would leave the loan still flagged, for a reason nobody had written down. Both
+belong in one measured change, and it is `index.html`, which Tech Debt #37 says cannot be
+verified on this machine. Written down rather than half-done.
+
+#### Two things for David
+
+1. **The card will still say `fits_neither` at severity error** — the miss is now $21.66
+   against a fit tolerance of $1.00. That is honest and it is priority #3's whole subject,
+   but a twenty-one dollar difference on a $157,000 loan reading as **error** is a nag, and
+   the fix is a materiality band, never a wider tolerance. Worth a decision.
+2. **Nothing here is deployed.** `reconciliation-run` and `loan-bundle` both read the
+   changed file, and both were ALREADY behind from cont. 7.
 
 ---
 
