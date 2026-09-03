@@ -8,19 +8,33 @@
 >
 > ### Where the module stands
 >
-> **Deploy / push state — checked 2026-09-03, not assumed.** `HEAD == origin/main ==
-> ed0aa55` at the start of cont. 7; cont. 7's own commit is local and **NOT PUSHED — the
-> sandbox has no network and `git push` always 403s, so this is David's to run.** **Note a
-> commit that is not this session's landed mid-work (`7d415ee`, Launderers 12-month trend)
-> — another session is working in this repo, so `git log` before assuming the tree is
-> yours.**
+> **Deploy / push state — MEASURED 2026-09-03 04:45 UTC, not assumed. Two claims that
+> stood in this block yesterday were wrong, and both were wrong in the SAFE-sounding
+> direction, which is why this is measured every time.**
 >
-> 🔴 **TWO functions are behind the repo: `loan-bundle` AND `reconciliation-run`.** Both
-> read cont. 7's `_shared/book-balances.ts` AND session 264's fix to
-> `_shared/carrying-basis-drift.ts`; deploying one without the other leaves half the module
-> answering the old way. **Session 264's commit is local and unpushed as well** — the
-> sandbox has no network. Check the fix FUNCTIONALLY, never by version: PayPal 2's basis
-> card must show the net model at **$49,324.92**, not $30,490.42.
+> * **The push happened.** `HEAD == origin/main == 833f7a2` (session 264's commit).
+>   The tracking ref advanced at 04:42 UTC, two minutes after the 04:40 commit, and it can
+>   only hold a SHA the remote actually reports — so the remote has it. **This session did
+>   not push** (the sandbox has no network), so something else did; confirm with
+>   `git log origin/main -1` from your own Terminal before relying on it.
+> * **Cont. 7's "TWO functions are behind the repo" was already stale when it was
+>   written.** `reconciliation-run` v64 and `loan-bundle` v49 both deployed at
+>   **2026-09-03 02:27:5x UTC** — 84 seconds AFTER cont. 7's commit `6adff69`. So
+>   `_shared/book-balances.ts` IS live on both, and the redeploy that block asks for has
+>   already been done.
+> * 🔴 **What IS outstanding: session 264's fix to `_shared/carrying-basis-drift.ts`.**
+>   Both functions read it, both are behind it by exactly one commit, and deploying one
+>   without the other leaves half the module answering the old way. From the repo root:
+>   `npx -y supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
+>   then the same for `reconciliation-run`. `--no-verify-jwt` is **not optional** on either
+>   (both are currently `verify_jwt: false`), and `loan-bundle` is the ~404KB bundle that
+>   must go through the CLI from David's own terminal.
+> * **Check it FUNCTIONALLY, never by version:** PayPal 2's basis card must show the net
+>   model at **$49,324.92**, not $30,490.42.
+> * **Another session is working in this repo.** `admin-dashboard/index.html` and
+>   `tests/bookkeeping-harness.mjs` carry uncommitted changes that are not session 264's
+>   (104 and 35 lines). They were left alone. `git log` and `git status` before assuming
+>   the tree is yours.
 >
 > **Suite: the sixteen runnable Node suites were swept end-to-end at the close of session
 > 264 — 1,089 assertions, 0 red** (`carrying-basis` is now 34, up 7 for Tech Debt #38). That count covers the `.test.mts`
@@ -62,45 +76,58 @@
 > nobody can evaluate, and the row says so and asks for the document. An ESTABLISHED cause
 > always outranks the ask. `balance_vs_lender` is a RESTATEMENT of the gap, not a cause.
 >
-> ### 🌅 TOMORROW MORNING — David's priorities, in this order
+> ### 🌅 NEXT — in this order
 >
-> **David (cont. 9): "Write this up in Notes as priorities tomorrow morning. We'll start fresh."**
-> These three came out of cont. 8–9 and supersede the older ordering below.
+> These come out of session 264. Priority 1 from cont. 9's list (Tech Debt #38) is DONE;
+> what follows is what it left behind, plus cont. 9's own 2 and 3 unchanged.
 >
-> **1. ✅ TECH DEBT #38 — DONE (session 264), not deployed.** The net model now predicts
->    $49,324.92 against books of $49,346.58: the $21.66 the control promised, from $18,856.16
->    out. The note's own prescription turned out to be wrong twice — see the session 264 entry,
->    and **Tech Debt #39, which is the same defect on the dashboard and was deliberately left
->    open** because a second unrelated cause sits on the same figure. One decision is waiting
->    for David there: a $21.66 miss still reads as severity ERROR, and the answer is a
->    materiality band, never a wider tolerance.
+> **1. 🔴 DEPLOY — see the state block above.** Session 264's fix is committed and pushed
+>    and live on nothing. Two functions, one command each, checked by behaviour.
 >
-> **2. 🟠 WIRE `_shared/evidence-gate.ts` into `reconciliation-run`.** Built and green in cont. 8
->    (37 assertions, 4 mutations proven red), **wired into nothing.** Build the per-loan
->    `LoanEvidence` from what the run already loads — newest REAL anchor (`REAL_ANCHOR_SOURCES`),
->    `contractTerms`, `schedAnchors`, `bookBalances` — pass the closing month's FIRST day as
->    `coversFrom`, gate the four registered checks, and push `awaitingEvidenceFinding()` once per
->    loan. **The existing silent `if (haveCheckpoint)` skip on `derived_drift` is exactly the blank
->    this replaces — make it visible, do not leave both.** Wire EVERY consumer in one change; this
->    session made the stop-at-the-first-consumer mistake five times.
+> **2. ❓ ONE DECISION FROM DAVID, and it is small but it blocks nothing else.** PayPal 2's
+>    basis card now misses by **$21.66** against a fit tolerance of **$1.00**, so it still
+>    reads `fits_neither` at severity **ERROR** — a true sentence at a severity that will
+>    train a bookkeeper to ignore the card. The answer is a **materiality band** (a
+>    percentage-of-balance floor beside the absolute one), **never a wider tolerance**;
+>    cont. 9 was explicit about that and it still holds. Ask before building it.
 >
-> **3. 🟢 CHASE THE $21.66** on PayPal 2 — the only real residual on that loan. Small, but it is
->    now the whole gap, and Xero's daily cap resets before morning.
+> **3. 🟠 WIRE `_shared/evidence-gate.ts` into `reconciliation-run`.** Built and green in
+>    session 263 cont. 8 (37 assertions, 4 mutations proven red), **wired into nothing.**
+>    Build the per-loan `LoanEvidence` from what the run already loads — newest REAL anchor
+>    (`REAL_ANCHOR_SOURCES`), `contractTerms`, `schedAnchors`, `bookBalances` — pass the
+>    closing month's FIRST day as `coversFrom`, gate the four registered checks, and push
+>    `awaitingEvidenceFinding()` once per loan. **The existing silent `if (haveCheckpoint)`
+>    skip on `derived_drift` is exactly the blank this replaces — make it visible, do not
+>    leave both.** Wire EVERY consumer in one change; session 263 made the
+>    stop-at-the-first-consumer mistake five times.
 >
-> ⚠️ **Two conclusions from earlier in session 263 are WITHDRAWN. Do not act on them:**
-> PayPal 2 is **`net_principal`**, not gross — and the **$1,874.27** it was going to be sent to
-> chase is the miss on a model that does not apply to this loan. Tech Debt **#36 was never true**
-> (all fourteen active loans have a book balance). See cont. 9 and cont. 7.
+> **4. 🟢 CHASE THE $21.66** on PayPal 2 — now the whole gap on that loan, and the only one.
+>    Xero's daily cap (exhausted at 02:50 UTC on 2026-09-03, ~769 min to reset) should be
+>    back.
 >
-> ### Still outstanding from cont. 7 — a DEPLOY OF TWO FUNCTIONS
+> **5. 🟠 TECH DEBT #39 — the same defect one file away, deliberately left open.**
+>    `_loanPrincipalReconciliation()` in the dashboard counts PayPal 2's seven corrections
+>    against the LENDER's own balance movement ($16,229.95 in the live window). It was not
+>    fixed with #38 because a SECOND, unrelated cause sits on the same figure: the window's
+>    closing lender balance is dated 2026-08-05 while `recorded` runs to month end, so
+>    $9,451.05 of August payments are counted against a balance taken before they happened.
+>    Fixing either alone leaves the loan flagged for a reason nobody wrote down. Both in one
+>    measured change, across all fourteen loans — and it is `index.html`, so **Tech Debt #37
+>    (the browser harness cannot run on this machine) blocks it.** Installing that browser
+>    is one command and would unblock this.
 >
-> 0a. **🔴 REDEPLOY BOTH `loan-bundle` AND `reconciliation-run` — cont. 7 added
->    `_shared/book-balances.ts` and both read it.** From the repo root, after pushing:
->    `npx -y supabase@latest functions deploy loan-bundle --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
->    then the same for `reconciliation-run`. `--no-verify-jwt` is **not optional** on either.
->    **Check FUNCTIONALLY, never by version.** NOTE: David ran the bundle during cont. 8 and the
->    books-vs-lender card DID read `loan_book_balances` ($49,346.58 at 2026-08-31), so `loan-bundle`
->    appears live — **confirm `reconciliation-run` separately rather than assuming both went.**
+> ⚠️ **Two conclusions from session 263 are WITHDRAWN. Do not act on them:** PayPal 2 is
+> **`net_principal`**, not gross — and the **$1,874.27** it was going to be sent to chase is
+> the miss on a model that does not apply to this loan. Tech Debt **#36 was never true** (all
+> fourteen active loans have a book balance). See session 263 cont. 9 and cont. 7.
+>
+> ### Still open from session 263, and NOT superseded
+>
+> 0a. ✅ **The cont. 7 redeploy is DONE** — both functions carry `_shared/book-balances.ts`
+>    as of 2026-09-03 02:27 UTC, measured against `list_edge_functions`. The outstanding
+>    deploy is session 264's, in the state block at the top. **This is the fourth time this
+>    block's deploy claim has been wrong; it was wrong here by saying not-deployed about
+>    something that had shipped 84 seconds after the commit.**
 >
 > 0b. **Still unanswered by David, asked four times:** the account reference. The proposal is to
 >    pass intake's `ai_account_claimed` (already in the browser at
@@ -2978,8 +3005,16 @@ verified on this machine. Written down rather than half-done.
    against a fit tolerance of $1.00. That is honest and it is priority #3's whole subject,
    but a twenty-one dollar difference on a $157,000 loan reading as **error** is a nag, and
    the fix is a materiality band, never a wider tolerance. Worth a decision.
-2. **Nothing here is deployed.** `reconciliation-run` and `loan-bundle` both read the
-   changed file, and both were ALREADY behind from cont. 7.
+2. **Nothing here is deployed** — but the reason is narrower than the START HERE block
+   said, and checking it corrected the block for the fourth time. `list_edge_functions`
+   against `git log`: `reconciliation-run` v64 and `loan-bundle` v49 both deployed at
+   **2026-09-03 02:27:5x UTC, 84 seconds after cont. 7's commit** — so cont. 7's
+   `book-balances.ts` was live all along and its "TWO functions are behind the repo" note
+   was stale the moment it was written. What is behind is session 264's change, on both
+   functions, by exactly one commit. **And the push had already happened**: `origin/main`
+   advanced to `833f7a2` at 04:42 UTC, two minutes after the commit and not by this session,
+   which has no network. Being the session that made the change is not evidence about where
+   it is; it is the condition under which this keeps going wrong.
 
 ---
 
