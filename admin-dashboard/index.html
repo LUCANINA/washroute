@@ -3870,6 +3870,15 @@
             /* Session 249: this badge counted the SAME blockers the status strip
                names in red a few pixels below. One red on the page means this
                one states the count and lets the strip carry the alarm. */
+            /* Session 269 — the reconciliation control at the bar's right-hand end.
+               margin-left:auto rather than a fixed width, so it sits hard right on a
+               wide screen and wraps to its own line on a narrow one instead of
+               squeezing the period tabs. Its status stacks to the LEFT of the button,
+               right-aligned against it: the button is the affordance and reads first
+               on a left-to-right scan of the bar's end. */
+            .lpb-recon { margin-left:auto; display:inline-flex; align-items:center; gap:12px; }
+            .lpb-recon-state { display:inline-flex; flex-direction:column; align-items:flex-end;
+                               gap:1px; font-size:12px; line-height:1.35; text-align:right; }
             .lpb-count { font-size:10.5px; font-weight:700; background:var(--gray-100); color:var(--gray-600);
               border:1px solid var(--gray-200); border-radius:20px; padding:1px 7px; margin-left:2px; }
             /* Session 248 (David): the "Books closed through ... / Xero lock date"
@@ -4015,11 +4024,16 @@
                 <div style="flex:1">
                   <div class="card-title" id="bk-ov-queue-label">Needs your attention</div>
                   <div class="card-sub" id="bk-ov-statusline"></div>
-                  <div class="card-sub" id="recon-lastrun" style="margin-top:2px"></div>
-                  <div id="recon-summary" style="margin-top:2px"></div>
+                  <!-- Session 269, David: "move the Run Reconciliation Check button from
+                       the Overview page to the Loans page." The button AND the two lines
+                       that report its state (#recon-lastrun, #recon-summary) went together
+                       to renderLoansPeriodBar's right-hand end. Moving the control without
+                       its status would have left "Run a check to see whether the books tie
+                       out" here, pointing at a button on another page. Nothing was deleted:
+                       every one of those lines renders on Loans now, from the same
+                       renderReconciliation(). -->
                 </div>
                 <span style="display:flex;align-items:center;gap:14px">
-                  <button class="btn btn-ghost" id="recon-run-btn" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button>
                   <div class="bk-seg-toggle">
                     <button class="bk-seg active" id="bk-ov-seg-issues" onclick="_bkSetOverviewSeg('issues')">Issues</button>
                     <button class="bk-seg" id="bk-ov-seg-approvals" onclick="_bkSetOverviewSeg('approvals')">Approvals</button>
@@ -4167,11 +4181,11 @@
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="loans-summary" style="margin-bottom:20px"></div>
 
-          <!-- Session 223 cont. 2: the Reconciliation card left this page too —
-               the run button and last-run stamp live on the Overview queue
-               header, and the resolved/info/past-reports references sit under
-               the Overview queue. Loans is now purely: summary tiles, All
-               Loans, Debt Schedule. -->
+          <!-- Session 223 cont. 2: the Reconciliation CARD left this page — the
+               resolved/info/past-reports references sit under the Overview queue.
+               Session 269 brought the run button and its status BACK, but not the
+               card: they are one line in the period bar at the top of this page,
+               beside the close date. The card is still gone. -->
           <div class="card" id="loans-all-card" style="border-color:var(--gray-200);border-radius:14px;box-shadow:0 1px 2px rgba(15,37,71,.04)">
             <div class="card-header" style="cursor:pointer;padding:16px 18px 12px;border-bottom:0" onclick="toggleOverviewPanel('loans-table-wrap',this)">
               <div style="flex:1">
@@ -14472,8 +14486,12 @@
   // into Loans' unified "Needs Attention" list (see renderLoansAttention /
   // _bkLoanAttentionItems) so there's exactly one place findings display and exactly
   // one count for them. This function is left owning only the run-status strip (last
-  // run recap, new/open/resolved counts) and the past-reports list -- both now live
-  // inside the Needs Attention card's header/footer in the HTML, not a separate card.
+  // run recap, new/open/resolved counts) and the past-reports list, not a separate card.
+  // Session 269: the two strip elements moved to the LOANS period bar with the Run
+  // Reconciliation Check button they describe; the past-reports list stayed under the
+  // Overview queue's History panel. So this writes to two pages now, which is why the
+  // early return below checks all three elements and why renderLoansPeriodBar() calls
+  // this after it repaints (that repaint destroys the two it owns).
   function renderReconciliation() {
     const lastEl = document.getElementById('recon-lastrun');
     const sumEl  = document.getElementById('recon-summary');
@@ -17268,7 +17286,32 @@
           <span><span class="lpb-k">In flight</span><span class="lpb-v">${esc(_cvMonthName(liveMonth))}</span></span>
         </button>
       </div>
-      ${closeNote}`;
+      ${closeNote}
+      <span class="lpb-recon">
+        <span class="lpb-recon-state">
+          <span id="recon-lastrun" class="lpb-close"></span>
+          <span id="recon-summary"></span>
+        </span>
+        <button class="btn btn-ghost" id="recon-run-btn" style="font-size:12px;padding:6px 12px"
+                onclick="runReconciliationCheck()">Run Reconciliation Check</button>
+      </span>`;
+    // ── THE RECONCILIATION CONTROL LIVES HERE NOW (session 269, David) ────
+    // Moved off the Overview queue header. This bar is already the page's answer
+    // to "how current is what I am looking at" — it carries the close date for
+    // exactly that reason — and when the check last ran is the same kind of fact.
+    // It is also the one row that survives switching period, so the button does
+    // not vanish when you move to In flight.
+    //
+    // THIS innerHTML DESTROYS #recon-lastrun / #recon-summary ON EVERY REPAINT,
+    // so their content has to be re-rendered after, not before. renderReconciliation()
+    // is the only writer of both and is cheap and idempotent, so it is called here
+    // rather than relying on the two functions happening to run in the right order —
+    // which they do not: loadReconciliation() calls renderReconciliation() and THEN
+    // renderLoansCloseBand(), and a period switch repaints this bar on its own with
+    // no reconciliation load at all. Either of those would have left the status blank.
+    // Guarded because this bar renders on first paint, before the function exists in
+    // some load orders.
+    try { if (typeof renderReconciliation === 'function') renderReconciliation(); } catch (_) {}
     // The old "Books closed through … · Xero lock date: not set" CHIP ROW is
     // gone (David, "REMOVE this section ... to add breathing room"). What is
     // gone is the chip: the ground, the border, the second line, and the amber

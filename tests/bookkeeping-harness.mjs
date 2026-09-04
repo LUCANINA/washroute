@@ -1628,6 +1628,177 @@ GROUPS.push({
   },
 });
 
+/* 2d-bis ── THE RECONCILIATION CONTROL IS ON LOANS, NOT OVERVIEW ────────────
+   Session 269, David: "move the Run Reconciliation Check button from the
+   Overview page to the Loans page."
+
+   Three failure modes this pins, and the middle one is the reason the group
+   exists at all:
+
+   1. The move is half-done — the button reachable on both pages, or on
+      neither. Asserted on BOTH pages, like period-bar-count above, because the
+      two near-identical bar renderers are exactly where a one-sided edit hides.
+
+   2. THE STATUS GOES BLANK. renderLoansPeriodBar() sets innerHTML, which
+      destroys #recon-lastrun and #recon-summary every time it runs — and it
+      runs from loadLoans() and from a late settings read, neither of which
+      loads reconciliation. Fill the status first, repaint after, and the
+      button is left beside two empty elements with nothing to refill them.
+      Asserted with a sentinel through the real repaint path; see the long
+      note at that assertion for why the fixture's own text cannot show it.
+
+   3. It is present but not CLICKABLE — the whole point of the move is that a
+      reader can reach it from Loans. Checked with offsetParent, which sees
+      through a display:none ancestor (see 2e below for why getComputedStyle
+      does not), and by clicking the real element rather than calling
+      runReconciliationCheck() by name. The click is expected to fail against
+      the offline stub; what is asserted is that the BUTTON responded — it
+      disables itself and relabels — not that the check succeeded. */
+GROUPS.push({
+  name: 'recon-control-placement',
+  async run(t) {
+    const probe = () => {
+      const btn = document.getElementById('recon-run-btn');
+      const bar = document.querySelector('#bk-view-loans .lpb');
+      return {
+        exists: !!btn,
+        label: btn ? btn.textContent.trim() : null,
+        // offsetParent is null for an element inside a display:none ancestor,
+        // which is what "reachable on this page" actually means here.
+        reachable: !!(btn && btn.offsetParent),
+        inLoansBar: !!(btn && bar && bar.contains(btn)),
+        inOverview: !!(btn && document.getElementById('bk-view-overview')?.contains(btn)),
+        // The two status elements the button's own function writes.
+        hasLastRun: !!document.getElementById('recon-lastrun'),
+        hasSummary: !!document.getElementById('recon-summary'),
+        statusText: ((document.getElementById('recon-lastrun')?.textContent || '') + ' ' +
+                     (document.getElementById('recon-summary')?.textContent || '')).trim(),
+        // Past reports deliberately did NOT move — they stayed under Overview's
+        // History panel. If this ever goes false the move took too much with it.
+        hasReports: !!document.getElementById('recon-reports'),
+      };
+    };
+
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const seen = await p.evaluate(probe);
+      t.eq(seen.exists, true, 'r269a: the Run Reconciliation Check button exists', JSON.stringify(seen));
+      t.eq(seen.label, 'Run Reconciliation Check', 'r269b: ...under its own name', String(seen.label));
+      t.eq(seen.inLoansBar, true, 'r269c: ...inside the Loans period bar, beside the close date', JSON.stringify(seen));
+      t.eq(seen.inOverview, false, 'r269d: ...and NOT inside the Overview view', JSON.stringify(seen));
+      t.eq(seen.reachable, true, 'r269e: ...and actually reachable with Loans open', JSON.stringify(seen));
+      t.eq(seen.hasLastRun && seen.hasSummary, true,
+           'r269f: its two status lines came with it — a control without its status is half a move',
+           JSON.stringify(seen));
+      t.eq(seen.hasReports, true,
+           'r269g: ...while past reports stayed behind on Overview, which is what was intended',
+           JSON.stringify(seen));
+
+      /* THE REPAINT — AND IT IS NOT THE ONE I FIRST ASSUMED.
+         The first version of this test switched period and checked the status
+         survived. It passed, and it was testing nothing: switchLoansPeriod()
+         toggles classes on the existing buttons and never rebuilds the bar, so
+         nothing was ever destroyed.
+
+         The real repaint path is renderLoansPeriodBar() itself, and the order
+         it runs in is the whole problem. loadReconciliation() fills the status
+         (renderReconciliation) and does NOT repaint this bar. loadLoans() and
+         the late settings read at index.html:14099 DO repaint it, from a
+         separate promise that resolves whenever the settings row comes back.
+         So on a normal page load the bar can be rebuilt AFTER the status was
+         filled, wiping it, with the button left sitting beside two empty
+         elements — and nothing else would ever refill them.
+
+         A sentinel is what makes that observable. It survives only if the bar
+         calls renderReconciliation AFTER setting innerHTML; the fixture's own
+         status text cannot show this, because with a completed run and open
+         findings renderReconciliation correctly writes '' to both elements, so
+         "empty" is the right answer either way and proves nothing. */
+      const sentinel = await p.evaluate(() => {
+        const real = window.renderReconciliation;
+        const SENT = 'WR-TEST-SENTINEL-269';
+        const stubbable = typeof real === 'function';
+
+        window.renderReconciliation = function () {
+          const el = document.getElementById('recon-summary');
+          if (el) el.textContent = SENT;
+        };
+        renderLoansPeriodBar();
+        const withCall = (document.getElementById('recon-summary')?.textContent || '');
+
+        // Inverse: a no-op in the same slot. If the status fills anyway, then
+        // something other than this call writes it and withCall proves nothing.
+        window.renderReconciliation = function () {};
+        renderLoansPeriodBar();
+        const withoutCall = (document.getElementById('recon-summary')?.textContent || '');
+
+        window.renderReconciliation = real;
+        renderLoansPeriodBar();
+        const btn = document.getElementById('recon-run-btn');
+        return { stubbable, withCall, withoutCall, SENT,
+                 survives: !!(btn && btn.offsetParent),
+                 lastRun: !!document.getElementById('recon-lastrun'),
+                 summary: !!document.getElementById('recon-summary') };
+      });
+      t.eq(sentinel.stubbable, true,
+           'r269n: renderReconciliation is reachable to stub — the inverse test is not vacuous',
+           JSON.stringify(sentinel));
+      t.eq(sentinel.withCall, sentinel.SENT,
+           'r269o: a bar repaint calls renderReconciliation, and calls it AFTER the innerHTML — the sentinel survives',
+           JSON.stringify(sentinel));
+      t.eq(sentinel.withoutCall, '',
+           'r269p: ...and with that call stubbed out nothing else refills the status, so r269o measures the call itself',
+           JSON.stringify(sentinel));
+      t.eq(sentinel.survives && sentinel.lastRun && sentinel.summary, true,
+           'r269q: a repaint rebuilds button and status together — neither outlives the other',
+           JSON.stringify(sentinel));
+
+      /* The period tabs do not rebuild this bar, so the button cannot vanish on
+         a period switch. Pinned because the reverse would be easy to introduce. */
+      const after = await p.evaluate(() => {
+        switchLoansPeriod('inflight');
+        const btn = document.getElementById('recon-run-btn');
+        return { stillThere: !!btn, stillReachable: !!(btn && btn.offsetParent) };
+      });
+      t.eq(after.stillThere && after.stillReachable, true,
+           'r269h: switching to In flight keeps the button — the bar outlives the period',
+           JSON.stringify(after));
+
+      /* CLICK IT. Not runReconciliationCheck() by name — a dead onclick passes
+         that every time. The offline stub has no session, so the run itself
+         cannot succeed; the assertion is that the button reacted. */
+      const clicked = await p.evaluate(async () => {
+        const btn = document.getElementById('recon-run-btn');
+        const before = btn.textContent.trim();
+        btn.click();
+        // Synchronously after click(), before any await resolves, the handler has
+        // already disabled and relabelled.
+        const during = { disabled: btn.disabled, label: btn.textContent.trim() };
+        return { before, during };
+      });
+      t.eq(clicked.during.disabled, true,
+           'r269j: clicking the real element runs the handler — the onclick is live, not decorative',
+           JSON.stringify(clicked));
+      t.eq(clicked.during.label, 'Checking…',
+           'r269k: ...and it says so, so a second click cannot start a second run',
+           JSON.stringify(clicked));
+      await p.close();
+    }
+
+    {
+      const p = await newHarnessPage({ tab: 'overview' });
+      const seen = await p.evaluate(probe);
+      t.eq(seen.inOverview, false,
+           'r269l: nothing put the button back on Overview',
+           JSON.stringify(seen));
+      t.eq(seen.reachable, false,
+           'r269m: ...and it is not reachable from Overview — the move was a move, not a copy',
+           JSON.stringify(seen));
+      await p.close();
+    }
+  },
+});
+
 /* 2e ── THE FIX BUTTON ACTUALLY OPENS SOMETHING ──────────────────────────────
    Session 267, and this group exists because of a specific failure.
 

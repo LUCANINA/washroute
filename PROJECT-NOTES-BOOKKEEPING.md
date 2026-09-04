@@ -2601,6 +2601,52 @@ column header's tooltip so the dash is explained where the tick is.
 Colour is now spent only where a reader must act, which is the session 250 test #4.
 `close-band-columns`: 23/23 green.
 
+**The reconciliation control moved to the Loans page.** David: "move the Run Reconciliation
+Check button from the Overview Page to the Loans page." It now sits at the right-hand end of
+`renderLoansPeriodBar()`, beside the close date — that bar is already the page's answer to
+"how current is what I am looking at", and when the check last ran is the same kind of fact.
+It is also the one row that survives a period switch, so the button does not vanish on
+In flight.
+
+**The two status lines went with it** (`#recon-lastrun`, `#recon-summary`). Moving the control
+alone would have left *"Run a check to see whether the books tie out"* on Overview, pointing at
+a button on another page. Past reports deliberately stayed behind in Overview's History panel.
+`renderReconciliation()` is unchanged and still the only writer of all three.
+
+⚠️ **`renderLoansPeriodBar()` now calls `renderReconciliation()` after setting `innerHTML`, and
+the order is load-bearing.** That repaint destroys both status elements. `loadReconciliation()`
+FILLS them and does not repaint the bar; `loadLoans()` and the late settings read at
+`index.html:14099` — a separate promise resolving whenever the settings row returns — DO repaint
+it. So the bar could be rebuilt after the status was filled, leaving a live button beside two
+empty elements with nothing left to refill them. Calling it from the repaint is what makes the
+order irrelevant.
+
+**Three things the new `recon-control-placement` group got wrong before it got them right**, and
+they are the reusable part:
+
+1. **It first tested a repaint path that does not exist.** `switchLoansPeriod()` toggles classes
+   on the existing buttons and never rebuilds the bar — the assertion passed while testing
+   nothing. The real repaint is `renderLoansPeriodBar()` itself.
+2. **"The status is non-empty" is vacuous on this fixture.** There IS a completed run and there
+   ARE open findings, so `renderReconciliation` correctly writes `''` to both elements. Empty is
+   the right answer, so empty proves nothing — and the first version asserted exactly that and
+   went green. **This is the session 245 transcription failure in a new costume: an assertion
+   satisfied by the broken code as readily as the fixed code.**
+3. **The fix was to assert the MECHANISM.** A stub writing a sentinel survives the repaint only
+   if the call comes AFTER the `innerHTML`; a no-op stub in the same slot leaves it empty. That
+   pair fails without the fix and ties with it, which is the property the fixture's own text
+   could not give. The inverse check is what caught (2) — it is worth running even when the
+   assertion is already green.
+
+Also asserted on BOTH pages, the way `period-bar-count` is, because two near-identical bar
+renderers is exactly where a one-sided edit hides; and the button is CLICKED rather than having
+`runReconciliationCheck()` called by name (a dead onclick passes that every time).
+
+Every outcome of the run is a toast, which is global, so the click feedback did not need moving.
+
+**Suite after: 1,735 browser assertions, 1,734 passing** — the single red being Tech Debt #19,
+which is red on purpose. New group `recon-control-placement`: 16/16.
+
 ---
 
 ### Session 268 (2026-09-04) — THREE GUARDS THAT FAILED OPEN, AND THE ONE LOAN THAT PROVED IT
