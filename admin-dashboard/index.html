@@ -3445,6 +3445,34 @@
             .lcb-strip.clear { border-color: #bbf7d0; background: #f6fdf9; color: var(--gray-600); }
             .lcb-strip.clear .lcb-lead { color: #166534; }
             .lcb-lead { font-weight: 700; color: var(--gray-900); }
+            /* ── THE CLOSE PROGRESS BAR (session 273) ───────────────────
+               David, choosing option D from the mockups: one line — bar,
+               verdict, and the ask. The bar is eight pixels of colour and adds
+               no row to the page; everything it says is a figure the gates
+               already computed.
+
+               FOUR STATES, AND THE FOURTH IS THE HONEST ONE. Green is a
+               statement uploaded AND checked against Xero; amber is on file and
+               never compared; red is still owed. The grey TAIL is a blocker the
+               statement bar cannot express — today, an opening that is still
+               moving because July is not closed. It exists so the bar can never
+               read 100% while a real blocker stands: a full green bar beside a
+               red verdict is precisely the two-numbers-one-page contradiction
+               this module keeps having to remove. */
+            .lcb-bar { display: flex; height: 8px; width: 168px; border-radius: 5px; gap: 2px;
+                       overflow: hidden; background: var(--gray-100); flex: 0 0 auto;
+                       align-self: center; margin: 0 12px; }
+            .lcb-bar > i { display: block; }
+            .lcb-bar .s-done { background: #16a34a; }
+            .lcb-bar .s-unchecked { background: #f59e0b; }
+            .lcb-bar .s-await { background: #dc2626; }
+            /* The tail is deliberately the quietest thing in the bar. It is not
+               a fifth thing to do — it is the close itself, waiting. */
+            .lcb-bar .s-tail { background: var(--gray-300); }
+            .lcb-asks { font-size: 12px; color: var(--gray-500); }
+            .lcb-asks b { color: var(--gray-800); font-weight: 600; }
+            .lcb-asks .ask { color: #dc2626; font-weight: 600; }
+            .lcb-asks .sep { color: var(--gray-300); margin: 0 7px; }
             /* Session 264: .lcb-paid is gone with the "Paid in <month>" line —
                nothing renders that class any more.
                .lcb-gate STAYS, and the reason is worth writing down: the Loans
@@ -15194,6 +15222,43 @@
   // strength of our own arithmetic would let the close skip the only outside
   // evidence it has. Exempt loans are COUNTED AND NAMED, never silently
   // dropped: a denominator that quietly shrinks is how a gate stops being one.
+  // ── ARE THE LOANS STILL ON THEIR SCHEDULE? (session 273) ──────────────
+  //
+  // David asked the close bar to say "how many loans are successfully on their
+  // amortization schedule". That is a different question from the statement
+  // gate: a loan can have every statement in and still have fallen off the
+  // staging loop, and nothing on this page said so.
+  //
+  // ON TRACK means the loan has ONE live forward card, which is exactly the
+  // invariant `_shared/staging-next.ts` → ensureUpcomingSplit() maintains:
+  // `staged` (a real transaction exists in Xero, waiting for the feed) or
+  // `pending_review` (the next card, waiting for a human). Both are the loop
+  // working.
+  //
+  // `needs_attention` is deliberately NOT on track. It blocks a new card being
+  // created — so the loan looks "covered" to the invariant — while nothing will
+  // advance until a person resolves it. Counting it as on track would report a
+  // stuck loan as a healthy one, which is this module's signature failure.
+  //
+  // SHARED ON PURPOSE. Before adding any second surface that needs this number
+  // (an Overview tile, a badge), call this — do not recount from _allLoanSplits.
+  function _bkScheduleTrack() {
+    const ON_TRACK = ['staged', 'pending_review'];
+    const enabled = (_allLoanAccounts || []).filter(a => a.status === 'active' && a.prestage_enabled);
+    const onTrack = [], stalled = [];
+    for (const a of enabled) {
+      const cards = (_allLoanSplits || []).filter(sp =>
+        sp.loan_account_id === a.id && sp.source === 'amortization_schedule' &&
+        ['staged', 'pending_review', 'needs_attention'].includes(sp.status));
+      (cards.some(c => ON_TRACK.includes(c.status)) ? onTrack : stalled).push(a);
+    }
+    return {
+      enabled, onTrack, stalled,
+      total: enabled.length, done: onTrack.length,
+      names: stalled.map(a => a.xero_account_name || a.lender_account_number || 'Unknown loan'),
+    };
+  }
+
   function _bkStatementGate(monthLabel) {
     const cov = _bkStatementCoverage(monthLabel);
     const byId = new Map([...cov.received, ...cov.rolledBack, ...cov.perSchedule, ...cov.missing]
@@ -17892,6 +17957,83 @@
     const gatesAttr = esc(JSON.stringify(gates.map(g =>
       ({ key: g.key, bad: !!g.bad, n: g.n == null ? null : g.n, tick: g.tick, text: g.text }))));
 
+    // ── THE PROGRESS BAR (session 273) ────────────────────────────────────
+    // David, after four mockups: "I like option D best" — one line, carrying the
+    // bar, the verdict and the ask. Nothing new appears on the screen except
+    // eight pixels of colour, and every figure in it is one the gates above
+    // already computed. There is no second arithmetic here: read the code below
+    // and you will find sg, track and `gates`, never a fresh reduce.
+    //
+    // GREEN MEANS CHECKED, NEVER MERELY UPLOADED. That distinction is the whole
+    // point of the close gate (session 262) — four of this book's documents were
+    // once on file, never compared, and counted as done by every surface. Amber
+    // is that state, and it has its own colour so it can never hide inside green.
+    const track = _bkScheduleTrack();
+    const nDone = sg.done, nUnchecked = sg.unanalysed.length, nAwait = sg.awaiting.length;
+    const barTotal = sg.total;
+    // THE GREY TAIL, AND WHY IT IS NOT DECORATION. Some blockers cannot be
+    // expressed as a statement — today, an opening that is still moving because
+    // July is not closed, which no amount of uploading fixes. Without the tail
+    // the bar would reach 100% green beside a red "Not ready to close", which is
+    // the two-numbers-one-page contradiction this module keeps removing. It is
+    // derived from `gates`, so it cannot disagree with the verdict: the same
+    // array decides `blocked`.
+    const otherBad = gates.filter(g => g.bad && g.key !== 'coverage' && g.key !== 'checked');
+    const tailUnits = otherBad.length ? Math.max(1, Math.round(barTotal * 0.18)) : 0;
+    // Names live in the segment's own title. LESS IS BEST test 3 — a blocking
+    // count still has to answer "which loans", and an attribute reaches every
+    // reader, exports in full and costs no width (session 249). The table below
+    // names them per row; data-gates carries every sentence in full.
+    const segTitle = (n, what, nm) => esc(`${n} ${what}${nm && nm.length ? ': ' + nm.join(', ') : ''}`);
+    const barHtml = barTotal ? `<span class="lcb-bar" role="img" aria-label="${esc(
+        `${nDone} of ${barTotal} statements checked`
+        + (nUnchecked ? `, ${nUnchecked} on file but not checked` : '')
+        + (nAwait ? `, ${nAwait} still owed` : '')
+        + (tailUnits ? ', and the close is blocked for another reason' : ''))}"
+        >${nDone ? `<i class="s-done" style="flex:${nDone}" title="${segTitle(nDone, 'uploaded and checked against Xero')}"></i>` : ''
+        }${nUnchecked ? `<i class="s-unchecked" style="flex:${nUnchecked}" title="${segTitle(nUnchecked, 'on file, not yet checked against Xero', sg.unanalysed.map(r => r.name))}"></i>` : ''
+        }${nAwait ? `<i class="s-await" style="flex:${nAwait}" title="${segTitle(nAwait, 'still owed', sg.awaiting.map(r => r.name))}"></i>` : ''
+        }${tailUnits ? `<i class="s-tail" style="flex:${tailUnits}" title="${esc(otherBad.map(g => g.text).join(' \u00b7 '))}"></i>` : ''
+        }</span>` : '';
+
+    // ── THE ASK, IN THE SAME LINE ─────────────────────────────────────────
+    // What is left to do, in the order someone would do it. Red only where
+    // there is an action; the counts that are simply true stay grey.
+    const askBits = [];
+    askBits.push(`<b>${nDone} of ${barTotal}</b> statements checked`);
+    const chase = [];
+    if (nUnchecked) chase.push(`${nUnchecked} to check`);
+    if (nAwait) chase.push(`${nAwait} to chase`);
+    if (chase.length) askBits.push(`<span class="ask">${esc(chase.join(', '))}</span>`);
+    // The schedule question is David's third ask and a genuinely separate one:
+    // a month can be 12 of 12 on statements and still have loans that fell out
+    // of the staging loop. Definition lives in the title, not in the line.
+    if (track.total) {
+      const schedTitle = esc('Loans set to pre-stage that have their next scheduled payment lined up — '
+        + 'either already staged in Xero, or a card waiting for approval. A loan whose only card '
+        + 'needs attention is counted as off schedule: nothing advances until a person resolves it.'
+        + (track.names.length ? ' Off schedule: ' + track.names.join(', ') : ''));
+      askBits.push(track.stalled.length
+        ? `<span class="ask" title="${schedTitle}">${track.stalled.length} of ${track.total} off schedule</span>`
+        : `<span title="${schedTitle}">${track.done} of ${track.total} on schedule</span>`);
+    }
+    // The tail, said in words as well as in grey — a colour nobody hovers is a
+    // claim nobody reads.
+    const shortOther = otherBad.map(g =>
+        g.key === 'provisional-opening' ? `${_cvMonthName(String(rf.priorEnd).slice(0, 7))} still open`
+      : g.key === 'variance'            ? `${g.n} off`
+      : g.key === 'ledger'              ? `${g.n} unexplained in the ledger`
+      : g.key === 'posting'             ? `${g.n} unposted`
+      : String(g.text).split(':')[0]);
+    if (shortOther.length) askBits.push(`<span class="ask">${esc(shortOther.join(', '))}</span>`);
+    // Same reasoning as data-gates: the numbers this bar draws must survive as
+    // data, so the suite asserts on what was COMPUTED rather than on pixel widths.
+    const progressAttr = esc(JSON.stringify({
+      checked: nDone, unchecked: nUnchecked, awaiting: nAwait, total: barTotal,
+      tail: !!tailUnits, tailKeys: otherBad.map(g => g.key),
+      onSchedule: track.done, scheduleTotal: track.total, offSchedule: track.names,
+    }));
+
     // Bare figures in the body; the currency symbol survives only on the total,
     // which is the anchor a reader checks. Fourteen dollar signs down a column
     // headed with money is fourteen characters of noise.
@@ -17993,6 +18135,25 @@
         if (noClosing && a.close_basis !== 'amortization_schedule') {
           return { kind: 'upload',
                    cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">Upload statement</button>` };
+        }
+        // ⚠ SESSION 273: UNPOSTED BEATS A TIE HERE TOO, BECAUSE IT ALREADY DOES
+        // IN THE STATUS COLUMN. David, looking at Rapid the moment it started
+        // tying: "where do I approve the balance fee?" The row said Pending
+        // review with a red ✗, and offered nothing to click — because a tie
+        // short-circuited this column three lines below where the Status column
+        // had already decided that "not yet posted to Xero" outranks any dollar
+        // agreement. Two halves of one row disagreeing about the same fact, which
+        // is the defect this module keeps finding in new places (session 272's
+        // stale-anchor ask with no button under it was the same shape).
+        //
+        // The verdict is the Status column's, unchanged. What changes is that the
+        // Action column now honours it instead of contradicting it.
+        if (r.unposted.length) {
+          const one = r.unposted.length === 1 ? r.unposted[0] : null;
+          return { kind: 'post',
+                   cell: `<button type="button" class="lcb-do" onclick="${one ? `openLoanReviewModal('${esc(one.id)}')` : `openLoanDetailModal('${esc(a.id)}')`}" title="${one
+                     ? `${esc(String(one.period_label))}: ${esc(fmtMoney(Math.abs(Number(one.principal_amount || 0))))} principal, ${esc(fmtMoney(Math.abs(Number(one.interest_amount || 0))))} interest, not yet in Xero. Opens the review with the figures and the journal it would post; nothing reaches Xero until you approve it.`
+                     : `${r.unposted.length} splits on this loan are not yet in Xero. Opens the loan so you can review and post them one at a time.`}">${one ? 'Review &amp; post' : `Review ${r.unposted.length} splits`}</button>` };
         }
         if (r.band === 'tie' || r.circular || r.variance == null) return { kind: '', cell: '' };
         // Ask BEFORE offering the analyser: walking eighteen months of history
@@ -18436,8 +18597,10 @@
           <button type="button" class="lcb-export" onclick="exportRollforwardCSV()" title="Save this rollforward as a spreadsheet — including the sources, dates and notes shown on hover">⤓ Export CSV</button>
         </span>
       </div>
-      <div class="lcb-strip${blocked ? '' : ' clear'}" data-blocked="${blocked ? '1' : '0'}" data-gates="${gatesAttr}">
+      <div class="lcb-strip${blocked ? '' : ' clear'}" data-blocked="${blocked ? '1' : '0'}" data-gates="${gatesAttr}" data-progress="${progressAttr}">
         <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
+        ${barHtml}
+        <span class="lcb-asks">${askBits.join('<span class="sep">\u00b7</span>')}</span>
       </div>
       <div class="card" style="overflow:hidden;box-shadow:0 1px 2px rgba(15,37,71,.04);border-color:var(--gray-200);border-radius:14px">
         <div style="overflow-x:auto;padding:14px 6px 0">

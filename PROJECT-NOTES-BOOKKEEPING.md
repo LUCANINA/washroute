@@ -2640,6 +2640,54 @@ to "what is running".
 
 ---
 
+### Session 274 (2026-09-04) — THE CLOSE BAR GETS A PROGRESS BAR, AND A GREY TAIL THAT KEEPS IT HONEST
+
+David, on the white "Not ready to close" strip: *"Let's use the white bar currently showing 'not
+ready to close' with a fun visual cue - a progress bar - as to where we are with statements. I
+want to see how many statements have been uploaded/ingested, how many loans are successfully on
+their amortization schedule, and anything missing."*
+
+Four options were mocked (`docs/bookkeeping/MOCKUP-CLOSE-PROGRESS-2026-09-04.html`): a single
+segmented bar, three separate bars, a milestone track, and a one-line bar-plus-ask. **David chose
+D** — *"I like option D best"* — so the strip stays one line and gains eight pixels of colour.
+
+**What shipped.** `renderLoansCloseBand`'s strip now renders the verdict, a `.lcb-bar`, and an ask
+line. Three coloured states over `_bkStatementGate`'s required set: green = uploaded AND checked
+against Xero, amber = on file and never compared, red = still owed. Segment titles name the loans
+behind amber and red; the table below names them per row, and `data-gates` still carries every
+sentence in full.
+
+**THE GREY TAIL IS THE PART WORTH KEEPING.** Some blockers cannot be drawn as a statement — today,
+`provisional-opening`, because August opens on a July the CPA has not closed, which no amount of
+uploading fixes. Without a tail the bar would reach 100% green beside a red "Not ready to close",
+which is exactly the two-numbers-one-page contradiction this module keeps removing. The tail is
+derived from the same `gates` array that decides `blocked`, so the two cannot disagree, and a
+harness assertion now states that relation directly rather than measuring segment widths.
+
+**A new shared count, deliberately shared:** `_bkScheduleTrack()` answers David's second question.
+ON TRACK is a pre-staging loan holding one live forward card — `staged` or `pending_review`, which
+is the invariant `ensureUpcomingSplit()` maintains. **`needs_attention` is NOT on track**: it
+blocks a new card from being created, so the loan looks covered to the invariant while nothing
+advances until a person resolves it, and counting it as healthy would report a stuck loan as a
+working one. Measured, not assumed: all **11** pre-staging loans hold a live card today (9 staged,
+2 pending approval) — the first draft of the mockup said 9 of 11 because it counted `staged`
+alone, which is precisely the shape of error this file exists to record.
+
+**Session 264's assertion was REPLACED, not deleted.** "The strip renders its verdict and nothing
+else" stopped being true the moment David picked D, and eleven scenarios went red for a reason that
+was not a bug — the most expensive kind of red. The replacement keeps its shape: the strip must
+render the verdict plus the ask line and **nothing more**, so a `.map` that puts the chips back
+still fails. The `ce11 CONTROL` that proves it discriminates was updated in the same commit: left
+comparing against `lead` alone it would have passed on the bar's presence and gone on reporting
+that it discriminates while measuring nothing.
+
+**Verified**: 1,818 browser assertions across every group, one red — Tech Debt #19, red on purpose.
+Rendered and screenshotted from the harness's own boot path, not asserted about in the abstract.
+
+⚠️ **A second Claude session was working this repo at the same time.** This entry took session
+**274** because 273 was already taken; the START HERE block was deliberately left alone rather than
+racing the other session for it.
+
 ### Session 273 (2026-09-04) — RAPID: THE UPLOADS STUCK EVERY TIME, AND NOTHING WAS CHECKING THAT THEY ADDED UP
 
 David: *"I keep uploading the 'transactions to date' from the lender but they don't stick. Could
@@ -2735,6 +2783,29 @@ clause rather than asserted.
 cent.** The close should tie at **$51,529.02** (the 09-02 balance rolled back over the 09-01
 payment, via session 272's roll-back rule), and the **Ledger column will still show ✗ for $457.14**
 until David posts that fee — which is exactly right, because Xero really is short by it.
+
+#### ⚠️ AND ONE MORE, THE MOMENT IT STARTED WORKING
+
+Rapid tied at **$51,529.02** on the first render after the deploy — and David's next words were
+*"where do I approve the balance fee?"* The row read **Pending review** with a red ✗ in Status and
+had **nothing in the Action column**.
+
+The Status column had already decided, correctly and for years, that *"not yet posted to Xero"*
+outranks any dollar tie. The Action column's first line is
+`if (r.band === 'tie' || r.circular || r.variance == null) return { kind: '', cell: '' }` — so a
+row that ties went silent three lines before it could ask about unposted splits. **One row, two
+halves, disagreeing about the same field.** It is the same shape as session 272's stale-anchor ask
+that rendered with no button under it, found the same way: by someone reading the row and asking
+the obvious question.
+
+The unposted check now runs FIRST, matching the precedence the Status column already used. The
+verdict did not change; the column that has to act on it stopped contradicting it. One split opens
+its review directly (`openLoanReviewModal`), several open the loan.
+
+`tests/bookkeeping-harness.mjs` group **`unposted-has-an-action`** asserts the invariant rather
+than the instance: **every** row whose Status says it has unposted work offers something to click,
+and specifically a row that ties on the dollars AND has unposted work still offers it. The split is
+injected into the fixture because the fixture predates it — a stale fixture is a blind suite.
 
 #### Two things worth carrying forward
 

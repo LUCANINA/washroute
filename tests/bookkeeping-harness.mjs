@@ -650,6 +650,19 @@ function readSurfaces() {
       // sentence in a comment. Kept separate from `lead` on purpose — if the
       // two ever diverge, something was added back to the strip.
       stripText: txt('#loans-close-band .lcb-strip'),
+      // Session 273: the progress bar's ask line, and the figures it drew.
+      // Read as DATA (data-progress) rather than as segment widths — a test
+      // that measures pixels breaks on a style change and proves nothing about
+      // the arithmetic, which is the part that can be wrong.
+      asksText: txt('#loans-close-band .lcb-asks'),
+      progress: (() => {
+        try { return JSON.parse(att(stripEl, 'data-progress') || 'null'); } catch (_) { return null; }
+      })(),
+      barSegs: [...cb.querySelectorAll('.lcb-bar > i')].map(i => ({
+        cls: (i.getAttribute('class') || '').trim(),
+        flex: Number((i.getAttribute('style') || '').replace(/[^0-9.]/g, '')) || 0,
+        title: i.getAttribute('title') || '',
+      })),
       // The slot above the strip, which held "Paid in <month>" until David
       // removed it. Empty is the assertion; the container staying is not.
       tilesText: txt('#loans-close-tiles'),
@@ -2457,9 +2470,48 @@ GROUPS.push({
       // screen. The pair is the point: the strip must render only its verdict
       // AND the gates behind it must still be there to be read — an assertion
       // on either alone goes green on the wrong change.
-      t.eq((cb.stripText || '').trim(), (cb.lead || '').trim(),
-           `close band — ${c.name}: the strip renders its verdict and nothing else`,
-           `strip=${JSON.stringify(cb.stripText)}`);
+      // ── SESSION 273: THE STRIP IS THE VERDICT, THE BAR AND THE ASK ───────
+      // David chose option D from the close-bar mockups, so session 264's
+      // "verdict and nothing else" has stopped being true. It is REPLACED here
+      // rather than deleted, and the replacement keeps its shape: the strip must
+      // render the verdict plus the progress line and NOTHING MORE, so a `.map`
+      // that puts the chips back still fails. The bar itself contributes no
+      // text, which is why this equality holds with it on screen.
+      t.eq((cb.stripText || '').trim(),
+           `${(cb.lead || '').trim()} ${(cb.asksText || '').trim()}`.trim(),
+           `close band — ${c.name}: the strip renders its verdict, its bar and the ask — and nothing else`,
+           `strip=${JSON.stringify(cb.stripText)} · asks=${JSON.stringify(cb.asksText)}`);
+      // THE BAR'S ARITHMETIC, NOT ITS APPEARANCE. Every statement the gate
+      // requires lands in exactly one of the three states — a document that
+      // slips out of all three is one nobody is waiting for, which is the
+      // silent-denominator failure the close gate exists to prevent.
+      t.ok(!!cb.progress, `close band — ${c.name}: the strip carries its progress figures as data`);
+      if (cb.progress) {
+        const pr = cb.progress;
+        t.eq(pr.checked + pr.unchecked + pr.awaiting, pr.total,
+             `close band — ${c.name}: every required statement is in exactly one bar state`,
+             JSON.stringify(pr));
+        // THE GREY TAIL CANNOT DISAGREE WITH THE VERDICT. Both are derived from
+        // `gates`; this asserts they stayed that way. A bar that can read full
+        // green beside "Not ready to close" is the contradiction this module
+        // keeps removing, and it would look completely fine on screen.
+        const otherBad = cb.gates.filter(g => !g.ok && g.key !== 'coverage' && g.key !== 'checked');
+        t.eq(!!pr.tail, otherBad.length > 0,
+             `close band — ${c.name}: ⭐ the bar shows a grey tail exactly when a blocker it cannot draw is standing`,
+             `tail=${pr.tail} · otherBad=${JSON.stringify(otherBad.map(g => g.key))}`);
+        t.ok(!(pr.tail === false && pr.checked === pr.total && /not ready to close/i.test(cb.lead || '')),
+             `close band — ${c.name}: ⭐ the bar never reads complete beside a "not ready" verdict`,
+             `progress=${JSON.stringify(pr)} · lead=${JSON.stringify(cb.lead)}`);
+        // The schedule count is David's third question and a separate one: a
+        // month can hold every statement and still have loans that fell out of
+        // the staging loop.
+        t.ok(pr.onSchedule <= pr.scheduleTotal,
+             `close band — ${c.name}: the on-schedule count cannot exceed the loans set to pre-stage`,
+             JSON.stringify(pr));
+        t.eq(pr.offSchedule.length, pr.scheduleTotal - pr.onSchedule,
+             `close band — ${c.name}: every loan off its schedule is NAMED, not just counted`,
+             JSON.stringify(pr));
+      }
       t.eq((cb.tilesText || '').trim(), '',
            `close band — ${c.name}: ...and the "Paid in <month>" line is gone from above it`,
            `tiles=${JSON.stringify(cb.tilesText)}`);
@@ -5224,9 +5276,16 @@ GROUPS.push({
            JSON.stringify(revBack.missing));
       if (revBack.ok) {
         const back = (await p.surfaces()).loans.closeBand;
-        t.ok((back.stripText || '').trim() !== (back.lead || '').trim(),
-             'ce11 CONTROL: ⭐ ...and the strip then says more than its verdict — so the session-264 assertion discriminates',
-             `strip=${JSON.stringify(back.stripText)}`);
+        // Session 273: the baseline this compares against is now the verdict
+        // PLUS the progress line, because that is what the strip legitimately
+        // renders. Left as `!== lead` it would have passed on the bar alone and
+        // gone on reporting that it discriminates while measuring nothing — an
+        // assertion that goes green on the wrong change, which is the failure
+        // mode this whole control exists to catch.
+        t.ok((back.stripText || '').trim()
+               !== `${(back.lead || '').trim()} ${(back.asksText || '').trim()}`.trim(),
+             'ce11 CONTROL: ⭐ ...and the strip then says more than its verdict and its bar — so the assertion discriminates',
+             `strip=${JSON.stringify(back.stripText)} · asks=${JSON.stringify(back.asksText)}`);
         t.ok(back.gates.length > 0,
              'ce11 CONTROL: ...with the gates unchanged, proving the assertion measures what is SHOWN, not what is computed');
       }
@@ -8850,6 +8909,93 @@ GROUPS.push({
     });
     t.eq(byXero, null, 'Xero’s later lock date settles the opening even when the manual date is behind');
     await xero.close();
+  },
+});
+
+/* SESSION 273 — A ROW WITH UNPOSTED WORK ALWAYS OFFERS A WAY IN.
+
+   David, the moment Rapid started tying: "where do I approve the balance fee?"
+   The row read "Pending review" with a red ✗ in Status and had NOTHING in the
+   Action column, because a dollar tie short-circuited that column three lines
+   before it could ask about unposted splits — while the Status column had already
+   decided that "not yet posted to Xero" outranks any tie. One row, two halves,
+   disagreeing about the same fact.
+
+   The rule asserted here: whenever Status says a row has unposted work, Action
+   offers something to click. Not "usually" — the two columns read the same field,
+   so they cannot be allowed to diverge again. */
+GROUPS.push({
+  name: 'unposted-has-an-action',
+  async run(t) {
+    /* The fixture was pulled 2026-09-03 and this split was created on the 4th, so
+       it is injected rather than waited for — a stale fixture is a blind suite.
+       Same shape as the production row: Rapid's 2026-08-31 Balance Fee, principal
+       negative because a capitalised fee RAISES the balance, net zero. */
+    const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      const rapid = d.loan_accounts.find(a => /Rapid Credit Line/.test(a.xero_account_name || ''));
+      d.loan_splits.push({
+        id: 'harness-rapid-0831', loan_account_id: rapid.id, period_label: '2026-08-31',
+        principal_amount: -457.14, interest_amount: 457.14, total_amount: 0.00,
+        status: 'pending_review', source: 'statement_delta',
+        prior_statement_id: null, current_statement_id: null,
+        matched_xero_bank_transaction_id: null, xero_posted_at: null, xero_posted_by: null,
+        review_notes: 'Rapid Balance Fee of 2026-08-31, never booked to Xero.',
+        computed_at: null, amortization_row_id: null, xero_manual_journal_id: null,
+        posting_method: null, pre_split_line_items_snapshot: null, stage_reference: null,
+        staged_at: null, stage_sweep_checked_at: null, stage_sweep_flag: null,
+        voided_at: null, voided_by: null, void_reason: null,
+      });
+    } });
+    const errs = [];
+    p.page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+
+    const rows = await p.evaluate(() => {
+      renderLoansCloseBand();
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const trs = [...document.querySelectorAll('#loans-close-band tbody tr, #lcb-table tr')]
+        .filter(tr => tr.getAttribute('data-loan'));
+      return trs.map(tr => {
+        const name = tr.getAttribute('data-loan');
+        const r = rf.rows.find(x => (x.a.xero_account_name || x.a.lender_account_number) === name);
+        return {
+          name, unposted: r ? r.unposted.length : null, band: r ? r.band : null,
+          action: (tr.lastElementChild || {}).textContent?.trim() || '',
+        };
+      });
+    });
+
+    const withUnposted = rows.filter(r => r.unposted > 0);
+    t.ok(withUnposted.length > 0, 'the fixture has at least one row with unposted work',
+      JSON.stringify(rows.map(r => [r.name, r.unposted])));
+    for (const r of withUnposted) {
+      t.ok(r.action.length > 0,
+        `${r.name}: has unposted work (${r.unposted}) and therefore an action to take`,
+        `band=${r.band} action="${r.action}"`);
+    }
+    // The specific case: a row that TIES and still has unposted work.
+    const tying = withUnposted.filter(r => r.band === 'tie');
+    for (const r of tying) {
+      t.ok(/Review/i.test(r.action),
+        `⭐ ${r.name}: ties on the dollars AND has unposted work — the action is still offered`,
+        r.action);
+    }
+
+    /* IT DISCRIMINATES — put the tie short-circuit back in front and the row goes
+       silent again, which is exactly what David was looking at. */
+    const inverse = await p.evaluate(() => {
+      const src = renderLoansCloseBand.toString();
+      const anchor = 'if (r.unposted.length) {';
+      if (!src.includes(anchor)) return { applied: false };
+      // Neutralise the new branch by making its condition unreachable.
+      const broken = src.replace('        if (r.unposted.length) {\n', '        if (false) {\n');
+      if (broken === src) return { applied: false };
+      return { applied: true, differs: broken !== src };
+    });
+    t.ok(inverse.applied, 'the new branch is present and identifiable in the shipped function',
+      JSON.stringify(inverse));
+
+    t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
+    await p.close();
   },
 });
 
