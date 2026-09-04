@@ -2,13 +2,27 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
-> ### 0f. ⏳ THE OFF-BY-ONE IS FIXED IN CODE — AWAITING ONE DEPLOY (session 273 cont.)
+> ### 0f. ✅ THE OFF-BY-ONE IS FIXED, DEPLOYED AND VERIFIED IN PRODUCTION (session 273 cont.)
 >
-> Run **`bash deploy-session273b.sh`** (one function, `--no-verify-jwt`, the reason is in the
-> script's header), then tell Claude — it will read the deployed bundle, confirm `verify_jwt` is
-> still `false`, and re-run the Funding Circle walk expecting **~15.14 (Jul) / ~15.38 (Aug)**
-> instead of the 30.06 / 30.52 it reports today. **That re-run is the acceptance test; until it is
-> done this fix is unverified in production.**
+> `loan-find-difference` **v28**, `verify_jwt` still **false**. The acceptance test was run against
+> the live function and the real loan, and it passes exactly:
+>
+> ```
+> statement_date_basis: period_start        date_basis_suspicion: null   (correctly silent once marked)
+> 2026-06-30 → 2026-07-31   lender -1025.71   xero -1010.57   diff 15.14
+> 2026-07-31 → 2026-08-31   lender -1041.09   xero -1025.71   diff 15.38   [FOCUS]
+> ```
+>
+> Spans are now dated at month ends instead of the 1st, and the two open months read **15.14 /
+> 15.38** where they read 30.06 / 30.52 before. That is the whole fix, confirmed on production data
+> rather than on a fixture.
+>
+> ⚠️ **STILL WRONG, and now impossible to miss:** the conclusions offer *"the $457.14 journal
+> (2026-08-31) on Rapid Credit Line likely belongs here"* to explain a **$15.38** gap, and a $121.38
+> journal to explain $15.14. **The amounts do not match and are not claimed to.** The candidate
+> matcher is proposing entries whose figures cannot possibly explain the gap — this is the
+> witch-hunt behaviour from session 272 in a different costume, and with the walk now correct it is
+> the loudest remaining wrong thing on this screen. It needs its own session.
 >
 > **What shipped**
 > - **`loan_accounts.statement_date_basis`** — `balance_date` (default) or `period_start`. Applied,
