@@ -60,5 +60,35 @@ ok('15,000.00 − 2,681.39 = 12,318.61, the run\'s first per_period `actual`',
 ok('the real draft is nowhere near it — 3,414.71 weekly, ~14,797 a month',
   Math.abs(3414.71 * 52 / 12 - 14797.08) < 0.5)
 
+console.log('\n  and nowhere else reads the typed figure to decide money (session 270)')
+// The same `?? typed` shape lived in two more functions. Neither was producing a wrong
+// answer on this book -- checked, not assumed: exactly one off_schedule_principal finding
+// exists and it is Ford's real 2026-08-10 extra payment -- but both were one statement
+// away from it, which is session 231's rule about guards and the branches they sit on.
+const files: Record<string, string> = {
+  'loan-cross-check': '../supabase/functions/loan-cross-check/index.ts',
+  'loan-record-principal-payment': '../supabase/functions/loan-record-principal-payment/index.ts',
+  'derive-schedule': '../supabase/functions/_shared/derive-schedule.ts',
+}
+for (const [name, rel] of Object.entries(files)) {
+  const body = readFileSync(new URL(rel, import.meta.url), 'utf-8')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+  ok(`${name} does not fall back to the typed payment`,
+    !/\?\?\s*n(um)?\(\s*loan\.scheduled_monthly_payment\s*\)/.test(body),
+    'a typed monthly estimate is deciding money again — see session 270')
+}
+ok('...and that pattern would have matched every shipped line it replaced',
+  [
+    'const scheduled = n(cur.total_amount_due) ?? n(loan.scheduled_monthly_payment)',
+    'const scheduled = num(body.scheduled_payment) ?? num(a.total_amount_due) ?? num(loan.scheduled_monthly_payment)',
+    'const fallbackPayment = stated ?? num(loan.scheduled_monthly_payment)',
+  ].every(l => /\?\?\s*n(um)?\(\s*loan\.scheduled_monthly_payment\s*\)/.test(l)))
+
+// The deliberate exception, asserted so nobody "tidies" it away: a human stating the
+// amount for THIS action, in front of the evidence, is not a note left on a form.
+const rpp = readFileSync(new URL('../supabase/functions/loan-record-principal-payment/index.ts', import.meta.url), 'utf-8')
+ok('an explicit per-request scheduled_payment is still honoured',
+  /num\(body\.scheduled_payment\)\s*\?\?/.test(rpp))
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`)
 if (fail) process.exit(1)

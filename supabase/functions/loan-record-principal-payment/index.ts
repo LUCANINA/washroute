@@ -104,7 +104,13 @@ Deno.serve(async (req) => {
     }
 
     const drop = r2(Number(b.principal_balance) - Number(a.principal_balance))
-    const scheduled = num(body.scheduled_payment) ?? num(a.total_amount_due) ?? num(loan.scheduled_monthly_payment)
+    // Session 270: dropped `?? num(loan.scheduled_monthly_payment)`. This figure
+    // decides how much of a window is the ORDINARY payment and how much is the extra
+    // paydown -- it splits real money between principal and interest. A hand-typed
+    // monthly estimate must not be the thing that decides that. `body.scheduled_payment`
+    // stays: that is a person stating the amount for THIS action, in front of the
+    // evidence, which is a different act from a note left on a form months ago.
+    const scheduled = num(body.scheduled_payment) ?? num(a.total_amount_due)
     if (scheduled === null) {
       return new Response(JSON.stringify({ error: 'No scheduled payment amount is known for this loan, so the ordinary period cannot be separated from the extra payment.' }), { status: 409, headers: cors })
     }

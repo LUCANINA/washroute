@@ -336,7 +336,15 @@ Deno.serve(async (req) => {
           const prev = realStmts[i - 1], cur = realStmts[i]
           if (prev.statement_date > today || cur.statement_date > today) continue
           const drop = Number((n(prev.principal_balance)! - n(cur.principal_balance)!).toFixed(2))
-          const scheduled = n(cur.total_amount_due) ?? n(loan.scheduled_monthly_payment)
+          // Session 270: this read `?? n(loan.scheduled_monthly_payment)`. The extra
+          // payment is computed as `drop - scheduled`, so a typed figure that is too
+          // LOW manufactures an extra payment out of the difference, every period,
+          // for ever. Funding Circle's note says $2,000.00 against a real $2,033.77 --
+          // $33.77 of invented "off-schedule principal" per period had the statements
+          // not carried the amount. The typed figure is a monthly estimate on a loan
+          // whose periods may be weekly; it cannot stand in for what the lender says.
+          // No stated amount means the period is not measurable, so it is skipped.
+          const scheduled = n(cur.total_amount_due)
           if (scheduled == null || scheduled <= 0) continue
           const extra = Number((drop - scheduled).toFixed(2))
           // A dollar of slack absorbs rounding; anything real is far larger. And a
