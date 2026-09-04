@@ -4023,7 +4023,13 @@
                   <div class="bk-seg-toggle">
                     <button class="bk-seg active" id="bk-ov-seg-issues" onclick="_bkSetOverviewSeg('issues')">Issues</button>
                     <button class="bk-seg" id="bk-ov-seg-approvals" onclick="_bkSetOverviewSeg('approvals')">Approvals</button>
-                    <button class="bk-seg" id="bk-ov-seg-staged" onclick="_bkSetOverviewSeg('staged')">Staged</button>
+                    <!-- Session 267, David: "For loans that are staged, remove them from the
+                         Overview page and add them to the Loans 'In flight' page." Every row
+                         this tab ever held was a loan split (see _bkStagedQueueItems), so the
+                         tab had nothing left to show once they moved. The register did not
+                         disappear with it -- it is the Staging column on the Loans table, beside
+                         the loan it belongs to, which is where a reader was going to look the
+                         moment they wanted to know anything else about that loan. -->
                   </div>
                 </span>
               </div>
@@ -11853,7 +11859,10 @@
     }).join('');
   }
 
-  function _bkSetOverviewSeg(seg) { _bkOverviewSeg = seg; renderBookkeepingOverview(); }
+  // 'staged' is no longer a segment here (the rows live on Loans now). Coerced
+  // rather than trusted: a stale handler or deep link asking for it would
+  // otherwise land on a segment with no button, no label and no body.
+  function _bkSetOverviewSeg(seg) { _bkOverviewSeg = (seg === 'issues' || seg === 'approvals') ? seg : 'issues'; renderBookkeepingOverview(); }
   function _bkToggleQueueExpand() {
     _bkOvQueueExpanded[_bkOverviewSeg] = !_bkOvQueueExpanded[_bkOverviewSeg];
     renderBookkeepingOverview();
@@ -11972,21 +11981,12 @@
     // ── The queue: max 5 rows, "Show all" reveals the rest ──
     const issues = _bkIssueQueueItems();
     const approvals = _bkApprovalQueueItems();
-    const staged = _bkStagedQueueItems();
-    const stagedFlagged = staged.filter(i => i.flagged).length;
     const segI = document.getElementById('bk-ov-seg-issues');
     const segA = document.getElementById('bk-ov-seg-approvals');
-    const segS = document.getElementById('bk-ov-seg-staged');
     if (segI) { segI.textContent = `Issues (${issues.length})`; segI.classList.toggle('active', _bkOverviewSeg === 'issues'); }
     if (segA) { segA.textContent = `Approvals (${approvals.length})`; segA.classList.toggle('active', _bkOverviewSeg === 'approvals'); }
-    // No parenthesised count on Staged. A number in a tab reads as a to-do count, and
-    // these need nothing done -- that promise being false 11 times out of 12 is the
-    // whole reason this tab exists. The figure is in the tab's own subtitle instead,
-    // phrased as a state ("11 waiting on the bank") rather than as a backlog.
-    if (segS) { segS.textContent = 'Staged'; segS.classList.toggle('active', _bkOverviewSeg === 'staged'); }
     const label = document.getElementById('bk-ov-queue-label');
-    if (label) label.textContent = _bkOverviewSeg === 'issues' ? 'Needs your attention'
-      : _bkOverviewSeg === 'staged' ? 'Waiting on the bank' : 'Awaiting your approval';
+    if (label) label.textContent = _bkOverviewSeg === 'issues' ? 'Needs your attention' : 'Awaiting your approval';
     // ── The statusline: name the tiers so the pile already feels sorted ──
     const t1 = issues.filter(i => i.tier === 1);
     const t2 = issues.filter(i => i.tier === 2);
@@ -11997,7 +11997,11 @@
       // claim about the books, and it is only true if we managed to read them.
       // This is the second all-clear on the page and it needed the same gate.
       if (!_bkDataReady()) statusEl.textContent = "Still reading your books — this is not an all-clear yet.";
-      else if (!issues.length && !approvals.length && !staged.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
+      // Staged splits deliberately do NOT hold this open any more. They need
+      // nothing from anyone here, they are visible on Loans, and a flagged one
+      // still raises an Issue of its own through stage_flag -- so the alarm
+      // reaches this page even though the register does not.
+      else if (!issues.length && !approvals.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
       else {
         const parts = [];
         // ── THREE NUMBERS, AND THEY ARE THE THREE BANDS BELOW (session 247) ──
@@ -12057,13 +12061,6 @@
             if (_apprActionable) parts.push(`${_apprActionable} ready to post`);
             if (_apprInfo) parts.push(`${_apprInfo} for your review`);
           }
-        } else if (_bkOverviewSeg === 'staged') {
-          // Stated as a state, never as a backlog — these need nothing done. This
-          // is the line the seg-button note above promised and never had.
-          parts.push(staged.length
-            ? (stagedFlagged ? `${staged.length} staged — ${stagedFlagged} need a look`
-                             : `${staged.length} staged, waiting on the bank`)
-            : 'nothing staged right now');
         } else {
           if (t1.length) parts.push(`${t1.length} to fix first`);
           if (t2.length + t3.length) parts.push(`${t2.length + t3.length} worth a look`);
@@ -12075,19 +12072,7 @@
     }
 
     const CAP = 5;
-    if (_bkOverviewSeg === 'staged') {
-      // No 5-row cap here. The cap exists so a long queue of WORK does not wall off
-      // the page; this is a register of what is in flight, and the useful question
-      // ("is everything I staged still on track?") is only answerable if you can see
-      // all of it at once. Eleven rows is a list, not a wall.
-      const listEl0 = document.getElementById('bk-ov-queue-list');
-      if (listEl0) {
-        listEl0.innerHTML = staged.length
-          ? `<div class="bk-queue-note">These are already done — a pre-split transaction is sitting in Xero for each one, waiting for the payment to land in the bank feed. The nightly sweep checks them and posts each one the moment it matches. Nothing here needs you unless it is flagged.</div>`
-            + staged.map(_bkQueueRowHtml).join('')
-          : `<div class="bk-queue-empty">Nothing staged right now.</div>`;
-      }
-    } else if (_bkOverviewSeg === 'approvals') {
+    if (_bkOverviewSeg === 'approvals') {
       const expanded = _bkOvQueueExpanded.approvals;
       const shown = expanded ? approvals : approvals.slice(0, CAP);
       const moreHtml = approvals.length > CAP
@@ -19321,6 +19306,11 @@
       case 'date': return r.lastSplit ? _splitDateKey(r.lastSplit) : null;
       case 'split': return r.lastSplit ? Number(r.lastSplit.total_amount) : null;
       case 'type': return r.type.label;
+      // Lower sorts first, so an ascending click on Staging puts the flagged
+      // ones at the top -- the only rows in this column anybody has to act on.
+      // A loan with nothing staged returns null and sorts last in EITHER
+      // direction: "not staged" is not a small amount of staging.
+      case 'staging': return r.stagedFlagged ? 0 : (r.stagedSplits.length ? 1 : null);
       case 'principal': return r.lastSplit ? Number(r.lastSplit.principal_amount) : null;
       case 'interest': return r.lastSplit ? Number(r.lastSplit.interest_amount) : null;
       case 'outstanding': return r.bal ? Number(r.bal.amount) : null;
@@ -19427,6 +19417,21 @@
       // projection. One row, one payment. Anything newer and still in flight is
       // called out separately below.
       const inFlight = newestLive && newestLive !== lastSplit ? newestLive : null;
+      // ── THE STAGING REGISTER (session 267, David) ────────────────────────
+      // "For loans that are staged, remove them from the Overview page and add
+      // them to the Loans 'In flight' page. A separate column entitled Staging
+      // might work, with those staged marked 'scheduled'."
+      //
+      // ALL staged splits for the loan, not just the newest. A loan can carry
+      // two staged periods at once (a weekly lender staged a fortnight ahead),
+      // and a column that showed one of them would be quietly wrong about the
+      // other -- the exact failure the Overview tab existed to prevent.
+      //
+      // Flagged ones are held separately because they are a different fact:
+      // staged-and-waiting is finished work, staged-and-flagged is the sweep
+      // saying it does not like what it found, and only the second is a job.
+      const stagedSplits = splitsForLoan.filter(sp => sp.status === 'staged');
+      const stagedFlagged = stagedSplits.filter(sp => sp.stage_sweep_flag);
       // `st` is _bkRosterState — the SAME classification the roster and the
       // Overview statusline read (review F5). This table used to re-derive its
       // own verdict from _loanVariance's raw state, so Dexter rendered a green
@@ -19434,7 +19439,7 @@
       // counted toward "3 tie exactly", two feet from a roster filing it under
       // "Closed on the contractual schedule" — three characterisations of one
       // loan on one page. One function decides; this table displays.
-      return { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a), v: _loanVariance(a), st: _bkRosterState(a) };
+      return { a, lastSplit, inFlight, stagedSplits, stagedFlagged, isAutomaticLoan, statusKey, statusLabel, statusBadge, type: typeInfo(a, lastSplit), bal: _loanOutstandingBalance(a), v: _loanVariance(a), st: _bkRosterState(a) };
     });
     const f = _loansTableFilters;
     const filtered = rowData.filter(r =>
@@ -19533,6 +19538,37 @@
           ${bits.join('')}
         </div>`;
 
+    // The Staging cell. The word David chose is "scheduled", and it is the right
+    // one: "staged" is our internal status name and it tells a reader what WE did;
+    // "scheduled" tells them what is going to happen, which is the thing they came
+    // to the column to find out. The number only appears when there is more than
+    // one, because "scheduled ×1" is a count nobody asked for.
+    const SWEEP_FLAG_TEXT = {
+      duplicate_suspected: 'a look-alike transaction appeared beside it — open it to see what to check',
+      matched_early_suspect: 'it was matched BEFORE its scheduled date, so it likely caught the wrong bank line — open it to see how to fix',
+    };
+    const stagingCell = (r) => {
+      const all = r.stagedSplits, bad = r.stagedFlagged;
+      if (!all.length) return `<span style="color:var(--gray-300)">—</span>`;
+      // Clicking opens the split, not the loan -- this cell is about one staged
+      // transaction, and the row's own click (the loan detail view) is the wrong
+      // destination for it. stopPropagation, or you get both.
+      const open = (sp) => `event.stopPropagation();openLoanReviewModal('${sp.id}')`;
+      if (bad.length) {
+        const sp = bad[0];
+        const why = SWEEP_FLAG_TEXT[sp.stage_sweep_flag]
+          || 'the payment is overdue and still unmatched — open it to see what to check';
+        return `<span class="badge badge-red" style="cursor:pointer" onclick="${open(sp)}"
+          title="Staged in Xero for ${esc(sp.period_label)}, but ${esc(why)}.">needs a look</span>${
+          all.length > bad.length ? `<span class="lit-quiet" style="font-size:11px;margin-left:5px">+${all.length - bad.length} scheduled</span>` : ''}`;
+      }
+      const sp = all[0];
+      const periods = all.map(x => x.period_label).join(', ');
+      return `<span class="badge badge-blue" style="cursor:pointer" onclick="${open(sp)}"
+        title="A pre-split transaction is already sitting in Xero for ${esc(periods)}, waiting for the payment to land in the bank feed. The CPA clicks Match and it posts — nothing here needs you. The nightly sweep watches it and flags this cell if it goes wrong.">scheduled${
+        all.length > 1 ? ` ×${all.length}` : ''}</span>`;
+    };
+
     const loanRow = (r) => {
       const { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusBadge, type, bal, v } = r;
       // David's ask: Lender moved to the far left; "Last statement" (the pulled
@@ -19609,7 +19645,12 @@
         <td style="text-align:right">${principalCell}</td>
         <td style="text-align:right">${interestCell}</td>
         <td>${_loansFilterPill('type', type.key, type.badge, f.type === type.key)}${
-          inFlight ? `<span class="badge badge-blue" style="margin-left:5px" title="A newer entry for ${esc(inFlight.period_label)} is on file (${esc(String(inFlight.status).replace(/_/g, ' '))}) but the money has not moved yet, so it is not counted in the figures on this row.">+1 upcoming</span>` : ''}</td>
+          // A STAGED newer entry is what the Staging column beside this one is
+          // for, and two badges saying the same thing on one row is how a table
+          // stops being read. The badge survives for every OTHER in-flight state
+          // (a pending_review period, say), which nothing else on this row shows.
+          inFlight && inFlight.status !== 'staged' ? `<span class="badge badge-blue" style="margin-left:5px" title="A newer entry for ${esc(inFlight.period_label)} is on file (${esc(String(inFlight.status).replace(/_/g, ' '))}) but the money has not moved yet, so it is not counted in the figures on this row.">+1 upcoming</span>` : ''}</td>
+        <td>${stagingCell(r)}</td>
         <td style="text-align:right">${xeroCell}</td>
         <td style="text-align:right">${balCell}</td>
         <td style="text-align:right">${varianceCell}</td>
@@ -19641,8 +19682,12 @@
     // lender's own figure. Calling it Outstanding while a Xero column sits beside
     // it would invite reading one for the other on the exact screen where the
     // difference between them is the point.
-    el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto;padding:14px 6px 0"><table class="lit" style="table-layout:fixed;width:100%;min-width:1180px">
-      <colgroup><col style="width:12%"><col style="width:14%"><col style="width:7%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:10%"></colgroup>
+    el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto;padding:14px 6px 0"><table class="lit" style="table-layout:fixed;width:100%;min-width:1290px">
+      <!-- Twelve columns as of session 267 (Staging). The widths sum to 100 and
+           the colgroup, the header, every row and the tfoot's colspan all have to
+           move together -- a colgroup one <col> short silently collapses the last
+           column instead of erroring. -->
+      <colgroup><col style="width:11%"><col style="width:13%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:9%"></colgroup>
       <thead><tr>
         ${thSort('lender', 'Lender')}
         ${thSort('loan', 'Loan')}
@@ -19652,13 +19697,14 @@
         ${thSort('principal', 'Principal', true)}
         ${thSort('interest', 'Interest', true)}
         ${thSort('type', 'Type')}
+        ${thSort('staging', 'Staging')}
         ${thSort('xero', 'Xero', true)}
         ${thSort('outstanding', 'Statement', true)}
         ${thSort('variance', 'Variance', true)}
       </tr></thead>
-      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="11" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
+      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
       <tfoot><tr>
-        <td colspan="8">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
+        <td colspan="9">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
         <td style="text-align:right">${money2(totalXero)}</td>
         <td style="text-align:right">${money2(totalStatement)}</td>
         <td style="text-align:right"${totalVariance < 0.005 ? '' : ' class="lit-off"'} title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '<span class="lit-quiet">$0.00</span>' : money2(totalVariance)}</td>

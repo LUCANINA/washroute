@@ -1039,6 +1039,147 @@ GROUPS.push({
   },
 });
 
+/* 2b ── THE STAGING COLUMN, AND THE TAB IT REPLACED ──────────────────────────
+   Session 267. David: "For loans that are staged, remove them from the Overview
+   page and add them to the Loans 'In flight' page. A separate column entitled
+   Staging might work, with those staged marked 'scheduled'."
+
+   Two halves, and BOTH have to hold or the move is a loss rather than a move.
+   The Overview tab it replaced was not decoration: staged transactions that
+   quietly never match are this module's recurring failure (BayFirst never
+   staging; Verdant's board reading 'Period 84' for weeks), and the tab existed
+   so something invisible was at least not also unwatched. Deleting it is only
+   safe because the same facts now sit on the Loans row. So this group asserts
+   the register ARRIVED, not merely that the tab LEFT — a half-applied version
+   of this change is worse than either end of it. */
+GROUPS.push({
+  name: 'staging-column',
+  async run(t) {
+    const readRows = (p) => p.evaluate(() => {
+      const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(th => th.innerText.replace(/\s+/g, ' ').trim());
+      const rows = [...document.querySelectorAll('#loans-table-wrap tbody tr')].map(tr => {
+        const c = [...tr.children].map(td => td.innerText.replace(/\s+/g, ' ').trim());
+        const o = { __cells: c.length }; hdr.forEach((h, i) => o[h] = c[i]); return o;
+      });
+      const cols = [...document.querySelectorAll('#loans-table-wrap colgroup col')].length;
+      const foot = [...document.querySelectorAll('#loans-table-wrap tfoot tr')].map(tr =>
+        [...tr.children].reduce((n, td) => n + (Number(td.getAttribute('colspan')) || 1), 0));
+      return { hdr, rows, cols, foot };
+    });
+
+    // ── (a) the column exists, and the table's arithmetic still adds up ──────
+    // A colgroup one <col> short does not throw; it silently collapses the last
+    // column. A tfoot colspan one short shifts every total one cell left, under
+    // the wrong heading. Neither shows up as an error, both show up as a lie, so
+    // the widths, the header, the rows and the footer are checked against each
+    // other rather than against a number written down here.
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const { hdr, rows, cols, foot } = await readRows(p);
+      t.ok(hdr.includes('Staging'), 'the Loans table has a Staging column',
+           `headers: ${JSON.stringify(hdr)}`);
+      t.eq(cols, hdr.length, 'the colgroup declares exactly as many columns as the header');
+      t.ok(rows.length > 0, 'the Loans table rendered rows to check');
+      t.ok(rows.every(r => r.__cells === hdr.length),
+           'every body row carries one cell per header column',
+           `header ${hdr.length}, rows ${[...new Set(rows.map(r => r.__cells))].join('/')}`);
+      t.ok(foot.length > 0 && foot.every(n => n === hdr.length),
+           'the footer spans exactly the header width, so the totals sit under their own columns',
+           `header ${hdr.length}, footer spans ${foot.join('/')}`);
+
+      // ── (b) what the column actually says ────────────────────────────────
+      // Measured against the fixture's own splits, never against a number typed
+      // here: "8 loans say scheduled" is a fact about today's fixture and would
+      // rot the first time the data is refreshed.
+      const staged = await p.evaluate(() => {
+        const byLoan = {};
+        (window.__WR_FIXTURE.loan_splits || []).filter(sp => sp.status === 'staged')
+          .forEach(sp => { (byLoan[sp.loan_account_id] = byLoan[sp.loan_account_id] || []).push(sp.period_label); });
+        const names = {};
+        (window.__WR_FIXTURE.loan_accounts || []).forEach(a => { names[a.id] = a.xero_account_name; });
+        return Object.keys(byLoan).map(id => ({ name: names[id], n: byLoan[id].length }));
+      });
+      // NON-VACUITY. Every assertion below is an .every() over a filtered set,
+      // and an empty set passes all of them. If a future fixture refresh drops
+      // the staged splits, this line fails first and says why, instead of a
+      // page of green ticks over nothing.
+      t.ok(staged.length > 0,
+           'the fixture really does contain staged splits for this column to report',
+           `staged loans: ${JSON.stringify(staged)}`);
+      const stagedNames = new Set(staged.map(x => x.name));
+      const shown = rows.filter(r => stagedNames.has(r.Loan));
+      t.eq(shown.length, staged.length,
+           'every loan with a staged split is on the table to be seen');
+      t.ok(shown.every(r => /scheduled/.test(r.Staging || '')),
+           "...and each one is marked 'scheduled'",
+           shown.map(r => `${r.Loan}: "${r.Staging}"`).join(' · '));
+      const quiet = rows.filter(r => !stagedNames.has(r.Loan));
+      t.ok(quiet.every(r => !/scheduled|needs a look/.test(r.Staging || '')),
+           'a loan with nothing staged claims nothing in the Staging column',
+           quiet.filter(r => /scheduled|needs a look/.test(r.Staging || ''))
+                .map(r => `${r.Loan}: "${r.Staging}"`).join(' · '));
+
+      // ── (c) said once, not twice ─────────────────────────────────────────
+      // The Type column's "+1 upcoming" badge meant "a newer entry exists and
+      // the money has not moved". For a staged entry the Staging column now
+      // says that, better and by name. Two badges for one fact on one row is
+      // how a table stops being read.
+      t.ok(shown.every(r => !/upcoming/.test(r.Type || '')),
+           'a staged loan does not ALSO carry "+1 upcoming" in Type — one fact, one place',
+           shown.map(r => `${r.Loan}: Type "${r.Type}"`).join(' · '));
+      await p.close();
+    }
+
+    // ── (d) a FLAGGED stage does not read as calm ────────────────────────────
+    // The whole point of keeping this register is the stage that goes wrong.
+    // "scheduled" on a duplicate-suspected stage would be the tool reassuring a
+    // reader about the one row that needs them.
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const sp = d.loan_splits.find(x => x.status === 'staged');
+        sp.stage_sweep_flag = 'duplicate_suspected';
+        d.__loan = (d.loan_accounts.find(a => a.id === sp.loan_account_id) || {}).xero_account_name;
+      } });
+      const { rows } = await readRows(p);
+      const name = await p.evaluate(() => window.__WR_FIXTURE.__loan);
+      const row = rows.find(r => r.Loan === name);
+      t.ok(!!row, 'the flagged loan is on the table', `looked for ${JSON.stringify(name)}`);
+      if (row) {
+        t.ok(/needs a look/.test(row.Staging || ''),
+             'a flagged stage says it needs a look',
+             `${name}: "${row.Staging}"`);
+        t.ok(!/scheduled/.test(row.Staging || ''),
+             '...and never reads as calmly scheduled',
+             `${name}: "${row.Staging}"`);
+      }
+      await p.close();
+    }
+
+    // ── (e) the Overview tab is gone, and took its rows with it ──────────────
+    {
+      const p = await newHarnessPage({ tab: 'overview' });
+      const ov = await p.evaluate(() => {
+        const overview = document.getElementById('bk-view-overview');
+        return {
+          segExists: !!document.getElementById('bk-ov-seg-staged'),
+          segLabels: [...document.querySelectorAll('.bk-seg-toggle .bk-seg')].map(b => b.innerText.trim()),
+          text: overview ? overview.innerText : '',
+        };
+      });
+      t.ok(!ov.segExists, 'Overview no longer has a Staged tab');
+      t.ok(!ov.segLabels.some(l => /^Staged/.test(l)),
+           '...and nothing else on the toggle is labelled Staged',
+           JSON.stringify(ov.segLabels));
+      t.ok(!/Waiting on the bank/.test(ov.text),
+           '...and the queue heading it used goes with it',
+           ov.text.slice(0, 200));
+      t.ok(!/waiting for the payment to land in the bank feed/.test(ov.text),
+           '...as does the staged register\'s own explanation');
+      await p.close();
+    }
+  },
+});
+
 /* 2b ── DOCUMENT INTAKE LIVES ON LOANS ───────────────────────────────────────
    Session 267. David asked for the dropzone to head loan management, and the
    reason it MATTERS is not placement: Overview is on the hide list in the scope
@@ -1764,15 +1905,33 @@ GROUPS.push({
       const closable = cb.rows.filter(r => r.perLenderN != null && r.computedN != null).length;
       t.eq(sub.all.closingCount, closable,
            'close band total: the closing column reports how many rows it actually covers');
+      // SESSION 267 — the third copy of the ce18/ce28 guard, and the one I
+      // missed when the coverage moved. Same invariant, same reason: the count
+      // must be ON SCREEN, and it now lives in the Total's left-aligned LABEL
+      // cell rather than trailing the closing figure, because inline text after
+      // a right-aligned number pushed the totals out of their columns (David:
+      // "remove the '13 of 14' notes so that the column totals are aligned with
+      // the numbers above them"). So the claim is asserted against the ROW, and
+      // the money cell is asserted CLEAN — that second half is the part of
+      // David's request that could otherwise regress without anything failing.
+      const rowText = sub.all.cells.join(' ');
       const closingCell = sub.all.cells[CI.closing] || '';
       if (closable < cb.rows.length) {
-        t.ok(new RegExp(`${closable} of ${cb.rows.length}`).test(closingCell),
-             'close band total: ...and prints that count beside the figure, so no reader takes it for all of them',
+        t.ok(new RegExp(`${closable} of ${cb.rows.length}`).test(rowText),
+             'close band total: ...and prints that count in the row, so no reader takes it for all of them',
+             `row = ${JSON.stringify(sub.all.cells)}`);
+        t.ok(!/ of \d+/.test(closingCell),
+             'close band total: ...and keeps the closing money cell clean, so the column still lines up',
              `closing cell = ${JSON.stringify(closingCell)}`);
       } else {
-        t.ok(!/ of /.test(closingCell),
-             'close band total: ...and prints no count when it does cover every row',
-             `closing cell = ${JSON.stringify(closingCell)}`);
+        // Specific to CLOSING, not "no ' of N' anywhere in the row": the same
+        // label cell legitimately carries the ROLLFORWARD coverage, which is a
+        // different column with a different denominator. A blanket check here
+        // would fail on a month where closing covers everything and the
+        // rollforward does not — a true state, wrongly called a defect.
+        t.ok(!/closing checked/.test(rowText),
+             'close band total: ...and prints no closing count when it does cover every row',
+             `row = ${JSON.stringify(sub.all.cells)}`);
       }
     }
 
