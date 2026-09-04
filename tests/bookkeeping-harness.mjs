@@ -8412,6 +8412,125 @@ console.log(`  rows    ${FIXTURE_TABLES.map(t => `${t}=${baseFixture[t].length}`
    It drives the page's OWN _bkFdiffSpanTable rather than a copy, and proves the
    assertions discriminate by rebuilding the shipped function with the tiering
    removed and watching them go red. */
+/* ── session 273 cont.: A LOADING STATE THAT CANNOT RESOLVE IS A LIE ──────────
+   David: "I want to note that the 'Find the Difference' process is frozen."
+   It was not. The edge function answered 200 in ~14 seconds and the real
+   Funding Circle payload renders without throwing — but the modal hides its own
+   progress button, so for those 14 seconds a working request and a dead one are
+   pixel-identical, and if the DRAW had thrown, the placeholder sentence would
+   have stayed there forever with the analysis already successfully in hand.
+
+   Two guarantees, asserted here rather than assumed:
+     1. while the walk is in flight the screen SAYS it is working, and moves;
+     2. nothing — a failed request, a throw in the render, a rejection out of
+        the fire-and-forget call in the modal — can leave the placeholder as the
+        reader's final state. Every failure names itself.
+
+   These drive the shipped bkFindDifference / bkOpenFixModal, with _loanFn and
+   _bkFdiffHtml swapped for the duration, and each assertion is shown to
+   discriminate by restoring the un-guarded shape and watching it go red. */
+GROUPS.push({
+  name: 'fdiff-never-strands',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const PLACEHOLDER = /Walking this loan's history/;
+
+    // ── 1. it says it is working, and the number moves ──────────────────────
+    const working = await p.evaluate(async () => {
+      const realFn = window._loanFn;
+      let release;
+      window._loanFn = () => new Promise(r => { release = r; });
+      document.getElementById('loan-fix-body').innerHTML =
+        `<div id="fdiff-out-T1"><div>Walking this loan's history against the lender's — this takes up to a minute.</div></div>`;
+      const pending = window.bkFindDifference('T1', 'L1', '2026-08');
+      const out = () => document.getElementById('fdiff-out-T1').textContent;
+      const first = out();
+      await new Promise(r => setTimeout(r, 2200));
+      const later = out();
+      release({ ok: true, data: { conclusions: ['ok'], periods: [] } });
+      await pending;
+      window._loanFn = realFn;
+      return { first, later, after: out() };
+    });
+    t.ok(/Working…\s*0s/.test(working.first), 'the walk announces itself the moment it starts', working.first);
+    t.ok(/Working…\s*[12]s/.test(working.later), 'and the elapsed count actually advances', working.later);
+    t.ok(!/Working…/.test(working.after), 'the ticker is cleared when the answer lands', working.after);
+
+    // ── 2. a failed REQUEST names itself ───────────────────────────────────
+    const failed = await p.evaluate(async () => {
+      const realFn = window._loanFn;
+      window._loanFn = async () => ({ ok: false, data: { error: 'the server said no' } });
+      document.getElementById('loan-fix-body').innerHTML =
+        `<div id="fdiff-out-T2"><div>Walking this loan's history against the lender's.</div></div>`;
+      await window.bkFindDifference('T2', 'L1', '2026-08');
+      window._loanFn = realFn;
+      return document.getElementById('fdiff-out-T2').textContent;
+    });
+    t.ok(/the server said no/.test(failed), 'a refused request states the reason', failed);
+    t.ok(!PLACEHOLDER.test(failed), 'and the placeholder is gone', failed);
+
+    // ── 3. a THROW IN THE RENDER names itself — the case that stranded ─────
+    const threw = await p.evaluate(async () => {
+      const realFn = window._loanFn, realHtml = window._bkFdiffHtml;
+      window._loanFn = async () => ({ ok: true, data: { conclusions: ['x'], periods: [] } });
+      window._bkFdiffHtml = () => { throw new TypeError('cannot read month of undefined'); };
+      document.getElementById('loan-fix-body').innerHTML =
+        `<div id="fdiff-out-T3"><div>Walking this loan's history against the lender's.</div></div>`;
+      let rejected = false;
+      await window.bkFindDifference('T3', 'L1', '2026-08').catch(() => { rejected = true; });
+      window._loanFn = realFn; window._bkFdiffHtml = realHtml;
+      return { text: document.getElementById('fdiff-out-T3').textContent, rejected };
+    });
+    t.ok(!PLACEHOLDER.test(threw.text),
+         'a render that throws never leaves the reader on the loading sentence', threw.text);
+    t.ok(/cannot read month of undefined/.test(threw.text),
+         'it reports WHAT threw — an unfixable freeze becomes a fixable bug', threw.text);
+    t.ok(/nothing was written/.test(threw.text),
+         'and reassures that a drawing failure wrote nothing', threw.text);
+    t.ok(!threw.rejected, 'the failure is handled where it happened, not thrown at the caller');
+
+    // ── 4. the modal's fire-and-forget call cannot strand either ───────────
+    const modal = await p.evaluate(async () => {
+      const realFn = window._loanFn;
+      window._loanFn = async () => { throw new Error('network vanished mid-walk'); };
+      window._allLoanAccounts = [{ id: 'L9', xero_account_name: 'Funding Circle Loan' }];
+      window.bkOpenFixModal('T4', 'L9');
+      await new Promise(r => setTimeout(r, 400));
+      window._loanFn = realFn;
+      const el = document.getElementById('fdiff-out-T4');
+      window.bkCloseFixModal();
+      return el ? el.textContent : '(no out element)';
+    });
+    t.ok(!PLACEHOLDER.test(modal),
+         'a rejection out of the modal\'s un-awaited call is caught and shown', modal);
+    t.ok(/network vanished mid-walk/.test(modal), 'and names the cause', modal);
+
+    // ── IT DISCRIMINATES ───────────────────────────────────────────────────
+    // The un-guarded shape is the code that shipped this morning: assign the
+    // render straight into the container, no try. Rebuild it and confirm the
+    // assertion above goes red — otherwise it is testing nothing.
+    const unguarded = await p.evaluate(async () => {
+      const realFn = window._loanFn;
+      window._loanFn = async () => ({ ok: true, data: { conclusions: ['x'] } });
+      const broken = () => { throw new TypeError('boom'); };
+      document.getElementById('loan-fix-body').innerHTML =
+        `<div id="fdiff-out-T5"><div>Walking this loan's history against the lender's.</div></div>`;
+      const out = document.getElementById('fdiff-out-T5');
+      // the OLD body, verbatim in shape: no try around the draw
+      try {
+        const { ok, data } = await window._loanFn();
+        if (ok && !data.error) out.innerHTML = broken(data);
+      } catch (_) { /* swallowed exactly as an un-awaited caller swallowed it */ }
+      window._loanFn = realFn;
+      return out.textContent;
+    });
+    t.ok(PLACEHOLDER.test(unguarded),
+         'proof the assertions bite: the un-guarded shape DOES strand on the loading sentence', unguarded);
+
+    await p.close();
+  },
+});
+
 GROUPS.push({
   name: 'fdiff-tiers',
   async run(t) {

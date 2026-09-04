@@ -12339,15 +12339,45 @@
     const out = document.getElementById('fdiff-out-' + findingId);
     if (!out) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Analyzing — walking both histories… (can take a minute)'; }
-    const payload = { loan_account_id: loanId };
-    if (/^\d{4}-\d{2}$/.test(String(focusPeriod || ''))) payload.focus_period = String(focusPeriod);
-    const { ok, data } = await _loanFn('loan-find-difference', payload, 180000);
-    if (btn) { btn.disabled = false; btn.textContent = '🔍 Find the difference'; }
-    if (!ok || data.error) {
-      out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">${esc(data.error || 'The analysis failed — try again in a moment.')}</div>`;
-      return;
+    // session 273 cont.: David reported this "frozen". It was not. The walk takes
+    // ~15 seconds, the modal's own button is display:none, and the placeholder
+    // sentence never moves -- so a working request and a dead one look IDENTICAL.
+    // A screen that cannot show it is still working is a screen that reports a
+    // false failure, so the elapsed second count is on the page, ticking.
+    // performance.now(), not Date.now(): elapsed time must be monotonic. A clock
+    // change mid-walk would make a wall-clock difference jump or go negative, and
+    // the harness pins Date to a fixed instant — under which a Date.now() ticker
+    // reads "0s" forever, i.e. exactly the frozen screen this replaces.
+    const _t0 = performance.now();
+    const tick = document.createElement('div');
+    tick.style.cssText = 'margin-top:8px;font-size:12px;color:var(--gray-400);font-variant-numeric:tabular-nums';
+    tick.textContent = 'Working… 0s';
+    out.appendChild(tick);
+    const tickId = setInterval(() => {
+      tick.textContent = `Working… ${Math.round((performance.now() - _t0) / 1000)}s`;
+    }, 1000);
+    try {
+      const payload = { loan_account_id: loanId };
+      if (/^\d{4}-\d{2}$/.test(String(focusPeriod || ''))) payload.focus_period = String(focusPeriod);
+      const { ok, data } = await _loanFn('loan-find-difference', payload, 180000);
+      if (!ok || data.error) {
+        out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">${esc(data.error || 'The analysis failed — try again in a moment.')}</div>`;
+        return;
+      }
+      // The render is the last thing that can silently strand the reader: a throw
+      // here left the "Walking this loan's history…" line in place forever, with
+      // no error, and the request had already SUCCEEDED. Never again -- a failed
+      // draw now says so, and says what threw, which is what makes it fixable.
+      try {
+        out.innerHTML = _bkFdiffHtml(data, findingId, loanId);
+      } catch (e) {
+        console.error('[fdiff] render failed', e, data);
+        out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">The analysis finished, but this screen could not draw it — nothing was written. Please send this line to support: <code>${esc((e && e.message) || String(e))}</code></div>`;
+      }
+    } finally {
+      clearInterval(tickId);
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 Find the difference'; }
     }
-    out.innerHTML = _bkFdiffHtml(data, findingId, loanId);
   }
 
   function _bkFdiffHtml(data, findingId, loanId) {
@@ -20828,7 +20858,14 @@
        <button type="button" id="fdiff-btn-${esc(findingId)}" style="display:none"></button>`;
     host.classList.add('open');
     host.style.display = '';
-    bkFindDifference(findingId, loanId, month);
+    // Fire-and-forget was how a rejection here became a permanent "Walking this
+    // loan's history…". The catch is the difference between a stuck modal and a
+    // stated cause.
+    bkFindDifference(findingId, loanId, month).catch((e) => {
+      console.error('[fdiff] modal analysis failed', e);
+      const o = document.getElementById('fdiff-out-' + findingId);
+      if (o) o.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">The analysis stopped before it finished — nothing was written. Please send this line to support: <code>${esc((e && e.message) || String(e))}</code></div>`;
+    });
   }
   function bkCloseFixModal() {
     const host = document.getElementById('modal-loan-fix');
