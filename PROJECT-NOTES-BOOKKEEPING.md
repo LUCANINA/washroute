@@ -2,12 +2,16 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
-> ### 0j. 🛑 THE MODAL FREEZE — THE REAL CAUSE, FOUND ON THE THIRD ATTEMPT (session 273 cont.)
+> ### 0j. ✅ THE MODAL FREEZE — REAL CAUSE FOUND AND FIXED, CONFIRMED ON SCREEN (session 273 cont.)
 >
-> ⛔ **§0-of-the-freeze-story correction: the elapsed-second ticker shipped this morning did NOT fix
-> this, and my write-up saying the modal "was not frozen" was wrong.** It genuinely never finished.
-> Run **`bash deploy-session273b.sh`**? No — this one is DASHBOARD ONLY: push, and the Vercel deploy
-> carries it.
+> ⛔ **Correction to my own earlier write-up: the elapsed-second ticker shipped this morning did NOT
+> fix this, and saying the modal "was not frozen" was wrong.** It genuinely never finished.
+> Dashboard-only fix — no function deploy; the push carries it.
+>
+> **Confirmed working in David's browser after the push:** the modal now renders the conclusions,
+> the focus-month table (`Jul 31, 2026 → Aug 31, 2026 · lender $1,041.09 · Xero $1,025.71 · off by
+> $15.38`), both folds, and the CPA-exception panel. Every piece of session 273 cont. is visible at
+> once and agrees with the API responses verified earlier.
 >
 > **How it was found, after two wrong answers.** David reported it frozen; I checked the edge logs,
 > saw HTTP 200, reproduced the render offline against the real payload, and concluded the server and
