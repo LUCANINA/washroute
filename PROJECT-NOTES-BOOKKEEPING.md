@@ -2,11 +2,20 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
-> ### 0i. ⏳ THE AMOUNT-HUNT IS FIXED IN CODE — AWAITING ONE DEPLOY (session 273 cont.)
+> ### 0i. ✅ THE AMOUNT-HUNT IS FIXED, DEPLOYED AND VERIFIED IN PRODUCTION (session 273 cont.)
 >
-> Run **`bash deploy-session273b.sh`** again (same script, same function, same flag), then tell
-> Claude. Acceptance test: re-run the Funding Circle walk and confirm the conclusions **no longer**
-> offer the $457.14 Rapid journal for a $15.38 gap.
+> Verified against the live function on the real loan. The Funding Circle conclusions now read:
+>
+> ```
+> 2026-07-31 → 2026-08-31 is off by $15.38 — nothing on file explains it
+>   (5 entries sit inside the span; none matches the amount); one for your CPA (dates in the table).
+> 2026-06-30 → 2026-07-31 is off by $15.14 — nothing on file explains it
+>   (5 entries sit inside the span; none matches the amount); one for your CPA (dates in the table).
+> ```
+>
+> Six checks, all PASS: no $457.14 offered, no *"likely belongs here"*, no *"Recode it and re-run"*,
+> the honest sentence present, the denominator stated, and 15.14 / 15.38 still reported — the gap is
+> not swept away, only the false lead is.
 >
 > **The defect.** `crossLoanCandidatesFor()` grades every candidate into three tiers and words each
 > one honestly — an `in_span` candidate's own `question` says only *"sits inside this divergent span
