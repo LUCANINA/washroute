@@ -2,25 +2,22 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
-> ### 0a. 🔴 SESSION 273 IS COMMITTED AND **NOT DEPLOYED** — one CLI command
+> ### 0a. ✅ SESSION 273 IS DEPLOYED AND VERIFIED BY CONTENT (checked 2026-09-04 ~20:40 UTC)
 >
-> `loan-ingest-statement` v23 (Rapid: month-boundary pairing, the footing check, basis proven by
-> continuity) plus the new `_shared/statement-split-shape.ts` it imports. **Nothing about Rapid's
-> next upload behaves correctly until this is deployed.** From the repo root:
+> `loan-ingest-statement` **v41**, and **`verify_jwt` is still `true`** — the flag was NOT changed,
+> which was the one real risk on this deploy (it is the opposite of `loan-find-difference`, so the
+> `--no-verify-jwt` habit from session 272 would have broken every caller here).
 >
-> ```
-> npx -y supabase@latest functions deploy loan-ingest-statement \
->   --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> ```
+> Verified by reading the deployed bundle, never by a version number: `statement-split-shape` (4),
+> `pairFeesToPayments` / `footingCheck` / `basisProvenBy` (3 each), `split_footing` (1), and the
+> shared module's own comment headings appear in the bundle — so it is BUNDLED, not merely
+> imported, which is the failure mode session 225 shipped (`_shared/xero-auth.ts` transcribed
+> instead of read). A control string absent from the source returns 0.
 >
-> ⚠️ **`loan-ingest-statement` is `verify_jwt: TRUE` today** — unlike loan-find-difference. Check
-> the flag before deploying and match it; `--no-verify-jwt` on this one would CHANGE it and break
-> every caller. Verify with the no-Authorization-header probe in the base skill, then confirm the
-> deployed source contains `statement-split-shape` and `split_footing`.
->
-> The two Rapid data rows and the two basis labels are already applied (session 273 log entry).
-> **David still has one thing to click: approve the 2026-08-31 Balance Fee ($457.14) so it posts
-> to Xero.** Until then the Ledger column on Rapid correctly shows ✗ for that amount.
+> ➡️ **ONE THING STILL WAITING ON DAVID: approve the 2026-08-31 Rapid Balance Fee ($457.14)** so it
+> posts to Xero. Until then Rapid's Ledger column correctly shows ✗ for exactly that amount — our
+> splits say $5,848.81 of August principal (the lender's own figure) while Xero moved $6,305.95,
+> because Xero has never been told about that fee. The lender variance should already read $0.00.
 >
 > ### 0. ✅ SESSION 272 IS DEPLOYED AND VERIFIED BY CONTENT (checked 2026-09-04 ~20:15 UTC)
 >
