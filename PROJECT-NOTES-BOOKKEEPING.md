@@ -2769,6 +2769,33 @@ than borrowing `'unbooked'`. `'unbooked'` means "explained by payments prepared 
 posted" and is owned by the posting gate — a different fact with a different fix, and borrowing
 the label would send someone to the wrong screen. `ce12` caught that.
 
+#### ⚠️ A FALSE ASK, FOUND ON LIVE DATA MINUTES AFTER SHIPPING
+
+The review's finding 4c was that `staleAnchor` only reached loans whose splits carry a DAY
+(`YYYY-MM-DD`), leaving monthly-labelled loans out — half the book. The fix reached for the
+split's `current_statement_id` as a proxy for the payment's date. **On David's live screen that
+was wrong within minutes.**
+
+A split's linked statement is the one that CLOSED its period, and it is routinely dated well
+after the payment. E-Transit **E6-7410**'s August payment cleared before its 2026-08-09 balance —
+22,639.56 − 470.64 = 22,168.92, exactly — but the split links to the 08-20 pull. (The 08-20 row
+carries `balance_basis='unknown'`, so it is invisible to the anchor and the grade-A anchor is the
+08-09 one — Tech Debt #19 reaching sideways into a new rule.) The proxy declared the payment
+"after the anchor", and **a row that had tied to the cent the day before started asking for a
+document it did not need.** E5-4751 did the same.
+
+Reverted to dated splits only. **A false ask is worse than a missing one** — it is a nag on a row
+that was already right, and nags are what people learn to ignore, which is the failure session
+230 removed from the approvals queue. Monthly-labelled loans are a KNOWN gap now, not a silent
+one; an undated payment is not evidence that a document is stale, which is the same reasoning
+`isPeriodClosed()` uses when it refuses to place a label carrying no date.
+
+Second half of the same defect: `band` is taken on the RAW variance first, so a row can tie
+exactly AND carry a stale anchor. The Action column has always returned nothing for a tie, so the
+Variance cell printed an ask with **no button under it** and the Status mark dropped from ✓ to ·.
+A tie now outranks the ask in both places. Two assertions pin it: no row that ties is also asking,
+and no monthly-labelled loan can be stale-anchored at all.
+
 #### Where it stands
 
 * **Suite: 1,795 browser assertions, 1,794 passing** (the one red is Tech Debt #19's own report,

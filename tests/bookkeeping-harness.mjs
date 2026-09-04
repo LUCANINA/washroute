@@ -8487,6 +8487,29 @@ GROUPS.push({
          JSON.stringify(rf.stale.map(x => x.name)));
     console.log(`        ${C.y}stale-anchor rows:${C.x} ` + rf.stale.map(x => `${x.name} (anchor ${x.asOf}, ${x.splits} late, raw ${x.raw}, residual ${x.residual})`).join(' · '));
 
+    /* ⚠ NO FALSE ASK ON A ROW THAT ALREADY TIES.
+       Found on live data straight after shipping: the rule briefly used a split's
+       LINKED STATEMENT as a proxy for the payment's date on monthly-labelled
+       loans. A linked statement is the one that CLOSED the period and is routinely
+       dated after the payment, so E-Transit E6-7410 — whose August payment cleared
+       before its 2026-08-09 balance, exactly (22,639.56 − 470.64 = 22,168.92) —
+       started asking for a document it did not need, having tied to the cent the
+       day before. A nag on a correct row is worse than no rule at all. */
+    const tiesAsking = await p.evaluate(() => {
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      return rf.rows.filter(r => r.staleAnchor && r.band === 'tie').map(r => r.a.xero_account_name);
+    });
+    t.eq(tiesAsking.length, 0, 'no row that ties exactly is also asking for a statement', tiesAsking.join(', '));
+    const monthlyAsking = await p.evaluate(() => {
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      return rf.staleAnchorRows.filter(r =>
+        !r.splits.some(sp => /^\d{4}-\d{2}-\d{2}$/.test(String(sp.period_label || '')))
+      ).map(r => r.a.xero_account_name);
+    });
+    t.eq(monthlyAsking.length, 0,
+         'only loans whose splits carry their own DAY can be stale-anchored — an undated payment is not evidence',
+         monthlyAsking.join(', '));
+
     const pp2 = rf.stale.find(x => /Paypal 2/i.test(x.name || ''));
     t.ok(!!pp2, 'PayPal 2 is one of them', JSON.stringify(rf.stale.map(x => x.name)));
     if (pp2) {

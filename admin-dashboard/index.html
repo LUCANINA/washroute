@@ -16983,19 +16983,28 @@
       // figures are published as data- attributes, and the hint states the raw
       // difference beside the principal booked after the anchor so a reader can
       // do the subtraction themselves and disagree.
-      // A split's DATE, measured rather than inferred. A weekly loan labels its
-      // splits 'YYYY-MM-DD' and answers directly; a monthly one labels them
-      // 'YYYY-MM', which places the payment in a month but not on a day — so we
-      // ask the statement it was built from. Review caught that leaving monthly
-      // loans out entirely made this a weekly-only rule, and a rule that applies
-      // to half a book is a rule people learn to distrust. Where neither answers,
-      // the split is left out: an undated payment is not evidence that the
-      // document is stale, and guessing here could only ever hide a real gap.
+      // ⚠ ONLY A SPLIT THAT KNOWS ITS OWN DAY. A weekly loan labels its splits
+      // 'YYYY-MM-DD' and answers this directly. A monthly one labels them
+      // 'YYYY-MM' — a month, not a day — and there is no honest way to place it.
+      //
+      // The first version of this reached for `current_statement_id` to fill the
+      // gap, on the reasoning that a monthly-only rule covers half a book. That
+      // was wrong on live data within minutes: a split's linked statement is the
+      // one that CLOSED its period, which is routinely dated well after the
+      // payment itself. E6-7410's August payment cleared before its 2026-08-09
+      // balance (22,639.56 − 470.64 = 22,168.92, exactly), but the split links to
+      // the 08-20 pull — so the proxy declared the payment "after the anchor",
+      // and a row that had tied to the cent started asking for a document it did
+      // not need. A false ask is worse than a missing one: it is a nag on a row
+      // that was already right, and nags are what people learn to ignore.
+      //
+      // So the rule stays with what it can measure. An undated payment is NOT
+      // evidence that a document is stale — the same reasoning isPeriodClosed()
+      // uses when it refuses to place a label carrying no date. Monthly-labelled
+      // loans are out of scope and that is a known gap, not a silent one.
       const _splitDate = (sp) => {
         const lbl = String(sp.period_label || '');
-        if (/^\d{4}-\d{2}-\d{2}$/.test(lbl)) return lbl;
-        const st = (_allLoanStatements || []).find(x => x.id === sp.current_statement_id);
-        return st && st.statement_date ? String(st.statement_date) : null;
+        return /^\d{4}-\d{2}-\d{2}$/.test(lbl) ? lbl : null;
       };
       const _lateSplits = (anchor.asOf && anchor.grade === 'A')
         ? splits.filter(sp => { const d = _splitDate(sp); return d && d > String(anchor.asOf); })
@@ -17865,7 +17874,7 @@
         // against a document that predates the month's own payments is the
         // twelve-month witch hunt this session exists to stop. A material
         // leftover falls through to the ordinary paths below.
-        if (r.staleAnchor && r.band !== 'material') {
+        if (r.staleAnchor && r.band !== 'material' && r.band !== 'tie') {
           return { kind: 'ask',
                    cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file is dated ${esc(r.staleAnchor.asOf)}, before ${r.staleAnchor.splits} payment${r.staleAnchor.splits === 1 ? '' : 's'} booked this month, so it cannot know about them. Upload the statement dated at or after ${esc(r.staleAnchor.monthEnd)} and this becomes a real check.">Ask for statement</button>` };
         }
@@ -17967,11 +17976,15 @@
         // left over once the late payments are allowed for. A material leftover
         // is a real difference that happens to sit on a row with a stale anchor,
         // and it keeps its figure and its red.
+        // A TIE OUTRANKS THE ASK. `band` is taken on the raw variance first, so a
+        // row can tie exactly and still carry a stale anchor; the Action column
+        // has always returned nothing for a tie, so showing an ask here produced a
+        // request with no button under it. One verdict per row.
+        : ties ? ''
         : r.staleAnchor && r.band !== 'material'
         ? `<span class="lcb-quiet">needs ${esc(_cvMonthShort(r.staleAnchor.monthEnd.slice(0, 7)))} statement</span>`
         : r.variance == null
         ? '<span class="lcb-na">—</span>'
-        : ties ? ''
         // The figure is always the RAW variance — it is what sits between the
         // Computed and Closing columns either side of it, and a reader checks it
         // by subtracting those two. The band, and therefore the WEIGHT, come
@@ -18002,7 +18015,7 @@
         // check would claim an independent tie that was never run.
         markCls = 'lcb-mark-na'; markGlyph = '·';
         markVerdict = 'ties by construction — not an independent check';
-      } else if (r.staleAnchor && r.band !== 'material') {
+      } else if (r.staleAnchor && r.band !== 'material' && r.band !== 'tie') {
         // Session 272: there IS a document, it is simply older than the payments
         // we booked against it. Saying "disagrees with the lender" would be an
         // accusation built from a missing input.
