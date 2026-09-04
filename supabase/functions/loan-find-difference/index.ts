@@ -197,6 +197,14 @@ async function isInternalCall(req: Request): Promise<boolean> {
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const money = (n: number) => '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const r2 = (n: number) => Math.round(n * 100) / 100
+// session 272: '2026-08' -> 'August 2026'. Built from a fixed table rather than
+// toLocaleString because this runs on an edge runtime whose default locale is
+// not the reader's, and a month name that changes with the server is not a fact.
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const monthName = (yyyymm: string) => {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(yyyymm || ''))
+  return m ? `${MONTH_NAMES[Number(m[2]) - 1]} ${m[1]}` : String(yyyymm || '')
+}
 
 function normDate(dateString: any, dateRaw: any): string {
   if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateString)) return dateString.slice(0, 10)
@@ -493,9 +501,13 @@ function analyzeWalk(o: {
   // session 234: where a correction we propose is ALLOWED to land. Computed
   // once per request from the effective close date; see postingDateFor().
   postingDate: string, postingWhy: string, closeDate: string | null, today: string,
+  // session 272: the month the caller's row is about ('YYYY-MM'), or null when
+  // nothing in particular. It NEVER changes what is computed -- only what leads.
+  focusPeriod?: string | null,
 }) {
   const { loan, code, usable, splits, headline, entries, siblingPool, otherLoanByCode, matchKnown, acctMap, skippedForBasis } = o
   const { postingDate, postingWhy, closeDate, today } = o
+  const focusPeriod = o.focusPeriod || null
   const winFrom = usable[0].statement_date
   const winTo = usable[usable.length - 1].statement_date
 
@@ -538,6 +550,29 @@ function analyzeWalk(o: {
         else period.culprit = { kind: 'unexplained' }
       }
     }
+    // ── session 272: A CLOSED SPAN IS HISTORY, NOT WORK ─────────────────
+    // Session 230 established that a closed month stops generating work, and
+    // session 231 that the close date binds WRITES. Neither reached the thing
+    // that ACCUSES. This walk happily reported twelve months of red spans on
+    // PayPal 2 -- every one of them inside books closed through 2026-06-30,
+    // and most of them the accountant's own month-end corrections read at
+    // weekly resolution. David: "what should be a straightforward 'here's a
+    // suggested adjustment' becomes a 12 month witchhunt."
+    //
+    // A span is closed only when its END is on or before the close date. A
+    // span that STRADDLES the close date stays open -- half its movement is
+    // still live, and the same reasoning that makes isPeriodClosed() refuse to
+    // close a half-closed month applies here. Unknown means open, always.
+    //
+    // The flag changes what is REPORTED, never what is COMPUTED: `diff`,
+    // `total_period_diff` and `residual` are untouched, so the arithmetic still
+    // foots and a closed-period difference still rolls forward into the
+    // headline. Hiding the work is the point; hiding the money never is.
+    period.closed_period = !!(closeDate && B.statement_date <= closeDate)
+    // session 272: a span belongs to the month its CLOSING anchor falls in --
+    // the same rule the close band uses to decide which statement settles a
+    // month. A span that straddles a month boundary is judged by where it ends.
+    period.in_focus = !!(focusPeriod && B.statement_date.slice(0, 7) === focusPeriod)
     periods.push(period)
   }
 
@@ -580,11 +615,183 @@ function analyzeWalk(o: {
     b.timing_pair = { role: 'second', with: `${a.from} → ${a.to}`, ...pairInfo }
   }
 
+  // ── session 272: THE MONTH IS THE RULER; THE WEEK IS THE MAGNIFYING GLASS ──
+  // David: "the problem with the fix is that it identifies mistakes in prior
+  // months while ignoring the fixes made by our accountant by making the proper
+  // adjustment throughout."
+  //
+  // This walk asks its question between consecutive LENDER STATEMENTS. On a
+  // weekly lender that is a seven-day window. The accountant does not work in
+  // seven-day windows -- she corrects at month end, in one journal, covering
+  // several weeks at once. So her correction lands inside ONE weekly span and
+  // makes it read long, while the weeks it corrects read short. Four true
+  // statements about the same book, reported as four errors.
+  //
+  // Weekly resolution is the right tool to LOCATE an entry and the wrong one to
+  // JUDGE a book that is corrected monthly. So the question is asked at the month
+  // first: when a month's spans sum to zero, the movement inside it is
+  // distribution, not error, and no amount of week-by-week staring will find
+  // anything -- there is nothing there. The weeks are still walked, still
+  // printed, still carry their own figures; they simply stop generating work.
+  // When the MONTH itself does not tie, every span in it keeps the full
+  // treatment, which is where the magnifying glass belongs.
+  //
+  // A span belongs to the month its CLOSING anchor falls in -- the same rule
+  // in_focus and the close band use. Grouping by the opening anchor instead would
+  // put a payment in the month before the one the lender put it in.
+  //
+  // WHAT THIS DOES NOT DO: it never nets across a month boundary (that is the
+  // offsetting-pair detector's job, and it is deliberately a different rule with a
+  // different name), and it changes no figure -- `diff`, `total_period_diff` and
+  // `residual` are untouched, so a month that nets still contributes its exact
+  // zero and a month that does not still contributes its exact difference.
+  const monthGroups = new Map<string, any[]>()
+  for (const p of periods) {
+    const k = String(p.to).slice(0, 7)
+    const g = monthGroups.get(k); if (g) g.push(p); else monthGroups.set(k, [p])
+  }
+  const months: any[] = []
+  for (const [key, group] of monthGroups) {
+    const diff = r2(group.reduce((t, p) => t + p.diff, 0))
+    const divergentInMonth = group.filter(p => p.verdict === 'divergent')
+    // Only spans still considered REAL at this point can be cleared by the month.
+    // A timing pair has already been explained by a better rule and keeps its own
+    // (more specific) sentence -- two explanations for one span is the defect.
+    const unexplained = divergentInMonth.filter(p => !p.timing_pair)
+    // ⚠ THE NETTING SUM MUST EXCLUDE WHAT ANOTHER RULE ALREADY EXPLAINED.
+    // Caught in review, and it was a real suppression of a real error. The
+    // adjacent-pair detector runs BEFORE this and pairs span i with i+1 across a
+    // month boundary, which parks one leg's difference inside the later month's
+    // total while that leg is NOT eligible to be cleared here. Summing all spans
+    // then let the leaked leg cancel a genuine error of the same size:
+    //
+    //   2026-03-18 → 03-25   −$40.27  ┐ an ordinary cutoff straddle,
+    //   2026-03-25 → 04-01   +$40.27  ┘ correctly paired, one leg in April
+    //   2026-04-08 → 04-15   −$40.27    a GENUINE error
+    //
+    // April summed to $0.00, the real span was marked month_nets, and the modal
+    // said "the month ties to the cent — nothing to fix". It did not tie.
+    //
+    // The rule the sum has to obey: a month may only clear what it is actually
+    // being asked about. Anything already explained elsewhere is out of both the
+    // question and the answer.
+    const unexplainedDiff = r2(unexplained.reduce((t, p) => t + p.diff, 0))
+    const nets = Math.abs(unexplainedDiff) < TOL && unexplained.length > 0
+    if (nets) {
+      for (const p of unexplained) {
+        p.month_nets = {
+          month: key, spans: unexplained.length,
+          // Both figures survive: what this span alone reads, and what the month
+          // it belongs to reads. A reader can see the claim and reject it.
+          span_gap: r2(p.diff), month_gap: unexplainedDiff,
+        }
+      }
+    }
+    months.push({
+      month: key, from: group[0].from, to: group[group.length - 1].to,
+      lender_delta: r2(group.reduce((t, p) => t + p.lender_delta, 0)),
+      xero_delta: r2(group.reduce((t, p) => t + p.xero_delta, 0)),
+      // `diff` is EVERY span in the month, so the months still foot to the walk.
+      // `unexplained_diff` is the question this rule asked. They differ exactly
+      // when a pair straddles the boundary, and both are published so the
+      // difference is visible rather than a silent choice.
+      diff, unexplained_diff: unexplainedDiff,
+      span_count: group.length,
+      divergent_spans: divergentInMonth.length,
+      // Named for what it counts: the spans this month actually cleared.
+      netted_spans: nets ? unexplained.length : 0,
+      verdict: Math.abs(diff) < TOL ? 'ties' : 'divergent',
+      nets_internally: nets,
+      closed_period: group.every(p => p.closed_period),
+    })
+  }
+
+  // ── session 272: PAIRS THAT ARE NOT NEIGHBOURS ─────────────────────────────
+  // The v6 detector above compares span i with span i+1 only, because the shape it
+  // was written for is a payment dated a day after the cutoff: one span short, the
+  // very next one long. Real books produce a second shape it cannot see.
+  //
+  // PayPal 2, from the screen David sent:
+  //     2026-02-25 → 03-04   lender $2,811.55   Xero $2,851.82   off +$40.27
+  //     2026-03-18 → 03-25   lender $2,851.82   Xero $2,811.55   off −$40.27
+  // Each span carries the OTHER'S lender figure. Two payments recorded against
+  // swapped weeks — every dollar present, none of it missing, and three weeks
+  // apart so the adjacency check never looked. It reported two errors.
+  //
+  // WHY THIS IS SAFE, given this module's standing distrust of amount-matching
+  // (session 247): the match must be EXACT to the cent, both spans must still be
+  // unexplained, the partner must be found within a bounded window, and the match
+  // must be UNIQUE in that window — an ambiguous tie refuses rather than guesses,
+  // which is session 245's rule for dating a ledger applied to pairing. It can
+  // only ever REMOVE a claim of error, never create one, and both spans keep their
+  // own figures on the row so a reader can see the claim and reject it.
+  //
+  // It runs AFTER the month rollup on purpose. A pair inside one month is better
+  // explained by "the month ties" — a statement about the book — than by a
+  // transposition, which is a statement about two rows. This only sees what the
+  // month rule could not: pairs that straddle a month boundary.
+  const PAIR_LOOKAHEAD_SPANS = 6
+  const PAIR_LOOKAHEAD_DAYS = 45
+  const pairable = (p: any) => p.verdict === 'divergent' && !p.timing_pair && !p.month_nets
+  const dayGap = (a: string, b: string) =>
+    Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000)
+  for (let i = 0; i < periods.length; i++) {
+    const a = periods[i]
+    if (!pairable(a)) continue
+    const hits: any[] = []
+    for (let j = i + 1; j < periods.length && j <= i + PAIR_LOOKAHEAD_SPANS; j++) {
+      const b = periods[j]
+      if (!pairable(b)) continue
+      if (dayGap(a.to, b.to) > PAIR_LOOKAHEAD_DAYS) break
+      // ⚠ CANCELLATION IS NOT EVIDENCE OF A TRANSPOSITION — CHECK THE SWAP.
+      // Caught in review, and the reviewer was right to call it the module's own
+      // amount-matching mistake in new clothes. Exact cancellation alone is a
+      // coincidence that gets ORDINARY once the window widens to six spans on a
+      // weekly loan where the same figures recur: two unrelated $500 errors three
+      // weeks apart cancelled, and the walk dismissed both with a confident
+      // sentence about a swap that had not happened.
+      //
+      // The claim being made is specific and it is checkable: each span carries
+      // the OTHER'S lender figure. So check exactly that. In the real PayPal 2
+      // case it holds to the cent —
+      //     2026-02-25 → 03-04   lender $2,811.55   Xero $2,851.82
+      //     2026-03-18 → 03-25   lender $2,851.82   Xero $2,811.55
+      // — and in the two-unrelated-errors case it does not, so nothing is paired
+      // and both stay findings. The check is the sentence; if we cannot make the
+      // check we do not get to say the sentence.
+      if (Math.abs(r2(a.diff + b.diff)) >= TOL) continue
+      const swapped = Math.abs(r2(a.lender_delta - b.xero_delta)) < TOL
+        && Math.abs(r2(b.lender_delta - a.xero_delta)) < TOL
+      if (!swapped) continue
+      hits.push(b)
+    }
+    // Two possible partners is not a finding about either of them. Leave both
+    // spans as they are and let the reader see the amounts.
+    if (hits.length !== 1) continue
+    const b = hits[0]
+    const info = {
+      distant: true, kind: 'transposed',
+      spans_apart: periods.indexOf(b) - i,
+      net: 0, pure: true,
+      // Stated, not implied: this is the reason the pairing is believable at all.
+      // Stated because it was verified, not because it was assumed: this string
+      // is only reachable when the two spans really do carry each other's
+      // lender figure to the cent.
+      why: `each span carries the other's figure — ${money(Math.abs(a.diff))} recorded against the wrong week, not missing`,
+      verified_swap: { a_lender: a.lender_delta, a_xero: a.xero_delta, b_lender: b.lender_delta, b_xero: b.xero_delta },
+    }
+    a.timing_pair = { role: 'first', with: `${b.from} → ${b.to}`, ...info }
+    b.timing_pair = { role: 'second', with: `${a.from} → ${a.to}`, ...info }
+  }
+
   // The misallocation hunt only for spans that remain REAL after pairing.
   // v7: no per-span entry dumps are emitted anymore — the candidates feed the
   // hypothesis bullets and nothing else renders.
+  // session 272: and not for a span whose month nets. Hunting a cross-loan
+  // candidate for a difference that is not there is precisely how a false lead
+  // gets manufactured (session 236's 4140 run) -- and it costs a Xero call.
   for (const period of periods) {
-    if (period.verdict !== 'divergent' || period.timing_pair) continue
+    if (period.verdict !== 'divergent' || period.timing_pair || period.month_nets) continue
     period.cross_loan_candidates = crossLoanCandidatesFor(period, siblingPool, entries, otherLoanByCode, matchKnown, acctMap, loan.xero_account_name || 'this loan', loan.lender ?? null)
   }
 
@@ -604,7 +811,9 @@ function analyzeWalk(o: {
     if (p.verdict !== 'divergent' || proposal) continue
     // v6: a paired span is timing, not an allocation error — proposing a
     // correction journal for it would CREATE a discrepancy, not close one.
-    if (p.timing_pair) continue
+    // session 272: the same is true, for the same reason, of a span whose month
+    // nets to zero. Posting a correction there would break a book that balances.
+    if (p.timing_pair || p.month_nets) continue
 
     // ── SESSION 236: FIND THE PAYMENT, NOT A ONE-MONTH GAP ──────────────────
     // The gate below this looks for a split whose interest equals the span's gap
@@ -773,37 +982,169 @@ function analyzeWalk(o: {
   // have happened. Either X or Z." Everything below the bullets is collapsed
   // evidence, not the message. ──
   const divergentPeriods = periods.filter(p => p.verdict === 'divergent')
-  const realDivergent = divergentPeriods.filter(p => !p.timing_pair && !p.explained_by_exception)
-  const pairFirsts = periods.filter(p => p.timing_pair?.role === 'first')
+  // session 272: the close date gates the FINDING, not just the posting. A
+  // divergence inside settled books is stated once, in aggregate, and never
+  // enumerated as a hypothesis, a candidate hunt or a thing to go fix.
+  const closedDivergent = divergentPeriods.filter(p => p.closed_period && !p.timing_pair)
+  const openDivergent = divergentPeriods.filter(p => !p.closed_period)
+  // session 272: a span inside a month that nets is not a finding. It keeps its
+  // figures and its row; it stops being work.
+  const realDivergent = openDivergent.filter(p => !p.timing_pair && !p.explained_by_exception && !p.month_nets)
+  const nettedMonths = months.filter(m => m.nets_internally && !m.closed_period)
+
+  // ⚠ A PAIR IS ONE EVENT, SO ITS CLOSEDNESS IS A PROPERTY OF THE PAIR.
+  // Caught in review. `pairFirsts` used to filter on the FIRST leg's own
+  // close flag, and `closedDivergent` excludes anything paired -- so a pair
+  // straddling the close date fell into the hole between them:
+  //
+  //   2026-06-17 → 06-24   −$1,000   closed  ┐ one ordinary cutoff straddle
+  //   2026-06-24 → 07-01   +$1,000   open    ┘
+  //
+  // The closed leg was in no count (paired, so not "closed divergent"; closed,
+  // so not "flagged"), and because the first leg was closed there was no pair
+  // sentence either. The walk emitted ZERO conclusions about $1,000 of movement:
+  // two grey rows and an empty explanation box. That is the denominator quietly
+  // shrinking, which is the exact thing session 262 forbids.
+  //
+  // So a pair is spoken about whenever ANY leg of it is open, and the counts
+  // below are taken over SPANS rather than over pairs, so a half-closed pair
+  // contributes the one leg that is actually open and the arithmetic still adds up.
+  const pairFirsts = periods.filter(p => {
+    if (p.timing_pair?.role !== 'first') return false
+    const partner = periods.find(q => q.timing_pair?.role === 'second' && q.timing_pair.with === `${p.from} → ${p.to}`)
+    return !p.closed_period || !(partner?.closed_period ?? true)
+  })
+  // Explained-and-open, counted directly. `pairFirsts.length * 2` would overcount
+  // a straddling pair by the leg that is closed.
+  const openPairLegs = periods.filter(p => p.timing_pair && !p.closed_period).length
   const conclusions: string[] = []
+
+  // ── session 272: THE FOCUS MONTH LEADS ─────────────────────────────────────
+  // The caller's row is about one month. If this walk has nothing to say about
+  // that month, that IS the answer -- and it is the answer PayPal 2 needed: the
+  // Loans row measured August against a statement dated 2026-08-05, while the
+  // walk's most recent span ended in May. Saying "no span covers August" turns a
+  // twelve-month hunt into one sentence and one missing document.
+  //
+  // This only ever REORDERS and ANNOTATES. No span is dropped for being out of
+  // focus, and the counts, totals and residual are untouched.
+  const focusSpans = focusPeriod ? periods.filter(p => p.in_focus) : []
+  if (focusPeriod && !focusSpans.length) {
+    const lastAnchor = usable[usable.length - 1]?.statement_date
+    // ⚠ "nothing here to investigate" is only true when there is nothing here to
+    // investigate. Caught in review: with three real open findings below it, this
+    // was the first sentence a reader saw and it contradicted every one of them.
+    // The claim about the FOCUS MONTH is unconditional; the claim about the whole
+    // walk is not, and must be earned.
+    conclusions.push(
+      `Nothing in this walk covers ${monthName(focusPeriod)} — the row you opened is about that month, and the newest lender statement on file is dated ${lastAnchor}. `
+      + `Upload the ${monthName(focusPeriod)} statement and the difference on that row can be measured`
+      + (realDivergent.length
+        ? `. Separately, ${realDivergent.length} earlier span${realDivergent.length === 1 ? '' : 's'} in this walk still ${realDivergent.length === 1 ? 'needs' : 'need'} a look — below.`
+        : `; until then there is nothing here to investigate.`))
+  } else if (focusPeriod && focusSpans.every(p => p.verdict === 'clean')) {
+    conclusions.push(
+      `Every span in ${monthName(focusPeriod)} ties to the cent (${focusSpans.length} statement${focusSpans.length === 1 ? '' : 's'}) — Xero and the lender agree on the month your row is about.`)
+  }
 
   // The exception is the most confident statement the engine can make about a
   // span: every number in it is a recorded fact, not a candidate. It leads.
-  if (cpaException?.diagnosis) {
+  //
+  // session 272: unless its span is CLOSED. PayPal 2 led with a $15,671.08
+  // exception on 2025-12-24 → 2025-12-31 -- nine months inside settled books,
+  // proposing nothing, and it was the first thing a reader saw. It folds into
+  // the closed-books line below instead; the detail card still renders.
+  // ⚠ AND ONLY WHEN IT PROPOSES NOTHING. Caught in review. A correction for a
+  // payment inside a closed month is legitimate -- session 234 re-dates it into
+  // the first month the accountant can actually post into, which is why the
+  // Approve button exists at all. Folding its sentence into the closed-books line
+  // while leaving that button on screen produced a modal that said "Nothing to
+  // do" directly above a live button posting $15,671.08. Suppress the headline
+  // only when there is genuinely nothing to act on.
+  const cpaExceptionInClosedSpan = !!(cpaException && periods.find(p => p.from === cpaException.period?.from)?.closed_period)
+  const cpaExceptionClosed = cpaExceptionInClosedSpan && !cpaException?.proposed_entry
+  if (cpaException?.diagnosis && !cpaExceptionClosed) {
     const dg = cpaException.diagnosis
     const sp0 = cpaException.period
-    const booked = (dg.components || []).filter((c: any) => c.already_booked)
+    const comps = (dg.components || [])
+    const booked = comps.filter((c: any) => c.already_booked)
     let s = `${sp0.from} → ${sp0.to} is off by ${money(Math.abs(periods.find(p => p.from === sp0.from)?.diff ?? 0))} — your accountant's own split on the ${cpaException.entry?.date} payment carries `
-    s += `${(dg.components || []).map((c: any) => c.period).join(' + ')} interest (${money(dg.at_source)}), `
-    s += booked.length === (dg.components || []).length
-      ? `and all ${booked.length} of those months were already booked. `
-      : `of which ${money(dg.duplicated)} was already booked. `
+    s += `${comps.map((c: any) => c.period).join(' + ')} interest (${money(dg.at_source)}), `
+    // session 272: `booked.length === comps.length` is also true when BOTH are
+    // zero, which printed the nonsense "and all 0 of those months were already
+    // booked" on PayPal 2. An empty decomposition is not a statement that
+    // everything was booked -- it is a statement that we could not decompose it.
+    s += comps.length === 0
+      ? `and it could not be decomposed into months. `
+      : booked.length === comps.length
+        ? `and all ${booked.length} of those month${booked.length === 1 ? ' was' : 's were'} already booked. `
+        : `of which ${money(dg.duplicated)} was already booked. `
     s += cpaException.proposed_entry
       ? `Approve the prepared ${money(cpaException.proposed_entry.amount)} correction below — nothing else to fix in this span.`
       : `Nothing is proposed: see the detail below.`
     conclusions.push(s)
   }
 
-  if (pairFirsts.length) {
-    const purePairs = pairFirsts.filter(p => p.timing_pair.pure)
-    const resPairs = pairFirsts.filter(p => !p.timing_pair.pure)
-    const straddleEx = pairFirsts.find(p => p.timing_pair.straddler)?.timing_pair.straddler
-    let s = `${pairFirsts.length * 2} of ${divergentPeriods.length} flagged spans are timing, not errors — a payment dated just after the cutoff lands in the next span`
+  // ── session 272: THE LINES THAT SAY "NOTHING TO DO" ────────────────────────
+  // Four rules can now explain a span away, and each wanted its own sentence.
+  // With David's 3-4 bullet cap that starved the actual findings: a walk with a
+  // focus line, a timing line and a month line spent three of its four bullets
+  // before naming a single thing to fix, and the "1 more span" roll-up — the line
+  // that guarantees nothing is dropped — fell off the end.
+  //
+  // So they are collected here and emitted AFTER the work, and when more than one
+  // applies they collapse into a single sentence. No claim is lost: each clause
+  // keeps its own count, and the money and the months stay in the fields and on
+  // the rows. LESS IS BEST, applied to the reassurances rather than the findings.
+  const noAction: string[] = []
+  const noActionShort: string[] = []
+  // session 272: a distant pair is a DIFFERENT story from an adjacent one and gets
+  // its own sentence. Folding both into "a payment dated just after the cutoff"
+  // would describe a transposition as something it is not — and a sentence that is
+  // wrong beside a number that is right is the harder mistake to catch (s247).
+  const distantFirsts = pairFirsts.filter(p => p.timing_pair.distant)
+  const adjacentFirsts = pairFirsts.filter(p => !p.timing_pair.distant)
+  // Legs, not pairs — see openPairLegs above.
+  const distantLegs = periods.filter(p => p.timing_pair?.distant && !p.closed_period).length
+  const adjacentLegs = periods.filter(p => p.timing_pair && !p.timing_pair.distant && !p.closed_period).length
+  if (distantFirsts.length) {
+    const ex = distantFirsts[0]
+    noAction.push(
+      `${distantLegs} flagged span${distantLegs === 1 ? '' : 's'} pair off exactly across the weeks between them `
+      + `(e.g. ${ex.from} → ${ex.to} and ${ex.timing_pair.with}, ${money(Math.abs(ex.diff))} each way) — `
+      + `each span carries the other's figure, so the money is recorded against the wrong week rather than missing. Nothing to fix.`)
+    noActionShort.push(`${distantLegs} pair off across the weeks between them`)
+  }
+  if (adjacentFirsts.length) {
+    const purePairs = adjacentFirsts.filter(p => p.timing_pair.pure)
+    const resPairs = adjacentFirsts.filter(p => !p.timing_pair.pure)
+    const straddleEx = adjacentFirsts.find(p => p.timing_pair.straddler)?.timing_pair.straddler
+    let s = `${adjacentLegs} of ${openDivergent.length} flagged spans are timing, not errors — a payment dated just after the cutoff lands in the next span`
     if (straddleEx) s += ` (e.g. ${money(straddleEx.amount)} on ${straddleEx.date})`
-    s += purePairs.length === pairFirsts.length
+    s += purePairs.length === adjacentFirsts.length
       ? `. They cancel to $0.00 — nothing to fix.`
       : `. They cancel${resPairs.length ? ` to within ${resPairs.map(p => `${money(p.timing_pair.net)}${p.timing_pair.residue ? ` (${p.timing_pair.residue.what})` : ''}`).join(' and ')}` : ''} — nothing to fix.`
-    conclusions.push(s)
+    noAction.push(s)
+    noActionShort.push(`${adjacentLegs} are timing, a payment landing just after a cutoff`)
+  }
+
+  // ── session 272: THE MONTH-NETS LINE ───────────────────────────────────────
+  // One sentence for the whole shape, with the months named and the money in it,
+  // because the reader has to be able to disagree. It says what happened (a
+  // correction covering several weeks landed in one of them) and what to do
+  // (nothing) -- not "unresolved", which is what these rows used to read as.
+  if (nettedMonths.length) {
+    // netted_spans, NOT divergent_spans: the latter counts paired legs this
+    // sentence is not talking about, so it read "2 flagged spans ... $40.27".
+    const spans = nettedMonths.reduce((n, m) => n + m.netted_spans, 0)
+    const gross = money(nettedMonths.reduce((t, m) =>
+      t + periods.filter(p => p.month_nets && p.month_nets.month === m.month).reduce((u, p) => u + Math.abs(p.diff), 0), 0))
+    noAction.push(
+      `${spans} flagged span${spans === 1 ? '' : 's'} in ${nettedMonths.map(m => monthName(m.month)).join(', ')} `
+      + `cancel out within ${nettedMonths.length === 1 ? 'that month' : 'their own months'} — ${gross} moved between weeks, `
+      + `${nettedMonths.length === 1 ? 'the month' : 'each month'} ties to the cent. `
+      + `That is a month-end correction landing in one week and the weeks it corrects reading short; nothing to fix.`)
+    noActionShort.push(`${spans} cancel out within ${nettedMonths.map(m => monthName(m.month)).join(' and ')}`)
   }
 
   // One hypothesis bullet per REAL span (at most two spelled out). v8: half
@@ -830,11 +1171,46 @@ function analyzeWalk(o: {
     s += `.`
     return s
   }
-  for (const p of realDivergent.slice(0, 2)) conclusions.push(hypFor(p))
-  if (realDivergent.length > 2) {
-    const rest = realDivergent.slice(2)
+  // session 272: the month the reader asked about is spelled out before any
+  // other. A stable sort -- in-focus spans keep their chronological order, and so
+  // does everything else; only the two groups swap places.
+  const ordered = focusPeriod
+    ? [...realDivergent.filter(p => p.in_focus), ...realDivergent.filter(p => !p.in_focus)]
+    : realDivergent
+  for (const p of ordered.slice(0, 2)) conclusions.push(hypFor(p))
+  if (ordered.length > 2) {
+    const rest = ordered.slice(2)
     conclusions.push(`${rest.length} more span${rest.length === 1 ? '' : 's'} (${rest.map(p => `${p.from} → ${p.to}, ${money(Math.abs(p.diff))}`).join('; ')}) — fix the above, then re-run.`)
   }
+
+  // ── session 272: THE CLOSED-BOOKS LINE ──────────────────────────────────
+  // One sentence for the whole of settled history, never a list. It states the
+  // count and the money so nothing is deleted (the LESS IS BEST limit), names
+  // who closed the period, and says plainly that there is nothing to do -- which
+  // is the actual answer, not a softer way of saying "unresolved". The spans
+  // themselves stay in the table, greyed, for anyone who wants to look.
+  if (closedDivergent.length) {
+    const tot = r2(closedDivergent.reduce((t, p) => t + p.diff, 0))
+    const first = closedDivergent[0], last = closedDivergent[closedDivergent.length - 1]
+    const span = closedDivergent.length === 1 ? `${first.from} → ${first.to}` : `${first.from} → ${last.to}`
+    noActionShort.push(`${closedDivergent.length} sit in books closed through ${closeDate}${Math.abs(tot) >= TOL ? ` (${money(Math.abs(tot))})` : ''}`)
+    noAction.push(
+      `${closedDivergent.length} span${closedDivergent.length === 1 ? '' : 's'} (${span}) sit${closedDivergent.length === 1 ? 's' : ''} inside books closed through ${closeDate}`
+      + `${Math.abs(tot) >= TOL ? `, ${money(Math.abs(tot))} in total` : ''} — your accountant has already settled those months with her own adjustments. `
+      + `Nothing to do; they are listed below for reference only.`)
+  }
+
+  // One category keeps its full, specific sentence. Two or more collapse, because
+  // three reassurances in a row is how the findings got pushed off the screen.
+  if (noAction.length === 1) conclusions.push(noAction[0])
+  else if (noAction.length > 1) {
+    const total = openPairLegs + periods.filter(p => p.month_nets && !p.closed_period).length + closedDivergent.length
+    conclusions.push(`${total} flagged span${total === 1 ? '' : 's'} need no action: ${noActionShort.join('; ')}. The rows are below with their figures.`)
+  }
+  // The unabridged sentences survive the collapse and ship every time, so the
+  // client can offer them behind "Show the working". A claim that leaves the
+  // visible text has to live somewhere, or the cut is a deletion (ce17).
+  const noActionDetail = noAction.slice()
 
   if (residual != null && Math.abs(residual) >= TOL && conclusions.length < 4) {
     const k = matchKnown(residual)
@@ -848,13 +1224,45 @@ function analyzeWalk(o: {
       : `upload earlier statements to pin it down`
     conclusions.push(`${money(Math.abs(residual))} predates the earliest usable statement (${winFrom})${k ? ` — equals ${k.what}` : ''}; ${tail}.`)
   }
-  if (!divergentPeriods.length) conclusions.push(`Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
+  // session 272: "every span ties" is now a statement about the OPEN book. Saying
+  // it while closed spans diverge would be false; saying nothing at all when the
+  // open book is clean would leave the reader without the one answer they came
+  // for. So it states the open result and names the closed ones it is excluding.
+  if (!openDivergent.length && !nettedMonths.length && !pairFirsts.length) {
+    conclusions.push(closedDivergent.length
+      ? `Every span since the books closed (${closeDate}) ties to the cent — Xero and the lender agree on everything still open.`
+      : `Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
+  }
   const finalConclusions = conclusions.slice(0, 4)
 
   return {
     periods, agree_until: lastClean, total_period_diff: totalPeriodDiff, residual,
     proposal, cpa_exception: cpaException, conclusions: finalConclusions,
-    divergent_count: divergentPeriods.length, win_from: winFrom, win_to: winTo,
+    // session 272: divergent_count is what a reader treats as "things to go and
+    // fix", so it must mean exactly that -- open, and not already explained by the
+    // close date, a timing pair, the month rollup or the accountant's own entry.
+    // Until now it counted every flagged span, which is why a walk that had
+    // explained all twelve of its spans still announced twelve.
+    //
+    // The denominator does not vanish with it: flagged_span_count is the number
+    // BEFORE any explanation, and every explained span is itself counted below.
+    // A number that quietly shrinks is not a gate (session 262).
+    divergent_count: realDivergent.length,
+    flagged_span_count: openDivergent.length,
+    timing_pair_span_count: openPairLegs,
+    month_netted_span_count: periods.filter(p => p.month_nets && !p.closed_period).length,
+    closed_divergent_count: closedDivergent.length,
+    closed_divergent_total: closedDivergent.length ? r2(closedDivergent.reduce((t, p) => t + p.diff, 0)) : 0,
+    close_date: closeDate,
+    cpa_exception_closed: cpaExceptionClosed,
+    focus_period: focusPeriod,
+    focus_span_count: focusSpans.length,
+    // session 272: the month rollup is the ruler the walk is now judged by, so it
+    // is part of the answer, not an internal. The weekly spans stay in `periods`.
+    months,
+    netted_month_count: nettedMonths.length,
+    no_action_detail: noActionDetail,
+    win_from: winFrom, win_to: winTo,
   }
 }
 
@@ -1060,7 +1468,12 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   const moves = new Map<string, any>()
   for (const b of walkable) {
     for (const p of b.aw.periods) {
-      if (p.verdict !== 'divergent' || p.timing_pair || !p.cross_loan_candidates) continue
+      // session 272: a settled month contributes no MOVES to the roadmap. The
+      // joint solve is a list of recodes for someone to go and perform, and a
+      // recode inside closed books is work nobody can do -- the same reason
+      // session 230 stopped raising approvals there. The span still shows in
+      // the table; it just stops generating instructions.
+      if (p.verdict !== 'divergent' || p.timing_pair || p.closed_period || !p.cross_loan_candidates) continue
       for (const c of p.cross_loan_candidates) {
         const rec = entryById.get(c.id)
         if (!rec) continue
@@ -1439,7 +1852,14 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   if (ruledOut.length) {
     conclusions.push(`Ruled out — leave in place: ${ruledOut.map((r: any) => `the ${money(r.amount)} ${r.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${r.date}) on ${r.from}`).join(', ')}; moving ${ruledOut.length === 1 ? 'it' : 'them'} makes things worse.`)
   }
-  const pairSpans = walkable.reduce((s: number, b: any) => s + b.aw.periods.filter((p: any) => p.timing_pair).length, 0)
+  const pairSpans = walkable.reduce((s: number, b: any) => s + b.aw.periods.filter((p: any) => p.timing_pair && !p.closed_period).length, 0)
+  // session 272: one line for settled history across the whole lender, same as
+  // the per-loan walk. Stated once, with the money, never enumerated.
+  const closedSpansAll = walkable.reduce((acc: any[], b: any) => acc.concat(b.aw.periods.filter((p: any) => p.verdict === 'divergent' && p.closed_period && !p.timing_pair)), [] as any[])
+  if (closedSpansAll.length) {
+    const tot = r2(closedSpansAll.reduce((t: number, p: any) => t + p.diff, 0))
+    conclusions.push(`${closedSpansAll.length} flagged span${closedSpansAll.length === 1 ? '' : 's'} across these loans sit inside books closed through ${pw.closeDate}${Math.abs(tot) >= TOL ? ` (${money(Math.abs(tot))} in total)` : ''} — already settled by your accountant's adjustments. Nothing to do.`)
+  }
   if (pairSpans) conclusions.push(`${pairSpans} flagged span${pairSpans === 1 ? ' is' : 's are'} timing, not errors — payments dated just after a cutoff. They cancel; nothing to fix.`)
   if (conclusions.length === 1 && Math.abs(combinedAfter) < TOL) conclusions.push(`After the roadmap and one re-run, every ${lenderName} loan should tie with the lender.`)
   const finalConclusions = conclusions.slice(0, 5)
@@ -1549,6 +1969,16 @@ async function handle(req: Request): Promise<Response> {
   const supa = admin()
   const body = await req.json().catch(() => ({}))
   const { loan_account_id, post_fix, proposal_token, posted_by } = body
+  // ── session 272: THE BUTTON MATCHES THE ROW ────────────────────────────────
+  // David, on PayPal 2: the Loans row showed an August variance and the modal it
+  // opened led with December. Two different investigations behind one button, and
+  // the reader is left to notice that for themselves. The caller now says which
+  // month its row is about; the walk answers about that month first.
+  //
+  // Validated to 'YYYY-MM' rather than trusted: it reaches a string comparison
+  // against span dates, and a malformed value would silently focus on nothing --
+  // which looks exactly like a month with no spans.
+  const focus_period = /^\d{4}-\d{2}$/.test(String(body.focus_period ?? '')) ? String(body.focus_period) : null
   // session 234: approving the exception's prepared correction. Same contract as
   // post_fix in every respect -- admin/manager, full server-side re-analysis on
   // this same request, exact-token match or nothing posts.
@@ -1667,6 +2097,7 @@ async function handle(req: Request): Promise<Response> {
     loan, code, usable, splits: splits || [], headline, entries, siblingPool,
     otherLoanByCode, matchKnown, acctMap, skippedForBasis,
     postingDate: pw.postingDate, postingWhy: pw.postingWhy, closeDate: pw.closeDate, today,
+    focusPeriod: focus_period,
   })
   const periods = aw.periods
   const totalPeriodDiff = aw.total_period_diff
@@ -1723,6 +2154,22 @@ async function handle(req: Request): Promise<Response> {
       read_via: loan.xero_bank_account_id ? 'bank transactions scoped to this loan\'s own bank account, plus every manual journal in the window' : 'org-wide month-sliced pull' },
     periods, agree_until: lastClean,
     total_period_diff: totalPeriodDiff, residual_before_window: residual,
+    // session 272: what the close date excluded, stated to the client so the
+    // table can grey those rows and the reader can see the denominator did not
+    // quietly shrink (session 262: a denominator that shrinks is not a gate).
+    close_date: aw.close_date,
+    months: aw.months,
+    netted_month_count: aw.netted_month_count,
+    no_action_detail: aw.no_action_detail,
+    focus_period: aw.focus_period,
+    focus_span_count: aw.focus_span_count,
+    divergent_count: aw.divergent_count,
+    flagged_span_count: aw.flagged_span_count,
+    timing_pair_span_count: aw.timing_pair_span_count,
+    month_netted_span_count: aw.month_netted_span_count,
+    closed_divergent_count: aw.closed_divergent_count,
+    closed_divergent_total: aw.closed_divergent_total,
+    cpa_exception_closed: aw.cpa_exception_closed,
     fingerprint_hunt: hunt,
     proposal, cpa_exception: cpaException,
     can_post: !!proposal && ['admin', 'manager'].includes(role),

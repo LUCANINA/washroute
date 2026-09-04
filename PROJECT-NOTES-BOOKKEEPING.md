@@ -1,6 +1,30 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 268, 2026-09-04 04:45 UTC)
+> ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
+>
+> ### 0. 🔴 SESSION 272 IS COMMITTED AND **NOT DEPLOYED** — one CLI command
+>
+> `loan-find-difference` changed substantially (close-date gate on findings, `focus_period`,
+> month-granularity rollup, non-adjacent pair detection). **It is a CLI-only deploy** — the
+> bundle is far over the MCP tool's ~100–130KB ceiling. From the repo root, on David's machine:
+>
+> ```
+> npx -y supabase@latest functions deploy loan-find-difference \
+>   --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+>
+> `--no-verify-jwt` is **not optional** — the function is `verify_jwt: false` today and omitting
+> it flips it to requiring a JWT and breaks every caller. The four SPAs deploy on push as usual;
+> `git push` is still David's to run, and a push does NOT deploy the function.
+>
+> ⚠️ **CHECK THE DEPLOY BY BEHAVIOUR, NEVER BY VERSION NUMBER** (this block has been wrong on
+> that five days running). Read the deployed source for `focus_period`, and confirm a live
+> response carries `months` and `closed_divergent_count`. A version number can coincide; a new
+> field in a response cannot.
+>
+> Full reasoning, and the four bugs an adversarial review found **inside** those five fixes:
+> the session 272 log entry. Read it before touching `analyzeWalk` — two of the four were
+> suppression rules writing false sentences over true errors.
 >
 > ### 1. ✅ BOTH FUNCTIONS ARE DEPLOYED AND VERIFIED BY BEHAVIOUR — not by version number
 >
@@ -55,6 +79,13 @@
 > creating the job or the first scheduled run 429s.
 >
 > ### 4. 🔴 PAYPAL 2 — THE "ONE UPLOAD" PRESCRIPTION WAS WRONG. NOTHING WAS MISSING. (rewritten session 269, 2026-09-04)
+>
+> ⚠️ **Session 272 addressed the SURFACE half of this, not the data half.** The −$9,429.39 on
+> the Loans row was never a variance: August's closing balance was anchored on the **2026-08-05**
+> statement while four weekly payments were booked, three of them after that date. The residual
+> is **$21.66**. That row now asks for the month-end statement instead of opening a twelve-month
+> investigation. Everything below about the misrouted upload and the wrong-loan write is
+> UNCHANGED and still needs doing.
 >
 > **The previous §4 asked David to upload a document that was already on file, and he had
 > uploaded it repeatedly to no effect.** He noticed ("None seemed to stick") and was right.
@@ -2288,6 +2319,8 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**43. 🟠 `fmtDate()` renders a date-only string A DAY EARLY in any timezone east of Pacific (session 272).** It does `new Date('2026-06-30T00:00:00')`, which the JS engine parses in the **browser's** zone, and then formats the result in `BIZ_TZ`. On David's Mac those are the same zone and it is correct, which is why nobody has seen it; in the harness (UTC) "books closed through 2026-06-30" printed as **"Jun 29, 2026"**. Every date-only value the dashboard renders through `fmtDate` — statement dates, span boundaries, anchor dates, close dates — is affected for any reader outside Pacific, and this module hands screens to a CPA. A statement date carries no time and no zone, so it must never go through `Date` at all: format it by slicing the string, as `fmtDatePlain()` already does and as `_bkDay()` (session 272, the find-the-difference span table) now does locally. ⚠️ **The blast radius is why this was not fixed in session 272** — `fmtDate` has ~50 call sites across four SPAs, several of which pass real timestamps where the `Date` round-trip is correct, so the fix is to branch on the `length === 10` case that already exists in the function and slice instead of parse. Small change, wide surface, deserves its own pass and a harness run. Caught by an assertion that expected "Jun 30" and got "Jun 29" — the test was right and the code was wrong, which is the good failure.
+
 **42. 🟠 A `transient` payout failure spends its whole retry budget against a wall it could have read the end of (session 271).** Xero's 429 carries `retry_after_seconds` — the 03:13 UTC refusal said 44774, i.e. recovery at ~15:39 UTC — and `_shared/payout-retry.ts` discards it, walking a fixed `BACKOFF_MINUTES` span of ~4h10m instead. On 2026-09-04 all six attempts for `po_1UBlJ2GACgbvEugHgG9Ohsv8` ($6,313.70) fell inside the outage, `attempt_count` hit `MAX_AUTO_ATTEMPTS`, and the row left `mayAutoRetry()` **permanently** — so it could never self-heal even though the blocking condition ended on its own five hours later. A human re-ran it. ⚠️ **The fix is to schedule `next_retry_at` past the stated recovery time, NOT to raise the attempt cap** — more attempts against a hard zero is the same mistake louder. ⚠️ **And do not make an exhausted row auto-retry again on a timer's judgement**: the whole reason `unknown` and `transient` are separate kinds is that only the pre-check class is provably unposted. This one is safe to re-run *because the pre-check runs again*, which is a property of that class alone. Interacts with #3's metering blocker — design them together.
 
 **41. 🔴 THREE reconciliation runs are stuck in `running`, and nothing has COMPLETED since 2026-09-02 20:51 UTC (found session 265).** `reconciliation-run` boots again — a `net.http_post` probe returns a clean 403 "Not authorized" rather than the 503-on-preflight that the never-booting v64 gave, which is the functional check, not a version comparison. But **there is no cron for this function** (`cron.job` carries only `wr-loan-attribution`, `20 */6 * * *`), so it only runs when someone presses Check — and nobody has since it broke. **Every tie-out the dashboard is reading is from yesterday evening**, which means every variance, every close-gate verdict and every Issues row on screen right now predates both session 264's and session 265's changes. First action for whoever reads this: press Check, then confirm a row appears in `reconciliation_runs` with `finished_at` set. Two further things to decide: the three rows sitting in `running` with no `finished_at` (2026-09-01 21:57, 2026-09-02 00:09, 2026-09-02 13:45) are dead v64 attempts that will never finish and should be marked failed rather than left ambiguous — `loadReconciliation` picks the newest FINISHED non-failed run so they are harmless today, but "running" is a lie about a process that is not; and whether this function should be on a cron at all, given the module now depends on its output being current.
@@ -2580,6 +2613,185 @@ to "what is running".
 ---
 
 ---
+
+### Session 272 (2026-09-04) — THE TWELVE-MONTH WITCH HUNT: five changes, and an adversarial review that found four more bugs in them
+
+David, opening the session with two screenshots — the Loans close band showing PayPal 2 at
+**−$9,429.39**, and the "find the fix" modal that button opens:
+
+> "The problem with the 'fix' is that it identifies mistakes in prior months while ignoring the
+> fixes made by our accountant by making the proper adjustment throughout. What should be
+> straightforward 'here's a suggested adjustment' becomes a 12 month witchhunt."
+
+He was right on every count, and the diagnosis turned out to be three separate defects wearing
+one symptom.
+
+#### What was actually wrong
+
+**1. The row and the modal were investigating different months.** The close band row is about
+**August 2026**. The modal's conclusions were all December 2025 – February 2026. One button,
+two investigations, and the reader left to notice.
+
+**2. The −$9,429.39 was never a variance. It was a missing input.** PayPal 2 has three
+statements since late July: 7/29, **8/05**, and 9/02. Nothing for 8/12, 8/19, 8/26. So August's
+CLOSING balance was anchored on a statement dated **five days into the month** while a full
+month of principal was booked:
+
+```
+opening 7/31        61,918.23
+principal booked    12,571.65   (8/05 + 8/12 + 8/19 + 8/26 splits)
+computed            49,346.58
+closing anchor      58,775.97   ← the Aug 5 statement
+variance            −9,429.39
+```
+
+Three of those four payments happened *after* the date of the newest document on file. The gap
+is ~$9,451 of scheduled principal, to within **$21.66**. Arithmetic reporting its own missing
+input, in red, on the one screen whose job is to say "ready for your accountant".
+
+**3. Every red row in that modal was inside closed books.** `books_closed_through` is
+**2026-06-30**. `loan-find-difference` honoured the close date on the POSTING side
+(`isProtectedDate` re-dates a correction into an open month) and ignored it entirely on the
+FINDING side. Twelve months of accusations nobody was allowed to act on — session 231's "the
+close date binds WRITES" had never reached the thing that ACCUSES.
+
+And the biggest numbers were Ramona's own corrections read at the wrong resolution. The walk
+asks its question between consecutive *weekly* statements; she corrects at *month* end, in one
+journal covering several weeks. Her journal lands in one weekly span and makes it read long
+while the weeks it corrects read short. Four true statements about one book, reported as four
+errors. Look where they land — `2025-12-31`, `2026-04-01`, `2026-04-29`: month boundaries, all
+three.
+
+#### The five changes
+
+| # | Change | Where |
+|---|---|---|
+| 1 | **The close date gates the FINDING, not just the posting.** A span whose END is on or before the close date is walked, keeps every figure, and is reported as history — one aggregate sentence, never a hypothesis, no candidate hunt, no proposal. A span that STRADDLES the close date stays open. | `loan-find-difference` |
+| 2 | **The button matches the row.** The caller passes `focus_period` ('YYYY-MM'); the walk answers about that month first and says so plainly when no span covers it — which on PayPal 2 *is* the whole answer. The span table leads with that month, folding earlier-open, later-open and closed history behind their own `<details>`. | both |
+| 3 | **The month is the ruler; the week is the magnifying glass.** Spans roll up by the month their CLOSING anchor falls in. When a month's spans sum to zero the movement inside it is distribution, not error, and the weeks stop generating work. When the month itself is off, every week in it keeps the full treatment. | `loan-find-difference` |
+| 4 | **Offsetting pairs need not be neighbours.** The v6 detector compares span *i* with *i+1* only. PayPal 2's `2026-02-25 → 03-04` (+$40.27) and `2026-03-18 → 03-25` (−$40.27) are three weeks apart and each carries the OTHER'S lender figure — a transposition, reported as two errors. | `loan-find-difference` |
+| 5 | **A stale closing anchor is a request, not a variance.** Session 262's rule reaching the close band at last: when dated splits booked in the month fall after the anchor's own date, the row asks for the month-end statement. | `admin-dashboard` |
+
+#### ⚠️ THE REVIEW IS THE MOST IMPORTANT PART OF THIS ENTRY
+
+An adversarial review of the finished diff found **four real bugs in the five fixes**, two of
+them the exact class of defect the changes were written to prevent. Every one was reproduced by
+execution before being believed.
+
+**R1 (critical) — a paired leg leaked into the next month's sum and cancelled a real error.**
+The month total summed EVERY span, but only unpaired spans were eligible to be cleared. The
+adjacent-pair detector runs first and pairs across month boundaries, so:
+
+```
+2026-03-18 → 03-25   −$40.27  ┐ an ordinary cutoff straddle,
+2026-03-25 → 04-01   +$40.27  ┘ correctly paired, one leg in April
+2026-04-08 → 04-15   −$40.27    a GENUINE error
+```
+
+April summed to $0.00, the real span was cleared, and the modal said *"the month ties to the
+cent — nothing to fix"*. **A suppression rule wrote a false sentence over a true error.** The
+netting sum now excludes anything another rule already explained; `months[]` publishes `diff`
+(all spans, so it still foots) and `unexplained_diff` (the question actually asked) side by side.
+
+**R2 (critical) — a pair straddling the close date fell into a hole and the walk said NOTHING.**
+`pairFirsts` filtered on the first leg's close flag; `closedDivergent` excludes anything paired.
+A pair with one leg each side was in no count and got no sentence: two grey rows and an **empty
+conclusions box** for $1,000 of movement. That is the denominator quietly shrinking, which is
+what session 262 forbids. A pair is now spoken about whenever ANY leg is open, and the counts
+are taken over SPANS rather than pairs so a half-closed pair contributes only its open leg.
+
+**R3 (high) — the transposition claim was asserted, never checked.** Change 4 tested only exact
+cancellation plus uniqueness in a 6-span window. On a weekly loan where the same figures recur,
+coincidental cancellation is ordinary: two unrelated $500 errors three weeks apart were merged
+and dismissed with a confident sentence about a swap that had not happened. **This module's own
+amount-matching mistake in new clothes.** The claim is specific and checkable — each span
+carries the other's lender figure — so it is now checked (`verified_swap`), and the real PayPal 2
+case passes it to the cent while the coincidence is refused.
+
+**R4 (high) — `staleAnchor` nulled the variance, and a real error rode out with it.** Setting
+`variance = null` removed the row from `judged`, from `off` and from the variance gate. A loan
+with a stale anchor AND a genuine $5,000 duplicate journal would have shown "needs Aug
+statement", sat in no blocker, and closed the month silently. It behaves like
+`_closeUnbookedExplanation` now: raw figure kept, explanation subtracted, **leftover banded
+normally**. PayPal 2's leftover is $21.66 and the row goes quiet; anything material stays red
+and still blocks. Two real rows on the production fixture (E5-4751, Stripe Capital) exercise
+that path, so the safety property is asserted on real data rather than a hypothetical.
+
+Also fixed from the review: the focus line said *"nothing here to investigate"* while three real
+findings sat below it (R5); a closed-span exception folded its sentence into "Nothing to do"
+while a live **Approve & post** button for the same $15,671.08 stayed on screen (R6); the
+"earlier spans" fold contained spans that were not earlier (R7); `divergent_count` counted every
+flagged span rather than the work, so a walk that had explained all twelve still announced
+twelve.
+
+#### Two bugs the tooling caught, both worth keeping
+
+**A duplicate `const _bkMonthLabel` killed the entire dashboard script** — the session-265 shape
+exactly, ten thousand lines from the `function _bkMonthLabel` that already existed. The symptom
+was `showPage is not defined`, which is what a dead script looks like from outside and names
+nothing. `tests/edge-function-syntax.test.mts` asks "does it parse?" of every edge function; the
+four SPAs had no such check, and they are the bigger risk. **`tests/dashboard-syntax.test.mts`
+now does** — 17 assertions, and it reproduces the duplicate-declaration defect to prove it
+discriminates.
+
+**`fmtDate()` renders a date-only string a day early in any timezone east of Pacific.** It does
+`new Date('2026-06-30T00:00:00')`, which the engine parses in the BROWSER's zone and then
+formats in `BIZ_TZ`. On David's Mac those agree; in the harness (UTC) "closed through
+2026-06-30" printed as **"Jun 29, 2026"**. The span table formats by string-slicing now
+(`_bkDay`). **The wider `fmtDate` has the same latent bug on every other date-only call site —
+not changed here, and worth its own pass.** Filed as Tech Debt #43.
+
+#### How this was tested, and why it is not a transcription
+
+`analyzeWalk` is the most consequential pure function in this module — it decides what a human
+is told to go and fix — and it lives inside a Deno server file that cannot simply be imported.
+Copying it into a test would have repeated session 245's fifty-two-green-assertions mistake at
+four times the size. **`tests/find-difference-walk.test.mts` loads the real shipped source**,
+strips its types with node's own stripper, and neutralises the only three things stopping it
+being an ordinary module: a types-only import, two never-reached constructors (replaced with
+THROWING stubs, so a future edit that reaches for the network fails loudly), and the single
+`Deno.serve` at the bottom. `close-date.ts` and `diagnose-exception.ts` are the real modules.
+Nothing about the arithmetic, the span logic, the gate or the conclusions is re-implemented.
+
+Its `loadWalk(mutate)` applies the INVERSE of each fix to the shipped source and asserts the
+tests go red — and **throws if a mutation anchor no longer matches**, which caught two anchors
+that had drifted during the session. 117 assertions. The PayPal 2 fixture is transcribed from
+David's own screenshot, so the four March spans in it are the real ones.
+
+**Assertions that had to be fixed pre-emptively** (the invariant moved, so the test encoding the
+old one had to move in the same commit, green or not): `ce29`'s mutation anchor, `s236`'s and
+`ce12`'s row-side sums (which read the raw variance where the footer sums the *unexplained*
+one — the two can now differ), and this session's own change-3 discriminator, which change 4
+made stale.
+
+**A note on `'awaiting'`.** A stale-anchor row whose leftover is zero gets its own band rather
+than borrowing `'unbooked'`. `'unbooked'` means "explained by payments prepared but not yet
+posted" and is owned by the posting gate — a different fact with a different fix, and borrowing
+the label would send someone to the wrong screen. `ce12` caught that.
+
+#### Where it stands
+
+* **Suite: 1,795 browser assertions, 1,794 passing** (the one red is Tech Debt #19's own report,
+  red on purpose). **1,370 Node assertions across 25 `.test.mts` files, 0 red**
+  (`loan-bundle.test.mts` still cannot import `pdfjs-dist` on this machine — pre-existing).
+* **NOT DEPLOYED.** `loan-find-difference` is a CLI-only deploy (its bundle is far over the MCP
+  tool's ceiling). David must run, from the repo root:
+  ```
+  npx -y supabase@latest functions deploy loan-find-difference \
+    --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+  ```
+  `--no-verify-jwt` is **not optional** — this function is currently `verify_jwt: false` and
+  omitting it breaks every caller. The dashboard changes deploy themselves on push.
+* **Deploy state must be checked by BEHAVIOUR, never inferred from git.** Probe for
+  `focus_period` in the deployed source, and confirm a response carries `months` and
+  `closed_divergent_count` — a version number can coincide, a new field in a response cannot.
+
+#### On PayPal 2 specifically
+
+The 9/02 statement ($46,144.59) is already on file and lands after this fixture was pulled, so
+the August row's ask may already be satisfiable — **check before asking David for anything**.
+The point stands regardless: that row should have been asking for a document, not opening a
+twelve-month investigation, and the residual behind it was always $21.66.
 
 ### Session 271 (2026-09-04) — THE PAYOUT ALERT WAS RIGHT, AND THE RETRY BUDGET WAS SPENT INSIDE THE QUOTA OUTAGE
 

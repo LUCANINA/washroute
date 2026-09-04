@@ -588,6 +588,12 @@ function readSurfaces() {
         openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
         computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
         varianceN: numA(tds[C.variance], 'data-variance'),
+        // Session 272: the RESIDUAL — raw minus every explanation (unposted
+        // payments, and now a closing anchor older than the month's own
+        // payments). The footer has always summed this; before there was an
+        // explanation that survived into the immaterial/material bands the two
+        // were the same number, so nothing had to tell them apart.
+        varianceResidualN: numA(tds[C.variance], 'data-variance-residual'),
         material: numA(tds[C.variance], 'data-material'),
         // Review F14: an EMPTY subtotal must not exist at all, and must never
         // carry data-tie. A $0.00 "tie" over zero loans is a claim nobody
@@ -2736,7 +2742,14 @@ GROUPS.push({
       // it any wider would make this assertion drift the first time an unbooked
       // row appears, and drift in a test is indistinguishable from a bug.
       const unexplainedRows = cbx.rows.filter(r => r.band === 'immaterial' || r.band === 'material');
-      const absUnexplained = unexplainedRows.reduce((n, r) => n + Math.abs(r.varianceN), 0);
+      /* THE RESIDUAL, not the raw figure. Session 272 gave a row a second way to
+         be partly explained (a closing anchor dated before payments booked in the
+         month), and on such a row the two differ — PayPal 2 reads −$9,429.39 raw
+         and $21.66 unexplained. The footer sums what is still UNEXPLAINED, which
+         is the honest quantity for a total headed "to resolve", so the row-side
+         sum has to be taken on the same basis. Reading `varianceN` here made this
+         assertion demand that the footer publish money it had just explained. */
+      const absUnexplained = unexplainedRows.reduce((n, r) => n + Math.abs(r.varianceResidualN ?? r.varianceN), 0);
       t.ok(unexplainedRows.length >= 2,
            's236: the scenario really did put a variance on more than one loan',
            `${unexplainedRows.length} rows carry an unexplained variance`);
@@ -2744,7 +2757,7 @@ GROUPS.push({
         's236: the close-band variance total is the sum of ABSOLUTE row variances');
       // The signed sum would cancel the +415.88 against the −415.88 this
       // scenario plants; the absolute one cannot. That is the whole point.
-      const signedSum = unexplainedRows.reduce((n, r) => n + r.varianceN, 0);
+      const signedSum = unexplainedRows.reduce((n, r) => n + (r.varianceResidualN ?? r.varianceN), 0);
       t.ok(Math.abs(absUnexplained - Math.abs(signedSum)) > 100,
            's236: ...and the scenario really would have cancelled under a signed total',
            `absolute ${absUnexplained} vs signed ${signedSum}`);
@@ -4160,6 +4173,12 @@ const CLOSE_REVERTS = {
   'mixed-sign-invisible': ["r.movement.mixedSign > 0 ? `${r.movement.mixedSign} mixed-sign journal entr${r.movement.mixedSign === 1 ? 'y' : 'ies'}` : '',", "'',"],
   // The variance tie is suppressed on unmeasured months too — the symmetric
   // treatment the implementing agent deliberately did NOT adopt.
+  // Session 272 re-anchored this: the line gained `|| staleAnchor` when a stale
+  // closing anchor became its own refusal. The MUTATION is unchanged in meaning —
+  // it adds the symmetric `!movement.measured` suppression on top of whatever
+  // refusals the line already carries — but the anchor text had to move with the
+  // code, or this control would have gone quietly un-runnable and ce29 would have
+  // reported "could not be rebuilt" forever.
   'variance-suppressed-when-unmeasured': ['const variance = circular ? null : rawVariance;',
                                           'const variance = (circular || !movement.measured) ? null : rawVariance;'],
   // The subtotal drops Drawn, so opening + drawn − principal = computed stops
@@ -5295,7 +5314,10 @@ GROUPS.push({
           inTies: rf.ties.some(x => x.a.xero_account_name === 'Dexter Loan 2'),
           toResolve: rf.varianceToResolve, unbookedTotal: rf.varianceUnbooked,
           offNames: rf.off.map(x => x.a.xero_account_name),
-          offSum: rf.off.reduce((n, x) => n + Math.abs(x.variance), 0),
+          // Session 272: the RESIDUAL, matching what varianceToResolve sums. A row
+          // can now be partly explained by a stale closing anchor as well as by
+          // unposted payments, and on such a row raw and unexplained differ.
+          offSum: rf.off.reduce((n, x) => n + Math.abs(x.varianceResidual ?? x.variance), 0),
           otherStaged: rf.rows.filter(x => x.stagedSplits.length && x.a.xero_account_name !== 'Dexter Loan 2')
             .map(x => ({ n: x.a.xero_account_name, band: x.band, v: x.variance,
                          stagedP: x.stagedSplits.reduce((m, sp) => m + Number(sp.principal_amount || 0), 0) })),
@@ -8281,6 +8303,296 @@ console.log(`  index   ${INDEX}`);
 console.log(`  fixture ${FIXTURE} (${baseFixture._meta?.pulled_at || 'unknown vintage'})`);
 console.log(`  rows    ${FIXTURE_TABLES.map(t => `${t}=${baseFixture[t].length}`).join(' ')}\n`);
 
+/* SESSION 272 — THE SPAN TABLE IS THREE TIERS, AND NOTHING FALLS BETWEEN THEM.
+
+   David, on PayPal 2: "the problem with the fix is that it identifies mistakes
+   in prior months while ignoring the fixes made by our accountant... what should
+   be a straightforward 'here's a suggested adjustment' becomes a 12 month
+   witchhunt." Every red row in that modal sat inside books closed through
+   2026-06-30, and the modal had been opened from a row about AUGUST.
+
+   So the table now leads with the month the row is about, folds earlier OPEN
+   history behind one <details>, and folds settled books behind another. The
+   thing that must never happen is a span quietly disappearing between the tiers:
+   this asserts the partition is exact — every span the server walked appears in
+   exactly one tier, and the money in each fold's summary is the money in it.
+
+   It drives the page's OWN _bkFdiffSpanTable rather than a copy, and proves the
+   assertions discriminate by rebuilding the shipped function with the tiering
+   removed and watching them go red. */
+GROUPS.push({
+  name: 'fdiff-tiers',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const errs = [];
+    p.page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+
+    const PERIODS = [
+      // closed (books closed through 2026-06-30)
+      { from: '2025-12-24', to: '2025-12-31', lender_delta: -2694.12, xero_delta: -12976.96, diff: -10282.84, verdict: 'divergent', closed_period: true,  in_focus: false },
+      { from: '2026-02-18', to: '2026-02-25', lender_delta: -2798.26, xero_delta: -5343.22,  diff: -2544.96,  verdict: 'divergent', closed_period: true,  in_focus: false },
+      { from: '2026-03-04', to: '2026-03-11', lender_delta: -2824.91, xero_delta: -2824.91,  diff: 0,         verdict: 'clean',     closed_period: true,  in_focus: false },
+      // open, but before the focus month
+      { from: '2026-07-08', to: '2026-07-15', lender_delta: -3076.54, xero_delta: -3076.54,  diff: 0,         verdict: 'clean',     closed_period: false, in_focus: false },
+      { from: '2026-07-22', to: '2026-07-29', lender_delta: -3105.85, xero_delta: -3605.85,  diff: -500,      verdict: 'divergent', closed_period: false, in_focus: false },
+      // the focus month
+      { from: '2026-07-29', to: '2026-08-05', lender_delta: -3120.60, xero_delta: -3120.60,  diff: 0,         verdict: 'clean',     closed_period: false, in_focus: true },
+      { from: '2026-08-05', to: '2026-08-12', lender_delta: -3135.43, xero_delta: -4370.00,  diff: -1234.57,  verdict: 'divergent', closed_period: false, in_focus: true },
+    ];
+    const META = { close_date: '2026-06-30', focus_period: '2026-08' };
+
+    const shape = await p.evaluate(([periods, meta]) => {
+      const html = _bkFdiffSpanTable(periods, meta);
+      const host = document.createElement('div'); host.innerHTML = html;
+      const folds = [...host.querySelectorAll('details')];
+      const rowsIn = (el) => [...el.querySelectorAll('tr')]
+        .map(tr => tr.children[0] && tr.children[0].textContent.trim())
+        .filter(x => x && /→/.test(x));
+      // rows in the LEAD table = rows not inside any <details>
+      const all = [...host.querySelectorAll('tr')]
+        .filter(tr => !tr.closest('details'))
+        .map(tr => tr.children[0] && tr.children[0].textContent.trim())
+        .filter(x => x && /→/.test(x));
+      return {
+        lead: all,
+        folds: folds.map(f => ({ summary: f.querySelector('summary').textContent.trim(), rows: rowsIn(f) })),
+        text: host.textContent,
+      };
+    }, [PERIODS, META]);
+
+    t.eq(shape.lead.length, 2, 'the lead table holds exactly the two focus-month spans', JSON.stringify(shape.lead));
+    // Review finding 7: a span AFTER the focus month is not "earlier". Each fold
+    // now says what is actually in it, and an empty one does not render.
+    t.eq(shape.folds.length, 2, 'there are exactly two folds here: earlier-open, and closed', JSON.stringify(shape.folds.map(f => f.summary)));
+    t.ok(!shape.folds.some(f => /later span/.test(f.summary)),
+         'no later-span fold on a fixture whose focus month is its last', JSON.stringify(shape.folds.map(f => f.summary)));
+
+    const earlier = shape.folds.find(f => /still open/.test(f.summary));
+    const closed  = shape.folds.find(f => /closed books|closed through/.test(f.summary));
+    t.ok(!!earlier, 'a fold for earlier OPEN spans', JSON.stringify(shape.folds.map(f => f.summary)));
+    t.ok(!!closed,  'a fold for settled books',     JSON.stringify(shape.folds.map(f => f.summary)));
+    t.eq(earlier ? earlier.rows.length : -1, 2, 'the earlier-open fold holds both pre-focus open spans');
+    t.eq(closed ? closed.rows.length : -1, 3, 'the closed fold holds all three settled spans');
+
+    // THE PARTITION IS EXACT — this is the assertion that matters. A span that
+    // fell out of every tier would be a claim deleted, not a claim moved.
+    const seen = shape.lead.length + (earlier ? earlier.rows.length : 0) + (closed ? closed.rows.length : 0);
+    t.eq(seen, PERIODS.length, 'every span the server walked appears in exactly one tier — nothing is dropped');
+
+    /* Asserted as "Jun 30", not "Jun 29". The first run of this returned
+       "Jun 29, 2026" and the assertion was RIGHT to be red: the shared fmtDate()
+       parses a date-only string in the BROWSER's zone and renders it in BIZ_TZ,
+       so every date-only value it touches reads a day early in any zone east of
+       Pacific. The span table formats by string-slicing now (_bkDay). Keep this
+       assertion strict — a re-introduced Date() round-trip shows up here. */
+    t.ok(/Jun 30, 2026/.test(closed ? closed.summary : ''),
+         'the closed fold names the close date exactly, with no timezone round-trip', closed && closed.summary);
+    t.ok(/2,544\.96|10,282\.84|12,827\.80/.test(closed ? closed.summary : ''),
+         'the closed fold states the money it is folding away — nothing is deleted', closed && closed.summary);
+    t.ok(/August 2026/.test(shape.text), 'the lead is labelled with the month the row is about');
+
+    // Both differing closed spans total $12,827.80; the summary must carry that,
+    // not one of them and not zero.
+    t.ok(/12,827\.80/.test(closed ? closed.summary : ''),
+         'the closed fold totals ALL its differing spans', closed && closed.summary);
+
+    /* NO FOCUS MONTH → the old two-tier behaviour, unchanged. The findings card
+       calls this with no month and must not suddenly lose its table. */
+    const nofocus = await p.evaluate((periods) => {
+      const html = _bkFdiffSpanTable(periods, { close_date: '2026-06-30' });
+      const host = document.createElement('div'); host.innerHTML = html;
+      const lead = [...host.querySelectorAll('tr')].filter(tr => !tr.closest('details'))
+        .map(tr => tr.children[0] && tr.children[0].textContent.trim()).filter(x => x && /→/.test(x));
+      return { lead: lead.length, folds: host.querySelectorAll('details').length };
+    }, PERIODS);
+    t.eq(nofocus.lead, 4, 'with no focus month, every OPEN span leads', JSON.stringify(nofocus));
+    t.eq(nofocus.folds, 1, 'with no focus month there is one fold — the closed books', JSON.stringify(nofocus));
+
+    /* IT DISCRIMINATES. Rebuild the SHIPPED function with the tiering removed
+       (every span treated as lead) and confirm the partition assertions go red.
+       Done via the function's own toString() in page context — never by editing
+       index.html. */
+    const inverse = await p.evaluate(([periods, meta]) => {
+      const src = _bkFdiffSpanTable.toString();
+      const broken = src
+        .replace('const closed = all.filter(p => p.closed_period);', 'const closed = [];')
+        .replace('const open = all.filter(p => !p.closed_period);', 'const open = all;')
+        .replace('const inFocus = focus ? open.filter(p => p.in_focus) : [];', 'const inFocus = [];');
+      if (broken === src) return { applied: false };
+      const fn = new Function('_bkFdiffSpanTableShell', '_bkFdiffSpanRows', '_bkFdiffFold', 'esc', 'fmtDate', 'fmtMoney', '_cvMonthName',
+        'return ' + broken)(_bkFdiffSpanTableShell, _bkFdiffSpanRows, _bkFdiffFold, esc, fmtDate, fmtMoney, _cvMonthName);
+      const host = document.createElement('div'); host.innerHTML = fn(periods, meta);
+      return {
+        applied: true,
+        folds: host.querySelectorAll('details').length,
+        lead: [...host.querySelectorAll('tr')].filter(tr => !tr.closest('details')).length - 1,
+      };
+    }, [PERIODS, META]);
+    t.ok(inverse.applied, 'the inverse mutation applied — the anchors are still there', JSON.stringify(inverse));
+    t.eq(inverse.folds, 0, 'without tiering there are no folds — the witch hunt is one flat wall again', JSON.stringify(inverse));
+    t.eq(inverse.lead, PERIODS.length, 'without tiering all seven spans sit in the reader\'s face', JSON.stringify(inverse));
+
+    t.eq(errs.length, 0, 'no page errors while rendering the span table', errs.join(' | '));
+    await p.close();
+  },
+});
+
+/* SESSION 272 — A STALE ANCHOR IS A REQUEST, NOT A VARIANCE.
+
+   The row that started this session: PayPal 2, August 2026, −$9,429.39 in red on
+   the close band. It was measured against a lender statement dated 2026-08-05 —
+   five days into the month — while booking four weekly payments totalling
+   $12,571.65. Three of those happened after the date of the newest document on
+   file, so the balance being compared against could not know about them. The
+   "variance" was scheduled principal, to within $22 of itself.
+
+   Session 262 already had the rule ("a variance measured against a statement
+   older than the month being closed is not a gap to investigate; it is one nobody
+   can evaluate — the row asks for the document"). It had never reached the close
+   band. This asserts that it has, on the real production fixture, and that the
+   raw figure survives so nothing is hidden. */
+GROUPS.push({
+  name: 'stale-anchor-ask',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const errs = [];
+    p.page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+
+    const rf = await p.evaluate(() => {
+      const month = _cvLastMonth();
+      const r = _loanCloseRollforward(month);
+      return {
+        month,
+        stale: r.staleAnchorRows.map(x => ({
+          name: x.a.xero_account_name, asOf: x.staleAnchor.asOf, monthEnd: x.staleAnchor.monthEnd,
+          splits: x.staleAnchor.splits, principal: x.staleAnchor.principal,
+          raw: x.staleAnchor.rawVariance, residual: x.staleAnchor.residual,
+          variance: x.variance, band: x.band,
+        })),
+        judgedNames: r.judged.map(x => x.a.xero_account_name),
+        offNames: r.off.map(x => x.a.xero_account_name),
+        checkableCount: r.checkable.length,
+      };
+    });
+
+    t.ok(rf.stale.length > 0, 'at least one loan is waiting on a month-end statement', JSON.stringify(rf));
+    /* A GATE, NOT A NAG. If this test caught most of the book it would be a
+       paperwork request stapled to every row, and people would learn to ignore
+       it — the exact failure session 230 removed from the approvals queue. It is
+       narrow by construction (it needs a DATED split after the anchor's own
+       date), and this asserts that narrowness on real production rows rather
+       than trusting the construction. */
+    t.ok(rf.stale.length <= Math.ceil(rf.checkableCount / 2),
+         `it stays a minority of the book — ${rf.stale.length} of ${rf.checkableCount} checkable loans`,
+         JSON.stringify(rf.stale.map(x => x.name)));
+    console.log(`        ${C.y}stale-anchor rows:${C.x} ` + rf.stale.map(x => `${x.name} (anchor ${x.asOf}, ${x.splits} late, raw ${x.raw}, residual ${x.residual})`).join(' · '));
+
+    const pp2 = rf.stale.find(x => /Paypal 2/i.test(x.name || ''));
+    t.ok(!!pp2, 'PayPal 2 is one of them', JSON.stringify(rf.stale.map(x => x.name)));
+    if (pp2) {
+      t.ok(pp2.asOf < pp2.monthEnd, `its anchor (${pp2.asOf}) predates the month end (${pp2.monthEnd})`);
+      t.ok(pp2.splits >= 1, `${pp2.splits} payment(s) were booked after that date`, JSON.stringify(pp2));
+      /* THE RAW FIGURE STAYS. Review found that nulling the variance took the row
+         out of `judged`, out of `off` and out of the variance gate — so a stale
+         anchor sitting on top of a GENUINE error would close the month silently.
+         It behaves like the unposted-payment explanation instead: raw figure
+         kept, explanation subtracted, leftover banded normally. */
+      t.ok(pp2.variance != null && Math.abs(pp2.variance - pp2.raw) < 0.02,
+           'the raw variance is kept, not nulled', String(pp2.variance));
+      t.eq(pp2.band, 'immaterial',
+           'and the BAND is taken on the leftover ($21.66), so the row goes quiet without going missing');
+      // NOTHING IS DELETED: the raw figure and the late principal both survive,
+      // and the residual is the honest leftover a reader can check by subtracting.
+      t.ok(Math.abs(pp2.raw) > 1000, 'the raw difference is still recorded on the row', String(pp2.raw));
+      t.ok(Math.abs(pp2.principal) > 1000, 'so is the principal booked after the anchor', String(pp2.principal));
+      t.ok(Math.abs(pp2.raw + pp2.principal - pp2.residual) < 0.02,
+           'and the residual is exactly raw + late principal — the reader can do the subtraction',
+           `${pp2.raw} + ${pp2.principal} vs ${pp2.residual}`);
+      /* On PayPal 2 the late payments explain essentially the whole thing —
+         −$9,429.39 raw, $21.66 left. That is what makes this row an ask rather
+         than a finding.
+
+         NOT ASSERTED AS A GENERAL PROPERTY, and the reason matters. On Stripe
+         Capital the same arithmetic runs the other way: $548.96 raw becomes
+         $2,166.05 once its three late payments are allowed for. That is not a
+         defect — $2,166.05 is the settlement-lag figure session 245 established
+         to the cent — and it is exactly the information a reader wants: the late
+         payments were NOT the story here, so look further. A residual that grew
+         is a signal, not a failure, so this asserts the number, not a direction. */
+      t.ok(Math.abs(pp2.residual) < 100,
+           'on PayPal 2 the late payments explain all but a rounding difference',
+           `residual ${pp2.residual} against a raw ${pp2.raw}`);
+
+      t.ok(rf.judgedNames.includes(pp2.name),
+           'it STAYS among the loans checked — the denominator does not shrink');
+      t.ok(!rf.offNames.includes(pp2.name),
+           'but it is no longer reported as off, because nothing material is left');
+    }
+
+    // THE ROW SAYS SO ON SCREEN, and the footer names the population — a
+    // denominator that quietly shrinks is not a gate (session 262).
+    const screen = await p.evaluate(() => {
+      renderLoansCloseBand();
+      const el = document.getElementById('loans-close-band');
+      const rows = [...el.querySelectorAll('td[data-stale-anchor]')].map(td => ({
+        loan: td.closest('tr')?.getAttribute('data-loan') || '',
+        band: td.getAttribute('data-band'),
+        text: td.textContent.trim(),
+        residual: td.getAttribute('data-stale-residual'),
+        hint: td.closest('tr')?.getAttribute('data-hint') || '',
+        action: td.closest('tr')?.lastElementChild?.textContent.trim() || '',
+      }));
+      return { rows, footer: el.textContent };
+    });
+    const pp2Row = screen.rows.find(x => /Paypal 2/i.test(x.loan));
+    t.ok(!!pp2Row, 'the PayPal 2 row renders a stale-anchor cell', JSON.stringify(screen.rows.map(x => x.loan)));
+    t.ok(/statement/i.test(pp2Row ? pp2Row.text : ''),
+         'the cell asks for a statement rather than printing a figure', pp2Row && pp2Row.text);
+    t.ok(/Ask for statement/i.test(pp2Row ? pp2Row.action : ''),
+         'and the Action column offers the ask — the button the whole feature is for', pp2Row && pp2Row.action);
+    t.ok(/booked after that date/.test(pp2Row ? pp2Row.hint : ''), 'the hover states the cause',
+         (pp2Row && pp2Row.hint || '').slice(0, 240));
+
+    /* A MATERIAL LEFTOVER IS STILL RED. Any stale-anchor row whose leftover is
+       material must keep its figure rather than hiding behind the ask — that is
+       the review finding, asserted on whatever rows the real book produces. */
+    for (const row of screen.rows.filter(x => x.band === 'material')) {
+      t.ok(!/needs .* statement/i.test(row.text),
+           `${row.loan}: a material leftover keeps its figure, it does not hide behind the ask`, row.text);
+    }
+    t.ok(/waiting on a statement dated at or after/.test(screen.footer),
+         'the footer names the population so the denominator is visible');
+
+    /* IT DISCRIMINATES. Rebuild the shipped _loanCloseRollforward with the
+       stale-anchor test disabled and confirm PayPal 2 comes back as a red
+       material variance — the row David screenshotted. Done via toString() in
+       page context, never by editing index.html. */
+    const inverse = await p.evaluate(() => {
+      const src = _loanCloseRollforward.toString();
+      const anchorTxt = 'const staleAnchor = (_lateSplits.length';
+      if (!src.includes(anchorTxt)) return { applied: false };
+      const broken = src.replace(/const staleAnchor = \(_lateSplits\.length[\s\S]*?: null;/, 'const staleAnchor = null;');
+      if (broken === src) return { applied: false };
+      let fn;
+      try { fn = (0, eval)('(' + broken + ')'); }
+      catch (e) { return { applied: false, why: String(e.message) }; }
+      const r = fn(_cvLastMonth());
+      const row = r.rows.find(x => /Paypal 2/i.test(x.a.xero_account_name || ''));
+      return { applied: true, band: row && row.band, variance: row && row.variance,
+               inOff: r.off.some(x => /Paypal 2/i.test(x.a.xero_account_name || '')) };
+    });
+    t.ok(inverse.applied, 'the inverse mutation applied', JSON.stringify(inverse));
+    if (inverse.applied) {
+      t.ok(inverse.variance != null, 'without the test, the row prints a variance again', JSON.stringify(inverse));
+      t.eq(inverse.band, 'material', 'and it is red and material — the row that started this session');
+      t.eq(inverse.inOff, true, 'and it blocks the close');
+    }
+
+    t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
+    await p.close();
+  },
+});
+
 if (ONLY.length) {
   const known = new Set(GROUPS.map(g => g.name));
   const unknown = ONLY.filter(n => !known.has(n));
@@ -8290,6 +8602,7 @@ if (ONLY.length) {
     process.exit(2);
   }
 }
+
 
 for (const g of GROUPS) {
   if (ONLY.length && !ONLY.includes(g.name)) continue;

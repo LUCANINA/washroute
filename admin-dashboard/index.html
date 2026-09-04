@@ -12302,12 +12302,18 @@
   // the evidence, and — only when the server found the one mechanically safe
   // shape — an Approve button that posts the correcting journal. The server
   // re-runs the whole analysis on approval and refuses if anything changed.
-  async function bkFindDifference(findingId, loanId) {
+  // session 272: `focusPeriod` ('YYYY-MM') is the month the ROW the reader clicked
+  // is about. The server answers about that month first, and says so plainly when
+  // it has no span covering it at all -- which on PayPal 2 was the entire answer.
+  // Optional: the findings card calls this with no month and behaves as before.
+  async function bkFindDifference(findingId, loanId, focusPeriod) {
     const btn = document.getElementById('fdiff-btn-' + findingId);
     const out = document.getElementById('fdiff-out-' + findingId);
     if (!out) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Analyzing — walking both histories… (can take a minute)'; }
-    const { ok, data } = await _loanFn('loan-find-difference', { loan_account_id: loanId }, 180000);
+    const payload = { loan_account_id: loanId };
+    if (/^\d{4}-\d{2}$/.test(String(focusPeriod || ''))) payload.focus_period = String(focusPeriod);
+    const { ok, data } = await _loanFn('loan-find-difference', payload, 180000);
     if (btn) { btn.disabled = false; btn.textContent = '🔍 Find the difference'; }
     if (!ok || data.error) {
       out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">${esc(data.error || 'The analysis failed — try again in a moment.')}</div>`;
@@ -12324,6 +12330,10 @@
       parts.push(`<div style="margin-top:12px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:var(--gray-800);line-height:1.55">
         <div style="font-weight:700;margin-bottom:6px">What likely happened</div>
         <ul style="margin:0;padding-left:18px">${data.conclusions.map(c => `<li style="margin-top:6px">${esc(c)}</li>`).join('')}</ul>
+        ${(Array.isArray(data.no_action_detail) && data.no_action_detail.length > 1) ? `<details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--gray-500)">Show the working — why each of those needs no action</summary>
+          <ul style="margin:6px 0 0;padding-left:18px">${data.no_action_detail.map(c => `<li style="margin-top:4px">${esc(c)}</li>`).join('')}</ul>
+        </details>` : ''}
       </div>`);
     } else {
       parts.push(`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;color:var(--gray-700);line-height:1.55">${esc(data.narrative || '')}</div>`);
@@ -12333,7 +12343,7 @@
     // STOP. No entry dumps, no candidate cards, no amount-hunt list — the
     // candidates power the bullets server-side and never render on their own.
     if (Array.isArray(data.periods) && data.periods.length) {
-      parts.push(_bkFdiffSpanTable(data.periods));
+      parts.push(_bkFdiffSpanTable(data.periods, data));
     }
     // The accountant already worked this entry. Session 234: deference carries a
     // diagnosis — the months her split covers, which of them our own splits
@@ -12464,19 +12474,97 @@
 
   // Shared span table — the per-loan card and the lender-level per-loan
   // sections render the identical table through this one function.
-  function _bkFdiffSpanTable(periods) {
-    return `<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-      <tr style="color:var(--gray-500);text-align:left"><th style="padding:4px 8px;font-weight:600">Statement span</th><th style="padding:4px 8px;font-weight:600">Lender moved</th><th style="padding:4px 8px;font-weight:600">Xero moved</th><th style="padding:4px 8px;font-weight:600">Verdict</th></tr>
-      ${periods.map(p => `<tr style="border-top:1px solid var(--gray-100)">
-        <td style="padding:5px 8px;white-space:nowrap">${esc(fmtDate(p.from))} → ${esc(fmtDate(p.to))}</td>
+  // ── session 272: THE CLOSED BOOK IS HISTORY, AND HISTORY COLLAPSES ────────
+  // David, on PayPal 2: "what should be a straightforward 'here's a suggested
+  // adjustment' becomes a 12 month witchhunt." Every red row in that modal was
+  // inside books closed through 2026-06-30 -- most of them his accountant's own
+  // month-end corrections, read at weekly resolution and reported as errors.
+  //
+  // The server now flags them (`closed_period`). Here they leave the main table
+  // and go behind one <details>. NOTHING IS DELETED -- the ce17 limit: every
+  // row, every figure and the total are one click away, and the summary line
+  // states the count and the money so the reader can see what was set aside.
+  // Open spans are the screen; settled ones are the appendix.
+  // ── session 272: a date-only string is not a moment in time ───────────────
+  // The shared fmtDate() does `new Date('2026-06-30T00:00:00')`, which the engine
+  // parses in the BROWSER'S zone and then renders in BIZ_TZ. On David's Mac those
+  // are the same zone and it is right; in any zone east of Pacific it renders the
+  // day BEFORE — the harness (UTC) turned "closed through 2026-06-30" into
+  // "Jun 29, 2026". A statement date carries no time and no zone, so it must never
+  // go through Date at all. This formats by slicing the string, like
+  // fmtDatePlain(), just shorter. (The wider fmtDate has the same latent bug on
+  // every other date-only call site — noted for David, not changed here.)
+  const _bkDay = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    if (!m) return String(iso || '');
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${MON[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
+  };
+  function _bkFdiffSpanRows(periods) {
+    return periods.map(p => `<tr style="border-top:1px solid var(--gray-100)${p.closed_period ? ';color:var(--gray-500)' : ''}">
+        <td style="padding:5px 8px;white-space:nowrap">${esc(_bkDay(p.from))} → ${esc(_bkDay(p.to))}</td>
         <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.lender_delta))))}</td>
         <td style="padding:5px 8px">${esc(fmtMoney(Math.abs(Number(p.xero_delta))))}</td>
-        <td style="padding:5px 8px;font-weight:600;color:${p.verdict === 'clean' ? '#16a34a' : (p.timing_pair ? 'var(--gray-500)' : '#dc2626')}">${
+        <td style="padding:5px 8px;font-weight:600;color:${p.closed_period || p.timing_pair || p.month_nets ? 'var(--gray-500)' : (p.verdict === 'clean' ? '#16a34a' : '#dc2626')}">${
           p.verdict === 'clean' ? '✓ ties'
+          // session 272: a DISTANT pair is a transposition — each span carrying the
+          // other's figure — not a payment that landed a day late. Same verdict,
+          // different reason, and the reason is what a CPA reads.
+          : p.timing_pair && p.timing_pair.distant ? `↔ swaps with the ${p.timing_pair.role === 'first' ? 'later' : 'earlier'} span (${esc(p.timing_pair.with)}) — recorded against the wrong week, not missing`
           : p.timing_pair ? `↔ offsets ${p.timing_pair.role === 'first' ? 'next' : 'previous'} span — timing, not an error`
+          : p.closed_period ? `off by ${esc(fmtMoney(Math.abs(Number(p.diff))))} — in closed books, settled`
+          // session 272: the span's own gap is still stated. It is the WEEK that is
+          // off; the month it belongs to is not, and the month is what is judged.
+          : p.month_nets ? `↔ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))} this week — ${esc(_bkMonthLabel(p.month_nets.month))} ties, nothing to fix`
           : `✗ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))}`}</td>
-      </tr>`).join('')}
+      </tr>`).join('');
+  }
+  function _bkFdiffSpanTableShell(inner) {
+    return `<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="color:var(--gray-500);text-align:left"><th style="padding:4px 8px;font-weight:600">Statement span</th><th style="padding:4px 8px;font-weight:600">Lender moved</th><th style="padding:4px 8px;font-weight:600">Xero moved</th><th style="padding:4px 8px;font-weight:600">Verdict</th></tr>
+      ${inner}
     </table></div>`;
+  }
+  // session 272 (with #2): three tiers, in the order a reader needs them —
+  // the month the row is about, then earlier OPEN history, then settled books.
+  // The first is the screen; the other two are each one click away and complete.
+  // Nothing is dropped: every span the server walked appears in exactly one tier,
+  // and each fold states its count and its money before you open it.
+  function _bkFdiffFold(label, rows) {
+    if (!rows.length) return '';
+    const off = rows.filter(p => p.verdict === 'divergent' && !p.timing_pair);
+    const tot = off.reduce((t, p) => t + Number(p.diff || 0), 0);
+    return `<details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--gray-500)">${label}${off.length ? ` — ${off.length} of them differ, ${esc(fmtMoney(Math.abs(tot)))} in total` : ' — all tie'}</summary>
+      ${_bkFdiffSpanTableShell(_bkFdiffSpanRows(rows))}
+    </details>`;
+  }
+  function _bkFdiffSpanTable(periods, meta) {
+    const all = Array.isArray(periods) ? periods : [];
+    const closeDate = (meta && meta.close_date) || null;
+    const closeLabel = esc(closeDate ? _bkDay(closeDate) : 'the close date');
+    const focus = (meta && meta.focus_period) || null;
+    const closed = all.filter(p => p.closed_period);
+    const open = all.filter(p => !p.closed_period);
+    const inFocus = focus ? open.filter(p => p.in_focus) : [];
+    // With no focus month, or a focus month this walk does not reach, the open
+    // spans ARE the main table — there is nothing better to lead with, and the
+    // conclusions above already say why the month is missing.
+    const lead = inFocus.length ? inFocus : open;
+    // Review caught the label: this holds every OTHER open span, and a span after
+    // the focus month is not "earlier". Split so each fold says what is in it —
+    // a wrong word beside a right number is the harder mistake to catch (s247).
+    const before = inFocus.length ? open.filter(p => !p.in_focus && p.to < focus) : [];
+    const after  = inFocus.length ? open.filter(p => !p.in_focus && p.to >= focus) : [];
+    if (!lead.length && !closed.length) return _bkFdiffSpanTableShell(_bkFdiffSpanRows(all));
+    const head = inFocus.length && typeof _cvMonthName === 'function'
+      ? `<div style="margin-top:10px;font-size:12px;color:var(--gray-500);font-weight:600">${esc(_cvMonthName(focus))} — the month this row is about</div>`
+      : '';
+    return head
+      + _bkFdiffSpanTableShell(_bkFdiffSpanRows(lead))
+      + _bkFdiffFold(`${before.length} earlier span${before.length === 1 ? '' : 's'}, still open`, before)
+      + _bkFdiffFold(`${after.length} later span${after.length === 1 ? '' : 's'}, still open`, after)
+      + _bkFdiffFold(`${closed.length} span${closed.length === 1 ? '' : 's'} in books closed through ${closeLabel} · settled, for reference`, closed);
   }
 
   // ── Lender-level "Find the difference" (session 228) ──────────────────────
@@ -12621,7 +12709,7 @@
           : '';
         return `<details style="padding:6px 0;border-bottom:1px solid var(--gray-100)">
           <summary style="cursor:pointer;font-size:12.5px;color:var(--gray-700)"><span style="font-weight:600">${esc(L.name)}</span>${isFinite(d) ? ` — ${esc(fmtMoney(Math.abs(d)))} ${d >= 0 ? 'above' : 'below'} the lender` : ''}${exp ? ` · after the fixes: ${esc(exp.label)}` : ''}</summary>
-          ${_bkFdiffSpanTable(L.periods || [])}
+          ${_bkFdiffSpanTable(L.periods || [], { close_date: (data.posting_window && data.posting_window.closeDate) || null })}
           ${L.cpa_exception ? _bkFdiffExceptionHtml(L.cpa_exception, { can_post_exception: false, read_only_view: true }, L.finding_id || '', L.id || '') : ''}
           ${solo}
         </details>`;
@@ -16864,6 +16952,71 @@
       // closing came from? Against a grade-B closing only a books-side rebuild or
       // a real lender document is. Everything else agrees by construction.
       const circular = anchor.grade === 'B' && !_openingIsIndependent(opening);
+
+      // ══ SESSION 272: A STALE ANCHOR IS A REQUEST, NOT A VARIANCE ═══════════
+      //
+      // David, on PayPal 2's −$9,429.39: "what should be a straightforward
+      // 'here's a suggested adjustment' becomes a 12 month witchhunt."
+      //
+      // That row measured AUGUST against a lender statement dated 2026-08-05 —
+      // five days into the month — while booking a full month of principal
+      // ($12,571.65, four weekly payments). Three of those payments happened
+      // AFTER the date of the newest statement on file, so the lender balance
+      // being compared against simply does not know about them. The variance was
+      // ~$9,451 of scheduled principal to within $22. It was arithmetic reporting
+      // its own missing input, and it sent a reader into twelve months of history.
+      //
+      // This is session 262's rule reaching the close band at last: "a variance
+      // measured against a statement older than the month being closed is not a
+      // gap to investigate; it is one nobody can evaluate. The row asks for the
+      // document." Uploading a statement is enormously easier than an
+      // investigation, and it is the business owner's job rather than the CPA's.
+      //
+      // THE TEST IS MEASURED, NOT ASSUMED (sessions 245-247). It is not "is the
+      // anchor older than the month end" — that would nag every loan whose lender
+      // reports a few days early even when nothing moved since. It is: DID WE BOOK
+      // PRINCIPAL THIS MONTH THAT THIS DOCUMENT CANNOT HAVE SEEN? Only a dated
+      // split after the anchor's own date can answer that, and only then is the
+      // comparison structurally incapable of being evaluated.
+      //
+      // NOTHING IS DELETED. `rawVariance` survives untouched on the row, both
+      // figures are published as data- attributes, and the hint states the raw
+      // difference beside the principal booked after the anchor so a reader can
+      // do the subtraction themselves and disagree.
+      // A split's DATE, measured rather than inferred. A weekly loan labels its
+      // splits 'YYYY-MM-DD' and answers directly; a monthly one labels them
+      // 'YYYY-MM', which places the payment in a month but not on a day — so we
+      // ask the statement it was built from. Review caught that leaving monthly
+      // loans out entirely made this a weekly-only rule, and a rule that applies
+      // to half a book is a rule people learn to distrust. Where neither answers,
+      // the split is left out: an undated payment is not evidence that the
+      // document is stale, and guessing here could only ever hide a real gap.
+      const _splitDate = (sp) => {
+        const lbl = String(sp.period_label || '');
+        if (/^\d{4}-\d{2}-\d{2}$/.test(lbl)) return lbl;
+        const st = (_allLoanStatements || []).find(x => x.id === sp.current_statement_id);
+        return st && st.statement_date ? String(st.statement_date) : null;
+      };
+      const _lateSplits = (anchor.asOf && anchor.grade === 'A')
+        ? splits.filter(sp => { const d = _splitDate(sp); return d && d > String(anchor.asOf); })
+        : [];
+      const _latePrincipal = cents(_lateSplits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0));
+      const staleAnchor = (_lateSplits.length && Math.abs(_latePrincipal) >= 0.005 && String(anchor.asOf) < String(monthEnd))
+        ? { asOf: anchor.asOf, monthEnd, splits: _lateSplits.length, principal: _latePrincipal, rawVariance }
+        : null;
+
+      // ⚠ AN EXPLANATION, NOT A REFUSAL — and the difference is a real error
+      // getting through. Caught in review. Nulling the variance outright removed
+      // the row from `judged`, from `off` and from the variance gate, so a loan
+      // with a stale anchor AND a genuine $5,000 duplicate journal showed
+      // "needs Aug statement", sat in no blocker, and closed the month silently.
+      //
+      // So this behaves exactly like `_closeUnbookedExplanation` beside it: the
+      // raw figure stays, the explanation is subtracted, and the LEFTOVER goes
+      // through the ordinary materiality bands like any other unexplained money.
+      // On PayPal 2 that leftover is $21.66 and the row goes quiet; on the
+      // hypothetical above it is $5,000 and the row stays red and still blocks.
+      // The ask is what the row SAYS; the residual is what it JUDGES.
       const variance = circular ? null : rawVariance;
       // Money the month deliberately left out, which can make the arithmetic
       // disagree without anything being wrong. `stagedSplits` is declared with
@@ -16876,10 +17029,21 @@
       // it is what the column prints and what a reader checks against the two
       // balances either side of it — while every VERDICT is taken on the
       // residual. Without an explanation the two are the same number.
+      // Both explanations apply in sequence — a row can have unposted payments AND
+      // a stale anchor, and each one legitimately accounts for part of the gap.
+      const _afterUnbooked = variance == null ? null : (unbooked ? unbooked.residual : variance);
       const varianceResidual = variance == null ? null
-        : (unbooked ? unbooked.residual : variance);
+        : (staleAnchor ? cents(_afterUnbooked + staleAnchor.principal) : _afterUnbooked);
+      if (staleAnchor) staleAnchor.residual = varianceResidual;
       const band = variance == null ? null
         : (Math.abs(variance) < 0.005 ? 'tie'
+          // Fully accounted for BY A STALE ANCHOR gets its own name. 'unbooked'
+          // means "explained by payments prepared but not yet posted" and is owned
+          // by the posting gate, which is a different fact with a different fix —
+          // borrowing its label would put a loan waiting on a document into the
+          // queue of loans waiting on a posting, and send someone to the wrong
+          // screen. Caught by ce12, which totals the unbooked bucket.
+          : (staleAnchor && Math.abs(varianceResidual) < 0.005) ? 'awaiting'
           // Fully accounted for: nothing is left over at all.
           : Math.abs(varianceResidual) < 0.005 ? 'unbooked'
           // Partly accounted for, or not at all: the leftover goes through the
@@ -16969,7 +17133,7 @@
                stagedInterest, nettableInterest,
                unexplained, unexplainedBand, stagedExplains, unattributed, originationGap,
                anchor, grade: anchor.grade, perLender, splits, principal, interest,
-               computed, variance, varianceResidual, band, circular, rawVariance, unbooked, stagedSplits,
+               computed, variance, varianceResidual, band, circular, staleAnchor, rawVariance, unbooked, stagedSplits,
                automatic, unposted, undated, coversMonth };
     });
 
@@ -16981,6 +17145,12 @@
     const checkable = rows.filter(r => r.computed != null && r.perLender);
     const gradeA    = checkable.filter(r => r.grade === 'A');
     const gradeB    = checkable.filter(r => r.grade === 'B');
+    // session 272: a stale-anchor row STAYS in `judged`. Its check did run — the
+    // gap is measured and then explained by the payments the document could not
+    // have seen, exactly like an unposted-payment explanation — so removing it
+    // would shrink the denominator and, worse, take any material leftover out of
+    // the blockers with it. Circular alone is excluded, because that check
+    // genuinely could not have failed.
     const judged    = checkable.filter(r => !r.circular);
 
     // NULL-SAFE, AND IT REPORTS ITS OWN COVERAGE (session 247).
@@ -17048,6 +17218,8 @@
       // Never in `off`, never blocking, always shown with its explanation.
       unbookedRows: judged.filter(r => r.band === 'unbooked'),
       circularRows: checkable.filter(r => r.circular),
+      // Named and counted, never a silently shrinking denominator (session 262).
+      staleAnchorRows: checkable.filter(r => r.staleAnchor && !r.circular),
       // ONE quantity per claim, so the tile, the chip and the footer cannot
       // print different money for the same question (review F15).
       varianceToResolve: judged.filter(r => r.band === 'material').reduce((n, r) => n + Math.abs(r.varianceResidual), 0),
@@ -17689,6 +17861,14 @@
                    cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">Upload statement</button>` };
         }
         if (r.band === 'tie' || r.circular || r.variance == null) return { kind: '', cell: '' };
+        // Ask BEFORE offering the analyser: walking eighteen months of history
+        // against a document that predates the month's own payments is the
+        // twelve-month witch hunt this session exists to stop. A material
+        // leftover falls through to the ordinary paths below.
+        if (r.staleAnchor && r.band !== 'material') {
+          return { kind: 'ask',
+                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file is dated ${esc(r.staleAnchor.asOf)}, before ${r.staleAnchor.splits} payment${r.staleAnchor.splits === 1 ? '' : 's'} booked this month, so it cannot know about them. Upload the statement dated at or after ${esc(r.staleAnchor.monthEnd)} and this becomes a real check.">Ask for statement</button>` };
+        }
         if (r.unbooked) {
           return { kind: 'post',
                    cell: `<button type="button" class="lcb-do" onclick="openLoanDetailModal('${esc(a.id)}')" title="This difference is explained by payments already prepared but not yet posted. Open the loan to review and post them — nothing is written from this table without a preview.">Review &amp; post</button>` };
@@ -17698,7 +17878,14 @@
         // so it examined a different month. Session 262's rule — a variance
         // measured against a stale document is not a gap to investigate, it is
         // one nobody can evaluate, and the fix is to ask for the document.
-        const staleAnchor = !!(r.perLender && r.perLender.asOf && rf.priorEnd
+        // session 272: TWO shapes of stale, one ask. The original test here caught
+        // only a document predating the month ENTIRELY. PayPal 2's was dated
+        // 2026-08-05 — inside the month, and still older than three of the four
+        // payments booked against it — so this branch never fired on the row that
+        // prompted the work. `r.staleAnchor` is the measured version (payments
+        // booked after the document's own date); the original stays as the
+        // coarser case it already handled.
+        const staleAnchor = !!r.staleAnchor || !!(r.perLender && r.perLender.asOf && rf.priorEnd
                                && r.perLender.asOf <= rf.priorEnd);
         if (staleAnchor) {
           return { kind: 'ask',
@@ -17776,6 +17963,12 @@
         // and they belong in the hint; the cell says only that this row was not
         // independently checked, which is the fact a scanner needs.
         ? '<span class="lcb-quiet">by construction</span>'
+        // session 272: an ask, not a number — but ONLY while nothing material is
+        // left over once the late payments are allowed for. A material leftover
+        // is a real difference that happens to sit on a row with a stale anchor,
+        // and it keeps its figure and its red.
+        : r.staleAnchor && r.band !== 'material'
+        ? `<span class="lcb-quiet">needs ${esc(_cvMonthShort(r.staleAnchor.monthEnd.slice(0, 7)))} statement</span>`
         : r.variance == null
         ? '<span class="lcb-na">—</span>'
         : ties ? ''
@@ -17809,6 +18002,12 @@
         // check would claim an independent tie that was never run.
         markCls = 'lcb-mark-na'; markGlyph = '·';
         markVerdict = 'ties by construction — not an independent check';
+      } else if (r.staleAnchor && r.band !== 'material') {
+        // Session 272: there IS a document, it is simply older than the payments
+        // we booked against it. Saying "disagrees with the lender" would be an
+        // accusation built from a missing input.
+        markCls = 'lcb-mark-na'; markGlyph = '·';
+        markVerdict = `the newest statement is dated ${short(r.staleAnchor.asOf)}, before ${r.staleAnchor.splits} payment${r.staleAnchor.splits === 1 ? '' : 's'} booked this month — upload the month-end statement to check this`;
       } else if (r.variance == null) {
         // No lender evidence to compare against this month at all -- not a
         // pass, not a fail, a genuine "not checkable" (sessions 245-247).
@@ -17924,6 +18123,9 @@
           : (r.automatic ? 'closes on the Xero sweep — no outside party to disagree' : 'no closing statement received'),
         r.anchor.note || '',
         r.circular ? 'agrees by construction — opening, movement and closing all trace to one document, so this is not an independent check' : '',
+        r.staleAnchor
+          ? `the closing balance on file is dated ${short(r.staleAnchor.asOf)}, and ${r.staleAnchor.splits} payment${r.staleAnchor.splits === 1 ? '' : 's'} totalling ${money(Math.abs(r.staleAnchor.principal))} of principal were booked after that date — so the lender figure cannot know about them. The raw difference is ${money(r.staleAnchor.rawVariance)}, which leaves ${money(r.staleAnchor.residual)} once those payments are allowed for. Upload the statement dated at or after ${short(r.staleAnchor.monthEnd)} and this becomes a real check`
+          : '',
         unbookedWhy ? `variance explained by ${unbookedWhy}` : '',
         ledgerNote,
         r.movement.mixedSign > 0 ? `${r.movement.mixedSign} mixed-sign journal entr${r.movement.mixedSign === 1 ? 'y' : 'ies'}` : '',
@@ -17949,7 +18151,7 @@
         <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
-        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
+        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
         <td>${bookedCell}</td>
         <td>${booked}</td>
         <td>${ledgerCell}</td>
@@ -18080,7 +18282,7 @@
             </div>
           </div>`).join('')}
       </div>` : '';
-    const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. The <b>Ledger</b> column is a second, different check — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. Both columns use the same mark: <b>✓</b> ties or is fully explained, <b>✗</b> is a real dollar difference to resolve, and <b>·</b> means the check was not run this month — either the numbers trace back to the same one document (so agreeing proves nothing) or there is nothing yet to compare it against. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
+    const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.staleAnchorRows.length ? `. ${rf.staleAnchorRows.length} ${rf.staleAnchorRows.length === 1 ? 'is' : 'are'} waiting on a statement dated at or after ${esc(short(rf.monthEnd))} — ${rf.staleAnchorRows.length === 1 ? 'its' : 'their'} newest document predates payments already booked this month, so no comparison is possible yet` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. The <b>Ledger</b> column is a second, different check — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. Both columns use the same mark: <b>✓</b> ties or is fully explained, <b>✗</b> is a real dollar difference to resolve, and <b>·</b> means the check was not run this month — either the numbers trace back to the same one document (so agreeing proves nothing) or there is nothing yet to compare it against. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
 
     el.innerHTML = `
       <!-- Session 267, David: "remove the rollforward section (same)" — the
@@ -20250,18 +20452,25 @@
   // writes into (#fdiff-btn-<id> and #fdiff-out-<id>) and then calls it — so the
   // analysis, the approval gate and the posting are the SAME code the findings
   // card uses. Nothing about how a correction reaches Xero is duplicated here.
+  // session 272: this modal is opened from the rollforward's Action column, and
+  // that row is about ONE month -- the month the close band is closing. Until now
+  // it launched an undirected walk over eighteen months of history, so a row
+  // reporting an August variance opened on a December span. The month travels
+  // with the click now, into the title and into the request.
   function bkOpenFixModal(findingId, loanId) {
     const a = (_allLoanAccounts || []).find(x => x.id === loanId);
     const host = document.getElementById('modal-loan-fix');
     if (!host) return;
+    const month = (typeof _cvLastMonth === 'function') ? _cvLastMonth() : null;
+    const monthLabel = (month && typeof _cvMonthName === 'function') ? _cvMonthName(month) : null;
     document.getElementById('loan-fix-title').textContent =
-      `${(a && (a.xero_account_name || a.lender_account_number)) || 'Loan'} — find the difference`;
+      `${(a && (a.xero_account_name || a.lender_account_number)) || 'Loan'} — find the difference${monthLabel ? ` · ${monthLabel}` : ''}`;
     document.getElementById('loan-fix-body').innerHTML =
-      `<div id="fdiff-out-${esc(findingId)}"><div style="font-size:13px;color:var(--gray-500)">Walking this loan's history against the lender's — this takes up to a minute. Nothing is written until you approve it.</div></div>
+      `<div id="fdiff-out-${esc(findingId)}"><div style="font-size:13px;color:var(--gray-500)">Walking this loan's history against the lender's${monthLabel ? `, starting with ${esc(monthLabel)}` : ''} — this takes up to a minute. Nothing is written until you approve it.</div></div>
        <button type="button" id="fdiff-btn-${esc(findingId)}" style="display:none"></button>`;
     host.classList.add('open');
     host.style.display = '';
-    bkFindDifference(findingId, loanId);
+    bkFindDifference(findingId, loanId, month);
   }
   function bkCloseFixModal() {
     const host = document.getElementById('modal-loan-fix');
