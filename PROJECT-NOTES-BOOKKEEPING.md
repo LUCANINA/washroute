@@ -2,6 +2,40 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0g. 📐 WHEN IS STAGING A SPLIT SAFE? — MEASURED, session 273 cont.
+>
+> David: *"where we know what the future split will be based on the lender statement, we can
+> confidently stage. For others (PayPal) it gets harder to predict. Am I correct?"* Right in
+> principle — and the book is currently doing the OPPOSITE of it on two loans.
+>
+> **Predictability, measured** (variability of principal movement between statements, since
+> 2026-01-01) against **where each loan's splits actually come from**:
+>
+> | loan | variability | splits from schedule | splits from lender |
+> |---|---|---|---|
+> | Funding Circle | **3.0%** ($952–1,041) | 1 | 75 |
+> | Verdant Capital | 16.2% | **15** | **0** |
+> | PayPal 2 | **53.3%** ($2,720–12,631) | **39** | **0** |
+> | Rapid Credit Line | **87.1%** (one period $0.00) | 0 | 52 |
+> | Stripe Capital, EIDL | (no schedule) | 0 | 42 / 7 |
+>
+> **The mismatch:** PayPal 2 — the second least predictable loan in the book — is the one running
+> almost entirely on SCHEDULE-predicted splits, with not a single lender-derived one. Verdant is the
+> same shape. Meanwhile Funding Circle, predictable to 3%, is 75/76 lender-driven. Whatever rule is
+> in force today, it is not "predict where prediction is safe".
+>
+> ⚠️ **AND PREDICTABILITY IS NOT THE WHOLE TEST — Funding Circle is the counter-example.** Its
+> amount was knowable to within 3% and the schedule got it right to the cent ($1,041.10 vs the
+> lender's $1,041.09). It was still WRONG, because it was attached to the wrong PERIOD. Knowing the
+> figure and knowing which month it belongs to are two different problems, and staging needs both.
+> A rule built only on "can we predict the amount" would have staged Funding Circle confidently and
+> been wrong every month for a year.
+>
+> **The shape a rule should probably take** (not built, not decided — David is thinking about it):
+> never stage a period the lender has not reported yet. That kills the concrete live hazard (the
+> staged 2026-09 Funding Circle split carrying August's figure) without giving up staging on the
+> loans where it earns its keep, and it does not depend on getting a predictability threshold right.
+>
 > ### 0f. ✅ THE OFF-BY-ONE IS FIXED, DEPLOYED AND VERIFIED IN PRODUCTION (session 273 cont.)
 >
 > `loan-find-difference` **v28**, `verify_jwt` still **false**. The acceptance test was run against
