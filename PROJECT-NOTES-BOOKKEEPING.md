@@ -2807,6 +2807,36 @@ than the instance: **every** row whose Status says it has unposted work offers s
 and specifically a row that ties on the dollars AND has unposted work still offers it. The split is
 injected into the fixture because the fixture predates it — a stale fixture is a blind suite.
 
+##### 🔴 AND THE REASON IT MATTERED MORE THAN IT LOOKED: APPROVALS HAD NO HOME AT ALL
+
+Chasing the missing button turned up something larger. **`_bkApprovalQueueItems()` — the queue that
+lists every `pending_review` split with an Approve button — renders inside `#bk-view-overview`, and
+Overview is `display:none` permanently** (session 267's scope reduction; `switchBookkeepingView`
+now rewrites `view === 'overview'` to `'loans'` and the comment says "the page is never shown").
+
+Nothing else in the app opens `openLoanReviewModal` for an ordinary pending split. The
+split-history table in the loan detail modal is not clickable; the Staging column's click is
+`staged`-only. **So from session 267 until this commit there was no route anywhere in the product
+to approve a pending split.** It went unnoticed because none was created in between — the three
+that exist now were all made in the last two days.
+
+That reframes the Action-column button: not a convenience, the only way in. And it is a live
+lesson about removing a surface — **a page can be hidden without noticing what was only reachable
+through it.** Worth a grep of `#bk-view-overview`'s remaining contents before the next removal.
+
+##### David's decision on scope (2026-09-04)
+
+> "keep action scope to the closing month."
+
+So the Action column reads `_monthUnpostedSplits(a.id, monthLabel)` and stays that way — the close
+band's job is the month it is closing, and mixing other months into that column is how a column
+starts lying. **The consequence, stated rather than left to be discovered:** a pending split dated
+outside the closing month has no route until its own month comes round. Two exist today
+(E-Transit E4-9744 `2026-09`, Paypal 2 `2026-09-09`; the latter is a scheduled payment card that
+the stage sweep will likely take). Making the loan detail modal's split-history rows clickable is
+the obvious home for those and was **offered and not taken** — do not build it without asking
+again.
+
 #### Two things worth carrying forward
 
 * **A default whose failure mode is silence is a bug in the default.** `balance_basis` defaults to
