@@ -2,6 +2,74 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0c. ⏳ FUNDING CIRCLE — THE DIAGNOSIS IS DONE; ONE JOURNAL AWAITS DAVID (session 273 cont.)
+>
+> **Xero is $60.16 too high on Funding Circle, and it is the same mistake every month, not eight
+> different ones.** Measured, 2026-09-04: the lender's own 2026-08-01 statement says $65,173.94;
+> `loan_book_balances` rebuilt from Xero says $65,234.10 at 2026-08-31.
+>
+> Walk the two histories statement-to-statement and the shape is unmistakable — **Xero's principal
+> movement is one period behind the lender's in every single month**:
+>
+> | statement span | lender principal | Xero moved | short by |
+> |---|---|---|---|
+> | 2026-02 | 952.18 | 938.11 | 14.07 |
+> | 2026-03 | 966.45 | 952.18 | 14.27 |
+> | 2026-04 | 980.93 | 966.45 | 14.48 |
+> | 2026-05 | 995.65 | 980.93 | 14.72 |
+> | 2026-06 | 1,010.57 | 980.93 | 29.64 |
+> | 2026-07 | 1,025.71 | 995.65 | 30.06 |
+> | 2026-08 | 1,041.09 | 1,010.57 | 30.52 |
+>
+> Every "Xero moved" figure is the PREVIOUS row's lender figure. The splits are being built from a
+> statement's stated breakdown and then applied to the next payment along, so each month books last
+> month's principal and this month's shortfall lands in Interest Expense. Everything through
+> 2026-06-30 is inside closed books ($320.09, settled by the CPA); the two open months are
+> **$30.06 (July) + $30.52 (August) = $60.58**, against a measured $60.16 — a 42¢ residual that has
+> NOT been chased down and must not be papered over when the correcting journal is written.
+>
+> ➡️ **WAITING ON DAVID: a correcting journal moving ≈$60 from 800 Interest Expense to 253 Funding
+> Circle Loan.** Not prepared or posted — it writes to Xero, and the exact split between the two
+> months plus the 42¢ needs one verification pass against Xero's actual journal lines first.
+>
+> ➡️ **AND THE ROOT CAUSE IS STILL OPEN**: whatever pairs a statement's breakdown with a payment is
+> off by one period on this loan. Fixing the $60 without fixing that buys one month.
+>
+> **What session 273 cont. already did, so the above is even visible:**
+>
+> 1. **The real August statement was invisible.** `loan_statements` held a genuine 2026-08-01
+>    monthly statement ($65,173.94, uploaded 2026-09-03) marked `balance_basis='unknown'`, so the
+>    close band could not use it — and anchored instead on a 2026-08-03 document showing
+>    $66,215.03, identical to the 2026-07-01 statement to the cent. **That 08-03 document is a
+>    payment-due notice, not a balance statement**: it is the only row in this loan's entire history
+>    carrying `total_amount_due` ($2,033.77), and an amortising loan's principal cannot RISE between
+>    08-01 and 08-03. Its balance restates the pre-payment figure. So: 08-01 → `principal_only`,
+>    08-03 → `unknown`. Snapshot in `_resync_fc_statement_basis_20260904`.
+>    ⚠️ Note what the anchor engine did NOT do: `_loanClosingAnchor` takes the NEWEST labelled
+>    document in the month and has no way to notice that a later document restates an earlier
+>    balance. Session 273's `_directIsStale` handles an in-month document that predates the month's
+>    own payments; it does not handle a LATER document that is itself stale. Labelling 08-01 alone
+>    would have changed nothing.
+>
+> 2. **A void was silently lifted, and the card was counted for a week.** The 2026-08 split
+>    (`3daf1dc1`) was voided 2026-08-25 with a three-sentence reason, then on 2026-08-31 an ordinary
+>    "mark as already handled in Xero" moved its status to `already_in_xero` and left `voided_at`
+>    sitting on the row. It read as voided AND handled at once. One row in the whole book was in
+>    that state. `enforce_split_invariant` guarded voiding on the way IN and nothing guarded the way
+>    OUT — see `migrations/session_273_void_is_terminal.sql`, applied 2026-09-04: `voided_at` is set
+>    exactly when the status is `voided`, both directions, INSERT and UPDATE. **Un-voiding is still
+>    allowed — it just has to say so**, by clearing the three void fields in the same statement,
+>    which is what `void_loan_split(p_voided => false)` already does. Five refusal/allow cases were
+>    proven against the live trigger before the row was touched.
+>    The row itself was reconciled first (stamp cleared, status left at `already_in_xero`, the void
+>    reason preserved verbatim in `review_notes` and marked superseded by the 08-01 statement).
+>    Snapshot in `_resync_fc_split_void_20260904`. **Its amounts were deliberately NOT changed** —
+>    it still carries $1,025.71/$1,008.06, which are the 2026-06-18 payment's figures. That is the
+>    open item above, and it is David's to approve.
+>
+> 3. **The earlier "$44.78" is superseded — do not go looking for it.** It was computed while the
+>    stale anchor was in force. Against the lender's own statement the number is $60.16.
+>
 > ### 0b. ⚠️ FORCE-REFRESH THE PAGE AFTER AN UPLOAD OR A RECONCILIATION CHECK (David, 2026-09-04)
 >
 > **Kept as a habit, though the defect behind it is FIXED (Tech Debt #45, session 273).** The page
@@ -2724,6 +2792,40 @@ in `data-progress` — tested, just no longer printed.
 ⚠️ **A second Claude session was working this repo at the same time.** This entry took session
 **274** because 273 was already taken; the START HERE block was deliberately left alone rather than
 racing the other session for it.
+
+### Session 273 cont. (2026-09-04) — "THE FIND THE DIFFERENCE PROCESS IS FROZEN". IT WAS NOT.
+
+David reported the modal frozen on *"Walking this loan's history against the lender's…"* with only
+a Close button. **The first move was the logs, not a guess — and specifically to rule MYSELF out,
+having changed that function the same day.** `function_edge_logs` for `loan-find-difference`:
+HTTP **200** at 21:30:04 for his attempt, ~14 s of execution, and the only 504s on the day both
+predate the session-272 deploy. So the server answered. The render was then reproduced offline
+against the REAL Funding Circle payload (fetched with the `x-wr-internal` shared secret, since the
+function refuses anon) driven through the shipped `_bkFdiffHtml` in node: **8,199 characters, no
+throw.** Neither half was broken.
+
+What WAS broken is that those two facts were indistinguishable from a dead request:
+
+- the modal sets its progress button to `display:none`, so for fourteen seconds nothing on screen
+  moves. A working walk and a hung one are pixel-identical.
+- and if the DRAW had thrown, `out.innerHTML = _bkFdiffHtml(...)` never runs, the placeholder stays
+  forever, and no error appears anywhere — with a successful analysis already in hand.
+- `bkOpenFixModal` called `bkFindDifference` fire-and-forget, so a rejection went to the console.
+
+**A loading state that cannot resolve is a lie, and a screen that cannot show it is working reports
+a false failure.** Three fixes, none touching the analysis: an elapsed-second counter on the page
+(on `performance.now()` — monotonic, and immune to the harness's pinned clock, under which a
+`Date.now()` ticker reads "0s" forever, i.e. exactly the frozen screen it replaces); the render
+wrapped so a throw names itself and says *nothing was written*; and a `.catch` on the modal's
+un-awaited call. Harness group **`fdiff-never-strands`**, 12 assertions, which discriminates by
+rebuilding this morning's un-guarded shape and watching it strand on the loading sentence.
+
+⚠️ **Noticed while reading the real payload, NOT fixed:** the conclusions offered *"the $121.38
+journal (2026-07-17) on E-Transit Loan - 4140 likely belongs here"* to explain a **$30.52** gap, and
+a $367.20 journal to explain $30.06. The amounts do not match and are not claimed to. This is the
+witch-hunt behaviour David objected to in session 272 wearing a different hat — the candidate
+matcher is proposing entries whose figures cannot explain the gap. Left as found; it needs its own
+look.
 
 ### Session 273 (2026-09-04) — RAPID: THE UPLOADS STUCK EVERY TIME, AND NOTHING WAS CHECKING THAT THEY ADDED UP
 

@@ -999,6 +999,24 @@ async function handleRequest(req: Request): Promise<Response> {
     // instead, so the refusal is never a surprise at the moment of clicking.
     const wantsWrite = confirm === true || stage === true || revert === true
       || unstage === true || mark_already_in_xero === true || attach_only === true
+
+    // session 273 cont.: A VOIDED CARD IS NOT A QUEUE ITEM.
+    // Funding Circle 2026-08 was voided on 2026-08-25 and then marked
+    // "already handled in Xero" on 2026-08-31 -- from this very path. Nothing
+    // here looked at voided_at, and the status update silently lifted the void,
+    // leaving a row that read as voided AND handled and whose $1,025.71 went on
+    // being counted for a week. The database now refuses that write outright
+    // (enforce_split_invariant, session_273_void_is_terminal); this says so in
+    // English, at the moment of clicking, instead of surfacing a raw constraint
+    // error in a toast.
+    if (wantsWrite && (split.voided_at || split.status === 'voided')) {
+      return new Response(JSON.stringify({
+        error: `This split was voided${split.voided_at ? ' on ' + String(split.voided_at).slice(0, 10) : ''}`
+          + `${split.voided_by ? ' by ' + split.voided_by : ''} and nothing can be posted or marked against it while that void stands.`
+          + ` Reason recorded: ${split.void_reason ? String(split.void_reason).slice(0, 300) : '(none recorded)'}`
+          + ` — reinstate the card first if the void turned out to be wrong.`,
+      }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
     const cd = await effectiveCloseDate(supa)
     let closedPeriodWarning: string | null = null
     if (cd.date) {
