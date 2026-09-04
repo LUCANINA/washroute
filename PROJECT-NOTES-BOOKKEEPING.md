@@ -1,90 +1,113 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 267, 2026-09-03 20:35 UTC)
+> ## ⏭️ START HERE — first thing, next session (left by session 267, 2026-09-04 01:46 UTC)
 >
-> ### ✅ PAYROLL IS DONE AND MEASURED — nothing here is waiting on anyone
+> ### 1. ONE COMMIT IS UNPUSHED — and check that claim the right way
 >
-> Everything session 267 opened is closed, and closed by MEASUREMENT rather than by assuming:
+> `d87198e` is local-only. `origin/main` is at `9347b27`. **David pushes; this session's shell
+> cannot** (the repo reads anonymously over https, writing needs his keychain).
 >
-> * **The 2026-08-21 payroll posted** at 20:26 UTC — Xero journal `85b8abf8`, read back from
->   Xero: one credit line `170 -$21,498.80`, **no 171 line**, both sides $22,090.89.
-> * **David posted the $1,752.09 correction** (DEBIT 171 / CREDIT 170, dated 2026-08-31),
->   moving the Aug 7 / 11 / 14 credits to where their EDD cash landed. **Verified live:**
->   `payroll-check-attention` re-read Xero's trial balance and returned the legacy-171 notice
->   at **`amount: 796.29`** — the predicted figure to the cent.
+> **Verify deploy state with `git ls-remote origin refs/heads/main`, never with the local
+> `origin/main` ref and never with the outcome of a push attempt.** I got this wrong tonight:
+> my push failed for credentials and I reported that as "unpushed" when the commits were
+> already on the remote. Same shape, same day: **"remove '10 to clear'" was already fixed and
+> pushed (`72f2323`)** when David re-reported it — a CACHED PAGE, not a defect. Before
+> re-editing a UI fix that "does not show", check the remote and the build-version stamp.
+>
+> ### 2. WHERE THE SCOPE REDUCTION ACTUALLY STANDS
+>
+> `docs/bookkeeping/SCOPE-REDUCTION-2026-09.md` is the reference. Decided and BUILT: the
+> dropzone heads Loans (§4a), Agreement / Source / Action columns, the close-basis switcher,
+> "Find the fix", the Staging column. **Not started: §5's hide list** — Overview, Debt
+> Schedule, the grades, the findings surfaces — and the one page §4 describes.
+>
+> **§5 is the next real piece of work, and it is not cosmetic.** Two things now depend on
+> Overview going away rather than merely being tidied: the dropzone already moved off it, and
+> the staged register already moved off it. Ask David before hiding anything — the cut posture
+> is "hide UI hard, keep code, restore on demand", so nothing gets deleted.
+>
+> ### 3. ✅ PAYROLL IS DONE AND MEASURED — nothing here is waiting on anyone
+>
+> * **The 2026-08-21 payroll posted** — Xero journal `85b8abf8`, read back from Xero: one
+>   credit line `170 -$21,498.80`, **no 171 line**, both sides $22,090.89.
+> * **David posted the $1,752.09 correction** (DEBIT 171 / CREDIT 170, dated 2026-08-31).
+>   **Verified live:** `payroll-check-attention` re-read Xero's trial balance and returned the
+>   legacy-171 notice at **`amount: 796.29`** — the predicted figure to the cent.
 > * **171 now holds exactly $796.29 and nothing else will ever clear it:** the 2026-02-06 EDD
->   payment ($796.15) plus 14¢ (the Feb IRS payment $4,593.08 less its Aug refund $4,592.94).
->   Both predate this system. **Ramona's call — do not clear either from here.** The standing
->   notice now says so on screen, and it is ACTIVE (it was dormant while 171 was negative).
-> * **DO NOT "fix" July.** $4,465.21 in, $4,465.21 out, nets to zero, correct as it stands.
->   Only August straddled the model change. This is the tempting wrong move.
+>   payment ($796.15) plus 14¢ (Feb IRS $4,593.08 less its Aug refund $4,592.94). Both predate
+>   this system. **Ramona's call — do not clear either from here.**
+> * **DO NOT "fix" July.** $4,465.21 in, $4,465.21 out, nets to zero. Only August straddled the
+>   model change. This is the tempting wrong move.
+> * The 2026-08-28 period posted (`c05cbbb7-…`). **All ELEVEN imports are `posted`,** no
+>   attention flags outstanding.
+> * **David: "let's keep the payroll feature live because it works well."** Payroll is off the
+>   hide list. It gets no new investment; the one job is loans. (§6.)
 >
 > **`payroll-xero-post` v23 (`verify_jwt: true`) and `payroll-check-attention` v5
-> (`verify_jwt: false`) — the two flags DIFFER, do not deploy them alike.** Commits `60f181f`
-> and `5f83ae0`, **pushed**.
+> (`verify_jwt: false`) — the two flags DIFFER, do not deploy them alike.**
 >
-> ### ✅ AUGUST PAYROLL IS FULLY POSTED — and Payroll STAYS
->
-> The 2026-08-28 period was uploaded and posted at 21:15 UTC (journal
-> `c05cbbb7-5787-4b41-8cfe-109d8b54f1f7`). **All ELEVEN imports are `posted` with no attention
-> flags outstanding.** Nothing in Payroll is waiting on anyone.
->
-> **David, after seeing the verification pass: "let's keep the payroll feature live because it
-> works well."** This REVERSES the morning's "keep it but I'm not sure it's right" — Payroll is
-> no longer a candidate for hiding under the scope reduction, and §4's one-page rule does not
-> apply to it. It still gets no new investment; the one job is loans.
-> `docs/bookkeeping/SCOPE-REDUCTION-2026-09.md` §6 carries the decision and the measurements
-> behind it.
->
-> ### ⚠️ PUSH STATE: VERIFY AGAINST THE REMOTE, NOT AGAINST A FAILED PUSH
->
-> I told David two commits were unpushed. **They were pushed.** My own `git push` failed for
-> credentials in the sandboxed shell, and I reported that failure as the repo's state without
-> ever asking the remote. `git ls-remote origin refs/heads/main` had them. **A push this
-> shell cannot perform is not a push that did not happen** — David pushes from his own
-> terminal, and `origin/main` moves without this session doing anything.
->
-> Related, same shape, same day: **"remove '10 to clear' on this page" was already fixed and
-> pushed** (`72f2323`) when David re-reported it. That was a CACHED PAGE, not a defect.
->
-> So, before claiming anything about deploy state: `git ls-remote origin refs/heads/main`,
-> then compare. Not the local `origin/main` ref, not the outcome of a push attempt.
->
-> ### ✅ STAGED LOANS NOW LIVE ON LOANS, NOT OVERVIEW (session 267 cont.)
+> ### 4. ✅ STAGED LOANS NOW LIVE ON LOANS, NOT OVERVIEW
 >
 > David: "For loans that are staged, remove them from the Overview page and add them to the
 > Loans 'In flight' page. A separate column entitled Staging might work, with those staged
-> marked 'scheduled'." Done, both halves:
+> marked 'scheduled'." Both halves done (`171d5de`, `d87198e`):
 >
-> * The Overview **Staged tab is gone entirely** — every row it held was a loan split, so it
->   had nothing left to show. Staged splits also no longer hold the "everything is reconciled"
->   line open.
-> * **I JUSTIFIED THAT WRONGLY AND THE CORRECTION MATTERS.** I claimed a flagged stage still
->   reaches Overview through `stage_flag`. **It does not.** `stage_flag` items join the
->   APPROVALS list, and that list drops any item whose loan already has an Issues row
->   (`if (issueLoanIds.has(...)) return`). A duplicate-suspected stage on a loan that also has
->   a variance — the likeliest pairing — is on **no Overview surface at all**. **The Loans
->   Staging column is therefore the only guaranteed home for a flagged stage. Do not delete or
->   quieten it on the theory Overview covers it.** Pinned by `staging-column` (f).
+> * The Overview **Staged tab is gone entirely** — every row it held was a loan split. Staged
+>   splits also no longer hold the "everything is reconciled" line open.
 > * The Loans table has a **Staging** column reading ALL staged splits per loan (not just the
 >   newest — a weekly lender can carry two). Flagged → "needs a look"; otherwise "scheduled".
+>   Clicking either opens the split. Sorting puts flagged first.
 > * The Type column's "+1 upcoming" badge no longer fires on a staged entry (the new column
 >   says it), but survives for every other in-flight state.
-> * Harness group **`staging-column`**, 22 assertions, **seven mutations tried and all seven
->   caught**. Two of them found real defects of mine, after I had already reported the work as
->   done: (1) `case 'staging'` returned `r.stagedFlagged ? 0 : ...` and `stagedFlagged` is an
->   **array** — `[]` is truthy, so every row ranked equal, the sort fell through to the
->   tiebreak, and clicking Staging did nothing while looking like it worked; (2) the first
->   Overview assertion passed **vacuously**, matching the loan's name in queue text that was
->   there for an unrelated variance. **A test that can pass for a reason other than the one it
->   names is worse than no test.** The Loans table is now TWELVE columns: colgroup `<col>` count, header count, row
->   cell count and tfoot colspan all have to move together, and the group asserts them against
->   each other rather than against a number written down anywhere.
+> * **The Loans table is now TWELVE columns.** colgroup `<col>` count, header count, row cell
+>   count and tfoot colspan must move together; the harness asserts them against each other
+>   rather than against a number written down anywhere.
 >
-> Third copy of the ce18/ce28 coverage guard fixed in `171d5de` — I moved the "13 of 14" notes
-> out of the money cells in `418bcf5` and updated two of the three places that read them. The
-> full harness (1702 assertions) catches what a scoped run does not: **run it unscoped before
-> claiming a UI change is green.**
+> **⚠️ THE LOANS STAGING COLUMN IS LOAD-BEARING. Do not delete or quieten it on the theory
+> that Overview covers a flagged stage.** I justified the tab deletion by claiming `stage_flag`
+> still raises an Issue. **It does not.** `stage_flag` items join the APPROVALS list, and that
+> list drops any item whose loan already has an Issues row (`if (issueLoanIds.has(...))
+> return`). A duplicate-suspected stage on a loan that also has a variance — the likeliest
+> pairing — is on **no Overview surface at all**. Pinned by `staging-column` (f).
+>
+> ### 5. HOW TO RUN THE HARNESS FROM HERE (two traps, both cost time tonight)
+>
+> * **Run it UNSCOPED.** `--only=<group>` hid a real failure: I moved the "13 of 14" coverage
+>   notes out of the money cells and updated two of the THREE places that read them. The third
+>   only showed up in the full run. Full run is **1719 assertions**; the single expected
+>   failure is Tech Debt #19's own standing reporter, which is a report, not a regression.
+> * **The harness needs `supabase/functions/_shared/*.ts` on disk** (`recon-window` reads
+>   `carrying-basis-drift.ts`). A missing file there throws a whole group and looks like a
+>   code failure. With them present: 41/41.
+> * **Playwright's browser is missing from the mounted VM** (`chromium_headless_shell-1234`)
+>   and re-downloading it there stalls. Tests ran in the cloud container instead.
+>
+> ### 6. MUTATION-TEST EVERY NEW GUARD — it caught two of my own defects tonight
+>
+> Both were in work I had **already reported as done**:
+>
+> 1. `case 'staging'` returned `r.stagedFlagged ? 0 : …` — and `stagedFlagged` is an **ARRAY**.
+>    `[]` is truthy, so every row ranked equal, the comparator fell through to the tiebreak,
+>    and clicking Staging did nothing while looking like it worked. A flagged stage sorted
+>    level with a calm one.
+> 2. The first Overview assertion **passed vacuously** — it matched the loan's NAME in queue
+>    text that was there for an unrelated variance. **A test that can pass for a reason other
+>    than the one it names is worse than no test.** Key on the item key, not on a name that
+>    appears for other reasons.
+>
+> `staging-column` is 22 assertions; seven mutations tried, seven caught.
+>
+> ### 7. STILL UNFIXED (carried, not forgotten)
+>
+> * **Attribution times out on both E-Transits.** `loan-find-difference` exceeds
+>   `PER_LOAN_MS = 45_000`; reproducible at `elapsed_ms: 45310`.
+> * **`loan-xero-post`'s `startsWith('derived_')` denylist fails OPEN.** Same class as the
+>   schedule-provenance bug fixed on the client this session, which became an allowlist
+>   (`_REAL_SCHEDULE_SOURCES` + `_SCHEDULE_AMORT_TYPES`). This one has not.
+> * **`tests/refresh-bookkeeping-fixture.mjs` writes `loan_accounts=0` and reports success**
+>   when run without the privileged side-car. It destroyed the live fixture once tonight;
+>   recovered with `git show HEAD:…` (`git checkout --` fails on this mount). Do not run it
+>   without checking the row counts it printed.
 >
 > **Everything below this line was left by session 266 (18:05 UTC) and is still current
 > unless session 267 contradicted it.**
