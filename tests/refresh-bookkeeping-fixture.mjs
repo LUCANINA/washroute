@@ -49,6 +49,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { populationVerdict, SHRINK_LIMIT } from './fixture-population.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DRY  = process.argv.includes('--dry-run');
@@ -157,18 +158,82 @@ const ORDER = ['loan_accounts', 'loan_statements', 'loan_splits', 'loan_amortiza
   'payroll_departments', 'payroll_employees', 'payroll_notices', 'bk_issue_dismissals',
   'bookkeeping_kpi_snapshots', 'reconciliation_runs', 'reconciliation_findings',
   'loan_tie_outs', 'loan_attributions'];
-const missing = ORDER.filter(k => !fixture[k]);
-if (missing.length) throw new Error('no rows pulled for: ' + missing.join(', '));
+const missing = ORDER.filter(k => !Array.isArray(fixture[k]));
+if (missing.length) throw new Error('no array pulled for: ' + missing.join(', '));
 
 const out = { _meta: meta };
 for (const k of ORDER) out[k] = fixture[k];
 
+const dest = path.join(ROOT, 'tests/fixtures/bookkeeping-fixture.json');
+
+/* ── THE POPULATION GUARD (session 268) ──────────────────────────────────────
+ * This script once wrote `loan_accounts=0` AND REPORTED SUCCESS, destroying the
+ * live fixture; it was recovered with `git show HEAD:...` because `git checkout
+ * --` fails on the device mount. The check above was meant to stop that and
+ * could not: it read `!fixture[k]`, and `[]` IS TRUTHY. It tested whether a key
+ * was PRESENT, never whether anything came back in it — the same array-truthiness
+ * shape as session 267's staging comparator, in a different file, four days apart.
+ *
+ * Presence and population are different questions and this script needs the
+ * second one. The comparison is against THE FIXTURE ALREADY ON DISK, because
+ * that is the only independent statement of how many rows these tables ought to
+ * have — deriving an expected count from the pull itself is the mistake this
+ * module has a rule about (MEASURED, NEVER DERIVED).
+ *
+ * Two refusals, and the first is absolute:
+ *   - a table that came back EMPTY when the outgoing fixture had rows is a
+ *     failed pull, full stop. No flag overrides it.
+ *   - a table that lost more than SHRINK_LIMIT of its rows is a failed pull
+ *     until a person says otherwise, because real deletions on this book are
+ *     rare and partial pulls (the PostgREST 1,000-row cap, an RLS change, a
+ *     dropped side-car table) all look exactly like this.
+ *
+ * `res.ok` was 200 on every empty response — RLS returning no rows is not an
+ * error — so status can never answer this. Only row counts can. */
+const ALLOW_SHRINK = process.argv.includes('--allow-shrink');
+
+const previous = fs.existsSync(dest) ? JSON.parse(fs.readFileSync(dest, 'utf8')) : null;
+
 console.log('pulled_at', meta.pulled_at);
-console.log(ORDER.map(k => `${k}=${out[k].length}`).join(' '));
+if (previous) {
+  console.log('table                              was     now    change');
+  for (const k of ORDER) {
+    const was = Array.isArray(previous[k]) ? previous[k].length : 0;
+    const now = out[k].length;
+    const d = was ? ((now - was) / was * 100) : 0;
+    const mark = (now === 0 && was > 0) ? '  EMPTY'
+      : (was && (was - now) / was > SHRINK_LIMIT) ? '  SHRANK'
+      : '';
+    console.log(`${k.padEnd(34)}${String(was).padStart(5)}${String(now).padStart(8)}` +
+      `${(was ? (d >= 0 ? '+' : '') + d.toFixed(1) + '%' : 'new').padStart(10)}${mark}`);
+  }
+} else {
+  console.log(ORDER.map(k => `${k}=${out[k].length}`).join(' '));
+  console.log('\nNo fixture on disk to compare against — writing the first one unchecked.');
+}
+
+const verdict = populationVerdict(previous, out, ORDER);
+
+if (verdict.emptied.length) {
+  console.error(`\nREFUSING TO WRITE. These tables came back EMPTY and were not empty before:`);
+  for (const k of verdict.emptied) console.error(`  ${k}: ${previous[k].length} rows -> 0`);
+  console.error(`\nA pull that returns nothing is a broken connection, not a change in the books.`);
+  console.error(`Check the side-car (tests/fixtures/.denied-tables.json) and the anon key's RLS.`);
+  console.error(`The fixture on disk is UNCHANGED. There is no flag that overrides this.`);
+  process.exit(1);
+}
+if (verdict.shrank.length && !ALLOW_SHRINK) {
+  console.error(`\nREFUSING TO WRITE. These tables lost more than ${SHRINK_LIMIT * 100}% of their rows:`);
+  for (const k of verdict.shrank) console.error(`  ${k}: ${previous[k].length} -> ${out[k].length}`);
+  console.error(`\nA partial pull looks exactly like this. If the rows really did go away,`);
+  console.error(`re-run with --allow-shrink and say so in the commit message.`);
+  console.error(`The fixture on disk is UNCHANGED.`);
+  process.exit(1);
+}
+if (verdict.shrank.length) console.log(`\n--allow-shrink: writing anyway despite ${verdict.shrank.join(', ')}.`);
 
 if (DRY) { console.log('\n--dry-run: nothing written'); process.exit(0); }
 
-const dest = path.join(ROOT, 'tests/fixtures/bookkeeping-fixture.json');
 fs.writeFileSync(dest, JSON.stringify(out, null, 1));
 console.log('wrote', dest, (fs.statSync(dest).size / 1e6).toFixed(2) + ' MB');
 

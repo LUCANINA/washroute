@@ -4,6 +4,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { ensureUpcomingSplit } from '../_shared/staging-next.ts'
 import { effectiveCloseDate, isPeriodClosed } from '../_shared/close-date.ts'
 import { chooseAutoCandidate, AUTO_PICK_MAX_DAYS } from './pick-candidate.ts'
+import { scheduleGoesStale } from '../_shared/schedule-provenance.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
 // admin/manager may do both. Anything else is rejected outright.
@@ -1339,10 +1340,30 @@ async function handleRequest(req: Request): Promise<Response> {
         }), { status: 409 })
       }
       {
-        const { data: guardSched } = await supa.from('loan_amortization_schedules')
-          .select('id, amort_type, schedule_generated_date, anchor_statement_date')
+        const { data: guardSched, error: guardSchedErr } = await supa.from('loan_amortization_schedules')
+          .select('id, source, amort_type, schedule_generated_date, anchor_statement_date')
           .eq('id', amortRow.schedule_id).maybeSingle()
-        if (guardSched && String(guardSched.amort_type ?? '').startsWith('derived_')) {
+
+        // A schedule we could not READ is not a schedule we may trust. Session
+        // 268: the old form was `if (guardSched && ...)`, so a failed lookup or
+        // a missing row skipped the staleness check in silence -- the same
+        // fail-open shape as the denylist below it, one line up. Refuse.
+        if (guardSchedErr || !guardSched) {
+          return new Response(JSON.stringify({
+            error: 'Refusing to stage: this card\'s amortization schedule could not be read, so there is no way to tell whether its figures are the lender\'s or a projection of our own. Re-generate the split from the current schedule and try again.',
+            schedule_id: amortRow.schedule_id,
+            lookup_error: guardSchedErr?.message ?? 'no such schedule row',
+          }), { status: 409 })
+        }
+
+        // ALLOWLIST, not a denylist (session 268, Tech Debt from session 267 §7).
+        // The question is "is this the lender's own contractual schedule?", and
+        // anything else -- our derivations, a parse of the lender's payment
+        // HISTORY projected forward, any amort_type nobody has looked at yet --
+        // goes stale when a newer statement arrives. `startsWith('derived_')`
+        // answered a narrower question and let PayPal 2 through; see
+        // _shared/schedule-provenance.ts for the measurement.
+        if (scheduleGoesStale(guardSched)) {
           const { data: newestStmts } = await supa.from('loan_statements')
             .select('statement_date')
             .eq('loan_account_id', loanAcct.id)

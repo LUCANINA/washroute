@@ -98,7 +98,15 @@ const FIXTURE = process.env.WR_FIXTURE || path.join(HERE, 'fixtures', 'bookkeepi
 const STUB    = process.env.WR_STUB    || path.join(HERE, 'bk-stub.js');
 
 const argv    = process.argv.slice(2);
-const ONLY    = (argv.find(a => a.startsWith('--only=')) || '').slice(7);
+/* --only= takes a COMMA LIST as of session 268, and an unknown name is now a HARD
+ * FAILURE. Before this it took exactly one group and compared with `!==`, so a typo
+ * -- or a comma list, which is what the notes told people to use -- matched nothing
+ * and the run reported "0 assertions - 0 passed - 0 failed" and exited GREEN. A
+ * scoping mistake that reads as success is worse than one that reads as an error,
+ * and this suite's whole job is to not be that. See also START HERE: run UNSCOPED
+ * where you can; --only is for iterating, never for the run you trust. */
+const ONLY    = (argv.find(a => a.startsWith('--only=')) || '').slice(7)
+                  .split(',').map(x => x.trim()).filter(Boolean);
 const VERBOSE = argv.includes('--verbose');
 const LIST    = argv.includes('--list');
 
@@ -7977,8 +7985,18 @@ console.log(`  index   ${INDEX}`);
 console.log(`  fixture ${FIXTURE} (${baseFixture._meta?.pulled_at || 'unknown vintage'})`);
 console.log(`  rows    ${FIXTURE_TABLES.map(t => `${t}=${baseFixture[t].length}`).join(' ')}\n`);
 
+if (ONLY.length) {
+  const known = new Set(GROUPS.map(g => g.name));
+  const unknown = ONLY.filter(n => !known.has(n));
+  if (unknown.length) {
+    console.error(`\n  --only names no such group: ${unknown.join(', ')}`);
+    console.error(`  Run --list for the group names. Refusing to report a green run that tested nothing.\n`);
+    process.exit(2);
+  }
+}
+
 for (const g of GROUPS) {
-  if (ONLY && g.name !== ONLY) continue;
+  if (ONLY.length && !ONLY.includes(g.name)) continue;
   currentGroup = g.name;
   useFixture(g.fixture);
   const tag = g.fixture && g.fixture !== 'live'

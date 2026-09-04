@@ -21,6 +21,7 @@ import { diagnoseUnexplainedGap, type LaterEntry, type AmortRow, type SiblingFin
 // months, re-flagged as a fresh mystery every time).
 import { matchAgainstPatterns, clusterCandidates, splitRowForMatch, unexplainedHandPosted,
   checkAdjustmentPatternCandidates, type AdjustmentPattern } from './adjustment-patterns.ts'
+import { staleRunIds, STALE_RUN_MS } from '../_shared/stale-runs.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -107,7 +108,7 @@ const isDerivedSource = (src: string) =>
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-wr-internal',
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -126,6 +127,30 @@ const monthEndBefore = (iso: string) => addDays(iso.slice(0, 8) + '01', -1)
 
 function admin() {
   return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+}
+
+// ── INTERNAL CALLER (session 268) ────────────────────────────────────────────
+// `callerRole` needs a real user's JWT, which a cron job does not have and
+// cannot get. Until now that meant this function only ever ran when a person
+// pressed Check -- and nobody pressed it for a day and a half in September,
+// so every variance, close-gate verdict and Issues row on screen was stale
+// without saying so.
+//
+// This is the SAME shared secret and the SAME lookup `xero-read` uses, copied
+// rather than invented: one row in `wr_internal_auth`, readable only with the
+// service-role key. The function is verify_jwt:false, so this header is the
+// whole gate -- which is exactly why it must be the vetted pattern and not a
+// new one. A missing or wrong header is simply not an internal call; it falls
+// through to the ordinary role check and is refused there.
+async function isInternalCall(req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  try {
+    const { data } = await admin().from('wr_internal_auth').select('secret').maybeSingle()
+    return !!data?.secret && provided === data.secret
+  } catch (_) {
+    return false
+  }
 }
 
 async function callerRole(req: Request) {
@@ -1700,10 +1725,40 @@ async function handle(req: Request): Promise<Response> {
   const runBy = body.run_by || null
   const today = todayPacific()
 
-  const role = await callerRole(req)
-  if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
+  const internal = await isInternalCall(req)
+  const role = internal ? null : await callerRole(req)
+  if (!internal && (!role || !['admin', 'manager', 'cpa'].includes(role))) {
     return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403 })
   }
+
+  // A scheduled run must SAY it was scheduled. `trigger_source` was hardcoded
+  // 'manual' because nothing but a person had ever called this; leaving it that
+  // way would make the run log lie about who asked, and the run log is how
+  // anyone tells "nobody checked" from "the check ran and found nothing".
+  const triggerSource = internal ? 'scheduled' : 'manual'
+
+  // ── REAP DEAD RUNS FIRST (session 268) ─────────────────────────────────────
+  // A run whose function died mid-flight leaves its row in `running` forever;
+  // eight had accumulated by 2026-09-04, the oldest a week old. A function that
+  // dies cannot clean up after itself, so the next boot does it -- which is why
+  // this sits BEFORE the rate limit rather than after: the limiter reads the
+  // newest row and refuses a fresh check unless it says `failed`, so a corpse
+  // blocks its own retry. Reaping first is what makes that retry possible.
+  //
+  // Errors here are swallowed on purpose. Tidying the run log is housekeeping;
+  // it must never be the reason a reconciliation does not happen.
+  try {
+    const { data: openRuns } = await supa.from('reconciliation_runs')
+      .select('id, status, started_at, finished_at').eq('status', 'running')
+    const dead = staleRunIds(openRuns, Date.now())
+    if (dead.length) {
+      await supa.from('reconciliation_runs').update({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message: `No result recorded within ${STALE_RUN_MS / 60000} minutes; marked failed by the run that started at ${new Date().toISOString()}. The function died before it could report.`,
+      }).in('id', dead)
+    }
+  } catch (_reapErr) { /* housekeeping only -- never block the run */ }
 
   // Rate-limit: a full run hits Xero hard, and session 205 lost ~17 hours to a
   // daily-quota lockout. One run per 10 minutes unless explicitly forced.
@@ -1725,7 +1780,7 @@ async function handle(req: Request): Promise<Response> {
   const checkpointDate: string | null = prev?.period_to || null
 
   const { data: run } = await supa.from('reconciliation_runs').insert({
-    status: 'running', trigger_source: 'manual', mode, run_by: runBy, period_to: today,
+    status: 'running', trigger_source: triggerSource, mode, run_by: runBy, period_to: today,
     xero_modified_since: prev?.started_at ?? null,
   }).select().single()
 

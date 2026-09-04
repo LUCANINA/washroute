@@ -1,6 +1,117 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 267, 2026-09-04 01:46 UTC)
+> ## ⏭️ START HERE — first thing, next session (left by session 268, 2026-09-04)
+>
+> ### 1. 🔴 TWO FUNCTIONS ARE BUILT AND TESTED BUT **NOT DEPLOYED**. DAVID MUST RUN THE CLI.
+>
+> Both are ~152KB, past the MCP tool's ceiling, so they need David's own terminal:
+>
+> ```
+> cd ~/Projects/WashRoute
+> npx -y supabase@latest functions deploy loan-xero-post     --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+>
+> **`--no-verify-jwt` is not optional on either** — both are `verify_jwt: false` today and
+> omitting it breaks every caller. Verified against `list_edge_functions` 2026-09-04:
+> `loan-xero-post` v61 false, `reconciliation-run` v67 false.
+>
+> **CHECK THE DEPLOY BY BEHAVIOUR, NOT BY VERSION** — this block has been wrong about deploy
+> state more often than any other line in it, and session 264's function was "deployed" and had
+> never booted. For `reconciliation-run` the behavioural proof is specific and easy: after the
+> deploy, **the eight stuck `running` rows should become `failed` on the very next run**, and a
+> cron-triggered run should store `trigger_source='scheduled'`. Rows, not version numbers.
+>
+> ### 2. 🟠 THE CRON IS DESIGNED AND PREFLIGHTED BUT NOT CREATED — it needs §1 first
+>
+> David chose **daily 06:00 Pacific = `0 13 * * *`**. It cannot be created before
+> `reconciliation-run` is deployed, because the internal-caller branch that lets a cron in
+> ships with that deploy; created earlier it would 403 every morning. Preflight was clean:
+> `reconciliation-run` contains **no** SMS, email or notification path of any kind, writes only
+> `reconciliation_runs` / `reconciliation_findings`, and the existing 10-minute rate limit still
+> lets a person press Check on top of it. Blast radius: zero customers.
+>
+> Model the job on `wr-xero-payout-coverage` (jobid 26) and pass the `x-wr-internal` header from
+> `public.wr_internal_secret()`. **Then prove it**: fire the exact payload once by hand and
+> confirm a row appears with `trigger_source='scheduled'` and `finished_at` set — the job is
+> proven, not assumed.
+>
+> ### 3. ❓ ONE DECISION WAITING — PayPal 2's anchor, and the evidence is already gathered
+>
+> The new allowlist (session 268 §1) blocks PayPal 2 from staging until its schedule is
+> re-anchored. **The projection has been verified against the lender and is exact:** the
+> lender's own portal balances at 2026-08-05 (58,775.97) and 2026-09-02 (46,144.59) differ by
+> **12,631.38**, and the schedule's four projected principals across that window sum to
+> **12,631.38** — **$0.00 difference**, with both ends supplied by the lender and neither by the
+> schedule. That is a real independent check, not session 246's agrees-by-construction shape.
+>
+> The write is `loan_amortization_schedules.anchor_statement_date = '2026-09-02'` on
+> `96839329-b175-4e98-8604-b5a51c3250a8`, which unblocks staging honestly. **It is a write to a
+> financial table on the strength of an inference, so it waits for David.** He has been asked.
+> Until then PayPal 2's weekly lines are coded by hand — a degradation, and the correct one.
+>
+> ### 4. WHAT SESSION 268 CLOSED (do not re-do these)
+>
+> * **§7b — `loan-xero-post`'s `startsWith('derived_')` denylist.** Now
+>   `_shared/schedule-provenance.ts`, an allowlist. Plus a second fail-open one line above it:
+>   `if (guardSched && …)` skipped the check when the lookup failed. 39 assertions, 5/5 mutations.
+> * **§7c — the fixture refresh writing an empty fixture and reporting success.** The old check
+>   read `!fixture[k]` and **`[]` is truthy**. Now `tests/fixture-population.mjs`, comparing
+>   against the fixture on disk. 23 assertions, 6/6 mutations.
+> * **Tech Debt #41's dead rows.** `_shared/stale-runs.ts` reaps at the start of every run.
+>   ⚠️ **The note said three; there are EIGHT, oldest 2026-08-27.** It counted one screen. The
+>   15-minute limit is set against a measured longest completed run of 77 seconds across all 81
+>   complete rows. 19 assertions, 6/6 mutations.
+>
+> ### 5. STILL OPEN — carried, and David has asked for all of them
+>
+> * **Wire `_shared/evidence-gate.ts` into `reconciliation-run`** (was NEXT #3). Built, 37
+>   green, wired into nothing. **Not started this session.** Read session 265 §5 first — a gate
+>   keyed on `coversFrom` alone reintroduces the eleven-to-one disagreement. Remove the silent
+>   `if (haveCheckpoint)` skip on `derived_drift` in the same change; do not leave both.
+> * **Attribution times out on both E-Transits.** `loan-find-difference` exceeds
+>   `PER_LOAN_MS = 45_000`, reproducible at `elapsed_ms: 45310`. **Not diagnosed this session** —
+>   find out whether it is a slow query or an unbounded walk before proposing anything.
+> * **Tech Debt #35** — thirteen of fourteen active loans have no `loan_contract_terms`. Three
+>   sessions untouched. Still the sole blocker on `carrying_basis`.
+> * **§5 of the scope reduction** (`docs/bookkeeping/SCOPE-REDUCTION-2026-09.md`) — the hide
+>   list. Ask David before hiding anything; posture is "hide UI hard, keep code, restore on
+>   demand".
+> * **What is left of #32:** the `unverified` population reaches neither Issues nor the client
+>   checklist, so nobody is asked for the statement that would make those real checks.
+>
+> ### 6. HOW TO RUN THE HARNESS FROM HERE
+>
+>
+> **Measured 2026-09-04: 1,719 browser assertions, 1,718 passing**, the one red being Tech Debt
+> #19's own standing reporter. Plus 24 Node suites, 0 red.
+>
+> * **`--only=` now takes a COMMA LIST, and an unknown name is a hard exit(2)** (fixed this
+>   session). It used to take one group and compare with `!==`, so a comma list — which the
+>   notes themselves recommended — matched nothing and reported **0 assertions, 0 failed**,
+>   exiting green. A scoping mistake that reads as success is the worst kind.
+> * **A full run exceeds one `device_bash` call, and BACKGROUNDING DOES NOT WORK**: every call
+>   is its own PID namespace, so `nohup … &` is killed when the call returns — and `pgrep -f`
+>   then matches your own command line and tells you it is still running. Run it in two halves
+>   by group name instead; each half is about 90 seconds.
+> * **The browser lives under `$HOME`, a PER-SESSION sandbox, so it is gone every session.**
+>   `bash tests/run-harness.sh` prints the exact recovery — the chromium zip by `curl` (never
+>   `npx playwright install`, it hangs at 0%) and the `libXdamage.so.1` `.deb` into `~/syslibs`.
+>   Both steps together took about four minutes.
+> * **Node 22 runs the `.test.mts` files with `--experimental-strip-types`** — no `tsx` on that
+>   VM, and `npx -y tsx` times out. All 21 Node suites plus the three new ones are green.
+>
+> ### 7. THE ONE THAT PAID FOR ITSELF IMMEDIATELY
+>
+> `tests/edge-function-syntax.test.mts` caught a SyntaxError I had just introduced: a regex
+> matching `^import .*$` inserted my import INTO THE MIDDLE of a multi-line `import { … }` in
+> `reconciliation-run`. `git` accepts that. `list_edge_functions` would have called it deployed.
+> It would have 503'd every call on the CORS preflight, exactly as session 264's did for
+> eighteen hours. **Run that suite before any deploy.**
+>
+>
+> **Everything below this line was left by session 267 and is still current unless session
+> 268 contradicted it. Its §1 push claim and §7 items are SUPERSEDED — see above.**
 >
 > ### 1. ONE COMMIT IS UNPUSHED — and check that claim the right way
 >
@@ -2224,6 +2335,100 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 268 (2026-09-04) — THREE GUARDS THAT FAILED OPEN, AND THE ONE LOAN THAT PROVED IT
+
+Tech debt only. Three guards existed and did not hold; each is now an allowlist or a
+measurement, each is pure and separately tested, and each mutation was proven to go red.
+
+**1. `loan-xero-post`'s staleness guard was a denylist, and PayPal 2 walked past it.**
+`amort_type.startsWith('derived_')` asks a narrower question than the one that matters. The
+question is *"is this the lender's own contractual schedule?"* — and the answer decides
+whether a newer statement invalidates the card being staged. Measured against production, the
+denylist and an allowlist disagree on **exactly one row of nineteen**, and it is the worst
+one: PayPal A00845102, `claude_assisted_parse` / `actual_payment_history_from_lender_csv`,
+**prestaging live**, schedule anchored 2026-08-04, newest lender statement 2026-09-02. Its
+amort_type does not begin with `derived_`, so the guard was skipped on the one prestaging loan
+whose schedule is most obviously a projection — which is how the 2026-09-02 stage went into
+Xero carrying the projection's 3180.34/234.37 against the lender's own 3180.33/234.38.
+Tech Debt #33 named that penny; this is the hole it came through.
+
+Now `_shared/schedule-provenance.ts`, mirroring the client's `_REAL_SCHEDULE_SOURCES` /
+`_SCHEDULE_AMORT_TYPES`, which had already been through this exact mistake and come out as an
+allowlist. **A no-build SPA cannot import from the functions tree**, so the copy is
+unavoidable and `tests/schedule-provenance.test.mts` asserts the two lists match — the same
+device `recon-window` uses for `ZERO_CASH_MOVEMENT_SOURCES`. 39 assertions; five mutations,
+five caught.
+
+**A second fail-open, one line above, that nobody had named:** `if (guardSched && …)` meant a
+failed lookup or a missing schedule row skipped the check in silence. It now refuses. A
+schedule we could not read is not a schedule we may trust.
+
+**2. `refresh-bookkeeping-fixture.mjs` checked presence, not population.**
+`ORDER.filter(k => !fixture[k])` — **and `[]` is truthy.** It tested whether a key existed,
+never whether anything came back in it, which is how it wrote `loan_accounts=0` over the live
+fixture and reported success. Identical array-truthiness shape to session 267's staging
+comparator, different file, four days apart.
+
+The decision moved to `tests/fixture-population.mjs` (pure, so it is testable at all — the
+same reason `existing-deposit.ts` is) and compares against **the fixture already on disk**,
+which is the only independent statement of how many rows these tables ought to have; deriving
+an expected count from the pull itself is the mistake this module has a rule about. A table
+that came back EMPTY when it had rows is absolute and no flag overrides it; a table that lost
+>20% needs `--allow-shrink`, because a partial pull and a real deletion look identical until a
+person looks. 23 assertions; six mutations, six caught.
+
+**3. Nothing ever reaped a dead reconciliation run — and there were EIGHT, not three.**
+The START HERE block said three, oldest 2026-09-01. Measured: **eight**, oldest **2026-08-27**.
+The note counted what was on one screen. Not harmless: the rate limiter reads the newest row
+and refuses a fresh check for ten minutes unless it says `failed`, so a corpse blocks its own
+retry.
+
+`_shared/stale-runs.ts` reaps at the START of a run — a function that dies cannot clean up
+after itself, so the next boot does it. The limit is 15 minutes against a **measured** longest
+completed run of **77 seconds** across all 81 complete rows, so it cannot race a live one. It
+refuses to touch anything it has not measured: no `started_at`, no reaping. 19 assertions; six
+mutations, six caught.
+
+**4. `reconciliation-run` can now be called by a cron, and says so when it was.**
+`callerRole` needs a user JWT, which a cron does not have and cannot get — which is the whole
+reason this function only ever ran when someone pressed Check, and why nobody pressing it for
+a day and a half left every verdict on screen stale without saying so. Ported `xero-read`'s
+`isInternalCall` **verbatim** rather than inventing one: same `wr_internal_auth` row, same
+service-role lookup. The function is `verify_jwt:false`, so that header is the entire gate,
+which is exactly why it must be the vetted pattern. `trigger_source` was hardcoded `'manual'`
+and now reflects who asked — a run log that cannot tell a scheduled run from a person is not a
+run log.
+
+**5. PAYPAL 2'S PROJECTION IS CORRECT, AND THE LENDER SAYS SO.**
+The allowlist blocks PayPal 2 from staging until its schedule is re-anchored, so the question
+became whether the projection deserves to be trusted. It does, and the test is independent:
+the lender's own two portal balances bracket four schedule payments —
+
+```
+lender 2026-08-05   58,775.97
+lender 2026-09-02   46,144.59
+                   ───────────
+lender's movement   12,631.38
+schedule's four projected principals (08-12, 08-19, 08-26, 09-02)
+                    12,631.38
+difference              $0.00
+```
+
+Both ends come from the lender; the schedule supplies neither. This is not the rollforward
+shape session 246 caught, where opening and closing traced to the same document. **Advancing
+`anchor_statement_date` to 2026-09-02 is therefore a recorded measurement, not a way around
+the guard** — but it is a write to a financial table on the strength of an inference, so it
+waits for David.
+
+**6. `tests/edge-function-syntax.test.mts` earned its keep within the hour.** My import landed
+in the middle of a multi-line `import { … }` in `reconciliation-run` — a SyntaxError that
+`git` would have accepted, `list_edge_functions` would have called deployed, and that would
+have 503'd every call on the CORS preflight exactly as session 264's did. A regex matching
+`^import .*$` does not know a multi-line import when it sees one. Caught before it left the
+machine.
 
 ---
 
