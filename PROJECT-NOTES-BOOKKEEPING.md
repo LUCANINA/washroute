@@ -1,42 +1,55 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 268, 2026-09-04)
+> ## ⏭️ START HERE — first thing, next session (left by session 268, 2026-09-04 04:45 UTC)
 >
-> ### 1. 🔴 TWO FUNCTIONS ARE BUILT AND TESTED BUT **NOT DEPLOYED**. DAVID MUST RUN THE CLI.
+> ### 1. ✅ BOTH FUNCTIONS ARE DEPLOYED AND VERIFIED BY BEHAVIOUR — not by version number
 >
-> Both are ~152KB, past the MCP tool's ceiling, so they need David's own terminal:
+> David pushed (`2a9b328`, confirmed with `git ls-remote`, not the local ref) and deployed.
+> **`loan-xero-post` v62, `reconciliation-run` v68, both still `verify_jwt: false`** — so
+> `--no-verify-jwt` was used correctly on both. Verified three ways, none of them a timestamp:
 >
-> ```
-> cd ~/Projects/WashRoute
-> npx -y supabase@latest functions deploy loan-xero-post     --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> ```
+> * **Read the deployed source**: `scheduleGoesStale` and `schedule-provenance` present in
+>   loan-xero-post; `staleRunIds` and `isInternalCall` present in reconciliation-run; the
+>   hardcoded `trigger_source: 'manual'` is gone.
+> * **The reaper ran, and the ROWS prove it**: all **eight** stuck runs now read `failed` with
+>   *"No result recorded within 15 minutes… The function died before it could report."*
+>   `reconciliation_runs` is now 81 complete / 8 failed / 1 running. A version number can
+>   coincide; eight rows changing state cannot.
+> * **The cron auth path works**: a `net.http_post` with `x-wr-internal` was accepted and stored
+>   **`trigger_source = 'scheduled'`**. That was the whole blocker on §2.
 >
-> **`--no-verify-jwt` is not optional on either** — both are `verify_jwt: false` today and
-> omitting it breaks every caller. Verified against `list_edge_functions` 2026-09-04:
-> `loan-xero-post` v61 false, `reconciliation-run` v67 false.
+> ### 2. 🔴 THE CRON IS STILL NOT CREATED, AND THE REASON GOT STRONGER
 >
-> **CHECK THE DEPLOY BY BEHAVIOUR, NOT BY VERSION** — this block has been wrong about deploy
-> state more often than any other line in it, and session 264's function was "deployed" and had
-> never booted. For `reconciliation-run` the behavioural proof is specific and easy: after the
-> deploy, **the eight stuck `running` rows should become `failed` on the very next run**, and a
-> cron-triggered run should store `trigger_source='scheduled'`. Rows, not version numbers.
+> **The verification run itself died.** It reached 157 seconds — twice the 77-second longest run
+> ever recorded — and never finished, because **Xero's daily quota was at zero**. It is sitting
+> in `running` right now and the next run's reaper will clear it.
 >
-> ### 2. 🟠 THE CRON IS DESIGNED AND PREFLIGHTED BUT NOT CREATED — it needs §1 first
+> **That is not a disappointment, it is the mechanism, reproduced on demand.** When the quota is
+> gone the function is killed by the edge runtime's wall clock BEFORE its own `try/catch` can
+> write `status='failed'` — which is exactly how eight corpses accumulated and why no error
+> message was ever recorded against any of them. The reaper is the right fix; it is also now
+> proven to be the ONLY thing that would ever have cleaned them up.
 >
-> David chose **daily 06:00 Pacific = `0 13 * * *`**. It cannot be created before
-> `reconciliation-run` is deployed, because the internal-caller branch that lets a cron in
-> ships with that deploy; created earlier it would 403 every morning. Preflight was clean:
-> `reconciliation-run` contains **no** SMS, email or notification path of any kind, writes only
-> `reconciliation_runs` / `reconciliation_findings`, and the existing 10-minute rate limit still
-> lets a person press Check on top of it. Blast radius: zero customers.
+> **So do not create the daily cron until the quota is understood** (§3). A cron added to an
+> exhausted budget produces one dead run per day and does no work — replacing "nobody pressed
+> Check" with "it ran and silently achieved nothing", which is worse because it looks fine.
 >
-> Model the job on `wr-xero-payout-coverage` (jobid 26) and pass the `x-wr-internal` header from
-> `public.wr_internal_secret()`. **Then prove it**: fire the exact payload once by hand and
-> confirm a row appears with `trigger_source='scheduled'` and `finished_at` set — the job is
-> proven, not assumed.
+> ### 3. 🔴 XERO'S DAILY QUOTA HIT ZERO, AND THE METER CANNOT SEE WHY
 >
-> ### 3. ❓ ONE DECISION WAITING — PayPal 2's anchor, and the evidence is already gathered
+> `remaining_day: 0` at 2026-09-04 03:13 UTC, `retry_after_seconds: 44774` → back about
+> **15:39 UTC (08:39 Pacific)**.
+>
+> ⚠️ **`xero_api_usage` meters ONLY `xero-read`** — 34 runs, 343 calls in 24 hours, nowhere near
+> any limit. Everything that actually spent the day (`reconciliation-run`, `loan-xero-post`, the
+> payout crons) is invisible to it. *An alarm that inspects one caller can only find that
+> caller's problems* — session 266's lesson in a new place. **Metering the other Xero callers is
+> now the blocker on the cron**, not a nice-to-have.
+>
+> ⚠️ Also unestablished: whether Xero's daily limit is a rolling 24h window or a fixed UTC
+> reset. 06:00 Pacific is 13:00 UTC, which today would fall BEFORE the reset. Check before
+> creating the job or the first scheduled run 429s.
+>
+> ### 4. 📄 PAYPAL 2 — ONE UPLOAD, NO DECISION NEEDED
 >
 > The new allowlist (session 268 §1) blocks PayPal 2 from staging until its schedule is
 > re-anchored. **The projection has been verified against the lender and is exact:** the
@@ -59,7 +72,7 @@
 > CPA's.
 >
 >
-> ### 3b. 🔴 FORD — THREE STAGED TRANSACTIONS IN XERO CARRY A SUPERSEDED SPLIT (found 2026-09-04)
+> ### 5. 🔴 FORD — THREE STAGED TRANSACTIONS IN XERO CARRY A SUPERSEDED SPLIT (found 2026-09-04)
 >
 > **Measured, live, and blocked on Xero's daily quota.** All four Ford splits are tied to the
 > schedule that was SUPERSEDED when the new statement arrived, not to the re-derived one. Three
@@ -96,8 +109,21 @@
 > * 61797019 was `pending_review`, so `.eq('status','staged')` correctly skipped it — **but that
 >   filter is itself a hole**: a pending_review split on a superseded schedule is exactly as
 >   wrong and nothing looks at it.
-> * First place to look: session 231 records a flag-clearing bug that the daily
->   `wr-loan-stage-sweep` cron (jobid 24, `0 16 * * *`) made a certainty.
+> * ❌ **RULED OUT: the `enforce_split_invariant` trigger.** It was the obvious suspect and it
+>   is innocent — 1105.09 + 75.23 = 1180.32 passes `split_invariant_check`, so the trigger
+>   returns NEW early and blocks nothing. Read the function definition; do not re-suspect it.
+> * ➡️ **THE LIVE THREAD: the deployed §6 is NOT the §6 in this repo.** The deployed
+>   `loan-ingest-statement` bundle contains the string `stale_projection` but does NOT contain
+>   §6's comment line *"Anything ALREADY staged whose numbers just moved"*. Same flag, different
+>   surrounding code — so the block that actually ran on 2026-08-25 and 09-02 is an OLDER
+>   version whose matching rule may simply not fire for these rows. **Diff the deployed bundle
+>   against `_shared/derive-schedule.ts` before theorising any further.**
+> * Also worth noting: `rederiveIfDerived` gates on `isDerived(amort_type)` — **another
+>   `startsWith('derived_')` denylist**, one this session did not convert. It fails in the SAFE
+>   direction here (an unrecognised type is simply not re-derived), and it is why PayPal 2 is
+>   never auto-re-derived at all. But it is the same shape, still on the list.
+> * Session 231's flag-clearing bug under `wr-loan-stage-sweep` (jobid 24, `0 16 * * *`) remains
+>   a candidate, but check the bundle diff FIRST — it is cheaper and more likely.
 >
 > **THE FIX NEEDS DAVID'S HANDS.** `unstage` requires an admin/manager USER JWT
 > (`loan-xero-post` line 955) — the `x-wr-internal` secret is NOT accepted on that path, by
@@ -105,7 +131,7 @@
 > schedule → re-stage. The function refuses to unstage anything already reconciled, so the
 > sequence is safe to attempt.
 >
-> ### 3c. 🔴 XERO'S DAILY API QUOTA WAS EXHAUSTED AT 2026-09-04 03:13 UTC
+> ### 5b. (Xero quota — see §3 above, which supersedes this)
 >
 > `remaining_day: 0`, `retry_after_seconds: 44774` → back around **15:39 UTC (08:39 Pacific)**.
 > This is what stopped the Ford fix: `unstage` fetches and then deletes in Xero, so it cannot
