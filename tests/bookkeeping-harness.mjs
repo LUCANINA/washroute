@@ -2511,6 +2511,30 @@ GROUPS.push({
         t.eq(pr.offSchedule.length, pr.scheduleTotal - pr.onSchedule,
              `close band — ${c.name}: every loan off its schedule is NAMED, not just counted`,
              JSON.stringify(pr));
+        // ── THE HEADLINE IS THE UPLOAD, AND THE BAR IS WHY THAT IS SAFE ────
+        // David asked for the uploaded count rather than the checked one, so the
+        // one figure on the strip no longer distinguishes a document that was
+        // compared against Xero from one that was merely received. That is only
+        // acceptable while the AMBER SEGMENT is still on the bar saying it, so
+        // this asserts the pair together: the headline equals checked+unchecked,
+        // AND the segment that splits them exists whenever it has something to
+        // split. Delete the amber segment and this goes red, which is the point
+        // — the alternative is a strip that reads "10 of 11 uploaded" over a
+        // month where four of them were never looked at, which is precisely the
+        // state the close gate was built to make visible (session 262).
+        t.eq(pr.uploaded, pr.checked + pr.unchecked,
+             `close band — ${c.name}: the headline counts every statement on file, checked or not`,
+             JSON.stringify(pr));
+        t.eq(cb.barSegs.some(sg => /s-unchecked/.test(sg.cls)), pr.unchecked > 0,
+             `close band — ${c.name}: ⭐ the bar carries an amber segment exactly when a statement is on file but unchecked`,
+             `segs=${JSON.stringify(cb.barSegs.map(sg => sg.cls))} · unchecked=${pr.unchecked}`);
+        // A blocking segment answers its own question, in its own title
+        // (session 256's rule, met the session-249 way).
+        cb.barSegs.filter(sg => /s-unchecked|s-await/.test(sg.cls)).forEach(sg => {
+          t.ok(/: /.test(sg.title),
+               `close band — ${c.name}: the ${/s-await/.test(sg.cls) ? 'red' : 'amber'} segment names its loans`,
+               `title=${JSON.stringify(sg.title)}`);
+        });
       }
       t.eq((cb.tilesText || '').trim(), '',
            `close band — ${c.name}: ...and the "Paid in <month>" line is gone from above it`,

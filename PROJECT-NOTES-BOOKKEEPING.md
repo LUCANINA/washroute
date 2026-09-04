@@ -2700,6 +2700,24 @@ that it discriminates while measuring nothing.
 **Verified**: 1,818 browser assertions across every group, one red — Tech Debt #19, red on purpose.
 Rendered and screenshotted from the harness's own boot path, not asserted about in the abstract.
 
+**Then David pared it down, the same day.** *"Instead of 9 of 11 statements 'checked', I want to
+emphasize the number of statements uploaded so we know if we have more work to do on that front.
+Remove '1 to check, 1 to chase · 11 of 11 on schedule · 5 off, July 2026 still open' because that
+is self explanatory from the table."* The strip is now the verdict, the bar, and **one figure** —
+statements UPLOADED. Chasing a lender for a document is the one job that is the business owner's
+rather than the CPA's, and it blocks everything downstream, so it is the number worth the width.
+
+⚠️ **THE CHECKED/UPLOADED DISTINCTION MOVED; IT WAS NOT DROPPED — and that is load-bearing.**
+"10 of 11 uploaded" is precisely the conflation session 262's gate exists to prevent, and it is
+safe here only because the bar beside it still splits that 10 into green (checked) and amber (on
+file, never compared), each segment naming its loans on hover, with the Status column and
+`data-gates` carrying the rest. **If the amber segment ever leaves the bar, the headline must go
+back to "checked" in the same commit.** That is now an assertion rather than a comment: the suite
+asserts the headline equals checked + unchecked AND that the amber segment exists exactly when
+`unchecked > 0`, so deleting the segment turns the strip red instead of quietly leaving a number
+that overstates the work done. The schedule and tail counts are still computed and still carried
+in `data-progress` — tested, just no longer printed.
+
 ⚠️ **A second Claude session was working this repo at the same time.** This entry took session
 **274** because 273 was already taken; the START HERE block was deliberately left alone rather than
 racing the other session for it.

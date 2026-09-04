@@ -14768,6 +14768,19 @@
       const engineRateLimited = res.status === 429;
       const engineFailed = !engineRateLimited && (!res.ok || json.ok === false);
       const intake = await _runIntakeCrossCheck(session.access_token);
+      // ⚠ SESSION 273 (Tech Debt #45): RELOAD THE MONEY, NOT ONLY THE VERDICTS.
+      // loadReconciliation() re-reads exactly three tables -- runs, findings,
+      // dismissals. reconciliation-run has just rewritten loan_book_balances,
+      // and the close band's Computed, Closing and Ledger columns all read it.
+      // So the check refreshed what it SAYS and not what it says it ABOUT, and the
+      // page showed fresh verdicts against stale money until someone hard-reloaded.
+      //
+      // Found live: Rapid's $457.14 fee posted to Xero at 21:13:45 while the books
+      // row had been rebuilt at 17:42:20. The row printed Ledger ✗ for exactly that
+      // amount -- the number real, the disagreement not, and nothing saying so.
+      // loadLoans() first: the verdicts are read against the balances, so refreshing
+      // them in the other order leaves one render showing the same mismatch.
+      await loadLoans();
       await loadReconciliation();
       const cleared = intake.resolved ?? 0;
       const clearedMsg = cleared ? `, ${cleared} cleared` : '';
@@ -16658,6 +16671,9 @@
     // caller to re-find the row.
     return { amount: Number(r.balance), asOf: r.as_of, source: 'xero_rebuild',
              authoritative: false, fromBooks: true, staged: Number(staged || 0),
+             // session 273: WHEN this snapshot of Xero was taken. A verdict read
+             // against it is only as current as this stamp -- see _ledgerStale.
+             computedAt: r.computed_at || null,
              detail: r.detail || null };
   }
 
@@ -17201,8 +17217,35 @@
       // subtraction is not a check, it is the drawdown wearing an accusation's
       // clothes.
       const booksClosing = bookClose ? bookClose.amount : null;
+      // ⚠ AND THE HALF THAT MATTERS: A LEDGER VERDICT MAY NOT BE GIVEN ON A
+      // BALANCE OLDER THAN THE THING IT IS JUDGING.
+      //
+      // `booksClosing` is a CACHED rebuild of Xero, stamped `computed_at`. If a
+      // split on this loan reached Xero AFTER that stamp, the comparison is
+      // between a fresh walk and a snapshot that predates the journal -- it is
+      // guaranteed to differ by whatever was posted in between, and it will always
+      // point the wrong way, accusing Xero of being short when Xero is right and we
+      // are behind. That is not a finding, it is a stale input, and this module's
+      // rule for a stale input is to name it rather than to diagnose it (session
+      // 262's ask-don't-assert, session 273's stale closing anchor -- the same rule,
+      // here on the books side instead of the lender side).
+      //
+      // Reloading (above) closes the window in the ordinary case. This closes it in
+      // every other one: a background run, another tab, a cron, a failed refresh.
+      const _ledgerStale = (() => {
+        const at = bookClose && bookClose.computedAt;
+        if (!at || !booksClosing) return null;
+        const newer = splits.filter(sp => sp.xero_posted_at && String(sp.xero_posted_at) > String(at));
+        if (!newer.length) return null;
+        return { computedAt: at, splits: newer.length,
+                 latest: newer.map(sp => String(sp.xero_posted_at)).sort().pop() };
+      })();
       // `cents` is declared with rawVariance above — same reason, same rounding.
-      const unexplained = cents((movement.measured && booksClosing != null && computed != null)
+      // session 273: `_ledgerStale` withholds the verdict for the same reason
+      // `movement.measured` does -- the subtraction would be arithmetic on an input
+      // that cannot support it. Both land in `unattributed` below, which STATES the
+      // figure and diagnoses nothing.
+      const unexplained = cents((movement.measured && !_ledgerStale && booksClosing != null && computed != null)
         ? booksClosing - computed : null);
       // ── THE SAME SUBTRACTION, WITHOUT THE RIGHT TO CALL IT A FINDING ─────
       // When the month's movement was never measured we still hold both books
@@ -17217,7 +17260,7 @@
       // band, no gate, no blocking, and the words say the cause is unmeasured.
       // That is the same move as the roll-back's refusals and as
       // "agrees by construction" — name the limit, show the number.
-      const unattributed = cents((!movement.measured && booksClosing != null && computed != null)
+      const unattributed = cents(((!movement.measured || _ledgerStale) && booksClosing != null && computed != null)
         ? booksClosing - computed : null);
       // A staged transaction is in the ledger and out of the month's principal
       // by design, so the gap it opens is already owned by the posting gate.
@@ -17263,6 +17306,7 @@
                bookClose, booksClosing, movement, drawn, drawnGross, drawnNetted,
                stagedInterest, nettableInterest,
                unexplained, unexplainedBand, stagedExplains, unattributed, originationGap,
+               ledgerStale: _ledgerStale,
                anchor, grade: anchor.grade, perLender, splits, principal, interest,
                computed, variance, varianceResidual, band, circular, staleAnchor, rawVariance, unbooked, stagedSplits,
                automatic, unposted, undated, coversMonth };
@@ -17999,38 +18043,44 @@
     // ── THE ASK, IN THE SAME LINE ─────────────────────────────────────────
     // What is left to do, in the order someone would do it. Red only where
     // there is an action; the counts that are simply true stay grey.
+    // ── ONE NUMBER, AND IT IS THE UPLOAD (David, same day) ────────────────
+    // "Instead of 9 of 11 statements 'checked', I want to emphasize the number
+    // of statements uploaded so we know if we have more work to do on that
+    // front." — and then: remove the rest, "because that is self explanatory
+    // from the table."
+    //
+    // So the line is now a single figure about DOCUMENTS ARRIVING, which is the
+    // one piece of work that is nobody's but the business owner's: chasing a
+    // lender for a statement is a different job from reconciling one, and it is
+    // the job that blocks everything downstream.
+    //
+    // ⚠️ AND THE CHECKED/UPLOADED DISTINCTION IS NOT DROPPED, it MOVES. Session
+    // 262's rule is that a statement on file is not evidence until it has been
+    // compared against Xero, and a headline reading "10 of 11 uploaded" is
+    // exactly the conflation that rule exists to prevent — IF it were the only
+    // thing on the strip. It is not: the bar beside it still splits that same
+    // 10 into green (checked) and amber (never compared), both segments name
+    // their loans on hover, the Status column says it per row, and data-gates
+    // carries the full sentence. Cut the words, keep the claim (ce17). If the
+    // amber segment is ever removed from the bar, this headline MUST go back to
+    // "checked" in the same commit, or the gate's whole point is gone from the
+    // screen.
+    const nUploaded = nDone + nUnchecked;
     const askBits = [];
-    askBits.push(`<b>${nDone} of ${barTotal}</b> statements checked`);
-    const chase = [];
-    if (nUnchecked) chase.push(`${nUnchecked} to check`);
-    if (nAwait) chase.push(`${nAwait} to chase`);
-    if (chase.length) askBits.push(`<span class="ask">${esc(chase.join(', '))}</span>`);
-    // The schedule question is David's third ask and a genuinely separate one:
-    // a month can be 12 of 12 on statements and still have loans that fell out
-    // of the staging loop. Definition lives in the title, not in the line.
-    if (track.total) {
-      const schedTitle = esc('Loans set to pre-stage that have their next scheduled payment lined up — '
-        + 'either already staged in Xero, or a card waiting for approval. A loan whose only card '
-        + 'needs attention is counted as off schedule: nothing advances until a person resolves it.'
-        + (track.names.length ? ' Off schedule: ' + track.names.join(', ') : ''));
-      askBits.push(track.stalled.length
-        ? `<span class="ask" title="${schedTitle}">${track.stalled.length} of ${track.total} off schedule</span>`
-        : `<span title="${schedTitle}">${track.done} of ${track.total} on schedule</span>`);
-    }
-    // The tail, said in words as well as in grey — a colour nobody hovers is a
-    // claim nobody reads.
-    const shortOther = otherBad.map(g =>
-        g.key === 'provisional-opening' ? `${_cvMonthName(String(rf.priorEnd).slice(0, 7))} still open`
-      : g.key === 'variance'            ? `${g.n} off`
-      : g.key === 'ledger'              ? `${g.n} unexplained in the ledger`
-      : g.key === 'posting'             ? `${g.n} unposted`
-      : String(g.text).split(':')[0]);
-    if (shortOther.length) askBits.push(`<span class="ask">${esc(shortOther.join(', '))}</span>`);
+    askBits.push(`<span title="${esc('A statement is UPLOADED once the lender\u2019s own document for this month is on file. '
+      + 'It is not evidence until it has also been checked against Xero \u2014 the bar beside this splits the two: '
+      + 'green is uploaded and checked, amber is on file and not yet compared.')}"`
+      + `><b>${nUploaded} of ${barTotal}</b> statements uploaded</span>`);
     // Same reasoning as data-gates: the numbers this bar draws must survive as
     // data, so the suite asserts on what was COMPUTED rather than on pixel widths.
     const progressAttr = esc(JSON.stringify({
       checked: nDone, unchecked: nUnchecked, awaiting: nAwait, total: barTotal,
+      uploaded: nUploaded,
       tail: !!tailUnits, tailKeys: otherBad.map(g => g.key),
+      // Still computed, still carried, no longer printed. David: the table says
+      // it. The suite reads these, so the counts keep a test even though the
+      // strip stopped showing them — and a future surface that wants them calls
+      // _bkScheduleTrack() rather than counting splits again.
       onSchedule: track.done, scheduleTotal: track.total, offSchedule: track.names,
     }));
 
@@ -18385,6 +18435,12 @@
         ? `ledger ${signed(r.unexplained)} — a real difference, too small to chase on its own`
         : r.unexplainedBand === 'unbooked'
         ? `ledger ${signed(r.unexplained)} — a staged transaction this month deliberately excludes; the posting gate owns it`
+        : r.ledgerStale
+        // Not a difference. The snapshot of Xero this row would be judged against
+        // was taken before the journal reached Xero, so it is guaranteed to differ
+        // by whatever was posted since. Say that, and say the one thing that fixes
+        // it -- never print a red figure a reader would go and investigate.
+        ? `ledger not checked — ${r.ledgerStale.splits} split${r.ledgerStale.splits === 1 ? '' : 's'} reached Xero after this balance was read (${_bkPlainDate(String(r.ledgerStale.computedAt).slice(0, 10))}); run the reconciliation check to compare against a current one`
         : (r.unattributed != null && Math.abs(r.unattributed) >= 0.005)
         // NOT a finding, and it must not read as one. Without the month's
         // measured movement nobody can tell a drawdown from a missing split.
@@ -18403,6 +18459,7 @@
         : r.unexplainedBand === 'immaterial' ? ledgerNote
         : r.unexplainedBand === 'unbooked' ? ledgerNote
         : r.unexplainedBand === 'tie' ? 'ledger fully explained — no difference'
+        : r.ledgerStale ? ledgerNote
         : (ledgerNote || 'no ledger figure to compare this month');
       const ledgerCell = `<span class="lcb-mark ${ledgerCls}" data-status="${esc(ledgerVerdict)}" title="${esc(ledgerVerdict)}">${ledgerGlyph}</span>`;
 
@@ -18450,7 +18507,7 @@
         <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
-        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
+        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
         <td>${bookedCell}</td>
         <td>${booked}</td>
         <td>${ledgerCell}</td>
