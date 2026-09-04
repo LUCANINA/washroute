@@ -36,18 +36,19 @@
 > `docs/bookkeeping/SCOPE-REDUCTION-2026-09.md` §6 carries the decision and the measurements
 > behind it.
 >
-> ### ⚠️ TWO COMMITS ARE COMMITTED BUT **NOT PUSHED**
+> ### ⚠️ PUSH STATE: VERIFY AGAINST THE REMOTE, NOT AGAINST A FAILED PUSH
 >
-> `418bcf5` (totals-row coverage) and `171d5de` (Staging column) are on `main` locally and
-> have NOT reached `origin`. The sandboxed shell this session worked in carries no GitHub
-> credentials — **David has to `git push` from his own terminal**, or the Vercel deploy will
-> not carry either change. Check `git log origin/main..HEAD` before assuming they landed.
+> I told David two commits were unpushed. **They were pushed.** My own `git push` failed for
+> credentials in the sandboxed shell, and I reported that failure as the repo's state without
+> ever asking the remote. `git ls-remote origin refs/heads/main` had them. **A push this
+> shell cannot perform is not a push that did not happen** — David pushes from his own
+> terminal, and `origin/main` moves without this session doing anything.
 >
-> Related, and the reason the last request had to be asked twice: **"remove '10 to clear' on
-> this page" was already fixed and pushed** (`72f2323`) when David re-reported it. The code
-> had the badge in `renderOverviewPeriodBar` only. That was a CACHED PAGE, not a defect. When
-> a UI fix "does not show", check `git log origin/main..HEAD` and the build-version stamp
-> BEFORE re-editing — I nearly removed a correct line twice.
+> Related, same shape, same day: **"remove '10 to clear' on this page" was already fixed and
+> pushed** (`72f2323`) when David re-reported it. That was a CACHED PAGE, not a defect.
+>
+> So, before claiming anything about deploy state: `git ls-remote origin refs/heads/main`,
+> then compare. Not the local `origin/main` ref, not the outcome of a push attempt.
 >
 > ### ✅ STAGED LOANS NOW LIVE ON LOANS, NOT OVERVIEW (session 267 cont.)
 >
@@ -57,15 +58,26 @@
 >
 > * The Overview **Staged tab is gone entirely** — every row it held was a loan split, so it
 >   had nothing left to show. Staged splits also no longer hold the "everything is reconciled"
->   line open. **That is safe only because a flagged stage still raises its own Issue through
->   `stage_flag`** — the alarm reaches Overview even though the register does not. If that
->   ever changes, this deletion has to be revisited in the same edit.
+>   line open.
+> * **I JUSTIFIED THAT WRONGLY AND THE CORRECTION MATTERS.** I claimed a flagged stage still
+>   reaches Overview through `stage_flag`. **It does not.** `stage_flag` items join the
+>   APPROVALS list, and that list drops any item whose loan already has an Issues row
+>   (`if (issueLoanIds.has(...)) return`). A duplicate-suspected stage on a loan that also has
+>   a variance — the likeliest pairing — is on **no Overview surface at all**. **The Loans
+>   Staging column is therefore the only guaranteed home for a flagged stage. Do not delete or
+>   quieten it on the theory Overview covers it.** Pinned by `staging-column` (f).
 > * The Loans table has a **Staging** column reading ALL staged splits per loan (not just the
 >   newest — a weekly lender can carry two). Flagged → "needs a look"; otherwise "scheduled".
 > * The Type column's "+1 upcoming" badge no longer fires on a staged entry (the new column
 >   says it), but survives for every other in-flight state.
-> * Harness group **`staging-column`**, 17 assertions, **five mutations tried and all five
->   caught**. The Loans table is now TWELVE columns: colgroup `<col>` count, header count, row
+> * Harness group **`staging-column`**, 22 assertions, **seven mutations tried and all seven
+>   caught**. Two of them found real defects of mine, after I had already reported the work as
+>   done: (1) `case 'staging'` returned `r.stagedFlagged ? 0 : ...` and `stagedFlagged` is an
+>   **array** — `[]` is truthy, so every row ranked equal, the sort fell through to the
+>   tiebreak, and clicking Staging did nothing while looking like it worked; (2) the first
+>   Overview assertion passed **vacuously**, matching the loan's name in queue text that was
+>   there for an unrelated variance. **A test that can pass for a reason other than the one it
+>   names is worse than no test.** The Loans table is now TWELVE columns: colgroup `<col>` count, header count, row
 >   cell count and tfoot colspan all have to move together, and the group asserts them against
 >   each other rather than against a number written down anywhere.
 >

@@ -1177,6 +1177,85 @@ GROUPS.push({
            '...as does the staged register\'s own explanation');
       await p.close();
     }
+
+    // ── (f) WHY THE COLUMN IS LOAD-BEARING, MEASURED RATHER THAN ASSUMED ─────
+    // I justified deleting the Staged tab by claiming a flagged stage still
+    // reaches Overview through _bkLoanAttentionItems' stage_flag. THAT CLAIM IS
+    // FALSE, and this is the group that caught it. stage_flag items join the
+    // APPROVALS list, and that list drops any item whose loan already has an
+    // Issues row (`if (issueLoanIds.has(...)) return`). A duplicate-suspected
+    // stage on a loan that also has a variance — the likeliest combination —
+    // is on no Overview surface at all.
+    //
+    // My first version of this assertion PASSED, vacuously: it looked for the
+    // loan's name in the queue text, and the name was there because that loan
+    // had an unrelated variance row. A test that can pass for a reason other
+    // than the one it names is worse than no test, so it now asserts the thing
+    // that is actually true, in the direction that actually matters: Overview
+    // does NOT carry this, therefore the Loans column may never be quietly
+    // dropped as a duplicate of something Overview shows.
+    {
+      const p = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+        // Deliberately a loan that ALSO has a variance issue — the suppressed case.
+        const sp = d.loan_splits.find(x => x.status === 'staged');
+        sp.stage_sweep_flag = 'duplicate_suspected';
+        d.__loan = (d.loan_accounts.find(a => a.id === sp.loan_account_id) || {}).xero_account_name;
+      } });
+      const seen = await p.evaluate(() => ({
+        // The precondition, measured on the page rather than believed: the
+        // attention layer really does raise this item...
+        raised: (typeof _bkLoanAttentionItems === 'function')
+          ? _bkLoanAttentionItems().filter(i => i.kind === 'stage_flag').length : -1,
+        // ...and the Overview queue really does not carry it. Keyed on the item
+        // KEY, not on the loan name, which is what made the first version pass
+        // for the wrong reason.
+        inIssues: (typeof _bkIssueQueueItems === 'function')
+          ? _bkIssueQueueItems().filter(i => /^stage-/.test(i.key)).length : -1,
+        inApprovals: (typeof _bkApprovalQueueItems === 'function')
+          ? _bkApprovalQueueItems().filter(i => /^stage-/.test(i.key)).length : -1,
+      }));
+      t.eq(seen.raised, 1,
+           'the attention layer does raise the flagged stage — so the check below is about ROUTING, not about a stage that never fired');
+      t.eq(seen.inIssues + seen.inApprovals, 0,
+           'DOCUMENTED: a flagged stage on a loan that already has an Issue reaches NO Overview queue — which is why the Loans Staging column is the only guaranteed surface for it',
+           `issues ${seen.inIssues}, approvals ${seen.inApprovals}`);
+      await p.close();
+    }
+
+    // ── (g) the column sorts ─────────────────────────────────────────────────
+    // Clicking Staging must put the rows that need somebody FIRST. A header
+    // that sorts by a rank nobody checked is a header that quietly sorts by
+    // nothing -- and the ranking is inverted relative to every other column
+    // here (lower = more urgent), which is exactly the kind of thing that gets
+    // "tidied" later.
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const st = d.loan_splits.filter(x => x.status === 'staged');
+        st[st.length - 1].stage_sweep_flag = 'duplicate_suspected';
+        d.__loan = (d.loan_accounts.find(a => a.id === st[st.length - 1].loan_account_id) || {}).xero_account_name;
+      } });
+      const out = await p.evaluate(() => {
+        const th = [...document.querySelectorAll('#loans-table-wrap thead th')]
+          .find(x => x.innerText.trim() === 'Staging');
+        th.click();
+        const rows = [...document.querySelectorAll('#loans-table-wrap tbody tr')]
+          .map(tr => [...tr.children].map(td => td.innerText.replace(/\s+/g, ' ').trim()));
+        const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(x => x.innerText.trim());
+        const i = hdr.indexOf('Staging'), n = hdr.indexOf('Loan');
+        return { first: rows[0] ? rows[0][i] : '', firstName: rows[0] ? rows[0][n] : '',
+                 col: rows.map(r => r[i]), name: window.__WR_FIXTURE.__loan };
+      });
+      t.ok(/needs a look/.test(out.first),
+           'sorting by Staging puts the flagged row first — the only one anybody has to act on',
+           `column after sort: ${JSON.stringify(out.col)}`);
+      t.eq(out.firstName, out.name, '...and it is the loan that was actually flagged');
+      const lastScheduled = out.col.map(c => /scheduled/.test(c)).lastIndexOf(true);
+      const firstEmpty = out.col.findIndex(c => !/scheduled|needs a look/.test(c));
+      t.ok(firstEmpty === -1 || lastScheduled < firstEmpty,
+           '...and the loans with nothing staged sort below the ones that do',
+           `column after sort: ${JSON.stringify(out.col)}`);
+      await p.close();
+    }
   },
 });
 

@@ -4029,7 +4029,9 @@
                          tab had nothing left to show once they moved. The register did not
                          disappear with it -- it is the Staging column on the Loans table, beside
                          the loan it belongs to, which is where a reader was going to look the
-                         moment they wanted to know anything else about that loan. -->
+                         moment they wanted to know anything else about that loan. That column is
+                         the ONLY surface that always shows a flagged stage; Overview does not
+                         (see the note in renderBookkeepingOverview's all-clear branch). -->
                   </div>
                 </span>
               </div>
@@ -11997,10 +11999,22 @@
       // claim about the books, and it is only true if we managed to read them.
       // This is the second all-clear on the page and it needed the same gate.
       if (!_bkDataReady()) statusEl.textContent = "Still reading your books — this is not an all-clear yet.";
-      // Staged splits deliberately do NOT hold this open any more. They need
-      // nothing from anyone here, they are visible on Loans, and a flagged one
-      // still raises an Issue of its own through stage_flag -- so the alarm
-      // reaches this page even though the register does not.
+      // Staged splits deliberately do NOT hold this open any more: they need
+      // nothing from anyone, and they are on the Loans table where David asked
+      // for them.
+      //
+      // I FIRST JUSTIFIED THIS WRONGLY, so the correction is written down here.
+      // The claim was "a flagged stage still raises an Issue through stage_flag,
+      // so the alarm reaches this page anyway." It does not. stage_flag items
+      // join the APPROVALS list (see the _bkLoanAttentionItems filter below),
+      // and that list SUPPRESSES any item whose loan already has an Issues row.
+      // A duplicate-suspected stage on a loan that also has a variance -- the
+      // single likeliest combination -- therefore appears nowhere on Overview.
+      //
+      // Which makes the Loans Staging column load-bearing rather than a
+      // convenience: it is the only surface that always shows a flagged stage.
+      // Do not delete or quieten it on the theory that Overview has this
+      // covered. It does not. (Pinned by the `staging-column` harness group.)
       else if (!issues.length && !approvals.length) statusEl.textContent = 'Everything is reconciled — nothing needs you right now.';
       else {
         const parts = [];
@@ -19310,7 +19324,13 @@
       // ones at the top -- the only rows in this column anybody has to act on.
       // A loan with nothing staged returns null and sorts last in EITHER
       // direction: "not staged" is not a small amount of staging.
-      case 'staging': return r.stagedFlagged ? 0 : (r.stagedSplits.length ? 1 : null);
+      // .length, NOT the array. `r.stagedFlagged` is an ARRAY and `[]` is truthy,
+      // so the first version of this line returned 0 for every loan on the table:
+      // every row ranked equal, the sort fell through to the tiebreak, and
+      // clicking Staging did nothing at all while looking like it worked. A
+      // flagged stage sorted level with a calm one, which is the one thing this
+      // column exists to prevent.
+      case 'staging': return r.stagedFlagged.length ? 0 : (r.stagedSplits.length ? 1 : null);
       case 'principal': return r.lastSplit ? Number(r.lastSplit.principal_amount) : null;
       case 'interest': return r.lastSplit ? Number(r.lastSplit.interest_amount) : null;
       case 'outstanding': return r.bal ? Number(r.bal.amount) : null;
