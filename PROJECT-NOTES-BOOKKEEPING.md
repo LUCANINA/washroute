@@ -45,11 +45,84 @@
 > **12,631.38** — **$0.00 difference**, with both ends supplied by the lender and neither by the
 > schedule. That is a real independent check, not session 246's agrees-by-construction shape.
 >
-> The write is `loan_amortization_schedules.anchor_statement_date = '2026-09-02'` on
-> `96839329-b175-4e98-8604-b5a51c3250a8`, which unblocks staging honestly. **It is a write to a
-> financial table on the strength of an inference, so it waits for David.** He has been asked.
-> Until then PayPal 2's weekly lines are coded by hand — a degradation, and the correct one.
+> **DAVID REJECTED THE WRITE, AND HE WAS RIGHT.** Hand-setting `anchor_statement_date` would be
+> the schedule certifying itself — the arithmetic agreeing is not a document arriving. *"Instead
+> of inferring, tell us what is missing."*
 >
+> **WHAT IS MISSING: the current PayPal payment-history CSV.** The one on file is
+> `2026-08-04-YOUNG & FOOLISH LLC 1.csv`, parsed 4 August; the lender has moved a month since.
+> Upload the current export and the schedule is re-parsed from the lender's own document, the
+> anchor advances because a DOCUMENT moved it, and staging unblocks with no inference anywhere.
+> One upload. No code, no data fix, nothing for a session to decide. **This is session 262's
+> ask-don't-claim rule reaching the one surface that had not learned it yet** — asking for a
+> document is cheaper than reasoning around its absence, and it is the owner's chore, not the
+> CPA's.
+>
+>
+> ### 3b. 🔴 FORD — THREE STAGED TRANSACTIONS IN XERO CARRY A SUPERSEDED SPLIT (found 2026-09-04)
+>
+> **Measured, live, and blocked on Xero's daily quota.** All four Ford splits are tied to the
+> schedule that was SUPERSEDED when the new statement arrived, not to the re-derived one. Three
+> of them are staged in Xero right now:
+>
+> | Ford | split | staged P / I | current schedule | interest overstated |
+> |---|---|---|---|---|
+> | 61564140 | `1d52195d` | 1,105.09 / 75.23 | 1,131.78 / 48.54 | 26.69 |
+> | 63204751 | `a82fdd26` | 798.33 / 248.62 | 886.55 / 160.40 | 88.22 |
+> | 63982094 | `cbaf2b97` | 474.23 / 169.27 | 534.30 / 109.20 | 60.07 |
+>
+> **$174.98 of interest overstated, principal understated by exactly the same.** THE TOTALS ARE
+> IDENTICAL IN EVERY ROW, which is why nobody has caught it since 2026-08-24: the bank-feed
+> match will succeed and look perfect. Only the allocation is wrong.
+>
+> **61797019 (`25f04fb7`) is a different and worse shape:** `pending_review`, dated 2026-09-20,
+> and the current schedule HAS NO ROW ON THAT DATE — the payment day was re-measured between
+> derivations (session 231's rule). It is not a wrong number, it is a wrong day.
+>
+> **NOTHING IS MISSING HERE — that is the point.** Every Ford statement is on file and current;
+> every loan was correctly re-derived. The product simply never moved the splits onto the new
+> schedules. This is Tech Debt #31's shape, measured on four loans with money in Xero. Contrast
+> PayPal 2 above, where a document genuinely is missing and one upload fixes it.
+>
+> **ROOT CAUSE NOT ESTABLISHED — do not guess at it.** What IS known:
+> * `_shared/derive-schedule.ts` §6 flags `stage_sweep_flag='stale_projection'` on exactly this
+>   case, and **it IS deployed** — read out of the deployed `loan-ingest-statement` bundle,
+>   byte-for-byte, not inferred from git.
+> * The re-derives DID run through that code (`uploaded_by` = "auto re-derive — new lender
+>   statement dated …", which only that path writes).
+> * And yet `stage_sweep_flag` is **null** on all four, and `review_notes` still carries the
+>   original 2026-08-24 staging note — which the flagging block would have OVERWRITTEN. So the
+>   block did not execute for these rows.
+> * 61797019 was `pending_review`, so `.eq('status','staged')` correctly skipped it — **but that
+>   filter is itself a hole**: a pending_review split on a superseded schedule is exactly as
+>   wrong and nothing looks at it.
+> * First place to look: session 231 records a flag-clearing bug that the daily
+>   `wr-loan-stage-sweep` cron (jobid 24, `0 16 * * *`) made a certainty.
+>
+> **THE FIX NEEDS DAVID'S HANDS.** `unstage` requires an admin/manager USER JWT
+> (`loan-xero-post` line 955) — the `x-wr-internal` secret is NOT accepted on that path, by
+> design. A session cannot do it. Per loan: unstage → regenerate the split from the CURRENT
+> schedule → re-stage. The function refuses to unstage anything already reconciled, so the
+> sequence is safe to attempt.
+>
+> ### 3c. 🔴 XERO'S DAILY API QUOTA WAS EXHAUSTED AT 2026-09-04 03:13 UTC
+>
+> `remaining_day: 0`, `retry_after_seconds: 44774` → back around **15:39 UTC (08:39 Pacific)**.
+> This is what stopped the Ford fix: `unstage` fetches and then deletes in Xero, so it cannot
+> run until the quota returns. **Verify the transactions are still unreconciled before
+> unstaging** — that read was attempted and is the one thing not yet confirmed.
+>
+> ⚠️ **AND THE METER HAS A BLIND SPOT.** `xero_api_usage` records **only `xero-read`** — 34
+> runs, 343 calls in the last 24 hours, nowhere near a limit. So the calls that actually
+> exhausted the day came from callers nothing meters (`reconciliation-run`, `loan-xero-post`,
+> the payout crons). *An alarm that inspects one caller can only find that caller's problems* —
+> session 266's lesson, restated in a new place. Metering the other Xero callers is now a real
+> item, because **the daily cron in §2 is being added to a budget nobody can see**.
+>
+> ⚠️ **THIS MAY MOVE THE CRON.** 06:00 Pacific is 13:00 UTC, which today would fall BEFORE the
+> ~15:39 UTC reset. Whether Xero's daily limit is a rolling 24h window or a fixed UTC reset has
+> NOT been established — check it before creating the job, or the very first scheduled run 429s.
+
 > ### 4. WHAT SESSION 268 CLOSED (do not re-do these)
 >
 > * **§7b — `loan-xero-post`'s `startsWith('derived_')` denylist.** Now
