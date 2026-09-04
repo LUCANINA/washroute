@@ -4233,8 +4233,13 @@ const CLOSE_REVERTS = {
   'null-drawn-is-zero': ['const measured = !!(d && d.movement_measured === true && d.drawn != null);',
                          'const measured = !!(d && d.movement_measured === true);'],
   // The ledger check stops refusing to run on an unmeasured month.
-  'ledger-runs-unmeasured': ['const unexplained = cents((movement.measured && booksClosing != null && computed != null)',
-                             'const unexplained = cents((true && booksClosing != null && computed != null)'],
+  // Session 273 re-anchored this: the line gained `&& !_ledgerStale` when a books
+  // balance older than the journal it judges became its own refusal. The MUTATION
+  // is unchanged in meaning -- it removes the measured-movement guard -- but the
+  // anchor had to move with the code, or ce24's control would have gone quietly
+  // un-runnable and reported "could not be rebuilt" forever.
+  'ledger-runs-unmeasured': ['const unexplained = cents((movement.measured && !_ledgerStale && booksClosing != null && computed != null)',
+                             'const unexplained = cents((true && !_ledgerStale && booksClosing != null && computed != null)'],
   // Unmeasured renders as a dash — which reads as "nothing was borrowed", the
   // exact substitution that hid the $125,000 in the first place.
   'unmeasured-renders-dash': ['const drawnCell = r.movement.measured', 'const drawnCell = true'],
@@ -9020,6 +9025,108 @@ GROUPS.push({
 
     t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
     await p.close();
+  },
+});
+
+/* SESSION 273 — A LEDGER VERDICT MAY NOT BE GIVEN ON A STALE BALANCE.
+
+   Rapid's $457.14 fee reached Xero at 21:13:45. The books balance it was being
+   compared against had been rebuilt at 17:42:20. The row printed Ledger ✗ for
+   exactly $457.14 — the number was real, the disagreement was not, and nothing on
+   screen said which. It points the wrong way too: it accuses Xero of being short
+   when Xero is right and our copy is behind.
+
+   Two halves, both asserted: the reconciliation check reloads the loan data (so
+   the window closes in the ordinary case), and a verdict is withheld whenever a
+   split reached Xero after the balance was read (so it closes in every other one —
+   a background run, another tab, a cron, a refresh that failed). */
+GROUPS.push({
+  name: 'ledger-not-checked-when-stale',
+  async run(t) {
+    const RAPID = /Rapid Credit Line/;
+    const stamp = (d) => d.loan_book_balances.forEach(b => { b.computed_at = '2026-09-04T17:42:20.849Z'; });
+
+    // A split posted AFTER the balance was read.
+    const stale = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      stamp(d);
+      const r = d.loan_accounts.find(a => RAPID.test(a.xero_account_name || ''));
+      d.loan_splits.push({
+        id: 'harness-rapid-late', loan_account_id: r.id, period_label: '2026-08-31',
+        principal_amount: -457.14, interest_amount: 457.14, total_amount: 0.00,
+        status: 'posted', source: 'statement_delta', prior_statement_id: null,
+        current_statement_id: null, matched_xero_bank_transaction_id: null,
+        xero_posted_at: '2026-09-04T21:13:45.510Z', xero_posted_by: null,
+        review_notes: null, computed_at: null, amortization_row_id: null,
+        xero_manual_journal_id: '71ed82b2-c62e-4c27-8a0a-75074ce8e2f7',
+        posting_method: 'manual_journal', pre_split_line_items_snapshot: null,
+        stage_reference: null, staged_at: null, stage_sweep_checked_at: null,
+        stage_sweep_flag: null, voided_at: null, voided_by: null, void_reason: null,
+      });
+    } });
+    const row = await stale.evaluate(() => {
+      renderLoansCloseBand();
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const r = rf.rows.find(x => /Rapid Credit Line/.test(x.a.xero_account_name || ''));
+      const td = [...document.querySelectorAll('#loans-close-band td[data-unexplained-state]')]
+        .find(x => /Rapid Credit Line/.test(x.closest('tr').getAttribute('data-loan') || ''));
+      return { stale: !!r.ledgerStale, splits: r.ledgerStale && r.ledgerStale.splits,
+               unexplained: r.unexplained, unattributed: r.unattributed,
+               state: td && td.getAttribute('data-unexplained-state'),
+               note: td && td.getAttribute('data-ledger-note'),
+               inLedgerOff: rf.ledgerOff.some(x => /Rapid/.test(x.a.xero_account_name || '')) };
+    });
+    t.eq(row.stale, true, 'a split posted after the balance was read is recognised', JSON.stringify(row));
+    t.eq(row.unexplained, null, '⭐ the ledger verdict is WITHHELD, not printed', String(row.unexplained));
+    t.ok(row.unattributed != null, '...but the figure is still STATED, not hidden', String(row.unattributed));
+    t.eq(row.state, 'stale', 'the row names the third state');
+    t.ok(/not checked/.test(row.note || ''), 'the words say it was not checked', row.note);
+    t.ok(/run the reconciliation check/i.test(row.note || ''),
+         '...and name the one thing that fixes it', row.note);
+    t.eq(row.inLedgerOff, false, '⭐ and it does NOT block the close as a ledger failure');
+    await stale.close();
+
+    /* THE CONTROL: the same split, posted BEFORE the balance was read, is judged
+       normally. Without this, "withheld" is indistinguishable from a check that
+       stopped working. */
+    const fresh = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      stamp(d);
+      const r = d.loan_accounts.find(a => RAPID.test(a.xero_account_name || ''));
+      d.loan_splits.push({
+        id: 'harness-rapid-early', loan_account_id: r.id, period_label: '2026-08-31',
+        principal_amount: -457.14, interest_amount: 457.14, total_amount: 0.00,
+        status: 'posted', source: 'statement_delta', prior_statement_id: null,
+        current_statement_id: null, matched_xero_bank_transaction_id: null,
+        xero_posted_at: '2026-09-04T09:00:00.000Z', xero_posted_by: null,
+        review_notes: null, computed_at: null, amortization_row_id: null,
+        xero_manual_journal_id: 'harness-jnl', posting_method: 'manual_journal',
+        pre_split_line_items_snapshot: null, stage_reference: null, staged_at: null,
+        stage_sweep_checked_at: null, stage_sweep_flag: null, voided_at: null,
+        voided_by: null, void_reason: null,
+      });
+    } });
+    const ok2 = await fresh.evaluate(() => {
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const r = rf.rows.find(x => /Rapid Credit Line/.test(x.a.xero_account_name || ''));
+      return { stale: !!r.ledgerStale, unexplained: r.unexplained };
+    });
+    t.eq(ok2.stale, false, 'CONTROL: a split posted before the balance is not stale');
+    t.ok(ok2.unexplained !== null, 'CONTROL: ...and the ledger check runs normally', String(ok2.unexplained));
+    await fresh.close();
+
+    /* HALF ONE: the reconciliation check reloads the loan data, not only the
+       verdicts. Asserted on the shipped source — the function is not callable in
+       the harness (it reaches Supabase and Xero), so this reads the call order it
+       ships with, which is the thing that was wrong. */
+    const p3 = await newHarnessPage({ tab: 'loans' });
+    const order = await p3.evaluate(() => {
+      const s = runReconciliationCheck.toString();
+      return { hasLoans: /await loadLoans\(\)/.test(s), hasRecon: /await loadReconciliation\(\)/.test(s),
+               loansFirst: s.indexOf('await loadLoans()') < s.indexOf('await loadReconciliation()') };
+    });
+    t.eq(order.hasRecon, true, 'the check still reloads the verdicts');
+    t.eq(order.hasLoans, true, '⭐ ...and now reloads the loan data the verdicts are about');
+    t.eq(order.loansFirst, true, '...balances first, so no render shows the old mismatch');
+    await p3.close();
   },
 });
 
