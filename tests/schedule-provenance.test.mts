@@ -123,5 +123,29 @@ ok('_SCHEDULE_AMORT_TYPES matches the shared module',
   JSON.stringify(spaTypes) === JSON.stringify([...SCHEDULE_AMORT_TYPES]),
   `SPA ${JSON.stringify(spaTypes)} vs shared ${JSON.stringify([...SCHEDULE_AMORT_TYPES])}`)
 
+console.log('\n  BOTH HALVES ASK ONE QUESTION (session 270)')
+// Session 268 fixed the staging guard's denylist and left the automatic remedy --
+// rederiveIfDerived -- still asking `startsWith('derived_')`. The guard therefore
+// blocked PayPal 2 and told the reader to re-derive, while the re-derive path
+// skipped that exact loan. A guard whose own prescribed fix is a no-op is worse
+// than no guard: it reads as actionable and cannot be acted on.
+//
+// This asserts the convergence rather than the wording. It goes red if anyone
+// reintroduces the denylist in the shared tree, which is the failure mode --
+// nobody would write it fresh; they would copy it from somewhere.
+const derive = readFileSync(new URL('../supabase/functions/_shared/derive-schedule.ts', import.meta.url), 'utf-8')
+ok('rederiveIfDerived gates on scheduleGoesStale',
+  /scheduleGoesStale\(newest\)/.test(derive))
+ok('...imported from the one module that defines it',
+  /import\s*\{\s*scheduleGoesStale\s*\}\s*from\s*["']\.\/schedule-provenance\.ts["']/.test(derive))
+ok('no startsWith(\'derived_\') denylist survives as executable code in derive-schedule.ts',
+  !derive.split('\n').some(l => !l.trim().startsWith('//') && l.includes("startsWith('derived_')")),
+  'the denylist is back -- see session 270')
+
+// It discriminates: the assertion above must FAIL against the shape it replaced.
+const brokenShape = "  if (!newest || !isDerived(newest.amort_type)) return { skipped: 'x' }"
+ok('...and that check would catch the old shape',
+  brokenShape.includes('isDerived(') && !/scheduleGoesStale\(newest\)/.test(brokenShape))
+
 console.log(`\n  ${pass} passing, ${fail} failing\n`)
 if (fail) process.exit(1)

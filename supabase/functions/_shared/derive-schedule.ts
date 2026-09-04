@@ -28,6 +28,7 @@ import {
   solvePaymentAndRate, statedPayment, paymentDayOfMonth, r2, type Period,
 } from "./rate-fit.ts"
 import { fitScheduleRate, lenderIssuedVerdict } from "./schedule-fit.ts"
+import { scheduleGoesStale } from "./schedule-provenance.ts"
 
 export const REAL_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
 
@@ -54,11 +55,12 @@ export function todayPacific(): string {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).toISOString().slice(0, 10)
 }
 
-// A schedule this product PROJECTED, as opposed to one the lender issued. Only
-// projections are re-derived automatically, and only projections are subject to
-// the staleness guard: a lender's own amortization document is not invalidated by
-// a new statement arriving, but our projection is.
-export const isDerived = (amortType: string | null | undefined) => String(amortType ?? '').startsWith('derived_')
+// `isDerived` -- a `startsWith('derived_')` DENYLIST -- used to live here and was
+// the gate on rederiveIfDerived. Removed session 270: it is the same denylist
+// session 268 replaced in the staging guard, and it was the last caller. The
+// question "is this a projection?" now has ONE answer for the whole module,
+// `scheduleGoesStale()` in _shared/schedule-provenance.ts. Two spellings of one
+// question is how the two halves came to disagree in the first place.
 
 export interface DeriveOpts {
   confirm?: boolean
@@ -352,17 +354,38 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   }
 }
 
-// Re-derive a loan's projection after something moved its anchor. A no-op unless
-// the loan already carries a DERIVED schedule -- this never turns a loan into a
-// projected one on its own, and never touches a lender-issued schedule.
+// Re-derive a loan's projection after something moved its anchor. Never touches a
+// lender-issued contractual schedule, and never turns a loan into a projected one
+// on its own (a loan with NO schedule is still skipped).
+//
+// ── SESSION 270: THE GUARD AND ITS OWN REMEDY DISAGREED ──────────────────────
+// Session 268 fixed the staging staleness guard to ask "is this the lender's
+// contractual schedule?" via an allowlist, which correctly caught PayPal 2
+// (amort_type 'actual_payment_history_from_lender_csv' -- a parse of the lender's
+// payment HISTORY, projected forward). Its refusal message tells the reader:
+// "re-derive this loan's schedule first, then stage the fresh card."
+//
+// This function -- the automatic half of that remedy -- was still asking the OLD
+// denylist question, `startsWith('derived_')`, which PayPal 2's amort_type does
+// not match. So the guard blocked the loan and pointed at a fix that was a no-op
+// for exactly that loan. Not a rule that outlived its fact (session 247); a rule
+// and its remedy born answering different questions, one file apart.
+//
+// Both halves now read `scheduleGoesStale`. A contractual lender schedule
+// (Verdant, PCV, Dexter 2) is still never re-derived; anything else is, because
+// anything else goes stale when a newer statement lands. Failure stays safe:
+// deriveSchedule returns ok:false when it cannot fit a rate, and the caller
+// already ignores that by design -- the projection simply stays stale and the
+// staging guard keeps refusing it.
 export async function rederiveIfDerived(supa: any, loanId: string, reason: string): Promise<any> {
   const { data: scheds } = await supa.from('loan_amortization_schedules')
-    .select('id, amort_type, schedule_generated_date')
+    .select('id, source, amort_type, schedule_generated_date')
     .eq('loan_account_id', loanId)
     .order('schedule_generated_date', { ascending: false })
     .limit(1)
   const newest = scheds?.[0]
-  if (!newest || !isDerived(newest.amort_type)) return { skipped: 'no derived schedule on this loan' }
+  if (!newest) return { skipped: 'no schedule on this loan' }
+  if (!scheduleGoesStale(newest)) return { skipped: 'lender-issued contractual schedule -- never re-derived' }
 
   const { data: loans } = await supa.from('loan_accounts').select('*').eq('id', loanId).limit(1)
   const loan = loans?.[0]

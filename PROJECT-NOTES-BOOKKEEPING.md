@@ -98,6 +98,32 @@
 > apart), but a verified projection is still not a document, which is what David said when he
 > rejected the hand-set anchor and is still right.
 >
+> ### 4c. ✅ THE `derived_` DENYLIST IS GONE — PAYPAL 2 NEEDS ONE CONSOLE RUN, NOT A CODE CHANGE
+>
+> **The defect was that the guard and its own remedy disagreed.** Session 268's staging guard
+> correctly refuses PayPal 2 and its message says *"re-derive this loan's schedule first"*.
+> `rederiveIfDerived` — the automatic half of that remedy — was still gating on
+> `startsWith('derived_')`, which PayPal 2's amort_type does not match. **A guard whose
+> prescribed fix is a no-op for the loan it blocked.** Both halves now read
+> `scheduleGoesStale`; `isDerived` is deleted, and `schedule-provenance.test.mts` goes red if
+> anyone copies the denylist back (proven by mutation, 2 assertions flip).
+>
+> ⚠️ **FOUR FUNCTIONS BUNDLE `_shared/derive-schedule.ts` AND ALL FOUR NEED THE DEPLOY:**
+> `loan-derive-schedule`, `loan-ingest-statement`, `loan-record-principal-payment` (all
+> `verify_jwt: true`, deploy with NO flag) and **`loan-xero-post`, which is `verify_jwt: false`
+> and MUST carry `--no-verify-jwt`** or every caller breaks. Check by behaviour, not by version.
+>
+> **Then PayPal 2 itself: `scripts/console/rederive-paypal2.js`**, run in the admin dashboard
+> console. Preview first, then commit — the file is written as two steps and the second is
+> commented out on purpose. It measures a rate from the loan's 35 real lender balances and
+> anchors at 2026-09-02, so **the anchor advances because the lender's documents moved it**,
+> which is exactly what David refused to fake by hand on 09-03. `enable_staging` is false:
+> look at the card it produces before turning staging on, as a separate decision.
+>
+> Tech Debt #33 (nothing reconciles a projected row against the lender's later actual) is
+> NOT closed by this — deriving replaces the unmaintained schedule, it does not make the
+> PayPal CSV ingest path maintain one.
+>
 > ### 4b. 🟡 THE SETTLED-LOAN RULE IS INSTALLED BUT REFUSES NOTHING — READ THE LOG BEFORE FLIPPING IT
 >
 > David's rule ("we can't modify a loan after it's been paid off") is live as a REPORT-ONLY
@@ -2580,9 +2606,34 @@ it early on the strength of "it seems fine" is what this whole session was about
   syntax-checked instead (both inline `<script>` blocks through `node --check`, clean), which
   proves it parses and proves nothing about behaviour. **Update the run-harness.sh recovery block
   with the libXdamage step when someone next gets a working browser on that VM.**
-- **`rederiveIfDerived`'s `startsWith('derived_')` denylist is still there**, which is why PayPal 2
-  is never auto-re-derived and why the "one upload" prescription could never have worked. Untouched
-  this session. START HERE §4(c).
+#### (cont.) THE DENYLIST, AND WHY IT WAS WORSE THAN "STILL ON THE LIST"
+
+Session 268 recorded `rederiveIfDerived`'s `startsWith('derived_')` gate as the same shape it had
+just fixed, noting it "fails in the SAFE direction here." **That reading was too kind, and the
+reason is worth keeping.** The staging guard it had just fixed REFUSES PayPal 2 and its refusal
+text says *"re-derive this loan's schedule first, then stage the fresh card."* The automatic half
+of that remedy skipped PayPal 2 by construction. So the product blocked a loan and pointed the
+reader at a fix that could not work on it — **failing safe on the write while failing open on the
+instructions**, which is not the safe direction in any sense a person acting on the message would
+recognise.
+
+Fixed by deleting `isDerived` outright — it had exactly one caller — and gating on
+`scheduleGoesStale`, the allowlist question session 268 already built, tested and documented. One
+question, one spelling, one module. Contractual schedules (Verdant, PCV, Dexter 2) keep the verdict
+they have; everything else is re-derived when a statement lands. Failure stays safe: `deriveSchedule`
+returns `ok:false` when it cannot fit a rate and the caller already ignores that by design.
+
+**Verified: 22 of 23 `.test.mts` files green (~1,219 assertions), the 23rd being `loan-bundle`'s
+pre-existing `pdfjs-dist` import failure, confirmed by its error text rather than assumed.**
+`edge-function-syntax` parses all 40 shared modules, so the edit is a program. Four new assertions
+in `schedule-provenance.test.mts` **proven by mutation** — restoring the old denylist line turns two
+of them red and the restored file green again. The browser harness still did not run (libXdamage,
+above), so nothing here is a claim about rendered behaviour.
+
+**PayPal 2 is now a console run, not a code change:** `scripts/console/rederive-paypal2.js`,
+preview then commit. Its 35 statements are all `portal_manual_pull` / `principal_only` — measured,
+not assumed — which is precisely the input `deriveSchedule` wants. Deriving also moves it into the
+population `rederiveIfDerived` maintains, so it stops being the one loan nothing looks after.
 
 ### Session 269 (2026-09-04) — THE AGREEMENT COLUMN STOPS SHOUTING
 
