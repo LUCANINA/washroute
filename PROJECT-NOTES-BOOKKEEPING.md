@@ -2,6 +2,33 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0d. ✅ SESSION 273 cont. IS DEPLOYED AND VERIFIED BY CONTENT (checked 2026-09-04 ~22:12 UTC)
+>
+> `loan-xero-post` **v66**, and **`verify_jwt` is still `false`** — the flag was NOT changed, which
+> was the one real risk here (this function does its own caller-role check; a deploy without
+> `--no-verify-jwt` would flip it to `true` and break every dashboard call).
+>
+> Verified by reading the deployed bundle, never by a version number: `A VOIDED CARD IS NOT A QUEUE
+> ITEM`, `while that void stands`, `reinstate the card first` and `session_273_void_is_terminal` each
+> return 1; a control string absent from the source returns 0; a sanity string
+> (`mark_already_in_xero`) returns 11, so the bundle really was read. The bundle also grew by ~1,300
+> characters, matching the insertion.
+>
+> ⚠️ **The first deploy attempt missed.** It redeployed `loan-ingest-statement` 41 → 42 with a
+> byte-identical `ezbr_sha256` (a no-op) and left `loan-xero-post` at v64. **The version number and
+> the "deployed" report both looked fine**; only grepping the live bundle caught it. This is the
+> whole reason this module checks deploys by content — a deploy that hits the wrong function reads
+> exactly like a deploy that worked.
+>
+> **The new refusal could NOT be exercised end-to-end from here**: `loan-xero-post`'s
+> `x-wr-internal` bypass covers only the stage-sweep path, and the main handler needs a real admin
+> JWT, which was not minted. What WAS proven instead: the guard's condition
+> (`voided_at || status='voided'`) matches **2 of 662** splits book-wide, with **0** contradictory
+> rows and **0** stampless voids — so it can refuse exactly the two genuinely-voided cards and
+> nothing else. A guard that refuses rows it should not is the real risk, and that is the check that
+> rules it out. The five refusal/allow cases at the database level were proven against the live
+> trigger earlier.
+>
 > ### 0c. ⏳ FUNDING CIRCLE — THE DIAGNOSIS IS DONE; ONE JOURNAL AWAITS DAVID (session 273 cont.)
 >
 > **Xero is $60.16 too high on Funding Circle, and most of it is the same mistake every month, not
