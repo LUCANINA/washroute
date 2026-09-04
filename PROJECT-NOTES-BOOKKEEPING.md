@@ -2,6 +2,48 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0f. ⏳ THE OFF-BY-ONE IS FIXED IN CODE — AWAITING ONE DEPLOY (session 273 cont.)
+>
+> Run **`bash deploy-session273b.sh`** (one function, `--no-verify-jwt`, the reason is in the
+> script's header), then tell Claude — it will read the deployed bundle, confirm `verify_jwt` is
+> still `false`, and re-run the Funding Circle walk expecting **~15.14 (Jul) / ~15.38 (Aug)**
+> instead of the 30.06 / 30.52 it reports today. **That re-run is the acceptance test; until it is
+> done this fix is unverified in production.**
+>
+> **What shipped**
+> - **`loan_accounts.statement_date_basis`** — `balance_date` (default) or `period_start`. Applied,
+>   with a CHECK constraint. 21 loans on the default, Funding Circle the only `period_start`. The
+>   default IS today's behaviour, so nothing else moves.
+>   ⚠️ Recorded per loan **by a human who looked at a PDF, never inferred at runtime.** Ford's
+>   E-Transit statements (2026-08-23) mean exactly what they say; shifting those to month end would
+>   fabricate differences on three loans. A false ask is worse than a missing one.
+>   The data API was **proven** to see the new column before any dependent code was written: a REST
+>   select naming it returned 200 while a control column returned `42703`. Session 176's fifteen
+>   hours of dead card charging is what that check exists to prevent.
+> - **`_shared/statement-period.ts`** (new) — `balanceAsOf`, `anchorsByBalanceDate`,
+>   `looksPeriodLabelled`. 27 assertions in `tests/statement-period.test.mts`, driving the REAL
+>   module against the REAL Funding Circle balances, so a regression shows up as the wrong dollar
+>   amount: the gaps must read 29.64 / 44.78 / 60.16 and the drift 15.14 / 15.38.
+> - **`loan-find-difference`** — anchors are re-dated ONCE, at both call sites (per-loan and
+>   lender-level), so spans, entry windows, `closed_period`, `in_focus` and the proposal are all
+>   right without knowing the rule exists. The filed date is kept in `filed_date`. The response now
+>   always states `statement_date_basis` — a reader who cannot see which alignment produced a number
+>   cannot check it, and this is the assumption that was wrong for a year.
+> - **The detector raises the question and never answers it.** `looksPeriodLabelled` fires only on
+>   the impossible shape — a first-of-month statement followed later THAT SAME MONTH by a HIGHER
+>   balance, on a loan that only pays down. It deliberately does not consult Xero: picking whichever
+>   alignment agrees with the books would be shopping for the answer. It is silent on Ford, silent
+>   once a loan is marked, and it surfaces in the modal ABOVE the conclusions, because a suspicion
+>   nobody can see is not a check.
+>
+> **STILL OPEN after this deploy — the walk was only half of it:**
+> 1. **The SPLIT BUILDER has the same off-by-one.** Each month's split books the previous period's
+>    principal (August: $1,025.71; the lender's August figure: $1,041.09). Fixing the walk makes the
+>    error VISIBLE and correct; it does not stop it recurring at ~$15/month.
+> 2. **The $30.52 journal** (Jul $15.14 + Aug $15.38), DR 253 / CR 800. $29.64 stays in closed books.
+> 3. **The staged 2026-09 split (`1a70eb96`, $1,041.10)** is the lender's AUGUST figure. Do not
+>    approve it until 1 is settled — it may double-count August rather than record September.
+>
 > ### 0e. 🛑 READ THIS BEFORE §0c — §0c's DIAGNOSIS IS WRONG AND IS SUPERSEDED HERE
 >
 > David asked how the Funding Circle gap actually gets resolved. Answering it properly exposed a

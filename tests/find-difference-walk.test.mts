@@ -61,6 +61,9 @@ async function loadWalk(mutate?: (src: string) => string) {
     .replace(/^import \{ getXeroAuth \} from '\.\.\/_shared\/xero-auth\.ts'\s*$/m,
       `const getXeroAuth = () => { throw new Error('getXeroAuth must not be reached in the walk') }`)
     .replace(/from '\.\.\/_shared\/close-date\.ts'/, `from '${new URL('close-date.ts', SHARED).href}'`)
+    // session 273 cont.: the statement-date basis rule lives in _shared too, and
+    // it is loaded for real -- a stub here would test the stub, not the rule.
+    .replace(/from '\.\.\/_shared\/statement-period\.ts'/, `from '${new URL('statement-period.ts', SHARED).href}'`)
     .replace(/from '\.\/diagnose-exception\.ts'/, `from '${new URL('diagnose-exception.ts', FN_DIR).href}'`)
   src = `globalThis.Deno = { serve: () => {}, env: { get: () => '' } };\n` + src
   src += `\nexport { analyzeWalk, trimAnchors, effect, entryView, r2, TOL };\n`

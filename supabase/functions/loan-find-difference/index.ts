@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { effectiveCloseDate, postingDateFor, isProtectedDate } from '../_shared/close-date.ts'
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
+import { anchorsByBalanceDate, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
 
 // ── loan-find-difference (session 225) ──────────────────────────────────────
 // "Find the difference": when the reconciliation engine says a loan's Xero
@@ -1351,7 +1352,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   const lenderName = String(body.lender || '').trim()
   if (!lenderName) return jres({ error: 'lender is required for a lender-level analysis.' }, 400)
 
-  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, xero_bank_account_id, lender, lender_account_number, status, scheduled_monthly_payment')
+  const { data: allLoans } = await supa.from('loan_accounts').select('id, xero_account_code, xero_account_name, xero_bank_account_id, lender, lender_account_number, status, scheduled_monthly_payment, statement_date_basis')
   const lenderLoans = (allLoans || []).filter((l: any) => l.lender === lenderName && l.xero_account_code)
   if (!lenderLoans.length) return jres({ error: `No loans found for lender "${lenderName}".` }, 404)
 
@@ -1378,7 +1379,13 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       .sort((a: any, b: any) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')))[0]
     const headline = finding?.detail?.difference != null
       ? { difference: Number(finding.detail.difference), as_of: finding.detail.anchor_date || null } : null
-    const anchors = (statements || []).filter((s: any) => s.balance_basis === 'principal_only' && s.principal_balance != null)
+    // Same re-dating as the per-loan path -- see the long note there. One rule,
+    // both call sites; a lender-level walk that disagreed with the per-loan walk
+    // about which month a payment fell in would be the worse bug.
+    const anchors = anchorsByBalanceDate(
+      (statements || []).filter((s: any) => s.balance_basis === 'principal_only' && s.principal_balance != null),
+      normalizeBasis((loan as any)?.statement_date_basis),
+    )
     const skippedForBasis = (statements || []).filter((s: any) => s.balance_basis !== 'principal_only').map((s: any) => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
     const { matchKnown } = prepKnownAmounts(loan, splits || [])
     bundles.push({ loan, code: String(loan.xero_account_code), finding, headline, anchors, skippedForBasis, splits: splits || [], matchKnown })
@@ -2043,7 +2050,30 @@ async function handle(req: Request): Promise<Response> {
 
   // Reliable anchors: principal_only basis only — the walk subtracts balances,
   // and mixing bases fabricates differences (the PayPal lesson, session 222).
-  const anchors = (statements || []).filter(s => s.balance_basis === 'principal_only' && s.principal_balance != null)
+  // ── session 273 cont.: THE DATE ON A STATEMENT IS NOT ALWAYS ITS BALANCE DATE
+  // Everything below subtracts one anchor's balance from the next and compares
+  // that against Xero's movement BETWEEN THOSE DATES -- which is only valid if a
+  // statement's date is the date its balance was true. Funding Circle files each
+  // statement under the FIRST day of the period it covers (issued the 18th of the
+  // following month), so its "2026-07-01" row is the JULY MONTH-END balance. Left
+  // unshifted, the walk paired each lender period against the wrong Xero month and
+  // reported ~$30/month of drift on a loan whose real drift is ~$15/month.
+  //
+  // Re-dated ONCE, here, so every line after this point -- spans, entry windows,
+  // closed_period, in_focus, the proposal -- is right without knowing the rule
+  // exists. The filed date is kept in `filed_date`; nothing is lost.
+  //
+  // A NO-OP for every loan not explicitly marked. The basis is recorded per loan
+  // from evidence on the lender's PDF, never inferred here: Ford's 2026-08-23
+  // statements mean exactly what they say, and shifting those to month end would
+  // fabricate differences. A false ask is worse than a missing one.
+  const dateBasis = normalizeBasis((loan as any)?.statement_date_basis)
+  const anchors = anchorsByBalanceDate(
+    (statements || []).filter(s => s.balance_basis === 'principal_only' && s.principal_balance != null),
+    dateBasis,
+  )
+  // The suspicion, for a HUMAN to settle against one PDF -- never acted on here.
+  const dateBasisSuspicion = looksPeriodLabelled((statements || []) as any, dateBasis)
   const skippedForBasis = (statements || []).filter(s => s.balance_basis !== 'principal_only').map(s => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
 
   const { knownAmounts, matchKnown } = prepKnownAmounts(loan, splits || [])
@@ -2150,6 +2180,13 @@ async function handle(req: Request): Promise<Response> {
     posting_window: pw,
     loan: { id: loan.id, name: loan.xero_account_name, code },
     headline,
+    // session 273 cont.: which of the two date meanings this walk assumed, always
+    // stated. A reader who cannot see WHICH alignment produced a number cannot
+    // check it, and this is the assumption that was wrong for a year.
+    statement_date_basis: dateBasis,
+    // A question, never an action -- null unless the loan's own statements
+    // contradict the basis it is filed under. See looksPeriodLabelled().
+    date_basis_suspicion: dateBasisSuspicion,
     window: { from: winFrom, to: winTo, anchors_used: usable.length, truncated_before: truncated, skipped_for_basis: skippedForBasis,
       read_via: loan.xero_bank_account_id ? 'bank transactions scoped to this loan\'s own bank account, plus every manual journal in the window' : 'org-wide month-sliced pull' },
     periods, agree_until: lastClean,
