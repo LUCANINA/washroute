@@ -8429,6 +8429,112 @@ console.log(`  rows    ${FIXTURE_TABLES.map(t => `${t}=${baseFixture[t].length}`
    These drive the shipped bkFindDifference / bkOpenFixModal, with _loanFn and
    _bkFdiffHtml swapped for the duration, and each assertion is shown to
    discriminate by restoring the un-guarded shape and watching it go red. */
+/* ── session 273 cont.: THE SAME id, TWICE ON ONE PAGE ───────────────────────
+   David reported the fix modal frozen. Twice. The first time I shipped an
+   elapsed-second ticker so a working walk could be told from a dead one -- a
+   real improvement that fixed nothing, because the ticker never ran.
+
+   Measured in his browser rather than reasoned about: with the modal open,
+   [...document.querySelectorAll('[id^="fdiff-out-"]')] returned SIX elements and
+   the Funding Circle finding id appeared TWICE -- the Needs Attention list builds
+   a container per finding, and so does the modal. getElementById returns whichever
+   comes first in the document, so `bkFindDifference` resolved the OTHER one: the
+   answer was rendered into a container the reader cannot see, and the modal kept
+   its placeholder for ever.
+
+   The posting paths had the identical flaw, and there it is worse than a freeze:
+   approving from the modal would disable a hidden button and paint "Correction
+   posted" out of sight while a real journal went to Xero.
+
+   These assertions build the collision deliberately -- a decoy container with the
+   SAME id, placed BEFORE the modal in the document -- and prove the answer lands
+   in the modal anyway. Document order must be irrelevant, not load-bearing. */
+GROUPS.push({
+  name: 'fdiff-scoped-to-its-own-container',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const FID = 'd6e290e5-aba3-433f-b855-8d3538962b4f';   // the real finding id
+
+    const r = await p.evaluate(async (fid) => {
+      const realFn = window._loanFn;
+      window._loanFn = async () => ({ ok: true, data: { conclusions: ['the answer'], periods: [] } });
+      window._allLoanAccounts = [{ id: 'L9', xero_account_name: 'Funding Circle Loan' }];
+
+      // The decoy: exactly what the Needs Attention list builds, and FIRST in the
+      // document, which is the whole point.
+      const decoy = document.createElement('div');
+      decoy.innerHTML = `<div id="fdiff-out-${fid}">decoy, must stay untouched</div>`;
+      document.body.insertBefore(decoy, document.body.firstChild);
+
+      window.bkOpenFixModal(fid, 'L9');
+      await new Promise(r => setTimeout(r, 400));
+
+      const all = [...document.querySelectorAll(`[id="fdiff-out-${fid}"]`)];
+      const modalEl = document.getElementById('loan-fix-body').querySelector(`[id="fdiff-out-${fid}"]`);
+      const out = {
+        copies: all.length,
+        firstIsDecoy: all[0] === decoy.firstElementChild,
+        decoyText: decoy.textContent.trim(),
+        modalText: modalEl ? modalEl.textContent.trim() : '(modal container missing)',
+      };
+      decoy.remove(); window.bkCloseFixModal(); window._loanFn = realFn;
+      return out;
+    }, FID);
+
+    t.eq(r.copies, 2, 'the collision is real: two elements carry the same id', JSON.stringify(r));
+    t.ok(r.firstIsDecoy, 'and the decoy is the one getElementById would have found', JSON.stringify(r));
+    t.ok(/the answer/.test(r.modalText), 'the answer lands in the MODAL container', r.modalText);
+    t.ok(!/Walking this loan/.test(r.modalText), 'the placeholder is gone from the modal', r.modalText);
+    t.eq(r.decoyText, 'decoy, must stay untouched', 'and the decoy was never written to', r.decoyText);
+
+    /* THE POSTING PATH — the dangerous one. A button inside the modal must find
+       its OWN container, not the first one on the page, or a posted correction is
+       confirmed somewhere invisible. */
+    const post = await p.evaluate(async (fid) => {
+      const realFn = window._loanFn;
+      const decoy = document.createElement('div');
+      decoy.innerHTML = `<div id="fdiff-out-${fid}">decoy</div>`;
+      document.body.insertBefore(decoy, document.body.firstChild);
+      const host = document.getElementById('loan-fix-body');
+      host.innerHTML = `<div id="fdiff-out-${fid}"><button id="fdiff-post-${fid}">Approve</button></div>`;
+      const btn = host.querySelector(`[id="fdiff-post-${fid}"]`);
+      window._loanFn = async () => ({ ok: true, data: { posted_journal: { narration: 'Correction', date: '2026-09-30' } } });
+      await window.bkPostFdiffFix(fid, 'L9', 'tok', btn);
+      const out = {
+        modalText: host.textContent.trim().slice(0, 60),
+        decoyText: decoy.textContent.trim(),
+      };
+      decoy.remove(); host.innerHTML = ''; window._loanFn = realFn;
+      return out;
+    }, FID);
+    t.ok(/posted/i.test(post.modalText), 'the posted confirmation appears where the operator clicked', post.modalText);
+    t.eq(post.decoyText, 'decoy', 'and NOT in the first matching container on the page', post.decoyText);
+
+    /* IT DISCRIMINATES — restore the page-wide lookup and watch the answer go to
+       the decoy. Without this the assertions above pass on any implementation. */
+    const fresh = await newHarnessPage({ tab: 'loans' });
+    const broken = await fresh.evaluate(async (fid) => {
+      const decoy = document.createElement('div');
+      decoy.innerHTML = `<div id="fdiff-out-${fid}">decoy</div>`;
+      document.body.insertBefore(decoy, document.body.firstChild);
+      document.getElementById('loan-fix-body').innerHTML = `<div id="fdiff-out-${fid}">placeholder</div>`;
+      // the OLD resolution, verbatim in shape
+      const found = document.getElementById('fdiff-out-' + fid);
+      found.innerHTML = 'the answer';
+      const out = { decoyText: decoy.textContent.trim(), modalText: document.getElementById('loan-fix-body').textContent.trim() };
+      decoy.remove();
+      return out;
+    }, FID);
+    t.ok(/the answer/.test(broken.decoyText),
+         'proof the assertions bite: a page-wide lookup DOES write into the decoy', JSON.stringify(broken));
+    t.ok(/placeholder/.test(broken.modalText),
+         '...leaving the modal on its placeholder — exactly what David saw', JSON.stringify(broken));
+    await fresh.close();
+
+    await p.close();
+  },
+});
+
 GROUPS.push({
   name: 'fdiff-never-strands',
   async run(t) {

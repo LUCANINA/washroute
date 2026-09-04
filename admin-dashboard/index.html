@@ -12334,9 +12334,38 @@
   // is about. The server answers about that month first, and says so plainly when
   // it has no span covering it at all -- which on PayPal 2 was the entire answer.
   // Optional: the findings card calls this with no month and behaves as before.
-  async function bkFindDifference(findingId, loanId, focusPeriod) {
-    const btn = document.getElementById('fdiff-btn-' + findingId);
-    const out = document.getElementById('fdiff-out-' + findingId);
+  // ── session 273 cont.: THE SAME id EXISTS MORE THAN ONCE ON THIS PAGE ─────
+  // Proven in David's browser, not reasoned about: with the fix modal open,
+  //   [...document.querySelectorAll('[id^="fdiff-out-"]')]
+  // returned SIX elements, and the Funding Circle finding id appeared TWICE --
+  // once for the Needs Attention list's own inline analysis, once for the modal.
+  // getElementById returns whichever comes first in the document, so the walk's
+  // answer was being written into the container the reader cannot see while the
+  // modal kept its "Walking this loan's history…" placeholder for ever. THAT is
+  // what David reported as frozen, twice. The elapsed-second ticker shipped
+  // earlier today made the symptom legible; it did not touch the cause, because
+  // it never ran -- `if (!out) return` had already fired on the wrong element.
+  //
+  // The posting paths had the identical flaw and it is worse there: approving
+  // from the modal would disable a hidden button and paint "✓ Correction posted"
+  // somewhere invisible while a real journal went to Xero. A confirmation the
+  // operator cannot see is indistinguishable from a write that did not happen.
+  //
+  // So nothing resolves an id across the whole page any more. Every lookup is
+  // scoped to the container the click came from, which makes document order
+  // irrelevant instead of load-bearing. Callers that pass no scope keep exactly
+  // the old behaviour.
+  const _fdiffEl = (kind, findingId, scope) =>
+    (scope && scope.querySelector ? scope : document).querySelector(`[id="fdiff-${kind}-${String(findingId).replace(/"/g, '')}"]`);
+  // The buttons _bkFdiffHtml renders live INSIDE the output container, so a
+  // clicked button can always name its own container. That is the one anchor
+  // that cannot be ambiguous however many copies of the id exist.
+  const _fdiffOutOf = (srcEl, findingId) =>
+    (srcEl && srcEl.closest && srcEl.closest('[id^="fdiff-out-"]')) || _fdiffEl('out', findingId, null);
+
+  async function bkFindDifference(findingId, loanId, focusPeriod, scope) {
+    const btn = _fdiffEl('btn', findingId, scope);
+    const out = _fdiffEl('out', findingId, scope);
     if (!out) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Analyzing — walking both histories… (can take a minute)'; }
     // session 273 cont.: David reported this "frozen". It was not. The walk takes
@@ -12431,7 +12460,7 @@
         <div style="color:var(--gray-600);margin-top:4px;line-height:1.5">${esc(pr.based_on || '')}</div>
         <div style="margin-top:8px;font-weight:600">${esc(pr.journal?.Narration || '')} (dated ${esc(fmtDate(pr.journal?.Date))})</div>
         ${(pr.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} ${Number(l.LineAmount) >= 0 ? 'into' : 'out of'} ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('')}
-        ${data.can_post ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}')">Approve & post correction to Xero</button></div>` : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
+        ${data.can_post ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}', this)">Approve & post correction to Xero</button></div>` : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
       </div>`);
     }
     return parts.join('');
@@ -12486,7 +12515,7 @@
         ${(pe.JournalLines || []).map(l => `<div style="color:var(--gray-600);margin-top:3px;font-size:12px">
           <strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} — ${esc(l.Description)}</div>`).join('')}
         ${data.can_post_exception
-          ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-ex-${findingId}" onclick="bkPostFdiffException('${findingId}','${loanId}','${esc(ex.token)}')">Approve &amp; post correction to Xero</button></div>`
+          ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-ex-${findingId}" onclick="bkPostFdiffException('${findingId}','${loanId}','${esc(ex.token)}', this)">Approve &amp; post correction to Xero</button></div>`
           : data.read_only_view
             ? `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-500)">Open this loan on its own to approve it — the lender-level view never writes.</div>`
             : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
@@ -12499,14 +12528,14 @@
     </div>`;
   }
 
-  async function bkPostFdiffException(findingId, loanId, token) {
-    const btn = document.getElementById('fdiff-ex-' + findingId);
+  async function bkPostFdiffException(findingId, loanId, token, srcEl) {
+    const btn = srcEl || _fdiffEl('ex', findingId, null);
     if (btn) { btn.disabled = true; btn.textContent = 'Re-checking and posting…'; }
     const { ok, data } = await _loanFn('loan-find-difference', {
       loan_account_id: loanId, post_exception: true, proposal_token: token,
       posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
     }, 180000);
-    const out = document.getElementById('fdiff-out-' + findingId);
+    const out = _fdiffOutOf(btn, findingId);
     if (!ok || data.error) {
       showToast(data.error || 'Could not post the correction.', 'error');
       if (data.analysis && out) out.innerHTML = _bkFdiffHtml(data.analysis, findingId, loanId);
@@ -12520,14 +12549,14 @@
     </div>`;
   }
 
-  async function bkPostFdiffFix(findingId, loanId, token) {
-    const btn = document.getElementById('fdiff-post-' + findingId);
+  async function bkPostFdiffFix(findingId, loanId, token, srcEl) {
+    const btn = srcEl || _fdiffEl('post', findingId, null);
     if (btn) { btn.disabled = true; btn.textContent = 'Re-checking and posting…'; }
     const { ok, data } = await _loanFn('loan-find-difference', {
       loan_account_id: loanId, post_fix: true, proposal_token: token,
       posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
     }, 180000);
-    const out = document.getElementById('fdiff-out-' + findingId);
+    const out = _fdiffOutOf(btn, findingId);
     if (!ok || data.error) {
       showToast(data.error || 'Could not post the correction.', 'error');
       // A 409 ships the fresh analysis so the human reviews what changed.
@@ -12727,7 +12756,7 @@
             <div style="color:var(--gray-600);line-height:1.5">${esc(s.based_on || '')}</div>
             <div style="margin-top:6px;font-weight:600">${esc(s.journal?.Narration || '')} (dated ${esc(fmtDate(s.journal?.Date))})</div>
             ${(s.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} ${Number(l.LineAmount) >= 0 ? 'into' : 'out of'} ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('')}
-            ${data.can_post && s.finding_id ? `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${s.finding_id}" onclick="bkPostFdiffFix('${s.finding_id}','${s.loan_account_id}','${esc(s.token)}')">Approve & post correction to Xero</button></div><div id="fdiff-out-${s.finding_id}"></div>` : `<div style="margin-top:6px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
+            ${data.can_post && s.finding_id ? `<div style="margin-top:8px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${s.finding_id}" onclick="bkPostFdiffFix('${s.finding_id}','${s.loan_account_id}','${esc(s.token)}', this)">Approve & post correction to Xero</button></div><div id="fdiff-out-${s.finding_id}"></div>` : `<div style="margin-top:6px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
           </div>`;
         }
         if (s.kind === 'upload_history' && s.loan_account_id) {
@@ -20874,9 +20903,12 @@
     // Fire-and-forget was how a rejection here became a permanent "Walking this
     // loan's history…". The catch is the difference between a stuck modal and a
     // stated cause.
-    bkFindDifference(findingId, loanId, month).catch((e) => {
+    // Scoped to the modal's own body: the page may hold another container with
+    // this very id (the Needs Attention list builds one per finding), and
+    // whichever came first in the document used to win.
+    bkFindDifference(findingId, loanId, month, document.getElementById('loan-fix-body')).catch((e) => {
       console.error('[fdiff] modal analysis failed', e);
-      const o = document.getElementById('fdiff-out-' + findingId);
+      const o = _fdiffEl('out', findingId, document.getElementById('loan-fix-body'));
       if (o) o.innerHTML = `<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">The analysis stopped before it finished — nothing was written. Please send this line to support: <code>${esc((e && e.message) || String(e))}</code></div>`;
     });
   }

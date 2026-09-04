@@ -2,6 +2,58 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0j. 🛑 THE MODAL FREEZE — THE REAL CAUSE, FOUND ON THE THIRD ATTEMPT (session 273 cont.)
+>
+> ⛔ **§0-of-the-freeze-story correction: the elapsed-second ticker shipped this morning did NOT fix
+> this, and my write-up saying the modal "was not frozen" was wrong.** It genuinely never finished.
+> Run **`bash deploy-session273b.sh`**? No — this one is DASHBOARD ONLY: push, and the Vercel deploy
+> carries it.
+>
+> **How it was found, after two wrong answers.** David reported it frozen; I checked the edge logs,
+> saw HTTP 200, reproduced the render offline against the real payload, and concluded the server and
+> the render were both fine — so I shipped a progress ticker to make a slow walk legible. He hit it
+> again. This time I stopped reasoning and measured: the deployed build was confirmed current
+> (`build-version.txt` 20260904223820 live, all markers present, control 0), the deployed function
+> source read back verbatim — and then one line in his console settled it:
+>
+> ```js
+> [...document.querySelectorAll('[id^="fdiff-out-"]')].map(e => ({ id: e.id, ... }))
+> // → SIX elements, and the Funding Circle finding id appears TWICE
+> ```
+>
+> **The same DOM id exists more than once on the page.** The Needs Attention list builds
+> `fdiff-out-<finding id>` for its own inline analysis; the fix modal builds one too. `getElementById`
+> returns whichever comes FIRST in the document, so `bkFindDifference` resolved the OTHER container:
+> the walk ran, the server answered 200, and the answer was written somewhere the reader cannot see
+> while the modal kept its placeholder for ever. The ticker never appeared because
+> `if (!out) return` had already fired on the wrong element — which is exactly why its absence in
+> David's second screenshot was the clue that broke the case.
+>
+> ⚠️ **THE POSTING PATHS HAD THE IDENTICAL FLAW, AND THERE IT IS WORSE THAN A FREEZE.**
+> `bkPostFdiffFix` and `bkPostFdiffException` resolved `fdiff-post-…` / `fdiff-ex-…` / `fdiff-out-…`
+> the same way. Approving a correction from the modal would disable a hidden button and paint
+> "✓ Correction posted" out of sight — **while a real journal went to Xero**. A confirmation the
+> operator cannot see is indistinguishable from a write that did not happen, and the natural next
+> move is to click again. Nobody hit it because the modal never got far enough to show an Approve
+> button; the freeze was hiding a worse bug.
+>
+> **The fix: nothing resolves an id across the whole page any more.** `_fdiffEl(kind, id, scope)`
+> looks inside a given container; the modal passes its own body. The buttons `_bkFdiffHtml` renders
+> live INSIDE the output container, so every posting path now derives its container from the clicked
+> button (`_fdiffOutOf(btn)`) — the one anchor that cannot be ambiguous however many copies of the id
+> exist. Callers that pass no scope behave exactly as before. **Document order is no longer
+> load-bearing.**
+>
+> Harness group `fdiff-scoped-to-its-own-container`, 9 assertions: it builds the collision on purpose
+> — a decoy container with the same id, placed FIRST — and proves the answer and the posted
+> confirmation both land in the modal, that the decoy is never touched, and that the OLD page-wide
+> lookup writes into the decoy and strands the modal, which is exactly what David saw.
+>
+> **The lesson worth keeping: two of my three explanations for this were wrong, and both wrong ones
+> came from reasoning about code I had already read instead of measuring the running page.** The
+> logs said 200 and the render worked offline — both true, both irrelevant. One `querySelectorAll`
+> in the real browser beat two rounds of analysis.
+>
 > ### 0i. ✅ THE AMOUNT-HUNT IS FIXED, DEPLOYED AND VERIFIED IN PRODUCTION (session 273 cont.)
 >
 > Verified against the live function on the real loan. The Funding Circle conclusions now read:
