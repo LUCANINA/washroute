@@ -2,29 +2,36 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
-> ### 0. 🔴 SESSION 272 IS COMMITTED AND **NOT DEPLOYED** — one CLI command
+> ### 0. ✅ SESSION 272 IS DEPLOYED AND VERIFIED BY CONTENT (checked 2026-09-04 ~20:15 UTC)
 >
-> `loan-find-difference` changed substantially (close-date gate on findings, `focus_period`,
-> month-granularity rollup, non-adjacent pair detection). **It is a CLI-only deploy** — the
-> bundle is far over the MCP tool's ~100–130KB ceiling. From the repo root, on David's machine:
+> David pushed and deployed. **`loan-find-difference` v26, `verify_jwt: false`** — so
+> `--no-verify-jwt` was used correctly and every caller still works. Verified by READING THE
+> DEPLOYED SOURCE, never by a version number or an `updated_at`:
 >
-> ```
-> npx -y supabase@latest functions deploy loan-find-difference \
->   --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> ```
+> | marker | occurrences in the deployed bundle |
+> |---|---|
+> | `focus_period` | 7 |
+> | `month_nets` | 10 |
+> | `closed_period` | 17 |
+> | `unexplainedDiff` | 4 |
+> | `verified_swap` | 1 |
+> | `no_action_detail` | 3 |
 >
-> `--no-verify-jwt` is **not optional** — the function is `verify_jwt: false` today and omitting
-> it flips it to requiring a JWT and breaks every caller. The four SPAs deploy on push as usual;
-> `git push` is still David's to run, and a push does NOT deploy the function.
+> (A control string absent from the source returned 0, so the grep discriminates.)
 >
-> ⚠️ **CHECK THE DEPLOY BY BEHAVIOUR, NEVER BY VERSION NUMBER** (this block has been wrong on
-> that five days running). Read the deployed source for `focus_period`, and confirm a live
-> response carries `months` and `closed_divergent_count`. A version number can coincide; a new
-> field in a response cannot.
+> **Confirmed live on David's screen**, which is the only proof that survives a coincidence:
+> PayPal 2's August row now closes at **$49,324.93** — the 2026-09-02 lender balance walked back
+> over the 09-02 payment — with a variance of **+$21.65**, green, and "Find the fix" rather than
+> an ask. The month's total variance fell from **$15,340.26 → $3,080.62**. The two Ford loans
+> that briefly asked for statements they did not need are back to their ordinary state
+> (E6-7410 ties, E5-4751 shows +$266.42), and the loans that genuinely cannot be evaluated —
+> Rapid Credit Line, Stripe Capital — carry "Ask for statement". David: *"MUCH better."*
 >
-> Full reasoning, and the four bugs an adversarial review found **inside** those five fixes:
-> the session 272 log entry. Read it before touching `analyzeWalk` — two of the four were
-> suppression rules writing false sentences over true errors.
+> ⚠️ **August is still not closeable, on purpose.** The close band blocks with
+> `provisional-opening`: August opens on the books at 2026-07-31 and July is still the CPA's live
+> work, so the opening — and every variance drawn from it — can still move. PayPal 2's own
+> $21.65 will move by whatever lands in July; its `2026-07-31-adj` reclass is $3,142.26, which
+> would swamp it. **This clears itself the day July closes**; nothing to switch off by hand.
 >
 > ### 1. ✅ BOTH FUNCTIONS ARE DEPLOYED AND VERIFIED BY BEHAVIOUR — not by version number
 >
