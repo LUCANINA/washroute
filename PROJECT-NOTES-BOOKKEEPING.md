@@ -2,6 +2,20 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0b. ⚠️ FORCE-REFRESH THE PAGE AFTER AN UPLOAD OR A RECONCILIATION CHECK (David, 2026-09-04)
+>
+> **David's standing instruction, and it is a workaround for a real defect — see Tech Debt #45.**
+> After uploading a document, or after pressing **Run Reconciliation Check**, hard-reload the
+> dashboard before reading any figure on the close band. The check writes new balances; the page
+> does not pick them all up, so what is on screen can be a mix of fresh verdicts and stale money.
+>
+> The live proof, 2026-09-04: Rapid's $457.14 fee posted to Xero at 21:13:45 and the row still read
+> Ledger ✗, because `loan_book_balances` for 2026-08-31 had been rebuilt at 17:42:20 and still said
+> $51,071.88 against a computed $51,529.02. The journal was in Xero; our copy of Xero was three and
+> a half hours old. A force refresh turned it green. **Nothing on screen said the difference was
+> staleness rather than disagreement**, which is the part that makes this dangerous rather than
+> merely annoying: a stale close band reads exactly like a settled one.
+>
 > ### 0a. ✅ SESSION 273 IS DEPLOYED AND VERIFIED BY CONTENT (checked 2026-09-04 ~20:40 UTC)
 >
 > `loan-ingest-statement` **v41**, and **`verify_jwt` is still `true`** — the flag was NOT changed,
@@ -2342,6 +2356,8 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 (`MATERIAL_FLOOR = 25`, the constant already shared with `isMaterialGap`). A split that big is not
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
+
+**45. 🔴 `Run Reconciliation Check` refreshes the VERDICTS and not the MONEY, so the close band can show fresh findings against stale balances (session 273).** `runReconciliationCheck()` awaits `loadReconciliation()`, which re-reads exactly three tables — `reconciliation_runs`, `reconciliation_findings`, `bk_issue_dismissals` (index.html ~14556). It does NOT re-read `loan_book_balances`, `loan_splits` or `loan_statements`, which is precisely what `reconciliation-run` has just rewritten and precisely what the close band's Computed, Closing and Ledger columns read (`loan_book_balances` is loaded by `loadLoans()` at ~14224). The same gap exists after a document upload on any path that does not already `await loadLoans()`. ⚠️ **The failure mode is silent and it points the wrong way:** on 2026-09-04 Rapid's fee posted at 21:13:45, the books row had been rebuilt at 17:42:20, and the row read Ledger ✗ for $457.14 — the number was real, the disagreement was not, and nothing said so. A reader cannot tell a stale close band from a settled one. **The fix is one line** (`await loadLoans()` alongside `loadReconciliation()`), but do it with the second half: while a posted split is NEWER than the books balance the row is comparing against, the Ledger check cannot be evaluated and must say *"posted since the last check — re-run to verify"* rather than printing a red ✗ — session 262's rule (ask when the evidence is missing) and session 273's stale-anchor rule, applied to the books side instead of the lender side. Until both ship, David's force-refresh instruction in START HERE §0b is load-bearing.
 
 **44. 🟡 `tests/bk-stub.js` serves no `settings` table, so the close date is invisible to the whole suite (session 272 cont. 2).** The dashboard reads `books_closed_through` / `xero_period_lock_date` in a separate fire-and-forget call the stub never answers, so `_bkCloseDate` is null in every harness run and always has been. Consequences: the period bar's close-date chip has never been tested; the new `provisional-opening` gate has to set the two globals directly in page context to reach its own code (it says so, in a comment, rather than pretending otherwise); and any future rule keyed on the close date starts out untestable the same way. The fix is small — serve `settings` from the fixture like every other table, and add the row to `refresh-bookkeeping-fixture.mjs` — but note it is a SINGLETON row rather than a list, so the stub's `.eq('id', 1).single()` path has to work, which no other fixture table exercises. Do it before the next rule that reads a close date, not after.
 
