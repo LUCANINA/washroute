@@ -2717,6 +2717,62 @@ the day it must be reachable from In flight the assertion announces itself.
 **Suite after: 1,742 browser assertions, 1,741 passing** — the single red being Tech Debt #19,
 which is red on purpose. New group `recon-control-placement`: 23/23.
 
+### THE OVERVIEW PAGE IS HIDDEN (session 269, David)
+
+*"hide the Overview page. We don't need it anymore."* Hidden, not deleted: the div stays in the
+DOM so nothing reading an element inside it starts throwing, its tab is gone from the row, and
+`#bookkeeping/overview` joins `kpis`/`debtsched`/`reconciliation` as a legacy redirect — to
+Loans. Default landing tab is Loans.
+
+**The work was not hiding it. The work was getting three things OUT of it first**, because a
+permanently `display:none` div is a trap for anything left inside:
+
+| Moved | To | Because |
+|---|---|---|
+| `#modal-loan-bundle` | outside all four view divs | a modal in a hidden subtree opens into nothing — no error, no dialog. Exactly session 267. |
+| `#bk-peek` (document viewer) | same | same |
+| History block (`#recon-reports`, `#intake-batch-receipts`, `#loans-recon-extras`) | the foot of Loans' manage subview | **`renderReconciliation()` EARLY-RETURNS unless `#recon-reports` exists.** Leaving it behind would have silently blanked the two status lines beside the button moved earlier this same session, with nothing to notice. |
+
+The old comment beside `#modal-loan-bundle` said it "gets away with it only because it is opened
+FROM Overview" — **a true sentence that stopped being true the moment Overview stopped being a
+page you can be on.** That is the session 247 rule (*a rule can outlive the fact it was written
+for*) catching a live defect rather than a stale label.
+
+**`renderBookkeepingOverview()` IS STILL CALLED AND MUST BE.** It is the renderer for the KPI
+tiles, which live in `#bk-view-client`. Hiding the Overview page did not retire the function —
+only its `view === 'overview'` and `_bkRefreshVisibleBookkeeping` branches, which can no longer
+be reached. Deleting the function because "Overview is gone" would take Client View's tiles with
+it.
+
+**What went with the page, by David's decision:** the Issues/Approvals queue and the Stripe
+payouts card. The loan variances are on the Loans close band and payroll approvals are on
+Payroll, so neither is lost.
+
+**Two test failures, and neither was a bug in the change:**
+
+1. `tab-races` raced `overview`, which now renders Loans while being measured with Overview's
+   surfaces — a guaranteed mismatch testing nothing. Dropped from that matrix only; `cold-boot`
+   and the closing-evidence sweep still walk it, correctly, because landing on Loans is a fine
+   thing for them to render. The KPI tiles it covered are covered by `['client','kpis']`.
+2. `roster-confetti-gate` instruments `renderBookkeepingOverview` and opened Overview to do it —
+   so it opened a page that never renders. Repointed at Client View, where that function
+   actually runs.
+
+`fix-button-opens` grew a check that OPENS both relocated modals and asserts they land on
+screen — **with `checkVisibility()`, not `offsetParent`.** `getComputedStyle` is the false pass
+the group already warned about; `offsetParent` is wrong in the opposite direction, returning
+null for ANY `position:fixed` element whether visible or not, which is what it did to both of
+these on a healthy page. Each assertion is paired with its inverse: the node is moved back
+inside the hidden Overview div in page context, confirmed invisible there, and put back.
+
+**Tech debt (new): 34 harness call sites still say `newHarnessPage({ tab: 'overview' })`** and
+now silently land on Loans. All pass, and most never cared which tab they were on — but the word
+is a lie in every one of them, and the next person to add a tab-sensitive assertion under that
+label will be debugging the wrong page. Rename in a sweep when something else touches them; do
+not do it in the same commit as a behaviour change.
+
+**Suite after: 1,752 browser assertions, 1,751 passing** — the one red is Tech Debt #19.
+
 ---
 
 ### Session 268 (2026-09-04) — THREE GUARDS THAT FAILED OPEN, AND THE ONE LOAN THAT PROVED IT

@@ -1812,11 +1812,28 @@ GROUPS.push({
     }
 
     {
+      /* Session 269: asking for Overview no longer OPENS Overview — its tab is
+         gone and switchBookkeepingView redirects it to Loans. This half of the
+         group therefore changed meaning: it used to prove the button had left
+         Overview, and now also has to prove the redirect lands somewhere the
+         button actually is. Both are worth holding, so both are asserted. */
       const p = await newHarnessPage({ tab: 'overview' });
-      const seen = await p.evaluate(probe);
-      t.eq(seen.inOverview, false, 'r269v: nothing put the button back on Overview', JSON.stringify(seen));
-      t.eq(seen.reachable, false,
-           'r269w: ...and it is not reachable from Overview — the move was a move, not a copy',
+      const seen = await p.evaluate(() => ({
+        activeTab: typeof _bookkeepingActiveTab !== 'undefined' ? _bookkeepingActiveTab : null,
+        overviewShown: getComputedStyle(document.getElementById('bk-view-overview')).display !== 'none',
+        overviewTab: !!document.getElementById('bkvt-overview'),
+        btnInOverview: !!document.getElementById('bk-view-overview')
+          ?.contains(document.getElementById('recon-run-btn')),
+        btnReachable: !!document.getElementById('recon-run-btn')?.offsetParent,
+      }));
+      t.eq(seen.activeTab, 'loans',
+           'r269v: an #bookkeeping/overview request redirects to Loans — an old bookmark still lands somewhere real',
+           JSON.stringify(seen));
+      t.eq(seen.overviewShown, false, 'r269w: ...and Overview itself never displays', JSON.stringify(seen));
+      t.eq(seen.overviewTab, false, 'r269x: ...and its tab is gone from the row', JSON.stringify(seen));
+      t.eq(seen.btnInOverview, false, 'r269y: the button is not inside the Overview div', JSON.stringify(seen));
+      t.eq(seen.btnReachable, true,
+           'r269z: ...and is reachable after the redirect, because the redirect lands on Loans',
            JSON.stringify(seen));
       await p.close();
     }
@@ -1861,6 +1878,76 @@ GROUPS.push({
     t.ok(placement.insideViews && placement.insideViews.length === 0,
          'the fix modal lives OUTSIDE every tab container (three of the four are always hidden)',
          (placement.insideViews || []).join(', '));
+
+    /* SESSION 269 — THE SAME RULE, NOW FOR THE OTHER TWO.
+       #modal-loan-bundle and the #bk-peek document viewer used to sit inside
+       #bk-view-overview and got away with it because they were opened FROM
+       Overview, which was visible when they were. Hiding Overview removed that
+       exemption: its div is display:none permanently now, so anything left
+       inside it opens into a hidden subtree — no error, no dialog, nothing at
+       all, which is precisely what this group was written for.
+
+       Checked with checkVisibility(), NOT offsetParent and NOT getComputedStyle.
+       getComputedStyle is the false pass this group's comment above warns about —
+       an element inside a display:none ancestor still reports its own display.
+       But offsetParent is wrong here too, in the opposite direction: it is null
+       for ANY position:fixed element whether visible or not, and both of these
+       are fixed, so it fails them both on a healthy page. That is what it did on
+       the first run of this assertion. checkVisibility() is the one API that
+       sees through ancestors without being confused by fixed positioning. */
+    for (const id of ['modal-loan-bundle', 'bk-peek']) {
+      const seen = await p.evaluate((elId) => {
+        const el = document.getElementById(elId);
+        if (!el) return { exists: false };
+        const views = ['bk-view-overview', 'bk-view-loans', 'bk-view-payroll', 'bk-view-client']
+          .filter(v => document.getElementById(v)?.contains(el));
+        const prev = el.style.display;
+        el.style.display = elId === 'modal-loan-bundle' ? 'flex' : 'block';
+        const r = el.getBoundingClientRect();
+        const out = {
+          exists: true, insideViews: views,
+          visible: el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+                   r.width > 0 && r.height > 0,
+          ownDisplay: getComputedStyle(el).display,
+        };
+        el.style.display = prev;
+        return out;
+      }, id);
+      t.eq(seen.exists, true, `s269: #${id} still exists after the move`, JSON.stringify(seen));
+      t.eq(seen.insideViews.length, 0,
+           `s269: #${id} lives outside every tab container — Overview is permanently hidden now`,
+           (seen.insideViews || []).join(', '));
+      t.eq(seen.visible, true,
+           `s269: #${id} actually renders on screen when opened (checkVisibility sees hidden ancestors)`,
+           JSON.stringify(seen));
+
+      /* AND PROVE THAT ASSERTION CAN FAIL. Put the element back where it used to
+         live — inside #bk-view-overview — open it there, and confirm it goes
+         invisible. Done by moving the live node in page context and putting it
+         straight back, never by editing index.html. Without this, "visible:true"
+         is just as consistent with a check that cannot see a hidden ancestor as
+         with a working move, and that is the exact mistake that let the original
+         session 267 bug through. */
+      const inverse = await p.evaluate((elId) => {
+        const el = document.getElementById(elId);
+        const home = el.parentElement, next = el.nextSibling;
+        document.getElementById('bk-view-overview').appendChild(el);
+        const prev = el.style.display;
+        el.style.display = elId === 'modal-loan-bundle' ? 'flex' : 'block';
+        const hidden = !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+        el.style.display = prev;
+        home.insertBefore(el, next);          // exactly where it was
+        el.style.display = elId === 'modal-loan-bundle' ? 'flex' : 'block';
+        const backVisible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+        el.style.display = prev;
+        return { hidden, backVisible, restoredTo: el.parentElement === home };
+      }, id);
+      t.eq(inverse.hidden, true,
+           `s269: ...and back inside the hidden Overview div it does NOT — so that check is real, not decoration`,
+           JSON.stringify(inverse));
+      t.eq(inverse.backVisible && inverse.restoredTo, true,
+           `s269: ...and #${id} was returned to exactly where it was`, JSON.stringify(inverse));
+    }
 
     const btn = await p.evaluate(() => {
       const tr = [...document.querySelectorAll('#lcb-table tbody tr')]
@@ -1919,7 +2006,14 @@ GROUPS.push({
   async run(t) {
     // Baseline: land on each tab cleanly and record every number.
     const baseline = {};
-    for (const [tab, sub] of [['overview', null], ['loans', null], ['payroll', null], ['client', 'dashboard'], ['client', 'debt'], ['client', 'kpis']]) {
+    /* Session 269: 'overview' left THIS matrix only (cold-boot and the closing-
+       evidence sweep still walk it, and correctly — asking for it just lands on
+       Loans there, which is a fine thing to render). Here it was actively
+       misleading: the race compares each tab against its own clean baseline via
+       a tab-keyed pick(), and 'overview' now renders Loans while being measured
+       with Overview's surfaces, so it could only ever mismatch. The KPI tiles it
+       used to cover are still covered by the ['client','kpis'] row. */
+    for (const [tab, sub] of [['loans', null], ['payroll', null], ['client', 'dashboard'], ['client', 'debt'], ['client', 'kpis']]) {
       const p = await newHarnessPage({ tab, sub });
       baseline[tab + (sub ? '/' + sub : '')] = await p.surfaces();
       await p.close();
@@ -1930,7 +2024,7 @@ GROUPS.push({
     const ALL = ['loan_accounts', 'loan_statements', 'loan_splits', 'loan_amortization_rows',
                  'payroll_imports', 'reconciliation_runs', 'reconciliation_findings', 'loan_tie_outs',
                  'bk_issue_dismissals', 'bookkeeping_kpi_snapshots'];
-    for (const [tab, sub] of [['overview', null], ['loans', null], ['payroll', null], ['client', 'dashboard'], ['client', 'debt'], ['client', 'kpis']]) {
+    for (const [tab, sub] of [['loans', null], ['payroll', null], ['client', 'dashboard'], ['client', 'debt'], ['client', 'kpis']]) {
       const label = tab + (sub ? '/' + sub : '');
       const p = await newHarnessPage({ tab: 'overview', settle: false, hold: ALL, defaultLatency: 5 });
       await p.switchTab('client', 'kpis');
@@ -3552,7 +3646,14 @@ GROUPS.push({
   async run(t) {
     // Instrumented boot: count _bkConfetti calls and log what each render saw.
     const armed = async (mode) => {
-      const p = await newHarnessPage({ tab: 'overview', settle: false, hold: ALL_TABLES });
+      /* Session 269: this group instruments renderBookkeepingOverview, so it has to
+         open a tab that actually CALLS it. Overview no longer does — its tab is
+         hidden and the view redirects to Loans, which calls nothing here — so this
+         opened a page that never rendered and the "at least one render" assertion
+         went red for a reason that was not a bug. Client View is where that function
+         runs now: it is still the renderer for the KPI tiles, so the confetti gate
+         inside it is still live and still worth gating. */
+      const p = await newHarnessPage({ tab: 'client', settle: false, hold: ALL_TABLES });
       const r = await p.evaluate(({ mode, FIXED, PRE }) => {
         window.__cf = 0; window.__renders = [];
         const origC = window._bkConfetti;

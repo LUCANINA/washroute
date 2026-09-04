@@ -3354,7 +3354,16 @@
         <!-- ── BOOKKEEPING (session 206) — Loans + Payroll under one CPA-centric section ── -->
         <div class="page" id="page-bookkeeping">
           <div id="bookkeeping-view-toggle" style="display:flex;gap:4px;margin-bottom:16px;">
-            <button class="section-tab active" id="bkvt-overview" onclick="switchBookkeepingView('overview')">Overview</button>
+            <!-- Session 269, David: "hide the Overview page. We don't need it anymore."
+                 HIDDEN, not deleted, and the distinction is deliberate: the div still
+                 exists so nothing that reads an element inside it starts throwing, and
+                 an old #bookkeeping/overview bookmark still resolves — it redirects to
+                 Loans in switchBookkeepingView. Everything other pages actually DEPEND
+                 on has been moved out of it (both modals, and History, which carries the
+                 #recon-reports element renderReconciliation refuses to run without).
+                 What stays behind is only what went with the page: the Issues/Approvals
+                 queue and the Stripe payouts card. David's call — the loan variances are
+                 on the Loans close band and payroll approvals are on Payroll. -->
             <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
             <button class="section-tab" id="bkvt-client" onclick="switchBookkeepingView('client')">Client View</button>
@@ -3964,62 +3973,6 @@
                  wrong) instead of its former red standalone card —
                  checkRetailCashReclassStatus() feeds _retailReclassPeriod. -->
 
-            <!-- Multi-document intake (session 242). Several files about ONE loan,
-                 read as a single piece of evidence rather than one at a time.
-                 The interesting things live in the JOINS between documents: an
-                 agreement's fee-over-total ratio reproducing a transaction
-                 export's per-payment split proves the split rule instead of
-                 assuming it, and a portal screenshot's "amount remaining" is what
-                 says which of two possible meanings the books' balance carries.
-                 Nothing here writes until the tickboxes are approved. -->
-            <div class="modal-overlay" id="modal-loan-bundle" style="display:none;z-index:900">
-              <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
-                <div class="modal-header" style="flex-shrink:0">
-                  <div>
-                    <div class="modal-title" id="lb-title">Reading these together…</div>
-                    <div class="card-sub" id="lb-sub"></div>
-                  </div>
-                  <button class="modal-close" onclick="closeLoanBundleModal()">&times;</button>
-                </div>
-                <div class="modal-body" id="lb-body" style="overflow-y:auto;flex:1 1 auto;min-height:0"></div>
-                <div class="modal-footer" style="flex-shrink:0">
-                  <div id="lb-error" style="color:var(--danger);font-size:13px;flex:1"></div>
-                  <button class="btn btn-ghost" onclick="closeLoanBundleModal()">Cancel</button>
-                  <button class="btn btn-primary" id="lb-apply" style="display:none" onclick="bkApplyBundle()">Apply selected</button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Document peek (session 224 cont., per David: "I wish I could see
-                 the relevant document quickly without having to open it").
-                 A clean whole-document viewer over the file that's ALREADY IN
-                 MEMORY on the batch row — no storage round-trip. PDFs render via
-                 the same pdf.js build the parsers use and open with the entire
-                 page visible; CSVs render as a readable table instead of raw
-                 comma text. Round 6 removed the yellow figure-highlights: real
-                 lender PDFs carry invisible text runs (metadata layers) that
-                 pdf.js text extraction can't tell apart from visible ink, so a
-                 string-match highlight can land on the wrong spot — it misfired
-                 on David's real statements three rounds running. Show the doc,
-                 don't decorate it.
-                 Drag to pan, scroll or +/− to zoom, ‹ › for pages, Esc closes. -->
-            <div id="bk-peek-backdrop" style="display:none;position:fixed;inset:0;z-index:1199;background:rgba(15,39,68,.35)" onclick="bkClosePeek()"></div>
-            <div id="bk-peek" style="display:none;position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1100px, 94vw);background:#fff;border:1px solid var(--gray-200);border-radius:14px;box-shadow:0 12px 40px rgba(15,39,68,.18);overflow:hidden">
-              <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--gray-100)">
-                <div id="bk-peek-title" style="flex:1;font-size:13px;font-weight:600;color:var(--gray-800);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
-                <button class="btn btn-ghost" id="bk-peek-prev" style="font-size:12px;padding:3px 8px" onclick="bkPeekPage(-1)">‹</button>
-                <span id="bk-peek-pageinfo" style="font-size:12px;color:var(--gray-500)"></span>
-                <button class="btn btn-ghost" id="bk-peek-next" style="font-size:12px;padding:3px 8px" onclick="bkPeekPage(1)">›</button>
-                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkPeekZoom(-1)">−</button>
-                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkPeekZoom(1)">+</button>
-                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkClosePeek()">✕</button>
-              </div>
-              <div id="bk-peek-body" style="position:relative;height:min(78vh, 950px);overflow:hidden;background:var(--gray-100);cursor:grab">
-                <canvas id="bk-peek-canvas" style="position:absolute;left:0;top:0"></canvas>
-                <div id="bk-peek-text" style="display:none;margin:0;padding:14px;font-size:12px;line-height:1.5;background:#fff;box-sizing:border-box"></div>
-                <div id="bk-peek-msg" style="display:none;padding:40px 20px;text-align:center;font-size:13px;color:var(--gray-500)"></div>
-              </div>
-            </div>
 
             <div class="card" style="margin-bottom:20px">
               <div class="card-header" style="padding:20px 24px">
@@ -4060,22 +4013,6 @@
               <div id="bk-payout-realloc-card" style="display:none;padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
                 <div style="font-size:12.5px;font-weight:600;color:var(--gray-500);margin-bottom:8px">Stripe payouts not booked</div>
                 <div id="bk-payout-realloc-list"></div>
-              </div>
-              <!-- History (session 223 cont. 3, per David): ONE record of
-                   everything settled — resolved issues with who/when,
-                   informational notes, and the reconciliation reports they came
-                   from. Replaces the three mismatched links (Recently resolved /
-                   For information / Past reconciliation reports). Collapsed by
-                   default; renderLoansAttention fills loans-recon-extras,
-                   loadReconciliation fills recon-reports. -->
-              <div style="padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
-                <span onclick="toggleOverviewPanel('bk-history-wrap',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">History<span class="overview-chevron" style="font-size:13px;transition:transform .2s">▸</span></span>
-                <div id="bk-history-wrap" style="display:none">
-                  <div id="intake-batch-receipts"></div>
-                  <div id="loans-recon-extras"></div>
-                  <div class="bk-history-label">Reconciliation reports</div>
-                  <div id="recon-reports"></div>
-                </div>
               </div>
             </div>
 
@@ -4212,6 +4149,32 @@
             </div>
           </div>
           </div><!-- /loans-period-inflight -->
+
+          <!-- ── SESSION 269: HISTORY CAME OVER FROM OVERVIEW ───────────────
+               It has to live somewhere that is not a hidden subtree, because
+               renderReconciliation() EARLY-RETURNS unless #recon-reports
+               exists — so leaving it behind would have silently blanked the two
+               status lines beside Run Reconciliation Check, with no error to
+               notice. Loans is also simply where it belongs now: this is the
+               page reconciliation runs from. Same markup, same fillers
+               (renderLoansAttention → loans-recon-extras, loadReconciliation →
+               recon-reports), still collapsed by default. -->
+              <!-- History (session 223 cont. 3, per David): ONE record of
+                   everything settled — resolved issues with who/when,
+                   informational notes, and the reconciliation reports they came
+                   from. Replaces the three mismatched links (Recently resolved /
+                   For information / Past reconciliation reports). Collapsed by
+                   default; renderLoansAttention fills loans-recon-extras,
+                   loadReconciliation fills recon-reports. -->
+              <div style="padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
+                <span onclick="toggleOverviewPanel('bk-history-wrap',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">History<span class="overview-chevron" style="font-size:13px;transition:transform .2s">▸</span></span>
+                <div id="bk-history-wrap" style="display:none">
+                  <div id="intake-batch-receipts"></div>
+                  <div id="loans-recon-extras"></div>
+                  <div class="bk-history-label">Reconciliation reports</div>
+                  <div id="recon-reports"></div>
+                </div>
+              </div>
           </div><!-- /loans-subview-manage -->
 
           </div><!-- /bk-view-loans -->
@@ -4515,6 +4478,73 @@
 
             </div><!-- /cv-subview-debt -->
           </div><!-- /bk-view-client -->
+
+          <!-- ── SESSION 269: THESE TWO MOVED OUT FOR THE SAME REASON ──────
+               #modal-loan-bundle and the #bk-peek document viewer both lived
+               inside #bk-view-overview. The comment below says that one "gets
+               away with it only because it is opened FROM Overview" — which
+               stopped being true the moment Overview stopped being a page you
+               can be on. Hidden Overview means a permanently display:none
+               ancestor, and a modal inside one opens into nothing at all: no
+               error, no dialog, exactly the session 267 failure. Both are now
+               siblings of the modal below, outside all four view containers.
+               Verified with offsetParent, never getComputedStyle — see below. -->
+            <!-- Multi-document intake (session 242). Several files about ONE loan,
+                 read as a single piece of evidence rather than one at a time.
+                 The interesting things live in the JOINS between documents: an
+                 agreement's fee-over-total ratio reproducing a transaction
+                 export's per-payment split proves the split rule instead of
+                 assuming it, and a portal screenshot's "amount remaining" is what
+                 says which of two possible meanings the books' balance carries.
+                 Nothing here writes until the tickboxes are approved. -->
+            <div class="modal-overlay" id="modal-loan-bundle" style="display:none;z-index:900">
+              <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+                <div class="modal-header" style="flex-shrink:0">
+                  <div>
+                    <div class="modal-title" id="lb-title">Reading these together…</div>
+                    <div class="card-sub" id="lb-sub"></div>
+                  </div>
+                  <button class="modal-close" onclick="closeLoanBundleModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="lb-body" style="overflow-y:auto;flex:1 1 auto;min-height:0"></div>
+                <div class="modal-footer" style="flex-shrink:0">
+                  <div id="lb-error" style="color:var(--danger);font-size:13px;flex:1"></div>
+                  <button class="btn btn-ghost" onclick="closeLoanBundleModal()">Cancel</button>
+                  <button class="btn btn-primary" id="lb-apply" style="display:none" onclick="bkApplyBundle()">Apply selected</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Document peek (session 224 cont., per David: "I wish I could see
+                 the relevant document quickly without having to open it").
+                 A clean whole-document viewer over the file that's ALREADY IN
+                 MEMORY on the batch row — no storage round-trip. PDFs render via
+                 the same pdf.js build the parsers use and open with the entire
+                 page visible; CSVs render as a readable table instead of raw
+                 comma text. Round 6 removed the yellow figure-highlights: real
+                 lender PDFs carry invisible text runs (metadata layers) that
+                 pdf.js text extraction can't tell apart from visible ink, so a
+                 string-match highlight can land on the wrong spot — it misfired
+                 on David's real statements three rounds running. Show the doc,
+                 don't decorate it.
+                 Drag to pan, scroll or +/− to zoom, ‹ › for pages, Esc closes. -->
+            <div id="bk-peek-backdrop" style="display:none;position:fixed;inset:0;z-index:1199;background:rgba(15,39,68,.35)" onclick="bkClosePeek()"></div>
+            <div id="bk-peek" style="display:none;position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1100px, 94vw);background:#fff;border:1px solid var(--gray-200);border-radius:14px;box-shadow:0 12px 40px rgba(15,39,68,.18);overflow:hidden">
+              <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--gray-100)">
+                <div id="bk-peek-title" style="flex:1;font-size:13px;font-weight:600;color:var(--gray-800);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                <button class="btn btn-ghost" id="bk-peek-prev" style="font-size:12px;padding:3px 8px" onclick="bkPeekPage(-1)">‹</button>
+                <span id="bk-peek-pageinfo" style="font-size:12px;color:var(--gray-500)"></span>
+                <button class="btn btn-ghost" id="bk-peek-next" style="font-size:12px;padding:3px 8px" onclick="bkPeekPage(1)">›</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkPeekZoom(-1)">−</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkPeekZoom(1)">+</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:3px 8px" onclick="bkClosePeek()">✕</button>
+              </div>
+              <div id="bk-peek-body" style="position:relative;height:min(78vh, 950px);overflow:hidden;background:var(--gray-100);cursor:grab">
+                <canvas id="bk-peek-canvas" style="position:absolute;left:0;top:0"></canvas>
+                <div id="bk-peek-text" style="display:none;margin:0;padding:14px;font-size:12px;line-height:1.5;background:#fff;box-sizing:border-box"></div>
+                <div id="bk-peek-msg" style="display:none;padding:40px 20px;text-align:center;font-size:13px;color:var(--gray-500)"></div>
+              </div>
+            </div>
 
           <!-- ── SESSION 267: THIS MODAL LIVES OUTSIDE THE FOUR VIEW DIVS ──
                It was first placed beside #modal-loan-bundle, which sits inside
@@ -9019,7 +9049,7 @@
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
     if (id === 'smsdelivery') loadSmsDelivery();
-    if (id === 'bookkeeping') { loadLoans(); loadPayroll(); loadReconciliation(); loadBookkeepingKpis(); switchBookkeepingView(_bookkeepingActiveTab || 'overview'); }
+    if (id === 'bookkeeping') { loadLoans(); loadPayroll(); loadReconciliation(); loadBookkeepingKpis(); switchBookkeepingView(_bookkeepingActiveTab || 'loans'); }
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -9166,7 +9196,7 @@
   // populate, so Overview can never show a different number than the tab it
   // links to — there's exactly one load path per data source, not a separate
   // one for the summary view.
-  let _bookkeepingActiveTab = 'overview';
+  let _bookkeepingActiveTab = 'loans';   // session 269: Overview is no longer a landing tab
   // Populated by loadReconciliation() — see the Reconciliation section below.
   let _reconRuns = [];
   // Session 236: per-loan tie-out rows from the newest completed reconciliation
@@ -9196,13 +9226,18 @@
     if (view === 'kpis')     { view = 'client'; sub = sub || 'kpis'; }
     if (view === 'debtsched'){ view = 'client'; sub = sub || 'debt'; }
     if (view === 'reconciliation') view = 'loans';
-    if (!['overview', 'loans', 'payroll', 'client'].includes(view)) view = 'overview';
+    // Session 269: 'overview' joins the legacy redirects above. Its tab is gone and
+    // the page is never shown; an old bookmark lands on Loans, which is where the
+    // work it used to front now lives.
+    if (view === 'overview') view = 'loans';
+    if (!['loans', 'payroll', 'client'].includes(view)) view = 'loans';
     _bookkeepingActiveTab = view;
-    document.getElementById('bk-view-overview').style.display = view === 'overview' ? '' : 'none';
+    // Always none. Kept as a statement rather than deleted, so the four view divs
+    // still read as a set and nothing here has to special-case a missing element.
+    document.getElementById('bk-view-overview').style.display = 'none';
     document.getElementById('bk-view-loans').style.display    = view === 'loans'    ? '' : 'none';
     document.getElementById('bk-view-payroll').style.display  = view === 'payroll'  ? '' : 'none';
     document.getElementById('bk-view-client').style.display   = view === 'client'   ? '' : 'none';
-    document.getElementById('bkvt-overview').classList.toggle('active', view === 'overview');
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
     document.getElementById('bkvt-client').classList.toggle('active', view === 'client');
@@ -9212,7 +9247,10 @@
     // Bookkeeping view.
     document.getElementById('topbar-cta').style.display = 'none';
 
-    if (view === 'overview') renderBookkeepingOverview();
+    // Session 269: no 'overview' branch — the view redirects to Loans above, so it
+    // can never be the active one. renderBookkeepingOverview() is still called for
+    // Client View below, and MUST BE: it is the renderer for the KPI tiles, which
+    // live in #bk-view-client. Hiding the Overview page did not retire that function.
     if (view === 'client') {
       // The KPI tiles are still rendered by renderBookkeepingOverview() -- both
       // panes exist in the DOM at all times and only display toggles, so one
@@ -9262,7 +9300,7 @@
 
   function _bkRefreshVisibleBookkeeping() {
     _bkRenderLoadBanner();
-    if (_bookkeepingActiveTab === 'overview') renderBookkeepingOverview();
+    // Session 269: the 'overview' case is gone — it can no longer be the active tab.
     if (_bookkeepingActiveTab === 'client') {
       renderBookkeepingOverview();   // still the renderer for the KPI tiles
       renderClientView();
