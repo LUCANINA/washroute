@@ -147,10 +147,39 @@
 > `scheduleGoesStale`; `isDerived` is deleted, and `schedule-provenance.test.mts` goes red if
 > anyone copies the denylist back (proven by mutation, 2 assertions flip).
 >
-> ⚠️ **FOUR FUNCTIONS BUNDLE `_shared/derive-schedule.ts` AND ALL FOUR NEED THE DEPLOY:**
-> `loan-derive-schedule`, `loan-ingest-statement`, `loan-record-principal-payment` (all
-> `verify_jwt: true`, deploy with NO flag) and **`loan-xero-post`, which is `verify_jwt: false`
-> and MUST carry `--no-verify-jwt`** or every caller breaks. Check by behaviour, not by version.
+> ✅ **DEPLOYED AND VERIFIED BY BEHAVIOUR — checked 2026-09-04 17:35 UTC, after David ran
+> `deploy-session269.sh`.** Every one of the five answered in ITS OWN WORDS, which is the only
+> thing that proves a function booted (a version number can coincide; session 264's function
+> reported deployed had never booted at all):
+>
+> | Function | v | verify_jwt | Its own answer to an empty POST |
+> |---|---|---|---|
+> | `loan-ingest-statement` | 40 | true | 400 `lender_account_number, statement_date, … are required` |
+> | `loan-derive-schedule` | 12 | true | 401 `Invalid token` |
+> | `loan-record-principal-payment` | 8 | true | 401 `Invalid token` |
+> | `loan-xero-post` | 64 | **false** | 400 `loan_split_id is required` |
+> | `loan-bundle` | 51 | **false** | 401 `Missing or invalid Authorization.` |
+>
+> The two `verify_jwt: false` ones were probed with NO auth header and still answered — which
+> proves both that they boot AND that the flag survived the deploy. The three `true` ones sit
+> behind the gateway, so they were probed with the anon key (itself a valid JWT): the gateway
+> passed the request through and each function's own rejection came back, rather than the
+> gateway's `UNAUTHORIZED_NO_AUTH_HEADER`.
+>
+> ⚠️ **CORRECTION — THREE FUNCTIONS BUNDLE `_shared/derive-schedule.ts`, NOT FOUR.** This block
+> named `loan-xero-post` as the fourth. It does not import that file; it only MENTIONS it, in a
+> comment on line 789 and an operator hint on line 1386. `loan-bundle` mentions it too, on line
+> 10, and also does not import it. **The proof is the bundle hash: `loan-xero-post`'s
+> `ezbr_sha256` is byte-identical across its v63 → v64 redeploy (`96d94d7f…`), so nothing about
+> its compiled content changed.** The real importers are `loan-derive-schedule`,
+> `loan-ingest-statement` and `loan-record-principal-payment`. Deploying the other two was
+> harmless — and `loan-bundle`'s hash DID change (`78191591…` → `b5d45b68…`), so it was carrying
+> unrelated undeployed work and the extra deploy did real good by accident.
+>
+> **The mistake worth not repeating: this list was built by grepping for the STRING
+> `derive-schedule`, which matches comments.** Grep for the `import` line, or read the bundle
+> hash across the deploy. Same family as the repo's `rtk grep` rule — a search that answers
+> "is this word here" is not a search that answers "does this depend on it".
 >
 > **Then PayPal 2 itself: `scripts/console/rederive-paypal2.js`**, run in the admin dashboard
 > console. Preview first, then commit — the file is written as two steps and the second is
