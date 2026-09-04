@@ -2,6 +2,29 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0h. ℹ️ WHY THE CLOSE BAND STILL SAYS +60.16 WHILE THE MODAL SAYS 15.14 / 15.38
+>
+> Both are right; they answer different questions, and a reader who does not know that will think
+> one of them is broken (David did, reasonably, the moment the walk fix shipped).
+>
+> - **The modal walks MOVEMENTS** between lender statements: July off by 15.14, August by 15.38.
+>   Those are the two OPEN months only.
+> - **The close band compares LEVELS**: it starts from Xero's 7/31 opening ($66,259.81) — which
+>   already carries $44.78 of accumulated gap baked in — subtracts the principal our August split
+>   books ($1,025.71) to get $65,234.10, and holds that against the lender's $65,173.94.
+>
+> `44.78 carried in + 15.38 August = 60.16`. The two screens reconcile exactly.
+>
+> **Nothing shipped in session 273 cont. should have moved the close band**, and nothing did. The
+> band's figures come from the split's principal amount and `loan_book_balances`; the walk fix
+> touched neither. The band moves when the $30.52 journal is posted and/or the August split stops
+> carrying July's figure — i.e. when the split builder is fixed.
+>
+> ⚠️ One thing now load-bearing and worth making explicit later: the close band picks the newest
+> labelled statement dated on or before month end, so a `period_start` statement filed on the 1st of
+> month M lands inside month M and IS that month's closing figure. Correct for this shape — but by
+> luck, not by design. The band does not consult `statement_date_basis` at all.
+>
 > ### 0g. 📐 WHEN IS STAGING A SPLIT SAFE? — MEASURED, session 273 cont.
 >
 > David: *"where we know what the future split will be based on the lender statement, we can
