@@ -3412,6 +3412,17 @@
                           transition: color .12s, border-color .12s, background .12s; }
             .lcb-export:hover { color: var(--gray-900); border-color: var(--gray-300); background: var(--gray-50); }
             .lcb-export:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+            /* Session 269, David: "place the Reconciliation check Button to the left of
+               the Export CSV. Make both same height, same color (white)." They are the
+               same class, .lcb-export, so height, ground, border, radius and type are
+               identical BY CONSTRUCTION rather than by two declarations kept in step —
+               the only way two controls stay matched through a later edit to one of them.
+               The reconciliation button carries no colour of its own for the same reason
+               the export does not: neither is where a reader's eye should land on a page
+               whose job is to show what needs deciding. */
+            .lcb-recon-state { font-size: 11.5px; line-height: 1.35; color: var(--gray-500);
+                               text-align: right; max-width: 30ch; }
+            .lcb-recon-state:empty { display: none; }
 
             .lcb-strip { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; padding: 12px 16px;
                          border-radius: 12px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.7;
@@ -3870,15 +3881,6 @@
             /* Session 249: this badge counted the SAME blockers the status strip
                names in red a few pixels below. One red on the page means this
                one states the count and lets the strip carry the alarm. */
-            /* Session 269 — the reconciliation control at the bar's right-hand end.
-               margin-left:auto rather than a fixed width, so it sits hard right on a
-               wide screen and wraps to its own line on a narrow one instead of
-               squeezing the period tabs. Its status stacks to the LEFT of the button,
-               right-aligned against it: the button is the affordance and reads first
-               on a left-to-right scan of the bar's end. */
-            .lpb-recon { margin-left:auto; display:inline-flex; align-items:center; gap:12px; }
-            .lpb-recon-state { display:inline-flex; flex-direction:column; align-items:flex-end;
-                               gap:1px; font-size:12px; line-height:1.35; text-align:right; }
             .lpb-count { font-size:10.5px; font-weight:700; background:var(--gray-100); color:var(--gray-600);
               border:1px solid var(--gray-200); border-radius:20px; padding:1px 7px; margin-left:2px; }
             /* Session 248 (David): the "Books closed through ... / Xero lock date"
@@ -17286,32 +17288,7 @@
           <span><span class="lpb-k">In flight</span><span class="lpb-v">${esc(_cvMonthName(liveMonth))}</span></span>
         </button>
       </div>
-      ${closeNote}
-      <span class="lpb-recon">
-        <span class="lpb-recon-state">
-          <span id="recon-lastrun" class="lpb-close"></span>
-          <span id="recon-summary"></span>
-        </span>
-        <button class="btn btn-ghost" id="recon-run-btn" style="font-size:12px;padding:6px 12px"
-                onclick="runReconciliationCheck()">Run Reconciliation Check</button>
-      </span>`;
-    // ── THE RECONCILIATION CONTROL LIVES HERE NOW (session 269, David) ────
-    // Moved off the Overview queue header. This bar is already the page's answer
-    // to "how current is what I am looking at" — it carries the close date for
-    // exactly that reason — and when the check last ran is the same kind of fact.
-    // It is also the one row that survives switching period, so the button does
-    // not vanish when you move to In flight.
-    //
-    // THIS innerHTML DESTROYS #recon-lastrun / #recon-summary ON EVERY REPAINT,
-    // so their content has to be re-rendered after, not before. renderReconciliation()
-    // is the only writer of both and is cheap and idempotent, so it is called here
-    // rather than relying on the two functions happening to run in the right order —
-    // which they do not: loadReconciliation() calls renderReconciliation() and THEN
-    // renderLoansCloseBand(), and a period switch repaints this bar on its own with
-    // no reconciliation load at all. Either of those would have left the status blank.
-    // Guarded because this bar renders on first paint, before the function exists in
-    // some load orders.
-    try { if (typeof renderReconciliation === 'function') renderReconciliation(); } catch (_) {}
+      ${closeNote}`;
     // The old "Books closed through … · Xero lock date: not set" CHIP ROW is
     // gone (David, "REMOVE this section ... to add breathing room"). What is
     // gone is the chip: the ground, the border, the second line, and the amber
@@ -18082,7 +18059,11 @@
            now the Computed header's tooltip, so it costs no width and still
            reaches anyone who wonders what Computed means. -->
       <div class="lcb-head">
-        <span class="lcb-act"><button type="button" class="lcb-export" onclick="exportRollforwardCSV()" title="Save this rollforward as a spreadsheet — including the sources, dates and notes shown on hover">⤓ Export CSV</button></span>
+        <span class="lcb-act">
+          <span class="lcb-recon-state"><span id="recon-lastrun"></span><span id="recon-summary"></span></span>
+          <button type="button" class="lcb-export" id="recon-run-btn" onclick="runReconciliationCheck()" title="Re-run the reconciliation engine and the intake cross-checks, and refresh every verdict on this page. Rate-limited to one run per ten minutes.">Run Reconciliation Check</button>
+          <button type="button" class="lcb-export" onclick="exportRollforwardCSV()" title="Save this rollforward as a spreadsheet — including the sources, dates and notes shown on hover">⤓ Export CSV</button>
+        </span>
       </div>
       <div class="lcb-strip${blocked ? '' : ' clear'}" data-blocked="${blocked ? '1' : '0'}" data-gates="${gatesAttr}">
         <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
@@ -18112,6 +18093,16 @@
         <div class="lcb-foot">${footNote}</div>
         ${notesHtml}
       </div>`;
+
+    // THIS innerHTML DESTROYS #recon-lastrun / #recon-summary, which now live in
+    // the header above beside the two buttons. renderReconciliation() is their
+    // only writer, and the thing that FILLS them (loadReconciliation) does not
+    // repaint this band, while the things that repaint this band do not load
+    // reconciliation. So the refill has to hang off the repaint itself, AFTER the
+    // innerHTML — call it before and it writes into elements this line then
+    // throws away, leaving a live button beside two permanently blank lines.
+    // Guarded: this band renders on paths where the function may not exist yet.
+    try { if (typeof renderReconciliation === 'function') renderReconciliation(); } catch (_) {}
 
     // ── THE HOVER WIRING ─────────────────────────────────────────────────
     // One delegated listener on the tbody, reading the hint the row already

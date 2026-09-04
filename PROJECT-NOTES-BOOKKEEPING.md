@@ -2695,8 +2695,27 @@ renderers is exactly where a one-sided edit hides; and the button is CLICKED rat
 
 Every outcome of the run is a toast, which is global, so the click feedback did not need moving.
 
-**Suite after: 1,735 browser assertions, 1,734 passing** — the single red being Tech Debt #19,
-which is red on purpose. New group `recon-control-placement`: 16/16.
+**Then David moved it again, and this is where it landed:** *"place the Reconciliation check
+Button to the left of the Export CSV. Make both same height, same color (white)."* It is now in
+`renderLoansCloseBand`'s `.lcb-act` header row, immediately before Export CSV, and it carries
+**the same class** — `.lcb-export`. That is the whole of "make both the same": height, ground,
+border, corner and type come from one rule set, so they cannot drift when someone later edits
+one of them. The test asserts the shared class AND the measured result, because a class name
+alone would still pass if an inline style overrode it on one side.
+
+The status lines followed it again, and the repaint hazard moved with them from
+`renderLoansPeriodBar` to `renderLoansCloseBand` — same shape, same fix, same reason.
+
+⚠️ **The cost, recorded rather than discovered later: the close band lives inside
+`#loans-period-closing`, so the button is HIDDEN on In flight.** In the period bar it survived
+the switch. Reconciliation is not period-scoped — `balance_vs_lender` is a statement about
+today, which this module's own rules say must never be silenced on account of a period — so
+this is a real reduction in reach, accepted because that is where Export CSV is. Assertion
+`r269r` is a `⚠ REPORTED` pin in the session 245 style: it PASSES while stating the hole, so
+the day it must be reachable from In flight the assertion announces itself.
+
+**Suite after: 1,742 browser assertions, 1,741 passing** — the single red being Tech Debt #19,
+which is red on purpose. New group `recon-control-placement`: 23/23.
 
 ---
 

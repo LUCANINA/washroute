@@ -1659,22 +1659,28 @@ GROUPS.push({
   async run(t) {
     const probe = () => {
       const btn = document.getElementById('recon-run-btn');
-      const bar = document.querySelector('#bk-view-loans .lpb');
+      const act = document.querySelector('#loans-close-band .lcb-act');
+      const exp = act ? [...act.querySelectorAll('button')].find(b => /Export CSV/.test(b.textContent)) : null;
+      const cs = e => e ? getComputedStyle(e) : null;
+      const h  = e => e ? Math.round(e.getBoundingClientRect().height) : null;
       return {
         exists: !!btn,
         label: btn ? btn.textContent.trim() : null,
-        // offsetParent is null for an element inside a display:none ancestor,
-        // which is what "reachable on this page" actually means here.
         reachable: !!(btn && btn.offsetParent),
-        inLoansBar: !!(btn && bar && bar.contains(btn)),
+        inCloseBandHead: !!(act && btn && act.contains(btn)),
         inOverview: !!(btn && document.getElementById('bk-view-overview')?.contains(btn)),
-        // The two status elements the button's own function writes.
+        // "to the left of Export CSV" — assert ORDER, not pixels, so this holds
+        // whichever way the row is aligned later.
+        beforeExport: !!(btn && exp &&
+          (btn.compareDocumentPosition(exp) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0),
+        sameClass: !!(btn && exp && btn.className === exp.className),
+        heights: [h(btn), h(exp)],
+        grounds: [cs(btn)?.backgroundColor, cs(exp)?.backgroundColor],
+        borders: [cs(btn)?.borderTopColor, cs(exp)?.borderTopColor],
+        radii:   [cs(btn)?.borderTopLeftRadius, cs(exp)?.borderTopLeftRadius],
+        fonts:   [cs(btn)?.fontSize + '/' + cs(btn)?.fontWeight, cs(exp)?.fontSize + '/' + cs(exp)?.fontWeight],
         hasLastRun: !!document.getElementById('recon-lastrun'),
         hasSummary: !!document.getElementById('recon-summary'),
-        statusText: ((document.getElementById('recon-lastrun')?.textContent || '') + ' ' +
-                     (document.getElementById('recon-summary')?.textContent || '')).trim(),
-        // Past reports deliberately did NOT move — they stayed under Overview's
-        // History panel. If this ever goes false the move took too much with it.
         hasReports: !!document.getElementById('recon-reports'),
       };
     };
@@ -1684,56 +1690,65 @@ GROUPS.push({
       const seen = await p.evaluate(probe);
       t.eq(seen.exists, true, 'r269a: the Run Reconciliation Check button exists', JSON.stringify(seen));
       t.eq(seen.label, 'Run Reconciliation Check', 'r269b: ...under its own name', String(seen.label));
-      t.eq(seen.inLoansBar, true, 'r269c: ...inside the Loans period bar, beside the close date', JSON.stringify(seen));
-      t.eq(seen.inOverview, false, 'r269d: ...and NOT inside the Overview view', JSON.stringify(seen));
-      t.eq(seen.reachable, true, 'r269e: ...and actually reachable with Loans open', JSON.stringify(seen));
+      t.eq(seen.inCloseBandHead, true,
+           'r269c: ...in the close band header, the row that already carries Export CSV', JSON.stringify(seen));
+      t.eq(seen.beforeExport, true,
+           'r269d: ...and it comes BEFORE Export CSV in the document, i.e. to its left',
+           JSON.stringify(seen));
+      t.eq(seen.inOverview, false, 'r269e: ...and not inside the Overview view', JSON.stringify(seen));
+      t.eq(seen.reachable, true, 'r269f: ...and actually reachable with Loans open', JSON.stringify(seen));
+
+      /* MATCHED BY CONSTRUCTION, NOT BY COINCIDENCE (session 269, David:
+         "Make both same height, same color (white)").
+
+         The class assertion is the one that matters. Two buttons can be pixel-
+         identical today and drift the moment someone edits one of the two rule
+         sets; sharing .lcb-export means there is only one rule set to edit. The
+         measured assertions below are the check that the shared class actually
+         produced a match — a class name alone would pass even if an inline
+         style on one of them overrode it. */
+      t.eq(seen.sameClass, true,
+           'r269g: both buttons carry the SAME class — matched by construction, not by two rule sets kept in step',
+           JSON.stringify(seen));
+      t.eq(seen.heights[0] === seen.heights[1] && seen.heights[0] > 0, true,
+           'r269h: ...and render at the same height', JSON.stringify(seen.heights));
+      t.eq(seen.grounds[0] === seen.grounds[1], true,
+           'r269i: ...on the same ground', JSON.stringify(seen.grounds));
+      t.eq(/^rgba?\(255,\s*255,\s*255/.test(seen.grounds[0] || ''), true,
+           'r269j: ...and that ground is white, as asked', JSON.stringify(seen.grounds));
+      t.eq(seen.borders[0] === seen.borders[1] && seen.radii[0] === seen.radii[1] &&
+           seen.fonts[0] === seen.fonts[1], true,
+           'r269k: ...with the same border, corner and type — nothing left to drift',
+           JSON.stringify({ b: seen.borders, r: seen.radii, f: seen.fonts }));
+
       t.eq(seen.hasLastRun && seen.hasSummary, true,
-           'r269f: its two status lines came with it — a control without its status is half a move',
+           'r269l: its two status lines came with it — a control without its status is half a move',
            JSON.stringify(seen));
       t.eq(seen.hasReports, true,
-           'r269g: ...while past reports stayed behind on Overview, which is what was intended',
-           JSON.stringify(seen));
+           'r269m: ...while past reports stayed in Overview’s History panel', JSON.stringify(seen));
 
-      /* THE REPAINT — AND IT IS NOT THE ONE I FIRST ASSUMED.
-         The first version of this test switched period and checked the status
-         survived. It passed, and it was testing nothing: switchLoansPeriod()
-         toggles classes on the existing buttons and never rebuilds the bar, so
-         nothing was ever destroyed.
-
-         The real repaint path is renderLoansPeriodBar() itself, and the order
-         it runs in is the whole problem. loadReconciliation() fills the status
-         (renderReconciliation) and does NOT repaint this bar. loadLoans() and
-         the late settings read at index.html:14099 DO repaint it, from a
-         separate promise that resolves whenever the settings row comes back.
-         So on a normal page load the bar can be rebuilt AFTER the status was
-         filled, wiping it, with the button left sitting beside two empty
-         elements — and nothing else would ever refill them.
-
-         A sentinel is what makes that observable. It survives only if the bar
-         calls renderReconciliation AFTER setting innerHTML; the fixture's own
-         status text cannot show this, because with a completed run and open
-         findings renderReconciliation correctly writes '' to both elements, so
-         "empty" is the right answer either way and proves nothing. */
+      /* THE REPAINT, AND IT IS renderLoansCloseBand's NOW.
+         Same mechanism as before the button moved, different owner: the band's
+         innerHTML destroys the two status elements, loadReconciliation fills
+         them and does not repaint the band, and the band's repainters do not
+         load reconciliation. A sentinel is the only way to see it — with a
+         completed run and open findings the fixture's own status text is
+         correctly '', so "non-empty" would pass against broken code. */
       const sentinel = await p.evaluate(() => {
         const real = window.renderReconciliation;
         const SENT = 'WR-TEST-SENTINEL-269';
         const stubbable = typeof real === 'function';
-
         window.renderReconciliation = function () {
           const el = document.getElementById('recon-summary');
           if (el) el.textContent = SENT;
         };
-        renderLoansPeriodBar();
+        renderLoansCloseBand();
         const withCall = (document.getElementById('recon-summary')?.textContent || '');
-
-        // Inverse: a no-op in the same slot. If the status fills anyway, then
-        // something other than this call writes it and withCall proves nothing.
         window.renderReconciliation = function () {};
-        renderLoansPeriodBar();
+        renderLoansCloseBand();
         const withoutCall = (document.getElementById('recon-summary')?.textContent || '');
-
         window.renderReconciliation = real;
-        renderLoansPeriodBar();
+        renderLoansCloseBand();
         const btn = document.getElementById('recon-run-btn');
         return { stubbable, withCall, withoutCall, SENT,
                  survives: !!(btn && btn.offsetParent),
@@ -1744,55 +1759,64 @@ GROUPS.push({
            'r269n: renderReconciliation is reachable to stub — the inverse test is not vacuous',
            JSON.stringify(sentinel));
       t.eq(sentinel.withCall, sentinel.SENT,
-           'r269o: a bar repaint calls renderReconciliation, and calls it AFTER the innerHTML — the sentinel survives',
+           'r269o: a close-band repaint calls renderReconciliation AFTER its innerHTML — the sentinel survives',
            JSON.stringify(sentinel));
       t.eq(sentinel.withoutCall, '',
-           'r269p: ...and with that call stubbed out nothing else refills the status, so r269o measures the call itself',
+           'r269p: ...and with that call stubbed out nothing else refills the status',
            JSON.stringify(sentinel));
       t.eq(sentinel.survives && sentinel.lastRun && sentinel.summary, true,
            'r269q: a repaint rebuilds button and status together — neither outlives the other',
            JSON.stringify(sentinel));
 
-      /* The period tabs do not rebuild this bar, so the button cannot vanish on
-         a period switch. Pinned because the reverse would be easy to introduce. */
-      const after = await p.evaluate(() => {
+      /* ⚠️ THE COST OF THIS PLACEMENT, STATED SO IT IS A DECISION AND NOT A
+         SILENT REGRESSION. The close band lives inside #loans-period-closing,
+         so it is hidden on In flight — and the button goes with it. When the
+         button sat in the period bar it survived the switch.
+
+         Reconciliation is not period-scoped: the engine's balance_vs_lender is
+         a statement about TODAY, which the module's own rules say must never be
+         silenced on account of a period. So this is a real reduction in reach,
+         accepted deliberately because David asked for the button beside Export
+         CSV and that is where Export CSV is. Pinned as an assertion so that if
+         anyone later wonders whether it was noticed: it was. Flip this the day
+         the button needs to be reachable from In flight. */
+      const inflight = await p.evaluate(() => {
         switchLoansPeriod('inflight');
         const btn = document.getElementById('recon-run-btn');
-        return { stillThere: !!btn, stillReachable: !!(btn && btn.offsetParent) };
+        const out = { present: !!btn, reachable: !!(btn && btn.offsetParent) };
+        switchLoansPeriod('closing');
+        out.backOnClosing = !!document.getElementById('recon-run-btn')?.offsetParent;
+        return out;
       });
-      t.eq(after.stillThere && after.stillReachable, true,
-           'r269h: switching to In flight keeps the button — the bar outlives the period',
-           JSON.stringify(after));
+      t.eq(inflight.reachable, false,
+           'r269r: ⚠ REPORTED — on In flight the button is hidden with the close band. Deliberate (David: beside Export CSV); flip this if it must be reachable there',
+           JSON.stringify(inflight));
+      t.eq(inflight.backOnClosing, true,
+           'r269s: ...and it comes straight back on Closing, so nothing is lost permanently',
+           JSON.stringify(inflight));
 
-      /* CLICK IT. Not runReconciliationCheck() by name — a dead onclick passes
-         that every time. The offline stub has no session, so the run itself
-         cannot succeed; the assertion is that the button reacted. */
-      const clicked = await p.evaluate(async () => {
+      /* CLICK IT — not runReconciliationCheck() by name; a dead onclick passes
+         that every time. The offline stub cannot complete a run, so what is
+         asserted is that the BUTTON reacted. */
+      const clicked = await p.evaluate(() => {
         const btn = document.getElementById('recon-run-btn');
-        const before = btn.textContent.trim();
         btn.click();
-        // Synchronously after click(), before any await resolves, the handler has
-        // already disabled and relabelled.
-        const during = { disabled: btn.disabled, label: btn.textContent.trim() };
-        return { before, during };
+        return { disabled: btn.disabled, label: btn.textContent.trim() };
       });
-      t.eq(clicked.during.disabled, true,
-           'r269j: clicking the real element runs the handler — the onclick is live, not decorative',
+      t.eq(clicked.disabled, true,
+           'r269t: clicking the real element runs the handler — the onclick is live, not decorative',
            JSON.stringify(clicked));
-      t.eq(clicked.during.label, 'Checking…',
-           'r269k: ...and it says so, so a second click cannot start a second run',
-           JSON.stringify(clicked));
+      t.eq(clicked.label, 'Checking…',
+           'r269u: ...and says so, so a second click cannot start a second run', JSON.stringify(clicked));
       await p.close();
     }
 
     {
       const p = await newHarnessPage({ tab: 'overview' });
       const seen = await p.evaluate(probe);
-      t.eq(seen.inOverview, false,
-           'r269l: nothing put the button back on Overview',
-           JSON.stringify(seen));
+      t.eq(seen.inOverview, false, 'r269v: nothing put the button back on Overview', JSON.stringify(seen));
       t.eq(seen.reachable, false,
-           'r269m: ...and it is not reachable from Overview — the move was a move, not a copy',
+           'r269w: ...and it is not reachable from Overview — the move was a move, not a copy',
            JSON.stringify(seen));
       await p.close();
     }
