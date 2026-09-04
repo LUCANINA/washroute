@@ -36,6 +36,44 @@
 > `docs/bookkeeping/SCOPE-REDUCTION-2026-09.md` §6 carries the decision and the measurements
 > behind it.
 >
+> ### ⚠️ TWO COMMITS ARE COMMITTED BUT **NOT PUSHED**
+>
+> `418bcf5` (totals-row coverage) and `171d5de` (Staging column) are on `main` locally and
+> have NOT reached `origin`. The sandboxed shell this session worked in carries no GitHub
+> credentials — **David has to `git push` from his own terminal**, or the Vercel deploy will
+> not carry either change. Check `git log origin/main..HEAD` before assuming they landed.
+>
+> Related, and the reason the last request had to be asked twice: **"remove '10 to clear' on
+> this page" was already fixed and pushed** (`72f2323`) when David re-reported it. The code
+> had the badge in `renderOverviewPeriodBar` only. That was a CACHED PAGE, not a defect. When
+> a UI fix "does not show", check `git log origin/main..HEAD` and the build-version stamp
+> BEFORE re-editing — I nearly removed a correct line twice.
+>
+> ### ✅ STAGED LOANS NOW LIVE ON LOANS, NOT OVERVIEW (session 267 cont.)
+>
+> David: "For loans that are staged, remove them from the Overview page and add them to the
+> Loans 'In flight' page. A separate column entitled Staging might work, with those staged
+> marked 'scheduled'." Done, both halves:
+>
+> * The Overview **Staged tab is gone entirely** — every row it held was a loan split, so it
+>   had nothing left to show. Staged splits also no longer hold the "everything is reconciled"
+>   line open. **That is safe only because a flagged stage still raises its own Issue through
+>   `stage_flag`** — the alarm reaches Overview even though the register does not. If that
+>   ever changes, this deletion has to be revisited in the same edit.
+> * The Loans table has a **Staging** column reading ALL staged splits per loan (not just the
+>   newest — a weekly lender can carry two). Flagged → "needs a look"; otherwise "scheduled".
+> * The Type column's "+1 upcoming" badge no longer fires on a staged entry (the new column
+>   says it), but survives for every other in-flight state.
+> * Harness group **`staging-column`**, 17 assertions, **five mutations tried and all five
+>   caught**. The Loans table is now TWELVE columns: colgroup `<col>` count, header count, row
+>   cell count and tfoot colspan all have to move together, and the group asserts them against
+>   each other rather than against a number written down anywhere.
+>
+> Third copy of the ce18/ce28 coverage guard fixed in `171d5de` — I moved the "13 of 14" notes
+> out of the money cells in `418bcf5` and updated two of the three places that read them. The
+> full harness (1702 assertions) catches what a scoped run does not: **run it unscoped before
+> claiming a UI change is green.**
+>
 > **Everything below this line was left by session 266 (18:05 UTC) and is still current
 > unless session 267 contradicted it.**
 >
