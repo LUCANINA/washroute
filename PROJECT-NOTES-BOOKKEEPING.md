@@ -2,6 +2,62 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0e. 🛑 READ THIS BEFORE §0c — §0c's DIAGNOSIS IS WRONG AND IS SUPERSEDED HERE
+>
+> David asked how the Funding Circle gap actually gets resolved. Answering it properly exposed a
+> premise I had never checked: **`statement_date` on this loan is the period START, not the balance
+> date.** Every portal statement is issued on the 18th of the FOLLOWING month —
+>
+> | our statement_date | filename says issued | balance |
+> |---|---|---|
+> | 2026-06-01 | 2026-07-18 | 67,240.74 |
+> | 2026-07-01 | 2026-08-18 | 66,215.03 |
+>
+> — so the row we call "2026-07-01" carries the balance AFTER July's payment, i.e. it is the
+> **July month-END** figure. Ten statements, same pattern, no exceptions.
+>
+> **With the periods aligned properly the whole thing foots to the cent, and the 42¢ residual
+> §0c agonises over does not exist — it was an artefact of comparing misaligned periods:**
+>
+> | at | Xero | lender (that month's statement) | gap | added that month |
+> |---|---|---|---|---|
+> | 2026-06-30 | 67,270.38 | 67,240.74 | **29.64** | — (inside closed books) |
+> | 2026-07-31 | 66,259.81 | 66,215.03 | **44.78** | +15.14 |
+> | 2026-08-31 | 65,234.10 | 65,173.94 | **60.16** | +15.38 |
+>
+> `29.64 + 15.14 + 15.38 = 60.16`. Exactly. Nothing unexplained.
+>
+> **Three claims in §0c are now WITHDRAWN:**
+> - ❌ *"Xero's principal movement is the PREVIOUS month's lender figure — a one-period lag of about
+>   $30/month."* No. The real shortfall is **~$15/month**. The $30 figures came from the walk
+>   pairing each lender period against the wrong Xero month, which is the same period-labelling
+>   error, one level up. **The walk itself has this off-by-one — that is a real defect, still open.**
+> - ❌ *"An amortising loan's principal cannot RISE between 08-01 and 08-03, so the 08-03 notice is
+>   stale."* There was never a contradiction: 08-01 labels AUGUST (balance ~08-31), 08-03 is a
+>   mid-month notice quoting the then-current balance. Both are correct.
+> - ❌ *"$44.78 is superseded"* and then *"$60.16 = $15.38 + $44.78 where $44.78 is the remaining
+>   gap."* Right numbers, wrong story: $44.78 is the gap AT JULY 31, and $60.16 is that plus
+>   August's $15.38.
+>
+> ✅ **The 08-01 → `principal_only` / 08-03 → `unknown` change stands, for a BETTER reason than the
+> one recorded**: 08-01 is the statement whose PERIOD is August, so it is the correct August
+> month-end anchor; 08-03 is a mid-month figure and must never anchor a month end. Right answer,
+> wrong reasoning — the reasoning is what would have misled the next session.
+>
+> **THE ACTUAL RESOLUTION, in two parts:**
+> 1. **$29.64 of the $60.16 is inside books closed through 2026-06-30.** The CPA settled those
+>    months. Leave it. Chasing it is the witch-hunt David objected to in session 272.
+> 2. **$30.52 is open and correctable** ($15.14 July + $15.38 August) — one journal, DR 253 Funding
+>    Circle Loan / CR 800 Interest Expense, dated in an open period. Each month our split books the
+>    PREVIOUS period's principal split (August booked $1,025.71; the lender's August figure is
+>    $1,041.09), because the splits inherit the same period-start labelling. Fix the labelling and
+>    it stops recurring; post the journal and the accumulated part goes away.
+>
+> ⚠️ **CHECK BEFORE POSTING ANYTHING:** the staged 2026-09 split (`1a70eb96`) carries $1,041.10 from
+> the amortization schedule — which is the LENDER'S AUGUST figure, and August is already booked at
+> $1,025.71. Approving it as-is may double-count August rather than record September. Do not approve
+> it until the period labelling is settled.
+>
 > ### 0d. ✅ SESSION 273 cont. IS DEPLOYED AND VERIFIED BY CONTENT (checked 2026-09-04 ~22:12 UTC)
 >
 > `loan-xero-post` **v66**, and **`verify_jwt` is still `false`** — the flag was NOT changed, which
@@ -28,6 +84,8 @@
 > nothing else. A guard that refuses rows it should not is the real risk, and that is the check that
 > rules it out. The five refusal/allow cases at the database level were proven against the live
 > trigger earlier.
+>
+> ### 0c. ⛔ SUPERSEDED BY §0e — DO NOT ACT ON THIS SECTION ALONE (kept for the audit trail)
 >
 > ### 0c. ⏳ FUNDING CIRCLE — THE DIAGNOSIS IS DONE; ONE JOURNAL AWAITS DAVID (session 273 cont.)
 >
