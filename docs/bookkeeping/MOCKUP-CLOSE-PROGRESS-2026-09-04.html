@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Close Readiness Bar — Options</title>
+<style>
+  :root{
+    --accent:#3b82f6;
+    --gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-300:#d1d5db;
+    --gray-400:#9ca3af;--gray-500:#6b7280;--gray-600:#4b5563;--gray-700:#374151;
+    --gray-800:#1f2937;--gray-900:#111827;
+    --ok:#16a34a;--ok-soft:#86efac;--warn:#f59e0b;--warn-soft:#fcd34d;--bad:#dc2626;--bad-soft:#fca5a5;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--gray-50);
+       color:var(--gray-800);font-size:14px;line-height:1.5;margin:0;padding:28px 22px 80px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:19px;font-weight:700;color:var(--gray-900);letter-spacing:-.02em;margin:0 0 6px}
+  .lede{font-size:13px;color:var(--gray-500);margin:0 0 6px;max-width:70ch}
+  .note{font-size:12px;color:var(--gray-400);margin:0 0 30px;max-width:78ch}
+  h2{font-size:13px;font-weight:700;color:var(--gray-900);margin:0 0 3px;letter-spacing:-.01em}
+  .why{font-size:12.5px;color:var(--gray-500);margin:0 0 12px;max-width:74ch}
+  section{margin-bottom:34px}
+  .opt-tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;
+           color:var(--accent);text-transform:uppercase;margin-bottom:2px}
+  .stage{background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:0;
+         box-shadow:0 1px 2px rgba(15,37,71,.04);overflow:hidden}
+  .tblhint{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+           color:var(--gray-300);padding:11px 16px;border-top:1px solid var(--gray-100)}
+  .verdict{font-weight:700;color:var(--gray-900);font-size:14px}
+  .verdict.clear{color:#166534}
+  .sub{font-size:12px;color:var(--gray-500)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+
+  /* ---------- A : one segmented bar ---------- */
+  .a-strip{padding:14px 16px 15px;border-bottom:1px solid var(--gray-100)}
+  .a-top{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+  .a-top .count{margin-left:auto;font-size:12px;color:var(--gray-500);font-variant-numeric:tabular-nums}
+  .segbar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--gray-100);gap:2px}
+  .segbar span{display:block;transition:flex-grow .5s ease}
+  .seg-done{background:var(--ok)}
+  .seg-unchecked{background:var(--warn)}
+  .seg-await{background:var(--bad)}
+  .seg-exempt{background:var(--gray-200)}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:11.5px;color:var(--gray-500)}
+  .legend b{color:var(--gray-700);font-weight:600}
+  .legend .names{color:var(--gray-400)}
+
+  /* ---------- B : three questions ---------- */
+  .b-strip{padding:14px 16px 16px;border-bottom:1px solid var(--gray-100)}
+  .b-rows{display:grid;gap:9px;margin-top:11px}
+  .b-row{display:grid;grid-template-columns:190px 1fr auto;align-items:center;gap:12px}
+  .b-label{font-size:12px;color:var(--gray-600)}
+  .b-track{height:7px;border-radius:5px;background:var(--gray-100);overflow:hidden}
+  .b-fill{height:100%;border-radius:5px;transition:width .5s ease}
+  .b-num{font-size:12px;color:var(--gray-500);font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
+  .b-miss{grid-column:2 / -1;font-size:11.5px;color:var(--bad);margin-top:-3px}
+  .b-miss.ok{color:var(--gray-400)}
+
+  /* ---------- C : milestone track ---------- */
+  .c-strip{padding:16px 16px 18px;border-bottom:1px solid var(--gray-100)}
+  .c-track{position:relative;margin:20px 8px 0;height:4px;background:var(--gray-100);border-radius:3px}
+  .c-fill{position:absolute;left:0;top:0;bottom:0;background:var(--ok);border-radius:3px;transition:width .6s ease}
+  .c-steps{display:flex;justify-content:space-between;position:relative;margin:0 8px}
+  .c-step{position:relative;flex:1;text-align:center;padding-top:14px}
+  .c-pin{position:absolute;top:-9px;left:50%;transform:translateX(-50%);width:14px;height:14px;
+         border-radius:50%;background:#fff;border:2px solid var(--gray-300)}
+  .c-step.done .c-pin{background:var(--ok);border-color:var(--ok)}
+  .c-step.here .c-pin{background:#fff;border-color:var(--warn);box-shadow:0 0 0 4px #fef3c7}
+  .c-name{font-size:11.5px;font-weight:600;color:var(--gray-400)}
+  .c-step.done .c-name{color:var(--gray-700)}
+  .c-step.here .c-name{color:#92400e}
+  .c-cnt{font-size:11px;color:var(--gray-400);font-variant-numeric:tabular-nums}
+  .c-here-note{margin-top:14px;font-size:12px;color:var(--gray-600)}
+
+  /* ---------- D : compact one-liner ---------- */
+  .d-strip{padding:13px 16px;border-bottom:1px solid var(--gray-100)}
+  .d-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .d-mini{display:flex;height:8px;width:180px;border-radius:5px;overflow:hidden;background:var(--gray-100);gap:2px}
+  .d-mini span{display:block}
+  .d-asks{font-size:12px;color:var(--gray-500)}
+  .d-asks b{color:var(--gray-800);font-weight:600}
+  .d-ask-red{color:var(--bad);font-weight:600}
+
+  .verdictline{font-size:12.5px;color:var(--gray-600);margin-top:8px}
+  .rec{background:#fff;border:1px solid var(--gray-200);border-left:3px solid var(--accent);
+       border-radius:10px;padding:14px 16px;font-size:13px;color:var(--gray-700)}
+  .rec b{color:var(--gray-900)}
+  .rec ul{margin:8px 0 0;padding-left:18px}
+  .rec li{margin-bottom:5px}
+  @media(max-width:640px){.b-row{grid-template-columns:1fr}.b-num{text-align:left}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>The close bar — four ways to show where August stands</h1>
+  <p class="lede">Replacing the white “Not ready to close” strip on the Loans page with something that
+  answers <i>how far along are we</i>, not just <i>no</i>.</p>
+  <p class="note">Counts below are today’s real book (14 active loans — 12 close on lender statements,
+  2 on a contractual schedule), shaped the way <code>_bkStatementGate()</code> computes them. The live
+  component would read that function, never its own arithmetic.</p>
+
+  <!-- ============ OPTION A ============ -->
+  <section>
+    <span class="opt-tag">Option A</span>
+    <h2>One segmented bar — the statement gate, made visible</h2>
+    <p class="why">The bar <i>is</i> the gate: every required statement is a slice, coloured by how far
+    it got. Green is uploaded and checked against Xero, amber is on file but never compared, red is
+    still owed. The two schedule-basis loans sit outside the denominator and are named, so the
+    denominator can’t quietly shrink.</p>
+
+    <div class="stage">
+      <div class="a-strip">
+        <div class="a-top">
+          <span class="verdict">Not ready to close</span>
+          <span class="sub">August 2026</span>
+          <span class="count">8 of 12 statements in and checked</span>
+        </div>
+        <div class="segbar" role="img" aria-label="8 checked, 3 uploaded but not checked, 1 outstanding">
+          <span class="seg-done" style="flex:8"></span>
+          <span class="seg-unchecked" style="flex:3"></span>
+          <span class="seg-await" style="flex:1"></span>
+        </div>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--ok)"></i><b>8</b> checked against Xero</span>
+          <span><i class="dot" style="background:var(--warn)"></i><b>3</b> on file, not yet checked
+            <span class="names">— E-Transit 4140, E5-4751, Stripe Capital</span></span>
+          <span><i class="dot" style="background:var(--bad)"></i><b>1</b> outstanding
+            <span class="names">— BayFirst SBA 2</span></span>
+          <span><i class="dot" style="background:var(--gray-300)"></i><b>2</b> close on schedule, none expected
+            <span class="names">— Dexter 2, Verdant</span></span>
+        </div>
+      </div>
+      <div class="tblhint">Loan · Agreement · Source · Opening 7/31 · Drawn · Principal …</div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION B ============ -->
+  <section>
+    <span class="opt-tag">Option B</span>
+    <h2>Three questions, three bars — statements, schedules, books</h2>
+    <p class="why">Your three asks as three separate meters, because they fail independently and get
+    fixed by different people: a missing document is an upload, an unchecked one is a reconciliation
+    run, a loan off its schedule is a staging problem. Each bar names what’s missing right underneath
+    it rather than making the reader scan the table.</p>
+
+    <div class="stage">
+      <div class="b-strip">
+        <div class="a-top">
+          <span class="verdict">Not ready to close</span>
+          <span class="sub">August 2026 · 4 things to clear</span>
+        </div>
+        <div class="b-rows">
+          <div class="b-row">
+            <span class="b-label">Statements received</span>
+            <span class="b-track"><span class="b-fill" style="width:91.6%;background:var(--ok)"></span></span>
+            <span class="b-num">11 / 12</span>
+          </div>
+          <div class="b-miss">BayFirst SBA 2 — nothing since 7/31</div>
+
+          <div class="b-row">
+            <span class="b-label">Checked against Xero</span>
+            <span class="b-track"><span class="b-fill" style="width:66.6%;background:var(--warn)"></span></span>
+            <span class="b-num">8 / 12</span>
+          </div>
+          <div class="b-miss">E-Transit 4140, E-Transit E5-4751, Stripe Capital</div>
+
+          <div class="b-row">
+            <span class="b-label">On their amortization schedule</span>
+            <span class="b-track"><span class="b-fill" style="width:81.8%;background:var(--ok)"></span></span>
+            <span class="b-num">9 / 11</span>
+          </div>
+          <div class="b-miss">E-Transit E4-9744, Paypal 2 — no payment staged for next period</div>
+
+          <div class="b-row">
+            <span class="b-label">Everything booked</span>
+            <span class="b-track"><span class="b-fill" style="width:100%;background:var(--ok)"></span></span>
+            <span class="b-num">14 / 14</span>
+          </div>
+          <div class="b-miss ok">No splits waiting to post</div>
+        </div>
+        <div class="verdictline">2 loans close on a contractual schedule and need no statement — Dexter 2, Verdant.</div>
+      </div>
+      <div class="tblhint">Loan · Agreement · Source · Opening 7/31 · Drawn · Principal …</div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION C ============ -->
+  <section>
+    <span class="opt-tag">Option C</span>
+    <h2>A milestone track — where the month is in the pipeline</h2>
+    <p class="why">The close is a sequence, and this says which stage it’s stuck at rather than how many
+    items are outstanding. The most “fun” of the four and the one that reads fastest from across the
+    room; the trade is that it shows the shape of the problem, not the size of it — so the named
+    detail has to live in the line underneath.</p>
+
+    <div class="stage">
+      <div class="c-strip">
+        <div class="a-top">
+          <span class="verdict">Not ready to close</span>
+          <span class="sub">August 2026</span>
+          <span class="count">stalled at step 2 of 5</span>
+        </div>
+        <div class="c-track"><span class="c-fill" style="width:30%"></span></div>
+        <div class="c-steps">
+          <div class="c-step done"><span class="c-pin"></span>
+            <div class="c-name">Statements in</div><div class="c-cnt">11 / 12</div></div>
+          <div class="c-step here"><span class="c-pin"></span>
+            <div class="c-name">Checked vs Xero</div><div class="c-cnt">8 / 12</div></div>
+          <div class="c-step"><span class="c-pin"></span>
+            <div class="c-name">Balances tie</div><div class="c-cnt">—</div></div>
+          <div class="c-step"><span class="c-pin"></span>
+            <div class="c-name">Ledger explained</div><div class="c-cnt">—</div></div>
+          <div class="c-step"><span class="c-pin"></span>
+            <div class="c-name">Sent to CPA</div><div class="c-cnt">—</div></div>
+        </div>
+        <div class="c-here-note"><b>Next:</b> three statements are on file and have never been compared —
+        E-Transit 4140, E5-4751, Stripe Capital. One is still owed: BayFirst SBA 2.</div>
+      </div>
+      <div class="tblhint">Loan · Agreement · Source · Opening 7/31 · Drawn · Principal …</div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION D ============ -->
+  <section>
+    <span class="opt-tag">Option D</span>
+    <h2>One line — bar, verdict, and the ask</h2>
+    <p class="why">The smallest thing that could work: keeps the strip a single line, adds a slim bar for
+    the glance, and spends the remaining width on what to actually do. Nothing new appears on the
+    screen except eight pixels of colour.</p>
+
+    <div class="stage">
+      <div class="d-strip">
+        <div class="d-line">
+          <span class="verdict">Not ready to close</span>
+          <span class="d-mini">
+            <span class="seg-done" style="flex:8"></span>
+            <span class="seg-unchecked" style="flex:3"></span>
+            <span class="seg-await" style="flex:1"></span>
+          </span>
+          <span class="d-asks"><b>8 of 12</b> statements checked ·
+            <span class="d-ask-red">3 to check, 1 to chase</span> · 9 of 11 on schedule</span>
+        </div>
+      </div>
+      <div class="tblhint">Loan · Agreement · Source · Opening 7/31 · Drawn · Principal …</div>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <p class="why" style="margin-bottom:8px"><b>And the same line once August clears:</b></p>
+    <div class="stage">
+      <div class="d-strip" style="background:#f6fdf9;border-bottom-color:#bbf7d0">
+        <div class="d-line">
+          <span class="verdict clear">Ready for your accountant</span>
+          <span class="d-mini"><span class="seg-done" style="flex:12"></span></span>
+          <span class="d-asks">12 of 12 statements checked · 11 of 11 on schedule · everything booked</span>
+        </div>
+      </div>
+      <div class="tblhint">Loan · Agreement · Source · Opening 7/31 · Drawn · Principal …</div>
+    </div>
+  </section>
+
+  <!-- ============ RECOMMENDATION ============ -->
+  <section>
+    <h2>What I’d pick</h2>
+    <div class="rec">
+      <b>B, with D’s discipline.</b> You asked for three specific numbers and B is the only one that
+      keeps them separable — a month can be 12/12 on statements and still stuck because two loans fell
+      off their schedules, and A collapses that into one bar that can’t show it.
+      <ul>
+        <li><b>Every bar that isn’t full names its loans</b> — that’s the standing rule that a blocking
+        chip answers its own question, so nobody scans fourteen rows to reconstruct a list the code
+        already has.</li>
+        <li><b>Denominators never shrink quietly.</b> The two schedule-basis loans are excluded from the
+        statement bars by recorded policy and counted in a sentence, not dropped.</li>
+        <li><b>The verdict word stays.</b> The bar is the progress; “Not ready to close” is still the
+        claim, and it stays computed from every gate — not from whether the bars look full.</li>
+        <li><b>Green means checked, never merely uploaded.</b> A document on file with no tie-out is
+        amber. That distinction is the whole point of the gate.</li>
+      </ul>
+      If B reads too heavy once it’s on the real page, D is the fallback and it degrades to exactly the
+      strip you have now.
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
