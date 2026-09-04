@@ -2,6 +2,62 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0k. ⏭️ NEXT SESSION STARTS HERE — BOOK PROVISIONALLY, TRUE UP ON THE STATEMENT
+>
+> **David decided this on 2026-09-04, in these words: _"book provisionally and true it up when the
+> statement lands a month later"_ — plus _"and a one-time journal"_ for the backlog. Nothing below
+> is built. Read §0e first (the diagnosis), then this.**
+>
+> #### The problem, in one paragraph
+> The payment is always $2,033.77; the lender's split between principal and interest moves ~$15 a
+> month as the loan amortises. Funding Circle issues each statement on the 18th of the FOLLOWING
+> month, so when a payment is booked the newest statement on file describes the PREVIOUS period —
+> and the split taken from it is one month stale, every month, for ever. The total is right, so the
+> bank reconciles and nothing looks broken; ~$15 lands in Interest Expense that belonged on the loan.
+> Accumulated: $29.64 (closed books) + $15.14 (Jul) + $15.38 (Aug) = **$60.16**.
+>
+> #### The decision
+> 1. **Provisional split, from the AMORTISATION SCHEDULE where one exists** (David chose this over
+>    last-statement, over booking the whole payment to the loan, and over a per-loan predictability
+>    threshold). Evidence for the choice: FC's schedule predicted August at $1,041.10 against the
+>    lender's actual $1,041.09 — **a penny out**, versus $15.38 for the last-statement method. Fall
+>    back to the current behaviour on loans with no schedule (Rapid, Stripe, EIDL).
+> 2. **True up when the statement arrives**: compare the lender's stated split for that period
+>    against what was booked, and raise the difference as a correction **for approval — never
+>    auto-posted**.
+> 3. **A one-time journal** for the $30.52 already accumulated in open months ($15.14 + $15.38).
+>    $29.64 stays in closed books; the CPA settled those.
+>
+> #### The architecture that matters — ONE RULE, TWO CALLERS
+> The one-time journal and the recurring true-up are **the same calculation**: *the lender's stated
+> principal move for a period, minus what Xero actually moved, corrected between account 253 and
+> 800.* Build it once in `_shared/` (the `statement-period.ts` / `statement-split-shape.ts`
+> precedent) and call it from both:
+> - `loan-find-difference` — as a SECOND proposal shape, so the backlog appears as an approve-able
+>   button in the modal, reusing the existing token / server-side re-verify / close-date-guard /
+>   duplicate-journal machinery. **Do not invent a new write path to Xero for the one-off journal.**
+> - the statement ingest — so each new statement trues up the period it covers.
+>
+> Today the engine offers exactly ONE proposal shape (`index.ts` ~line 803): *the gap equals that
+> period's interest portion to the cent AND the payment sits in Xero as a single un-split lump.*
+> Funding Circle fails both (gap is $15.38, not ~$992; the payment was already split by the CPA),
+> which is why no button was offered. That refusal is correct — but the screen never says WHY there
+> is no button, and a reader cannot tell "this needs judgement" from "the feature did not fire".
+> **Fix that in the same pass; it is the same class as the frozen modal.**
+>
+> #### Traps, paid for today
+> - ⚠️ **A journal alone is not the fix.** Posting $30.52 makes the row green while the cards stay
+>   wrong, and next month adds another $15. The provisional/true-up change is what stops it; the
+>   journal only clears the backlog. Ship them together or say plainly which one shipped.
+> - ⚠️ **The staged 2026-09 split (`1a70eb96`, $1,041.10) is the lender's AUGUST figure**, already
+>   booked as $1,025.71. Approving it as-is may double-count August. It is also the proof that the
+>   schedule is accurate — and the proof that the LABEL is what is wrong on this loan.
+> - ⚠️ **Schema change ⇒ run `washroute-migration-review`, and prove the data API sees any new column
+>   BEFORE deploying code that names it** (a REST select returning 200 while a control column returns
+>   42703). Session 176 lost fifteen hours of card charging to skipping that.
+> - ⚠️ **Anything that posts to Xero keeps the approval gate.** Re-verify server-side on approval,
+>   refuse on drift, honour the close date on the WRITE and not only on the proposal.
+>
 > ### 0j. ✅ THE MODAL FREEZE — REAL CAUSE FOUND AND FIXED, CONFIRMED ON SCREEN (session 273 cont.)
 >
 > ⛔ **Correction to my own earlier write-up: the elapsed-second ticker shipped this morning did NOT
