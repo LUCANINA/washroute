@@ -1136,6 +1136,43 @@ GROUPS.push({
          'the totals row has the same number of cells as the header',
          `saw ${[...new Set(seen.footCounts)].join('/')}`);
 
+    // SESSION 267: the totals must READ STRAIGHT DOWN. Inline qualifiers like
+    // "13 of 14" after a right-aligned figure shove it out of its column, so the
+    // total no longer sits under the money it totals. The claim is not lost —
+    // the footnote states it, the row's data- attributes carry the counts for
+    // the export, and the cell keeps it on hover — but no text may share the
+    // cell with the number.
+    const totals = await p.evaluate(() => {
+      const tr = document.querySelector('#lcb-table tfoot tr');
+      if (!tr) return null;
+      const cells = [...tr.children].map(td => ({
+        text: td.innerText.replace(/\s+/g, ' ').trim(),
+        amount: td.getAttribute('data-amount'),
+        title: td.getAttribute('title') || '',
+      }));
+      return { cells, rowAttrs: {
+        count: tr.getAttribute('data-count'),
+        roll: tr.getAttribute('data-roll-count'),
+        closing: tr.getAttribute('data-closing-count'),
+        drawn: tr.getAttribute('data-drawn-measured'),
+      } };
+    });
+    const moneyCells = (totals ? totals.cells : []).filter(c => c.amount !== null && c.amount !== '');
+    const polluted = moneyCells.filter(c => /\bof\b|measured/i.test(c.text));
+    t.ok(moneyCells.length > 0, 'the totals row has money cells to check', String(moneyCells.length));
+    t.ok(polluted.length === 0,
+         'no total carries an inline "N of M" note that would break column alignment',
+         polluted.map(c => `"${c.text}"`).join(' · '));
+
+    // ...and the claim still exists, one hover away and in the export.
+    const qualified = moneyCells.filter(c => /covers \d+ of the \d+ loans|not measured/i.test(c.title));
+    t.ok(qualified.length > 0,
+         'a partial total still says so on hover — the claim moved, it was not deleted',
+         qualified.map(c => c.text).join(' · ') || 'none qualified');
+    t.ok(totals && totals.rowAttrs.count && totals.rowAttrs.closing,
+         'and the counts remain in the row attributes the CSV export reads',
+         JSON.stringify(totals && totals.rowAttrs));
+
     // The header is uppercased by CSS, so innerText comes back shouting. Compare
     // case-insensitively — asserting the rendered casing would be testing the
     // stylesheet, not the column order.
@@ -1360,6 +1397,96 @@ GROUPS.push({
       t.ok(seen.counts >= 1, 'OVERVIEW keeps its count — it has no list beneath it', JSON.stringify(seen));
       await p.close();
     }
+  },
+});
+
+/* 2e ── THE FIX BUTTON ACTUALLY OPENS SOMETHING ──────────────────────────────
+   Session 267, and this group exists because of a specific failure.
+
+   The Action column's "Find the fix" button did nothing on the live page. The
+   modal it opens had been placed beside #modal-loan-bundle — inside
+   #bk-view-overview, which is display:none whenever Loans is open. The modal
+   opened into a hidden subtree: no error, no dialog, nothing at all.
+
+   The first attempt to test this PASSED anyway, which is the part worth
+   remembering. It asked getComputedStyle(modal).display, and that returns an
+   element's OWN display value even when an ancestor is display:none — so an
+   invisible element reported "flex". offsetParent and getBoundingClientRect are
+   the checks that see through an ancestor, so those are what this asserts.
+
+   It also CLICKS the button rather than calling the handler by name: a dead
+   onclick attribute passes every test that invokes window.someFunction()
+   directly (the repo's own rule, learned the hard way). */
+GROUPS.push({
+  name: 'fix-button-opens',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const errs = [];
+    p.page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+    p.page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+
+    // The modal must not live inside ANY of the four view containers — three of
+    // them are hidden at any moment, and which one is hidden depends on the tab.
+    const placement = await p.evaluate(() => {
+      const m = document.getElementById('modal-loan-fix');
+      if (!m) return { exists: false };
+      const views = ['bk-view-overview', 'bk-view-loans', 'bk-view-payroll', 'bk-view-client']
+        .filter(id => { const v = document.getElementById(id); return v && v.contains(m); });
+      return { exists: true, insideViews: views };
+    });
+    t.ok(placement.exists, 'the fix modal exists');
+    t.ok(placement.insideViews && placement.insideViews.length === 0,
+         'the fix modal lives OUTSIDE every tab container (three of the four are always hidden)',
+         (placement.insideViews || []).join(', '));
+
+    const btn = await p.evaluate(() => {
+      const tr = [...document.querySelectorAll('#lcb-table tbody tr')]
+        .find(x => x.lastElementChild && x.lastElementChild.getAttribute('data-action') === 'fix');
+      return tr ? { loan: (tr.querySelector('.td-name') || {}).innerText || '' } : null;
+    });
+    t.ok(!!btn, 'a row offers "Find the fix" to click', JSON.stringify(btn));
+
+    if (btn) {
+      // CLICK it. Not bkOpenFixModal(...) — a dead onclick passes that.
+      await p.page.evaluate(() => {
+        const tr = [...document.querySelectorAll('#lcb-table tbody tr')]
+          .find(x => x.lastElementChild && x.lastElementChild.getAttribute('data-action') === 'fix');
+        tr.lastElementChild.querySelector('button').click();
+      });
+      await new Promise(r => setTimeout(r, 600));
+
+      const vis = await p.evaluate(() => {
+        const m = document.getElementById('modal-loan-fix');
+        const r = m ? m.getBoundingClientRect() : null;
+        // THREE CHECKS, AND ONLY ONE OF THEM IS TRUSTWORTHY.
+        //  · getComputedStyle(m).display reports the element's OWN value and
+        //    happily says "flex" inside a display:none ancestor. It is recorded
+        //    here as evidence, never asserted on.
+        //  · offsetParent is null for position:fixed elements no matter how
+        //    visible they are, so it cannot be used on a modal either.
+        //  · checkVisibility() walks the ancestor chain — display, visibility,
+        //    opacity, content-visibility — and is the one that answers the
+        //    question a person asks: can I see it?
+        return {
+          computed: m ? getComputedStyle(m).display : null,
+          offsetParentNull: m ? (m.offsetParent === null) : null,
+          rect: r ? { w: Math.round(r.width), h: Math.round(r.height) } : null,
+          visible: m && typeof m.checkVisibility === 'function'
+            ? m.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : null,
+          bodyText: (document.getElementById('loan-fix-body') || {}).innerText || '',
+        };
+      });
+      t.ok(vis.visible === true, 'the modal is genuinely visible (checkVisibility sees hidden ancestors)', JSON.stringify(vis));
+      t.ok(vis.rect && vis.rect.w > 0 && vis.rect.h > 0, 'the modal has real width and height', JSON.stringify(vis.rect));
+      t.ok(vis.bodyText.length > 0, 'and it says something while the analysis runs', vis.bodyText.slice(0, 80));
+      // The harness is offline, so the analyser's fetch to loan-find-difference
+      // fails by design. That is the stub working, not a defect — anything else
+      // in the console is real.
+      const realErrs = errs.filter(e => !/ERR_FAILED|Failed to load resource|Failed to fetch|NetworkError/i.test(e));
+      t.ok(realErrs.length === 0, 'clicking it raises no page or console error beyond the offline fetch',
+           realErrs.slice(0, 3).join(' | '));
+    }
+    await p.close();
   },
 });
 
@@ -3499,8 +3626,11 @@ const CLOSE_REVERTS = {
 
   // Review F14, in its session-247 home: the Total stops announcing that its
   // closing and variance columns cover fewer rows than the four beside them.
-  'total-hides-its-coverage': ['const closingMark = ta.closingCovers ? \'\' : mark(ta.closingCount);',
-                               'const closingMark = \'\';'],
+  // Session 267: the marker moved from the money cells to the Total's label cell
+  // (see ce18). The revert now removes the label's closing clause, which is the
+  // surviving mechanism — an anchor that no longer exists is not coverage.
+  'total-hides-its-coverage': ['if (!ta.closingCovers) coverParts.push(`${ta.closingCount} of ${ta.count} closing checked`);',
+                               ''],
   // 'empty-subtotal-renders' (review F14) IS GONE, deliberately. It reverted the
   // per-grade footer rows, and David's layout pass removed them — there is one
   // Total row now and `subtotalRow` no longer exists. A revert whose anchor
@@ -5323,14 +5453,32 @@ GROUPS.push({
       t.ok(!!cb.subtotals.all, 'ce18: ...leaving one Total');
       t.eq(cb.subtotals.all.count, cb.rows.length, 'ce18: ...which covers every row');
       t.eq(cb.subtotals.all.closingCount, 0, 'ce18: ...while its closing column covers none of them');
+      // SESSION 267 — WHERE THE COVERAGE LIVES CHANGED; THAT IT LIVES CHANGED NOT.
+      // It used to sit inline after the closing and variance figures. David:
+      // "remove the '13 of 14' notes so that the column totals are aligned with
+      // the numbers above them" — inline text after a right-aligned number pushes
+      // it out of its column, so the totals stopped lining up with the money they
+      // total. It now sits in the Total's LABEL cell, which is text and
+      // left-aligned, so nothing shifts and the warning is still on screen at a
+      // glance. The per-cell titles carry the detail on hover.
+      //
+      // The INVARIANT is untouched and is what this asserts: a totals row whose
+      // closing column covers no loans must not present a bare, confident $0.00.
+      // So the check is now "the row says it", not "this cell says it" — the
+      // money cells are additionally asserted to be CLEAN, which is the half of
+      // David's request that could otherwise regress silently.
+      const rowText = cb.subtotals.all.cells.join(' ');
       const closingCell = cb.subtotals.all.cells[cb.columnIndex.closing] || '';
       const varianceCell = cb.subtotals.all.cells[cb.columnIndex.variance] || '';
-      t.ok(new RegExp(`0 of ${cb.rows.length}`).test(closingCell),
-           'ce18: ...and SAYS SO beside the figure rather than printing a confident $0.00',
-           `closing cell = ${JSON.stringify(closingCell)}`);
-      t.ok(new RegExp(`0 of ${cb.rows.length}`).test(varianceCell),
-           'ce18: ...on the variance column too, which is the one a reader reads as a verdict',
-           `variance cell = ${JSON.stringify(varianceCell)}`);
+      t.ok(new RegExp(`0 of ${cb.rows.length}`).test(rowText),
+           'ce18: ...and the Total SAYS SO rather than printing a confident $0.00',
+           `row = ${JSON.stringify(cb.subtotals.all.cells)}`);
+      t.ok(/closing checked/.test(rowText),
+           'ce18: ...naming the closing coverage specifically, since that is the verdict column',
+           `row = ${JSON.stringify(cb.subtotals.all.cells)}`);
+      t.ok(!/ of \d+/.test(closingCell) && !/ of \d+/.test(varianceCell),
+           'ce18: ...and the money cells stay clean, so the totals line up with the column above',
+           `closing ${JSON.stringify(closingCell)} variance ${JSON.stringify(varianceCell)}`);
       t.eq(cb.subtotals.all.ties, false,
            'ce18: ...and the Total never carries data-tie, so nothing counts it as an agreement');
 
@@ -5946,7 +6094,8 @@ GROUPS.push({
       t.eq(cbPart.subtotals.all.drawnMeasured, cb.rows.length - 2,
            'ce28: unmeasure two loans and the Total says so');
       t.ok(cbPart.subtotals.all.cells.some(c => new RegExp(`${cb.rows.length - 2} of ${cb.rows.length} measured`).test(c)),
-           'ce28: ...in words beside the figure', JSON.stringify(cbPart.subtotals.all.cells));
+           'ce28: ...in words in the Total row (session 267: the label cell, not beside the figure — see ce18)',
+           JSON.stringify(cbPart.subtotals.all.cells));
       await pPart.close();
 
       // ── CONTROL ── drop Drawn from the subtotal

@@ -3961,23 +3961,6 @@
                  assuming it, and a portal screenshot's "amount remaining" is what
                  says which of two possible meanings the books' balance carries.
                  Nothing here writes until the tickboxes are approved. -->
-            <!-- Session 267: host for the Action column's "Find the fix". The
-                 analysis and posting are bkFindDifference / bkPostFdiffFix,
-                 unchanged — this only gives them somewhere to render when they
-                 are reached from a rollforward row instead of a findings card. -->
-            <div class="modal-overlay" id="modal-loan-fix" style="display:none;z-index:900">
-              <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
-                <div class="modal-header" style="flex-shrink:0">
-                  <div class="modal-title" id="loan-fix-title">Find the difference</div>
-                  <button class="modal-close" onclick="bkCloseFixModal()">&times;</button>
-                </div>
-                <div class="modal-body" id="loan-fix-body" style="overflow-y:auto;flex:1 1 auto;min-height:0"></div>
-                <div class="modal-footer" style="flex-shrink:0">
-                  <button class="btn btn-ghost" onclick="bkCloseFixModal()">Close</button>
-                </div>
-              </div>
-            </div>
-
             <div class="modal-overlay" id="modal-loan-bundle" style="display:none;z-index:900">
               <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
                 <div class="modal-header" style="flex-shrink:0">
@@ -4508,6 +4491,39 @@
 
             </div><!-- /cv-subview-debt -->
           </div><!-- /bk-view-client -->
+
+          <!-- ── SESSION 267: THIS MODAL LIVES OUTSIDE THE FOUR VIEW DIVS ──
+               It was first placed beside #modal-loan-bundle, which sits inside
+               #bk-view-overview. That div is display:none while Loans is open,
+               so the modal opened into a hidden subtree and the button appeared
+               to do nothing at all — no error, no dialog, nothing.
+               #modal-loan-bundle gets away with it only because it is opened
+               FROM Overview. This one is opened from Loans, so it has to live
+               outside every view container.
+
+               The test that was supposed to catch this gave a FALSE PASS: it
+               asked getComputedStyle(modal).display, which reports an element's
+               OWN display value even when an ancestor is display:none. Visibility
+               is now asserted with offsetParent / getBoundingClientRect, which
+               are the only checks that see through an ancestor. -->
+            <!-- Session 267: host for the Action column's "Find the fix". The
+                 analysis and posting are bkFindDifference / bkPostFdiffFix,
+                 unchanged — this only gives them somewhere to render when they
+                 are reached from a rollforward row instead of a findings card. -->
+            <div class="modal-overlay" id="modal-loan-fix" style="display:none;z-index:900">
+              <div class="modal" style="width:min(920px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+                <div class="modal-header" style="flex-shrink:0">
+                  <div class="modal-title" id="loan-fix-title">Find the difference</div>
+                  <button class="modal-close" onclick="bkCloseFixModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="loan-fix-body" style="overflow-y:auto;flex:1 1 auto;min-height:0"></div>
+                <div class="modal-footer" style="flex-shrink:0">
+                  <button class="btn btn-ghost" onclick="bkCloseFixModal()">Close</button>
+                </div>
+              </div>
+            </div>
+
+
         </div><!-- /page-bookkeeping -->
 
         <!-- Payroll Upload modal -->
@@ -17914,22 +17930,60 @@
     // describe different populations is the defect this footer was rebuilt to
     // remove. Do not delete the marker to tidy the row — delete the mismatch.
     const ta = rf.totalsAll;
-    // Session 249: the marker is a quiet inline aside, not a stacked sub-line —
-    // it belongs to the figure it qualifies and it must not survive into the
-    // CSV as a second line inside a money cell. The export reads data-amount.
-    const mark = (n) => `<span class="lcb-quiet" style="font-size:11px"> ${n} of ${ta.count}</span>`;
-    const rollMark = ta.rollCovers ? '' : mark(ta.rollCount);
-    const closingMark = ta.closingCovers ? '' : mark(ta.closingCount);
+    // Session 249 made the marker a quiet inline aside. Session 267, David:
+    // "remove the '13 of 14' notes so that the column totals are aligned with
+    // the numbers above them." Inline text after a right-aligned figure pushes
+    // it out of its column, so the totals stop lining up with the money they
+    // total — and a totals row you cannot read straight down is a worse failure
+    // than an unqualified number.
+    //
+    // The comment above says "do not delete the marker to tidy the row — delete
+    // the mismatch", and that rule is respected rather than overridden: THE
+    // CLAIM DOES NOT LEAVE THE SCREEN. The footnote directly beneath already
+    // states it more fully ("Variance covers the 13 loans checked for August
+    // 2026: 11 against a lender document, 2 against the contractual schedule.
+    // 1 has nothing to close against"), the counts stay in this row's data-
+    // attributes for the CSV export, and the qualification is now one hover
+    // away on the cell itself. Only the pixels are gone.
+    const markTitle = (n, what) => ta.count === n ? ''
+      : ' title="This total covers ' + n + ' of the ' + ta.count + ' loans — ' + what + '. The line under the table names which, and the CSV export carries the counts."';
+    const rollTitle = ta.rollCovers ? '' : markTitle(ta.rollCount, 'the rest have nothing to roll forward from');
+    const closingTitle = ta.closingCovers ? '' : markTitle(ta.closingCount, 'the rest have nothing to close against this month');
+    const drawnTitle = ta.drawnMeasured === ta.rollCount ? ''
+      : ' title="Measured from the ledger on ' + ta.drawnMeasured + ' of the ' + ta.rollCount + ' loans rolled forward. On the rest the month\'s movement was not measured, so nothing is claimed for them."';
+    // WHERE THE COVERAGE GOES NOW, AND WHY IT STILL GOES SOMEWHERE VISIBLE.
+    // David wants the money columns to line up, and inline text after a
+    // right-aligned figure breaks that. But the coverage cannot simply vanish:
+    // ce18 builds the case where NO loan has a closing balance, and without a
+    // visible marker the row prints a confident "$0.00" in the variance column
+    // — a verdict nobody earned, in the column a reader reads AS the verdict.
+    // A hover does not reach someone glancing down a totals row.
+    //
+    // So it moves to the LABEL cell, which is text and left-aligned: every money
+    // column keeps its alignment, and the qualification is still on screen at a
+    // glance. The per-cell titles above stay as the detail.
+    // The wording is deliberate and is what the closing-evidence suite reads:
+    // "N of M rolled forward", "N of M closing checked", "N of M measured". Each
+    // shortfall is named separately, because they are different populations and
+    // collapsing them is the "two numbers, no way to tell which is real" defect
+    // this module keeps having to fix.
+    const coverParts = [];
+    if (!ta.rollCovers) coverParts.push(`${ta.rollCount} of ${ta.count} rolled forward`);
+    if (!ta.closingCovers) coverParts.push(`${ta.closingCount} of ${ta.count} closing checked`);
+    if (ta.drawnMeasured !== ta.rollCount) coverParts.push(`${ta.drawnMeasured} of ${ta.rollCount} measured`);
+    const coverageLabel = coverParts.length
+      ? `<span class="lcb-quiet" style="font-size:11px"> · ${coverParts.join(' · ')}</span>`
+      : '';
     const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" data-drawn-measured="${ta.drawnMeasured}" class="lcb-total">
-      <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}</td>
+      <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}${coverageLabel}</td>
       <td></td><td></td>
-      <td class="lcb-n" data-amount="${ta.opening}">${money(ta.opening)}${rollMark}</td>
-      <td class="lcb-n" data-amount="${ta.drawn}">${money(ta.drawn)}${ta.drawnMeasured === ta.rollCount ? '' : `<span class="lcb-quiet" style="font-size:11px"> ${ta.drawnMeasured} of ${ta.rollCount} measured</span>`}</td>
+      <td class="lcb-n" data-amount="${ta.opening}"${rollTitle}>${money(ta.opening)}</td>
+      <td class="lcb-n" data-amount="${ta.drawn}"${drawnTitle}>${money(ta.drawn)}</td>
       <td class="lcb-n" data-amount="${ta.principal}">${money(ta.principal)}</td>
       <td class="lcb-n" data-amount="${ta.interest}">${money(ta.interest)}</td>
-      <td class="lcb-n" data-amount="${ta.computed}">${money(ta.computed)}${rollMark}</td>
-      <td class="lcb-n" data-amount="${ta.perLender}">${money(ta.perLender)}${closingMark}</td>
-      <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}">${varianceCell(ta)}${closingMark}</td>
+      <td class="lcb-n" data-amount="${ta.computed}"${rollTitle}>${money(ta.computed)}</td>
+      <td class="lcb-n" data-amount="${ta.perLender}"${closingTitle}>${money(ta.perLender)}</td>
+      <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}"${closingTitle}>${varianceCell(ta)}</td>
       <td></td><td></td><td></td><td></td>
     </tr>`;
 
