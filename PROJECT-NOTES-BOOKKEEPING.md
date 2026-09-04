@@ -2,6 +2,26 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0a. 🔴 SESSION 273 IS COMMITTED AND **NOT DEPLOYED** — one CLI command
+>
+> `loan-ingest-statement` v23 (Rapid: month-boundary pairing, the footing check, basis proven by
+> continuity) plus the new `_shared/statement-split-shape.ts` it imports. **Nothing about Rapid's
+> next upload behaves correctly until this is deployed.** From the repo root:
+>
+> ```
+> npx -y supabase@latest functions deploy loan-ingest-statement \
+>   --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+>
+> ⚠️ **`loan-ingest-statement` is `verify_jwt: TRUE` today** — unlike loan-find-difference. Check
+> the flag before deploying and match it; `--no-verify-jwt` on this one would CHANGE it and break
+> every caller. Verify with the no-Authorization-header probe in the base skill, then confirm the
+> deployed source contains `statement-split-shape` and `split_footing`.
+>
+> The two Rapid data rows and the two basis labels are already applied (session 273 log entry).
+> **David still has one thing to click: approve the 2026-08-31 Balance Fee ($457.14) so it posts
+> to Xero.** Until then the Ledger column on Rapid correctly shows ✗ for that amount.
+>
 > ### 0. ✅ SESSION 272 IS DEPLOYED AND VERIFIED BY CONTENT (checked 2026-09-04 ~20:15 UTC)
 >
 > David pushed and deployed. **`loan-find-difference` v26, `verify_jwt: false`** — so
@@ -2622,6 +2642,113 @@ to "what is running".
 ---
 
 ---
+
+### Session 273 (2026-09-04) — RAPID: THE UPLOADS STUCK EVERY TIME, AND NOTHING WAS CHECKING THAT THEY ADDED UP
+
+David: *"I keep uploading the 'transactions to date' from the lender but they don't stick. Could
+it be because the shape of this loan is so unusual (one lump payment, a separate fee on a
+different day)?"*
+
+**The shape was never the problem, and it is worth saying why: this module had already learned
+it.** July's rows are exactly right — `2026-07-27 principal −527.00 / interest +527.00 / total
+0.00` for the fee, `2026-07-28 principal 2,068.89` for the payment. Session 241 taught the ingest
+this loan on David's own instruction ("the interest is shown as a fee; to calculate the principal,
+deduct the interest/fee portion from the PAYMENT"). August is where it came apart, into **three
+different shapes in one month**, and none of the three was checked against the lender's own
+arithmetic.
+
+#### What was actually wrong — three defects, one symptom
+
+**1. 🔴 THE UPLOADS LANDED AND WENT INVISIBLE.** Both recent Rapid statements were stored
+correctly, with the right balance, and both carried **`balance_basis = 'unknown'`**. That column
+DEFAULTS to `'unknown'` and the caller must opt in — and an unlabelled balance is excluded from
+every lender comparison in this module by design (`labelledOnly` in `_loanClosingAnchor`, Tech
+Debt #19). So the close band fell back to the **2026-08-16** statement, which is why the Closing
+column read $54,252.75 — twenty days before month end — and why session 272's brand-new
+stale-anchor rule then asked David for an August statement **he had already supplied three
+times**. A default whose failure mode is silence is not a safe default.
+
+**2. 🔴 A PAIR STRADDLED THE MONTH END, AND $457.14 FELL THROUGH IT.** A paired row is dated on
+the PAYMENT. Pairing the **2026-08-31** Balance Fee with the **2026-09-01** payment moved that fee
+into September, so August's books never saw it. Identical in kind to session 272's transposition:
+two dates a day apart treated as one event, money recorded in the wrong period. Within a month the
+day changes no month-end figure and pairing is the better shape; across a month end it changes one
+every time.
+
+**3. 🔴 "ALREADY IN XERO" WAS SILENTLY DECIDING THE ECONOMIC SHAPE.** `genuinelyNewFees` exists to
+stop us creating a duplicate Xero entry. It was also, invisibly, gating the pairing — a fee
+filtered out there could never pair, so its payment fell through to the "no fee same-day" branch
+and booked the whole amount to principal. Rapid's **2026-08-25** is exactly that: Xero holds one
+net line of **$1,597.47** (payment less the 08/24 fee) while our split claimed **$2,068.89**, a
+$471.42 disagreement with our own ledger. *"Already in Xero" is a fact about POSTING; whether a
+fee and a payment are one economic event is a fact about the LENDER, true either way* — the same
+distinction session 241 drew when it stopped gating on `direct_split_enabled`. **The gate was the
+wrong question, twice, in the same function.**
+
+#### ⭐ AND THE ONE CHECK THAT WOULD HAVE CAUGHT ALL OF IT
+
+The 2026-09-02 upload derived three splits from two statements **$4,792.62** apart, and those
+splits claimed **$5,721.18** of principal. It invented **$928.56** — exactly the two Balance Fees
+it never turned into rows — and nothing anywhere noticed for a month.
+
+`statement_delta` means *"the difference between two lender balances"*. If the rows we derive do
+not sum to that difference, they are not a statement delta, whatever the column says. That is
+session 247's **measured, never derived** applied to ingest: the movement is MEASURED from the
+lender's own two figures, and the rows must match it rather than being trusted to.
+
+**When it fails the rows are not refused** — refusing throws away a parse that is mostly right and
+leaves the month with nothing. They land as `needs_attention` instead of `pending_review`, which
+keeps them out of any bulk approval AND out of the roll-back walk
+(`ROLLBACK_BLOCKING_STATUSES`), so an unfooted parse can never quietly anchor a close. The
+shortfall is named on every row and returned to the caller as `split_footing`.
+
+**And the same arithmetic proves the basis.** The schedule importer already said it: *"the
+balance-continuity check that verified this parse IS the definition of a principal-only balance."*
+Identical argument here — if the lender's balance moved by exactly the payments less the fees we
+parsed, that balance is a current outstanding figure, because a total-payback number does not move
+by the fee. One computation, two answers, and no more guessing at a basis. It only ever upgrades
+`'unknown'`, never overwrites a basis a human recorded, and never fires on a parse that did not
+foot.
+
+#### What shipped
+
+`supabase/functions/_shared/statement-split-shape.ts` — `pairFeesToPayments`, `footingCheck`,
+`basisProvenBy`. Extracted for the reason `paypal-history.ts` was: a rule buried in a 1,400-line
+function that talks to Supabase and Xero on every path cannot be tested, and an untested rule
+about money is a rule waiting to be wrong. `loan-ingest-statement` **v23** imports all three —
+one implementation, not two. `tests/statement-split-shape.test.mts`, **28 assertions**, every
+figure transcribed from the real Rapid PDF and the real Xero export; it reproduces the
+month-boundary pairing to show it loses the $457.14, and asserts the ambiguity refusal.
+
+#### The data, and what it did
+
+Two `loan_splits` rows created after `washroute-preflight` (0 customers reachable; no cron
+auto-posts a `pending_review` split; both rows net to $0.00 so `enforce_split_invariant` passes):
+
+| date | principal | interest | status | why |
+|---|---|---|---|---|
+| 2026-08-24 | −471.42 | +471.42 | `already_in_xero` | Xero holds it inside the 08-25 net line — nothing posts |
+| 2026-08-31 | −457.14 | +457.14 | `pending_review` | **never booked anywhere** — David approves to post |
+
+Both statements re-labelled `principal_only` by a guarded UPDATE that recomputed the footing in
+SQL and could only fire where it proved out — **4,792.62 = 4,792.62**, printed in the returning
+clause rather than asserted.
+
+**August now reads $5,848.81 of principal and $2,426.75 of interest — Rapid's own figures, to the
+cent.** The close should tie at **$51,529.02** (the 09-02 balance rolled back over the 09-01
+payment, via session 272's roll-back rule), and the **Ledger column will still show ✗ for $457.14**
+until David posts that fee — which is exactly right, because Xero really is short by it.
+
+#### Two things worth carrying forward
+
+* **A default whose failure mode is silence is a bug in the default.** `balance_basis` defaults to
+  the one value that makes a document invisible. Proving it at ingest fixes the new rows; **Tech
+  Debt #19's existing unlabelled rows are still out there** and still excluded.
+* **The same gate answered two different questions.** Both defects 2 and 3 are one branch deciding
+  something it was never asked about — a fee's Xero status deciding its economic shape, a pairing
+  window deciding which month a fee belongs to. Session 231's "a guard is only as good as the
+  branch it sits on" has a twin: *a guard is only as good as the question it was written for, and
+  it must not be asked a second one.*
 
 ### Session 272 cont. 2 (2026-09-04) — THE DOCUMENT WAS ALREADY ON FILE, AND THE OPENING WAS NEVER SETTLED
 

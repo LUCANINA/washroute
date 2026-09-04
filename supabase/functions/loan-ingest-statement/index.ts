@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { rederiveIfDerived, REAL_SOURCES } from "../_shared/derive-schedule.ts"
 import { effectiveCloseDate, isPeriodClosed, closedNote } from "../_shared/close-date.ts"
+import { pairFeesToPayments, footingCheck, basisProvenBy } from '../_shared/statement-split-shape.ts'
 
 // Ingests one pulled loan statement (Ford Pro CSV today; other lenders/methods later):
 //   1. stores the raw CSV in the loan-statements bucket (permanent proof record)
@@ -1015,6 +1016,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // 5. Transaction-based splits (v15, extended v17, v20). Runs independently of step
     //    3/4; a statement can have both, either, or neither.
     let splitsCreated: any[] = []
+    let footing: any = null          // v23: see the footing check below
     let skippedExisting = 0
     let skippedAlreadyInXero: any[] = []
     let xeroCheckError: string | null = null
@@ -1100,6 +1102,9 @@ async function handleRequest(req: Request): Promise<Response> {
         }
         genuinelyNewFees.push(f)
       }
+      // v23: which fee dates Xero already holds. Used ONLY to decide a paired
+      // row's status -- never its shape. See the pairing note below.
+      const alreadyInXeroDates = new Set(skippedAlreadyInXero.map((x: any) => String(x.date)))
 
       // v20 (session 220): DIRECT-SPLIT PAIRING. For direct_split_enabled loans, pair
       // each genuinely-new fee with its nearest not-yet-claimed payment candidate
@@ -1150,21 +1155,42 @@ async function handleRequest(req: Request): Promise<Response> {
       //
       // So the two are separated by their own flag now, and the pairing runs on
       // the fact rather than on the posting preference.
+      // ── v23 (session 273): TWO CORRECTIONS TO THE PAIRING, BOTH FOUND ON RAPID'S
+      //     REAL AUGUST. Neither changes v21's decision -- David's "deduct the
+      //     interest/fee portion from the PAYMENT" is still exactly what a pair
+      //     computes. They change WHEN a pair is allowed to form.
+      //
+      // (a) A PAIR MAY NEVER STRADDLE A MONTH BOUNDARY.
+      //     A combined row is dated on the PAYMENT, so pairing the 2026-08-31 fee
+      //     ($457.14) with the 2026-09-01 payment moves that fee into September and
+      //     August's books never see it. That is the same defect as session 272's
+      //     transposition -- money recorded in the wrong period because two dates a
+      //     day apart were treated as one event -- and on a month end it is the
+      //     difference between a close that ties and one that does not.
+      //     Within a month the day does not matter and pairing is right; across one
+      //     it always matters, so the two events go back to being two rows.
+      //
+      // (b) A FEE ALREADY IN XERO IS STILL PART OF ITS PAYMENT.
+      //     `genuinelyNewFees` exists to stop us creating a DUPLICATE Xero entry.
+      //     It was also, silently, deciding the economic SHAPE of the split: a fee
+      //     filtered out there could never pair, so its payment fell through to the
+      //     "no fee same-day" branch and booked the whole amount to principal.
+      //     Rapid's 2026-08-25 is exactly that -- Xero holds one net entry of
+      //     $1,597.47 (payment less the 08/24 fee) while our split claimed $2,068.89
+      //     of principal, a $471.42 disagreement with our own ledger.
+      //     "Already in Xero" is a fact about POSTING. Whether a fee and a payment
+      //     are one economic event is a fact about the LENDER, true either way --
+      //     the same distinction v21 drew when it stopped gating on
+      //     direct_split_enabled. So pairing now runs over every fee candidate, and
+      //     what Xero already holds decides the row's STATUS, not its shape.
+      // The rule itself lives in _shared/statement-split-shape.ts so it can be
+      // tested against real figures without a Supabase or a Xero in the room.
       if (loanAcct.direct_split_enabled || loanAcct.interest_arrives_as_fee) {
-        const sortedFees = genuinelyNewFees.slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
-        for (const f of sortedFees) {
-          const feeTime = new Date(f.date + 'T00:00:00Z').getTime()
-          const inWindow = paymentCandidates
-            .filter((p: any) => !claimedPayments.has(p))
-            .map((p: any) => ({ p, dist: Math.abs(new Date(p.date + 'T00:00:00Z').getTime() - feeTime) }))
-            .filter((x: any) => x.dist <= DIRECT_SPLIT_PAIR_WINDOW_DAYS * 86400000)
-            .sort((a: any, b: any) => a.dist - b.dist)
-          if (!inWindow.length) continue // no candidate in window -- unpaired, falls through
-          if (inWindow.length > 1 && inWindow[0].dist === inWindow[1].dist) continue // ambiguous tie -- unpaired
-          const chosen = inWindow[0].p
-          claimedPayments.add(chosen)
-          pairedFees.add(f)
-          pairs.push({ fee: f, payment: chosen })
+        const paired = pairFeesToPayments(feeCandidates, paymentCandidates, DIRECT_SPLIT_PAIR_WINDOW_DAYS)
+        for (const pr of paired.pairs) {
+          claimedPayments.add(pr.payment)
+          pairedFees.add(pr.fee)
+          pairs.push({ fee: pr.fee, payment: pr.payment, feeInXero: alreadyInXeroDates.has(pr.fee.date) ? pr.fee.date : null })
         }
       }
       directSplitPairs = pairs.map(pr => ({
@@ -1205,17 +1231,123 @@ async function handleRequest(req: Request): Promise<Response> {
         })
       }
       for (const pr of pairs) {
+        const net = money(Number(pr.payment.amount) - Number(pr.fee.amount))
+        // v23(b): the fee is already in Xero, so this event may already be booked
+        // there in full -- Rapid books it as ONE net line. MEASURED, not assumed:
+        // ask Xero whether it holds the NET. Only then is the row already_in_xero.
+        // If Xero has the fee but not the net, the payment half may still be
+        // unposted, and claiming otherwise would leave a real payment permanently
+        // unbooked -- a silent omission, which is worse than a duplicate we refuse.
+        const netInXero = !!(pr.feeInXero && xero && feeAlreadyInXero(net, xero).matched)
         rows.push({
           loan_account_id: loanAcct.id,
           period_label: pr.payment.date,
           current_statement_id: stmt.id,
           source: 'statement_delta',
-          principal_amount: money(Number(pr.payment.amount) - Number(pr.fee.amount)),
+          principal_amount: net,
           interest_amount: money(Number(pr.fee.amount)),
           total_amount: money(Number(pr.payment.amount)),
-          status: 'pending_review',
-          review_notes: `Auto-generated, one row per payment: this lender bills its interest as a fee, so principal is the payment less the fee. Fee dated ${pr.fee.date} ($${money(Number(pr.fee.amount)).toFixed(2)}) paired with the payment dated ${pr.payment.date} ($${money(Number(pr.payment.amount)).toFixed(2)}), within the +/-${DIRECT_SPLIT_PAIR_WINDOW_DAYS}-day window. Principal $${money(Number(pr.payment.amount) - Number(pr.fee.amount)).toFixed(2)} = payment $${money(Number(pr.payment.amount)).toFixed(2)} - fee $${money(Number(pr.fee.amount)).toFixed(2)}.`,
+          status: netInXero ? 'already_in_xero' : 'pending_review',
+          review_notes: `Auto-generated, one row per payment: this lender bills its interest as a fee, so principal is the payment less the fee. Fee dated ${pr.fee.date} ($${money(Number(pr.fee.amount)).toFixed(2)}) paired with the payment dated ${pr.payment.date} ($${money(Number(pr.payment.amount)).toFixed(2)}), within the +/-${DIRECT_SPLIT_PAIR_WINDOW_DAYS}-day window and inside the same month. Principal $${net.toFixed(2)} = payment $${money(Number(pr.payment.amount)).toFixed(2)} - fee $${money(Number(pr.fee.amount)).toFixed(2)}.`
+            + (pr.feeInXero
+              ? (netInXero
+                ? ` Xero already carries this event as a single net line of $${net.toFixed(2)}, so nothing is posted from here.`
+                : ` Xero already carries the ${pr.fee.date} fee, but no net line of $${net.toFixed(2)} was found -- review before posting so the fee half is not booked twice.`)
+              : ''),
         })
+      }
+
+      // ══ v23 (session 273): A DERIVED SPLIT SET MUST FOOT TO ITS OWN STATEMENTS ══
+      //
+      // David, on Rapid: "I keep uploading the transactions to date but they don't
+      // stick." They stuck. What did not happen is anyone checking that they added
+      // up. The 2026-09-02 upload derived three splits from two statements
+      // $4,792.62 apart -- and those splits claimed $5,721.18 of principal. It
+      // invented $928.56, exactly the two Balance Fees it had not turned into rows,
+      // and nothing anywhere noticed for a month.
+      //
+      // THE CHECK IS THE DEFINITION OF THE SOURCE. `statement_delta` means "the
+      // difference between two lender balances". If the rows we derive do not sum
+      // to that difference, they are not a statement delta, whatever the column
+      // says. This is the module's own "measured, never derived" rule applied to
+      // the ingest: the balance movement is MEASURED from the lender's two figures,
+      // and the rows must match it rather than being trusted to.
+      //
+      // WHAT IT DOES WHEN IT FAILS. Not a refusal -- refusing would throw away a
+      // parse that is mostly right and leave the month with nothing. The rows land
+      // as `needs_attention` instead of `pending_review`, which keeps them out of
+      // any bulk approval AND out of the roll-back walk (ROLLBACK_BLOCKING_STATUSES),
+      // so an unfooted parse can never quietly anchor a close. The shortfall is
+      // named on every row and returned to the caller.
+      //
+      // The window is (prior anchor, this statement]. Splits already on file inside
+      // it count toward the total -- otherwise a second upload covering the same
+      // weeks would always look short by everything the first one already booked.
+      {
+        const { data: priorRows } = await supa
+          .from('loan_statements')
+          .select('statement_date, principal_balance')
+          .eq('loan_account_id', loanAcct.id)
+          .lt('statement_date', statement_date)
+          .not('principal_balance', 'is', null)
+          .order('statement_date', { ascending: false })
+          .limit(1)
+        const prior = (priorRows || [])[0] || null
+        if (prior && stmt?.principal_balance != null) {
+          const { data: inWindow } = await supa
+            .from('loan_splits')
+            .select('period_label, principal_amount, status')
+            .eq('loan_account_id', loanAcct.id)
+            .gt('period_label', String(prior.statement_date))
+            .lte('period_label', String(statement_date))
+          const onFile = (inWindow || [])
+            .filter((r: any) => String(r.status) !== 'voided')
+            .reduce((n: number, r: any) => n + Number(r.principal_amount || 0), 0)
+          const fromThisUpload = rows.reduce((n: number, r: any) => n + Number(r.principal_amount || 0), 0)
+          footing = footingCheck({
+            openingBalance: Number(prior.principal_balance), closingBalance: Number(stmt.principal_balance),
+            from: String(prior.statement_date), to: String(statement_date),
+            principalOnFile: onFile, principalFromThisUpload: fromThisUpload,
+          })
+          if (!footing.foots) {
+            const why = `This upload's rows do not foot to the lender's own balances. Between ${footing.from} ($${footing.opening_balance.toFixed(2)}) and ${footing.to} ($${footing.closing_balance.toFixed(2)}) the balance moved $${footing.lender_movement.toFixed(2)}, and the splits covering that window account for $${footing.accounted.toFixed(2)} -- a difference of $${footing.gap.toFixed(2)}. Most often that is a fee in the statement's Fees/Adjustments table that did not become a row. Held for review rather than posted.`
+            for (const r of rows) {
+              r.status = 'needs_attention'
+              r.review_notes = `${r.review_notes} ${why}`
+            }
+          }
+        }
+      }
+
+      // ══ v23: AND THE SAME ARITHMETIC PROVES THE BALANCE BASIS ═══════════════
+      //
+      // A statement whose `balance_basis` is 'unknown' is excluded from every
+      // lender comparison in this module, by design -- and the column DEFAULTS to
+      // 'unknown', so a caller that simply does not mention it produces a document
+      // that lands, looks filed, and is invisible. That is what David was hitting:
+      // three uploads of the same Rapid statement, every one of them stored, none
+      // of them used, the close band quietly falling back to a figure from twenty
+      // days earlier.
+      //
+      // The schedule importer already solved this and said so in as many words:
+      // "the balance-continuity check that verified this parse IS the definition of
+      // a principal-only balance". The identical argument holds here. If the
+      // lender's own balance moved by exactly the payments less the fees we parsed,
+      // then that balance is a current outstanding figure -- it cannot be a
+      // total-payback number, because a payback figure does not move by the fee.
+      // The parse has PROVEN the basis rather than being asked to assume it.
+      //
+      // Only ever upgrades 'unknown', never overwrites a basis someone recorded
+      // deliberately, and never fires unless the footing check actually passed.
+      if (footing && basisProvenBy(footing, stmt?.balance_basis) && stmt?.id) {
+        const { data: proved } = await supa
+          .from('loan_statements')
+          .update({ balance_basis: 'principal_only' })
+          .eq('id', stmt.id)
+          .eq('balance_basis', 'unknown')
+          .select()
+          .maybeSingle()
+        if (proved) { stmt.balance_basis = 'principal_only'; footing.basis_proved = true }
       }
 
       if (rows.length) {
@@ -1259,6 +1391,11 @@ async function handleRequest(req: Request): Promise<Response> {
       splits_skipped_already_in_xero: skippedAlreadyInXero,
       xero_check_error: xeroCheckError,
       direct_split_pairs: directSplitPairs,
+      // v23: whether the rows this upload derived actually add up to the lender's
+      // own balance movement, and whether that arithmetic proved the balance basis.
+      // Both are on the response so the uploader can SAY so rather than the caller
+      // having to notice a silence.
+      split_footing: footing,
       backfilled_split: backfilledSplit,
       note: (split || splitsCreated.length || (backfilledSplit && !backfilledSplit.error))
         ? undefined
