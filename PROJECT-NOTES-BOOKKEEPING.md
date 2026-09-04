@@ -2,6 +2,42 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
 >
+> ### 0i. ⏳ THE AMOUNT-HUNT IS FIXED IN CODE — AWAITING ONE DEPLOY (session 273 cont.)
+>
+> Run **`bash deploy-session273b.sh`** again (same script, same function, same flag), then tell
+> Claude. Acceptance test: re-run the Funding Circle walk and confirm the conclusions **no longer**
+> offer the $457.14 Rapid journal for a $15.38 gap.
+>
+> **The defect.** `crossLoanCandidatesFor()` grades every candidate into three tiers and words each
+> one honestly — an `in_span` candidate's own `question` says only *"sits inside this divergent span
+> — worth confirming"*. The conclusions bullet (`hypFor`) threw the tier away, promoted **every**
+> candidate to *"likely belongs here"*, and appended *"Recode it and re-run."* `in_span` means
+> nothing more than *this entry fell inside the same date window and is coded to another loan* —
+> there is no amount relationship at all. So a $457.14 balance fee on a different lender's loan was
+> being offered, in the headline, as the explanation for $15.38.
+>
+> **This is the session-272 witch hunt generated one loan at a time.** A confident wrong lead costs
+> more than no lead, because someone acts on it.
+>
+> **The rule now:** only `explains_exactly` (the gap equals the amount) and `explains_with_known`
+> (equals it once a named figure is set aside) are arithmetic claims, and only they may be phrased
+> as an explanation or carry *"recode it"*. Both legs of an *"either / or"* must clear that bar too
+> — a real candidate offered beside one that cannot explain the gap is worse than one alone.
+>
+> **Nothing is dropped** (the ce17 limit). Weak candidates keep their own `question`, stay in
+> `cross_loan_candidates`, and the bullet states how many entries were considered — *"nothing on
+> file explains it (3 entries inside the span; none matches the amount)"* — so the denominator stays
+> visible (s262). A **same-lender sibling** is still surfaced, because two loans from one lender is
+> exactly how a payment lands on the wrong one, but as *"worth confirming... confirm it rather than
+> recode it"*, never as the answer.
+>
+> 16 new assertions in `tests/find-difference-walk.test.mts` (130 total), driving the real
+> `analyzeWalk`, using the real $457.14 / $15.38 figures, and discriminating by rebuilding the
+> un-gated shape and watching the bad lead come back.
+> ⚠️ Note for the next person adding to that file: its summary/`process.exit` had to be moved to the
+> END. Anything appended after it previously ran but was never counted — a test that cannot fail the
+> run is not a test.
+>
 > ### 0h. ℹ️ WHY THE CLOSE BAND STILL SAYS +60.16 WHILE THE MODAL SAYS 15.14 / 15.38
 >
 > Both are right; they answer different questions, and a reader who does not know that will think

@@ -1153,6 +1153,27 @@ function analyzeWalk(o: {
   const candDesc = (c: any) => c.direction === 'maybe_belongs_elsewhere'
     ? `the ${money(c.amount)} payment (${c.date}) coded here likely belongs to another loan`
     : `the ${money(c.amount)} ${c.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${c.date}) on ${c.coded_to?.loan_name || 'another loan'}${c.same_lender ? ' — same lender —' : ''} likely belongs here`
+  // ── session 273 cont.: AN ENTRY THAT CANNOT EXPLAIN THE GAP IS NOT A LEAD ──
+  // David, on Funding Circle: the conclusions offered "the $457.14 journal
+  // (2026-08-31) on Rapid Credit Line likely belongs here. Recode it and re-run"
+  // to explain a gap of $15.38. The amounts are not close and were never claimed
+  // to be -- `in_span` means only "this entry fell inside the same date window
+  // and is coded to another loan". crossLoanCandidatesFor() already knows that
+  // and words its own `question` honestly ("sits inside this divergent span --
+  // worth confirming"). This bullet threw the tier away and promoted every
+  // candidate to "likely belongs here", with an instruction to go and recode it.
+  //
+  // That is the witch hunt David objected to in session 272, generated one loan
+  // at a time: a confident wrong lead costs more than no lead, because someone
+  // acts on it. Only `explains_exactly` and `explains_with_known` are arithmetic
+  // claims -- the gap equals the amount, or equals it once a named figure is set
+  // aside. Nothing else may be phrased as an explanation or carry "recode it".
+  //
+  // NOTHING IS DROPPED (the ce17 limit): weak candidates keep their own
+  // `question`, stay in `cross_loan_candidates`, and the count of what was
+  // considered is stated, so the reader can see the denominator did not quietly
+  // shrink (s262) -- they simply stop being announced as the answer.
+  const explanatory = (c: any) => !!c && (c.confidence === 'explains_exactly' || c.confidence === 'explains_with_known')
   const hypFor = (p: any) => {
     const gap = money(Math.abs(p.diff))
     const cands = p.cross_loan_candidates || []
@@ -1161,8 +1182,22 @@ function analyzeWalk(o: {
       return `${p.from} → ${p.to} is off by ${gap} — likely a duplicate: the ${money(Math.abs(p.culprit.entry.effect_on_loan))} entry on ${p.culprit.entry.date}. Remove the copy and re-run.`
     }
     if (!c1) return `${p.from} → ${p.to} is off by ${gap} — no clear candidate; one for your CPA (dates in the table).`
+    // Nothing on file can account for the gap. Say so, say what WAS looked at,
+    // and -- only where the shape genuinely warrants a look (a sibling loan of
+    // the SAME lender, which is how a payment lands on the wrong one) -- name
+    // the nearest entry as something to CONFIRM, never to recode.
+    if (!explanatory(c1)) {
+      const looked = cands.length === 1 ? '1 entry sits' : `${cands.length} entries sit`
+      const sib = cands.find((c: any) => c.same_lender)
+      const base = `${p.from} → ${p.to} is off by ${gap} — nothing on file explains it (${looked} inside the span; none matches the amount)`
+      return sib
+        ? `${base}. Closest worth a look: the ${money(sib.amount)} ${sib.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${sib.date}) on ${sib.coded_to?.loan_name || 'a sibling loan'} — same lender, so worth confirming it went to the right loan. The amount does not match this gap, so confirm it rather than recode it.`
+        : `${base}; one for your CPA (dates in the table).`
+    }
     const c2 = cands[1]
-    const secondStrong = c2 && (c2.confidence !== 'in_span' || (c2.same_lender && c1.same_lender))
+    // Both legs of an "either/or" must be able to explain the gap -- offering a
+    // real candidate beside one that cannot is worse than offering one alone.
+    const secondStrong = explanatory(c2)
     if (secondStrong) {
       return `${p.from} → ${p.to} is off by ${gap} — either ${candDesc(c1)}, or ${candDesc(c2)}. Fix the right one and re-run.`
     }

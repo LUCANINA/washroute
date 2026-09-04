@@ -768,5 +768,118 @@ section('IT DISCRIMINATES — adjacency restored, the transposition returns as t
     r.conclusions.some((c: string) => /2026-07-22|2026-08-12/.test(c)), JSON.stringify(r.conclusions))
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('session 273 cont.: an entry that cannot explain the gap is not a lead')
+/* David, on Funding Circle: the conclusions offered "the $457.14 journal
+   (2026-08-31) on Rapid Credit Line likely belongs here. Recode it and re-run"
+   to explain a gap of $15.38. The amounts are not close and were never claimed
+   to be — `in_span` means only "this entry fell inside the same window and is
+   coded to another loan". A confident wrong lead costs more than no lead,
+   because someone acts on it: that is the twelve-month witch hunt, generated
+   one loan at a time.
+
+   The REAL Funding Circle numbers are used below, so a regression reads as the
+   wrong dollar figure rather than as an abstract failure. */
+{
+  const GAP_DATE = '2026-08-12'   // inside one open span of the fixture
+  // A journal on ANOTHER lender's loan, inside the span, whose amount comes
+  // nowhere near the gap — Rapid's real 2026-08-31 balance fee.
+  const stranger = {
+    srcType: 'ManualJournal', srcId: 'mj-rapid', date: GAP_DATE, status: 'POSTED',
+    reconciled: null, ref: null, contact: null, narration: 'Rapid balance fee',
+    total: 457.14, lines: [{ d: 'Balance fee', a: 457.14, c: '253' }],
+  }
+  const withStranger = {
+    ...BASE,
+    siblingPool: [stranger],
+    otherLoanByCode: new Map([['253', {
+      xero_account_name: 'Rapid Credit Line', lender: 'Rapid Finance (Rapid Credit Line)',
+      scheduled_monthly_payment: null,
+    }]]),
+    acctMap: { ...BASE.acctMap, '253': 'Rapid Credit Line' },
+  }
+  const stmts = weekly('2025-12-17', 38, 154000, 3000)
+  const r = mod.analyzeWalk({
+    ...withStranger, usable: stmts,
+    // NEGATIVE: Xero must move LESS than the lender for the cross-loan hunt to
+    // run at all (a missing reduction may be coded to another loan). A positive
+    // break makes Xero move MORE, which is the own-entries branch. Same $15.38.
+    entries: ledgerFor(stmts, { [GAP_DATE]: -15.38 }),
+    headline: { difference: 0 },
+  })
+  const joined = r.conclusions.join(' | ')
+
+  ok('the span is still reported as divergent — nothing is swept away',
+     /15\.38/.test(joined), joined)
+  ok('the unmatched entry is NOT announced as the explanation',
+     !/likely belongs here/.test(joined), joined)
+  ok('...and the reader is NOT told to recode it',
+     !/Recode it and re-run/.test(joined), joined)
+  ok('it says plainly that nothing on file explains the gap',
+     /nothing on file explains it/.test(joined), joined)
+  ok('...and states how many entries were considered, so the denominator is visible',
+     /1 entry sits inside the span; none matches the amount/.test(joined), joined)
+  ok('the candidate itself is still on the record, not deleted',
+     (r.periods.find((p: any) => p.to === GAP_DATE)?.cross_loan_candidates || []).length === 1,
+     JSON.stringify(r.periods.find((p: any) => p.to === GAP_DATE)?.cross_loan_candidates))
+
+  // A SAME-LENDER sibling is genuinely worth a look — two loans from one lender
+  // is how a payment lands on the wrong one — but it is still not an explanation.
+  const sameLender = {
+    ...withStranger,
+    otherLoanByCode: new Map([['253', {
+      xero_account_name: 'Paypal 3', lender: 'PayPal', scheduled_monthly_payment: null,
+    }]]),
+  }
+  const r2 = mod.analyzeWalk({
+    ...sameLender, usable: stmts,
+    entries: ledgerFor(stmts, { [GAP_DATE]: -15.38 }), headline: { difference: 0 },
+  })
+  const j2 = r2.conclusions.join(' | ')
+  ok('a same-lender sibling IS surfaced, as something to confirm', /worth confirming/.test(j2), j2)
+  ok('...phrased as confirm, never recode', /confirm it rather than recode it/.test(j2), j2)
+  ok('...and still says the amount does not match', /amount does not match/.test(j2), j2)
+
+  // AN ENTRY THAT DOES EXPLAIN THE GAP MUST STILL LEAD, WORD FOR WORD.
+  const exactPool = [{ ...stranger, total: 15.38, lines: [{ d: 'x', a: 15.38, c: '253' }] }]
+  const r3 = mod.analyzeWalk({
+    ...withStranger, siblingPool: exactPool, usable: stmts,
+    entries: ledgerFor(stmts, { [GAP_DATE]: -15.38 }), headline: { difference: 0 },
+  })
+  const j3 = r3.conclusions.join(' | ')
+  ok('an exact match is still called out as likely belonging here', /likely belongs here/.test(j3), j3)
+  ok('...and still tells the reader to recode it', /Recode it and re-run/.test(j3), j3)
+  ok('...and still promises the span will tie', /the span should tie/.test(j3), j3)
+}
+
+// ── IT DISCRIMINATES ───────────────────────────────────────────────────────
+{
+  // Restore the shipped-this-morning shape: promote every candidate regardless
+  // of tier. The assertions above must go red, or they are testing nothing.
+  const modOld = await loadWalk(src => src.replace(
+    "    if (!explanatory(c1)) {",
+    "    if (false) {"))
+  const stmts = weekly('2025-12-17', 38, 154000, 3000)
+  const r = modOld.analyzeWalk({
+    ...BASE,
+    siblingPool: [{
+      srcType: 'ManualJournal', srcId: 'mj-rapid', date: '2026-08-12', status: 'POSTED',
+      reconciled: null, ref: null, contact: null, narration: 'Rapid balance fee',
+      total: 457.14, lines: [{ d: 'Balance fee', a: 457.14, c: '253' }],
+    }],
+    otherLoanByCode: new Map([['253', {
+      xero_account_name: 'Rapid Credit Line', lender: 'Rapid Finance (Rapid Credit Line)',
+      scheduled_monthly_payment: null,
+    }]]),
+    acctMap: { ...BASE.acctMap, '253': 'Rapid Credit Line' },
+    usable: stmts, entries: ledgerFor(stmts, { '2026-08-12': -15.38 }), headline: { difference: 0 },
+  })
+  const joined = r.conclusions.join(' | ')
+  ok('proof the assertions bite: un-gated, a $457.14 entry IS offered for a $15.38 gap',
+     /457\.14/.test(joined) && /likely belongs here/.test(joined), joined)
+}
+
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail ? 1 : 0)
