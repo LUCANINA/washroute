@@ -112,9 +112,51 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   // $2,000.00, and the real instalment is $2,033.77. Every period's interest was
   // therefore out by $33.77 and the gate refused a loan that actually fits to a
   // cent. A typed number must never quietly stand in for the lender's own.
+  //
+  // ── SESSION 270: THE FALLBACK THIS COMMENT WARNS ABOUT WAS ON THE NEXT LINE ──
+  // It read `stated ?? num(loan.scheduled_monthly_payment)`. Two defects in one
+  // expression, and the second is the one nobody would have predicted:
+  //
+  //   1. It is the typed figure standing in for the lender's own -- exactly what
+  //      the paragraph above forbids, one line below where it forbids it.
+  //   2. IT IS ALSO A UNITS ERROR. The column is scheduled_MONTHLY_payment; a
+  //      period here is one statement-to-statement interval, which on PayPal 2 is
+  //      SEVEN DAYS. A monthly figure was handed in as the amount of a single
+  //      weekly draft.
+  //
+  // Measured on PayPal 2, 2026-09-04: the account says $15,000.00 (a fair note --
+  // the loan really does pay about $14,797 a month) and the actual draft is
+  // $3,414.71 weekly. Every period's implied interest therefore came out as
+  // 15,000.00 - 2,681.39 = $12,318.61, which is the first row of that run's
+  // per_period output to the cent. To explain $12k of weekly interest the fitter
+  // needed 1.69% PER DAY, and reported an annual rate of 618.064%. It refused to
+  // write, correctly -- but it refused for "the rate does not fit" when the truth
+  // was "you were never given a payment amount."
+  //
+  // MEASURED BEFORE REMOVING IT (2026-09-04): not one loan carrying a derived_*
+  // schedule depends on this fallback. Ford x4 have 50/44/31/21 lender-stated
+  // payments, both BayFirst have 6, Funding Circle has exactly 1 -- which is the
+  // single row session 230 went to the trouble of preferring over its typed
+  // $2,000. The only loans with none are PayPal 2, Dexter 2 and Verdant (all of
+  // which carry a lender's own schedule and never derive) and Rapid and Stripe
+  // (no schedule at all). So this removes a source of wrong answers and no source
+  // of right ones.
+  //
+  // A loan with no stated payment anywhere now gets an honest refusal naming the
+  // typed figure and saying why it was not used, rather than a fitted rate built
+  // on it. Refusing is not a regression here: the alternative was 618%.
   const stated = statedPayment(usable)
-  const fallbackPayment = stated ?? num(loan.scheduled_monthly_payment)
-  const allPeriods: Period[] = buildPeriods(stmts, fallbackPayment)
+  if (stated === null) {
+    return {
+      ok: false, reason: 'no_stated_payment',
+      message: `No lender statement on this loan states a payment amount, so there is nothing to measure a rate against. `
+        + `The loan record's typed figure${num(loan.scheduled_monthly_payment) !== null ? ` ($${num(loan.scheduled_monthly_payment)!.toFixed(2)})` : ''} is a MONTHLY note, not the amount of one payment period, and is deliberately not used here. `
+        + `Upload a lender statement that carries the amount due, or -- if this lender states each payment's principal and fee outright, as PayPal does -- this loan should take its schedule from that document rather than from a fitted rate.`,
+      typed_monthly_payment: num(loan.scheduled_monthly_payment),
+      statements_on_file: stmts.length,
+    }
+  }
+  const allPeriods: Period[] = buildPeriods(stmts, stated)
   if (!allPeriods.length) {
     return { ok: false, reason: 'no_periods', message: 'No usable statement-to-statement periods -- no payment amount is known for any of them.' }
   }
