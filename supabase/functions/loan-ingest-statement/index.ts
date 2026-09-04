@@ -427,7 +427,7 @@ async function handleRequest(req: Request): Promise<Response> {
       lender_account_number, statement_date, principal_balance,
       payoff_amount, payoff_good_thru, total_amount_due, payment_due_date,
       csv_filename, csv_base64, pulled_by, transactions, explicit_split,
-      anchors_only, balance_basis,
+      anchors_only, balance_basis, allow_settled_loan_write,
     } = body
 
     if (!lender_account_number || !statement_date || principal_balance == null || !csv_base64) {
@@ -448,6 +448,50 @@ async function handleRequest(req: Request): Promise<Response> {
       .single()
     if (loanErr || !loanAcct) {
       return new Response(JSON.stringify({ error: `No loan_accounts row for lender_account_number ${lender_account_number}. Add it first.`, details: loanErr?.message }), { status: 404 })
+    }
+
+    // ── A SETTLED LOAN DOES NOT RECEIVE NEW STATEMENTS (session 269) ──
+    //
+    // On 2026-09-04 PayPal 2's payment-history CSV was filed against the PAID-OFF
+    // PayPal 1 (UNKNOWN-280, settled at $0.00 on 2026-01-22): 38 statements and 3
+    // approval-ready splits, six of them landing on dates that already carried that
+    // loan's own real balance, so it ended up asserting ~$15k and ~$154k on the same
+    // day. `status` was already being selected here and simply never read -- session
+    // 231's rule in its purest form: the check did not exist on the branch that needed
+    // it, on the ONE branch every ingest path converges on.
+    //
+    // The rule is "no CHANGE to a settled loan's history", not "no writes at all":
+    // an identical re-file stays a no-op (idempotency is load-bearing everywhere else
+    // in this module and must not become an error here), and a deliberate historical
+    // backfill -- which is how this very loan's own 90 rows were filed in August --
+    // passes `allow_settled_loan_write`. What is refused is a statement that would ADD
+    // to or CONTRADICT the record of a loan that is already closed, which is the only
+    // shape the misroute could take.
+    if (loanAcct.status === 'paid_off' && allow_settled_loan_write !== true) {
+      const { data: onFile } = await supa
+        .from('loan_statements')
+        .select('statement_date, principal_balance')
+        .eq('loan_account_id', loanAcct.id)
+        .eq('statement_date', statement_date)
+      const same = (onFile ?? []).some((r: any) =>
+        Math.abs(Number(r.principal_balance) - Number(principal_balance)) < 0.005)
+      if (!same) {
+        const { data: settled } = await supa
+          .from('loan_statements')
+          .select('statement_date')
+          .eq('loan_account_id', loanAcct.id)
+          .eq('principal_balance', 0)
+          .order('statement_date', { ascending: false })
+          .limit(1)
+        const payoffDate = settled?.[0]?.statement_date ?? null
+        return new Response(JSON.stringify({
+          error: `That loan is marked PAID OFF${payoffDate ? ` -- it settled at $0.00 on ${payoffDate}` : ''}, so this statement dated ${statement_date} was NOT filed. A statement for a loan that is still running almost always means the wrong account was picked -- check the loan you selected. If you really are filing history against a closed loan, resend with allow_settled_loan_write.`,
+          refused: 'settled_loan',
+          loan_account_id: loanAcct.id,
+          payoff_date: payoffDate,
+          statement_date,
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+      }
     }
 
     // 1. Upload the raw CSV to storage (permanent proof record)

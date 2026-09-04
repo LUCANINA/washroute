@@ -49,28 +49,76 @@
 > reset. 06:00 Pacific is 13:00 UTC, which today would fall BEFORE the reset. Check before
 > creating the job or the first scheduled run 429s.
 >
-> ### 4. 📄 PAYPAL 2 — ONE UPLOAD, NO DECISION NEEDED
+> ### 4. 🔴 PAYPAL 2 — THE "ONE UPLOAD" PRESCRIPTION WAS WRONG. NOTHING WAS MISSING. (rewritten session 269, 2026-09-04)
 >
-> The new allowlist (session 268 §1) blocks PayPal 2 from staging until its schedule is
-> re-anchored. **The projection has been verified against the lender and is exact:** the
-> lender's own portal balances at 2026-08-05 (58,775.97) and 2026-09-02 (46,144.59) differ by
-> **12,631.38**, and the schedule's four projected principals across that window sum to
-> **12,631.38** — **$0.00 difference**, with both ends supplied by the lender and neither by the
-> schedule. That is a real independent check, not session 246's agrees-by-construction shape.
+> **The previous §4 asked David to upload a document that was already on file, and he had
+> uploaded it repeatedly to no effect.** He noticed ("None seemed to stick") and was right.
+> Two established defects and one live thread. **Do not ask for this CSV again.**
 >
-> **DAVID REJECTED THE WRITE, AND HE WAS RIGHT.** Hand-setting `anchor_statement_date` would be
-> the schedule certifying itself — the arithmetic agreeing is not a document arriving. *"Instead
-> of inferring, tell us what is missing."*
+> **(a) The CSV IS on file.** `loan_documents` row `0de65b4d`, `doc_type='transaction_history'`,
+> sha `2a4a658415`, filed 2026-09-03 17:14 UTC in bundle `808825b4`. That is why every re-drop
+> answers *"You already have this exact file on record"* — the intake dedupes on sha against
+> `loan_documents`/`loan_statements`, which is correct behaviour. **Filed as a document and
+> parsed into the schedule are two different things, and only the first ever happened.**
 >
-> **WHAT IS MISSING: the current PayPal payment-history CSV.** The one on file is
-> `2026-08-04-YOUNG & FOOLISH LLC 1.csv`, parsed 4 August; the lender has moved a month since.
-> Upload the current export and the schedule is re-parsed from the lender's own document, the
-> anchor advances because a DOCUMENT moved it, and staging unblocks with no inference anywhere.
-> One upload. No code, no data fix, nothing for a session to decide. **This is session 262's
-> ask-don't-claim rule reaching the one surface that had not learned it yet** — asking for a
-> document is cheaper than reasoning around its absence, and it is the owner's chore, not the
-> CPA's.
+> **(b) 🚨 THE UPLOAD LANDED ON THE WRONG LOAN — a paid-off one — AND THAT IS THE REAL BUG.**
+> At 2026-09-04 14:36 UTC, 38 `loan_statements` and 3 `pending_review` `loan_splits` carrying
+> **PayPal 2's** payment history were written onto **PayPal 1** (`595ecb42`, `UNKNOWN-280`, Xero
+> 280) — the loan that **settled at $0.00 on 2026-01-22**. PayPal 2 received nothing.
 >
+> The classification was unambiguous: on six dates PayPal 1 ended up carrying two contradictory
+> statements — its own ~$15k December balances beside PayPal 2's ~$154k. Removed in session 269
+> after `washroute-preflight` (0 customers reachable; nothing had reached Xero — every
+> `xero_manual_journal_id` / `stage_reference` / `staged_at` was null). Verified after: PayPal 1
+> back to 52 statements ending 2026-01-22 at $0.00, 0 pending splits; PayPal 2 untouched.
+> **Full restore snapshot: `archive/restore/2026-09-04-paypal2-misroute-onto-280.json`.**
+>
+> ⚠️ **ESTABLISHED, by reading the code: `loan-ingest-statement` will write to a PAID-OFF loan
+> without complaint.** Line 446 selects `status` off `loan_accounts` and then never checks it.
+> A settled loan accepting new statements is a guard gap in its own right — fix it regardless of
+> how the wrong account got chosen, because it is what turned a bad selection into bad books.
+>
+> ➡️ **THE LIVE THREAD — DO NOT GUESS AT IT.** The function matches on
+> `.eq('lender_account_number', …)`, so the CLIENT sent `UNKNOWN-280` rather than `A00845102`.
+> Which client path did that is not established. Known: the batch classifier's lender-word
+> matcher (`index.html:10412`) DOES exclude `paid_off`, so the 14:36 write did **not** come
+> through it. Find the path that did before theorising.
+>
+> **(c) EVEN A PERFECT UPLOAD COULD NOT HAVE RE-ANCHORED THIS SCHEDULE.** `rederiveIfDerived`
+> gates on `isDerived()` — `startsWith('derived_')` — and PayPal 2's schedule is
+> `amort_type='actual_payment_history_from_lender_csv'`. It is excluded by construction and has
+> never been auto-re-derived. §5 below already says this in passing about Ford's denylist;
+> nobody connected it to §4. **Another `startsWith('derived_')` denylist, and this one is not
+> failing safe — it is silently doing nothing on the loan the block was nagging about.**
+>
+> Its schedule is still the single row from 2026-08-04 (`96839329`, `anchor_statement_date`
+> NULL), so the session 268 allowlist still blocks PayPal 2 from staging. **That block is
+> correct and should stay** until (b) and (c) are fixed — the projection is verified exact
+> against the lender's own 2026-08-05 and 2026-09-02 balances ($12,631.38 both sides, $0.00
+> apart), but a verified projection is still not a document, which is what David said when he
+> rejected the hand-set anchor and is still right.
+>
+> ### 4b. 🟡 THE SETTLED-LOAN RULE IS INSTALLED BUT REFUSES NOTHING — READ THE LOG BEFORE FLIPPING IT
+>
+> David's rule ("we can't modify a loan after it's been paid off") is live as a REPORT-ONLY
+> trigger on `loan_statements` and `loan_splits`. It records; it blocks nothing. Migration
+> `session_269_settled_loan_write_lock_report_only`, full reasoning in the session 270 log entry.
+>
+> **The one query that decides the next step:**
+> ```sql
+> select a.lender_account_number, a.status, w.table_name, w.op, w.would_refuse, w.db_role, w.occurred_at
+>   from loan_settled_write_attempts w join loan_accounts a on a.id = w.loan_account_id
+>  order by w.occurred_at desc;
+> ```
+> **Empty = the rule is safe to enforce.** Self-test rows were deleted on 2026-09-04, so anything
+> in there is a real caller writing to a settled loan, and it must be fixed BEFORE enforcing --
+> not enforced around.
+>
+> ⚠️ **The expected first offender is already identified and it is not hypothetical.**
+> `reconciliation-run` selects loans with no status filter and upserts into `loan_splits` at line
+> 2207 when it recognises a hand-posted adjustment journal. That function is §2's cron candidate
+> AND the one that dies without recording why. **Do not enforce this trigger and create that cron
+> in the same session.**
 >
 > ### 5. 🔴 FORD — THREE STAGED TRANSACTIONS IN XERO CARRY A SUPERSEDED SPLIT (found 2026-09-04)
 >
@@ -2434,6 +2482,124 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 270 (2026-09-04) — A DEAD LOAN ACCEPTED A LIVE LOAN'S HISTORY, AND NOTHING SAID NO
+
+⚠️ **Numbering note: the migration and the code comments from this session say "session 269"**
+— that number was taken concurrently by the Agreement-column work below. Same day, same
+David, different thread. The code is not mislabelled by accident; do not "fix" it to 270 and
+break the search path from `session_269_settled_loan_write_lock_report_only` back to here.
+
+**David noticed it, and the product had been telling him the opposite.** He had uploaded
+PayPal 2's payment-history CSV several times over two days: *"None seemed to stick. It seems
+that our READ TOGETHER feature may not actually work."* Read-together was innocent. So was the
+dedupe. The file had stuck — onto the wrong loan, twice over.
+
+**What actually happened, in order:**
+
+1. The batch classifier did its job correctly. `_bkSingleActiveLoanForLender('paypal')` excludes
+   `paid_off`, so it resolved PayPal **2**, then routed the item to `manual` for a real reason
+   (that loan already tracks those periods through its schedule — session 224's acceptance test).
+2. David opened the intake modal to pick the loan by hand, as instructed.
+3. **`_populateLoanSelect()` listed every loan with no status filter and nothing saying which
+   were closed.** The two options read `Paypal 2 — PayPal #A00845102` and `Paypal loan — PayPal
+   #UNKNOWN-280`. He picked the one whose NAME MATCHES THE FILE HE WAS HOLDING, `Paypal Loan.csv`.
+   That is not a slip; that is the interface offering the wrong answer in the more plausible words.
+4. `loan-ingest-statement` accepted it. **It had been selecting `loan_accounts.status` at line 446
+   since forever and never once reading it.**
+
+Result at 2026-09-04 14:36 UTC: 38 `loan_statements` and 3 approval-ready `loan_splits` written
+onto PayPal 1 — **paid off, settled at $0.00 on 2026-01-22**. Six landed on dates that already
+carried that loan's own real balance, so it asserted ~$15k and ~$154k for the same day. Nothing
+reached Xero (every `xero_manual_journal_id` / `stage_reference` / `staged_at` null), which is the
+only reason this was a cleanup rather than an incident.
+
+Removed after `washroute-preflight` (0 customers reachable; trigger on `loan_splits` is
+INSERT/UPDATE only so DELETE fires nothing), ~75 minutes before the 16:00 UTC stage sweep. Verified
+after: PayPal 1 back to 52 statements ending 2026-01-22 at $0.00, 0 pending splits; PayPal 2
+untouched at 35. **Full restore snapshot: `archive/restore/2026-09-04-paypal2-misroute-onto-280.json`
+— a file rather than a `_resync_` table, because a snapshot table is a schema change and this did
+not warrant a migration.**
+
+#### The three fixes, and why one of them is deliberately not finished
+
+**(a) The server refuses it now.** `loan-ingest-statement` v38: a `paid_off` loan accepts an
+identical re-file (idempotency is load-bearing everywhere else in this module and must not become
+an error here) and refuses anything that would ADD to or CONTRADICT its record, unless the caller
+passes `allow_settled_loan_write`. Deployed and **verified by reading the deployed source** —
+`allow_settled_loan_write` ×4, `refused: 'settled_loan'`, and the section-269 comment, in a
+76,121-char file. Not a version number, not a `git push`.
+
+**(b) The dropdown stops offering the mistake.** Closed loans now sit under their own
+`<optgroup>` — "Paid off — closed loans, history only". They stay selectable, because a
+historical backfill against a settled loan is legitimate (it is how PayPal 1's own 90 rows were
+filed in August). Separation, not a badge or a colour: the group label carries the claim, which is
+LESS IS BEST doing what it is for.
+
+**(c) 🔴 DAVID'S ACTUAL RULE — "we can't modify a loan after it's been paid off" — IS INSTALLED
+IN REPORT-ONLY MODE AND REFUSES NOTHING YET.** He is right that (a) is too narrow: a rule that
+lives in one edge function is session 231's bug with better intentions. `loan-xero-post`,
+`loan-generate-schedule-split`, `loan-record-principal-payment`, `xero-payout-sync`,
+`xero-close-date`, `_shared/derive-schedule.ts` and hand-run SQL all write these tables and none
+would be covered. **The database is where those branches converge.**
+
+**It went in report-only because a measured caller already breaks it.** `reconciliation-run` loads
+loans with `select('*')` and NO status filter, then at line 2207 upserts into `loan_splits` on
+recognising a hand-posted adjustment journal — reaching paid-off loans by design. PayPal 1 is
+precisely its bait: its own notes record the bookkeeper closing it with *"a single lump 'zero out
+to PIF' journal in Jan 2026"*. An enforcing trigger would throw inside the one function that
+**dies without recording why** (eight `running` corpses, START HERE §3) — and it is days from going
+on a daily cron. **Session 231's corollary turned on ourselves: do not automate something before
+auditing the guards it makes load-bearing.** Enforcing today buys a silent nightly failure.
+
+Migration `session_269_settled_loan_write_lock_report_only`: three nullable
+`loan_accounts.settled_unlock_*` columns, table `loan_settled_write_attempts` (RLS on, granted to
+`authenticated`/`service_role`, never `anon`), and `report_settled_loan_write()` on
+`loan_statements` + `loan_splits` for INSERT/UPDATE/DELETE. **The trigger body is wrapped in
+`EXCEPTION WHEN OTHERS THEN NULL` and that is the entire point** — a reporting trigger that can
+throw is the exact failure this phase exists to avoid.
+
+**Proven to discriminate, not just to run** (the harness rule, applied to a trigger): a no-op
+update on the paid-off loan logged `would_refuse=true`; the identical update on the active loan
+logged **nothing**; with `settled_unlock_until` set five minutes ahead the same write logged
+`would_refuse=false, was_unlocked=true`. Unlock re-locks by expiry, never by someone remembering.
+Self-test rows were then deleted, so **a non-empty log from here is real signal**.
+
+**➡️ NEXT SESSION OWES THIS ONE A DECISION — see START HERE.** Read the log, fix whatever
+legitimately appears (starting with a status filter `reconciliation-run` probably wants anyway),
+then flip to enforcing. An empty log after a week is the evidence that the rule is safe; flipping
+it early on the strength of "it seems fine" is what this whole session was about.
+
+#### Unfinished, honestly
+
+- **The harness did not run.** This session's sandbox had no Chromium; the curl recovery and the
+  unzip both worked, and then chrome wanted `libXdamage.so.1` with no root on that VM — a THIRD
+  missing dependency past what Tech Debt #37's recovery steps cover. The dashboard edit was
+  syntax-checked instead (both inline `<script>` blocks through `node --check`, clean), which
+  proves it parses and proves nothing about behaviour. **Update the run-harness.sh recovery block
+  with the libXdamage step when someone next gets a working browser on that VM.**
+- **`rederiveIfDerived`'s `startsWith('derived_')` denylist is still there**, which is why PayPal 2
+  is never auto-re-derived and why the "one upload" prescription could never have worked. Untouched
+  this session. START HERE §4(c).
+
+### Session 269 (2026-09-04) — THE AGREEMENT COLUMN STOPS SHOUTING
+
+David: the red ✗ in the Loans close-band Agreement column reads as "act on this now",
+and a missing agreement is not that. Having the contract on file is useful — it is what
+lets a typed rate or original amount be checked against something the lender signed
+(session 230) — but it never blocks a close and there is nothing urgent to do about it.
+
+Changed the missing state from `lcb-mark-bad` / ✗ to `lcb-mark-na` / — (the same neutral
+mark this table already uses for "nothing to say here"). **Nothing was deleted**: the
+hover title still names what is missing and why it matters, and `data-agreement` — the
+attribute the CSV export and `close-band-columns` read — is untouched, so every test and
+export still distinguishes the two states exactly as before. Added one clause to the
+column header's tooltip so the dash is explained where the tick is.
+
+Colour is now spent only where a reader must act, which is the session 250 test #4.
+`close-band-columns`: 23/23 green.
 
 ---
 

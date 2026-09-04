@@ -17598,7 +17598,7 @@
       const agreement = agreementDocs.length
         ? { has: true, cell: '<span class="lcb-mark lcb-mark-ok" aria-label="Agreement on file">✓</span>',
             title: `Signed agreement on file${agreementDocs[0].file_name ? ` — ${agreementDocs[0].file_name}` : ''}. The original amount, rate and term can be checked against the contract rather than against a typed field.` }
-        : { has: false, cell: '<span class="lcb-mark lcb-mark-bad" aria-label="No agreement on file">✗</span>',
+        : { has: false, cell: '<span class="lcb-mark lcb-mark-na" aria-label="No agreement on file">—</span>',
             title: 'No signed agreement uploaded for this loan. Nothing is wrong with the month because of it — but the rate, original amount and term on file are somebody\'s typed notes, with no contract behind them to check against. Drop the agreement in the box at the top of this page.' };
 
       // SOURCE — what settles this loan's month. Reads the RECORDED close basis
@@ -18049,7 +18049,7 @@
           <table class="lcb-table" id="lcb-table">
             <thead><tr>
               <th>Loan</th>
-              <th title="Is a signed loan agreement on file? A green tick means the contract itself has been uploaded, so the original amount, rate and term can be checked against something the lender signed rather than against a figure somebody typed.">Agreement</th>
+              <th title="Is a signed loan agreement on file? A green tick means the contract itself has been uploaded, so the original amount, rate and term can be checked against something the lender signed rather than against a figure somebody typed. A dash means none is on file — useful to have, but nothing to act on: it does not block the close.">Agreement</th>
               <th title="What this loan is CLOSED against — its source of truth. Statements means an outside document from the lender settles the month. Schedule means a recorded policy to close against the contractual amortization instead, so no statement is expected. This reads the recorded close basis, never the mere presence of a schedule file: most schedules on this book were derived from the loan's own statements, and closing against those would let a loan excuse itself from its only outside evidence on the strength of our own arithmetic.">Source</th>
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
               <th class="lcb-n">Drawn</th>
@@ -20865,12 +20865,26 @@ ${noActivityNote}
     }
   }
 
+  // Session 269: this listed every loan flat, closed ones interleaved with open ones
+  // and nothing saying which was which. "Paypal Loan.csv" was filed against "Paypal
+  // loan" -- paid off since 2026-01-22 -- instead of "Paypal 2", because the settled
+  // account is the one whose NAME matches the file you are holding. A closed loan is
+  // still a legitimate target for a historical backfill, so it stays selectable; it
+  // just stops sitting silently among the live ones. Separation, not a badge or a
+  // colour -- the option's own group says it (LESS IS BEST, session 250).
+  // The real refusal is server-side in loan-ingest-statement; this stops the mistake
+  // being offered in the first place.
   function _populateLoanSelect() {
     const sel = document.getElementById('li-loan-select');
     if (!sel) return;
-    sel.innerHTML = _allLoanAccounts.map(a =>
-      `<option value="${a.id}" data-acctnum="${esc(a.lender_account_number)}">${esc(a.xero_account_name || a.lender_account_number)} — ${esc(a.lender)} #${esc(a.lender_account_number)}</option>`
-    ).join('');
+    const opt = (a) =>
+      `<option value="${a.id}" data-acctnum="${esc(a.lender_account_number)}">${esc(a.xero_account_name || a.lender_account_number)} — ${esc(a.lender)} #${esc(a.lender_account_number)}</option>`;
+    const open = (_allLoanAccounts || []).filter(a => a.status !== 'paid_off');
+    const closed = (_allLoanAccounts || []).filter(a => a.status === 'paid_off');
+    sel.innerHTML = open.map(opt).join('')
+      + (closed.length
+          ? `<optgroup label="Paid off — closed loans, history only">${closed.map(opt).join('')}</optgroup>`
+          : '');
   }
 
   // Which "What is this?" values route to a real ingestion pipeline vs. plain filing.
