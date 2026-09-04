@@ -4,8 +4,8 @@
 >
 > ### 0c. ⏳ FUNDING CIRCLE — THE DIAGNOSIS IS DONE; ONE JOURNAL AWAITS DAVID (session 273 cont.)
 >
-> **Xero is $60.16 too high on Funding Circle, and it is the same mistake every month, not eight
-> different ones.** Measured, 2026-09-04: the lender's own 2026-08-01 statement says $65,173.94;
+> **Xero is $60.16 too high on Funding Circle, and most of it is the same mistake every month, not
+> eight different ones.** ($15.38 of the $60.16 is a stale figure on one card — see 3 below.) Measured, 2026-09-04: the lender's own 2026-08-01 statement says $65,173.94;
 > `loan_book_balances` rebuilt from Xero says $65,234.10 at 2026-08-31.
 >
 > Walk the two histories statement-to-statement and the shape is unmistakable — **Xero's principal
@@ -67,8 +67,20 @@
 >    it still carries $1,025.71/$1,008.06, which are the 2026-06-18 payment's figures. That is the
 >    open item above, and it is David's to approve.
 >
-> 3. **The earlier "$44.78" is superseded — do not go looking for it.** It was computed while the
->    stale anchor was in force. Against the lender's own statement the number is $60.16.
+> 3. ⚠️ **CORRECTION, made the same session against David's screenshot of the live band — the
+>    earlier "$44.78" was NOT superseded, and this file said for an hour that it was.** The band
+>    computes `Xero opening 7/31 (66,259.81) − principal our splits booked in August (1,025.71) =
+>    65,234.10` against the lender's 65,173.94, so **$60.16 = $15.38 + $44.78**:
+>    - **$15.38** is purely the 2026-08 card still carrying the 2026-07-01 statement's principal
+>      ($1,025.71, which describes the 2026-06-18 payment) instead of the lender's own August figure
+>      ($1,041.09). Correct that one field and the row reads +$44.78 with nothing posted to Xero.
+>    - **$44.78** is the genuine gap that survives, and it is the accumulated one-period lag above.
+>
+>    Two different decompositions of the same money are now on the table — the band's
+>    $15.38 + $44.78, and the statement-to-statement walk's $30.06 + $30.52 = $60.58. **They do not
+>    reconcile to the cent and must not be blended.** The walk compares statement dates; the band
+>    compares calendar month-ends against a Xero opening. Whichever is used to justify a journal,
+>    the other has to be shown to agree first. Do not write the journal until they do.
 >
 > ### 0b. ⚠️ FORCE-REFRESH THE PAGE AFTER AN UPLOAD OR A RECONCILIATION CHECK (David, 2026-09-04)
 >
