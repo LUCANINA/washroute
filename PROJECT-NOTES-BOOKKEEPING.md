@@ -2319,6 +2319,8 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**44. 🟡 `tests/bk-stub.js` serves no `settings` table, so the close date is invisible to the whole suite (session 272 cont. 2).** The dashboard reads `books_closed_through` / `xero_period_lock_date` in a separate fire-and-forget call the stub never answers, so `_bkCloseDate` is null in every harness run and always has been. Consequences: the period bar's close-date chip has never been tested; the new `provisional-opening` gate has to set the two globals directly in page context to reach its own code (it says so, in a comment, rather than pretending otherwise); and any future rule keyed on the close date starts out untestable the same way. The fix is small — serve `settings` from the fixture like every other table, and add the row to `refresh-bookkeeping-fixture.mjs` — but note it is a SINGLETON row rather than a list, so the stub's `.eq('id', 1).single()` path has to work, which no other fixture table exercises. Do it before the next rule that reads a close date, not after.
+
 **43. 🟠 `fmtDate()` renders a date-only string A DAY EARLY in any timezone east of Pacific (session 272).** It does `new Date('2026-06-30T00:00:00')`, which the JS engine parses in the **browser's** zone, and then formats the result in `BIZ_TZ`. On David's Mac those are the same zone and it is correct, which is why nobody has seen it; in the harness (UTC) "books closed through 2026-06-30" printed as **"Jun 29, 2026"**. Every date-only value the dashboard renders through `fmtDate` — statement dates, span boundaries, anchor dates, close dates — is affected for any reader outside Pacific, and this module hands screens to a CPA. A statement date carries no time and no zone, so it must never go through `Date` at all: format it by slicing the string, as `fmtDatePlain()` already does and as `_bkDay()` (session 272, the find-the-difference span table) now does locally. ⚠️ **The blast radius is why this was not fixed in session 272** — `fmtDate` has ~50 call sites across four SPAs, several of which pass real timestamps where the `Date` round-trip is correct, so the fix is to branch on the `length === 10` case that already exists in the function and slice instead of parse. Small change, wide surface, deserves its own pass and a harness run. Caught by an assertion that expected "Jun 30" and got "Jun 29" — the test was right and the code was wrong, which is the good failure.
 
 **42. 🟠 A `transient` payout failure spends its whole retry budget against a wall it could have read the end of (session 271).** Xero's 429 carries `retry_after_seconds` — the 03:13 UTC refusal said 44774, i.e. recovery at ~15:39 UTC — and `_shared/payout-retry.ts` discards it, walking a fixed `BACKOFF_MINUTES` span of ~4h10m instead. On 2026-09-04 all six attempts for `po_1UBlJ2GACgbvEugHgG9Ohsv8` ($6,313.70) fell inside the outage, `attempt_count` hit `MAX_AUTO_ATTEMPTS`, and the row left `mayAutoRetry()` **permanently** — so it could never self-heal even though the blocking condition ended on its own five hours later. A human re-ran it. ⚠️ **The fix is to schedule `next_retry_at` past the stated recovery time, NOT to raise the attempt cap** — more attempts against a hard zero is the same mistake louder. ⚠️ **And do not make an exhausted row auto-retry again on a timer's judgement**: the whole reason `unknown` and `transient` are separate kinds is that only the pre-check class is provably unposted. This one is safe to re-run *because the pre-check runs again*, which is a property of that class alone. Interacts with #3's metering blocker — design them together.
@@ -2613,6 +2615,99 @@ to "what is running".
 ---
 
 ---
+
+### Session 272 cont. 2 (2026-09-04) — THE DOCUMENT WAS ALREADY ON FILE, AND THE OPENING WAS NEVER SETTLED
+
+David, about to re-upload PayPal's transaction CSV: *"What is the expected outcome?"* Then, a
+minute later, the question that mattered more: *"our bookkeeping is still not quite done closing
+July, so it's possible the Paypal numbers could change in a day or two. What then?"*
+
+Both answers turned out to be defects rather than explanations.
+
+#### 1. The upload would have achieved nothing — and did not need to
+
+* **Same file → refused.** `loan_documents` `0de65b4d`, sha `2a4a6584…`, filed 2026-09-03 against
+  PayPal 2. The intake dedupes on sha, correctly, which is why every re-drop has bounced.
+* **Fresh export → filed as `transaction_history` and still not a month-end balance.** Filing a
+  document and parsing it into `loan_statements` remain two different things.
+* **The misroute is now guarded.** `loan-ingest-statement:470` refuses a write to a `paid_off`
+  loan unless `allow_settled_loan_write` (session 270). A repeat of the PayPal 1 misroute would
+  fail loudly instead of corrupting a settled loan — and the error would finally name the client
+  path, which is still unidentified.
+
+#### 2. ⭐ A STALE IN-MONTH DOCUMENT NOW LOSES TO A LATER ONE THAT WORKS
+
+**PayPal 2's August closed against a statement dated 2026-08-05 for one reason: it was inside the
+month.** Four weekly payments were booked, three of them after that date. A **2026-09-02**
+statement was on file the whole time and answers the question properly once walked back:
+
+```
+46,144.59  lender's own balance, 2026-09-02
++ 3,180.34  the one payment in between
+───────────
+ 49,324.93  August close, on the lender's figure
+ 49,346.58  computed
+───────────
+    +21.65  variance
+```
+
+`_loanClosingAnchor` §1 returned any in-month document unconditionally; §2's roll-back was only
+ever reached when there was none at all. §1b now steps past a direct anchor when **dated splits
+were booked after it** and lets the roll-back try. Same tie-break the roll-back branch already
+states in its own comment — *"the shorter the walk, the less can have happened in it"* — applied
+one level up.
+
+**The sign flip is the finding, not a detail.** The column is `computed − closing`, so
+−$9,429.39 said the books were nine thousand BELOW the lender: an alarming direction, entirely an
+artifact of a document that predated three payments. Against one that has seen them the books are
+**$21.65 above**.
+
+Three properties, all asserted:
+* **Not a suppression.** If the roll-back refuses for any of its own reasons, §2b returns the
+  direct anchor exactly as before, carrying the refusal. Stepping past a document must never
+  leave a loan with no evidence at all.
+* **It says which document was passed over**, and why, on the row.
+* **A staged payment in the window still blocks the walk** — and that is right. The fixture's own
+  2026-09-02 split was `staged` when it was pulled (the sweep posted it on 09-04), so the
+  roll-back declines, the row falls back to Aug 5, and the stale-anchor ask carries it until the
+  payment posts. Both halves are tested; which one you get is a real fact about the books.
+
+#### 3. ⭐ "READY FOR YOUR ACCOUNTANT" MAY NOT BE SAID OVER AN OPENING THAT CAN STILL MOVE
+
+David's July question, answered properly. **August opens on the books at 2026-07-31** —
+`loan_book_balances`, basis `xero_rebuild`, a live read of Xero recomputed on every reconciliation
+run. `books_closed_through` is 2026-06-30, so July is the CLOSING month: the CPA's live work.
+Every July adjustment she posts moves that opening, and August's computed and variance move with
+it **dollar for dollar**. A row can be green today and off tomorrow with nobody at fault.
+
+PayPal 2 has a live example on file: the `2026-07-31-adj` split, $3,142.26 of principal reclassed
+by her hand-posted journal `a2c49ead`. An item that size swamps a $21.65 residual.
+
+The module already models exactly this — `postingDateFor`'s CLOSED / CLOSING / OPEN — and no
+surface used it to qualify the opening. `_bkOpeningProvisional(priorEnd)` is the one answer:
+**the opening date has not yet been closed.** It is a blocking gate on the close band, so the
+strip reads "Not ready to close" rather than "Ready for your accountant".
+
+* **A gate, not a nag, and measurably so.** In an ordinary month the previous month is closed long
+  before anyone closes this one, so it never fires. It fires now precisely because something is
+  out of the usual order.
+* **Self-clearing.** Close July and it goes, with nothing to remember to switch off.
+* **No close date set is not "provisional"** — it is unmeasured, and it stays silent rather than
+  inventing a governance fact nobody recorded.
+* **Xero's lock date wins when later**, the same "later of the two" rule as everywhere else.
+
+#### Notes for whoever is next
+
+* **`tests/bk-stub.js` serves no `settings` table.** `_bkCloseDate` has therefore been null under
+  the harness since it was written, so the period bar's close-date chip has never been tested and
+  the new group sets the two globals directly. Teaching the stub to serve `settings` would put
+  both under test properly — worth doing, filed as **Tech Debt #44**.
+* **A false ask is worse than a missing one** — see the cont. 1 entry. The same instinct that
+  wanted monthly loans covered wanted an in-month document replaced everywhere; both had to be
+  narrowed to what is actually measurable.
+* Suite: **1,832 browser assertions, 1,831 passing** (the red is Tech Debt #19's own report).
+* **Still not deployed**: `loan-find-difference` needs the CLI command in START HERE §0. The
+  dashboard changes in this entry deploy on push.
 
 ### Session 272 (2026-09-04) — THE TWELVE-MONTH WITCH HUNT: five changes, and an adversarial review that found four more bugs in them
 

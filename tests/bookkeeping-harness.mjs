@@ -759,7 +759,11 @@ function readSurfaces() {
 // 'coverage', which asks whether a closing balance can be established at all —
 // a document can be present (coverage satisfied) and unexamined (checked
 // failing), and that combination is precisely the state the rule exists to stop.
-const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting', 'checked'];
+// 'unverified', 'explained', 'tie' and 'provisional-opening' round out the set the
+// strip can render. Session 272 cont. added the last: the month being closed opens
+// on a month the accountant has not finished, so its figures can still move.
+const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting', 'checked',
+                   'unverified', 'explained', 'tie', 'provisional-opening'];
 
 /* ── ISOLATING A READINESS TEST FROM THE NEW GATE (session 262 cont. 3) ─────
    Several scenarios clear their own blocker and then assert the band reads
@@ -8613,6 +8617,239 @@ GROUPS.push({
 
     t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
     await p.close();
+  },
+});
+
+/* SESSION 272 cont. — A STALE IN-MONTH DOCUMENT LOSES TO A LATER ONE THAT WORKS.
+
+   PayPal 2's August closed against a statement dated 2026-08-05 — five days into
+   the month — while four weekly payments were booked, three of them after that
+   date. It won for one reason: it was inside the month. A 2026-09-02 statement
+   was on file the whole time and answers the question properly once walked back
+   over the two payments in between.
+
+   THE FIXTURE PREDATES THAT STATEMENT (pulled 2026-09-03 15:17; the statement was
+   filed at 17:14 the same day), so this group injects the real row rather than
+   trusting a stale fixture to show the improvement — a stale fixture is a blind
+   suite, not a safe one. Every figure below is production data, not invented. */
+GROUPS.push({
+  name: 'rollback-beats-stale',
+  async run(t) {
+    const PP2 = 'f3aa83c5-6078-4847-ada3-d2214fa07c08';
+    const inject = (d) => {
+      d.loan_statements.push({
+        id: 'harness-pp2-0902', loan_account_id: PP2, statement_date: '2026-09-02',
+        principal_balance: 46144.59, source: 'portal_manual_pull', balance_basis: 'principal_only',
+        total_amount_due: null, payment_due_date: null, storage_path: null, payoff_amount: null,
+        payoff_good_thru: null, pulled_at: null, pulled_by: null, created_at: null, file_sha256: null,
+      });
+      /* The 2026-09-02 split is ALREADY in the fixture, staged. Production posted
+         it on 2026-09-04 when the stage sweep matched it in Xero, so this brings
+         the fixture to today's real state rather than adding a second payment —
+         which would have double-counted the walk. */
+      const sep = d.loan_splits.find(sp =>
+        sp.loan_account_id === PP2 && String(sp.period_label) === '2026-09-02');
+      if (sep) { sep.status = 'posted'; sep.stage_reference = null; sep.staged_at = null; }
+    };
+
+    const p = await newHarnessPage({ tab: 'loans', mutate: inject });
+    const errs = [];
+    p.page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+
+    const row = await p.evaluate((id) => {
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const r = rf.rows.find(x => x.a.id === id);
+      return {
+        derivation: r.anchor.derivation, asOf: r.anchor.asOf, closing: r.perLender && r.perLender.amount,
+        rolled: r.anchor.rolledPrincipal, note: r.anchor.note,
+        computed: r.computed, variance: r.variance, band: r.band,
+        stale: !!r.staleAnchor, grade: r.grade,
+        inOff: rf.off.some(x => x.a.id === id), inJudged: rf.judged.some(x => x.a.id === id),
+      };
+    }, PP2);
+
+    t.eq(row.derivation, 'rolled_back', 'the September statement anchors August, not the Aug 5 one', JSON.stringify(row));
+    t.eq(row.asOf, '2026-09-02', 'and it is the one dated 2026-09-02');
+    t.eq(row.grade, 'A', 'still grade A — a lender document walked back is lender evidence');
+    t.close(row.rolled, 3180.34, 0.005, 'walked back over the one payment in between');
+    t.close(row.closing, 49324.93, 0.02, 'so August closes at $49,324.93 on the lender’s own figure');
+    t.close(row.computed, 49346.58, 0.02, 'computed is unchanged — this touched the CLOSING only');
+    /* +21.65, and the SIGN FLIP is the finding, not a detail. The column is
+       computed − closing, so the old −$9,429.39 said the books were nine thousand
+       BELOW the lender — an alarming direction, and entirely an artifact of a
+       stale document reporting a balance from before three payments. Against a
+       document that has seen them, the books are $21.65 ABOVE. */
+    t.close(row.variance, 21.65, 0.05, '⭐ and the variance is +$21.65, not −$9,429.39');
+    t.eq(row.band, 'immaterial', 'which bands immaterial — shown, not chased');
+    t.eq(row.stale, false, 'the stale-anchor ask is gone, because the anchor is no longer stale');
+    t.eq(row.inOff, false, 'it does not block the close');
+    t.eq(row.inJudged, true, 'and it IS counted among the loans checked — a real check, at last');
+    t.ok(/in place of the/.test(row.note || ''),
+         'the row says which document was passed over and why', row.note);
+
+    /* IT DISCRIMINATES — without 1b the Aug 5 statement wins again and the row
+       goes back to the number David screenshotted. */
+    const inverse = await p.evaluate((id) => {
+      const src = _loanClosingAnchor.toString();
+      const broken = src.replace('if (direct && direct.asOf > priorEndIso && !_directIsStale) {',
+                                 'if (direct && direct.asOf > priorEndIso) {');
+      if (broken === src) return { applied: false };
+      let fn;
+      try { fn = (0, eval)('(' + broken + ')'); } catch (e) { return { applied: false, why: e.message }; }
+      const orig = _loanClosingAnchor;
+      window._loanClosingAnchor = fn;
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const r = rf.rows.find(x => x.a.id === id);
+      const out = { applied: true, derivation: r.anchor.derivation, asOf: r.anchor.asOf,
+                    variance: r.variance, stale: !!r.staleAnchor };
+      window._loanClosingAnchor = orig;
+      return out;
+    }, PP2);
+    t.ok(inverse.applied, 'the inverse mutation applied', JSON.stringify(inverse));
+    if (inverse.applied) {
+      t.eq(inverse.asOf, '2026-08-05', 'without it, the five-day-old statement wins again');
+      t.close(inverse.variance, -9429.39, 0.05, '...and the row is back to −$9,429.39');
+      t.eq(inverse.stale, true, '...caught only by the stale-anchor ask, which is the weaker answer');
+    }
+
+    /* ⭐ AND WHILE THE INTERVENING PAYMENT IS STILL STAGED, THE WALK REFUSES.
+       This is the fixture's own untouched state: the 2026-09-02 split was `staged`
+       when it was pulled, and a staged payment has not reached the books — so
+       walking back over it would subtract money that has not moved. The roll-back
+       declines, the row falls back to the Aug 5 anchor, and the stale-anchor ask
+       does its job in the meantime. Both halves are correct, and which one you get
+       depends on a real fact about the books rather than on a preference. */
+    const staged = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      d.loan_statements.push({
+        id: 'harness-pp2-0902b', loan_account_id: PP2, statement_date: '2026-09-02',
+        principal_balance: 46144.59, source: 'portal_manual_pull', balance_basis: 'principal_only',
+        total_amount_due: null, payment_due_date: null, storage_path: null, payoff_amount: null,
+        payoff_good_thru: null, pulled_at: null, pulled_by: null, created_at: null, file_sha256: null,
+      });
+    } });
+    const stagedRow = await staged.evaluate((id) => {
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const r = rf.rows.find(x => x.a.id === id);
+      return { derivation: r.anchor.derivation, asOf: r.anchor.asOf, note: r.anchor.note, stale: !!r.staleAnchor };
+    }, PP2);
+    t.eq(stagedRow.derivation, 'direct', 'with the September payment still staged, the roll-back declines');
+    t.ok(/has not reached the books yet/.test(stagedRow.note || ''),
+         '...and says exactly why, rather than going quiet', stagedRow.note);
+    t.eq(stagedRow.stale, true, '...leaving the stale-anchor ask to carry the row until it posts');
+    await staged.close();
+
+    /* NOT A SUPPRESSION. If no later document exists at all, the in-month one is
+       still returned — stepping past it must never leave a loan with no evidence. */
+    const p2 = await newHarnessPage({ tab: 'loans' });   // unmutated: no 9/02 statement
+    const noLater = await p2.evaluate((id) => {
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const r = rf.rows.find(x => x.a.id === id);
+      return { derivation: r.anchor.derivation, asOf: r.anchor.asOf, closing: r.perLender && r.perLender.amount, grade: r.grade };
+    }, PP2);
+    t.eq(noLater.derivation, 'direct', 'with nothing to roll back from, the in-month document is still used');
+    t.eq(noLater.asOf, '2026-08-05', '...and it is the Aug 5 one');
+    t.close(noLater.closing, 58775.97, 0.02, '...carrying its real figure — evidence is never discarded');
+    await p2.close();
+
+    t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
+    await p.close();
+  },
+});
+
+/* SESSION 272 cont. — A MONTH THAT OPENS ON AN UNCLOSED MONTH SAYS SO.
+
+   David: "our bookkeeping is still not quite done closing July, so it's possible
+   the Paypal numbers could change in a day or two. What then?"
+
+   Nothing on the close band said so. August takes its OPENING from the books at
+   2026-07-31 — loan_book_balances, basis xero_rebuild, a live read of Xero — and
+   while the CPA is still posting July adjustments that figure moves, taking
+   August's computed and variance with it. A row can be green today and off
+   tomorrow with nobody at fault, and "ready to close and lock" is the one
+   sentence on this screen that must never be said over a number that can move.
+
+   The rule is self-clearing: close July and the notice goes on its own. */
+GROUPS.push({
+  name: 'provisional-opening',
+  async run(t) {
+    // Books closed through June: July is the accountant's live work, and August —
+    // the month being closed — opens on 2026-07-31, inside it.
+    /* THE CLOSE DATE IS SET DIRECTLY, and that is deliberate. `tests/bk-stub.js`
+       serves no `settings` table — the dashboard reads it in a separate
+       fire-and-forget call that the stub never answers — so `_bkCloseDate` is
+       null under the harness and always has been. Setting the two globals is
+       therefore not a shortcut past the real path; it is the ONLY way to reach
+       this code at all today, and it exercises the shipped functions unchanged.
+       (Teaching the stub to serve `settings` would be the better fix and would
+       also put the period bar's close-date chip under test for the first time —
+       filed rather than done here.) */
+    const june = await newHarnessPage({ tab: 'loans' });
+    const withProv = await june.evaluate(() => {
+      _bkCloseDate = '2026-06-30'; _bkXeroLockDate = null;
+      const b = _loansCloseBlockers(_cvLastMonth());
+      renderLoansCloseBand();
+      const strip = document.querySelector('#loans-close-band .lcb-strip');
+      let gates = [];
+      try { gates = JSON.parse(strip.getAttribute('data-gates') || '[]'); } catch (_) {}
+      return {
+        prov: b.provisionalOpening, priorEnd: b.rf.priorEnd,
+        // Session 264 took the chips off this strip: the gates live in
+        // `data-gates` and the strip prints one verdict. Read it the way the CSV
+        // export reads it — that is the shipped contract for this surface.
+        gate: gates.find(g => g.key === 'provisional-opening') || null,
+        blocked: strip.getAttribute('data-blocked'),
+        lead: (strip.querySelector('.lcb-lead') || {}).textContent || '',
+      };
+    });
+    t.ok(!!withProv.prov, 'the opening is recognised as provisional', JSON.stringify(withProv.prov));
+    t.eq(withProv.prov && withProv.prov.priorEnd, '2026-07-31', 'and it names the opening date');
+    t.eq(withProv.prov && withProv.prov.closeDate, '2026-06-30', '...and the date the books are closed through');
+    t.ok(!!withProv.gate, 'a gate is recorded on the strip', JSON.stringify(withProv));
+    t.eq(withProv.gate && withProv.gate.bad, true, '...and it blocks');
+    t.ok(/still being closed/.test((withProv.gate || {}).text || ''),
+         'saying the month it opens on is still being closed', (withProv.gate || {}).text);
+    t.ok(/moves this month.s opening/.test((withProv.gate || {}).text || ''),
+         '...and explaining the mechanism, not just the state', (withProv.gate || {}).text);
+    t.eq(withProv.blocked, '1', 'the strip is marked blocked');
+    t.eq(withProv.lead.trim(), 'Not ready to close',
+         '⭐ "Ready for your accountant" is NOT claimed over an opening that can still move', withProv.lead);
+    await june.close();
+
+    /* SELF-CLEARING. Close July and the notice goes, with nothing to remember to
+       turn off — which is the property that makes it safe to show at all. */
+    const july = await newHarnessPage({ tab: 'loans' });
+    const cleared = await july.evaluate(() => {
+      _bkCloseDate = '2026-07-31'; _bkXeroLockDate = null;
+      const b = _loansCloseBlockers(_cvLastMonth());
+      renderLoansCloseBand();
+      const strip = document.querySelector('#loans-close-band .lcb-strip');
+      let gates = [];
+      try { gates = JSON.parse(strip.getAttribute('data-gates') || '[]'); } catch (_) {}
+      return { prov: b.provisionalOpening, gate: gates.some(g => g.key === 'provisional-opening') };
+    });
+    t.eq(cleared.prov, null, 'once July is closed the opening is settled');
+    t.eq(cleared.gate, false, '...and the gate is gone, with nothing to switch off by hand');
+    await july.close();
+
+    /* NO CLOSE DATE IS NOT "PROVISIONAL" — it is unmeasured, and this stays quiet
+       rather than inventing a governance fact nobody recorded. */
+    const none = await newHarnessPage({ tab: 'loans' });
+    const silent = await none.evaluate(() => {
+      _bkCloseDate = null; _bkXeroLockDate = null;
+      return _loansCloseBlockers(_cvLastMonth()).provisionalOpening;
+    });
+    t.eq(silent, null, 'with no close date set at all, no claim is made either way');
+    await none.close();
+
+    /* XERO'S LOCK DATE WINS WHEN IT IS LATER — the same "later of the two" rule
+       the rest of the module uses. A stale manual entry can only ever close MORE. */
+    const xero = await newHarnessPage({ tab: 'loans' });
+    const byXero = await xero.evaluate(() => {
+      _bkCloseDate = '2026-06-30'; _bkXeroLockDate = '2026-07-31';
+      return _loansCloseBlockers(_cvLastMonth()).provisionalOpening;
+    });
+    t.eq(byXero, null, 'Xero’s later lock date settles the opening even when the manual date is behind');
+    await xero.close();
   },
 });
 

@@ -14223,8 +14223,14 @@
         _bkXeroLockDate = st.xero_period_lock_date || null;
         // Session 248: renderLoansPeriodBar is the ONLY surface that reads these
         // two, and it is the one being re-rendered — the close date sits beside
-        // the period tabs. Nothing else needs waking on this late-arriving read.
+        // the period tabs.
+        // Session 272 cont.: no longer the only one. The close band reads the
+        // effective close date to say whether this month's OPENING has settled
+        // yet, and this read is fire-and-forget — so the band has to be woken
+        // too, or the notice is missing on first paint and appears at random on
+        // the next re-render, which is worse than never showing it.
         try { renderLoansPeriodBar(); } catch (_) {}
+        try { if (typeof renderLoansCloseBand === 'function') renderLoansCloseBand(); } catch (_) {}
       })
       .catch(() => {});
     const [{ data: accounts }, { data: statements }, { data: splits }, { data: amortRows }, { data: documents }, bookRes, attrRes] = _res;
@@ -16402,7 +16408,41 @@
     if (directAny && directAny.asOf > priorEndIso && !(direct && direct.asOf === directAny.asOf)) {
       unlabelled = `the ${_bkPlainDate(directAny.asOf)} statement does not say what its balance measures, so it was not used`;
     }
-    if (direct && direct.asOf > priorEndIso) {
+    // ── 1b. A DOCUMENT THAT PREDATES THE MONTH'S OWN PAYMENTS LOSES TO ONE
+    //        THAT DOES NOT (session 272 cont.) ────────────────────────────────
+    // PayPal 2's August: a statement dated 2026-08-05, five days in, while four
+    // weekly payments were booked — three of them after that date. It won here
+    // simply for being inside the month, and the row then reported a $9,429.39
+    // "variance" that was really three payments the document could not have seen.
+    // A statement dated 2026-09-02 was on file the whole time and answers the
+    // question properly once walked back over the two payments in between.
+    //
+    // So: an in-month document still wins by default, but not when payments were
+    // booked AFTER it and a later document can be rolled back to month end.
+    // Fewer days of our own arithmetic is the tie-break the roll-back branch
+    // already uses ("the shorter the walk, the less can have happened in it") —
+    // this applies the same preference one level up.
+    //
+    // Measured, never assumed, and DATED SPLITS ONLY: a monthly-labelled split
+    // knows its month but not its day, and an undated payment is not evidence
+    // that a document is stale. Same rule, same reason, as `_splitDate` in the
+    // rollforward — see the false ask it caused on the two Ford loans.
+    //
+    // NOT A SUPPRESSION. If the roll-back refuses for any of its own reasons the
+    // direct anchor is returned exactly as before, carrying the refusal, so this
+    // can only ever REPLACE a worse document with a better one — never remove the
+    // row's evidence and leave it with nothing.
+    const _directIsStale = (() => {
+      if (!direct || !(direct.asOf > priorEndIso)) return false;
+      return (_allLoanSplits || []).some(sp =>
+        sp.loan_account_id === a.id
+        && !CLOSE_EXCLUDED_STATUSES.includes(String(sp.status))
+        && /^\d{4}-\d{2}-\d{2}$/.test(String(sp.period_label || ''))
+        && String(sp.period_label) > String(direct.asOf)
+        && String(sp.period_label) <= String(monthEndIso)
+        && Math.abs(Number(sp.principal_amount || 0)) >= 0.005);
+    })();
+    if (direct && direct.asOf > priorEndIso && !_directIsStale) {
       return { amount: direct.amount, asOf: direct.asOf, grade: 'A', derivation: 'direct',
                source: direct.source, note: unlabelled };
     }
@@ -16462,8 +16502,25 @@
         if (walk.refuse) refusal = walk.refuse;
         else return { amount: Number(doc.principal_balance) + walk.principal,
                       asOf: doc.statement_date, grade: 'A', derivation: 'rolled_back',
-                      source: doc.source, rolledPrincipal: walk.principal, note: null };
+                      source: doc.source, rolledPrincipal: walk.principal,
+                      // Say which document was passed over and why. A reader who
+                      // knows an in-month statement exists deserves to see the
+                      // reason it is not the one on screen.
+                      note: _directIsStale
+                        ? `used in place of the ${_bkPlainDate(direct.asOf)} statement, which predates payments booked later in the month`
+                        : null };
       }
+    }
+
+    // ── 2b. THE ROLL-BACK REFUSED — the in-month document is still evidence ──
+    // Reached only when 1b stepped past a usable direct anchor and the roll-back
+    // then declined. Returning nothing here would mean a loan that HAS a lender
+    // document for the month shows "no closing evidence", which is worse than the
+    // stale anchor it was trying to improve on. The refusal travels with it.
+    if (direct && direct.asOf > priorEndIso) {
+      return { amount: direct.amount, asOf: direct.asOf, grade: 'A', derivation: 'direct',
+               source: direct.source,
+               note: refusal || unlabelled };
     }
 
     // ── 3. the contractual schedule, if a recorded policy admits it ────────
@@ -17360,6 +17417,44 @@
   // What is stopping the closing month, as a number. Shared by the tab badge and
   // the tiles so the two cannot disagree — the same rule the rest of this module
   // lives by.
+  // ── session 272 cont.: IS THIS MONTH'S OPENING SETTLED? ────────────────────
+  // David: "our bookkeeping is still not quite done closing July, so it's
+  // possible the Paypal numbers could change in a day or two."
+  //
+  // He is right, and nothing on this screen said so. The August close takes its
+  // OPENING from the books at 2026-07-31 — `loan_book_balances`, basis
+  // xero_rebuild, which is a live read of Xero rebuilt on every reconciliation
+  // run. While the CPA is still posting July adjustments that figure moves, and
+  // August's computed and variance move with it, dollar for dollar. A row can be
+  // green today and off tomorrow through nobody's mistake.
+  //
+  // The module already models exactly this. postingDateFor()'s three kinds of
+  // month are CLOSED (on or before the close date), CLOSING (the month after —
+  // the accountant's live work) and OPEN. August's opening is the last day of
+  // July, and July is the CLOSING month, so the opening is provisional. Stated in
+  // one line rather than three: the opening date has not yet been closed.
+  //
+  // SELF-CLEARING, which is what makes it safe to show. The day she closes July
+  // the close date becomes 2026-07-31, the opening date is then on or before it,
+  // and this goes quiet on its own with nothing to remember to turn off.
+  //
+  // NO CLOSE DATE SET MEANS WE CANNOT SAY. Unknown is not "provisional" and it is
+  // not "settled" — it is unmeasured, and this stays silent rather than inventing
+  // a governance fact, the same way _bkRosterState refuses to claim a policy
+  // nobody recorded.
+  function _bkEffectiveCloseDate() {
+    const m = _bkCloseDate || null, x = _bkXeroLockDate || null;
+    if (!m && !x) return null;
+    if (m && x) return m > x ? m : x;
+    return m || x;
+  }
+  function _bkOpeningProvisional(priorEndIso) {
+    const eff = _bkEffectiveCloseDate();
+    if (!eff || !priorEndIso) return null;
+    if (String(priorEndIso) <= String(eff)) return null;
+    return { priorEnd: priorEndIso, closeDate: eff };
+  }
+
   function _loansCloseBlockers(month) {
     if (!_bkLoansLoaded || !(_allLoanAccounts || []).length) return null;
     const rf  = _loanCloseRollforward(month);
@@ -17399,6 +17494,8 @@
       // half of David's rule that had no measurement at all. Deliberately
       // additive and non-overlapping: `unanalysed` requires inHand, and
       // `cov.missing` requires the opposite, so nothing is counted twice.
+      // Not a blocker today — it is stated, not enforced. See the strip.
+      provisionalOpening: _bkOpeningProvisional(rf.priorEnd),
       stmtGate: _sg,
       unanalysed: _sg.unanalysed.length,
       // The number of THINGS to deal with, not the number of kinds of thing.
@@ -17723,6 +17820,34 @@
       ? { key: 'posting', bad: true, n: rf.unpostedRows.length,
           text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}: ${names(rf.unpostedRows, r => r.a)}` }
       : { key: 'posting', bad: false, n: 0, text: 'everything booked' });
+    // ── session 272 cont.: THE OPENING HAS TO HAVE SETTLED ────────────────
+    // David: "our bookkeeping is still not quite done closing July, so it's
+    // possible the Paypal numbers could change in a day or two. What then?"
+    //
+    // Then every figure downstream of the opening moves with it. This month opens
+    // on the books at the previous month end — `loan_book_balances`, basis
+    // xero_rebuild, a live read of Xero — so while the CPA is still posting July
+    // adjustments the opening moves, and computed and variance move with it,
+    // dollar for dollar. A row can be green today and off tomorrow with nobody at
+    // fault, and "Ready for your accountant" is the single sentence on this screen
+    // that must never be said over a number that can still change.
+    //
+    // A GATE, NOT A NAG, and the distinction is measurable. In an ordinary month
+    // the previous month is closed well before anyone is closing this one, so this
+    // never fires; it fires now precisely because something is out of the usual
+    // order, which is the definition of a thing worth blocking on. And it is
+    // SELF-CLEARING: the day July closes, the opening date is on or before the
+    // close date and this goes quiet with nothing to remember to switch off.
+    //
+    // It suppresses nothing. Every row keeps its figures, every other gate keeps
+    // its count, and the export carries this one like all the rest. What it
+    // removes is the claim of finality.
+    const provisional = _bkOpeningProvisional(rf.priorEnd);
+    if (provisional) {
+      const openMonth = _cvMonthName(String(provisional.priorEnd).slice(0, 7));
+      gates.push({ key: 'provisional-opening', bad: true, n: 1,
+        text: `opens on ${openMonth}, which is still being closed — books are closed through ${_bkPlainDate(provisional.closeDate)}, so every adjustment posted to ${openMonth} moves this month's opening and its variance with it` });
+    }
     const blocked = gates.some(g => g.bad);
 
     // ── SESSION 264: THE CHIPS COME OFF THE STRIP ─────────────────────────
