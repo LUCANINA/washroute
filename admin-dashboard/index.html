@@ -4977,7 +4977,7 @@
                 <input type="checkbox" id="dse-include" style="width:auto">
                 <label class="form-label" style="margin:0" for="dse-include">Include on Debt Schedule</label>
               </div>
-              <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">Monthly payment here is the contractual recurring payment used to calculate months remaining — it's separate from any single statement's amount due. Present Balance itself isn't editable here; it always comes from the latest statement or amortization schedule on file.</div>
+              <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">Monthly payment here is a note for your own reference. The Debt Schedule prints the recurring payment it MEASURES from the last six months of splits, not this figure — see session 270. Present Balance itself isn't editable here; it always comes from the latest statement or amortization schedule on file.</div>
               <div id="dse-error" style="color:var(--red);font-size:13px;display:none;margin-top:8px"></div>
             </div>
             <div class="modal-footer">
@@ -15626,21 +15626,16 @@
 
   const DEBT_SCHED_STALE_DAYS = 45;
 
-  // Standard amortization payoff-months formula. Returns:
-  //   a finite number  → months remaining at the current payment
-  //   0                → already paid off (balance <= 0)
-  //   Infinity         → payment doesn't cover the interest accruing (never pays off)
-  //   null             → not enough data to compute (missing balance/payment)
-  function _monthsToPayoff(balance, annualRatePct, payment) {
-    if (balance == null || payment == null || !(payment > 0)) return null;
-    if (balance <= 0) return 0;
-    const rate = annualRatePct == null ? 0 : Number(annualRatePct);
-    const r = rate / 100 / 12;
-    if (r <= 0) return Math.ceil(balance / payment);
-    if (payment <= balance * r) return Infinity;
-    const n = -Math.log(1 - (balance * r) / payment) / Math.log(1 + r);
-    return Math.ceil(n);
-  }
+  // Session 270: _monthsToPayoff lived here. It computed months-remaining from
+  // balance + rate + payment, was called on both the on-screen table and the PDF
+  // export, and was rendered by NEITHER -- neither row has a months column. So it
+  // was arithmetic nobody read, and its rate argument was the one remaining path by
+  // which a hand-typed note reached a calculation on the document this business
+  // sends to lenders. Removed rather than fixed: the first LESS IS BEST test is
+  // "would a reader act differently without it", and no reader could see it at all.
+  // If months-remaining is ever wanted back, it must take a MEASURED rate or print
+  // a dash -- balance / payment with the interest silently dropped understates a
+  // payoff, which on a lender's copy is the wrong direction to be wrong in.
 
   // 'YYYY-MM-DD' -> 'M/YYYY' without going through a Date object (these are
   // plain business-fact dates, not calendar timestamps — no timezone to get
@@ -15717,8 +15712,7 @@
       })();
       const pmt = _loanRecurringPayment(a.id);
       const rate = _loanMeasuredRate(a);
-      const months = _monthsToPayoff(bal?.amount ?? null, rate.pct, pmt);
-      return { a, bal, staleness, months, pmt, rate };
+      return { a, bal, staleness, pmt, rate };
     });
 
     // Session 238: the summary tiles are gone from this card. The Client View's
@@ -15900,8 +15894,7 @@
       const bal = _loanOutstandingBalance(a);
       const pmt = _loanRecurringPayment(a.id);
       const rate = _loanMeasuredRate(a);
-      const months = _monthsToPayoff(bal?.amount ?? null, rate.pct, pmt);
-      return { a, bal, months, pmt, rate };
+      return { a, bal, pmt, rate };
     });
 
     const groupTable = (group) => {
@@ -15914,7 +15907,7 @@
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(e.a.original_amount)}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${_fmtYM(e.a.original_date)}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right;font-weight:600">${e.bal ? money(e.bal.amount) : '—'}</td>
-        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.rate.pct != null ? e.rate.pct.toFixed(2) + '%' : '—'}</td>
+        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.rate.pct != null ? e.rate.pct.toFixed(2) + '%' + (e.rate.measured ? '' : ' <span style="font-size:11px">est.</span>') : '—'}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.pmt != null ? money(e.pmt) : '—'}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${_fmtYM(e.a.maturity_date)}</td>
         <td style="padding:5px 8px;font-size:13.5px">${esc({UCC:'UCC lien',vehicle:'Vehicle title',none:'Unsecured'}[e.a.security_type] || e.a.security_type || '—')}</td>

@@ -103,6 +103,40 @@
 > apart), but a verified projection is still not a document, which is what David said when he
 > rejected the hand-set anchor and is still right.
 >
+> ### 4d. ✅ THE STAGE → MATCH → POST → NEXT-CARD LOOP RAN END TO END, UNATTENDED (2026-09-04 16:00 UTC)
+>
+> **This is the evidence Task 7's auto-stage cron has been parked waiting for, and it is now on
+> the record rather than assumed.** PayPal 2's `WR-STAGE 284 2026-09-02` (staged 08-31 by David)
+> was reconciled in Xero; the `wr-loan-stage-sweep` cron at 16:00:18 UTC moved split `732552ee`
+> **staged → posted**, recorded `matched_xero_bank_transaction_id = 8e826bad-…`, raised NO
+> `stage_sweep_flag`, and `ensureUpcomingSplit` created the next card: `7451c887`, period label
+> **`2026-09-09`** — DAY-labelled, which is the correct branch for a weekly-draft loan (one stage
+> must equal exactly one bank-feed line). The new card matches its schedule row to the cent
+> (3195.45 / 219.26 = 3414.71). No human touched any of it.
+>
+> ⚠️ **THE PENNY IS NOW PERMANENT AND IT IS TECH DEBT #33 REALISED, NOT A ROUNDING CURIOSITY.**
+> The posted split holds **3180.34 / 234.37**; the lender's own CSV says **3180.33 / 234.38**. The
+> schedule row was hand-corrected in session 263, the stage was built 08-31 from the pre-correction
+> projection, and reconciliation locked it in — `unstage` refuses a reconciled transaction, by
+> design and correctly. One cent of interest overstated, principal understated, total exact, which
+> is precisely why the bank match succeeded and nobody noticed. **Not worth a correction journal;
+> worth watching whether it recurs, because 38 periods of same-direction pennies stops being
+> rounding.** This is a FIFTH loan showing the §5 Ford shape (a stage tied to a schedule that moved
+> underneath it) — the difference is that this one had already been caught and written down.
+>
+> ➡️ **THE RE-DERIVE IS NOW SAFE TO RUN AND WAS NOT BEFORE.** While `732552ee` was `staged`, a
+> re-derive could have flagged it `stale_projection`, and a flagged staged split cannot be posted
+> while `unstage` refuses a reconciled one — locked at both ends. It is `posted` now, so that risk
+> is gone. Deploy the four functions, then `scripts/console/rederive-paypal2.js`.
+>
+> ⚠️ **AND THEN CHECK THE 9/9 CARD, BECAUSE NOTHING ELSE WILL.** It currently points at the OLD
+> hand-parsed schedule (`96839329`, anchor NULL), so session 268's guard will refuse to stage it
+> until the re-derive lands. After the re-derive, compare the new schedule's 2026-09-09 row against
+> the card's 3195.45 / 219.26. **If they differ, regenerate the split before staging** — §6 only
+> flags splits already `staged`, so a `pending_review` card on a superseded schedule is invisible
+> to it. That is the exact hole §5 names on Ford's 61797019, and this is the loan where it is
+> live right now.
+>
 > ### 4c. ✅ THE `derived_` DENYLIST IS GONE — PAYPAL 2 NEEDS ONE CONSOLE RUN, NOT A CODE CHANGE
 >
 > **The defect was that the guard and its own remedy disagreed.** Session 268's staging guard
@@ -2646,6 +2680,46 @@ Self-test rows were then deleted, so **a non-empty log from here is real signal*
 legitimately appears (starting with a status filter `reconciliation-run` probably wants anyway),
 then flip to enforcing. An empty log after a week is the evidence that the rule is safe; flipping
 it early on the strength of "it seems fine" is what this whole session was about.
+
+#### (cont.) THE HAND NOTES, AND THE TWO THINGS I GOT WRONG ABOUT THEM
+
+David, on learning the fitter had used a typed figure: *"We were taking handnotes in the debt
+schedule as reality. Ugh... those were meant to be view-only estimations. Moving forward we
+should just remove the manual portion entirely."*
+
+**Measuring pass first, so the schedule went from wrong to measured rather than wrong to empty.**
+`refresh_rates` (dry run read, then confirmed): Dexter Loan 2 none → **5.890%** against a typed
+6.500, Verdant Capital none → **8.780%** against a typed 9.000. Nine of fourteen active loans now
+carry a measured rate. ⚠️ **PCV measures at 4.99999% and NO PATH WRITES IT** — `refresh_rates`
+only writes schedule-sourced rates and the statements path correctly refuses a loan holding a
+contractual schedule. Left unwritten rather than typed in by hand, which is the whole point.
+
+Then every computational read of the typed payment went: `loan-cross-check` (extra payment =
+`drop − scheduled`, so a note that is too LOW manufactures one every period — FC's $2,000.00
+against a real $2,033.77) and `loan-record-principal-payment` (which splits real money between
+principal and interest). `body.scheduled_payment` stays: a person stating an amount for THIS
+action, in front of the evidence, is not a note left on a form months ago.
+
+**I WARNED DAVID OF A TRADE-OFF THAT DID NOT EXIST.** I said blanking the typed rate would degrade
+"Months Remaining" on the lender-facing schedule. There is no Months Remaining column.
+`_monthsToPayoff` was computed at BOTH call sites and rendered at NEITHER — arithmetic nobody
+could read, and the last path by which a typed note reached a calculation on that document.
+Removed, along with a sentence in the edit modal still promising the column. *Check what the
+screen actually renders before pricing a change against it.*
+
+**AND THE REAL DEFECT WAS THE MIRROR OF THE ONE I EXPECTED.** The on-screen rate cell already
+marks an unmeasured rate — dotted underline, tooltip — and its comment notes approvingly that
+"a title carries no ink, so the printed and exported document is unchanged." That is exactly the
+problem: **`exportDebtSchedulePDF` printed a typed estimate in the identical form to a measured
+rate.** The distinction was carried only by the surface nobody sends, and dropped by the one that
+leaves the building. The export now prints `5.00% est.` — the figure survives (a blank rate on a
+lender's copy is worse than a close one, and that reasoning was right) but it can never again read
+as measured. **A caveat rendered only where it costs nothing is a caveat that is not being made.**
+
+EIDL keeps its 3.750% under `est.`. Its SBA agreement is on file (uploaded 2026-09-03) and the
+rate is almost certainly right, but "verified against the signed note" is a provenance this schema
+cannot express, and inventing a column to assert it would be the same typed-number problem wearing
+a better label. Open item, not a silent claim.
 
 #### Unfinished, honestly
 
