@@ -45,6 +45,11 @@
 > caller's problems* — session 266's lesson in a new place. **Metering the other Xero callers is
 > now the blocker on the cron**, not a nice-to-have.
 >
+> ⚠️ **It has now cost a payout.** Session 271: the 2026-09-04 $6,313.70 Stripe payout burned all
+> six retries between 02:12 and 10:00 UTC — entirely inside this outage — and had to be re-run by
+> hand at 15:58 UTC. Posted clean, no duplicate. See Tech Debt #42 (honour the 429's `Retry-After`
+> instead of spending attempts against a wall) and the session 271 log entry.
+>
 > ⚠️ Also unestablished: whether Xero's daily limit is a rolling 24h window or a fixed UTC
 > reset. 06:00 Pacific is 13:00 UTC, which today would fall BEFORE the reset. Check before
 > creating the job or the first scheduled run 429s.
@@ -2220,6 +2225,8 @@ assertion in Tech Debt #19: **the test is where the finding is written down.**
 an explanation of this gap; it is a different event that happens to be nearby. When that ships,
 `ce32` flips from REPORTED to a normal assertion and its note comes out.*
 
+**42. 🟠 A `transient` payout failure spends its whole retry budget against a wall it could have read the end of (session 271).** Xero's 429 carries `retry_after_seconds` — the 03:13 UTC refusal said 44774, i.e. recovery at ~15:39 UTC — and `_shared/payout-retry.ts` discards it, walking a fixed `BACKOFF_MINUTES` span of ~4h10m instead. On 2026-09-04 all six attempts for `po_1UBlJ2GACgbvEugHgG9Ohsv8` ($6,313.70) fell inside the outage, `attempt_count` hit `MAX_AUTO_ATTEMPTS`, and the row left `mayAutoRetry()` **permanently** — so it could never self-heal even though the blocking condition ended on its own five hours later. A human re-ran it. ⚠️ **The fix is to schedule `next_retry_at` past the stated recovery time, NOT to raise the attempt cap** — more attempts against a hard zero is the same mistake louder. ⚠️ **And do not make an exhausted row auto-retry again on a timer's judgement**: the whole reason `unknown` and `transient` are separate kinds is that only the pre-check class is provably unposted. This one is safe to re-run *because the pre-check runs again*, which is a property of that class alone. Interacts with #3's metering blocker — design them together.
+
 **41. 🔴 THREE reconciliation runs are stuck in `running`, and nothing has COMPLETED since 2026-09-02 20:51 UTC (found session 265).** `reconciliation-run` boots again — a `net.http_post` probe returns a clean 403 "Not authorized" rather than the 503-on-preflight that the never-booting v64 gave, which is the functional check, not a version comparison. But **there is no cron for this function** (`cron.job` carries only `wr-loan-attribution`, `20 */6 * * *`), so it only runs when someone presses Check — and nobody has since it broke. **Every tie-out the dashboard is reading is from yesterday evening**, which means every variance, every close-gate verdict and every Issues row on screen right now predates both session 264's and session 265's changes. First action for whoever reads this: press Check, then confirm a row appears in `reconciliation_runs` with `finished_at` set. Two further things to decide: the three rows sitting in `running` with no `finished_at` (2026-09-01 21:57, 2026-09-02 00:09, 2026-09-02 13:45) are dead v64 attempts that will never finish and should be marked failed rather than left ambiguous — `loadReconciliation` picks the newest FINISHED non-failed run so they are harmless today, but "running" is a lie about a process that is not; and whether this function should be on a cron at all, given the module now depends on its output being current.
 
 **40. 🟠 The fixture refresh needs a privileged connection, and there is no un-hacky way to give it one (session 265).** `tests/refresh-bookkeeping-fixture.mjs` pulls production rows over PostgREST, but the browser's anon key reads **nothing** — RLS returns `[]` for the tables it can see and 401 for seven others (`loan_documents`, `loan_book_balances`, `bookkeeping_kpi_snapshots`, `reconciliation_runs`, `reconciliation_findings`, `loan_tie_outs`, `loan_attributions`). ⚠️ **The obvious "fix" — granting anon read — is the exact inverse of Tech Debt #14 and must never be done to make this script simpler.** Today those seven come from a privileged connection into `tests/fixtures/.denied-tables.json` (gitignored; the `SIDE_CAR_SQL` query is at the bottom of the script), and the script REFUSES to write without it rather than emitting a fixture whose splits are from today and whose tie-outs are from last week. ⚠️ **The trap that cost an hour: `res.ok` was 200 on every empty response**, because RLS returning no rows is not an error — checking status rather than row count is how a refresh silently produces a fixture of nothing, and the script now pages explicitly and would notice. Next step is a decision, not code: either a service-role key kept in an env var on David's machine (never in the repo, never in a session's context), or a single read-only SQL function returning the whole fixture as one JSON value, exposed only to an authenticated role. The second is cleaner and needs a migration review.
@@ -2510,6 +2517,48 @@ to "what is running".
 ---
 
 ---
+
+### Session 271 (2026-09-04) — THE PAYOUT ALERT WAS RIGHT, AND THE RETRY BUDGET WAS SPENT INSIDE THE QUOTA OUTAGE
+
+David forwarded the 07:30 Pacific SMS: `po_1UBlJ2GACgbvEugHgG9Ohsv8`, $6,313.70, arrival
+2026-09-04, "did NOT reach Xero after 6 tries".
+
+**The alert was accurate and the diagnosis is §3's quota exhaustion, not a payout problem.**
+`xero-payout-syncs` row: `status='failed'`, `failure_kind='transient'`, `attempt_count=6`,
+error *"Could not check Xero for an existing … (status 429) — refusing to post blind."* The
+pre-check 429'd, so **nothing was ever classified and nothing was posted** — the transient
+class by definition. Confirmed independently, not assumed: `xero-read` `bank_transactions`
+for 2026-09-04 / 6313.70 returned **count 0** before any action.
+
+**Why all six retries failed.** `BACKOFF_MINUTES` spans ~4h10m; the row was claimed at
+02:12 UTC, so the whole budget ran 02:12 → 10:00 UTC. START HERE §3 records
+`remaining_day: 0` at 03:13 UTC with `retry_after_seconds: 44774` → recovery ~15:39 UTC.
+**Every attempt landed inside the outage window.** The backoff is shaped for a rolling
+window that may have already turned over; it is not shaped for a 12-hour hard zero. Two
+alerts fired (08:00 and 14:30 UTC — the second is the 6-hour dedup expiring, not a second
+failure).
+
+**Repaired.** Re-ran `xero-payout-sync` for that payout at 15:58 UTC via `net.http_post`
+with `x-wr-internal`, once quota had returned. Posted: bank transaction
+`c738ce31-80e3-43be-b1df-253af2c848f3`, five revenue lines (403/404/405/…), row now
+`status='posted'`, `error_message` cleared. **No duplicate**: the same `xero-read` query
+that returned 0 before now returns exactly **1**, `reconciled: false`, reference
+`Stripe payout po_1UBlJ2GACgbvEugHgG9Ohsv8` — so the bank feed line has a transaction to
+match and nothing needs hand-coding. `attempt_count` deliberately left at 6; it is the
+history of what happened.
+
+**The finding worth keeping.** Once `attempt_count` reaches `MAX_AUTO_ATTEMPTS` the row is
+permanently outside `mayAutoRetry()` — it can never self-heal, even after the blocking
+condition clears on its own. That is the intended design for a genuine failure and the
+wrong outcome for a quota outage, whose end is a knowable time (`retry_after_seconds` is in
+the 429 response and is currently discarded). **Filed as Tech Debt #42: a `transient`
+failure whose 429 carried a `Retry-After` should schedule `next_retry_at` past that time
+rather than burning an attempt against a wall.** Not fixed this session — it interacts
+directly with §3's metering blocker and should be designed with it.
+
+**Reinforces §3, which is now the highest-value open item.** `xero_api_usage` meters only
+`xero-read`, so the caller that actually lost a day's revenue posting is invisible to the
+meter that would have explained it. Fourth incident traceable to the same unmetered quota.
 
 ### Session 270 (2026-09-04) — A DEAD LOAN ACCEPTED A LIVE LOAN'S HISTORY, AND NOTHING SAID NO
 
