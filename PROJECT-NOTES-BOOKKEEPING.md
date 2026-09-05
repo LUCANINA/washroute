@@ -2,6 +2,80 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 275, 2026-09-05)
 >
+> ### 0n. ⏭️ NEXT SESSION STARTS HERE — ONE-CLICK CORRECTION FROM THE LOAN PAGE
+>
+> **David, 2026-09-05: _"I want the journal entry to be one-click from the loan page."_**
+> Read §0m first (the anchor fix — same session, ships first). Then this.
+>
+> #### The button already exists. The SERVER is what refuses.
+> This is not a UI problem and the first instinct — "add a button" — is wrong. The close band's
+> Action column has rendered **"Find the fix"** per loan row since session 267 (`bkOpenFixModal`),
+> the modal already shows **"Approve & post correction to Xero"** whenever the server returns a
+> prepared journal, and session 273 cont. fixed the DOM-scoping bug that made approvals land in an
+> invisible container. The whole route works.
+>
+> Funding Circle gets no button because `loan-find-difference` offers exactly ONE proposal shape
+> (`index.ts` ~line 903) and FC fails **both** of its conditions:
+>
+> ```js
+> const sp = splits.find(s => Math.abs(Math.abs(p.diff) - Number(s.interest_amount)) < TOL)
+> if (!sp) continue                        // gap is $15.38, interest is $992.67 → no match
+> if (alreadyWorked(lump)) { … continue }  // Ramona already split the payment → refused again
+> ```
+>
+> That shape is *"the whole interest portion was never carved out, and nobody has touched the
+> payment."* Ours is *"it WAS carved out, from the wrong month's figures."* Different shape, same
+> correcting journal. **The refusal is correct for the shape it was written for** — do not loosen it.
+>
+> #### ✅ BUILT AND COMMITTED THIS SESSION (680c49a): `_shared/stale-split-trueup.ts`
+> §0k's ONE RULE, TWO CALLERS, written once. 34 assertions, 0 red
+> (`tests/stale-split-trueup.test.mts`), and **most of them are about what does NOT fire.**
+>
+> **It does not fire on a difference. It fires on a falsifiable SIGNATURE:** Xero's movement equals
+> the PREVIOUS period's lender figure to the cent, AND does not equal this period's.
+>
+> | period | Xero moved | prev lender | this lender | correction |
+> |---|---|---|---|---|
+> | 2026-07 | 1,010.57 | **1,010.57** ✓ | 1,025.71 ✗ | 15.14 |
+> | 2026-08 | 1,025.71 | **1,025.71** ✓ | 1,041.09 ✗ | 15.38 |
+>
+> ⚠️ **BOTH HALVES ARE LOAD-BEARING AND THE SECOND IS WHAT MAKES IT A TEST.** Without *"does not
+> equal this period's"*, a loan whose books are RIGHT and whose principal happens to be flat month
+> to month matches the first half alone and is offered a correction for ever, on a loan with nothing
+> wrong with it. The test asserts that case AND asserts that the first half alone would have matched
+> it. Do not "simplify" this to a single condition.
+>
+> Also settled: closed periods are recognised and NAMED but never proposed (session 230); a penny of
+> rounding is not a finding; the refusal is always stated in words naming the cause and what would
+> change it; `trueUpJournalLines` returns lines in the shape `post_fix` already posts, so **no new
+> write path to Xero**; `trueUpCard` measures 29 words visible (budget 40) with every figure kept in
+> the working.
+>
+> #### WHAT IS LEFT, in order
+> 1. **Wire it as a SECOND proposal shape in `loan-find-difference`, into the EXISTING `proposal`
+>    slot** with a new `kind`. This is why it is nearly free: `post_fix` handles `proposal.journal`
+>    generically, so the deterministic token, the server-side re-verify on approval, the close-date
+>    guard on the WRITE and the duplicate-journal check all work untouched — and `_bkFdiffHtml`
+>    renders the Approve button on its own the moment `can_post` is true. **No dashboard change is
+>    needed for the posting itself.** The walk already computes both inputs: `p.lender_delta` and
+>    `p.xero_delta` per span, negated.
+> 2. **Inline card on the close-band row** (David chose this over keeping the modal hop): the 40-word
+>    decision + Approve on the row, working behind a `<details>` fold. One click to act, having read
+>    the figure.
+> 3. **Surface the refusal.** The strings exist in the module; the row needs to print them.
+>
+> ⛔ **DAVID ASKED FOR ONE CLICK AND I PUSHED BACK ON ONE PART OF IT, WITH HIS AGREEMENT.** Posting
+> straight from the row with no preview breaks the preview→confirm rule every Xero write in this
+> module obeys. What gets killed is the HUNTING, not the reading. Do not "finish the job" later by
+> removing the confirm.
+>
+> #### BEFORE THE APPROVE BUTTON GOES LIVE ON REAL MONEY
+> Run the true-up across **all eleven prestaging loans**, not just Funding Circle, and show David
+> which ones it fires on and which it refuses. **If it fires anywhere unexpected, that is the
+> finding.** Session 275 was wrong three times — the Ford loans were not unaffected, the first cut of
+> the anchor fix broke FC outright, and the test's own discrimination helper mis-stated the old rule.
+> Every one was caught by running code against real data, and none by reasoning about it.
+>
 > ### 0m. ⏭️ NEXT SESSION STARTS HERE — THE ANCHOR FIX IS WRITTEN AND TESTED, NOT DEPLOYED
 >
 > **State at hand-off (2026-09-05): two files changed, 30 new assertions green, whole suite green,
@@ -3257,6 +3331,21 @@ the RE-ANCHOR, not the chain, and the re-anchor only fixes what we book NEXT. Th
 self-heal. That is precisely the shape of the $60.16: every individual month looked fine, the bank
 reconciled every month because the total is always $2,033.77, and only the accumulated balance gap
 ever gave it away.
+
+**And a second piece of work, built after the fix: the stale-split true-up
+(`_shared/stale-split-trueup.ts`, 680c49a).** David: *"I want the journal entry to be one-click from
+the loan page."* The useful finding was that the button has existed since session 267 and the server
+is what refuses — so the answer was never UI. Full detail in START HERE §0n; the part worth the log
+is the design question it forced.
+
+**A correction engine earns its keep by what it REFUSES.** Booking a difference to make a row go
+green hides the reason instead of finding it, which is David's session-272 objection exactly, and
+the close band already says so in as many words on rows it will not offer a button for. So this
+fires on a falsifiable signature — Xero moved the PREVIOUS period's figure to the cent, and not this
+period's — rather than on the existence of a gap. The second half of that condition is the half that
+makes it a test rather than a description: without it, a correct loan with flat principal matches on
+the first half alone and gets offered a correction for ever. Most of the 34 assertions are about
+cases that produce no button.
 
 **Three process notes worth more than the fix.**
 
