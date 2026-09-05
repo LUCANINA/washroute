@@ -471,6 +471,13 @@ function readSurfaces() {
                openingSourceRaw: att(tds[C.openingSrc], 'data-source'),
                drawn: c[C.drawn], principal: c[C.principal], interest: c[C.interest],
                computed: c[C.computed], perLender: c[C.closing],
+               // The AWAITING-EVIDENCE state, read as a marker rather than as
+               // English. Session 277 improved this cell's copy from "not received"
+               // to a named ask and turned six assertions red that were counting the
+               // old words -- a test that checks a claim must read the claim.
+               awaitingEvidence: !!(tds[C.closing] && tds[C.closing].querySelector('[data-evidence="awaiting"]')),
+               evidenceKind: att(tds[C.closing].querySelector('[data-evidence]') || tds[C.closing], 'data-evidence-kind'),
+               evidenceFrom: att(tds[C.closing].querySelector('[data-evidence]') || tds[C.closing], 'data-evidence-from'),
                closingDate: att(tds[C.closingDate], 'data-closing-date'),
                closingDateIso: att(tds[C.closingDate], 'data-closing-date-iso'),
                closingSource: att(tds[C.closingSrc], 'data-closing-source-label'),
@@ -2613,10 +2620,10 @@ GROUPS.push({
       t.ok(!!cGate, `close band — ${c.name}: the coverage chip is on the strip`,
            `chips: ${JSON.stringify(cb.gates.map(g => g.key))}`);
       if (cGate) {
-        const notReceived = cb.rows.filter(r => /not received/.test(r.perLender)).length;
+        const notReceived = cb.rows.filter(r => r.awaitingEvidence).length;
         t.eq(cGate.count, notReceived,
-             `close band — ${c.name}: the coverage chip's count is exactly the rows reading "not received"`,
-             `chip=${JSON.stringify(cGate.text)} count=${cGate.count} · ${notReceived} rows say "not received"`);
+             `close band — ${c.name}: the coverage chip's count is exactly the rows awaiting evidence`,
+             `chip=${JSON.stringify(cGate.text)} count=${cGate.count} · ${notReceived} rows await evidence`);
       }
 
       // The two grade chips exist exactly when they have something to say, and
@@ -5033,8 +5040,9 @@ GROUPS.push({
         t.ok(/has not reached the books yet/.test(r.note || ''),
              `ce6: ...and the refusal states its reason on the cell (${status})`,
              `note=${JSON.stringify(r.note)}`);
-        t.ok(/not received/.test(r.perLender || ''),
-             `ce6: ...and the cell reads as evidence not received (${status})`);
+        t.ok(r.awaitingEvidence,
+             `ce6: ...and the cell reads as evidence not received (${status})`,
+             `cell=${JSON.stringify(r.perLender)}`);
         await p.close();
       }
 
@@ -9908,6 +9916,142 @@ GROUPS.push({
            String(blocked.refuse));
     }
     await r.close();
+  },
+});
+
+/* ── WHAT CLOSING A LOAN NEEDS, MEASURED FROM ITS OWN CADENCE (session 277) ── */
+GROUPS.push({
+  name: 'close-evidence',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    const need = (acct, month) => p.evaluate(([acct, month]) => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === acct);
+      if (!a) return { err: `no loan ${acct}` };
+      const n = _loanCloseEvidenceNeeded(a, month);
+      const cad = _loanCadence(a, month);
+      return {
+        satisfied: n.satisfied, basis: n.basis, disagreement: n.disagreement,
+        items: n.items.map(i => ({ kind: i.kind, window: i.window, earliestDay: i.earliestDay, recorded: i.recorded })),
+        cadence: { known: cad.known, movesInMonth: cad.movesInMonth ?? null,
+                   skipsMonth: cad.skipsMonth ?? null, before: cad.before ?? null,
+                   after: cad.after ?? null, clearDay: cad.clearDay ?? null },
+      };
+    }, [acct, month]);
+
+    /* ── 1. TWO LOANS, ONE LENDER, OPPOSITE ANSWERS ───────────────────────── */
+    // This is the whole argument for deriving instead of typing. Both are BayFirst
+    // SBA loans; the schedules say one straddles every month end and the other
+    // never does, and nobody had to record either fact.
+    const sba2 = await need('6917479106', '2026-08');
+    const sba1 = await need('4708139103', '2026-08');
+    t.ok(!sba2.err && !sba1.err, 'the fixture carries both BayFirst loans', `${sba2.err || ''} ${sba1.err || ''}`);
+
+    t.ok(sba2.cadence.known, 'SBA 2 has enough schedule to read a cadence at all',
+         JSON.stringify(sba2.cadence));
+    t.eq(sba2.cadence.skipsMonth, true,
+         '⭐ SBA 2\'s lender balance did not move at all in August — the month is SKIPPED',
+         JSON.stringify(sba2.cadence));
+    t.eq(sba2.cadence.movesInMonth, 0, '...zero in-month moves, measured');
+    t.ok(sba2.cadence.before && sba2.cadence.after,
+         '...bracketed on both sides, which is what makes it a skip rather than a gap in what we hold',
+         JSON.stringify(sba2.cadence));
+    t.ok(sba1.cadence.movesInMonth >= 1,
+         '⭐ ...while SBA Loan DID move inside August, from the same function',
+         JSON.stringify(sba1.cadence));
+
+    /* ── 2. SO THE ASK DIFFERS, AND ONLY ONE LOAN GETS A CHORE ────────────── */
+    if (!sba2.satisfied) {
+      t.eq(sba2.items[0]?.window, 'after_month_end',
+           '⭐ SBA 2 is asked for a balance dated AFTER month end');
+      t.eq(sba2.basis, 'measured', '...on measured cadence, not a recorded policy');
+      t.eq(sba2.items[0]?.recorded, false, '...and nobody typed it');
+    }
+    // SBA Loan's August is answered by its own 8/05 pull, so it must be asked for
+    // NOTHING. A requirement nobody needs is a chore, and a chore is how a gate
+    // becomes a nag — the failure mode this module keeps re-fixing.
+    t.eq(sba1.satisfied, true,
+         '⭐ SBA Loan already has its August evidence, so it is asked for nothing',
+         JSON.stringify(sba1));
+    t.eq(sba1.items.length, 0, '...no chore invented for a month already answered');
+
+    /* ── 3. IT REFUSES RATHER THAN GUESSES ────────────────────────────────── */
+    // Strip everything AFTER the month end -- both the later statements and the
+    // schedule's next payment -- and the same month becomes unanswerable. Without a
+    // move on the far side there is no telling "the lender skipped it" from "nobody
+    // has pulled it yet", and those two want opposite answers.
+    const thin = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const sts = (_allLoanStatements || []).filter(x => x.loan_account_id === a.id && x.statement_date > '2026-08-31');
+      const rows = (_allLoanAmortRows || []).filter(r =>
+        r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === a.id
+        && String(r.row_date || '') > '2026-08-31');
+      const keepS = sts.map(x => x.statement_date), keepR = rows.map(r => r.row_date);
+      sts.forEach(x => { x.statement_date = '1990-01-01'; });
+      rows.forEach(r => { r.row_date = null; });
+      const out = _loanCadence(a, '2026-08');
+      sts.forEach((x, i) => { x.statement_date = keepS[i]; });
+      rows.forEach((r, i) => { r.row_date = keepR[i]; });
+      return { known: out.known, after: out.after ?? null };
+    });
+    t.eq(thin.known, false,
+         '⭐ nothing known after the month end and it REFUSES rather than guessing a skip');
+    t.eq(thin.after, null, '...naming that it has nothing on the far side');
+
+    /* ── 4. A RECORDED EXCEPTION IS ADDED, NEVER SILENTLY OVERRIDDEN ──────── */
+    const withExc = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const keep = a.close_evidence_exception;
+      a.close_evidence_exception = [
+        { kind: 'withholding_export', label: 'a withholding export covering the window',
+          window: 'in_month', earliest_day: 5, note: 'cannot be measured from our data' },
+        { kind: 'not_a_real_kind', label: 'should be ignored', window: 'in_month' },
+      ];
+      const n = _loanCloseEvidenceNeeded(a, '2026-08');
+      a.close_evidence_exception = keep;
+      return { basis: n.basis, kinds: n.items.map(i => i.kind), disagreement: n.disagreement };
+    });
+    t.ok(withExc.kinds.includes('withholding_export'), 'a recorded exception is carried through',
+         JSON.stringify(withExc));
+    t.ok(withExc.kinds.includes('portal_balance'),
+         '⭐ ...ALONGSIDE the derived requirement, not instead of it', JSON.stringify(withExc));
+    t.ok(!withExc.kinds.includes('not_a_real_kind'),
+         '⭐ an unrecognised kind is ignored, not printed as a raw slug — a new value fails safe');
+    t.ok(!!withExc.disagreement,
+         '⭐ recorded says in-month, the schedule says otherwise — and that is reported as a finding',
+         JSON.stringify(withExc.disagreement));
+
+    /* ── 5. "CANNOT EXIST YET" IS NOT "LATE" ──────────────────────────────── */
+    // The reason earliestDay exists. Today these render identically and only one of
+    // them is anybody's fault.
+    const gettable = await p.evaluate(() => {
+      const item = { kind: 'portal_balance', window: 'after_month_end', earliestDay: 3 };
+      return {
+        // closing August, asked for a September-dated pull
+        early: _evidenceGettable(item, '2026-08', '2026-09-01'),
+        onTime: _evidenceGettable(item, '2026-08', '2026-09-03'),
+        later: _evidenceGettable(item, '2026-08', '2026-09-20'),
+      };
+    });
+    t.eq(gettable.early.gettable, false, 'on 1 Sep an after-month-end pull is not yet gettable');
+    t.eq(gettable.early.from, '2026-09-03', '...and it says the date it becomes gettable');
+    t.eq(gettable.onTime.gettable, true, 'on the 3rd it is');
+    t.eq(gettable.later.gettable, true, '...and stays so afterwards');
+    await p.close();
+
+    /* ── 6. THE CELL SAYS THE ASK, AND CARRIES A STABLE MARKER ────────────── */
+    const q = await newHarnessPage({ tab: 'loans' });
+    const cb = (await q.surfaces()).loans.closeBand;
+    const row = cb.rows.find(r => /BayFirst SBA 2/.test(r.name || ''));
+    if (row && row.awaitingEvidence) {
+      t.ok(/needs |not until /.test(row.perLender || ''),
+           '⭐ the cell ASKS for the document instead of reporting an absence',
+           JSON.stringify(row.perLender));
+      t.ok(!/^not received$/.test(String(row.perLender || '').trim()),
+           '...so it no longer reads as a bare "not received"', JSON.stringify(row.perLender));
+      t.eq(row.evidenceKind, 'portal_balance', '...naming which kind of document');
+    }
+    await q.close();
   },
 });
 

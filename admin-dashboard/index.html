@@ -3518,6 +3518,7 @@
             /* The tail is deliberately the quietest thing in the bar. It is not
                a fifth thing to do — it is the close itself, waiting. */
             .lcb-bar .s-tail { background: var(--gray-300); }
+            .lcb-ask { color: #b45309; font-weight: 600; }
             .lcb-asks { font-size: 12px; color: var(--gray-500); }
             .lcb-asks b { color: var(--gray-800); font-weight: 600; }
             .lcb-asks .ask { color: #dc2626; font-weight: 600; }
@@ -16751,6 +16752,226 @@
 
   // THE closing figure for one loan and one month. Returns
   // { amount, asOf, grade, source, derivation, note } — amount null at grade C.
+  // ── WHAT CLOSING THIS LOAN ACTUALLY NEEDS (session 277) ───────────────────
+  //
+  // David: "closing BayFirst will require statements + a screenshot. If this is the
+  // case, it should be flagged as a requirement... eg. upload statement AND
+  // screenshot showing balance." Then, on the first draft: "How do you make this
+  // scaleable?" — which killed it. That draft recorded a hand-typed requirement per
+  // loan, and this module knows what becomes of hand-typed policy: five wrong
+  // interest_rate values still on file, prestage_enabled documented as four loans
+  // and measured at eleven. A stale REQUIREMENT is worse than a stale number,
+  // because it asks a person for the wrong thing every month until they stop
+  // reading the ask.
+  //
+  // So it is MEASURED, from the lender's own schedule, and it self-updates when a
+  // lender changes its cycle. Nothing to maintain when a loan is added.
+  //
+  // THE SIGNAL, and it is not "is a document missing" — that is circular, since a
+  // missing document is why anyone is asking. It is the CADENCE:
+  //
+  //   BayFirst SBA 2   two rows per cycle — 08-31 then 09-02, 09-30 then 10-02,
+  //                    10-31 then 11-02. The lender applies on the month's last day
+  //                    and the cash clears in the next. So every balance this lender
+  //                    prints inside a month is dated on the PRIOR month's last day,
+  //                    and a document dated there cannot close the month (the
+  //                    coversMonth rule, session 239). This loan structurally needs a
+  //                    balance observation dated AFTER month end, every month,
+  //                    permanently.
+  //   BayFirst SBA Loan  one row a month — 09-05, 10-05, 11-05. No straddle. One
+  //                    in-month pull closes it, and it has done 5 for 5 this year.
+  //                    Deliberately gets NO second requirement: a requirement nobody
+  //                    needs is a chore, and a chore is how a gate becomes a nag.
+  //
+  // Two loans at the same lender, opposite answers, and the schedule says which is
+  // which. That is the whole argument for deriving it.
+  //
+  // IT REFUSES RATHER THAN GUESSES. Fewer than two cycles of schedule rows and the
+  // answer is 'insufficient' — a confident cadence off one row would be a typed
+  // policy with extra steps.
+  // Shifted relative to a GIVEN month, never to today. `_cvMonthsBack` is anchored
+  // on the current date, which is right for the client checklist and wrong here:
+  // this code has to reason about whichever month is being closed, including one
+  // long past when someone reopens it.
+  function _monthShift(monthLabel, n) {
+    const [y, m] = monthLabel.split('-').map(Number);
+    const d = new Date(y, m - 1 + n, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  const CLOSE_EVIDENCE_KINDS = ['lender_statement', 'portal_balance', 'withholding_export', 'transaction_history'];
+  const STRADDLE_APPLY_WITHIN_DAYS = 2;   // an 'apply' row this close to month end
+  const STRADDLE_CLEAR_WITHIN_DAYS = 6;   // ...whose cash lands this soon after it
+
+  // WHEN THIS LENDER'S BALANCE ACTUALLY MOVES — measured, from the lender's own
+  // documents plus its schedule's next payment.
+  //
+  // ⚠️ THE FIRST CUT OF THIS READ THE SCHEDULE'S ROW DATES AND WAS WRONG. It saw
+  // BayFirst SBA 2 rows at 08-31 AND 09-02 and concluded the loan applies at month
+  // end and clears in the next — a tidy story. Those are TWO COMPETING DERIVED
+  // SCHEDULES on one loan (fd754708 dating every payment at month end, a5554719
+  // dating them on the 2nd, both `derived_from_statements`, both created
+  // 2026-08-25), and `_loanScheduleRows` correctly picks one. I had merged two
+  // documents that disagree and read the seam as a cadence. Filed as a finding.
+  //
+  // The signal that survives is simpler and does not depend on which schedule wins:
+  //
+  //   DID THE LENDER'S BALANCE MOVE INSIDE THE MONTH AT ALL?
+  //
+  // SBA 2's moves are 05-01, 06-02, 07-02, 07-31, and the next scheduled payment is
+  // 09-02. August contains none. So no document this lender produces can carry an
+  // August-dated balance — it only stamps dates on transactions, and there were no
+  // August transactions. That is why a pull made during August comes back dated
+  // 07-31 and cannot close the month.
+  //
+  // SBA Loan moved on 08-05. Its August is answerable by one ordinary pull, and it
+  // must therefore be asked for nothing.
+  //
+  // NOT CIRCULAR, which was the trap: this asks whether the balance MOVED, not
+  // whether a document is on file. A month with no move is a fact about the loan; a
+  // month with no document is a fact about us.
+  //
+  // AND IT REFUSES. Without a known move on BOTH sides of the month end there is no
+  // way to tell "the lender skipped this month" from "nobody has pulled it yet", and
+  // those want opposite answers. Unknown is a real answer here.
+  function _loanBalanceMoveDates(a) {
+    const real = (_allLoanStatements || [])
+      .filter(s => s.loan_account_id === a.id && s.principal_balance != null
+        && _VARIANCE_REAL_ANCHORS.includes(String(s.source || ''))
+        && _balanceBasisIsLabelled(s))
+      .map(s => ({ d: String(s.statement_date).slice(0, 10), b: Number(s.principal_balance) }))
+      .sort((x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : 0));
+    const moves = [];
+    for (let i = 1; i < real.length; i++) {
+      if (real[i].b < real[i - 1].b - 0.005) moves.push(real[i].d);
+    }
+    // The schedule contributes ONE thing: the next payment date. That is a claim
+    // about the future, so it is kept separate from the measured past and is only
+    // ever used to establish that a move falls AFTER a month end.
+    const future = _loanScheduleRows(a)
+      .map(r => String(r.row_date || '').slice(0, 10))
+      .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort();
+    return { moves, scheduled: future };
+  }
+
+  function _loanCadence(a, monthLabel) {
+    const { moves, scheduled } = _loanBalanceMoveDates(a);
+    if (!monthLabel || moves.length < 2) return { known: false, moves, scheduled };
+    const monthStart = monthLabel + '-01';
+    const monthEnd = _lastDayOfMonth(monthLabel);
+    const inMonth = moves.filter(d => d >= monthStart && d <= monthEnd);
+    const before = moves.filter(d => d < monthStart).pop() || null;
+    const after = moves.concat(scheduled).filter(d => d > monthEnd).sort()[0] || null;
+    if (inMonth.length) {
+      return { known: true, moves, scheduled, movesInMonth: inMonth.length,
+               skipsMonth: false, before, after, clearDay: Number(inMonth[0].slice(8, 10)) };
+    }
+    // No move inside the month. Only a move on BOTH sides makes that a skip rather
+    // than a gap in what we hold.
+    if (!before || !after) return { known: false, moves, scheduled, movesInMonth: 0, before, after };
+    return { known: true, moves, scheduled, movesInMonth: 0, skipsMonth: true,
+             before, after, clearDay: Number(after.slice(8, 10)) };
+  }
+
+  // Recorded exceptions: things no amount of our own history can reveal. Stripe's
+  // verdict needs an export from a system we cannot read (session 245); Ford offers
+  // no export at all, so a photograph is the only form its history comes in (session
+  // 230). Read through an ALLOWLIST so a kind nobody has taught this function about
+  // is ignored rather than printed as a raw slug — a new value fails safe, same
+  // reasoning as loan_statements.source.
+  function _loanEvidenceExceptions(a) {
+    const raw = a && a.close_evidence_exception;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter(x => x && CLOSE_EVIDENCE_KINDS.includes(String(x.kind)) && typeof x.label === 'string' && x.label.trim())
+      .map(x => ({
+        kind: String(x.kind),
+        label: String(x.label).trim(),
+        window: x.window === 'after_month_end' ? 'after_month_end' : 'in_month',
+        earliestDay: Number.isFinite(Number(x.earliest_day)) ? Number(x.earliest_day) : 1,
+        note: typeof x.note === 'string' ? x.note : null,
+        recorded: true,
+      }));
+  }
+
+  /**
+   * What this loan needs before `monthLabel` can be closed, and whether it can
+   * exist yet. Returns { satisfied, items, basis, cadence, disagreement }.
+   *
+   * `satisfied` short-circuits everything: a loan that already HAS a grade-A anchor
+   * is asked for nothing, however its cadence reads. The gate's job is to name what
+   * is outstanding, never to invent a chore for a month already answered.
+   */
+  function _loanCloseEvidenceNeeded(a, monthLabel) {
+    const monthEnd = _lastDayOfMonth(monthLabel);
+    const priorEnd = _lastDayOfMonth(_monthShift(monthLabel, -1));
+    const anchor = _loanClosingAnchor(a, monthEnd, priorEnd);
+    if (anchor && anchor.grade === 'A') {
+      return { satisfied: true, items: [], basis: 'satisfied', cadence: null, disagreement: null, anchor };
+    }
+
+    const recorded = _loanEvidenceExceptions(a);
+    const cadence = _loanCadence(a, monthLabel);
+    const derived = [];
+    if (cadence.known && cadence.skipsMonth) {
+      derived.push({
+        kind: 'portal_balance',
+        label: 'a screenshot of the portal balance, taken after the month ends',
+        window: 'after_month_end',
+        earliestDay: cadence.clearDay || 3,
+        note: `this lender's balance did not move at all in ${monthLabel} — it last moved on `
+            + `${_bkPlainDate(cadence.before)} and next moves ${_bkPlainDate(cadence.after)}, so no document it `
+            + `produces can carry a balance dated inside the month`,
+        recorded: false,
+      });
+    } else if (cadence.known) {
+      derived.push({
+        kind: 'portal_balance',
+        label: 'a statement or a screenshot of the portal balance, dated inside the month',
+        window: 'in_month',
+        earliestDay: (cadence.clearDay || 1) + 1,
+        note: null,
+        recorded: false,
+      });
+    }
+
+    // A recorded item never silently replaces a derived one, and vice versa: both
+    // are shown, and a contradiction is a FINDING. Same treatment interest_rate
+    // gets beside fitted_annual_rate (session 230) and for the same reason — the
+    // discrepancy is the useful part, and hiding it is how a wrong typed value
+    // survives for months.
+    let disagreement = null;
+    if (recorded.length && derived.length) {
+      const rw = new Set(recorded.map(x => x.window));
+      if (!rw.has(derived[0].window)) {
+        disagreement = `the recorded requirement asks for something dated ${recorded[0].window === 'after_month_end' ? 'after month end' : 'inside the month'},`
+          + ` but this loan's own schedule says ${derived[0].window === 'after_month_end' ? 'no in-month balance can cover the month' : 'an in-month balance covers it'}`;
+      }
+    }
+
+    const items = recorded.concat(derived.filter(d => !recorded.some(r => r.kind === d.kind && r.window === d.window)));
+    return {
+      satisfied: false,
+      items,
+      basis: recorded.length ? (derived.length ? 'measured+recorded' : 'recorded')
+        : (cadence.known ? 'measured' : 'insufficient'),
+      cadence,
+      disagreement,
+      anchor,
+    };
+  }
+
+  // Can this item be fetched yet? The whole point of earliestDay: a loan whose
+  // evidence CANNOT EXIST yet is not late, and today those render identically while
+  // only one of them is anybody's fault. Returns { gettable, from }.
+  function _evidenceGettable(item, monthLabel, todayIso) {
+    const base = item.window === 'after_month_end' ? _monthShift(monthLabel, 1) : monthLabel;
+    const dd = String(Math.min(Math.max(item.earliestDay || 1, 1), 28)).padStart(2, '0');
+    const from = `${base}-${dd}`;
+    return { gettable: (todayIso || today()) >= from, from };
+  }
+
   function _loanClosingAnchor(a, monthEndIso, priorEndIso) {
     // ── 1. a real lender document dated INSIDE the month ──────────────────
     // _loanBalanceAsOf(realOnly) is reused rather than reimplemented, so the
@@ -17601,7 +17822,14 @@
                ledgerStale: _ledgerStale,
                anchor, grade: anchor.grade, perLender, splits, principal, interest,
                computed, variance, varianceResidual, band, circular, staleAnchor, rawVariance, unbooked, stagedSplits,
-               automatic, unposted, undated, coversMonth };
+               automatic, unposted, undated, coversMonth,
+               // Computed HERE because monthLabel is in scope here and is not in the
+               // renderer -- and because one row, one answer: the cell, the hover and
+               // any future checklist all read this instead of each recomputing it.
+               // An automatic loan is asked for nothing (amendment A2: Stripe's
+               // balance IS the Xero sweep, so no outside party could disagree).
+               evidenceMonth: monthLabel,
+               evidenceNeed: automatic ? null : _loanCloseEvidenceNeeded(a, monthLabel) };
     });
 
     // Grade A and grade B are BOTH checkable now — that is the point of the
@@ -18688,7 +18916,40 @@
             // party who could disagree with it, so it is reported as swept —
             // never as "no evidence" (amendment A2).
             ? '<span class="lcb-na">swept from Xero</span>'
-            : `<span class="lcb-none"${why}>not received</span>`);
+            // ── "NOT RECEIVED" IS AN ABSENCE, NOT AN ASK (session 277) ──────
+            // David uploaded the correct BayFirst statement three times against
+            // this cell and nothing moved, because the cell reports that nothing
+            // is on file and cannot say WHAT would satisfy it. Session 262's rule
+            // is that a gap nobody can evaluate should ASK for the document —
+            // uploading one is far easier than working out which one is wanted —
+            // and this is the surface where the asking was never done.
+            //
+            // The ask is MEASURED from the loan's own schedule, so it names what
+            // this lender specifically needs, and it distinguishes a document that
+            // CANNOT EXIST YET from one that is late. Those render identically
+            // today and only one of them is anybody's fault.
+            : (() => {
+                const need = r.evidenceNeed;
+                const item = need && need.items && need.items[0];
+                // No measurable cadence and no recorded exception: say the honest
+                // thing rather than invent an ask. 'insufficient' is a real answer.
+                if (!item) return `<span class="lcb-none" data-evidence="awaiting"${why}>not received</span>`;
+                const g = _evidenceGettable(item, r.evidenceMonth, today());
+                const hint = esc([item.note, need.disagreement, r.anchor && r.anchor.note]
+                  .filter(Boolean).join(' — '));
+                // AMBER, NOT RED. This is an ask, not a fault (session 262) -- and
+                // a document that cannot exist yet is not even an ask, so it stays
+                // grey and says when it becomes gettable.
+                // data-evidence is the STABLE marker for "this loan owes evidence".
+                // The words are meant to change -- that is the whole point of this
+                // change -- and two harness assertions were counting the English
+                // instead, so improving the copy turned them red for a reason that
+                // was not a bug. A test that checks a CLAIM must read the claim, not
+                // one phrasing of it (session 276's relocation rule, arriving here).
+                return g.gettable
+                  ? `<span class="lcb-ask" data-evidence="awaiting" data-evidence-kind="${esc(item.kind)}" title="${hint}">needs ${esc(item.label)}</span>`
+                  : `<span class="lcb-none" data-evidence="awaiting" data-evidence-kind="${esc(item.kind)}" data-evidence-from="${esc(g.from)}" title="${hint}">${esc(item.label)} — not until ${esc(_bkPlainDate(g.from))}</span>`;
+              })());
       const ties = r.band === 'tie';
       const signed = (n2) => `${n2 > 0 ? '+' : '−'}${bare(Math.abs(n2))}`;
       // THE SUBTRACTION, NOT JUST ITS VERDICT. A reader has to be able to see
