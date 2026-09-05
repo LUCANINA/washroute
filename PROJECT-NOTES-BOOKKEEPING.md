@@ -2,6 +2,59 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 275, 2026-09-05)
 >
+> ### 0p. 🔴 DO THIS FIRST — REDEPLOY THE THREE FUNCTIONS (a fix landed AFTER the deploy)
+>
+> David deployed on 2026-09-05 and the very first probe of the live function returned
+> **`500 {"error":"fallbackPayment is not defined"}`**. Commit **5a1dafb** fixes it and is NOT
+> deployed. Until it is, `deriveSchedule` throws on its entire happy path.
+>
+> ```
+> npx -y supabase@latest functions deploy loan-derive-schedule        --project-ref umjpbuxrdydwejqtensq
+> npx -y supabase@latest functions deploy loan-ingest-statement       --project-ref umjpbuxrdydwejqtensq
+> npx -y supabase@latest functions deploy loan-record-principal-payment --project-ref umjpbuxrdydwejqtensq
+> ```
+> (No `--no-verify-jwt` — all three are `verify_jwt: true` and the flag would make them public.)
+>
+> Re-probe afterwards, the same way it was caught — this needs no JWT:
+> ```sql
+> select net.http_post(
+>   url := 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/loan-derive-schedule',
+>   headers := jsonb_build_object('x-wr-internal', public.wr_internal_secret(),
+>     'Content-Type','application/json', 'apikey', <anon>, 'Authorization','Bearer '||<anon>),
+>   body := jsonb_build_object('refresh_rates', true, 'confirm', false)) as request_id;
+> -- then: select status_code, content from net._http_response where id = <request_id>;
+> ```
+>
+> #### The bug was NOT session 275's, and that is the interesting part
+> `recurringPayment(clean, fallbackPayment)` referenced a name that has not existed since **session
+> 270**. That session correctly removed the typed-payment fallback —
+> `const fallbackPayment = stated ?? num(loan.scheduled_monthly_payment)` — and fixed the FIRST use
+> of it 25 lines up in `buildPeriods`, leaving the second use dangling. Every successful derive
+> reaches that line. Session 231's rule, one more time: the right change, one line away from the
+> other path that needed it.
+>
+> **Why it hid for days:** `rederiveIfDerived` is called from `loan-ingest-statement` and
+> `loan-record-principal-payment` inside a try/catch that keeps the upload working. So the visible
+> behaviour was *"statements still ingest, schedules quietly stop being re-derived"* — a silence, not
+> an error. **Check whether any schedule that should have re-derived between 2026-09-04 and the
+> redeploy did not**, and re-derive those loans by hand.
+>
+> #### ⚠️ AND THE VERIFICATION THAT MISSED IT IS THE LESSON WORTH KEEPING
+> Session 275 wrote a dry run that composed `deriveSchedule`'s steps BY HAND to print a before/after
+> for all seven loans. It agreed with the fix beautifully, across 30 green assertions, and **never
+> executed the broken line — because it re-implemented the function instead of calling it.** That is
+> session 245's transcription trap arriving inside the verification written to prove the change was
+> safe, one commit after a test file whose own header warns about exactly this.
+>
+> **Testing the parts is not testing the whole, and a deploy is not verified until the DEPLOYED thing
+> has been made to answer.** `tests/derive-anchor.test.mts` §5 now drives the real `deriveSchedule`
+> through a stub Supabase client (no network, no writes) and fails loudly on a ReferenceError
+> anywhere in the happy path. Add to it rather than composing steps by hand again.
+>
+> It also corrected an assertion of mine that was simply wrong: the 2026-09-01 row is legitimately
+> NOT in `first_future_rows` on 2026-09-05, because that payment has already been made. The
+> hand-composed dry run only appeared to show it because it had widened that filter.
+>
 > ### 0n. ⏭️ NEXT SESSION STARTS HERE — ONE-CLICK CORRECTION FROM THE LOAN PAGE
 >
 > **David, 2026-09-05: _"I want the journal entry to be one-click from the loan page."_**
