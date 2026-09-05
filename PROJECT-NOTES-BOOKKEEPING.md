@@ -3736,6 +3736,83 @@ to "what is running".
 
 ---
 
+### Session 277 cont. 3 (2026-09-05) — ⭐ STANDING RULE: WHEN THE SYSTEM CANNOT SETTLE IT, ASK THE PERSON IN CHARGE
+
+> **David, 2026-09-05:** *"That's where a human decision (by the accountant) can help. The purpose
+> of this tool is not to completely erase the work of the accountant, but rather to make their job
+> easier and faster. If the best way to derive a split or settle a question the system can't
+> answer, the simple answer is: ask the person in charge, in the Action field. This mixture of AI,
+> machine learning, and human input is what will make this thing powerful."*
+
+**This is now a standing design rule for the module, and it changes the default.** Where a question
+has no measurable answer, the product's job is NOT to pick the most plausible one and print it. It
+is to state the question, show the evidence on both sides, and put the decision in the **Action
+field** addressed to whoever can settle it — then RECORD the answer so nobody re-decides it.
+
+It generalises three rules already here rather than replacing them:
+* session 262 — *ask when evidence is missing; state the cause when it is established.* That
+  covered a missing DOCUMENT. This covers a missing DECISION.
+* session 230's close date and `close_basis` — a recorded human policy already outranks
+  inference. That pattern was per-loan config; this makes it a first-class move available
+  anywhere.
+* session 245's *no lender export, no verdict* — refusing is already better than guessing. This
+  says what to do INSTEAD of refusing: ask, once, and keep the answer.
+
+**The test for a new surface:** if the code is about to choose between two defensible answers on
+a tie-break with no evidence behind it, that is not a bug to fix with a better heuristic — it is
+an ask that has not been written yet.
+
+⚠️ **And the limit, which is the half that keeps it honest:** an ask is only cheap when it is
+RARE and ANSWERABLE. A question the reader cannot settle, or one asked every month about the same
+thing, is a nag — and this module's history is people learning to ignore nags. An asked question
+must be recorded, must not come back, and must name what changes once it is answered.
+
+#### 🔴 THE FIRST INSTANCE, AND IT IS BIGGER THAN THE BUG THAT FOUND IT
+Measured 2026-09-05, not assumed. **EIGHT active loans carry more than one live payment schedule**,
+and `_loanScheduleRows` picks between them on a sort key — `schedule_generated_date`, then
+`created_at`, then `schedule_id`. Arbitrary, stable, and invisible.
+
+| Loan | schedules | human-verified among them | prestage |
+|---|---|---|---|
+| Funding Circle Loan | **4** | 0 | ✅ |
+| BayFirst SBA 2 | 2 | 0 | ✅ |
+| E-Transit 4140 | 2 | 0 | ✅ |
+| E-Transit E4-9744 | 2 | 0 | ✅ |
+| E-Transit E5-4751 | 2 | 0 | ✅ |
+| E-Transit E6-7410 | 2 | 0 | ✅ |
+| PCV Good and Green | 2 | 1 | ✅ |
+| Verdant Capital | 2 | 1 | ✅ |
+
+**Every one of the eight has `prestage_enabled = true.`** So on all eight, the projection that
+CREATES a transaction in Xero is selected by a tie-break with no evidence behind it. They disagree
+about things that matter: BayFirst SBA 2's two schedules date every payment two days apart (month
+end vs the 2nd), Funding Circle's four disagree on the first payment date and one has a different
+row count, PCV's differ by a whole row.
+
+Session 231's rule already says a stage dated later than the real payment trips
+`matched_early_suspect` **every period forever**; a stage dated in the wrong month books the
+payment into the wrong period, *which no invariant catches.* An arbitrary pick between two
+schedules two days apart is precisely how that happens.
+
+#### WHAT SHOULD BE BUILT — the decision primitive, in David's shape
+1. **Rank where there IS a basis.** `client_parsed_verified` beats `claude_assisted_parse`: a
+   human verified one of them. That settles PCV and Verdant with no ask at all — an ask nobody
+   needs is the nag this rule warns about.
+2. **Ask where there is not.** Six loans are derived-vs-derived with nothing to prefer. Action
+   field, on the loan: *"Two schedules disagree about when this payment falls — 08-31 or 09-02.
+   Which does the lender actually draft?"* Show both, the difference that matters (payment date,
+   row count, balance at a common date), and what changes once answered.
+3. **Record it** — a chosen-schedule decision on the loan with who/when/why, honoured by
+   `_loanScheduleRows` ahead of the sort key, so it is asked once and never again.
+4. **Never silently.** A loan with competing schedules and no decision must SAY so wherever its
+   projection is used, rather than presenting an arbitrary pick as the answer.
+
+⚠️ **Do not turn on auto-staging (§0t) before this is settled.** Session 231's corollary, verbatim:
+*do not schedule or automate something before auditing the guards it makes load-bearing.* The
+auto-stage chain makes the chosen schedule load-bearing on every one of these eight loans.
+
+---
+
 ### Session 277 cont. 2 (2026-09-05) — WHAT CLOSING A LOAN NEEDS IS MEASURED, NOT TYPED
 
 David, after three uploads that changed nothing: *"moving forward, I assume that closing BayFirst
