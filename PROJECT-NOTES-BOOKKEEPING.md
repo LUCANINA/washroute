@@ -2,14 +2,115 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 276, 2026-09-05)
 >
+> ### 0t. ⏭️ NEXT SESSION STARTS HERE — AUTO-STAGING, AND ITS PARKED CONDITION IS **MET**
+>
+> **David, 2026-09-05:** *"why are we requesting approvals for staging beyond the first one?
+> Should be automatically re-staged if the numbers match on the previous staging."*
+>
+> The answer is YES to auto-staging and NO to that trigger. Both halves matter.
+>
+> #### ✅ THE CONDITION THE CODE ITSELF NAMES IS SATISFIED — measured 2026-09-05
+>
+> `_shared/staging-next.ts` line 10 says: *"The auto-stage cron (Task 7) stays parked until
+> the PCV Sep-1 match proves the full loop."* **It did, on 2026-09-02, and nobody updated the
+> comment** — the same stale-rule shape as the deploy claims in §0r. The loop has since run
+> clean **five times across three loans**:
+>
+> | Loan | staged as | matched, swept | → next card created |
+> |---|---|---|---|
+> | PCV Good and Green | WR-STAGE 254 2026-09-01 | posted, sweep of 09-02 | 2026-10 @ 09-02 16:00:10 |
+> | PayPal 2 | WR-STAGE 284 2026-08-26 | posted, sweep of 08-28 | 2026-09-02 card |
+> | PayPal 2 | WR-STAGE 284 2026-09-02 | posted, sweep of 09-04 | 2026-09-09 @ 09-04 16:00:18 |
+> | Dexter Loan 2 | WR-STAGE 233 2026-08-31 | posted, sweep of 09-01 | 2026-09 @ 09-01 16:00:13 |
+> | BayFirst SBA 2 | WR-STAGE 251 2026-09-02 | ❌ **never matched** | — |
+>
+> The next card is created one second after the post, by `ensureUpcomingSplit` in
+> `loan-xero-post`'s matched branch (~line 900). **The machine already does everything except
+> press Stage.** Five of six is also the honest base rate, and the sixth is the whole design
+> problem — see below.
+>
+> #### ⛔ WHY NOT "IF THE NUMBERS MATCH THE PREVIOUS STAGING"
+>
+> **It compares our arithmetic to our own arithmetic** — session 246's *a check whose inputs
+> share a source cannot fail*, and 245–247's *measured, never derived*. On an amortizing loan
+> the split changes every month by design (principal rises, interest falls), so "match" can
+> only ever mean "matches the schedule that produced it".
+>
+> **And the live counterexample is on this book.** BayFirst SBA 2's stage had perfect numbers
+> — $2,108.25, exactly as projected, matching every prior month — and still went wrong. The
+> failure was that the stage was created against contact *"BayFirst National Bank (SBA)"*
+> while the feed line arrived as *"BayFirst National Bank"*, so Xero never suggested the
+> match. It sat AUTHORISED and unreconciled beside the real payment for three days,
+> overstating the books by $1,390.47. **No amount test would have caught it.** Session 275's
+> Funding Circle is the mirror: the anchor bug made every projected row a month late while the
+> numbers matched the previous staging the whole way down.
+>
+> #### ✅ THE TRIGGER TO BUILD: THE LENDER'S OWN MONEY, NOT OUR PROJECTION
+>
+> **Auto-stage period N+1 only when period N's stage was MATCHED IN THE BANK FEED, on time, at
+> the projected amount.** That is an outside confirmation — the same standard as session 245's
+> *no lender export, no verdict* — rather than a self-check.
+>
+> It is nearly free, and the placement is the point: in `loan-xero-post`'s sweep, in the
+> matched branch, immediately after `ensureUpcomingSplit` returns a new card. Same function,
+> same transaction-creating path the Stage button already uses, so the never-stage-twice
+> checks, the partial unique index, the close-date guard on the WRITE and the backlog warning
+> all apply untouched. **No new write path to Xero.**
+>
+> #### THE REFUSALS, AND THEY ARE THE FEATURE
+> Auto-staging must NOT happen — the card is created and left for a human — when any of these
+> is true. Every one of them already exists as a flag or a guard; this makes them load-bearing:
+> * `stage_sweep_flag` is `matched_early_suspect` (matched before its scheduled date)
+> * `stage_sweep_flag` is `duplicate_suspected`
+> * `stale_projection` — the schedule was re-derived after the stage
+> * the matched amount differs from the projected amount by more than the 2c tolerance
+> * the loan has a backlog (`backlog_warning`) — earlier scheduled payments with no processed split
+> * the target period falls in a closed book (`effectiveCloseDate`)
+> * this is the loan's FIRST stage — a human stages once, then the chain may continue
+>
+> #### ⚠️ WHAT MUST BE TRUE BEFORE IT SHIPS
+> 1. **Probe the staleness guard behaviourally.** Commit 65b077d is deployed (v68, §0r) and has
+>    never been made to answer. It is the guard that stops staging off a drifted projection,
+>    which is exactly what auto-staging makes load-bearing. See §0q step 1.
+> 2. **Re-derive the six loans §0q lists**, and regenerate Funding Circle's 2026-09 card. Turning
+>    the chain on over a wrong card automates a wrong answer.
+> 3. **Session 231's corollary, verbatim:** *do not schedule or automate something before
+>    auditing the guards it makes load-bearing.* Putting the stage sweep on a cron once turned a
+>    latent flag-clearing bug into a certainty.
+>
+> #### AND THE THING THAT WOULD HAVE CAUGHT BAYFIRST
+> Nothing above prevents a stage from failing to match — that is Xero's reconcile screen, not
+> ours. What is missing is a check on the CONTACT: the stage is created against
+> `loan_accounts` contact naming, and the feed line arrives with whatever the bank sends. A
+> stage whose contact does not exactly match the contact on the loan's own last matched payment
+> is a stage Xero is unlikely to suggest. **Worth measuring across the eleven prestaging loans
+> before building anything** — if the contact drifts on more than this one loan, that is a
+> bigger finding than auto-staging.
+>
+> #### TESTS
+> `tests/stale-split-trueup.test.mts` is the model: *most of its assertions are about what does
+> NOT fire.* Each refusal above gets one, plus a discrimination check — remove the refusal, the
+> assertion goes red. The five clean loops above are real fixture material.
+>
 > ### 0s. 🟡 SESSION 276 IS COMMITTED BUT **NOT PUSHED** — DAVID MUST `git push`
 >
-> Two files, `admin-dashboard/index.html` and `tests/bookkeeping-harness.mjs`. No edge
-> function changed, so nothing needs deploying — but Vercel only builds on push, and this
-> sandbox has no network for git. **Until David pushes, none of it is on screen.**
+> **TWO commits: `aec9a21` and `722f5cb`.** `admin-dashboard/index.html`,
+> `tests/bookkeeping-harness.mjs`, `PROJECT-NOTES-BOOKKEEPING.md`, `build-version.txt`. No
+> edge function changed, so nothing needs deploying — but Vercel only builds on push, and
+> this sandbox has no network for git. **Until David pushes, none of it is on screen.**
 >
-> Suite measured after the change, in two halves, not inherited: **1,880 browser
-> assertions, 1,879 passed.** The single red is `[history] s240 #10`, Tech Debt #19, red
+> `722f5cb` adds: the work band COLLAPSED by default (click to expand — the count is what is
+> visible at a glance, and the sub-line is load-bearing because collapsed it is the only
+> statement that work exists), and the in-flight strip rebuilt to match Closing's shape
+> (lead + one actionable figure, no chip row, **no meter** by David's choice — Closing's bar
+> measures statement coverage and September has none due). Session 264 removed those chips
+> from the Closing strip and never from its twin: the same one-surface-not-the-other defect
+> as the tiles and the queue, now three for three. Every chip's claim survives in
+> `data-gates`, built by stripping markup off the same `bits` the strip used to print so the
+> two cannot drift.
+>
+> Suite measured after the change, in two halves, not inherited: **1,890 browser
+> assertions, 1,889 passed.** The single red is `[history] s240 #10`, Tech Debt #19, red
 > on purpose. +29 new assertions in two new groups (`work-band`, `payroll-notices`) plus
 > six rewritten in `intake-on-loans`.
 >
@@ -9482,7 +9583,31 @@ month.
 See §0s for what shipped, the two defects the harness caught in this session's own work, and the
 four close-band table findings David parked.
 
-#### 4. HOUSEKEEPING
+#### 4. AUTO-STAGING — ASKED, ANSWERED, SPEC'D (see §0t)
+
+David: *"why are we requesting approvals for staging beyond the first one? Should be
+automatically re-staged if the numbers match on the previous staging."*
+
+Two findings came out of checking rather than answering. First, **the condition the code names
+as its own blocker is already satisfied** — `staging-next.ts` says Task 7 stays parked "until
+the PCV Sep-1 match proves the full loop", and that match landed 2026-09-02; the loop has since
+run clean five times across PCV, PayPal 2 and Dexter. The comment went stale exactly the way
+the deploy claims do. Second, **his trigger is the wrong one and the counterexample is on this
+book**: BayFirst SBA 2's numbers matched perfectly every month and the stage still failed,
+because the failure was a CONTACT-NAME mismatch on Xero's reconcile screen, not arithmetic.
+An amount test cannot see that.
+
+The trigger to build is the lender's own money — auto-stage N+1 only when N matched in the bank
+feed, on time, at the projected amount — placed in the sweep's matched branch right after
+`ensureUpcomingSplit`, so no new write path to Xero exists. Full spec, refusal list and
+preconditions in §0t.
+
+**And a question worth more than the feature:** the stage is created against the loan's contact
+naming while the feed line arrives with whatever the bank sends. Nobody has measured how often
+those disagree across the eleven prestaging loans. If BayFirst is not the only one, that is the
+bigger finding.
+
+#### 5. HOUSEKEEPING
 `.git/_to_delete/` holds **170+ stale lock files** from the FUSE-bridge quirk. Harmless, and worth
 one cleanup pass on a machine that can `rm` them.
 
