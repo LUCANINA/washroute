@@ -4894,6 +4894,7 @@
                   <option value="other">Something else — keep on file</option>
                 </select>
                 <div id="li-kind-note" style="font-size:12px;color:var(--gray-500);margin-top:6px"></div>
+                <div id="li-kind-discard-warning" style="display:none;font-size:12.5px;color:#b45309;margin-top:6px;font-weight:500"></div>
               </div>
 
               <div id="li-statement-fields">
@@ -22036,6 +22037,46 @@ ${noActivityNote}
       : isSched
         ? 'This stores the whole schedule so future periods can be split from it without a statement.'
         : 'This keeps the file on record against the loan. No split is computed.';
+
+    // ── WHAT WAS READ AND WHAT THE BUTTON WILL DO MUST AGREE (session 277) ───
+    // A BayFirst portal screenshot read cleanly -- 'Auto-read from image: 1
+    // transaction. Check the figures below before importing.' -- while the kind
+    // sat on 'Balance screenshot — keep on file'. So the table was hidden (only
+    // the chosen kind's fieldset shows), the button said 'Attach Document', and
+    // pressing it filed the picture and dropped the transaction. The screen said
+    // figures were ready to import and the button did the one thing that cannot
+    // import them, and NOTHING on the form reconciled the two.
+    //
+    // Both halves are behaving as written: the auto-set respects a kind the human
+    // has touched (correct -- a person's choice must outrank a guess), and the
+    // fieldset follows the kind (also correct). The defect is that no one told the
+    // reader they now disagree. This module's oldest rule, in a new place: a count
+    // and the list behind it move together, or the count becomes a lie.
+    //
+    // Placed here rather than in the reader so it tracks the dropdown live --
+    // appearing when the choice discards a reading, and going away when it does
+    // not. It never changes the kind: it says what will be lost and leaves the
+    // decision where it belongs.
+    const warn = document.getElementById('li-kind-discard-warning');
+    if (warn) {
+      const bulkN = (_loanUploadParsedBulkPeriods || []).length;
+      const schedN = (_liParsedSchedule && _liParsedSchedule.verified) ? _liParsedSchedule.rows.length : 0;
+      const lost = !isBulk && bulkN ? `${bulkN} transaction${bulkN === 1 ? '' : 's'}`
+        : (!isSched && schedN && kind === LI_SCHEDULE_KIND) ? null
+        : !isSched && schedN ? `an amortization schedule of ${schedN} rows`
+        : null;
+      if (lost) {
+        const label = (document.getElementById('li-kind-select').selectedOptions[0]?.textContent || '')
+          .split('—')[0].trim();
+        warn.style.display = '';
+        warn.textContent = `${lost} were read from this file. “${label}” keeps the picture on record `
+          + `and discards ${bulkN ? 'them' : 'it'} — switch to “Transaction history” above to import `
+          + `${bulkN ? 'them' : 'it'} instead.`;
+      } else {
+        warn.style.display = 'none';
+        warn.textContent = '';
+      }
+    }
   }
 
   // Known lender PDF statement layouts (session 218). Each entry: `detect` —
