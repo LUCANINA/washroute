@@ -1,10 +1,86 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 275, 2026-09-05)
+> ## ⏭️ START HERE — first thing, next session (left by session 276, 2026-09-05)
 >
-> ### 0q. 🔴 DO THIS FIRST — DEPLOY `loan-xero-post` (⚠️ needs `--no-verify-jwt`)
+> ### 0s. 🟡 SESSION 276 IS COMMITTED BUT **NOT PUSHED** — DAVID MUST `git push`
 >
-> **Funding Circle cannot be staged until this ships.** Commit **65b077d**, not deployed.
+> Two files, `admin-dashboard/index.html` and `tests/bookkeeping-harness.mjs`. No edge
+> function changed, so nothing needs deploying — but Vercel only builds on push, and this
+> sandbox has no network for git. **Until David pushes, none of it is on screen.**
+>
+> Suite measured after the change, in two halves, not inherited: **1,880 browser
+> assertions, 1,879 passed.** The single red is `[history] s240 #10`, Tech Debt #19, red
+> on purpose. +29 new assertions in two new groups (`work-band`, `payroll-notices`) plus
+> six rewritten in `intake-on-loans`.
+>
+> #### What shipped, and the one rule behind all of it
+> **A COUNT AND THE LIST BEHIND IT MOVE TOGETHER, OR THE COUNT BECOMES A LIE.** Three
+> instances found in one day, all from the same cause — a surface was relocated and the
+> number that pointed at it was not:
+>
+> | Where | The count | The list |
+> |---|---|---|
+> | Loans approvals | sidebar badge said 3 | rendered into a hidden div (session 269) |
+> | Loans, in-flight month | close band's own gates | close band renders the CLOSING month only |
+> | Payroll notices | red Flagged tile | **rendered nowhere in the file at all** |
+>
+> * `#loans-summary` moved ABOVE the period switch — the four tiles never read
+>   `_loansPeriod` and were only on In flight because the div lived in that pane. The page
+>   now reads: above the switch is period-invariant, below it is this period.
+> * `#loans-approvals-band` — one container OUTSIDE both period panes. It orders by the
+>   selected period and **never filters by it**; two containers could drift, one cannot.
+> * A non-blocking `outside-period` gate on the readiness strip, naming work the strip's
+>   own month-scoped counts cannot see.
+> * `#payroll-notices` on Payroll — renders standing notices AND flagged imports, so the
+>   Flagged tile's number equals the list beneath it.
+> * `#bk-shared-intake` — the dropzone MOVED (not copied) above the view panes, so Loans
+>   and Payroll share one, and Client View keeps its own `#cv-dropzone`.
+>
+> #### ⚠️ THE HARNESS CAUGHT TWO DEFECTS IN THIS SESSION'S OWN WORK
+> Neither was findable by reading, and both are worth knowing:
+> 1. **Gate text must contain no `"` characters.** Every gate is re-emitted into the CSV
+>    export, which quotes fields — a literal `"` becomes `""` there and the ⭐
+>    export-completeness assertion can no longer find the gate's own words. That assertion
+>    guards the rule that a claim removed from a screen survives in the export.
+> 2. **A new gate key must be declared in `GATE_KEYS`** or every close-band scenario reds
+>    out. Working as designed; note it before adding one.
+>
+> And a third, caught by an assertion written in this session: the first cut of the Payroll
+> card rendered notices only, so the tile read **2** against a list of **1**. *Fixing half a
+> count-with-no-list defect only moves it.*
+>
+> #### PARKED, DELIBERATELY — four close-band table findings, measured not guessed
+> David chose to park these so the layout diff stayed reviewable. All measured live:
+> * **`DRAWN` is "—" on all 14 rows.** Hide the column while that is true — but never
+>   delete it (session 247: a rollforward with no borrowing term swallowed $125,000).
+> * **Five columns answer one question** — Agreement · Variance · Booked · Status · Ledger.
+>   Collapse Booked+Status+Ledger to one verdict word, keeping every claim in hover + CSV.
+> * **The "Schedule" badge looks clickable and is not** — `rgb(67,56,202)` and
+>   `cursor:pointer`, no handler anywhere on the cell.
+> * **The row blocking the close is the quietest on screen** — BayFirst SBA 2's "not
+>   received" is neutral grey beside a hollow dot. Amber, not red: it is an ask (§262).
+>
+> #### ALSO PARKED: the toolbar row
+> Closing has `Run Reconciliation Check · Export CSV` inside `.lcb-head`; In flight has its
+> controls in the All Loans card header. Unifying means lifting `.lcb-head` out of
+> `renderLoansCloseBand` — and `#recon-lastrun` / `#recon-summary` live inside it, so this
+> is exactly the silent-blanking trap session 269 documented. Do it deliberately.
+>
+> ### 0r. ✅ CORRECTION TO §0q — `loan-xero-post` **IS** DEPLOYED (checked 2026-09-05)
+>
+> `list_edge_functions` reports version **68, deployed 2026-09-05 03:41:28**, against commit
+> **65b077d at 03:35:56** — the deploy is six minutes AFTER the commit. §0q below was written
+> before that deploy and never updated. **This is the sixth day running that block has carried
+> a wrong deploy claim, and once again it was written by the session that was about to fix it.**
+>
+> It BOOTS, by behaviour rather than by version: `unstage` and `mark_already_in_xero` both ran
+> against it successfully today (BayFirst SBA 2, below). **The staleness-guard fix itself has
+> NOT been probed** — that is still §0q's step 1.
+>
+> ### 0q. ⚠️ ITS DEPLOY CLAIM IS WRONG — SEE §0r. THE REST OF THE LIST STILL STANDS.
+>
+> ~~**Funding Circle cannot be staged until this ships.** Commit **65b077d**, not deployed.~~
+> Deployed 03:41:28 — see §0r. Steps 1-4 below are still outstanding.
 >
 > ```
 > npx -y supabase@latest functions deploy loan-xero-post --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
@@ -9313,6 +9389,102 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 276 (2026-09-05) — A COUNT AND ITS LIST MUST MOVE TOGETHER, AND A PHANTOM $2,108.25 IN XERO
+
+**Trigger.** David uploaded BayFirst SBA 2's August statement: *"the system is not properly
+reading this statement to guess the August 3rd payment."* Everything below came out of that
+one document.
+
+#### 1. THE LIVE MONEY — September was in Xero twice
+
+Verified in Xero itself, not inferred:
+
+| | Date | Amount | Reconciled | Reference |
+|---|---|---|---|---|
+| `f4aba826` | 2026-09-03 | 2,108.24 | yes | *(none)* — the real bank payment |
+| `e9f9537f` | 2026-09-02 | 2,108.25 | **no** | `WR-STAGE 251 2026-09-02` |
+
+The real payment is coded correctly — 695.23 to 251, 1,413.01 to 800 — off the statement's own
+stated figures. The stage was never MATCHED to it, so Xero carried an extra $695.24 of principal
+reduction and $1,413.01 of interest that never happened. **That was the entire $1,390.47
+`balance_vs_lender` finding.**
+
+**Likely why the match never happened:** the stage was created against contact *"BayFirst National
+Bank (SBA)"* and the real feed line arrived as *"BayFirst National Bank"*. Different contact, so
+Xero would not have suggested them to each other. The sweep that catches orphans has no cron.
+
+**The sweep DID diagnose it correctly** and had nowhere visible to say so — its note names the
+duplicate and the exact transaction id. A correct warning nobody sees is the same as no warning,
+which is item 3 below in miniature.
+
+Resolved through the dashboard's own `unstage` (never by deleting in Xero by hand, which would
+leave the split reading `staged` at a transaction that no longer exists), then marked
+`already_in_xero` against `f4aba826`. Re-run after: **$1,390.47 → $695.23**, entries after the
+anchor 3 → 2. The remaining $695.23 is the 09-03 payment sitting after a 07-31 lender anchor —
+not an error, and the case §262's ask-rather-than-accuse rule is written for.
+
+#### 2. THE ROOT CAUSE DAVID ASKED FOR — a payment's month comes from the paper, not the money
+
+`loan-ingest-statement`, two places: `const periodLabel = statement_date.slice(0, 7)`.
+
+BayFirst applies on the last day of its cycle (7/31); the bank drafts two or three days later
+(8/3). **The statement's date is correct** — this is not the `statement_date_basis` mechanism, the
+date is right and the inference from it is wrong. Consequences, all three from that one line:
+
+* The Aug 3 payment filed as **2026-07**, so it was entered twice. Session 258 corrected the label
+  by hand; the duplicate check keys on the label it just computed, so the correction was invisible
+  to it and the duplicate returned on 2026-09-03.
+* `balance_vs_lender` compares Xero at 7/31 (136,760.26) against the lender at 7/31 (135,901.60).
+  The $858.66 difference is a payment in transit, reported as a discrepancy because nothing on the
+  screen has a name for it.
+* August's lender column reads "not received" — **and that is honest.** No lender balance is dated
+  in August; the gate is right to say so.
+
+**Scope, measured across every active loan's 2026 statements:** BayFirst SBA 2 is the only loan
+filing at month end with cash clearing the following month. Funding Circle's three duplicate pairs
+(2026-02/03/04) are the same SHAPE from a different cause — the Xero backfill meeting statement
+ingest — and are still open.
+
+**NOT FIXED THIS SESSION.** David chose the UI defects first. The three-part fix stands: label the
+split by the matched bank transaction's date and record which was used; key the duplicate check on
+the transaction id rather than the label; and name the month-end straddle on the row instead of
+reporting it as a gap.
+
+#### 3. THE UI DEFECT DAVID FOUND — and it was one pattern, three times
+
+He could not reach the September split from any screen. He was right; I was wrong twice before
+looking, which is the lesson: **measured, not reasoned.** Live DOM:
+
+```
+sidebar badge:  "3"
+_bkApprovalQueueItems():  3 items
+#bk-ov-queue-list:  exists, 16,659 chars of rendered HTML,  visible: false
+```
+
+Session 269 hid Overview and moved loan approvals "to the Loans close band" — which renders the
+CLOSING month only, so in-flight work had no home. Not dropped: built, rendered, painted into a
+hidden div, and counted by the badge. **A number with no destination.**
+
+Payroll turned out fine for a reason worth writing down: `renderPayrollTable()` puts
+`openPayrollReviewModal` on every row, so its register doubles as its queue. Loans' register row
+opens `openLoanDetailModal` — read-only history. **One row per import (a unit of work) versus one
+row per loan (a thing with several).** That is why the Payroll pattern does not transplant.
+
+But Payroll had the same disease elsewhere: `_allPayrollNotices` appeared in exactly four places
+— declared, loaded, assigned, counted — and was **rendered nowhere**. Its tile tooltip said "see
+the Issues list below"; that list went to Overview in session 223 and vanished in 269, while
+Overview's issue queue excluded payroll because it had *"their own attention surface on the
+Payroll tab"*. Each surface pointed at the other. One notice — $796.29 in 171 Direct Payroll
+Taxes, possibly double-counting employee withholding on the P&L — had been live and unread for a
+month.
+
+See §0s for what shipped, the two defects the harness caught in this session's own work, and the
+four close-band table findings David parked.
+
+#### 4. HOUSEKEEPING
+`.git/_to_delete/` holds **170+ stale lock files** from the FUSE-bridge quirk. Harmless, and worth
+one cleanup pass on a machine that can `rm` them.
 
 ### Session 266 (2026-09-03) — A DRY RUN LEAVES NO TRACE, AND THAT IS HOW $10,630 SAT UNBOOKED FOR SIX WEEKS
 

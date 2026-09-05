@@ -3368,6 +3368,55 @@
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
             <button class="section-tab" id="bkvt-client" onclick="switchBookkeepingView('client')">Client View</button>
           </div>
+
+          <!-- ── ONE INTAKE, SHARED BY LOANS AND PAYROLL (session 276) ───────
+               David: "add the Drop your documents here section to Payroll page so
+               they share that first call to action on each page."
+
+               MOVED, NOT COPIED. It was inside #bk-view-loans, which is the only
+               reason Payroll never had it. A second dropzone would be a second
+               #bk-batch-card, a second results pile and a second set of ids for
+               bkHandleDrop/bkBatchFilesChosen to find -- the same duplication the
+               work band above was built to avoid, and duplicated ids would break
+               getElementById outright.
+
+               Hidden on Client View, which has its own #cv-dropzone: that one is
+               deliberately separate because it is the BUSINESS OWNER's surface,
+               with its own copy and its own narrower job (session 262 -- asking
+               the owner for a statement is the cheap path). Two dropzones on one
+               screen would be the confusion, not the convenience. -->
+          <div id="bk-shared-intake">
+            <!-- Session 224: the dropzone is now a dump-everything batch intake.
+                 Any number of files, any mix — each runs the 3-rung ladder
+                 (browser fingerprints → server classify → human fallback) and
+                 lands in a pile below. The old "What are you uploading?" tap
+                 lives on inside the batch card's "needs a look" pile. -->
+            <div class="bk-dropzone" id="bk-dropzone" onclick="document.getElementById('bk-batch-input').click()"
+                 ondragover="event.preventDefault();this.classList.add('drag')"
+                 ondragleave="this.classList.remove('drag')"
+                 ondrop="bkHandleDrop(event)">
+              <div class="bk-drop-icon">↑</div>
+              <div class="bk-drop-title">Drop your documents here</div>
+              <div class="bk-drop-sub">Statements · schedules · payroll reports · invoices · screenshots — any mix, any amount. They'll be sorted automatically.</div>
+              <input type="file" id="bk-batch-input" multiple accept=".pdf,.csv,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="bkBatchFilesChosen(event)">
+            </div>
+
+            <div class="card" id="bk-batch-card" style="display:none;margin-bottom:20px">
+              <div class="card-header" style="padding:16px 24px">
+                <div style="flex:1">
+                  <div class="card-title" id="bk-batch-title">Sorting…</div>
+                  <div class="card-sub" id="bk-batch-sub"></div>
+                </div>
+                <span style="display:flex;gap:10px;align-items:center">
+                  <button class="btn btn-primary" id="bk-batch-fileall" style="display:none" onclick="bkFileAllBatch()">File all</button>
+                  <button class="btn btn-secondary" id="bk-batch-bundle" style="display:none" onclick="bkStartBundle()" title="Read every one of these documents together and cross-check them against each other before anything is filed">Read together</button>
+                  <button class="btn btn-ghost" id="bk-batch-clear" onclick="bkClearBatch()">Clear</button>
+                </span>
+              </div>
+              <div id="bk-batch-list"></div>
+              <div id="bk-batch-notes" style="display:none;padding:10px 20px 14px;border-top:1px solid var(--gray-100);font-size:12.5px;color:var(--gray-600)"></div>
+            </div>
+          </div>
           <!-- Every Bookkeeping surface hangs off four independent loaders. When
                one of them fails, the pane it feeds does not go blank — it goes
                CONFIDENT, rendering "not checked" or a zero as though that were
@@ -4080,36 +4129,6 @@
                  a one-tap "what is this?" routes into the existing loan-intake
                  or payroll-upload modal, carrying a dragged file straight into
                  the modal's file picker. -->
-            <!-- Session 224: the dropzone is now a dump-everything batch intake.
-                 Any number of files, any mix — each runs the 3-rung ladder
-                 (browser fingerprints → server classify → human fallback) and
-                 lands in a pile below. The old "What are you uploading?" tap
-                 lives on inside the batch card's "needs a look" pile. -->
-            <div class="bk-dropzone" id="bk-dropzone" onclick="document.getElementById('bk-batch-input').click()"
-                 ondragover="event.preventDefault();this.classList.add('drag')"
-                 ondragleave="this.classList.remove('drag')"
-                 ondrop="bkHandleDrop(event)">
-              <div class="bk-drop-icon">↑</div>
-              <div class="bk-drop-title">Drop your documents here</div>
-              <div class="bk-drop-sub">Statements · schedules · payroll reports · invoices · screenshots — any mix, any amount. They'll be sorted automatically.</div>
-              <input type="file" id="bk-batch-input" multiple accept=".pdf,.csv,.png,.jpg,.jpeg,.webp,.gif" style="display:none" onchange="bkBatchFilesChosen(event)">
-            </div>
-
-            <div class="card" id="bk-batch-card" style="display:none;margin-bottom:20px">
-              <div class="card-header" style="padding:16px 24px">
-                <div style="flex:1">
-                  <div class="card-title" id="bk-batch-title">Sorting…</div>
-                  <div class="card-sub" id="bk-batch-sub"></div>
-                </div>
-                <span style="display:flex;gap:10px;align-items:center">
-                  <button class="btn btn-primary" id="bk-batch-fileall" style="display:none" onclick="bkFileAllBatch()">File all</button>
-                  <button class="btn btn-secondary" id="bk-batch-bundle" style="display:none" onclick="bkStartBundle()" title="Read every one of these documents together and cross-check them against each other before anything is filed">Read together</button>
-                  <button class="btn btn-ghost" id="bk-batch-clear" onclick="bkClearBatch()">Clear</button>
-                </span>
-              </div>
-              <div id="bk-batch-list"></div>
-              <div id="bk-batch-notes" style="display:none;padding:10px 20px 14px;border-top:1px solid var(--gray-100);font-size:12.5px;color:var(--gray-600)"></div>
-            </div>
 
 
           <!-- ── THE PERIOD BAR (session 241) ────────────────────────────────
@@ -4134,7 +4153,66 @@
           <!-- Session 248: the chip row that used to sit under these tabs is gone
                (David: "REMOVE this section ... to add breathing room"), so the
                spacing it incidentally provided is stated here instead. -->
+          <!-- ── THE TILES SIT ABOVE THE SWITCH, AND THAT IS THE WHOLE RULE ──
+               (session 276, David: "make it a standard in both places, with the
+               toggle between closing month and in flight month below this.")
+
+               These four figures do not depend on the period. renderLoansSummary()
+               never reads _loansPeriod: Active loans is every active loan, Total
+               outstanding is each one's current balance, and Paid last month / Paid
+               YTD come from today() -- not from the tab. They rendered only on In
+               flight for one reason: this div happened to live inside
+               #loans-period-inflight. Session 223 cont. put it there ("bare summary
+               tiles, no wrapping card"), which was a styling decision that silently
+               became a scoping one.
+
+               That was not merely lopsided, it was misleading. The tiles sat under a
+               tab reading SEPTEMBER while the third of them read "Paid last month
+               (2026-08)", which invites every reader to take the tab as their scope.
+
+               So the page now states one rule a reader learns once:
+
+                   ABOVE the switch  = true regardless of period
+                   BELOW the switch  = this period
+
+               ⚠ KEEP THE EXPLICIT MONTH IN "Paid last month (YYYY-MM)". It currently
+               equals the closing month, so the tile still LOOKS period-scoped. The two
+               coincide only while the close runs one month behind; let it slip two and
+               the tile would read August beside a tab reading July. That label is what
+               makes the difference honest instead of confusing. -->
+          <div id="loans-summary" style="margin-bottom:20px"></div>
+
           <div id="loans-period-bar" class="lpb"></div>
+
+          <!-- ── THE WORK BAND — ONE CONTAINER, DELIBERATELY NOT TWO (session 276) ──
+               Session 269 hid Overview and moved loan approvals "to the Loans close
+               band". But the close band only ever renders the CLOSING month, so any
+               approval belonging to the month IN FLIGHT lost its home. The queue was
+               still built and still rendered -- into a hidden div, ~16,600 characters
+               of correct HTML nobody could see -- and the sidebar badge went on
+               counting it. A number with no destination.
+
+               Measured on 2026-09-05 before this shipped: three loan items (PayPal 2
+               2026-09-09 ready to stage, Funding Circle 2026-09 ready to approve, a
+               Funding Circle variance note) and seven staged splits, none reachable
+               from any screen. One of those three carried the wrong figures.
+
+               It sits OUTSIDE both period panes on purpose. Two containers, one per
+               pane, can drift apart; one cannot, and not drifting is the entire ask.
+
+               It also renders PAYROLL NOTICES, which is the third instance of one
+               pattern: a count and its list maintained separately, so moving one does
+               not move the other. _allPayrollNotices was loaded, counted in the red
+               Flagged tile on the Payroll page, and rendered NOWHERE in the file --
+               worse than the loans queue, which at least had a container. Its tile
+               tooltip said "see the Issues list below"; that list went to Overview in
+               session 223 and vanished with Overview in session 269, while Overview's
+               own issue queue excluded payroll on the grounds that it had "their own
+               attention surface on the Payroll tab". Each surface pointed at the other.
+
+               ⚠ THE RULE THAT FOLLOWS: a count and the list behind it move together,
+               or the count becomes a lie. If you relocate either, grep for the other. -->
+          <div id="loans-approvals-band" style="margin-bottom:18px"></div>
 
           <div id="loans-period-closing">
             <!-- The rollforward is the workpaper a CPA actually signs: opening
@@ -4145,8 +4223,6 @@
           </div>
 
           <div id="loans-period-inflight" style="display:none">
-          <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
-          <div id="loans-summary" style="margin-bottom:20px"></div>
 
           <!-- Session 223 cont. 2: the Reconciliation CARD left this page — the
                resolved/info/past-reports references sit under the Overview queue.
@@ -4212,6 +4288,30 @@
             <div class="bk-load-banner"></div>
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="payroll-summary" style="margin-bottom:20px"></div>
+
+          <!-- ── THE FLAGGED TILE FINALLY HAS SOMEWHERE TO POINT (session 276) ──
+               David: "figure out why there's one stranded FLAGGED issue we can't see."
+
+               _pkFlaggedCount() = flagged imports + payroll NOTICES. The notices half
+               appeared in exactly four places in this entire file: declared, loaded,
+               assigned, counted. It was rendered NOWHERE -- a step worse than the loan
+               queue, which at least had a container that happened to be invisible.
+
+               The trail: session 223 moved the payroll issues list to Overview; the
+               Overview issue queue then excluded payroll on the grounds that it had
+               "their own attention surface on the Payroll tab", meaning this tile;
+               session 269 hid Overview. Each surface pointed at the other and the
+               notice sat between them, counted by both and shown by neither. The
+               Flagged tile's own tooltip still said "see the Issues list below".
+
+               One notice has been live and unread since 2026-08-07: $796.29 in "171
+               Direct Payroll Taxes" that may be double-counting employee withholding
+               on the P&L. A month invisible.
+
+               ⚠ THE RULE, third instance in one day: A COUNT AND THE LIST BEHIND IT
+               MOVE TOGETHER, OR THE COUNT BECOMES A LIE. If you relocate either, grep
+               for the other. Same rule the Loans work band exists to enforce. -->
+          <div id="payroll-notices" style="margin-bottom:20px"></div>
 
           <!-- One-time correction (Aug 6, 2026): a since-deleted Xero bank rule
                was auto-coding 8 raw Square payroll bank drafts (all July 2026)
@@ -9266,6 +9366,12 @@
     document.getElementById('bk-view-loans').style.display    = view === 'loans'    ? '' : 'none';
     document.getElementById('bk-view-payroll').style.display  = view === 'payroll'  ? '' : 'none';
     document.getElementById('bk-view-client').style.display   = view === 'client'   ? '' : 'none';
+    // Session 276: ONE dropzone, shared by Loans and Payroll. Hidden on Client
+    // View, which carries its own #cv-dropzone with its own copy and its own
+    // narrower job -- two dropzones on one screen would be the confusion, not
+    // the convenience. Guarded because this function also runs on cold boot.
+    { const si = document.getElementById('bk-shared-intake');
+      if (si) si.style.display = (view === 'loans' || view === 'payroll') ? '' : 'none'; }
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
     document.getElementById('bkvt-client').classList.toggle('active', view === 'client');
@@ -10136,6 +10242,7 @@
       const name = s.loan_accounts?.xero_account_name || s.loan_accounts?.lender_account_number || 'Loan';
       items.push({
         key: 'staged-split-' + s.id, dot: s.stage_sweep_flag ? 'amber' : 'blue',
+        period: s.period_label, // session 276, ordering only -- see _bkBandSort
         name: `${name} — ${s.period_label}`,
         reason: s.stage_sweep_flag
           ? (s.stage_sweep_flag === 'duplicate_suspected'
@@ -10172,6 +10279,10 @@
       const stageable = _bkStageEligible(s);
       items.push({
         key: 'appr-split-' + s.id, dot: 'green',
+        // session 276: the period is carried as DATA so the work band can order by
+        // it. Never parse it back out of `name` -- this module's standing rule is
+        // that a value is read from its source, not re-derived from wording.
+        period: s.period_label,
         name: `${name} — ${s.period_label}`,
         reason: stageable
           ? `Split known ahead of time: ${fmtMoney(Number(s.principal_amount))} principal, ${fmtMoney(Number(s.interest_amount))} interest — ready to stage in Xero before the payment lands`
@@ -13050,6 +13161,7 @@
     _allPayrollDepartments = departments || [];
     _allPayrollEmployees = employees || [];
     renderPayrollSummary();
+    renderPayrollNotices();
     _pkUpdateStaleHint();
     _refreshPayrollFixCards();
     checkRetailCashReclassStatus();
@@ -13108,6 +13220,71 @@
     await loadPayroll();
   }
 
+  // ── PAYROLL NOTICES (session 276) — see the markup comment on #payroll-notices ──
+  // Standing bookkeeping advisories, raised by payroll-check-attention and kept in
+  // payroll_notices. They are NOT approvals: nothing here posts, and the answer to
+  // most of them is a question for the CPA rather than a click. So the row carries
+  // no action verb -- it opens its own detail and stops. Deliberately not folded
+  // into the Loans work band: David, session 276, "any approvals for Payroll can
+  // move to / be integrated into the Payroll page."
+  function renderPayrollNotices() {
+    const el = document.getElementById('payroll-notices');
+    if (!el) return;
+    const notices = _allPayrollNotices || [];
+    // ⚠ THE TILE COUNTS **BOTH** HALVES, SO THIS LIST MUST TOO.
+    // _pkFlaggedCount() = flagged imports + notices. The first cut of this card
+    // rendered only the notices, and the harness caught it immediately: the tile
+    // read 2 while the list showed 1. Fixing half a count-with-no-list defect just
+    // moves it -- a reader who can see one of two flagged things has no way to know
+    // there is another. Read the tile's own function, never a second definition.
+    const flaggedImports = (_allPayrollImports || []).filter(i => i.attention_flag);
+    if (!notices.length && !flaggedImports.length) { el.innerHTML = ''; return; }
+    const sev = (n) => String(n.severity || '').toLowerCase();
+    const rows = notices.slice().sort((a, b) =>
+      (sev(a) === 'error' ? 0 : 1) - (sev(b) === 'error' ? 0 : 1)
+      || String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    ).map(n => _bkQueueRowHtml({
+      key: 'pk-notice-' + (n.key || n.title),
+      dot: sev(n) === 'error' ? 'red' : 'amber',
+      tier: sev(n) === 'error' ? 1 : 2,
+      name: String(n.title || 'Bookkeeping notice'),
+      // The one-liner is the notice's FIRST paragraph, never a summary this code
+      // writes: a standing advisory is a claim someone made deliberately, and
+      // paraphrasing it here would be a second telling that can drift from the first.
+      reason: String(n.detail || '').split(/\n\s*\n/)[0].trim() || 'Open for the detail.',
+      // Everything else behind the fold, unabridged -- THE CARD IS THE DECISION,
+      // NOT THE EVIDENCE, and nothing is deleted to meet the budget.
+      detailHtml: String(n.detail || '').split(/\n\s*\n/).slice(1)
+        .map(par => `<p style="margin:0 0 8px">${esc(par.trim())}</p>`).join('')
+        || '<p style="margin:0">No further detail was recorded.</p>',
+    })).join('');
+    // A flagged IMPORT is different in kind from a notice and says so: it is one
+    // pay period, it names what is blocking it, and it opens the review that can
+    // resolve it. Same row component, an action verb where there is an action.
+    const importRows = flaggedImports.map(imp => _bkQueueRowHtml({
+      key: 'pk-flag-' + imp.id, dot: 'amber', tier: 2,
+      name: `Payroll ${fmtDate(imp.pay_period_start)} – ${fmtDate(imp.pay_period_end)}${imp.import_type === 'adjustment' ? ' (adjustment)' : ''}`,
+      reason: String(imp.attention_summary || 'Flagged by the issue check — open it to see what is blocking this period.'),
+      detailHtml: imp.attention_detail
+        ? `<p style="margin:0">${esc(String(imp.attention_detail))}</p>` : null,
+      action: 'Open', onclick: `openPayrollReviewModal('${imp.id}')`,
+    })).join('');
+    const total = notices.length + flaggedImports.length;
+    const bits = [
+      flaggedImports.length ? `${flaggedImports.length} pay period${flaggedImports.length === 1 ? '' : 's'} flagged` : '',
+      notices.length ? `${notices.length} standing notice${notices.length === 1 ? '' : 's'} — most want an answer from your CPA` : '',
+    ].filter(Boolean).join(' · ');
+    el.innerHTML = `<div class="card" style="border-color:var(--gray-200);border-radius:14px;box-shadow:0 1px 2px rgba(15,37,71,.04)">
+      <div class="card-header" style="padding:16px 18px 12px;border-bottom:0">
+        <div style="flex:1">
+          <div class="card-title">Needs attention</div>
+          <div class="card-sub">${esc(bits)}</div>
+        </div>
+      </div>
+      ${importRows}${rows}
+    </div>`;
+  }
+
   function renderPayrollSummary() {
     const el = document.getElementById('payroll-summary');
     if (!el) return;
@@ -13136,7 +13313,7 @@
       card('Needs review', needsReview, needsReview ? '#d97706' : 'var(--gray-900)', 'Uploaded and parsed — waiting for you to confirm the breakdown') +
       card('Reviewed', reviewed, 'var(--gray-900)', 'Confirmed, ready to post to Xero — open it and use Preview & Post to Xero') +
       card('Posted to Xero', posted, 'var(--gray-900)', 'Journal posted') +
-      card('Flagged', flaggedCount, flaggedCount ? '#dc2626' : 'var(--gray-900)', 'Unmatched employees, periods waiting on cash, or standing bookkeeping notices — see the Issues list below') +
+      card('Flagged', flaggedCount, flaggedCount ? '#dc2626' : 'var(--gray-900)', 'Unmatched employees, periods waiting on cash, or standing bookkeeping notices — the notices are listed under Needs attention just below' /* session 276: this said "see the Issues list below" for the year that list did not exist on this page. A stale sentence beside a correct number is harder to catch than a wrong number, and it is the sentence a reader acts on -- so when a decision moves a surface, grep the words the interface says about it. */) +
       (unmatchedNames.size ? card('Unmatched employees', unmatchedNames.size, '#dc2626', "Names on a payroll report that don't match anyone in the department mapping below") : '') +
       `</div>`;
   }
@@ -14375,6 +14552,7 @@
 
     renderLoansPeriodBar();
     renderLoansCloseTiles();
+    renderLoansApprovalsBand();
     renderLoansCloseBand();
     renderLoansSummary();
     renderLoansAttention();
@@ -17703,6 +17881,11 @@
     // changes as the close progresses, and a stale choice from last week should
     // not outrank it.
     if (!(opts && opts.silent)) { try { sessionStorage.setItem('wr-loans-period', p); } catch (_) {} }
+    // Session 276: the band lives OUTSIDE both panes, so switching does not reveal or
+    // hide it -- but its ordering keys on the selected period, so it re-renders here.
+    // Guarded like every other cross-surface call in this function: this runs before
+    // loadLoans() on a cold page, and a throw here would abort the tab switch itself.
+    try { renderLoansApprovalsBand(); } catch (_) {}
     // Session 258 cont. 3: Overview reads this same state -- keep it in sync
     // whenever its element is on screen. Guarded so this is a no-op from the
     // Loans page before Overview has ever been rendered this session.
@@ -17840,6 +18023,77 @@
     const el = document.getElementById('loans-close-tiles');
     if (!el) return;
     el.innerHTML = '';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // THE WORK BAND (session 276) — WHERE LOAN APPROVALS LIVE
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Session 269 hid Overview and moved loan approvals "to the Loans close band".
+  // The close band only ever renders the CLOSING month, so anything belonging to
+  // the month in flight had nowhere to go. It was never dropped -- it was built,
+  // rendered, and painted into a hidden div, while the sidebar badge went on
+  // counting it. David found it the only way anyone could have: a split he could
+  // not reach from any screen.
+  //
+  // ⚠ NOTHING IS FILTERED OUT BY PERIOD HERE, AND THAT IS DELIBERATE.
+  // The defect was work made invisible by which tab happened to be selected. A
+  // band that showed only the selected period would reproduce it in a new shape.
+  // The period decides ORDER, never membership.
+  function _bkLoansBandItems() {
+    // Payroll is excluded BY KEY, not by guessing from a name. renderPayrollTable()
+    // already puts openPayrollReviewModal on every row, so payroll work is reachable
+    // on its own page and a second path here would be a duplicate rather than a fix.
+    // David, session 276: "any approvals for Payroll can move to / be integrated into
+    // the Payroll page." (Payroll NOTICES are a separate hole -- see renderPayrollNotices.)
+    const notPayroll = (i) => !String(i.key || '').startsWith('appr-pimp-');
+    return {
+      approvals: _bkBandSort(_bkApprovalQueueItems().filter(notPayroll)),
+      staged: _bkBandSort(_bkStagedQueueItems()),
+    };
+  }
+
+  // The period you are LOOKING at first, then other periods, then undated items
+  // (findings are about now, not about a month). Ordering only.
+  function _bkBandSort(items) {
+    const sel = _loansPeriod === 'inflight' ? today().slice(0, 7) : _cvLastMonth();
+    const rank = (i) => !i.period ? 2 : (String(i.period).slice(0, 7) === sel ? 0 : 1);
+    return items.slice().sort((a, b) =>
+      rank(a) - rank(b) || String(a.period || '').localeCompare(String(b.period || '')));
+  }
+
+  function renderLoansApprovalsBand() {
+    const el = document.getElementById('loans-approvals-band');
+    if (!el) return;
+    const { approvals, staged } = _bkLoansBandItems();
+    // LESS IS BEST, and rule 10 of the dashboard rules read the other way round:
+    // nothing at all when there is nothing. Not an empty card, not "0 approvals".
+    // The readiness strip already states the positive, and a queue that shows up
+    // empty on a clean day teaches a reader to stop looking at it.
+    if (!approvals.length && !staged.length) { el.innerHTML = ''; return; }
+
+    // Tier 3 items are informational (a pattern proposal, a note) -- they post
+    // nothing, so they must not be counted as backlog. Same split Issues uses.
+    const actionable = approvals.filter(a => a.tier !== 3).length;
+    const info = approvals.length - actionable;
+    const sub = [
+      actionable ? `${actionable} ready to act on` : '',
+      info ? `${info} for your information` : '',
+      staged.length ? `${staged.length} scheduled in Xero` : '',
+    ].filter(Boolean).join(' · ');
+
+    el.innerHTML = `<div class="card" style="border-color:var(--gray-200);border-radius:14px;box-shadow:0 1px 2px rgba(15,37,71,.04)">
+      <div class="card-header" style="padding:16px 18px 12px;border-bottom:0">
+        <div style="flex:1">
+          <div class="card-title">Waiting on you</div>
+          <div class="card-sub">${esc(sub)}</div>
+        </div>
+      </div>
+      ${approvals.length ? approvals.map(_bkQueueRowHtml).join('') : ''}
+      ${staged.length ? `<div style="padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
+        <span onclick="toggleOverviewPanel('loans-band-staged',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">Scheduled in Xero (${staged.length})<span class="overview-chevron" style="font-size:13px;transition:transform .2s">▸</span></span>
+        <div id="loans-band-staged" style="display:none;margin-top:8px">${staged.map(_bkQueueRowHtml).join('')}</div>
+      </div>` : ''}
+    </div>`;
   }
 
   function renderLoansCloseBand() {
@@ -18023,6 +18277,27 @@
     // It suppresses nothing. Every row keeps its figures, every other gate keeps
     // its count, and the export carries this one like all the rest. What it
     // removes is the claim of finality.
+    // ── SESSION 276: WORK THIS STRIP CANNOT SEE ───────────────────────────
+    // Every other gate here is scoped to the month being closed, which is correct
+    // -- and is exactly how three loan splits became unreachable. A split waiting
+    // in the month IN FLIGHT is invisible to `rf.unpostedRows` by construction, so
+    // the strip could read "everything booked" over real work.
+    //
+    // bad:false on purpose. September work is not a reason August cannot close;
+    // it is a reason not to believe the screen is empty. A gate that BLOCKED here
+    // would be a nag, and a nag is the failure mode this module keeps re-learning.
+    const bandOutside = _bkLoansBandItems().approvals.filter(i =>
+      i.tier !== 3 && (!i.period || String(i.period).slice(0, 7) !== month));
+    if (bandOutside.length) {
+      gates.push({ key: 'outside-period', bad: false, tick: false, n: bandOutside.length,
+        // ⚠ NO QUOTE CHARACTERS IN GATE TEXT. Every gate is re-emitted into the CSV
+        // export, which quotes fields -- a literal " becomes "" there and the
+        // export-completeness assertion (two-surfaces ⭐) can no longer find the gate's
+        // own words. That assertion is the one guarding this module's rule that a claim
+        // removed from the screen must survive in the export, so breaking it to save two
+        // quote marks is exactly the wrong trade. Caught by the harness, not by reading.
+        text: `${bandOutside.length} more waiting on you outside ${_cvMonthName(month)} — listed under Waiting on you above` });
+    }
     const provisional = _bkOpeningProvisional(rf.priorEnd);
     if (provisional) {
       const openMonth = _cvMonthName(String(provisional.priorEnd).slice(0, 7));

@@ -775,8 +775,14 @@ function readSurfaces() {
 // 'unverified', 'explained', 'tie' and 'provisional-opening' round out the set the
 // strip can render. Session 272 cont. added the last: the month being closed opens
 // on a month the accountant has not finished, so its figures can still move.
+// 'outside-period' (session 276) is the odd one out and deliberately so: every other
+// gate here is scoped to the month being closed, which is correct and is precisely how
+// three loan splits became unreachable -- work in the month IN FLIGHT is invisible to
+// this strip's own counts by construction, so it could read "everything booked" over
+// real work. It never blocks (bad:false); it exists so the screen cannot look empty
+// while the work band above it is not.
 const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting', 'checked',
-                   'unverified', 'explained', 'tie', 'provisional-opening'];
+                   'unverified', 'explained', 'tie', 'provisional-opening', 'outside-period'];
 
 /* ── ISOLATING A READINESS TEST FROM THE NEW GATE (session 262 cont. 3) ─────
    Several scenarios clear their own blocker and then assert the band reads
@@ -1315,9 +1321,18 @@ GROUPS.push({
       return {
         dropzoneExists: !!dz,
         cardExists: !!card,
-        dropzoneInLoans: !!(dz && loans && loans.contains(dz)),
+        // SESSION 276: the containment test is gone, and that is the point.
+        // The dropzone used to live INSIDE #bk-view-loans, which is the only
+        // reason Payroll never had one. It now sits above the view panes and is
+        // shown for Loans and Payroll alike, so "inside the Loans div" would
+        // now assert the defect. What survives is the CLAIM the old assertion
+        // was really making: it is reachable where the work is.
         dropzoneInOverview: !!(dz && overview && overview.contains(dz)),
-        cardInLoans: !!(card && loans && loans.contains(card)),
+        dropzoneInAnyViewPane: !!(dz && [loans, overview,
+          document.getElementById('bk-view-payroll'),
+          document.getElementById('bk-view-client')].some(v => v && v.contains(dz))),
+        cardWithDropzone: !!(dz && card && dz.parentElement &&
+          dz.parentElement.parentElement && dz.parentElement.parentElement.contains(card)),
         // The pile has to sit AFTER the dropzone: dropped files land in it.
         dropzoneBeforeCard: !!(dz && card &&
           (dz.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING)),
@@ -1328,14 +1343,45 @@ GROUPS.push({
 
     t.ok(where.dropzoneExists, 'the document dropzone still exists');
     t.ok(where.cardExists, 'the batch results card still exists');
-    t.ok(where.dropzoneInLoans, 'the dropzone is inside the LOANS view');
+    t.ok(!where.dropzoneInAnyViewPane,
+         's276m: ⭐ the dropzone sits OUTSIDE every view pane — one intake, shared by Loans and Payroll',
+         JSON.stringify(where));
     t.ok(!where.dropzoneInOverview,
          'the dropzone is NOT on Overview (Overview is on the hide list — it would vanish with the tab)');
-    t.ok(where.cardInLoans, 'the batch results card moved with it, not left behind on Overview');
+    t.ok(where.cardWithDropzone, 'the batch results card travelled with it, not left behind');
     t.ok(where.dropzoneBeforeCard,
          'the results pile sits AFTER the dropzone (dropped files land beneath it)');
     t.ok(where.dropzoneVisibleOnLoans, 'the dropzone is actually visible when Loans is open');
     t.ok(where.inputExists, 'the hidden file input came along too (the dropzone is dead without it)');
+
+    /* SESSION 276 — the reason the move happened, asserted where it can fail.
+       Reachability per tab, and exactly ONE dropzone on each: a second one would
+       mean a second #bk-batch-card and duplicate ids, which breaks
+       getElementById outright rather than merely looking untidy. */
+    const perTab = await p.evaluate(() => {
+      const vis = (el) => !!(el && el.offsetParent !== null);
+      const out = {};
+      for (const v of ['loans', 'payroll', 'client']) {
+        switchBookkeepingView(v);
+        out[v] = {
+          shared: vis(document.getElementById('bk-dropzone')),
+          cv: vis(document.getElementById('cv-dropzone')),
+          titles: [...document.querySelectorAll('.bk-drop-title')].filter(e => vis(e)).length,
+        };
+      }
+      switchBookkeepingView('loans');
+      return out;
+    });
+    t.eq(perTab.loans.shared, true, 's276n: the dropzone is reachable on Loans', JSON.stringify(perTab));
+    t.eq(perTab.payroll.shared, true,
+         's276o: ⭐ ...and on PAYROLL, which never had one — the same first call to action on both',
+         JSON.stringify(perTab));
+    t.eq(perTab.client.shared, false,
+         's276p: ...and hidden on Client View, which has its own #cv-dropzone for the owner',
+         JSON.stringify(perTab));
+    t.eq(perTab.loans.titles, 1, 's276q: exactly one dropzone visible on Loans', JSON.stringify(perTab));
+    t.eq(perTab.payroll.titles, 1, 's276r: exactly one on Payroll', JSON.stringify(perTab));
+    t.eq(perTab.client.titles, 1, 's276s: exactly one on Client View — never two on one screen', JSON.stringify(perTab));
 
     await p.close();
   },
@@ -9352,6 +9398,279 @@ GROUPS.push({
     t.eq(order.hasLoans, true, '⭐ ...and now reloads the loan data the verdicts are about');
     t.eq(order.loansFirst, true, '...balances first, so no render shows the old mismatch');
     await p3.close();
+  },
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAYROLL NOTICES (session 276) — A COUNT WITH NOWHERE TO POINT
+   ═══════════════════════════════════════════════════════════════════════════
+   The red "Flagged" tile on Payroll counts flagged imports PLUS payroll_notices.
+   The notices half was loaded, assigned and counted, and rendered nowhere in the
+   file at all. One notice had been live and unread for a month.
+
+   The assertions read the DOM, not _pkFlaggedCount(): a count agreeing with a
+   list it never renders is precisely the defect, so a builder-level check would
+   have been green throughout it.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'payroll-notices',
+  async run(t) {
+    const withNotice = (d) => {
+      d.payroll_notices = [{
+        key: 'harness_notice', severity: 'warning', active: true,
+        title: 'Harness notice title',
+        detail: 'First paragraph is the one-liner.\n\nSecond paragraph is evidence.\n\nThird paragraph too.',
+        amount: 796.29, created_at: '2026-08-07T03:23:55Z', checked_at: '2026-09-05T16:00:07Z',
+      }];
+    };
+    const probe = () => {
+      const host = document.getElementById('payroll-notices');
+      const rows = host ? [...host.querySelectorAll('.bk-queue-row')] : [];
+      const tile = [...document.querySelectorAll('#payroll-summary .bk-tile')]
+        .find(x => /Flagged/.test(x.textContent));
+      return {
+        hostExists: !!host,
+        empty: !!(host && host.innerHTML.trim() === ''),
+        visibleRows: rows.filter(r => r.offsetParent).length,
+        names: rows.map(r => (r.querySelector('.bk-queue-name') || {}).textContent || ''),
+        // Located by KEY, not by position: the card holds two kinds of row
+        // (flagged pay periods and standing notices) and their order is a
+        // presentation choice that may change. An index would make this test
+        // depend on that choice rather than on the claim it is making.
+        notice: (() => {
+          const r = rows.find(x => /^pk-notice-/.test(x.getAttribute('data-bkkey') || ''));
+          if (!r) return null;
+          const d = r.querySelector('div[id^="bk-qd-"]');
+          return {
+            name: (r.querySelector('.bk-queue-name') || {}).textContent || '',
+            reason: (r.querySelector('.bk-queue-reason') || {}).textContent || '',
+            detail: d ? d.textContent : '',
+          };
+        })(),
+        flaggedImportRows: rows.filter(x => /^pk-flag-/.test(x.getAttribute('data-bkkey') || '')).length,
+        tileCount: tile ? (tile.textContent.match(/\d+/) || [])[0] : null,
+        tileTip: tile ? (tile.getAttribute('title') || '') : '',
+      };
+    };
+
+    {
+      const p = await newHarnessPage({ tab: 'payroll', mutate: withNotice });
+      const seen = await p.evaluate(probe);
+      t.eq(seen.hostExists, true, 's276t: the Payroll notices container exists', JSON.stringify(seen));
+      t.ok(!!seen.notice,
+           's276u: ⭐ a standing payroll notice is RENDERED and visible — the Flagged count has somewhere to point',
+           JSON.stringify(seen));
+      t.eq(seen.notice && seen.notice.name, 'Harness notice title',
+           's276v: ...under the notice\'s own title', JSON.stringify(seen.names));
+      t.ok(/First paragraph is the one-liner\./.test((seen.notice || {}).reason || ''),
+           's276w: ...its one-liner is the notice\'s OWN first paragraph, not a paraphrase',
+           JSON.stringify((seen.notice || {}).reason));
+      t.ok(/Second paragraph is evidence\./.test((seen.notice || {}).detail || '')
+        && /Third paragraph too\./.test((seen.notice || {}).detail || ''),
+           's276x: ⭐ ...and every paragraph the one-liner dropped survives behind the fold — nothing is deleted to fit',
+           JSON.stringify((seen.notice || {}).detail));
+      /* ⭐ THE ASSERTION THIS GROUP EXISTS FOR, and it caught a real gap while
+         being written: the first cut of the card rendered notices only, so the
+         tile read 2 against a list of 1. Fixing half a count-with-no-list defect
+         only moves it. Compared to the RENDERED row count, never to a second
+         computation of the same number -- two counts agreeing with each other is
+         what this whole session has been about. */
+      t.eq(seen.tileCount, String(seen.visibleRows),
+           's276y: ⭐ ...and the Flagged tile counts exactly what the list shows — one number, one list',
+           JSON.stringify(seen));
+      t.ok(seen.flaggedImportRows >= 1,
+           's276y2: ...with the flagged pay period listed too, not just the notice',
+           JSON.stringify(seen));
+      t.ok(!/Issues list below/.test(seen.tileTip),
+           's276z: ...and the tile no longer points at a list that does not exist',
+           seen.tileTip);
+      await p.close();
+    }
+
+    /* Nothing when there is nothing — the tile already states the zero, and a card
+       repeating it would be the second telling this module treats as the defect. */
+    {
+      const p = await newHarnessPage({ tab: 'payroll', mutate: (d) => {
+        d.payroll_notices = [];
+        (d.payroll_imports || []).forEach(i => { i.attention_flag = null; });
+      } });
+      const seen = await p.evaluate(probe);
+      t.eq(seen.empty, true, 's276aa: with nothing flagged at all the container renders NOTHING', JSON.stringify(seen));
+      t.eq(seen.tileCount, '0', 's276aa2: ...and the tile says zero — the two agree when empty as well', JSON.stringify(seen));
+      await p.close();
+    }
+
+    /* DISCRIMINATION: restore the pre-fix behaviour (a count, no list) and confirm
+       s276u goes red. Done by neutering the renderer through its own name in page
+       context, never by editing index.html. */
+    {
+      const p = await newHarnessPage({ tab: 'payroll', mutate: withNotice });
+      const broken = await p.evaluate(() => {
+        const real = renderPayrollNotices;
+        window.renderPayrollNotices = () => { document.getElementById('payroll-notices').innerHTML = ''; };
+        renderPayrollNotices();
+        const host = document.getElementById('payroll-notices');
+        const n = [...host.querySelectorAll('.bk-queue-row')].filter(r => r.offsetParent).length;
+        window.renderPayrollNotices = real; real();
+        return n;
+      });
+      t.eq(broken, 0,
+           's276ab: ⭐ ...and with the list not rendered the notice disappears again — so s276u is a real test',
+           `visible rows when not rendered: ${broken}`);
+      await p.close();
+    }
+  },
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE WORK BAND (session 276) — WORK MUST NOT BE HIDDEN BY A TAB
+   ═══════════════════════════════════════════════════════════════════════════
+   The defect: session 269 hid Overview and moved loan approvals "to the Loans
+   close band", but the close band renders ONLY the closing month. Anything
+   belonging to the month in flight was still built, still rendered -- into a
+   hidden div -- and still counted by the sidebar badge. Three real splits were
+   unreachable from any screen, one of them carrying the wrong figures.
+
+   These assertions are about REACHABILITY, which is why they read the rendered
+   DOM rather than the item builders: a queue that computes perfectly into a
+   container nobody can see is exactly the bug, and a builder-level assertion
+   would have been green throughout it.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'work-band',
+  async run(t) {
+    // A pending_review split in a period FAR from the closing month. If band
+    // membership were period-scoped in any way, this row is the one that vanishes.
+    const addFarSplit = (d) => {
+      const a = d.loan_accounts.find(x => x.status === 'active' && x.ingestion_method !== 'automatic');
+      const base = d.loan_splits.find(sp => sp.loan_account_id === a.id);
+      d.loan_splits.push(Object.assign({}, base, {
+        id: 'harness-band-far', period_label: '2099-11', status: 'pending_review',
+        source: 'statement_delta', staged_at: null, stage_reference: null,
+        xero_posted_at: null, xero_manual_journal_id: null, voided_at: null,
+        principal_amount: 111.11, interest_amount: 222.22, total_amount: 333.33,
+      }));
+      d.__loan = a.xero_account_name;
+    };
+
+    const probe = () => {
+      const band = document.getElementById('loans-approvals-band');
+      const sum = document.getElementById('loans-summary');
+      const closing = document.getElementById('loans-period-closing');
+      const inflight = document.getElementById('loans-period-inflight');
+      const rows = band ? [...band.querySelectorAll('.bk-queue-row')] : [];
+      const inPane = (el) => !!(el && ((closing && closing.contains(el)) || (inflight && inflight.contains(el))));
+      return {
+        bandExists: !!band,
+        bandOutsidePanes: !!band && !inPane(band),
+        tilesOutsidePanes: !!sum && !inPane(sum),
+        tilesShown: !!(sum && sum.offsetParent && sum.textContent.trim().length > 0),
+        bandEmptyHtml: !!(band && band.innerHTML.trim() === ''),
+        keys: rows.map(r => r.getAttribute('data-bkkey') || ''),
+        reachable: rows.filter(r => r.offsetParent).length,
+      };
+    };
+
+    /* ── (a) the containers sit OUTSIDE both period panes ──────────────────
+       This is the assertion that encodes WHY the fix is shaped as it is. Two
+       containers, one per pane, can drift apart under a later edit; one cannot.
+       Membership of a pane is what made the old queue invisible, so "not in a
+       pane" is the property worth pinning, not "renders today". */
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: addFarSplit });
+      const seen = await p.evaluate(probe);
+      t.eq(seen.bandExists, true, 's276a: the work band container exists on the Loans page', JSON.stringify(seen));
+      t.eq(seen.bandOutsidePanes, true,
+           's276b: ⭐ ...outside BOTH period panes, so the two tabs cannot drift apart', JSON.stringify(seen));
+      t.eq(seen.tilesOutsidePanes, true,
+           's276c: ...and so do the summary tiles — above the switch is period-invariant', JSON.stringify(seen));
+      await p.close();
+    }
+
+    /* ── (b) THE BUG ITSELF: reachable from the CLOSING tab ────────────────
+       A split labelled 2099-11 has nothing to do with the month being closed.
+       Before this change it appeared on no screen at all. */
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: addFarSplit });
+      await p.evaluate(() => switchLoansPeriod('closing'));
+      const onClosing = await p.evaluate(probe);
+      t.ok(onClosing.keys.includes('appr-split-harness-band-far'),
+           's276d: ⭐ a split from another period is REACHABLE while the closing month is shown',
+           JSON.stringify(onClosing.keys));
+      t.ok(onClosing.reachable > 0,
+           's276e: ...and its row is actually visible, not rendered into a hidden container',
+           `${onClosing.reachable} visible rows`);
+      t.eq(onClosing.tilesShown, true, 's276f: ...with the tiles showing on the Closing tab too', JSON.stringify(onClosing));
+
+      await p.evaluate(() => switchLoansPeriod('inflight'));
+      const onInflight = await p.evaluate(probe);
+      t.eq(JSON.stringify(onInflight.keys.slice().sort()), JSON.stringify(onClosing.keys.slice().sort()),
+           's276g: ⭐ ...and the band holds the SAME work on both tabs — the period orders it, never filters it',
+           `closing ${JSON.stringify(onClosing.keys)} · inflight ${JSON.stringify(onInflight.keys)}`);
+      t.eq(onInflight.tilesShown, true, 's276h: ...tiles show on In flight as well', JSON.stringify(onInflight));
+
+      /* ── DISCRIMINATION, and it must fail the way the OLD code failed ────
+         Rebuild the shipped _bkLoansBandItems from its own source with a period
+         FILTER spliced in -- the pre-fix behaviour -- and confirm s276d goes red.
+         Never by editing index.html: an assertion that passes against both the
+         fixed and the broken function is decoration (session 245). */
+      const discriminates = await p.evaluate(() => {
+        const real = _bkLoansBandItems;
+        const src = real.toString();
+        if (!/notPayroll/.test(src)) return { ok: false, why: 'source shape changed — update this check' };
+        const sel = _cvLastMonth();
+        window._bkLoansBandItems = () => {
+          const r = real();
+          const only = (i) => String(i.period || '').slice(0, 7) === sel;
+          return { approvals: r.approvals.filter(only), staged: r.staged.filter(only) };
+        };
+        switchLoansPeriod('closing');
+        renderLoansApprovalsBand();
+        const band = document.getElementById('loans-approvals-band');
+        const keys = [...band.querySelectorAll('.bk-queue-row')].map(r => r.getAttribute('data-bkkey'));
+        window._bkLoansBandItems = real;
+        renderLoansApprovalsBand();
+        return { ok: true, brokenKeys: keys };
+      });
+      t.eq(discriminates.ok, true, 's276i: the discrimination check could be built', JSON.stringify(discriminates));
+      t.ok(discriminates.ok && !discriminates.brokenKeys.includes('appr-split-harness-band-far'),
+           's276j: ⭐ ...and period-FILTERING the band hides that split again — so s276d is a real test',
+           JSON.stringify(discriminates.brokenKeys));
+      await p.close();
+    }
+
+    /* ── (c) payroll is excluded BY KEY ────────────────────────────────────
+       renderPayrollTable() already opens the review modal from every row, so a
+       second path here would be a duplicate rather than a fix. Asserted on the
+       key prefix, never on the wording of a name. */
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        addFarSplit(d);
+        const imp = (d.payroll_imports || [])[0];
+        if (imp) { imp.status = 'parsed'; }
+      } });
+      const seen = await p.evaluate(probe);
+      t.eq(seen.keys.filter(k => k.startsWith('appr-pimp-')).length, 0,
+           's276k: no payroll import reaches the Loans work band — Payroll owns its own approvals',
+           JSON.stringify(seen.keys));
+      await p.close();
+    }
+
+    /* ── (d) NOTHING when there is nothing ─────────────────────────────────
+       Rule 10 read the other way round: not an empty card, not "0 approvals".
+       A queue that shows up empty on a clean day teaches a reader to stop
+       looking at it, and this band's whole value is that it is worth looking at. */
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        d.loan_splits = (d.loan_splits || []).filter(sp => sp.status !== 'pending_review' && sp.status !== 'staged');
+        d.reconciliation_findings = [];
+      } });
+      const seen = await p.evaluate(probe);
+      t.eq(seen.bandEmptyHtml, true,
+           's276l: ⭐ with no loan work at all the band renders NOTHING — no empty card, no zero',
+           `html length ${seen.bandEmptyHtml ? 0 : 'non-empty'} · keys ${JSON.stringify(seen.keys)}`);
+      await p.close();
+    }
   },
 });
 
