@@ -3519,6 +3519,10 @@
                a fifth thing to do — it is the close itself, waiting. */
             .lcb-bar .s-tail { background: var(--gray-300); }
             .lcb-ask { color: #b45309; font-weight: 600; }
+            /* A DECISION IS NOT A FAULT. Same amber as the evidence ask (session
+               262): the reader is being asked for something, not told they broke
+               something. Red is spent on the one thing that genuinely needs it. */
+            .lcb-decide { border-color: #b45309; color: #b45309; }
             .lcb-asks { font-size: 12px; color: var(--gray-500); }
             .lcb-asks b { color: var(--gray-800); font-weight: 600; }
             .lcb-asks .ask { color: #dc2626; font-weight: 600; }
@@ -16637,20 +16641,109 @@
   // down to nothing by the row_type test below, and the loan is stranded at
   // grade C while a perfectly good older schedule sits on file. Pick from the
   // rows you are actually going to read.
-  function _loanScheduleRows(a) {
-    const mine = (_allLoanAmortRows || []).filter(r =>
+  // ── WHICH SCHEDULE THIS LOAN FOLLOWS, WHEN MORE THAN ONE IS LIVE ──────────
+  //
+  // Measured 2026-09-05: EIGHT active loans carry more than one live payment
+  // schedule, and the tie-break below — generated date, then created_at, then id —
+  // was choosing between them. Arbitrary, stable, invisible. Funding Circle has
+  // FOUR. BayFirst SBA 2's two date every payment two days apart (month end vs the
+  // 2nd). ALL EIGHT have prestage_enabled, so the projection that CREATES a
+  // transaction in Xero was being picked by a sort key with no evidence behind it —
+  // and session 231 already recorded where that leads: a stage dated later than the
+  // real payment trips matched_early_suspect every period forever, and one dated in
+  // the wrong month books the payment into the wrong period, WHICH NO INVARIANT
+  // CATCHES.
+  //
+  // David's rule (session 277): "the purpose of this tool is not to completely erase
+  // the work of the accountant, but rather to make their job easier and faster. If
+  // the best way to derive a split or settle a question the system can't answer, the
+  // simple answer is: ask the person in charge, in the Action field."
+  //
+  // So the order is: a RECORDED decision, then a defensible RANK, then — only when
+  // neither exists — an ASK, and the arbitrary pick is used meanwhile while SAYING
+  // that is what it is.
+  //
+  //   1. chosen_schedule_id       a person decided; nothing outranks it
+  //   2. client_parsed_verified   a human verified this parse and not the other.
+  //                               Settles PCV and Verdant with no ask at all — an ask
+  //                               nobody needs is the nag this rule warns about.
+  //   3. otherwise                UNSETTLED. Six loans are derived-vs-derived with
+  //                               nothing to prefer. The sort key still answers so
+  //                               nothing breaks, and the row asks the question.
+  const SCHEDULE_RANK = { client_parsed_verified: 3, claude_assisted_parse: 2, derived_from_statements: 1 };
+
+  function _loanScheduleCandidates(a) {
+    const rows = (_allLoanAmortRows || []).filter(r =>
       r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === a.id &&
       CLOSE_SCHEDULE_ROW_TYPES.includes(String(r.row_type || '')) && r.balance != null);
-    if (!mine.length) return [];
-    let bestKey = null, bestId = null;
-    for (const r of mine) {
-      const s = r.loan_amortization_schedules;
-      const key = String(s.schedule_generated_date || '') + ' '
-                + String(s.created_at || '') + ' '
-                + String(r.schedule_id || '');
-      if (bestKey === null || key > bestKey) { bestKey = key; bestId = r.schedule_id; }
+    const by = new Map();
+    for (const r of rows) {
+      const id = String(r.schedule_id || '');
+      if (!by.has(id)) {
+        const s = r.loan_amortization_schedules;
+        by.set(id, {
+          id, source: String(s.source || ''), rows: 0,
+          firstRow: null, lastRow: null,
+          sortKey: String(s.schedule_generated_date || '') + ' ' + String(s.created_at || '') + ' ' + id,
+        });
+      }
+      const c = by.get(id);
+      c.rows++;
+      const d = String(r.row_date || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        if (!c.firstRow || d < c.firstRow) c.firstRow = d;
+        if (!c.lastRow || d > c.lastRow) c.lastRow = d;
+      }
     }
-    return mine.filter(r => r.schedule_id === bestId);
+    return [...by.values()].sort((x, y) => (x.sortKey < y.sortKey ? 1 : x.sortKey > y.sortKey ? -1 : 0));
+  }
+
+  function _loanScheduleChoice(a) {
+    const candidates = _loanScheduleCandidates(a);
+    if (!candidates.length) return { id: null, basis: 'none', candidates, unsettled: false };
+    if (candidates.length === 1) return { id: candidates[0].id, basis: 'single', candidates, unsettled: false };
+
+    const recordedId = a && a.chosen_schedule_id ? String(a.chosen_schedule_id) : null;
+    if (recordedId && candidates.some(c => c.id === recordedId)) {
+      return { id: recordedId, basis: 'recorded', candidates, unsettled: false,
+               reason: a.chosen_schedule_reason || null, by: a.chosen_schedule_set_by || null,
+               at: a.chosen_schedule_set_at || null };
+    }
+    // A recorded pointer to a schedule that is no longer a candidate is NOT a
+    // decision — it is a stale one, and reading it as settled is how a wrong typed
+    // value survives. The question comes back and says why.
+    const staleRecord = !!recordedId;
+
+    const top = Math.max(...candidates.map(c => SCHEDULE_RANK[c.source] || 0));
+    const best = candidates.filter(c => (SCHEDULE_RANK[c.source] || 0) === top);
+    if (best.length === 1 && top > 1) {
+      return { id: best[0].id, basis: 'verified', candidates, unsettled: false, rankedOver: candidates.length - 1 };
+    }
+    // Nothing prefers any of them. Answer with the sort key so no surface breaks,
+    // and mark it unsettled so every one of them can say so.
+    return { id: candidates[0].id, basis: 'unsettled', candidates, unsettled: true, staleRecord };
+  }
+
+  // What actually DIFFERS between the candidates — the reader cannot settle a
+  // question stated as "two schedules disagree". LESS IS BEST applies: name the one
+  // or two things that would change the answer, not every field.
+  function _loanScheduleDifference(candidates) {
+    const firsts = [...new Set(candidates.map(c => c.firstRow).filter(Boolean))];
+    const counts = [...new Set(candidates.map(c => c.rows))];
+    const bits = [];
+    if (firsts.length > 1) bits.push(`the first payment is dated ${firsts.map(d => _bkPlainDate(d)).join(' on one and ')} on the other`);
+    if (counts.length > 1) bits.push(`they carry ${counts.join(' and ')} payment rows`);
+    if (!bits.length) bits.push('they agree on dates and row counts but are separate documents');
+    return bits.join('; ');
+  }
+
+  function _loanScheduleRows(a) {
+    const choice = _loanScheduleChoice(a);
+    if (!choice.id) return [];
+    return (_allLoanAmortRows || []).filter(r =>
+      r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === a.id &&
+      CLOSE_SCHEDULE_ROW_TYPES.includes(String(r.row_type || '')) && r.balance != null &&
+      String(r.schedule_id || '') === choice.id);
   }
 
   // The schedule's balance as at a date: the latest PAYMENT row on or before it.
@@ -18812,8 +18905,72 @@
       const action = (() => {
         const noClosing = !r.perLender && !r.automatic;
         if (noClosing && a.close_basis !== 'amortization_schedule') {
+          // ── THE BUTTON ASKS FOR WHAT IS ACTUALLY NEEDED (session 277, David) ──
+          // The cell beside this one now says "needs a screenshot of the portal
+          // balance, taken after the month ends" -- and the button next to it said
+          // "Upload statement". A statement is exactly what CANNOT settle BayFirst
+          // SBA 2's month, and it is the document David uploaded three times today.
+          //
+          // Same rule as the intake fix earlier in this session: what was asked for
+          // and what the button does must agree. One of them being right is worse
+          // than neither, because the wrong one is the one people press.
+          const need = r.evidenceNeed && r.evidenceNeed.items && r.evidenceNeed.items[0];
+          const wantsScreenshot = need && need.kind === 'portal_balance' && need.window === 'after_month_end';
           return { kind: 'upload',
-                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">Upload statement</button>` };
+                   cell: wantsScreenshot
+                     ? `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="${esc(
+                         `A statement cannot close this month: this lender's balance did not move inside it, so every statement it prints is dated to the month before. What settles it is a balance read straight off the portal after the month ends — upload the screenshot and pick "Full transaction history" so its figures are imported rather than just filed.`
+                       )}">Upload screenshot of balance</button>`
+                     : `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">Upload statement</button>` };
+        }
+        // ── EVIDENCE COMES BEFORE THE DECISION, and the order was wrong first ──
+        // The schedule question below outranks "Find the fix" -- a difference walked
+        // against a projection nobody agreed to cannot be evaluated. But it must NOT
+        // outrank the ask above it: a month with no closing evidence cannot be closed
+        // whichever schedule wins, and uploading a balance is cheap while choosing a
+        // schedule takes thought. Put the considered decision in front of the cheap
+        // unblock and the cheap unblock never gets seen -- which is exactly what my
+        // first cut did to BayFirst SBA 2's row.
+        // ── AN UNAGREED PROJECTION OUTRANKS A DIFFERENCE MEASURED AGAINST IT ──
+        // (Session 277, David's rule.) Eight active loans carry more than one live
+        // schedule and nothing in the data prefers any of them; the code was picking
+        // on a sort key. This asks instead — and it asks FIRST, before "Find the
+        // fix", because a difference walked against a projection nobody has agreed
+        // to cannot be evaluated. Same shape as session 245's "no lender export, no
+        // verdict": no agreed schedule, no verdict on a schedule-based one.
+        //
+        // Scoped to loans where the choice actually bites: prestaging CREATES a
+        // transaction in Xero off the projection, and a schedule-basis close reads
+        // its closing balance from it. On a lender-statement loan with prestaging
+        // off, a second schedule on file changes no number and asking would be a
+        // chore — an ask nobody needs is the nag this rule warns about.
+        // ⚠️ AND NOT ON A ROW THAT TIES. The harness caught this: E-Transit E6-7410
+        // ties on a lender document and my question appeared on it anyway, breaking
+        // a deliberate invariant — "a row that ties gets no action: a column that
+        // always says something is a column people stop reading." That reasoning is
+        // right and outranks my wish to raise this here.
+        //
+        // WHICH LEAVES A REAL GAP, recorded rather than hidden: a loan that ties
+        // every month never gets asked, while its prestaging goes on creating Xero
+        // transactions off a schedule chosen by a tie-break. The band's readiness
+        // strip is the right home for that — one gate for the whole table rather
+        // than a nag on every green row. Not built yet; see the notes.
+        const _schedChoice = _loanScheduleChoice(a);
+        if (_schedChoice.unsettled && r.band !== 'tie' && !r.circular
+            && (a.prestage_enabled === true || a.close_basis === 'amortization_schedule')) {
+          const n = _schedChoice.candidates.length;
+          const diff = _loanScheduleDifference(_schedChoice.candidates);
+          // Addressed to whoever is reading it. No role named, no assumption about
+          // who they are (David, 2026-09-05) -- and it says what changes once it is
+          // answered, which is what stops an ask being a nag.
+          const t = `${n} payment schedules are on file for this loan and nothing in the data prefers one: `
+            + `${diff}. Until one is chosen, the projection is picked by an internal tie-break -- `
+            + `and this loan pre-stages transactions in Xero from it, so a schedule dated wrongly `
+            + `books a payment into the wrong period. Which one does the lender actually follow? `
+            + `Choosing records the answer against the loan, with your reason, and this stops being asked.`
+            + (_schedChoice.staleRecord ? ' A schedule was chosen before but is no longer on file, so the question is open again.' : '');
+          return { kind: 'decide',
+                   cell: `<button type="button" class="lcb-do lcb-decide" onclick="openLoanDetailModal('${esc(a.id)}')" title="${esc(t)}">Which schedule?</button>` };
         }
         // ⚠ SESSION 273: UNPOSTED BEATS A TIE HERE TOO, BECAUSE IT ALREADY DOES
         // IN THE STATUS COLUMN. David, looking at Rapid the moment it started

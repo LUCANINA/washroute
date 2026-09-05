@@ -3767,6 +3767,57 @@ RARE and ANSWERABLE. A question the reader cannot settle, or one asked every mon
 thing, is a nag — and this module's history is people learning to ignore nags. An asked question
 must be recorded, must not come back, and must name what changes once it is answered.
 
+#### ✅ BUILT (session 277 cont. 4) — the decision primitive, and the button that asks for the right thing
+
+* **`loan_accounts.chosen_schedule_*`** (4 columns, FK `ON DELETE SET NULL` so deleting the chosen
+  schedule VOIDS the decision and re-opens the question rather than leaving a pointer that reads
+  as settled) + **`set_loan_chosen_schedule`** RPC. Reason and actor both required — a decision
+  with no reason cannot be reviewed and the next person re-asks, which turns a settled question
+  back into a nag. Role coverage tested across all seven `profiles.role` values: admin/manager
+  allowed, customer/driver/attendant/laundry_tech/pos_device refused; grants audited to
+  `authenticated, postgres, service_role`.
+* **`_loanScheduleChoice`** replaces the bare tie-break inside `_loanScheduleRows`. Order:
+  recorded decision → a human-verified parse over a machine one → otherwise UNSETTLED, where the
+  sort key still answers (so nothing blanks — session 269's silent-blanking trap) but every
+  surface can say it is unsettled. That silently settles PCV and Verdant; six loans remain.
+* **The row asks**, in the Action column, addressed to *whoever is reading* — no role named and no
+  assumption about who they are (**David: "Not a woman, man, just a person. It could be me."**).
+* **`cpa` is in the RPC's allowlist and no such account exists** — `profiles` carries seven roles
+  and that is not one of them, so `loan-xero-post` has been checking for a role nobody has since
+  session 224. **David: "for now, it's me. We'll create an Accountant permission."** The hook is
+  in place for the day it exists.
+* **"Upload screenshot of balance"** (David, directly). The closing cell now says *"needs a
+  screenshot of the portal balance, taken after the month ends"* while the button beside it said
+  *Upload statement* — and a statement is precisely what cannot settle that month. Same rule as
+  the intake fix earlier today: **what was asked for and what the button does must agree, and one
+  of them being right is worse than neither, because the wrong one is the one people press.**
+
+#### ⚠️ TWO ORDERING CALLS, AND I GOT THE FIRST ONE WRONG
+1. **Evidence before decision.** My first cut put the schedule question above the upload ask, so
+   BayFirst SBA 2's row would never have shown the screenshot button David had just asked for. A
+   month with no closing evidence cannot be closed whichever schedule wins, and uploading a
+   balance is cheap while choosing a schedule takes thought. **Put a considered decision in front
+   of a cheap unblock and the unblock never gets seen.**
+2. **Decision before "Find the fix"** — that one stands. A difference walked against a projection
+   nobody has agreed to cannot be evaluated: session 245's *no export, no verdict*, applied to
+   schedules.
+
+#### 🔎 THE GAP THIS LEAVES, recorded rather than hidden
+The harness caught the question appearing on **E-Transit E6-7410, a row that TIES**, breaking a
+deliberate invariant: *"a row that ties gets no action — a column that always says something is a
+column people stop reading."* That reasoning outranks the wish to raise the question there, so it
+is now suppressed on tying and circular rows.
+
+**Which means a loan that ties every month never gets asked, while its prestaging goes on creating
+Xero transactions off a schedule chosen by a tie-break.** The close band's readiness strip is the
+right home — ONE non-blocking gate for the whole table rather than a nag on every green row. Not
+built. Two known traps when it is: a new gate key must be declared in `GATE_KEYS` or every
+close-band scenario reds out, and gate text may contain no `"` characters because it is re-emitted
+into the CSV export.
+
+`schedule-choice`: 18 assertions. With `close-evidence` and the close-band/gate sweep: **516
+assertions, 0 red.**
+
 #### 🔴 THE FIRST INSTANCE, AND IT IS BIGGER THAN THE BUG THAT FOUND IT
 Measured 2026-09-05, not assumed. **EIGHT active loans carry more than one live payment schedule**,
 and `_loanScheduleRows` picks between them on a sort key — `schedule_generated_date`, then

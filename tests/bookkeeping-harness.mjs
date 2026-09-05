@@ -476,6 +476,10 @@ function readSurfaces() {
                // to a named ask and turned six assertions red that were counting the
                // old words -- a test that checks a claim must read the claim.
                awaitingEvidence: !!(tds[C.closing] && tds[C.closing].querySelector('[data-evidence="awaiting"]')),
+               // The Action column's KIND and its button words, separately. The kind
+               // is the stable claim; the words are meant to change.
+               action: (() => { const td = tr.querySelector('td.lcb-action'); return td ? att(td, 'data-action') : null; })(),
+               actionText: (() => { const td = tr.querySelector('td.lcb-action'); return td ? td.textContent.replace(/\s+/g, ' ').trim() : null; })(),
                evidenceKind: att(tds[C.closing].querySelector('[data-evidence]') || tds[C.closing], 'data-evidence-kind'),
                evidenceFrom: att(tds[C.closing].querySelector('[data-evidence]') || tds[C.closing], 'data-evidence-from'),
                closingDate: att(tds[C.closingDate], 'data-closing-date'),
@@ -10051,6 +10055,141 @@ GROUPS.push({
            '...so it no longer reads as a bare "not received"', JSON.stringify(row.perLender));
       t.eq(row.evidenceKind, 'portal_balance', '...naming which kind of document');
     }
+    await q.close();
+  },
+});
+
+/* ── WHICH SCHEDULE, WHEN MORE THAN ONE IS LIVE (session 277) ─────────────── */
+GROUPS.push({
+  name: 'schedule-choice',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    const choice = (acct) => p.evaluate(([acct]) => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === acct);
+      if (!a) return { err: `no loan ${acct}` };
+      const c = _loanScheduleChoice(a);
+      return { basis: c.basis, unsettled: c.unsettled, id: c.id,
+               n: c.candidates.length, sources: c.candidates.map(x => x.source),
+               rows: _loanScheduleRows(a).length,
+               diff: c.candidates.length > 1 ? _loanScheduleDifference(c.candidates) : null };
+    }, [acct]);
+
+    /* ── 1. THE COLLISION IS REAL, measured not assumed ───────────────────── */
+    const sba2 = await choice('6917479106');
+    t.ok(!sba2.err, 'the fixture carries BayFirst SBA 2', sba2.err || '');
+    t.ok(sba2.n > 1, '⭐ more than one live schedule is on file for it', JSON.stringify(sba2));
+    t.eq(sba2.unsettled, true, '⭐ ...and nothing in the data prefers either, so it is UNSETTLED');
+    t.eq(sba2.basis, 'unsettled', '...reported as such rather than as an answer');
+
+    /* ── 2. IT STILL ANSWERS — unsettled must not mean broken ─────────────── */
+    // Every downstream caller (the rollforward, the close band, staging) reads
+    // _loanScheduleRows. Returning nothing while a question is open would blank
+    // real numbers, which is the silent-blanking trap session 269 documented.
+    t.ok(sba2.rows > 0, '⭐ the projection still resolves while the question is open', `rows=${sba2.rows}`);
+    t.ok(!!sba2.id, '...to exactly one schedule');
+
+    /* ── 3. AND IT SAYS WHAT DIFFERS — "two disagree" is not answerable ───── */
+    t.ok(/first payment is dated|payment rows|separate documents/.test(String(sba2.diff)),
+         '⭐ the difference is stated in terms a reader could settle', JSON.stringify(sba2.diff));
+
+    /* ── 4. A HUMAN-VERIFIED PARSE SETTLES IT WITH NO ASK AT ALL ──────────── */
+    // PCV and Verdant each carry a client_parsed_verified schedule beside a
+    // claude_assisted_parse one. An ask nobody needs is the nag the rule warns
+    // about, so ranking must resolve these silently.
+    for (const acct of ['202555', '11867000']) {
+      const c = await choice(acct);
+      if (c.err || c.n < 2) continue;
+      if (c.sources.includes('client_parsed_verified')) {
+        t.eq(c.unsettled, false,
+             `⭐ ${acct}: a human-verified parse outranks a machine one — no ask raised`,
+             JSON.stringify(c));
+        t.eq(c.basis, 'verified', `...and the basis says why (${acct})`);
+      }
+    }
+
+    /* ── 5. A RECORDED DECISION OUTRANKS EVERYTHING ───────────────────────── */
+    const recorded = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const cands = _loanScheduleCandidates(a);
+      const loser = cands[cands.length - 1].id;         // deliberately NOT the tie-break winner
+      const keep = a.chosen_schedule_id;
+      a.chosen_schedule_id = loser;                     // in-page only, never written
+      const c = _loanScheduleChoice(a);
+      const rows = _loanScheduleRows(a);
+      a.chosen_schedule_id = keep;
+      return { basis: c.basis, unsettled: c.unsettled, picked: c.id, loser,
+               allRowsFromIt: rows.every(r => String(r.schedule_id) === loser), rows: rows.length };
+    });
+    t.eq(recorded.basis, 'recorded', '⭐ a recorded decision is honoured');
+    t.eq(recorded.unsettled, false, '...and closes the question');
+    t.eq(recorded.picked, recorded.loser,
+         '⭐ ...even when it picks the schedule the tie-break would NOT have — which is the whole point');
+    t.ok(recorded.allRowsFromIt && recorded.rows > 0,
+         '...and the projection really comes from it', JSON.stringify(recorded));
+
+    /* ── 6. A STALE POINTER IS NOT A DECISION ─────────────────────────────── */
+    const stale = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const keep = a.chosen_schedule_id;
+      a.chosen_schedule_id = '00000000-0000-0000-0000-000000000000';   // not a candidate
+      const c = _loanScheduleChoice(a);
+      a.chosen_schedule_id = keep;
+      return { basis: c.basis, unsettled: c.unsettled, staleRecord: c.staleRecord };
+    });
+    t.eq(stale.unsettled, true,
+         '⭐ a pointer to a schedule that is no longer a candidate re-opens the question');
+    t.eq(stale.staleRecord, true, '...and says that is why, rather than reading as settled');
+
+    /* ── 7. THE ASK REACHES THE ACTION COLUMN, AND OUTRANKS "FIND THE FIX" ── */
+    // A difference walked against a projection nobody agreed to cannot be
+    // evaluated -- session 245's "no export, no verdict", applied to schedules.
+    const cb = (await p.surfaces()).loans.closeBand;
+    const row = cb.rows.find(r => /BayFirst SBA 2/.test(r.name || ''));
+    if (row) {
+      // ⚠ ORDERING, and my first cut had it backwards. The schedule question
+      // outranks "Find the fix" but must NOT outrank the evidence ask: a month with
+      // no closing balance cannot be closed whichever schedule wins, and uploading a
+      // balance is cheap while choosing a schedule takes thought. BayFirst SBA 2 owes
+      // evidence, so its row asks for THAT -- and the decision waits its turn.
+      t.eq(row.action, 'upload',
+           '⭐ evidence comes first — the cheap unblock is not buried behind a considered decision',
+           JSON.stringify({ action: row.action, text: row.actionText }));
+      // David, 2026-09-05: "just add a button next to upload statement that says
+      // upload screenshot of balance". A statement is precisely what cannot settle
+      // this loan's month, and it is the document uploaded three times today.
+      t.ok(/screenshot of balance/i.test(row.actionText || ''),
+           '⭐ ...and the button asks for the SCREENSHOT, not a statement that cannot settle it',
+           JSON.stringify(row.actionText));
+      t.ok(row.awaitingEvidence,
+           '...matching the ask in the closing cell — the two agree');
+    }
+    // The decision still outranks a difference walk. Proven on a loan that owes no
+    // evidence: strip the ask and the schedule question is what surfaces.
+    const decideRow = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const c = _loanScheduleChoice(a);
+      return { unsettled: c.unsettled, prestage: a.prestage_enabled === true };
+    });
+    t.ok(decideRow.unsettled && decideRow.prestage,
+         'the decision is still open on this loan and still in scope to be asked',
+         JSON.stringify(decideRow));
+    await p.close();
+
+    /* ── 8. NO CHORE WHERE THE CHOICE CANNOT BITE ─────────────────────────── */
+    // Prestaging off and closing on lender statements: a second schedule on file
+    // changes no number, so asking would be a chore.
+    const q = await newHarnessPage({ tab: 'loans' });
+    const quiet = await q.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const keepP = a.prestage_enabled, keepB = a.close_basis;
+      a.prestage_enabled = false; a.close_basis = 'lender_statement';
+      const unsettledStill = _loanScheduleChoice(a).unsettled;
+      a.prestage_enabled = keepP; a.close_basis = keepB;
+      return { unsettledStill };
+    });
+    t.eq(quiet.unsettledStill, true,
+         'the question is still UNSETTLED as a fact — the scoping is about whether to ASK, not about pretending it is answered');
     await q.close();
   },
 });
