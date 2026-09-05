@@ -3736,6 +3736,94 @@ to "what is running".
 
 ---
 
+### Session 277 cont. 2 (2026-09-05) — WHAT CLOSING A LOAN NEEDS IS MEASURED, NOT TYPED
+
+David, after three uploads that changed nothing: *"moving forward, I assume that closing BayFirst
+(both loans) will require statements + a screenshot. If this is the case, it should be flagged as
+a requirement."* Then, on my first draft of exactly that: **"How do you make this scaleable?"**
+
+That question killed the draft, and it was right to. The draft recorded a hand-typed requirement
+on every loan. **This module knows what becomes of typed policy** — five wrong `interest_rate`
+values still on file, `prestage_enabled` documented as four loans and measured at eleven. A stale
+REQUIREMENT is worse than a stale number: it asks a person for the wrong thing every month until
+they stop reading the ask, and an ignored gate is the failure this module keeps re-fixing.
+
+#### THE MEASURED QUESTION, and it is one line
+> **DID THE LENDER'S BALANCE MOVE INSIDE THE MONTH AT ALL?**
+
+| | moves | August | asked for |
+|---|---|---|---|
+| BayFirst SBA 2 | 05-01, 06-02, 07-02, 07-31, next 09-02 | **none** | a balance dated after month end |
+| BayFirst SBA Loan | …, 07-03, **08-05** | one | **nothing** |
+
+SBA 2's balance did not move in August, so **no document that lender produces can carry an
+August-dated balance** — it only stamps dates on transactions and there were no August
+transactions. That is the whole reason a pull made during August comes back dated 07-31, and
+07-31 cannot close August (coversMonth, session 239). SBA Loan moved on the 5th, so one ordinary
+pull answers it and it gets NO chore — a requirement nobody needs is how a gate becomes a nag.
+
+**Two loans, one lender, opposite answers, same function, nobody typed either.** That is the
+argument for deriving, and David's "both loans" premise was measurably half right.
+
+#### ⚠️ MY FIRST SIGNAL WAS WRONG, AND THE WRONGNESS IS THE USEFUL PART
+It read the schedule's row dates, saw SBA 2 rows at **08-31 AND 09-02**, and concluded the lender
+applies at month end and clears in the next. Tidy, plausible, wrong. Those are **TWO COMPETING
+DERIVED SCHEDULES ON ONE LOAN** — `fd754708` dating every payment at month end, `a5554719` dating
+them on the 2nd, both `derived_from_statements`, both created 2026-08-25. `_loanScheduleRows`
+correctly picks one; I had queried without that filter, merged two documents that disagree, and
+read the seam as a cadence.
+
+**A pattern found by merging two sources that disagree is a property of the merge, not of the
+loan.** Filed as a finding — see below.
+
+#### NOT CIRCULAR, which was the trap worth naming
+The signal asks whether the balance **MOVED**, not whether a document is **on file**. A month with
+no move is a fact about the loan; a month with no document is a fact about us. Keying on the
+latter would have made the gate answer "why is there no evidence?" with "because there is no
+evidence" — the same shape as `balance_vs_lender` being counted as a cause of the gap it restates
+(session 262).
+
+**And it refuses.** Without a known move on BOTH sides of the month end there is no telling a
+skipped month from a gap in what we hold, and those want opposite answers. `known: false` is a
+real answer.
+
+#### WHAT THE CELL SAYS NOW
+"not received" reported an absence and could not say what would satisfy it — which is why the
+correct document was uploaded three times against that cell. It now **asks**, in the lender's own
+terms, in **amber because it is an ask and not a fault** (session 262), and it distinguishes a
+document that **cannot exist yet** from one that is **late**. Those rendered identically and only
+one of them is anybody's fault.
+
+#### THE EXCEPTION LAYER — `loan_accounts.close_evidence_exception`
+For constraints no history can reveal: Stripe's verdict needs an export from a system we cannot
+read (s245); Ford offers no export at all (s230). jsonb array, allowlisted `kind` so a new value
+fails safe, **left NULL everywhere for now** — seeding a derivable requirement re-creates the
+burden the derivation exists to remove. Where a recorded item and the derivation disagree, both
+show and the disagreement is a FINDING, never a silent override — the treatment `interest_rate`
+gets beside `fitted_annual_rate`.
+
+Migration applied and the data API's visibility proven BEFORE any code read it (session 176).
+
+#### A TEST THAT CHECKS A CLAIM MUST READ THE CLAIM, NOT ONE PHRASING OF IT
+Two assertions counted the English string `"not received"` and went red the moment the copy
+improved — a red for a reason that was not a bug, which is the most expensive kind. They now read
+a stable `data-evidence="awaiting"` marker. Same lesson as session 276's relocation rule, arriving
+on the copy instead of the DOM.
+
+`close-evidence`: **24 assertions, 0 red.** Wider sweep across close-band / close-gate /
+closing-evidence / loans-table / two-surfaces / history / ask-not-claim: **1,158 assertions, 1
+red**, and that one is Tech Debt #19, red on purpose.
+
+#### 🔎 OPEN — TWO DERIVED SCHEDULES ON BAYFIRST SBA 2
+`fd754708` and `a5554719`, same loan, same day, same source, disagreeing about the payment date by
+two days. `_loanScheduleRows` picks one by generated-date/created-at/id, so today's answer is
+stable but arbitrary — and a projection dated 08-31 instead of 09-02 is exactly the shape that
+trips `matched_early_suspect` every period forever (session 231). **Nobody has decided which is
+right.** Worth measuring across every prestaging loan before the auto-staging work in §0t, since
+that chain makes the chosen schedule load-bearing.
+
+---
+
 ### Session 277 (2026-09-05) — A PAYMENT'S MONTH COMES FROM THE MONEY, NOT THE PAPER
 
 §0u's question, finally answered on both halves. The duplicate is diagnosed, the root cause is
