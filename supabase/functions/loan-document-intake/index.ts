@@ -64,6 +64,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 // resolve defensively, so a future interop change surfaces as a clear error rather
 // than a silently-empty extractor.
 import pdfjsDefault from 'npm:pdfjs-dist@3.11.174/legacy/build/pdf.js'
+import { validateExtractedRows, type ExtractedRow } from '../_shared/extracted-rows.ts'
 const pdfjsLib: any = (pdfjsDefault && typeof (pdfjsDefault as any).getDocument === 'function')
   ? (pdfjsDefault as any)
   : ((pdfjsDefault as any)?.default && typeof (pdfjsDefault as any).default.getDocument === 'function'
@@ -521,14 +522,6 @@ function todayPacific(): string {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).toISOString().slice(0, 10)
 }
 
-export interface ExtractedRow {
-  date: string
-  principal: number | null
-  interest: number | null
-  payment: number | null
-  balance: number | null
-  kind?: string
-}
 
 async function extractTransactionsWithAi(
   input: { imageB64?: string; imageMediaType?: string; pdfB64?: string },
@@ -547,7 +540,15 @@ async function extractTransactionsWithAi(
     + 'figure, OMIT that field for that row. An omitted field is correct; a computed one is not.\n'
     + '- Do not reconcile, balance, or "fix" anything you think looks wrong. Transcribe what is there.\n'
     + '- Report every transaction row you can see, in the order they appear.\n'
-    + '- Dates must be ISO (YYYY-MM-DD). Amounts are plain numbers, no currency symbols or commas.'
+    + '- Dates must be ISO (YYYY-MM-DD). Amounts are plain numbers, no currency symbols or commas.\n'
+    + '- NEVER INVENT A YEAR. Many portals print only a day and month ("Sep 2"). If the year for '
+    + 'a row is not printed ANYWHERE in the document -- not on the row, not in a statement period, '
+    + 'not in a header -- set year_printed to false for that row and use 1900 as the year so it is '
+    + 'obviously not a real date. A guessed year is the worst kind of wrong number here, because it '
+    + 'looks exactly like a right one.\n'
+    + '- Report amounts EXACTLY as printed, including a minus sign if one is shown. Do not change a '
+    + 'sign to make a figure "make sense" -- the sign convention is worked out afterwards, from the '
+    + 'balances, and your job is to say what is on the page.'
 
   const tool = {
     name: 'report_loan_transactions',
@@ -561,7 +562,9 @@ async function extractTransactionsWithAi(
           items: {
             type: 'object',
             properties: {
-              date: { type: 'string', description: 'Transaction date, ISO YYYY-MM-DD, exactly as printed.' },
+              date: { type: 'string', description: 'Transaction date, ISO YYYY-MM-DD, exactly as printed. If no year is printed anywhere in the document, use 1900 as the year and set year_printed false.' },
+              year_printed: { type: 'boolean', description: 'True only if this row\'s YEAR is actually printed in the document (on the row, in a statement period, or in a header). False if you had to supply it. Never guess a year and report true.' },
+              date_as_printed: { type: 'string', description: 'The date exactly as it appears on the page, verbatim (e.g. "Sep 2", "7/31/26"). Lets a human check the reading.' },
               principal: { type: 'number', description: 'The principal portion printed on this row. Omit if not printed.' },
               interest: { type: 'number', description: 'The interest portion printed on this row. Omit if not printed.' },
               payment: { type: 'number', description: 'The payment / transaction amount printed on this row. Omit if not printed.' },
@@ -572,7 +575,7 @@ async function extractTransactionsWithAi(
                 description: "What this row represents, judged from its own label. Many portals break ONE payment into several rows sharing a date -- e.g. 'PRINCIPAL PAYMENT SPLIT OUT', 'INTEREST PAYMENT SPLIT OUT' and the payment itself. Label each row for what it says it is; do not combine them yourself.",
               },
             },
-            required: ['date'],
+            required: ['date', 'year_printed'],
           },
         },
       },
@@ -619,6 +622,11 @@ async function extractTransactionsWithAi(
       .map((r: any) => ({
         date: r.date, principal: n(r.principal), interest: n(r.interest), payment: n(r.payment), balance: n(r.balance),
         kind: KINDS.includes(r.kind) ? r.kind : 'other',
+        // Absent counts as NOT printed. A model that omits the field has not told
+        // us the year was on the page, and the safe reading of silence here is the
+        // one that refuses rather than the one that files a guessed date.
+        yearPrinted: r.year_printed === true,
+        dateAsPrinted: typeof r.date_as_printed === 'string' ? r.date_as_printed : null,
       }))
     return { rows, error: null }
   } catch (e) {
@@ -626,87 +634,6 @@ async function extractTransactionsWithAi(
   } finally {
     clearTimeout(timer)
   }
-}
-
-// The arithmetic gate. This, not the prompt, is what makes a transcribed figure
-// safe to act on -- a misread digit has to survive a same-row identity AND
-// agreement with its neighbour to get through.
-function validateExtractedRows(rows: ExtractedRow[], todayIso: string): {
-  periods: Array<{ statementDate: string; principalBalance: number; totalAmountDue: number | null; explicitSplit: { principal: number; interest: number } | null }>
-  rejected: Array<{ date: string; reason: string }>
-} {
-  const periods: any[] = []
-  const rejected: Array<{ date: string; reason: string }> = []
-
-  // ONE PAYMENT MAY ARRIVE AS SEVERAL ROWS. BayFirst's portal prints each payment
-  // as three lines sharing a date -- 'PRINCIPAL PAYMENT SPLIT OUT',
-  // 'INTEREST PAYMENT SPLIT OUT', and the payment itself -- each carrying its own
-  // running balance. Read row-by-row that is three transactions, none of which has
-  // both halves of a split, and the whole upload yields nothing (which is exactly
-  // what happened first time).
-  //
-  // So rows are grouped by date and recombined here rather than by the model: the
-  // model is asked only to LABEL each row for what it says it is, and the
-  // arithmetic below still has to agree afterwards. The balance taken for the group
-  // is the LOWEST one printed on that date -- the running balance after every part
-  // of the payment has been applied, which is the only one that is the period's
-  // closing balance.
-  const grouped = new Map<string, ExtractedRow[]>()
-  for (const r of rows) {
-    if (!grouped.has(r.date)) grouped.set(r.date, [])
-    grouped.get(r.date)!.push(r)
-  }
-  const merged: ExtractedRow[] = []
-  for (const [date, rs] of grouped) {
-    if (rs.length === 1) { merged.push(rs[0]); continue }
-    const sum = (k: string, f: (r: ExtractedRow) => number | null) =>
-      rs.filter((r) => r.kind === k).reduce((s, r) => s + (f(r) ?? 0), 0) || null
-    const principal = sum('principal', (r) => r.principal ?? r.payment)
-      ?? rs.map((r) => r.principal).find((v) => v !== null) ?? null
-    const interest = sum('interest', (r) => r.interest ?? r.payment)
-      ?? rs.map((r) => r.interest).find((v) => v !== null) ?? null
-    const paymentRow = rs.find((r) => r.kind === 'payment')
-    const payment = paymentRow?.payment ?? paymentRow?.principal
-      ?? (principal !== null && interest !== null ? Math.round((principal + interest) * 100) / 100 : null)
-    const balances = rs.map((r) => r.balance).filter((b): b is number => b !== null)
-    merged.push({
-      date, principal, interest, payment,
-      balance: balances.length ? Math.min(...balances) : null,
-      kind: 'payment',
-    })
-  }
-  const sorted = merged.sort((a, b) => a.date.localeCompare(b.date))
-  const horizon = new Date(new Date(todayIso).getTime() + 31 * 86400000).toISOString().slice(0, 10)
-
-  let prev: { date: string; balance: number } | null = null
-  for (const r of sorted) {
-    if (r.date < '1990-01-01' || r.date > horizon) { rejected.push({ date: r.date, reason: 'date outside a plausible range' }); continue }
-    if (r.balance === null) {
-      // Not an error: a lump-sum row often shows no balance. It is simply not a
-      // period this path can file, and loan-record-principal-payment owns it.
-      rejected.push({ date: r.date, reason: 'no principal balance printed on this row -- an extra-principal payment is recorded separately' })
-      continue
-    }
-    if (r.balance < 0) { rejected.push({ date: r.date, reason: 'negative balance' }); continue }
-
-    const hasSplit = r.principal !== null && r.interest !== null && r.principal > 0 && r.interest > 0
-    if (hasSplit && r.payment !== null && Math.abs((r.principal! + r.interest!) - r.payment) > 0.01) {
-      rejected.push({ date: r.date, reason: `principal $${r.principal!.toFixed(2)} + interest $${r.interest!.toFixed(2)} does not equal the payment $${r.payment.toFixed(2)} printed on the same row` })
-      continue
-    }
-    if (prev && r.principal !== null && Math.abs((prev.balance - r.principal) - r.balance) > 0.01) {
-      rejected.push({ date: r.date, reason: `balance ${r.balance.toFixed(2)} does not follow from the previous balance ${prev.balance.toFixed(2)} less principal ${r.principal.toFixed(2)}` })
-      continue
-    }
-    periods.push({
-      statementDate: r.date,
-      principalBalance: r.balance,
-      totalAmountDue: r.payment ?? (hasSplit ? Math.round((r.principal! + r.interest!) * 100) / 100 : null),
-      explicitSplit: hasSplit ? { principal: r.principal!, interest: r.interest! } : null,
-    })
-    prev = { date: r.date, balance: r.balance }
-  }
-  return { periods, rejected }
 }
 
 async function classifyWithAi(
