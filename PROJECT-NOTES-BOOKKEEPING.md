@@ -56,7 +56,27 @@
 >    (September is in the past; `ensureUpcomingSplit` only looks forward). It must be regenerated to
 >    **977.07 / 1,056.70** via `loan-generate-schedule-split` before it goes anywhere near Xero. The
 >    payment landed 2026-09-03, so it books through the ordinary review flow, NOT staging.
-> 3. Then §0n — wire the true-up in as a second proposal shape.
+> 3. **Re-derive the other six loans.** Only Funding Circle has been re-derived. The three Ford loans
+>    change (first-month interest: 4140 +26.69, E5-4751 +88.22, E6-7410 +60.07) and each has a live
+>    staged card that will still carry the OLD figure until it is unstaged and re-staged. E4-9744 and
+>    both BayFirst are unchanged and act as the control.
+> 4. Then §0n — wire the true-up in as a second proposal shape.
+>
+> #### 🔎 LOOSE ENDS, none urgent, all worth a glance when you open the module
+> * **Three splits sit in `pending_review` on three different loans.** One is Funding Circle's known-
+>   wrong 2026-09 card (above). **The other two were never looked at** — they may be perfectly fine,
+>   but "calculated, nobody approved it" is a state worth reading when one of the three is known bad.
+> * **Did anything fail to re-derive between 2026-09-04 and the redeploy?** `rederiveIfDerived` is
+>   called inside a try/catch, so while `fallbackPayment` was throwing the symptom was silence, not
+>   an error. Any statement ingested in that window left its schedule un-re-derived.
+> * **`refresh_rates` is the cheapest live probe of this code path and needs no JWT** — it runs
+>   `deriveSchedule` read-only across every active loan via the `x-wr-internal` secret. The SQL is in
+>   §0p. It is what caught the crash; a version number and a clean deploy log did not.
+> * **The dashboard has NO button that re-derives a schedule.** It happens automatically on statement
+>   ingest, or through a console call with an admin session (`_loanFn('loan-derive-schedule', {...})`).
+>   Worth knowing before hunting the UI for one.
+> * Tests now stand at **43** in `derive-anchor.test.mts` and **34** in `stale-split-trueup.test.mts`,
+>   both 0 red. The browser harness was last run before these commits — re-run it after §0q deploys.
 >
 > ### 0p. 🔴 DO THIS FIRST — REDEPLOY THE THREE FUNCTIONS (a fix landed AFTER the deploy)
 >
@@ -284,20 +304,16 @@
 > * **Node: every `.test.mts` green**, including the new 30. `loan-bundle.test.mts` still cannot
 >   import `pdfjs-dist` on this machine — pre-existing, unrelated.
 >
-> #### DO THESE NEXT, in this order
-> 1. **Commit** (nothing is committed). Then David pushes — the sandbox has no network.
-> 2. **Deploy the three functions that import the changed modules** — `loan-derive-schedule`,
->    `loan-ingest-statement`, `loan-record-principal-payment`. (`loan-xero-post` only mentions
->    derive-schedule in a comment; it does not import it.) **Verify by CONTENT** — grep the deployed
->    bundle for `selectAnchorEvidence` and `anchorIsPeriodEnd`, plus a control string that should
->    return 0. A version number proves a deploy was accepted, not that it runs.
-> 3. **Re-derive all seven loans** (`loan-derive-schedule`, dry run first) and check the written rows
->    against the table above. **The ROWS are the proof the deploy is live**, not the version.
-> 4. **Re-stage Funding Circle's September card at 977.07 / 1,056.70.** It is currently
->    `pending_review` (David removed the stage 2026-09-05; Xero reads `status: DELETED`, verified).
->    Do NOT re-stage before the re-derive, or it will regenerate August's figures.
-> 5. **Only then** build §0k's true-up and the one-time journal. They compare the lender's figure
->    against WHAT WAS BOOKED, and what gets booked changes from here on.
+> #### ✅ THE STEPS THIS SECTION ORIGINALLY LISTED ARE DONE — SEE §0q FOR WHAT IS LEFT
+> Committed, pushed, the three functions deployed, the crash they exposed fixed and redeployed, and
+> **Funding Circle re-derived and verified in the ROWS** (schedule `d4f4aff7`; 2026-09-01 reads
+> 977.07 / 1,056.70). The remaining work — deploy `loan-xero-post`, regenerate FC's September card,
+> then §0n — is listed in **§0q**, which is newer than this section. Do not work from the list that
+> used to be here; it is kept only so the order it prescribed stays on the record.
+>
+> **The other six loans have NOT been re-derived.** Only Funding Circle was. The other six were
+> measured as unchanged in balance, but three Ford loans DO move (first-month interest — see the
+> table above), so they still need re-deriving and their next staged card checked.
 >
 > ⚠️ **The backlog does not fix itself.** Re-anchoring corrects what we book NEXT month; it does not
 > move a cent of the ~$60.16 already sitting in Interest Expense ($29.64 of it inside closed books).
