@@ -2,81 +2,76 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 276, 2026-09-05)
 >
-> ### 0u. 🔴 THE THING DAVID ACTUALLY ASKED ABOUT, STILL UNFIXED — BAYFIRST SBA 2
+> ### 0v. 🔴 DO THIS FIRST — TWO DEPLOYS, THEN A THREE-MINUTE CLEANUP (session 277, 2026-09-05)
 >
-> **This is the session's original question and the only item in this block about WRONG
-> NUMBERS rather than layout.** It was diagnosed in full (session log 276 §2), agreed as
-> "root cause first, then cleanup", and then neither half was done — the phantom September
-> stage pulled the session sideways and nobody came back. Written here because a finding
-> that lives only in the session log is a finding the next session may not act on, which is
-> the same shape as everything else this session found.
+> Session 277 fixed the BayFirst statement-dating fault at the root and built the way out of
+> `already_in_xero`. **Everything is committed and nothing is deployed.** The phantom row is
+> still live and cannot be removed until `loan-xero-post` ships.
 >
-> #### (a) THE DUPLICATE IS STILL LIVE — clean this up first, it is five minutes
->
+> #### Step 1 — deploy, from David's own terminal, in the repo root
 > ```
-> period_label   principal  interest   status           computed
-> 2026-07          858.66   1,249.58   already_in_xero  2026-09-03   ← the duplicate
-> 2026-07-02       807.95   1,300.30   posted           2026-08-05   ← the real July payment
-> 2026-08          858.66   1,249.58   already_in_xero  2026-08-25   ← the real Aug 3 payment
+> npx -y supabase@latest functions deploy loan-xero-post --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> npx -y supabase@latest functions deploy loan-ingest-statement --project-ref umjpbuxrdydwejqtensq
+> ```
+> ⚠️ **`--no-verify-jwt` on the first and NOT on the second.** `loan-xero-post` is
+> `verify_jwt: false` and omitting the flag breaks every dashboard call; `loan-ingest-statement`
+> is `verify_jwt: true` and the flag would make it public.
+>
+> The migration is ALREADY APPLIED and the data API has been proven to see the new column
+> (`select=period_label_basis` returned 200, not a 42703), so the session 176 ordering trap is
+> cleared — the functions may ship.
+>
+> #### Step 2 — probe that it BOOTS, by behaviour (§0r's rule, six days running)
+> `list_edge_functions` against `git log` proves a deploy was ACCEPTED, not that it RUNS.
+> Cheapest probe for `loan-xero-post`: call it with a bad `loan_split_id` and look for a real
+> 404 in its own words. A 503 on the CORS preflight means it did not boot.
+>
+> #### Step 3 — remove the phantom, through the new path, not by SQL
+> Split `597882d1-5a32-46a4-817b-675629f02f41`, BayFirst SBA 2 (acct 6917479106), `2026-07`,
+> $858.66 / $1,249.58, `already_in_xero`. It and the real `2026-08` row both cite Xero
+> transaction `e895f420-83cc-4a38-b8c4-14ba09a96a16`, dated 2026-08-03. Same payment, twice.
+>
+> ```js
+> // admin console, admin session:
+> await _loanFn('loan-xero-post', { loan_split_id: '597882d1-5a32-46a4-817b-675629f02f41',
+>   unmark_already_in_xero: true, posted_by: 'David Macquart-Moulin',
+>   reason: 'Duplicate of the 2026-08 row -- same statement, same Xero transaction e895f420 (2026-08-03). Filed as 2026-07 by the pre-v46 statement-date inference.' })
+> // then void it via void_loan_split with the same reason.
+> ```
+> **Xero is NOT affected** — neither row ever wrote to it.
+>
+> #### Step 4 — verify by the numbers, not by the absence of an error
+> July's BayFirst SBA 2 principal, measured **before** the cleanup: **$1,666.61** (interest
+> $2,549.88), across `2026-07` and `2026-07-02`. Afterwards it must read **$807.95 / $1,300.30**
+> — the real July payment alone.
+> ```sql
+> select sum(principal_amount), sum(interest_amount) from loan_splits s
+> join loan_accounts la on la.id = s.loan_account_id
+> where la.lender_account_number='6917479106' and s.period_label like '2026-07%'
+>   and s.status in ('posted','already_in_xero','staged');
 > ```
 >
-> `2026-07` and `2026-08` are the SAME payment: both cite Xero transaction
-> `e895f420-83cc-4a38-b8c4-14ba09a96a16`, dated 2026-08-03, confirmed via `xero-read`.
-> Session 258 corrected the label to `2026-08` by hand; the row came back as `2026-07` on
-> 2026-09-03 because the ingest recomputed it (see (b)).
->
-> **Xero is NOT affected** — `already_in_xero` writes nothing, it is a WashRoute record
-> state. What IS affected is July's close rollforward, which sees 807.95 + 858.66 =
-> $1,666.61 of principal where only $807.95 belongs. Session 258's own note on the row says
-> exactly this. Verify July's rollforward before and after removing it.
->
-> ⚠️ Removing it is a DELETE on a financial row: void it rather than deleting if the invariant
-> allows (`already_in_xero` is a consumed status, so check `enforce_split_invariant` first).
->
-> #### (b) THE ROOT CAUSE — a payment's month comes from the paper, not the money
->
-> `loan-ingest-statement`, TWO places, both `const periodLabel = statement_date.slice(0, 7)`:
-> the anchors-only branch (~line 585) and the explicit_split branch (~line 714).
->
-> BayFirst applies on the last day of its cycle (7/31); the bank drafts two or three days
-> later (8/3). **The statement's DATE is correct** — this is not the `statement_date_basis`
-> mechanism and must not be "fixed" by re-dating the document. The date is right; the
-> inference from it is wrong.
->
-> Three symptoms, one line:
-> 1. The Aug 3 payment files as `2026-07` → the duplicate in (a). The duplicate CHECK keys on
->    the label it just computed, so a hand-corrected label is invisible to it and the fix is
->    undone on every re-ingest. **That is why session 258's correction did not hold.**
-> 2. `balance_vs_lender` compares Xero at 7/31 (136,760.26) against the lender at 7/31
->    (135,901.60). The $858.66 is a payment in transit, reported as a discrepancy because
->    nothing on the screen has a name for it.
-> 3. August's lender column reads "not received" — **and that is correct.** No lender balance
->    is dated in August. Do not "fix" this one.
->
-> #### THE FIX, three parts
-> 1. **Label the split by the MONEY.** When the amounts match a Xero bank transaction, take
->    the month from that transaction's date; fall back to the statement date otherwise, and
->    RECORD which was used (a column, not an inference — session 230's typed-number rule).
-> 2. **Key the duplicate check on the transaction id**, not the computed label, so a
->    corrected label can never hide an existing row from it.
-> 3. **Name the straddle** on the row instead of reporting it as a gap: "applied by the lender
->    7/31, cleared 8/3 — $858.66 in transit". Session 262's ask-don't-accuse rule.
->
-> Parts 1 and 2 are the correctness fix. Part 3 is presentation and can follow.
->
-> #### SCOPE — measured across every active loan's 2026 statements, not assumed
-> **BayFirst SBA 2 is the only loan** filing at month end with cash clearing the following
-> month. Funding Circle carries three duplicate pairs of the same SHAPE from a DIFFERENT
-> cause (the Xero backfill meeting statement ingest), all still open and all needing the same
-> kind of look:
->
+> #### Step 5 — the OTHER duplicates, which session 277 did not touch
+> Funding Circle carries three pairs of the same SHAPE from a DIFFERENT cause (the Xero backfill
+> meeting statement ingest), all still open:
 > ```
 > 2026-02  952.18/1,081.59  already_in_xero  ←→  2026-02-18  952.18/1,081.59  posted
 > 2026-03  966.45/1,067.32  already_in_xero  ←→  2026-03-18  966.45/1,067.32  posted
 > 2026-04  980.93/1,052.84  already_in_xero  ←→  2026-05-18  980.93/1,052.84  posted
 > ```
+> The third pair is offset by a month, which is its own question. The unmark mode makes these
+> removable for the first time — but **diagnose the cause before removing any of them**, or the
+> backfill recreates them exactly as the ingest recreated BayFirst's.
 >
-> Note the third pair is offset by a month, which is its own question.
+> ⚠️ **The 2026-07 label is NOT the same fault on both loans.** BayFirst's came from the
+> statement-date inference now fixed; Funding Circle's did not. Do not assume v46 covers them.
+>
+> #### What session 277 did NOT do, deliberately
+> Part 3 of §0u's plan — NAMING the straddle on the row ("applied by the lender 7/31, cleared
+> 8/3 — $858.66 in transit") instead of reporting it as a `balance_vs_lender` gap. That is
+> presentation and it follows the correctness fix. The material is now on the row:
+> `period_label_basis` says whether the month was measured, and `review_notes` carries the
+> sentence naming both dates.
 >
 > ### 0t. ⏭️ NEXT SESSION STARTS HERE — AUTO-STAGING, AND ITS PARKED CONDITION IS **MET**
 >
@@ -168,7 +163,13 @@
 > NOT fire.* Each refusal above gets one, plus a discrimination check — remove the refusal, the
 > assertion goes red. The five clean loops above are real fixture material.
 >
-> ### 0s. 🟡 SESSION 276 IS COMMITTED BUT **NOT PUSHED** — DAVID MUST `git push`
+> ### 0s. ✅ SESSION 276 IS PUSHED (checked 2026-09-05, session 277) — the block below was stale
+>
+> Local `main` matches `origin/main`, and FOUR commits from 2026-09-05 are on it (`aec9a21`,
+> `722f5cb`, `40b474f`, `18947a5`, `9b64027`), not the two this section names. Nothing to push.
+> Session 277's own commits are separate and ARE unpushed — see §0v.
+>
+> ~~SESSION 276 IS COMMITTED BUT **NOT PUSHED**~~
 >
 > **TWO commits: `aec9a21` and `722f5cb`.** `admin-dashboard/index.html`,
 > `tests/bookkeeping-harness.mjs`, `PROJECT-NOTES-BOOKKEEPING.md`, `build-version.txt`. No
@@ -331,7 +332,16 @@
 > * Tests now stand at **43** in `derive-anchor.test.mts` and **34** in `stale-split-trueup.test.mts`,
 >   both 0 red. The browser harness was last run before these commits — re-run it after §0q deploys.
 >
-> ### 0p. 🔴 DO THIS FIRST — REDEPLOY THE THREE FUNCTIONS (a fix landed AFTER the deploy)
+> ### 0p. ✅ DONE — the three functions ARE deployed (checked 2026-09-05, session 277)
+>
+> `list_edge_functions`: `loan-derive-schedule` v15, `loan-ingest-statement` v45 and
+> `loan-record-principal-payment` v11 all carry `updated_at` of 2026-09-05 ~03:29, twelve
+> minutes before `loan-xero-post` v68. Commit 5a1dafb shipped. **Seventh day this block has
+> carried a stale deploy claim** — it said DO THIS FIRST for a thing already done.
+>
+> ⚠️ `loan-ingest-statement` needs deploying AGAIN for session 277's v46 — see §0v.
+>
+> ~~DO THIS FIRST — REDEPLOY THE THREE FUNCTIONS~~ (original text below, for the reasoning)
 >
 > David deployed on 2026-09-05 and the very first probe of the live function returned
 > **`500 {"error":"fallbackPayment is not defined"}`**. Commit **5a1dafb** fixes it and is NOT
@@ -3684,6 +3694,118 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 277 (2026-09-05) — A PAYMENT'S MONTH COMES FROM THE MONEY, NOT THE PAPER
+
+§0u's question, finally answered on both halves. The duplicate is diagnosed, the root cause is
+fixed, and a one-way door nobody had noticed is now a door.
+
+#### The fault, restated in one line
+`loan-ingest-statement` decided a payment's month with `statement_date.slice(0, 7)`. BayFirst
+SBA 2 applies on the last day of its cycle (7/31) and the bank drafts two or three days later
+(8/3), so its August payment filed as `2026-07`. **The statement's date is correct** — this is
+not the `statement_date_basis` mechanism and must never be "fixed" by re-dating a document. The
+date is right; the inference from it was wrong.
+
+Measured before touching anything: July carries **$1,666.61 of principal** across two rows where
+only $807.95 belongs.
+
+#### ⛔ AND THE MARK TURNED OUT TO BE A ONE-WAY DOOR
+The five-minute cleanup could not be done at all, which is the finding worth keeping:
+
+* `revert` refuses anything that is not `posted` (`loan-xero-post` ~line 1042).
+* `void_loan_split` AND `enforce_split_invariant` both refuse `already_in_xero` with *"Remove the
+  stage or reverse the journal in Xero first"* — **on a row that has no journal.**
+* The dashboard has no unmark or void control for such a row at all.
+* The code says so in as many words: *"'already_in_xero' is the resolved state of the exception
+  flow … Nothing further to do, ever."*
+
+`mark_already_in_xero` writes **nothing** to Xero — its own branch returns
+`wrote_nothing_to_xero: true`. So a human's confirmation, which can be wrong and here was, was
+irreversible on **41 rows** (34 of them carrying no journal at all).
+
+#### WHAT SHIPPED
+
+**1. `loan-xero-post` v69 — `unmark_already_in_xero`.** The mirror of the mark. Writes nothing to
+Xero; returns the card to `pending_review`, where approve and void can reach it again. It does
+NOT decide the row's fate, which is the point — it retracts a note, it does not make a judgment.
+Requires a written `reason` (same standard as `void_loan_split`) and refuses on any sign we
+actually wrote to Xero for that row: a journal id, an attached bank transaction, `direct_split`
+posting, or a stage timestamp. Those cases still belong to revert and unstage, and the original
+guard is still right for them.
+
+**2. `loan-ingest-statement` v46, part 1 — the month comes from the money.** The rule lives in
+`_shared/period-label.ts` (`resolvePeriodLabel`), not inline, so it has one home and real tests.
+Given the lender's own principal and interest, it looks for a Xero bank transaction carrying
+BOTH legs — principal against the loan's account, interest against 800. Exactly one match, and
+its date decides the month.
+
+**Most of the rule is refusals, and that is what makes it a measurement rather than a
+division:**
+* more than one match → the statement date. On a loan whose payment is identical every month,
+  two months' transactions carry identical lines. Picking the nearest would repeat the mistake
+  that let Xero offer an earlier payment against a future stage (2026-08-21).
+* one leg only → no match. An adjacent month's principal can sit within two cents of this one;
+  matching on the principal alone would date the payment wrong with full confidence.
+* Xero unreachable → the old behaviour, **and it says so**. An outage must never silently change
+  how a period is labelled.
+
+The fetch is gated on the newest posted month, so a 2022-2026 bulk history upload does not make
+one Xero round trip per row to relabel periods that are filed as history and never become work.
+
+**3. `loan_splits.period_label_basis`** (migration `session_277_period_label_basis`) — session
+230's rule: a measured value and an assumed one must be told apart ON the row, not reconstructed
+later by whoever reads it. `'bank_transaction'` = measured, `'statement_date'` = assumed, NULL =
+written before this session. **No CHECK constraint, deliberately** — same reasoning as
+`loan_statements.source` (session 245): the readers allowlist the value meaning "the money said
+so", so a basis nobody has taught them about is treated as an assumption, which is the safe
+direction.
+
+Nullable, no default, **no backfill**: every existing row was written before the money was
+consulted, and stamping them all `'statement_date'` would claim a measurement that never
+happened.
+
+**4. `loan-ingest-statement` v46, part 2 — the duplicate check no longer keys on the label it
+just computed.** This is the half that explains why session 258's correction did not hold. The
+old check asked *"is there a row for the month I derived from this statement's date?"* — so the
+moment a human CORRECTS a label, the corrected row goes invisible and the next re-ingest creates
+it again. **A duplicate check keyed on a value the same function just computed cannot see a
+human's correction.** It now asks whether this statement DOCUMENT has already produced an
+`explicit_split` carrying these same figures, whatever month either row now wears.
+
+Deliberately narrow, and measured before relying on it: one statement legitimately produces many
+splits elsewhere on this book — PayPal 2 and Dexter file one per weekly payment row, day-labelled
+and sourced `statement_delta`. Matching on source AND both amounts cannot reach those.
+
+Parts 1 and 2 are independent defences over the same failure. Part 1 alone would have labelled
+it `2026-08` and the ordinary month check would have caught it; part 2 alone would have refused
+the second row whatever the label said. Neither is redundant — part 1 fails open on a Xero
+outage, which is exactly when part 2 has to hold.
+
+#### TESTS — `tests/period-label.test.mts`, 25 assertions, 0 red
+Imports the shipped function. Session 245's transcription trap and session 275's hand-composed
+dry run are the same mistake twice, and both were in files whose authors believed they were
+testing the code — so the fetch is INJECTED rather than performed, which is what lets the real
+function run with no network and no writes.
+
+Most assertions are about what it does NOT conclude. Four are explicit discrimination checks:
+the old `slice(0, 7)` rule is run against the same input and asserted to give a different
+(wrong) answer, and the ambiguous and one-legged cases each assert that the SAME transaction
+would have matched had the refusing condition been removed.
+
+`tests/edge-function-syntax.test.mts`: 52 functions and 44 shared modules parse, 0 red.
+
+#### ⚠️ NOT DONE — the cleanup itself, and it needs a deploy first
+The phantom row (`597882d1`, `2026-07`) is still live. Removing it runs through the new unmark
+mode, so **`loan-xero-post` must be deployed before it can happen**. Deliberately not done by
+raw SQL: the whole point of building the audited path was to use it, and running the retraction
+through the new code is also the only honest proof that it works.
+
+Order matters and is not optional (session 176): the migration is applied AND the data API has
+been proven to see the column — `select=period_label_basis` returned 200, not a 42703 — before
+either function deploys.
 
 ---
 

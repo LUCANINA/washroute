@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 import { rederiveIfDerived, REAL_SOURCES } from "../_shared/derive-schedule.ts"
 import { effectiveCloseDate, isPeriodClosed, closedNote } from "../_shared/close-date.ts"
 import { pairFeesToPayments, footingCheck, basisProvenBy } from '../_shared/statement-split-shape.ts'
+import { resolvePeriodLabel } from '../_shared/period-label.ts'
 
 // Ingests one pulled loan statement (Ford Pro CSV today; other lenders/methods later):
 //   1. stores the raw CSV in the loan-statements bucket (permanent proof record)
@@ -583,7 +584,54 @@ async function handleRequest(req: Request): Promise<Response> {
       const exP = explicit_split != null ? Number((explicit_split as any).principal) : NaN
       const exI = explicit_split != null ? Number((explicit_split as any).interest) : NaN
       const hasExplicit = Number.isFinite(exP) && Number.isFinite(exI) && exP > 0 && exI > 0
-      const periodLabel = statement_date.slice(0, 7)
+
+      // ── v46: A PAYMENT'S MONTH COMES FROM THE MONEY, NOT THE PAPER (session 277) ──
+      // The rule itself lives in _shared/period-label.ts, with its own reasoning and
+      // its own tests; this is only the part that has to happen here -- fetching the
+      // window to hand it. `resolvePeriodLabel` decides, and records in
+      // period_label_basis whether the month was MEASURED from the money or ASSUMED
+      // from the statement's date, so a reader is never left to infer which.
+      //
+      // The fetch is gated on the cutoff, and that is a cost decision with a rule
+      // behind it rather than an arbitrary window: a bulk history upload of 2022-2026
+      // would otherwise make one Xero round trip per row, to relabel periods that are
+      // filed as history and never become work. Only a period at or after the newest
+      // posted month can produce a split here at all, so only those are worth asking
+      // the money about.
+      //
+      // A Xero outage is passed through as `windowError`, never swallowed: the label
+      // falls back to the statement date, and SAYS it did. An outage must not silently
+      // change how a period is labelled.
+      const { data: doneSplitsPre } = await supa.from('loan_splits')
+        .select('period_label').eq('loan_account_id', loanAcct.id).in('status', ['posted', 'already_in_xero'])
+      const doneMonths = (doneSplitsPre || [])
+        .map((r: any) => String(r.period_label).slice(0, 7))
+        .filter((m: string) => /^\d{4}-\d{2}$/.test(m)).sort()
+      const cutoff = doneMonths.length ? doneMonths[doneMonths.length - 1] : null
+
+      let xeroWindow: any[] | null = null
+      let xeroWindowError: string | null = null
+      if (hasExplicit && loanAcct.xero_account_code && cutoff && statement_date.slice(0, 7) >= cutoff) {
+        try {
+          const win = await fetchLiveXeroWindow(
+            loanAcct.xero_account_code, loanAcct.xero_bank_account_id ?? null, statement_date, statement_date)
+          xeroWindow = win.bt || []
+        } catch (e) {
+          xeroWindowError = String((e as any)?.message || e)
+        }
+      }
+      const labelled = resolvePeriodLabel({
+        statementDate: statement_date,
+        principal: exP,
+        interest: exI,
+        loanAccountCode: String(loanAcct.xero_account_code || ''),
+        window: xeroWindow,
+        windowError: xeroWindowError,
+      })
+      const periodLabel = labelled.label
+      const periodLabelBasis = labelled.basis
+      const periodLabelNote = labelled.note
+
       let anchorSplit: any = null
       let anchorNote = 'Filed as a reconciliation history anchor -- no split was generated.'
 
@@ -594,14 +642,42 @@ async function handleRequest(req: Request): Promise<Response> {
           .select('id, status').eq('loan_account_id', loanAcct.id).eq('period_label', periodLabel).maybeSingle()
         const { data: sameDay } = await supa.from('loan_splits')
           .select('id, status').eq('loan_account_id', loanAcct.id).eq('period_label', statement_date).maybeSingle()
-        const { data: doneSplits } = await supa.from('loan_splits')
-          .select('period_label').eq('loan_account_id', loanAcct.id).in('status', ['posted', 'already_in_xero'])
-        const doneMonths = (doneSplits || [])
-          .map((r: any) => String(r.period_label).slice(0, 7))
-          .filter((m: string) => /^\d{4}-\d{2}$/.test(m)).sort()
-        const cutoff = doneMonths.length ? doneMonths[doneMonths.length - 1] : null
-
-        if (sameMonth) {
+        // ── v46: THE DUPLICATE CHECK MUST NOT KEY ON THE LABEL IT JUST COMPUTED ──
+        // (session 277.) `sameMonth` above asks "is there already a row for the month
+        // I derived from this statement's date?" -- so the moment a human CORRECTS a
+        // label, the corrected row becomes invisible to this check and the next
+        // re-ingest files the same payment again under the original month.
+        //
+        // That is not hypothetical. BayFirst SBA 2's 2026-08-03 payment was filed as
+        // 2026-07 (its statement is dated 7/31, the bank drafts on 8/3); session 258
+        // corrected the label to 2026-08; the re-ingest of 2026-09-03 recomputed
+        // 2026-07, found nothing there, and created it a second time. Two rows, one
+        // payment, both citing Xero transaction e895f420, and July's close
+        // rollforward counting $858.66 of principal that belongs to August.
+        //
+        // The document is the identity, not the label. This statement row IS one
+        // lender transaction line, so if it has already produced an explicit_split
+        // carrying these same figures, it must never produce a second one -- whatever
+        // month either row is now labelled.
+        //
+        // Deliberately narrow, because one statement legitimately produces MANY
+        // splits elsewhere on this book (PayPal 2 and Dexter file one per weekly
+        // payment row, day-labelled, sourced statement_delta). Matching on source
+        // AND both amounts cannot reach those.
+        const { data: sameDoc } = await supa.from('loan_splits')
+          .select('id, status, period_label, principal_amount, interest_amount')
+          .eq('loan_account_id', loanAcct.id)
+          .eq('current_statement_id', stmt.id)
+          .eq('source', 'explicit_split')
+        const sameDocDupe = (sameDoc || []).find((r: any) =>
+          Math.abs(Number(r.principal_amount) - exP) < AMOUNT_TOLERANCE &&
+          Math.abs(Number(r.interest_amount) - exI) < AMOUNT_TOLERANCE)
+        if (sameDocDupe) {
+          anchorNote = `Filed as a history anchor -- this statement has already produced a ${sameDocDupe.status} entry `
+            + `($${exP.toFixed(2)} principal + $${exI.toFixed(2)} interest, filed as ${sameDocDupe.period_label}), so nothing was added. `
+            + `The existing row's label differs from the ${periodLabel} computed here (basis: ${periodLabelBasis}), `
+            + `which is why the month-based check above does not see it.`
+        } else if (sameMonth) {
           anchorNote = `Filed as a history anchor -- a ${sameMonth.status} entry already exists for ${periodLabel}, so nothing was added.`
         } else if (sameDay) {
           anchorNote = `Filed as a history anchor -- an entry dated ${statement_date} already exists (${sameDay.status}), so nothing was added.`
@@ -620,7 +696,8 @@ async function handleRequest(req: Request): Promise<Response> {
             source: 'explicit_split',
             principal_amount: p, interest_amount: i, total_amount: t,
             status: 'pending_review',
-            review_notes: `Taken from the lender's own transaction history for ${statement_date}: principal $${p.toFixed(2)} + interest $${i.toFixed(2)}. Both figures are the lender's, not computed from a balance difference.`,
+            period_label_basis: periodLabelBasis,
+            review_notes: `Taken from the lender's own transaction history for ${statement_date}: principal $${p.toFixed(2)} + interest $${i.toFixed(2)}. Both figures are the lender's, not computed from a balance difference.${periodLabelNote}`,
           }).select().single()
           if (createErr) {
             anchorNote = `Filed as a history anchor, but the entry for ${periodLabel} could not be created: ${createErr.message}`

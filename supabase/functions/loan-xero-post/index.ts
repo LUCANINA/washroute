@@ -944,7 +944,7 @@ async function handleRequest(req: Request): Promise<Response> {
   try {
     if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'POST only' }), { status: 405 })
     const body = await req.json().catch(() => ({}))
-    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by, attach_only, mark_already_in_xero, stage, unstage, sweep_stages } = body
+    const { loan_split_id, confirm, revert, bank_transaction_id, posted_by, attach_only, mark_already_in_xero, unmark_already_in_xero, reason, stage, unstage, sweep_stages } = body
 
     // v41: the sweep is the one mode not keyed on a single split -- it has its own
     // auth (admin/manager, or pg_cron with the service-role key) and returns early.
@@ -955,7 +955,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403 })
     }
-    if ((confirm || revert || attach_only || mark_already_in_xero || unstage) && !['admin', 'manager'].includes(role)) {
+    if ((confirm || revert || attach_only || mark_already_in_xero || unmark_already_in_xero || unstage) && !['admin', 'manager'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Your account has read-only access -- posting to or reverting from Xero requires an admin or manager.' }), { status: 403 })
     }
 
@@ -999,6 +999,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // instead, so the refusal is never a surprise at the moment of clicking.
     const wantsWrite = confirm === true || stage === true || revert === true
       || unstage === true || mark_already_in_xero === true || attach_only === true
+      || unmark_already_in_xero === true
 
     // session 273 cont.: A VOIDED CARD IS NOT A QUEUE ITEM.
     // Funding Circle 2026-08 was voided on 2026-08-25 and then marked
@@ -1142,6 +1143,81 @@ async function handleRequest(req: Request): Promise<Response> {
         reverted: 'manual_journal',
         manual_journal: voidResult,
       }, null, 2), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    // ── v69: UNMARK. THE MARK WAS A ONE-WAY DOOR (session 277) ────────────────
+    // `mark_already_in_xero` records, in OUR records alone, that a human looked at
+    // Xero and confirmed the month was handled there. It writes NOTHING to Xero --
+    // its own branch below returns `wrote_nothing_to_xero: true`. But there was no
+    // way back out of it: `revert` refuses anything that is not `posted`, and both
+    // `void_loan_split` and `enforce_split_invariant` refuse `already_in_xero` with
+    // "reverse the journal in Xero first" -- on a row that has no journal. The
+    // comment below this one said, in as many words, "nothing further to do, ever."
+    //
+    // A human's confirmation can be wrong, and on BayFirst SBA 2 it was: a re-ingest
+    // filed the 2026-08-03 payment a second time under 2026-07 (the statement's own
+    // month), the duplicate was marked handled on the strength of the SAME Xero
+    // transaction as the real August row, and July's close rollforward has been
+    // double-counting $858.66 of principal ever since with no way to retract it.
+    //
+    // A retraction is not a Xero operation, so this does not touch Xero. It also
+    // does not decide the row's fate: it returns the card to `pending_review`, where
+    // the ordinary paths (approve, or void with a reason) can reach it again. It
+    // refuses on any sign that WE wrote to Xero for this row, because that is the
+    // case the original guard was written for and it is still right.
+    if (unmark_already_in_xero) {
+      if (split.status !== 'already_in_xero') {
+        return new Response(JSON.stringify({
+          error: `This split is '${split.status}', not 'already_in_xero' -- there is no "handled in Xero" mark to retract.`,
+        }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+      // The refusals. Each one names a way this row could have reached Xero through
+      // us; any of them means the answer is revert/unstage, never a quiet unmark.
+      const reachedXero = split.xero_manual_journal_id
+        ? `it carries Xero Manual Journal ${split.xero_manual_journal_id}`
+        : split.matched_xero_bank_transaction_id
+        ? `it is attached to Xero bank transaction ${split.matched_xero_bank_transaction_id}`
+        : split.posting_method === 'direct_split'
+        ? 'it was posted as a direct split, which rewrote the bank transaction in Xero'
+        : split.staged_at
+        ? 'it carries a stage timestamp, so a pre-split transaction may exist in Xero'
+        : null
+      if (reachedXero) {
+        return new Response(JSON.stringify({
+          error: `Refusing to retract the mark on this split -- ${reachedXero}. `
+            + `Unmarking only ever undoes a record-state note that wrote nothing to Xero. `
+            + `Use revert (to void the journal) or unstage (to remove the staged transaction) instead, `
+            + `so WashRoute and Xero move together.`,
+        }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+      // A retraction with no reason is a retraction with no audit trail, and the
+      // reason is the most valuable thing about it -- same standard as void_loan_split.
+      const unmarkReason = typeof reason === 'string' ? reason.trim() : ''
+      if (!unmarkReason) {
+        return new Response(JSON.stringify({
+          error: 'A reason is required to retract the "handled in Xero" mark -- pass `reason` saying why the confirmation no longer holds.',
+        }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+      const { error: unmarkErr } = await supa
+        .from('loan_splits')
+        .update({
+          status: 'pending_review',
+          review_notes: ((split.review_notes ? split.review_notes + ' -- ' : '')
+            + `Retracted the "already handled in Xero" mark ${new Date().toISOString().slice(0, 10)}`
+            + `${posted_by ? ' by ' + posted_by : ''}. Nothing was written to or changed in Xero. `
+            + `Reason: ${unmarkReason}`).slice(0, 4000),
+        })
+        .eq('id', loan_split_id)
+      if (unmarkErr) {
+        return new Response(JSON.stringify({ error: `Could not update the split: ${unmarkErr.message}` }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        unmarked: 'already_in_xero',
+        now: 'pending_review',
+        wrote_nothing_to_xero: true,
+        reason: unmarkReason,
+      }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
     // attach_only is exempt: it exists precisely to repair an ALREADY-posted split's
