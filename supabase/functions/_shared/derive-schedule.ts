@@ -298,7 +298,27 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   // than absorbed: it means the stated payment, the balances, or the model is wrong,
   // and a human should decide which.
   const solved = solvePaymentAndRate(best.model, stmts)
-  const usedPayment = recurringPayment(clean, fallbackPayment)
+  // ⚠ SESSION 275: `fallbackPayment` DID NOT EXIST HERE AND THIS LINE THREW.
+  // Session 270 correctly removed the typed-payment fallback
+  // (`const fallbackPayment = stated ?? num(loan.scheduled_monthly_payment)`),
+  // fixed the FIRST use of it 25 lines up in buildPeriods -- and left this one
+  // referencing a name that no longer existed. Every successful derive reaches
+  // this line, so `deriveSchedule` threw `fallbackPayment is not defined` on its
+  // whole happy path from the moment that shipped.
+  //
+  // Why nobody saw it: `rederiveIfDerived` is called from loan-ingest-statement
+  // and loan-record-principal-payment inside a try/catch that keeps the upload
+  // working, so the visible behaviour was "statements still ingest, schedules
+  // quietly stop being re-derived" -- a silence, not an error. It surfaced only
+  // because session 275 probed the deployed function's BEHAVIOUR instead of
+  // reading its version number.
+  //
+  // The fallback is `stated` -- the lender's own figure, already refused above if
+  // null -- and NOT the typed monthly note, which is what session 270 removed and
+  // must stay removed. In practice it is never reached: `clean` is non-empty by
+  // the time we get here (the minPeriods gate returned already), so
+  // recurringPayment takes the median of the clean periods' own payments.
+  const usedPayment = recurringPayment(clean, stated)
   const paymentCheck = solved && usedPayment
     ? {
         solved_payment: solved.payment,

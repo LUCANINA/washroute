@@ -27,7 +27,7 @@
 // a transcript.
 
 import { readFileSync } from 'node:fs'
-import { selectAnchorEvidence } from '../supabase/functions/_shared/derive-schedule.ts'
+import { selectAnchorEvidence, deriveSchedule } from '../supabase/functions/_shared/derive-schedule.ts'
 import {
   collapseDuplicateBalances, buildPeriods, classifyPeriods, chooseFit, projectRows,
   recurringPayment, statedPayment, medianDayOfMonth, paymentDayOfMonth,
@@ -209,6 +209,84 @@ console.log('\n4. anchor_statement_date stores the FILED date, and must')
   ok('storing the re-dated date instead would disable the guard for ever',
     String(last.statement_date) > newestFiled,
     `${last.statement_date} vs ${newestFiled}`)
+}
+
+// ── 5. THE WHOLE FUNCTION, NOT ITS PARTS ───────────────────────────────────
+// ⚠ WHY THIS SECTION EXISTS, AND IT IS THE MOST IMPORTANT ONE IN THE FILE.
+//
+// Everything above exercises the PIECES. Session 275 also wrote a dry-run that
+// composed those pieces by hand to print a before/after for all seven loans, and
+// it agreed with the fix beautifully. Then the deployed function returned
+// `fallbackPayment is not defined` on its first real call.
+//
+// The dry run never executed that line, because it re-implemented deriveSchedule
+// instead of calling it. That is session 245's transcription trap — a copy
+// agreeing with itself — arriving inside the verification written to prove the
+// change was safe, one commit after a test file whose header warns about exactly
+// this. Testing the parts is not testing the whole.
+//
+// So: drive the REAL deriveSchedule, with a stub standing in only for Supabase.
+// No network, no DB, dry run (`confirm` omitted) so it can never write.
+console.log('\n5. deriveSchedule itself, end to end')
+{
+  const fc = loan('Funding Circle Loan')
+  const rows = rowsOf(fc).map((r: any, i: number) => ({ id: `s${i}`, source: 'portal_manual_pull', ...r }))
+
+  // The narrowest thing that can stand in for the client: it answers the one
+  // SELECT deriveSchedule makes before the fit, and records anything else.
+  const seen: string[] = []
+  const stub: any = {
+    from(table: string) {
+      seen.push(table)
+      const q: any = {
+        select: () => q, eq: () => q, in: () => q, not: () => q, lte: () => q, gte: () => q,
+        lt: () => q, order: () => q, limit: () => q, maybeSingle: async () => ({ data: null }),
+        single: async () => ({ data: null, error: null }),
+        insert: () => { throw new Error('a dry run must not write') },
+        update: () => { throw new Error('a dry run must not write') },
+        upsert: () => { throw new Error('a dry run must not write') },
+        then: (res: any) => res({ data: table === 'loan_statements' ? rows : [], error: null }),
+      }
+      return q
+    },
+  }
+  const loanRow = {
+    id: 'fc', status: 'active', xero_account_name: 'Funding Circle Loan', lender: 'iBusiness',
+    statement_date_basis: fc.basis, maturity_date: fc.maturity,
+    scheduled_monthly_payment: fc.scheduled, interest_rate: 20.0,
+  }
+
+  let out: any = null, threw: any = null
+  try { out = await deriveSchedule(stub, loanRow, {}) } catch (e) { threw = e }
+
+  ok('it does not throw', threw === null, threw ? String(threw && (threw as Error).message) : '')
+  ok('it returns a result', !!out && out.ok === true, JSON.stringify(out).slice(0, 300))
+  if (out?.ok) {
+    eq('the anchor is the labelled month-end balance', out.anchor.balance, 65173.94)
+    eq('...dated when that balance is true', out.anchor.statement_date, '2026-08-31')
+    eq('...while the DOCUMENT date is kept for the staleness guard', out.anchor.filed_date, '2026-08-01')
+    eq('the payment is the lender\'s own stated instalment', out.anchor.payment, 2033.77)
+    eq('the unlabelled row is named as skipped',
+      out.anchor.skipped_for_basis.map((x: any) => x.date), ['2026-08-03'])
+    // ⚠ CAUGHT BY THIS ASSERTION BEING WRONG FIRST, AND WORTH THE WORDS.
+    // `first_future_rows` filters on `row_date >= today`, so on 2026-09-05 the
+    // 2026-09-01 row is correctly NOT a future row — September's payment has
+    // already happened and belongs in the ordinary review flow, not staging. The
+    // row is still generated and still written; only this REPORT excludes it.
+    // Session 275's hand-composed dry run appeared to show September here only
+    // because it widened that filter by hand, which is the sort of difference a
+    // re-implementation hides and calling the real function exposes.
+    eq('the first FUTURE row is October, September having already been paid',
+      out.first_future_rows?.[0]?.row_date, '2026-10-01')
+    // DISCRIMINATION: under the OLD anchor, October carried 977.07/1056.70 —
+    // September's true figures, one period late. Getting 961.23/1072.54 here is
+    // the whole fix, visible in the one place a projection is actually read.
+    eq('...at the figures the corrected anchor gives it',
+      [out.first_future_rows[0].interest, out.first_future_rows[0].principal], [961.23, 1072.54])
+    ok('...which is NOT the stale value the old anchor produced',
+      !(out.first_future_rows[0].interest === 977.07 && out.first_future_rows[0].principal === 1056.7))
+    ok('it wrote nothing', out.dry_run === true && out.wrote_nothing === true)
+  }
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`)
