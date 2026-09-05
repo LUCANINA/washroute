@@ -2,76 +2,68 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 276, 2026-09-05)
 >
-> ### 0v. 🔴 DO THIS FIRST — TWO DEPLOYS, THEN A THREE-MINUTE CLEANUP (session 277, 2026-09-05)
+> ### 0v. ✅ DONE AND VERIFIED — BAYFIRST'S DUPLICATE IS GONE (session 277, 2026-09-05)
 >
-> Session 277 fixed the BayFirst statement-dating fault at the root and built the way out of
-> `already_in_xero`. **Everything is committed and nothing is deployed.** The phantom row is
-> still live and cannot be removed until `loan-xero-post` ships.
+> Deployed, pushed, and the cleanup is complete. **Verified by the numbers, not by the absence
+> of an error:**
 >
-> #### Step 1 — deploy, from David's own terminal, in the repo root
-> ```
-> npx -y supabase@latest functions deploy loan-xero-post --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> npx -y supabase@latest functions deploy loan-ingest-statement --project-ref umjpbuxrdydwejqtensq
-> ```
-> ⚠️ **`--no-verify-jwt` on the first and NOT on the second.** `loan-xero-post` is
-> `verify_jwt: false` and omitting the flag breaks every dashboard call; `loan-ingest-statement`
-> is `verify_jwt: true` and the flag would make it public.
+> | July, BayFirst SBA 2 (acct 6917479106) | principal | interest | rows |
+> |---|---|---|---|
+> | before | $1,666.61 | $2,549.88 | 2 |
+> | after | **$807.95** | **$1,300.30** | **1** |
 >
-> The migration is ALREADY APPLIED and the data API has been proven to see the new column
-> (`select=period_label_basis` returned 200, not a 42703), so the session 176 ordering trap is
-> cleared — the functions may ship.
+> * `loan-xero-post` **v69**, `loan-ingest-statement` **v46**, both deployed 2026-09-05 and both
+>   with `verify_jwt` preserved (false / true respectively — the flags were passed correctly).
+> * v69 **BOOTS, by behaviour**: an unauthenticated call to the new mode returned
+>   `403 {"error":"Not authorized."}` — the function's own words, not a 503 on the preflight.
+> * Split `597882d1` is `voided`, stamped `voided_by = David Macquart-Moulin` with the reason on
+>   the row. The real July payment (`2026-07-02`, $807.95) keeps its journal `38955254`,
+>   untouched. `2026-08` is intact. **Nothing was written to Xero at any point** — neither row
+>   ever carried a journal.
+> * Migration `session_277_period_label_basis` applied, and the data API was proven to see the
+>   column BEFORE either function shipped (session 176's ordering trap).
 >
-> #### Step 2 — probe that it BOOTS, by behaviour (§0r's rule, six days running)
-> `list_edge_functions` against `git log` proves a deploy was ACCEPTED, not that it RUNS.
-> Cheapest probe for `loan-xero-post`: call it with a bad `loan_split_id` and look for a real
-> 404 in its own words. A 503 on the CORS preflight means it did not boot.
+> #### 🟡 A 409 THAT IS CORRECT BEHAVIOUR, WRITTEN DOWN SO IT IS NOT RE-DEBUGGED
+> Running the cleanup snippet a SECOND time prints a red `409` for the unmark and a green `200`
+> for the void. Both are right, and the asymmetry is deliberate:
+> * the unmark refuses because the row is by then **voided** — session 273's guard, saying so in
+>   English instead of surfacing a raw constraint error;
+> * `void_loan_split` is idempotent by construction (*"a retry is a no-op, never an error"*).
 >
-> #### Step 3 — remove the phantom, through the new path, not by SQL
-> Split `597882d1-5a32-46a4-817b-675629f02f41`, BayFirst SBA 2 (acct 6917479106), `2026-07`,
-> $858.66 / $1,249.58, `already_in_xero`. It and the real `2026-08` row both cite Xero
-> transaction `e895f420-83cc-4a38-b8c4-14ba09a96a16`, dated 2026-08-03. Same payment, twice.
+> **A red line in the console is not evidence the first run failed.** The proof it succeeded is
+> in the row: the retraction sentence in `review_notes` is written by nothing but the new unmark,
+> and the void's own guard refuses `already_in_xero` outright — so the void could only have
+> succeeded after a retraction had already landed. Read the row, not the console.
 >
-> ```js
-> // admin console, admin session:
-> await _loanFn('loan-xero-post', { loan_split_id: '597882d1-5a32-46a4-817b-675629f02f41',
->   unmark_already_in_xero: true, posted_by: 'David Macquart-Moulin',
->   reason: 'Duplicate of the 2026-08 row -- same statement, same Xero transaction e895f420 (2026-08-03). Filed as 2026-07 by the pre-v46 statement-date inference.' })
-> // then void it via void_loan_split with the same reason.
-> ```
-> **Xero is NOT affected** — neither row ever wrote to it.
->
-> #### Step 4 — verify by the numbers, not by the absence of an error
-> July's BayFirst SBA 2 principal, measured **before** the cleanup: **$1,666.61** (interest
-> $2,549.88), across `2026-07` and `2026-07-02`. Afterwards it must read **$807.95 / $1,300.30**
-> — the real July payment alone.
-> ```sql
-> select sum(principal_amount), sum(interest_amount) from loan_splits s
-> join loan_accounts la on la.id = s.loan_account_id
-> where la.lender_account_number='6917479106' and s.period_label like '2026-07%'
->   and s.status in ('posted','already_in_xero','staged');
-> ```
->
-> #### Step 5 — the OTHER duplicates, which session 277 did not touch
-> Funding Circle carries three pairs of the same SHAPE from a DIFFERENT cause (the Xero backfill
-> meeting statement ingest), all still open:
+> #### ⏭️ WHAT REMAINS FROM THIS THREAD — Funding Circle's three pairs
+> Same SHAPE, **different cause** (the Xero backfill meeting statement ingest), all still open.
+> The unmark mode makes them removable for the first time:
 > ```
 > 2026-02  952.18/1,081.59  already_in_xero  ←→  2026-02-18  952.18/1,081.59  posted
 > 2026-03  966.45/1,067.32  already_in_xero  ←→  2026-03-18  966.45/1,067.32  posted
 > 2026-04  980.93/1,052.84  already_in_xero  ←→  2026-05-18  980.93/1,052.84  posted
 > ```
-> The third pair is offset by a month, which is its own question. The unmark mode makes these
-> removable for the first time — but **diagnose the cause before removing any of them**, or the
-> backfill recreates them exactly as the ingest recreated BayFirst's.
+> The third pair is offset by a month, which is its own question.
 >
-> ⚠️ **The 2026-07 label is NOT the same fault on both loans.** BayFirst's came from the
-> statement-date inference now fixed; Funding Circle's did not. Do not assume v46 covers them.
+> ⚠️ **DIAGNOSE BEFORE REMOVING, and do not assume v46 covers them.** BayFirst's duplicate came
+> from the statement-date inference now fixed; Funding Circle's did not. Removing these without
+> finding the cause means the backfill recreates them exactly as the ingest recreated BayFirst's
+> — which is the whole reason session 258's correction did not hold.
 >
-> #### What session 277 did NOT do, deliberately
-> Part 3 of §0u's plan — NAMING the straddle on the row ("applied by the lender 7/31, cleared
-> 8/3 — $858.66 in transit") instead of reporting it as a `balance_vs_lender` gap. That is
-> presentation and it follows the correctness fix. The material is now on the row:
-> `period_label_basis` says whether the month was measured, and `review_notes` carries the
-> sentence naming both dates.
+> ⚠️ Also: **these three all sit in CLOSED books** (`books_closed_through = 2026-06-30`). The
+> unmark is a record-state write and the close-date guard covers it, so it will refuse them.
+> That refusal is correct and is the question to answer first, not a bug to route around.
+>
+> #### Also not done, deliberately
+> Part 3 of §0u's plan — NAMING the straddle on the row (*"applied by the lender 7/31, cleared
+> 8/3 — $858.66 in transit"*) rather than reporting it as a `balance_vs_lender` gap. Presentation,
+> and it follows the correctness fix. The material is now on the row: `period_label_basis` says
+> whether the month was measured, and `review_notes` carries the sentence naming both dates.
+>
+> #### And one gap this exposed
+> **There is still no UI for any of it.** Unmark and void are console-only; the dashboard has no
+> control for either, on any of the 40 remaining `already_in_xero` rows. Worth building before
+> the Funding Circle pairs, or the next person to need this reaches for raw SQL.
 >
 > ### 0t. ⏭️ NEXT SESSION STARTS HERE — AUTO-STAGING, AND ITS PARKED CONDITION IS **MET**
 >
@@ -3797,15 +3789,27 @@ would have matched had the refusing condition been removed.
 
 `tests/edge-function-syntax.test.mts`: 52 functions and 44 shared modules parse, 0 red.
 
-#### ⚠️ NOT DONE — the cleanup itself, and it needs a deploy first
-The phantom row (`597882d1`, `2026-07`) is still live. Removing it runs through the new unmark
-mode, so **`loan-xero-post` must be deployed before it can happen**. Deliberately not done by
-raw SQL: the whole point of building the audited path was to use it, and running the retraction
-through the new code is also the only honest proof that it works.
+#### ✅ DEPLOYED AND THE CLEANUP IS DONE — verified by the numbers
+`loan-xero-post` v69 and `loan-ingest-statement` v46, both 2026-09-05, both with `verify_jwt`
+preserved. v69 boots by behaviour (403 in its own words, not a 503 on the preflight).
 
-Order matters and is not optional (session 176): the migration is applied AND the data API has
-been proven to see the column — `select=period_label_basis` returned 200, not a 42703 — before
-either function deploys.
+The retraction was run through the NEW path rather than by raw SQL — the point of building an
+audited route is to use it, and it is also the only honest proof the code works. July's
+BayFirst SBA 2 principal went **$1,666.61 → $807.95** across **2 rows → 1**. The real July
+payment keeps its journal `38955254`; `2026-08` is intact; nothing was written to Xero.
+
+Order held (session 176): migration applied AND the data API proven to see the column —
+`select=period_label_basis` returned 200, not a 42703 — before either function shipped.
+
+**A second run of the cleanup prints a 409 for the unmark and a 200 for the void, and both are
+correct**: the row is voided by then, so session 273's guard refuses the write in English, while
+`void_loan_split` is idempotent by construction. The proof the first run worked is the retraction
+sentence in `review_notes`, which nothing else writes — plus the fact that the void's own guard
+refuses `already_in_xero`, so it could not have succeeded before a retraction landed. **Read the
+row, not the console.**
+
+Still no UI for either action: unmark and void are console-only across all 40 remaining
+`already_in_xero` rows. See §0v.
 
 ---
 
