@@ -9767,6 +9767,150 @@ GROUPS.push({
   },
 });
 
+/* ── A MONTH-LABELLED PAYMENT AT THE ROLL-BACK WINDOW EDGE (session 277) ──── */
+GROUPS.push({
+  name: 'rollback-month-label',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    // The real shape, and it cost an afternoon. BayFirst SBA 2's lender applies on
+    // the last day of its cycle and the bank drafts days later, so no document is
+    // ever dated inside the month and August can only close by rolling a LATER
+    // statement back. The walk then meets the September payment card -- labelled
+    // '2026-09' because `staging-next` labels a monthly cadence by month, by design
+    // -- and refused, because a month "straddles the edge of the window".
+    //
+    // But that split carries amortization_row_id, and its row is dated 2026-09-02:
+    // the same PAYMENT DUE DATE printed on the lender's own statement. The day was
+    // never missing. Refusing on it meant August could not be checked against a
+    // lender document until September ENDED.
+    // `status` is pinned by the test rather than taken from the fixture, and that
+    // is deliberate. The subject here is how a month-labelled split is DATED; the
+    // separate rule about a payment not yet in the books is asserted on its own in
+    // §6. Leaving it to the fixture made this group's answer depend on where one
+    // split happened to sit on the day the fixture was pulled -- it was 'staged'
+    // then and 'already_in_xero' hours later, which is how a stale fixture turns a
+    // real test into a coin flip (the harness's own warning, earned here).
+    const probe = (docIso, monthEndIso, status = 'already_in_xero') =>
+      p.evaluate(([docIso, monthEndIso, status]) => {
+        const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+        if (!a) return { err: 'BayFirst SBA 2 not in fixture' };
+        const sp = (_allLoanSplits || []).find(s => s.loan_account_id === a.id && s.period_label === '2026-09');
+        if (!sp) return { err: 'no 2026-09 split for BayFirst SBA 2 in fixture' };
+        const row = sp.amortization_row_id
+          ? (_allLoanAmortRows || []).find(r => r.id === sp.amortization_row_id) : null;
+        const keep = sp.status;
+        sp.status = status;                     // in-page fixture only, never written
+        const w = _loanRollbackWalk(a, monthEndIso, docIso);
+        sp.status = keep;
+        return {
+          refuse: w.refuse || null,
+          principal: w.refuse ? null : +Number(w.principal).toFixed(2),
+          splitLabel: sp.period_label,
+          splitPrincipal: +Number(sp.principal_amount).toFixed(2),
+          rowDate: row && row.row_date ? String(row.row_date).slice(0, 10) : null,
+          fixtureStatus: keep,
+        };
+      }, [docIso, monthEndIso, status]);
+
+    /* ── 1. THE PRECONDITIONS ARE REAL, not assumed ───────────────────────── */
+    const aug = await probe('2026-09-02', '2026-08-31');
+    t.ok(!aug.err, 'the fixture carries BayFirst SBA 2', aug.err || '');
+    t.eq(aug.splitLabel, '2026-09',
+         'its September payment really is labelled by MONTH, not by date');
+    t.eq(aug.rowDate, '2026-09-02',
+         '...while the schedule row it points at carries the DAY — so the date was never missing');
+
+    /* ── 2. THE WALK NOW ANSWERS ──────────────────────────────────────────── */
+    t.eq(aug.refuse, null,
+         '⭐ a 9/02 statement can be rolled back to 8/31 — no straddle refusal');
+    t.eq(aug.principal, aug.splitPrincipal,
+         '...adding back exactly the September principal, measured from the schedule row');
+
+    /* ── 3. IT DISCRIMINATES — the refusal reinstated, on the shipped code ─── */
+    // Never by editing index.html: the inverse is applied to the function's own
+    // toString() in page context, so what goes red is the code that ships.
+    const rev = await p.evaluate(() => {
+      const src = _loanRollbackWalk.toString();
+      const anchor = 'if (rowDay) inWindow = rowDay > monthEndIso && rowDay <= docIso;';
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved' };
+      const patched = src.replace(anchor, 'if (false) inWindow = false;');
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window._loanRollbackWalk = new Function('a', 'monthEndIso', 'docIso', body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      return { ok: true };
+    });
+    t.ok(rev.ok, 'the pre-fix refusal could be installed', JSON.stringify(rev));
+    if (rev.ok) {
+      const broken = await probe('2026-09-02', '2026-08-31');
+      t.ok(/straddles the edge/.test(String(broken.refuse)),
+           '⭐ ...and without the row date the walk refuses — so §2 is a real test, not decoration',
+           String(broken.refuse));
+    }
+    await p.close();
+
+    /* ── 4. WHAT MUST NOT CHANGE — a month with no day stays refused ───────── */
+    // The refusal is correct whenever a month is genuinely all we know. Removing it
+    // wholesale would guess, and a guessed date on a walk that adjusts a closing
+    // balance is a wrong number wearing a measurement's clothes.
+    const q = await newHarnessPage({ tab: 'loans' });
+    const noRow = await q.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const sp = (_allLoanSplits || []).find(s => s.loan_account_id === a.id && s.period_label === '2026-09');
+      const keep = sp.amortization_row_id;
+      sp.amortization_row_id = null;          // in-page fixture only, never written
+      const w = _loanRollbackWalk(a, '2026-08-31', '2026-09-02');
+      sp.amortization_row_id = keep;
+      return { refuse: w.refuse || null };
+    });
+    t.ok(/straddles the edge/.test(String(noRow.refuse)),
+         '⭐ strip the schedule row and the refusal returns — the fix reads the row, never the label',
+         String(noRow.refuse));
+
+    /* ── 5. A ROW DATE OUTSIDE ITS OWN MONTH IS NOT USABLE ────────────────── */
+    // If the label and the row disagree about which period a payment is, that is a
+    // finding to raise, not a date to quietly adopt.
+    const badRow = await q.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      const sp = (_allLoanSplits || []).find(s => s.loan_account_id === a.id && s.period_label === '2026-09');
+      const row = (_allLoanAmortRows || []).find(r => r.id === sp.amortization_row_id);
+      const keep = row.row_date;
+      row.row_date = '2026-11-02';            // outside the label's month
+      const w = _loanRollbackWalk(a, '2026-08-31', '2026-09-02');
+      row.row_date = keep;
+      return { refuse: w.refuse || null };
+    });
+    t.ok(/straddles the edge/.test(String(badRow.refuse)),
+         '⭐ a row dated outside the label’s month is ignored, not adopted',
+         String(badRow.refuse));
+    await q.close();
+
+    /* ── 6. DATING A PAYMENT IS NOT THE SAME AS ACCEPTING IT ──────────────── */
+    // Now that the walk can place this payment in time, the OTHER guard becomes
+    // reachable on it for the first time — and it must still bite. A payment
+    // sitting in review or staged has not moved in the books, so rolling a lender
+    // balance back across it would subtract money that has not gone anywhere.
+    // Asserted here rather than left implicit, because §2 pins the status and a
+    // pinned value quietly covering a second rule is how a test stops testing.
+    const r = await newHarnessPage({ tab: 'loans' });
+    for (const st of ['pending_review', 'needs_attention', 'staged']) {
+      const blocked = await r.evaluate(([st]) => {
+        const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+        const sp = (_allLoanSplits || []).find(s => s.loan_account_id === a.id && s.period_label === '2026-09');
+        const keep = sp.status;
+        sp.status = st;
+        const w = _loanRollbackWalk(a, '2026-08-31', '2026-09-02');
+        sp.status = keep;
+        return { refuse: w.refuse || null };
+      }, [st]);
+      t.ok(/has not reached the books yet/.test(String(blocked.refuse)),
+           `⭐ a '${st}' payment still refuses the roll-back — dated, but not yet money`,
+           String(blocked.refuse));
+    }
+    await r.close();
+  },
+});
+
 if (ONLY.length) {
   const known = new Set(GROUPS.map(g => g.name));
   const unknown = ONLY.filter(n => !known.has(n));

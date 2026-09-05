@@ -16701,7 +16701,38 @@
         inWindow = label > monthEndIso && label <= docIso;
       } else if (CV_MONTH_RE.test(label.slice(0, 7))) {
         const m = label.slice(0, 7), mStart = m + '-01', mEnd = _lastDayOfMonth(m);
-        if (mEnd <= monthEndIso || mStart > docIso) inWindow = false;
+        // ── A MONTH-LABELLED SPLIT LINKED TO A SCHEDULE ROW *HAS* A DAY (277) ──
+        // The straddle refusal below is right when a month is genuinely all we
+        // know. But `staging-next` labels a MONTHLY cadence 'YYYY-MM' by design
+        // (only weekly/multi-draft months get per-day labels), so every ordinary
+        // monthly payment card arrives here dateless -- while carrying
+        // amortization_row_id, whose row_date is the lender's OWN payment date.
+        //
+        // BayFirst SBA 2's 2026-09 split points at a row dated 2026-09-02, which
+        // is exactly the PAYMENT DUE DATE printed on its statement. Refusing on
+        // that split meant August could not be checked against a lender document
+        // until SEPTEMBER ENDED -- a month's wait for a date we already hold.
+        //
+        // Measured, not inferred: this reads the schedule row, never the label's
+        // shape, and never our own books. Same rule and same reason as session
+        // 231's "a projection's day-of-month is measured, never inherited".
+        //
+        // STRICTLY A REFINEMENT. A month wholly inside the window was already
+        // in, wholly outside already out, and both stay that way because the row
+        // date sits inside its own month. The ONLY case that changes is the
+        // straddle, where a refusal becomes a decision -- so this can add
+        // information and can never reverse an answer the walk already gave.
+        const rowDay = (() => {
+          if (!sp.amortization_row_id) return null;
+          const r = (_allLoanAmortRows || []).find(x => x.id === sp.amortization_row_id);
+          const d = r?.row_date ? String(r.row_date).slice(0, 10) : null;
+          // Only a row date INSIDE the label's own month is usable. If the two
+          // disagree about which period this payment is, that is a finding to
+          // raise, not a date to quietly adopt.
+          return (d && d >= mStart && d <= mEnd) ? d : null;
+        })();
+        if (rowDay) inWindow = rowDay > monthEndIso && rowDay <= docIso;
+        else if (mEnd <= monthEndIso || mStart > docIso) inWindow = false;
         else if (mStart > monthEndIso && mEnd <= docIso) inWindow = true;
         else if (Math.abs(p) < 0.005) continue;
         else return { refuse: 'a payment labelled by month, not by date, straddles the edge of the roll-back window' };
@@ -22888,6 +22919,26 @@ ${noActivityNote}
       note.textContent = `Auto-read from image: ${xtr.periods.length} transaction${xtr.periods.length === 1 ? '' : 's'}. Check the figures below before importing.`;
     } else if (browserParsed) {
       _liApplyServerExtras(server, serverFailed, browserParsed, note);
+    } else if (xtr && xtr.ok === false) {
+      // ── AN EXTRACTION THAT BROKE MUST NOT LOOK LIKE A FILE THAT WAS FILED ──
+      // (Session 277.) `extracted_transactions.error` was set by the server and
+      // read by nobody: with ok:false this chain fell through to the plain
+      // classification message, so a failed read printed "Read this as: Balance
+      // screenshot" -- word for word what a successfully-filed screenshot prints.
+      //
+      // That cost a whole afternoon on BayFirst SBA 2. The portal screenshot was
+      // stored, the transactions were never read, no statement was created, and
+      // the close band went on saying "not received" while the screen said the
+      // upload had been understood. Three uploads, no error message, nothing to
+      // debug from -- the failure was invisible at the only moment a person was
+      // looking at it.
+      //
+      // A swallowed error is worse than a loud one: it spends the reader's trust
+      // on a claim the code never checked.
+      note.style.color = '#b45309';
+      note.textContent = `Couldn't read the transactions off this image (${xtr.error || 'no reason given'}). `
+        + `The file is stored, but no statement was created from it — enter its date and balance by hand below if you need it to close a month.`;
+      if (!_liKindTouchedByUser && server?.classification?.kind) kindSel.value = server.classification.kind;
     } else if (xtr && xtr.ok === true && !xtr.periods?.length) {
       // It WAS a history, we did look, and nothing survived. Say so plainly with the
       // reasons -- silence here would read as "nothing to import" when the truth is
