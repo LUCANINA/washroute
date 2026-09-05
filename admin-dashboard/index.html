@@ -3538,6 +3538,16 @@
             .lcb-lead + .lcb-gate::before,
             .lcb-gate + .lcb-gate::before { content: "·"; margin: 0 9px; color: var(--gray-300);
                                             font-weight: 400; }
+            /* Session 276: the same separator when the asks follow the lead DIRECTLY.
+               On the Closing strip the progress bar sits between the two and supplies
+               the gap; the in-flight strip has no meter (David's choice), so without
+               this the two run together as "Not ready to lock7 loans to fix". Caught
+               on the live page after deploy, not in review -- a gap that exists only
+               because another element happens to be there is invisible in the source.
+               Written as lead+asks rather than by adding a margin to .lcb-asks, so the
+               Closing strip (where the bar already separates them) is untouched. */
+            .lcb-lead + .lcb-asks::before { content: "·"; margin: 0 9px; color: var(--gray-300);
+                                            font-weight: 400; }
             /* A cleared gate is not an achievement to celebrate in green — it is
                the expected state, and it should read as calmly as it behaves. */
             .lcb-gate.ok { color: var(--gray-500); font-weight: 500; }
@@ -20565,7 +20575,7 @@
     // and putting them beside the number that IS work is how the number stops being
     // read (session 250, LESS IS BEST).
     const inflightAsk = varianceRows.length
-      ? `<span title="${esc('Loans whose books differ from their lender by an amount worth resolving. Every other state — ties, differences too small to chase, loans closed on their contractual schedule, and differences a later payment explains — is stated per row in the table below.')}"><b>${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'}</b> to fix — ${money2(totalVariance)} to resolve</span>`
+      ? `<span class="ask" title="${esc('Loans whose books differ from their lender by an amount worth resolving. Every other state — ties, differences too small to chase, loans closed on their contractual schedule, and differences a later payment explains — is stated per row in the table below.')}">${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'} to fix — ${money2(totalVariance)} to resolve</span>`
       : '';
     const closeStripHtml = readyToClose
       ? `<div class="lcb-strip clear" style="margin-bottom:14px" data-gates="${inflightGatesAttr}">

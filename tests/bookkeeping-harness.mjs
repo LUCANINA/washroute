@@ -9687,6 +9687,18 @@ GROUPS.push({
           lead: (el.querySelector('.lcb-lead') || {}).textContent || '',
           asks: (el.querySelector('.lcb-asks') || {}).textContent || '',
           hasMeter: !!el.querySelector('.lcb-bar, .lcb-track, [class*="progress"]'),
+          // Session 276 cont., both found on the LIVE page after deploy rather than in
+          // review, which is the lesson: a gap that exists only because some other
+          // element happens to sit between two things is invisible in the source.
+          //   sep  -- the Closing strip's progress bar separated lead from asks. With
+          //          no meter they ran together as "Not ready to lock7 loans to fix".
+          //   askColour -- dashboard rule 5: a value whose non-zero state means work
+          //          must not render in the same neutral grey as everything else. The
+          //          old chip was red; the first cut of the replacement was not.
+          sep: (() => { const a = el.querySelector('.lcb-asks');
+            return a ? getComputedStyle(a, '::before').content : ''; })(),
+          askColour: (() => { const a = el.querySelector('.lcb-asks .ask');
+            return a ? getComputedStyle(a).color : null; })(),
           gates,
         };
       });
@@ -9711,6 +9723,12 @@ GROUPS.push({
       t.ok(strip && /to fix|Nothing to fix|ties to its lender/.test(strip.lead + ' ' + strip.asks),
            's276ai: ...and the verdict plus the one actionable figure stay VISIBLE',
            JSON.stringify(strip));
+      t.ok(strip && strip.sep && strip.sep !== 'none' && strip.sep !== 'normal',
+           's276aj: ⭐ ...separated from the lead — with no meter between them they ran together',
+           JSON.stringify(strip && strip.sep));
+      t.eq(strip && strip.askColour, 'rgb(220, 38, 38)',
+           's276ak: ⭐ ...and the figure that means WORK is red, not the page\'s neutral grey',
+           JSON.stringify(strip && strip.askColour));
       await p.close();
     }
 
