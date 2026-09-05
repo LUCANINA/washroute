@@ -1382,10 +1382,30 @@ async function handleRequest(req: Request): Promise<Response> {
         // answered a narrower question and let PayPal 2 through; see
         // _shared/schedule-provenance.ts for the measurement.
         if (scheduleGoesStale(guardSched)) {
+          // ── SESSION 275: THE SAME ALLOWLIST THE ANCHOR ITSELF USES ────────
+          // `balance_basis = 'principal_only'` is NOT decoration here. This query
+          // asks "has better evidence arrived than the projection rests on?", and
+          // it must ask it about the same population selectAnchorEvidence is
+          // allowed to draw from. Without the filter, a document we REFUSE to
+          // anchor on counts as evidence that invalidates the anchor — which is
+          // not a stricter guard, it is an unanswerable one.
+          //
+          // Measured the moment the anchor fix went live: Funding Circle's new
+          // anchor is 2026-08-01 (correct — the August month-end balance) and its
+          // newest row on file is the 2026-08-03 mid-month pull whose basis nobody
+          // recorded. 08-01 < 08-03, so this refused to stage, and would have
+          // refused for ever, on a loan whose projection is right. The fix cannot
+          // be to re-date the anchor: that value is deliberately the FILED date so
+          // this guard can fire at all (see selectAnchorEvidence).
+          //
+          // A guard that can never pass is the mirror of session 246's guard that
+          // can never fail. Both stop being checks; one nags instead of the other
+          // waving things through, and people learn to work around a nag.
           const { data: newestStmts } = await supa.from('loan_statements')
             .select('statement_date')
             .eq('loan_account_id', loanAcct.id)
             .in('source', ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'])
+            .eq('balance_basis', 'principal_only')
             .not('principal_balance', 'is', null)
             .lte('statement_date', pacificToday())
             .order('statement_date', { ascending: false })

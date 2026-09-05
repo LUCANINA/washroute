@@ -209,6 +209,21 @@ console.log('\n4. anchor_statement_date stores the FILED date, and must')
   ok('storing the re-dated date instead would disable the guard for ever',
     String(last.statement_date) > newestFiled,
     `${last.statement_date} vs ${newestFiled}`)
+
+  // ── AND THE MIRROR, WHICH BIT FOR REAL (session 275, found in production) ──
+  // The guard compares the stored anchor against the newest statement ON FILE. If
+  // that comparison does not apply the SAME principal_only allowlist the anchor
+  // does, a document we refuse to anchor on counts as evidence that invalidates
+  // the anchor — and Funding Circle (anchor 2026-08-01, newest row the unlabelled
+  // 2026-08-03 pull) could never be staged again. A guard that can never PASS is
+  // the mirror of session 246's guard that can never FAIL: both stop being checks.
+  const newestLabelled = raw
+    .filter((r: any) => r.balance_basis === 'principal_only')
+    .map((r: any) => r.statement_date).sort().slice(-1)[0]
+  ok('against the labelled population the anchor is current, so staging is possible',
+    stored >= newestLabelled, `${stored} vs ${newestLabelled}`)
+  ok('...whereas against ALL rows it looks stale, which is the false refusal',
+    stored < newestFiled, `${stored} vs ${newestFiled}`)
 }
 
 // ── 5. THE WHOLE FUNCTION, NOT ITS PARTS ───────────────────────────────────
