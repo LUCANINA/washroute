@@ -2,6 +2,62 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 275, 2026-09-05)
 >
+> ### 0q. 🔴 DO THIS FIRST — DEPLOY `loan-xero-post` (⚠️ needs `--no-verify-jwt`)
+>
+> **Funding Circle cannot be staged until this ships.** Commit **65b077d**, not deployed.
+>
+> ```
+> npx -y supabase@latest functions deploy loan-xero-post --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+> ⚠️ **`--no-verify-jwt` is REQUIRED here** — `loan-xero-post` is `verify_jwt: false` and omitting the
+> flag flips it to requiring a JWT, breaking every dashboard call. (It was correctly OMITTED for the
+> three functions in §0p, which are all `verify_jwt: true`.)
+>
+> #### ✅ WHAT IS ALREADY DONE AND VERIFIED LIVE (2026-09-05)
+> * The three §0p functions are deployed and the `fallbackPayment` crash is gone — probed, 200,
+>   14 loans walked, 8 derived cleanly, FC measuring **17.99001836%** (the independent hand-fit was
+>   17.9900%).
+> * **Funding Circle's schedule is RE-DERIVED and correct**, schedule `d4f4aff7`, 41 payment rows,
+>   `anchor_statement_date = 2026-08-01`. Verified in the ROWS, not from the response:
+>
+>   | row | interest | principal | balance |
+>   |---|---|---|---|
+>   | 2026-09-01 | **977.07** | **1,056.70** | 64,117.24 |
+>   | 2026-10-01 | 961.23 | 1,072.54 | 63,044.70 |
+>
+>   The dry run also returned `filed_date`, `statement_date_basis` and `skipped_for_basis` — three
+>   fields that DID NOT EXIST before this change, which is the content proof a version number cannot
+>   give.
+>
+> #### The bug this section exists for, found minutes after that
+> The staleness guard in `loan-xero-post` asks *"has better evidence arrived than this projection
+> rests on?"* by comparing the stored anchor against the newest statement on file — **with no
+> `balance_basis` filter**, while the anchor is now drawn from `principal_only` rows only. So a
+> document we REFUSE to anchor on counted as evidence that invalidates the anchor: FC's anchor is
+> 2026-08-01 and its newest row is the unlabelled 2026-08-03 pull, so `08-01 < 08-03` refused the
+> stage, and would have for ever, on a loan whose projection is right.
+>
+> **The fix is NOT to store the re-dated anchor.** That value is deliberately the FILED date so this
+> guard can fire at all. The fix is the allowlist, on both sides of the comparison.
+>
+> ⚠️ **A guard that can never PASS is the mirror of session 246's guard that can never FAIL.** Both
+> stop being checks; one nags where the other waves things through, and people learn to work around
+> a nag. Watch for the shape.
+>
+> **Third instance in one day of a single pattern** — the right rule, missing from another branch
+> that reaches the same answer (session 231): the anchor selection itself, then filtering the stated
+> PAYMENT by a basis that describes the BALANCE, then this. When a rule is added, grep every branch
+> that reaches the same answer before calling it done.
+>
+> #### THEN, in order
+> 1. Re-probe staging is possible (the refusal above should be gone).
+> 2. **Funding Circle's `2026-09` split is still `pending_review` carrying 1,041.10 / 992.67** —
+>    August's figures, from the schedule that has now been replaced. Re-deriving did NOT rewrite it
+>    (September is in the past; `ensureUpcomingSplit` only looks forward). It must be regenerated to
+>    **977.07 / 1,056.70** via `loan-generate-schedule-split` before it goes anywhere near Xero. The
+>    payment landed 2026-09-03, so it books through the ordinary review flow, NOT staging.
+> 3. Then §0n — wire the true-up in as a second proposal shape.
+>
 > ### 0p. 🔴 DO THIS FIRST — REDEPLOY THE THREE FUNCTIONS (a fix landed AFTER the deploy)
 >
 > David deployed on 2026-09-05 and the very first probe of the live function returned
