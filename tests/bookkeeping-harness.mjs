@@ -9597,9 +9597,37 @@ GROUPS.push({
       t.ok(onClosing.keys.includes('appr-split-harness-band-far'),
            's276d: ⭐ a split from another period is REACHABLE while the closing month is shown',
            JSON.stringify(onClosing.keys));
-      t.ok(onClosing.reachable > 0,
-           's276e: ...and its row is actually visible, not rendered into a hidden container',
-           `${onClosing.reachable} visible rows`);
+
+      /* ── COLLAPSED BY DEFAULT, BUT ONE CLICK FROM VISIBLE (session 276 cont.) ──
+         The original s276e asserted the rows were visible on load. David then asked
+         for the band to open on click, so that assertion now encodes the OLD rule.
+         It is REPLACED rather than deleted, and by a stricter pair: hidden first,
+         shown after exactly one click. Deleting it would have quietly given up the
+         only proof that the work is reachable at all -- which is the entire claim
+         this group exists to make. */
+      const collapse = await p.evaluate(() => {
+        const body = document.getElementById('loans-band-body');
+        const before = [...document.querySelectorAll('#loans-approvals-band .bk-queue-row')]
+          .filter(r => r.offsetParent).length;
+        document.querySelector('#loans-approvals-band .card-header').click();
+        const after = [...document.querySelectorAll('#loans-approvals-band .bk-queue-row')]
+          .filter(r => r.offsetParent).length;
+        return { hasBody: !!body, before, after };
+      });
+      t.eq(collapse.hasBody, true, 's276e: the band body is its own collapsible element', JSON.stringify(collapse));
+      t.eq(collapse.before, 0,
+           's276e2: ...collapsed by default — the count is what you see at a glance',
+           JSON.stringify(collapse));
+      t.ok(collapse.after > 0,
+           's276e3: ⭐ ...and ONE click on the header shows the rows — collapsed is not the same as hidden',
+           JSON.stringify(collapse));
+      /* The sub-line is the only statement that work exists while collapsed, so it
+         must never be empty. Asserted because trimming it would look like tidying. */
+      const subLine = await p.evaluate(() =>
+        (document.querySelector('#loans-approvals-band .card-sub') || {}).textContent || '');
+      t.ok(/\d/.test(subLine),
+           's276e4: ...and the collapsed header still states a COUNT, not just a title',
+           JSON.stringify(subLine));
       t.eq(onClosing.tilesShown, true, 's276f: ...with the tiles showing on the Closing tab too', JSON.stringify(onClosing));
 
       await p.evaluate(() => switchLoansPeriod('inflight'));
@@ -9636,6 +9664,53 @@ GROUPS.push({
       t.ok(discriminates.ok && !discriminates.brokenKeys.includes('appr-split-harness-band-far'),
            's276j: ⭐ ...and period-FILTERING the band hides that split again — so s276d is a real test',
            JSON.stringify(discriminates.brokenKeys));
+      await p.close();
+    }
+
+    /* ── (b2) THE IN-FLIGHT STRIP MATCHES CLOSING'S (session 276, David) ───
+       Session 264 stripped the chips off the CLOSING strip and never off this one,
+       so two strips sharing a class carried different content for twelve sessions.
+       The chips are gone from the screen and must NOT be gone from the record —
+       the rule here is cut the words, keep the claim, and `data-gates` is where
+       the claim lives, exactly as Closing does it. */
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const strip = await p.evaluate(() => {
+        switchLoansPeriod('inflight');
+        const el = document.querySelector('#loans-all-card .lcb-strip')
+                || document.querySelector('#loans-period-inflight .lcb-strip');
+        if (!el) return null;
+        let gates = [];
+        try { gates = JSON.parse(el.getAttribute('data-gates') || '[]'); } catch (_) { gates = null; }
+        return {
+          chips: el.querySelectorAll('.lcb-gate').length,
+          lead: (el.querySelector('.lcb-lead') || {}).textContent || '',
+          asks: (el.querySelector('.lcb-asks') || {}).textContent || '',
+          hasMeter: !!el.querySelector('.lcb-bar, .lcb-track, [class*="progress"]'),
+          gates,
+        };
+      });
+      t.ok(!!strip, 's276ac: the in-flight strip renders', JSON.stringify(strip));
+      t.eq(strip && strip.chips, 0,
+           's276ad: ⭐ ...with no chip row — the same shape session 264 gave the Closing strip',
+           JSON.stringify(strip));
+      t.eq(strip && strip.hasMeter, false,
+           's276ae: ...and no progress meter (David: September has no statements due to measure)',
+           JSON.stringify(strip));
+      t.ok(strip && Array.isArray(strip.gates) && strip.gates.length > 0,
+           's276af: ⭐ ...but every chip\'s claim survives in data-gates — cut the words, keep the claim',
+           JSON.stringify(strip && strip.gates));
+      t.ok(strip && (strip.gates || []).every(g => g.key && g.text && typeof g.n === 'number'),
+           's276ag: ...each carrying its key, its count and its own words, not just a number',
+           JSON.stringify(strip && strip.gates));
+      /* The non-blocking states are the ones a deletion would quietly lose: they are
+         the chips that came OFF the screen, so they are the ones worth pinning. */
+      t.ok(strip && (strip.gates || []).some(g => g.bad === false),
+           's276ah: ...including the non-blocking ones, which are what leaving the screen actually means',
+           JSON.stringify(strip && strip.gates));
+      t.ok(strip && /to fix|Nothing to fix|ties to its lender/.test(strip.lead + ' ' + strip.asks),
+           's276ai: ...and the verdict plus the one actionable figure stay VISIBLE',
+           JSON.stringify(strip));
       await p.close();
     }
 

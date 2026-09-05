@@ -18081,18 +18081,30 @@
       staged.length ? `${staged.length} scheduled in Xero` : '',
     ].filter(Boolean).join(' · ');
 
+    // ── COLLAPSED BY DEFAULT (session 276 cont., David) ────────────────────
+    // The COUNT is what has to be visible at a glance; the rows are what you open
+    // when you intend to act. Same shape the History panel and the staged sub-list
+    // already use, so this invents no third pattern.
+    //
+    // ⚠ THE SUB-LINE IS LOAD-BEARING NOW, not decoration. Collapsed, it is the ONLY
+    // statement that work exists -- so it must never be trimmed to the title alone.
+    // The defect this band was built for was work that existed and said nothing
+    // about itself; a collapsed card with no count would rebuild it in miniature.
     el.innerHTML = `<div class="card" style="border-color:var(--gray-200);border-radius:14px;box-shadow:0 1px 2px rgba(15,37,71,.04)">
-      <div class="card-header" style="padding:16px 18px 12px;border-bottom:0">
+      <div class="card-header" style="padding:16px 18px 12px;border-bottom:0;cursor:pointer" onclick="toggleOverviewPanel('loans-band-body',this)">
         <div style="flex:1">
           <div class="card-title">Waiting on you</div>
           <div class="card-sub">${esc(sub)}</div>
         </div>
+        <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▾</span></span>
       </div>
+      <div id="loans-band-body" style="display:none">
       ${approvals.length ? approvals.map(_bkQueueRowHtml).join('') : ''}
       ${staged.length ? `<div style="padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
         <span onclick="toggleOverviewPanel('loans-band-staged',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">Scheduled in Xero (${staged.length})<span class="overview-chevron" style="font-size:13px;transition:transform .2s">▸</span></span>
         <div id="loans-band-staged" style="display:none;margin-top:8px">${staged.map(_bkQueueRowHtml).join('')}</div>
       </div>` : ''}
+      </div>
     </div>`;
   }
 
@@ -20502,6 +20514,25 @@
     // ordinary state and gets its own sentence.
     const readyToClose = varianceRows.length === 0 && unverifiedRows.length === 0
       && byScheduleRows.length === 0 && (tiedRows.length + explainedRows.length) > 0;
+    // ── SESSION 276: THE SAME STRIP AS CLOSING, MINUS THE METER (David) ────
+    // Session 264 was David's: "remove all the content in the Not ready to close
+    // section." That decision was applied to the CLOSING strip and never to this
+    // one, so two strips sharing a class carried different content for twelve
+    // sessions — the same shape as the tiles that were only on In flight and the
+    // approvals queue that was only on Overview. A decision that moves one surface
+    // and not its twin is this module's most repeated defect.
+    //
+    // No meter here, by David's explicit choice: Closing's bar measures statement
+    // coverage for the close, and the month in flight has no statements due yet, so
+    // a bar would be measuring nothing.
+    //
+    // ⚠ CUT THE WORDS, KEEP THE CLAIM. The chips are gone from the screen and NOT
+    // from the record: every one is still computed and carried in `data-gates`,
+    // exactly as the Closing strip does it, so the suite asserts on what was
+    // COMPUTED rather than on what is drawn, and a future surface that wants these
+    // counts reads them rather than recounting. What stays visible is the verdict
+    // and the one figure a reader acts on — the table below states the rest per row,
+    // which is the same argument session 264 made for Closing.
     const bits = [];
     const chip = (key, n, text, bad) =>
       `<span class="lcb-gate${bad ? '' : ' ok'}" data-gate="${key}" data-count="${n}">${bad ? '' : '✓ '}${text}</span>`;
@@ -20520,14 +20551,30 @@
       `${explainedRows.length} explained by later payments`));
     if (tiedRows.length) bits.push(chip('tie', tiedRows.length,
       `${tiedRows.length} tie${tiedRows.length === 1 ? 's' : ''} exactly`));
+    // Every chip's claim, as data. Built from the SAME `bits` the strip used to
+    // print, so the two can never disagree: strip the markup back off rather than
+    // writing a second list that would drift from the first.
+    const inflightGatesAttr = esc(JSON.stringify(bits.map(b => ({
+      key: (/data-gate="([^"]+)"/.exec(b) || [])[1] || '',
+      n: Number((/data-count="([^"]+)"/.exec(b) || [])[1] || 0),
+      bad: !/ ok"/.test(b),
+      text: b.replace(/<[^>]+>/g, '').replace(/^✓\s*/, '').trim(),
+    }))));
+    // The one figure a reader acts on. Blocking only — a tie, a rounding difference
+    // and a schedule-basis loan are all facts nobody has to do anything about today,
+    // and putting them beside the number that IS work is how the number stops being
+    // read (session 250, LESS IS BEST).
+    const inflightAsk = varianceRows.length
+      ? `<span title="${esc('Loans whose books differ from their lender by an amount worth resolving. Every other state — ties, differences too small to chase, loans closed on their contractual schedule, and differences a later payment explains — is stated per row in the table below.')}"><b>${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'}</b> to fix — ${money2(totalVariance)} to resolve</span>`
+      : '';
     const closeStripHtml = readyToClose
-      ? `<div class="lcb-strip clear" style="margin-bottom:14px">
+      ? `<div class="lcb-strip clear" style="margin-bottom:14px" data-gates="${inflightGatesAttr}">
           <span class="lcb-lead">Every loan ties to its lender</span>
-          <span class="lcb-gate ok" data-gate="variance" data-count="0">✓ combined variance $0.00 — ready to close and lock</span>
+          <span class="lcb-asks">combined variance $0.00 — ready to close and lock</span>
         </div>`
-      : `<div class="lcb-strip" style="margin-bottom:14px">
+      : `<div class="lcb-strip" style="margin-bottom:14px" data-gates="${inflightGatesAttr}">
           <span class="lcb-lead">${varianceRows.length ? 'Not ready to lock' : 'Nothing to fix'}</span>
-          ${bits.join('')}
+          <span class="lcb-asks">${inflightAsk}</span>
         </div>`;
 
     // The Staging cell. The word David chose is "scheduled", and it is the right
