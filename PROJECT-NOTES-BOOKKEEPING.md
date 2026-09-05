@@ -2,6 +2,82 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 276, 2026-09-05)
 >
+> ### 0u. 🔴 THE THING DAVID ACTUALLY ASKED ABOUT, STILL UNFIXED — BAYFIRST SBA 2
+>
+> **This is the session's original question and the only item in this block about WRONG
+> NUMBERS rather than layout.** It was diagnosed in full (session log 276 §2), agreed as
+> "root cause first, then cleanup", and then neither half was done — the phantom September
+> stage pulled the session sideways and nobody came back. Written here because a finding
+> that lives only in the session log is a finding the next session may not act on, which is
+> the same shape as everything else this session found.
+>
+> #### (a) THE DUPLICATE IS STILL LIVE — clean this up first, it is five minutes
+>
+> ```
+> period_label   principal  interest   status           computed
+> 2026-07          858.66   1,249.58   already_in_xero  2026-09-03   ← the duplicate
+> 2026-07-02       807.95   1,300.30   posted           2026-08-05   ← the real July payment
+> 2026-08          858.66   1,249.58   already_in_xero  2026-08-25   ← the real Aug 3 payment
+> ```
+>
+> `2026-07` and `2026-08` are the SAME payment: both cite Xero transaction
+> `e895f420-83cc-4a38-b8c4-14ba09a96a16`, dated 2026-08-03, confirmed via `xero-read`.
+> Session 258 corrected the label to `2026-08` by hand; the row came back as `2026-07` on
+> 2026-09-03 because the ingest recomputed it (see (b)).
+>
+> **Xero is NOT affected** — `already_in_xero` writes nothing, it is a WashRoute record
+> state. What IS affected is July's close rollforward, which sees 807.95 + 858.66 =
+> $1,666.61 of principal where only $807.95 belongs. Session 258's own note on the row says
+> exactly this. Verify July's rollforward before and after removing it.
+>
+> ⚠️ Removing it is a DELETE on a financial row: void it rather than deleting if the invariant
+> allows (`already_in_xero` is a consumed status, so check `enforce_split_invariant` first).
+>
+> #### (b) THE ROOT CAUSE — a payment's month comes from the paper, not the money
+>
+> `loan-ingest-statement`, TWO places, both `const periodLabel = statement_date.slice(0, 7)`:
+> the anchors-only branch (~line 585) and the explicit_split branch (~line 714).
+>
+> BayFirst applies on the last day of its cycle (7/31); the bank drafts two or three days
+> later (8/3). **The statement's DATE is correct** — this is not the `statement_date_basis`
+> mechanism and must not be "fixed" by re-dating the document. The date is right; the
+> inference from it is wrong.
+>
+> Three symptoms, one line:
+> 1. The Aug 3 payment files as `2026-07` → the duplicate in (a). The duplicate CHECK keys on
+>    the label it just computed, so a hand-corrected label is invisible to it and the fix is
+>    undone on every re-ingest. **That is why session 258's correction did not hold.**
+> 2. `balance_vs_lender` compares Xero at 7/31 (136,760.26) against the lender at 7/31
+>    (135,901.60). The $858.66 is a payment in transit, reported as a discrepancy because
+>    nothing on the screen has a name for it.
+> 3. August's lender column reads "not received" — **and that is correct.** No lender balance
+>    is dated in August. Do not "fix" this one.
+>
+> #### THE FIX, three parts
+> 1. **Label the split by the MONEY.** When the amounts match a Xero bank transaction, take
+>    the month from that transaction's date; fall back to the statement date otherwise, and
+>    RECORD which was used (a column, not an inference — session 230's typed-number rule).
+> 2. **Key the duplicate check on the transaction id**, not the computed label, so a
+>    corrected label can never hide an existing row from it.
+> 3. **Name the straddle** on the row instead of reporting it as a gap: "applied by the lender
+>    7/31, cleared 8/3 — $858.66 in transit". Session 262's ask-don't-accuse rule.
+>
+> Parts 1 and 2 are the correctness fix. Part 3 is presentation and can follow.
+>
+> #### SCOPE — measured across every active loan's 2026 statements, not assumed
+> **BayFirst SBA 2 is the only loan** filing at month end with cash clearing the following
+> month. Funding Circle carries three duplicate pairs of the same SHAPE from a DIFFERENT
+> cause (the Xero backfill meeting statement ingest), all still open and all needing the same
+> kind of look:
+>
+> ```
+> 2026-02  952.18/1,081.59  already_in_xero  ←→  2026-02-18  952.18/1,081.59  posted
+> 2026-03  966.45/1,067.32  already_in_xero  ←→  2026-03-18  966.45/1,067.32  posted
+> 2026-04  980.93/1,052.84  already_in_xero  ←→  2026-05-18  980.93/1,052.84  posted
+> ```
+>
+> Note the third pair is offset by a month, which is its own question.
+>
 > ### 0t. ⏭️ NEXT SESSION STARTS HERE — AUTO-STAGING, AND ITS PARKED CONDITION IS **MET**
 >
 > **David, 2026-09-05:** *"why are we requesting approvals for staging beyond the first one?
