@@ -35,7 +35,54 @@
 > and the void's own guard refuses `already_in_xero` outright — so the void could only have
 > succeeded after a retraction had already landed. Read the row, not the console.
 >
-> #### ⏭️ WHAT REMAINS FROM THIS THREAD — Funding Circle's three pairs
+> #### 🔴 THE UPLOAD THAT LOOKED LIKE A REFUSAL — AND WAS NEITHER (session 277 cont.)
+David: *"why is BayFirst 2 still not accepting this statement"*, three times, while I answered a
+question he had not asked. Writing down the whole chain because every link cost real time and
+none of them was the gate:
+>
+> 1. **The August PDF cannot close August, correctly.** BayFirst's cycle is 7/20-8/17 and its
+>    newest FIGURE is dated 7/31 — the payment applied on the last day of the cycle, the bank
+>    drafted 8/3, and the balance did not move again until 9/02. `_loanClosingAnchor`'s
+>    `asOf > priorEnd` test refuses it, and the comment on that test names **this loan and this
+>    month** as the reason it exists (session 239: one document answering both ends of the walk
+>    collapsed to a fake $0.00 tie). I offered to "derive it from this document" before reading
+>    that comment. **That would have re-introduced exactly the defect 239 removed.**
+> 2. **So the answer needed a document dated after 8/31** — which the portal had, since the 9/02
+>    payment has landed. No code change substitutes for that.
+> 3. **But the roll-back then refused anyway**, on the month-labelled `2026-09` card. Fixed in
+>    `e964f3c` — the split points at a schedule row dated 2026-09-02, the same PAYMENT DUE DATE
+>    the lender prints. The day was never missing.
+> 4. **And the upload itself was never creating a statement.** Not a refusal: the file was
+>    filed. `balance_screenshot` is a keep-on-file kind and keep-on-file kinds compute nothing.
+>
+> #### THE ONE THAT MATTERS — the extractor worked and the form threw it away
+> Session 230's three-lines-per-payment grouping did its job: *"Auto-read from image: 1
+> transaction. Check the figures below before importing."* — in green, on screen. And the kind
+> sat on **Balance screenshot — keep on file**, so the figures table was HIDDEN (only the chosen
+> kind's fieldset shows) and the button read **Attach Document**. The screen said figures were
+> ready to import; the button did the one thing that cannot import them; nothing reconciled the
+> two. Pressing it files the picture and drops the transaction, silently.
+>
+> Both halves are correct in isolation — the auto-set respects a kind the human has touched (a
+> person's choice must outrank a guess) and the fieldset follows the kind. **A COUNT AND THE LIST
+> BEHIND IT MOVE TOGETHER, OR THE COUNT BECOMES A LIE**, session 276's rule, in a fourth place.
+> Fixed in `bc9f5ec`: a live warning under the kind select naming what will be lost, placed in
+> `onLoanIntakeKindChanged` so it tracks the dropdown. It never changes the kind.
+>
+> #### AND A SWALLOWED ERROR THAT SENT ME DOWN A RABBIT HOLE
+> `extracted_transactions.error` was set by the server and read by nobody: with `ok:false` the
+> client chain fell through to the plain classification message, so a failed read printed
+> *"Read this as: Balance screenshot"* — word for word what a successful filing prints. I spent
+> an afternoon inferring which of those two had happened from a message that cannot tell them
+> apart. Now shown. **A swallowed error spends the reader's trust on a claim the code never made.**
+>
+> #### ⚠️ FOR NEXT TIME, AND THIS IS THE REAL LESSON
+> **Three uploads produced no statement row, and I never once queried `loan_statements` before
+> theorising about the gate.** One query would have said "newest document is still 7/31, created
+> 25 August" in the first minute. When a screen will not show a number, read the ROWS the screen
+> reads before reasoning about the code that reads them.
+
+#### ⏭️ WHAT REMAINS FROM THIS THREAD — Funding Circle's three pairs
 > Same SHAPE, **different cause** (the Xero backfill meeting statement ingest), all still open.
 > The unmark mode makes them removable for the first time:
 > ```
