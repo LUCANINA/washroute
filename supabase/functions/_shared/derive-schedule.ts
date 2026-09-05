@@ -25,8 +25,9 @@
 import { ensureUpcomingSplit } from "./staging-next.ts"
 import {
   collapseDuplicateBalances, buildPeriods, classifyPeriods, chooseFit, projectRows, recurringPayment,
-  solvePaymentAndRate, statedPayment, paymentDayOfMonth, r2, type Period,
+  solvePaymentAndRate, statedPayment, paymentDayOfMonth, medianDayOfMonth, r2, type Period,
 } from "./rate-fit.ts"
+import { anchorsByBalanceDate, normalizeBasis } from "./statement-period.ts"
 import { fitScheduleRate, lenderIssuedVerdict } from "./schedule-fit.ts"
 import { scheduleGoesStale } from "./schedule-provenance.ts"
 
@@ -71,6 +72,72 @@ export interface DeriveOpts {
   reason?: string          // why this run happened -- stored on the schedule row
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WHICH DOCUMENTS MAY ANCHOR A PROJECTION, AND WHICH MAY STATE ITS PAYMENT
+// (session 274 — exported and pure so it can be tested against real rows)
+// ═══════════════════════════════════════════════════════════════════════════
+// Extracted rather than left inline for the reason statement-split-shape.ts was:
+// a rule buried in a function that talks to Supabase on every path cannot be
+// tested, and this module's own history says an untested rule about money is a
+// rule waiting to be wrong. This one was wrong for 274 sessions.
+//
+// ── (1) ALLOWLIST, NOT DENYLIST, FOR THE BALANCE ──────────────────────────
+// `loan-find-difference` has always selected its anchors as
+//     anchorsByBalanceDate(stmts.filter(s => s.balance_basis === 'principal_only'), basis)
+// and this path did neither half. Not different logic — the SAME logic, missing
+// from the other branch that reaches the same kind of answer (session 231).
+// `!== 'total_payback'` admits 'unknown', which is the column's DEFAULT, so a
+// document nobody has labelled could become the one figure an entire projection
+// rests on. That is exactly what happened.
+//
+// ── (2) RE-DATE BEFORE ORDERING ───────────────────────────────────────────
+// On a `period_start` loan the row filed 2026-08-01 carries the AUGUST MONTH-END
+// balance, so it is genuinely later than the row filed 2026-08-03. Ordering by
+// the filed date picks the older balance and calls it the newest.
+//
+// Measured on Funding Circle, 2026-09-05: together these anchored the projection
+// to 66,215.03 (a July month-end figure, pulled mid-August, basis never recorded)
+// instead of 65,173.94, so every row was one period late — its "September" row
+// closed at 65,173.93, a balance the lender says was already true at the end of
+// August. On three Ford loans the same unlabelled-duplicate-pull problem shortened
+// the first accrual window by 11 days and under-stated that month's interest by
+// $26.69 / $88.22 / $60.07.
+//
+// ── (3) THE PAYMENT AMOUNT IS A DIFFERENT QUESTION ────────────────────────
+// Caught in this change's own first dry run, which is why it is written down.
+// Filtering the stated payment by `balance_basis` too made Funding Circle refuse
+// with `no_stated_payment`: its ONLY statement carrying a total_amount_due
+// ($2,033.77) is that same unlabelled 08-03 pull. `balance_basis` says what the
+// BALANCE means; it says nothing about the lender's stated amount due. Excluding
+// the row from ANCHORING is right; excluding its payment figure turned a wrong
+// answer into no answer on the one loan the change exists to fix. Session 270
+// removed the fallback to the typed `scheduled_monthly_payment` (it reads
+// $2,000.00 against a real instalment of $2,033.77), so losing the stated figure
+// is not a degradation — it is a refusal.
+//
+// ── (4) `<= today` IS APPLIED AFTER RE-DATING ─────────────────────────────
+// It is the "a future-dated row is a projection, never a balance" invariant, and
+// under `period_start` the date it must test is the BALANCE date. For a
+// `balance_date` loan the two are identical and this is a no-op.
+export function selectAnchorEvidence(
+  rawStmts: any[], statementDateBasis: unknown, today: string,
+) {
+  const dateBasis = normalizeBasis(statementDateBasis)
+  const rows = rawStmts || []
+  const labelled = rows.filter((s: any) => s.balance_basis === 'principal_only')
+  const skippedForBasis = rows
+    .filter((s: any) => s.balance_basis !== 'principal_only')
+    .map((s: any) => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
+  const usable = anchorsByBalanceDate(labelled as any, dateBasis)
+    .filter((s: any) => String(s.statement_date) <= today)
+  const stmts = collapseDuplicateBalances(usable)
+  const paymentEvidence = rows
+    .filter((s: any) => String(s.statement_date) <= today)
+    .sort((a: any, b: any) => String(a.statement_date).localeCompare(String(b.statement_date)))
+  return { dateBasis, usable, stmts, skippedForBasis, paymentEvidence }
+}
+
 export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}): Promise<any> {
   const confirm = opts.confirm === true
   const enableStaging = opts.enableStaging === true
@@ -87,20 +154,71 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   // xero_derived rows are OUR OWN ledger. Fitting a lender's rate to our ledger
   // would be self-referential: it would "confirm" whatever we already booked,
   // including any error. Only what the lender itself said counts as evidence.
+  //
+  // ── SESSION 274: TWO RULES THE WALK ALREADY HAD AND THIS DID NOT ───────────
+  // `loan-find-difference` selects its anchors like this:
+  //
+  //     anchorsByBalanceDate(
+  //       statements.filter(s => s.balance_basis === 'principal_only'), dateBasis)
+  //
+  // and this function did neither half. Not different logic -- the SAME logic,
+  // missing from the other branch that reaches the same kind of answer, which is
+  // session 231's rule almost verbatim. Both halves were load-bearing on Funding
+  // Circle, measured 2026-09-05:
+  //
+  //   (a) ALLOWLIST, NOT DENYLIST. `!== 'total_payback'` admits 'unknown', and
+  //       'unknown' is the column's DEFAULT -- so a document nobody has labelled
+  //       becomes the one figure the entire projection rests on. The walk has
+  //       excluded those all along, which is exactly why the walk reported clean
+  //       figures on a loan whose schedule was a month out.
+  //   (b) RE-DATE FIRST. On a `period_start` loan the row filed 2026-08-01 carries
+  //       the AUGUST MONTH-END balance, so it is genuinely later than the row
+  //       filed 2026-08-03. Ordering by the filed date picks the older balance and
+  //       calls it newest.
+  //
+  // Together they anchored Funding Circle to 66,215.03 (a July month-end figure,
+  // pulled mid-August, basis never recorded) instead of 65,173.94. Every row of
+  // the projection was therefore one period late: its "September" row closed at
+  // 65,173.93 -- a balance the lender says was already true at the end of August.
+  // That is where the ~$15/month of misposted interest came from, and it is why a
+  // staged card carried August's split into September.
+  //
+  // Measured across all seven loans carrying a derived schedule before changing
+  // anything: six do not move at all (on the three Ford loans anchored to an
+  // unknown-basis row, the principal_only row we fall back to carries the
+  // IDENTICAL balance a few days earlier), and Funding Circle moves by $1,041.09
+  // -- exactly one month's principal.
+  //
+  // The `<= today` filter moves out of SQL because it has to be applied AFTER
+  // re-dating: it is the "a future-dated row is a projection, never a balance"
+  // invariant, and under `period_start` the date it must test is the balance date,
+  // not the filed one. For a `balance_date` loan the two are identical and this is
+  // a no-op.
   const { data: rawStmts } = await supa.from('loan_statements')
     .select('id, statement_date, principal_balance, total_amount_due, source, balance_basis')
     .eq('loan_account_id', loan.id)
     .in('source', REAL_SOURCES)
     .not('principal_balance', 'is', null)
-    .lte('statement_date', today)
     .order('statement_date', { ascending: true })
-  const usable = (rawStmts || []).filter((s: any) => s.balance_basis !== 'total_payback')
-  const stmts = collapseDuplicateBalances(usable)
+  const { dateBasis, usable, stmts, skippedForBasis, paymentEvidence } =
+    selectAnchorEvidence(rawStmts || [], (loan as any).statement_date_basis, today)
   if (stmts.length < minPeriods + 1) {
     return {
       ok: false, reason: 'not_enough_statements',
-      message: `This loan has ${stmts.length} distinct lender balances on file; at least ${minPeriods + 1} are needed to measure a rate.`,
+      // Session 274: say what was EXCLUDED, not just what was counted. A loan
+      // refused here after several statements were skipped for an unrecorded
+      // balance basis reads as "we have nothing" when the truth is "we have
+      // documents nobody has labelled" -- and only the second one tells a person
+      // what to do about it. Same reasoning as session 262's ask-for-the-document
+      // rule: a refusal that names its cause is actionable; one that does not is
+      // a dead end.
+      message: `This loan has ${stmts.length} distinct lender balances on file; at least ${minPeriods + 1} are needed to measure a rate.`
+        + (skippedForBasis.length
+          ? ` ${skippedForBasis.length} further statement${skippedForBasis.length === 1 ? ' was' : 's were'} not counted because ${skippedForBasis.length === 1 ? 'its balance basis is' : 'their balance bases are'} not recorded as principal_only (${skippedForBasis.map((x: any) => `${x.date}: ${x.basis}`).join(', ')}). `
+            + `An unlabelled balance cannot anchor a projection -- open the document and record what its figure means, and this loan may become derivable.`
+          : ''),
       statements_on_file: stmts.length,
+      skipped_for_basis: skippedForBasis,
     }
   }
 
@@ -145,7 +263,7 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   // A loan with no stated payment anywhere now gets an honest refusal naming the
   // typed figure and saying why it was not used, rather than a fitted rate built
   // on it. Refusing is not a regression here: the alternative was 618%.
-  const stated = statedPayment(usable)
+  const stated = statedPayment(paymentEvidence)
   if (stated === null) {
     return {
       ok: false, reason: 'no_stated_payment',
@@ -218,6 +336,19 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
 
   // ── 4. Project forward from the last real balance ──────────────────────────
   const last = usable[usable.length - 1] ?? stmts[stmts.length - 1]
+  // WHICH DATE IS WHICH, and it matters in two opposite directions.
+  //  * `last.statement_date` is the date the balance is TRUE (re-dated). The
+  //    projection must start there, or it walks from the wrong balance.
+  //  * `anchorFiled` is the date the DOCUMENT carries. `anchor_statement_date`
+  //    stores this one, because loan-xero-post's staleness guard compares that
+  //    column against the newest FILED statement date. Storing the re-dated value
+  //    would make Funding Circle's anchor read 2026-08-31 against a filed maximum
+  //    of 2026-08-03 -- permanently "newer than any statement", so a genuinely
+  //    stale projection would stage. A guard that cannot fail is worse than none
+  //    (session 246), and this one must fail CLOSED.
+  const anchorFiled = String((last as any).filed_date ?? last.statement_date)
+  const filedFor = new Map<string, string>(
+    (usable as any[]).map((s: any) => [String(s.statement_date), String(s.filed_date ?? s.statement_date)]))
   const payment = usedPayment!
   const monthly = medianDays >= 26 && medianDays <= 32
   const maturity: string | null = loan.maturity_date ? String(loan.maturity_date).slice(0, 10) : null
@@ -225,8 +356,16 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
   // The day the loan DEMONSTRABLY pays, measured from the clean periods, rather than
   // the day of whichever pull happened to be newest (session 231). See
   // paymentDayOfMonth in rate-fit.ts for what this was doing wrong and to whom.
-  const payDom = monthly ? paymentDayOfMonth(clean) : null
-  const anchorDom = Number(String(last.statement_date).slice(8, 10))
+  // Session 274: on a re-dated loan the clean periods all close on a month end by
+  // construction, so their median day measures our own re-dating and not the
+  // lender. The filed dates are where the day-of-month evidence actually lives.
+  // See medianDayOfMonth() in rate-fit.ts for the full reasoning.
+  const payDom = monthly
+    ? (dateBasis === 'period_start'
+      ? medianDayOfMonth(clean.map((p) => String((filedFor.get(p.to) ?? p.to))))
+      : paymentDayOfMonth(clean))
+    : null
+  const anchorDom = Number(String(anchorFiled).slice(8, 10))
   const domDivergence = payDom != null && payDom !== anchorDom
     ? { measured_payment_day: payDom, anchor_day: anchorDom,
         note: `This loan's own history says it pays on day ${payDom} of the month (median across ${clean.length} clean periods), but its newest statement is dated the ${anchorDom}. `
@@ -237,6 +376,8 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
     anchorDate: last.statement_date, anchorBalance: Number(last.principal_balance),
     payment, fit: best, medianDays, maturity, maxPeriods: MAX_PROJECTED_PERIODS,
     paymentDom: payDom,
+    // A re-dated anchor is a period CLOSE, not a mid-cycle pull. See projectRows.
+    anchorIsPeriodEnd: dateBasis === 'period_start',
   })
   const endsShort = projected.length && Number(projected[projected.length - 1].balance) > 1
     ? { stopped_at: projected[projected.length - 1].row_date, balance_remaining: projected[projected.length - 1].balance,
@@ -244,7 +385,15 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
     : null
   const futureRows = projected.filter((r) => r.row_date >= today)
 
-  const anchor = { statement_date: last.statement_date, balance: Number(last.principal_balance), payment }
+  const anchor = {
+    statement_date: last.statement_date, balance: Number(last.principal_balance), payment,
+    filed_date: anchorFiled,
+    statement_date_basis: dateBasis,
+    // Named, never silently dropped: a denominator that quietly shrinks is not a
+    // gate (session 262). A reader can see which documents were not eligible to
+    // anchor this projection, and why.
+    skipped_for_basis: skippedForBasis,
+  }
   if (!confirm) {
     return {
       ok: true, dry_run: true, wrote_nothing: true,
@@ -280,7 +429,7 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
     .select('id')
     .eq('loan_account_id', loan.id)
     .eq('amort_type', amortType)
-    .eq('anchor_statement_date', last.statement_date)
+    .eq('anchor_statement_date', anchorFiled)
   for (const cand of sameAnchor || []) {
     const { data: candRows } = await supa.from('loan_amortization_rows')
       .select('row_date, payment, interest, principal, balance')
@@ -329,7 +478,7 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
     // against the newest real statement, so a projection is stale exactly when
     // better evidence exists -- immune to same-day ordering, unlike the generation
     // date (derive at 10am, statement dated today ingested at 2pm).
-    anchor_statement_date: last.statement_date,
+    anchor_statement_date: anchorFiled,
     storage_path: `derived://loan-derive-schedule/${loan.id}/${today}`,
     source: 'derived_from_statements',
     uploaded_by: actor + (opts.reason ? ` — ${opts.reason}` : ''),

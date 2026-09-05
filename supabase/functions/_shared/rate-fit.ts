@@ -268,10 +268,32 @@ export function recurringPayment(clean: Period[], scheduled: number | null): num
 // it uses exactly the evidence the rate fit already rests on. Median, not mode or
 // mean: it ignores the odd early/late posting without being dragged by it.
 export function paymentDayOfMonth(clean: Period[]): number | null {
-  if (!clean.length) return null
-  const days = clean
-    .map((p) => new Date(Date.parse(p.to + 'T00:00:00Z')).getUTCDate())
+  return medianDayOfMonth(clean.map((p) => p.to))
+}
+
+// The same median, over dates the caller chooses.
+//
+// ── SESSION 274: WHY THIS SPLIT EXISTS ──────────────────────────────────────
+// On a `period_start` loan every anchor is RE-DATED to its month end before the
+// fit runs (see _shared/statement-period.ts). That is right for the BALANCE --
+// it is what the figure is actually as of -- and completely wrong as evidence of
+// which day the loan pays: after re-dating, every clean period closes on the
+// 30th or 31st by construction, so the median is an artefact of our own
+// arithmetic rather than a measurement of the lender's behaviour. Funding
+// Circle pays in the first days of the month and would have projected onto the
+// 31st, moving every future payment into the wrong month -- the exact class of
+// error session 272 and 245 both paid for.
+//
+// The day-of-month information lives in the FILED dates, so a caller that
+// re-dates its anchors passes those instead. Session 231's rule is unchanged and
+// is the reason for the care: a projection's day-of-month is MEASURED, never
+// inherited -- this only fixes WHICH measurement is the honest one.
+export function medianDayOfMonth(dates: string[]): number | null {
+  const days = (dates || [])
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d)))
+    .map((d) => new Date(Date.parse(d + 'T00:00:00Z')).getUTCDate())
     .sort((a, b) => a - b)
+  if (!days.length) return null
   return days[Math.floor(days.length / 2)]
 }
 
@@ -312,6 +334,10 @@ export function projectRows(opts: {
   /** The loan's measured payment day-of-month (paymentDayOfMonth). Falls back to
    *  the anchor's own day only when there is no clean period to measure from. */
   paymentDom?: number | null
+  /** True when `anchorDate` is the CLOSE of a completed period rather than a pull
+   *  taken at some point inside one -- which is what a re-dated `period_start`
+   *  anchor always is (see anchorIsPeriodEnd's use below). */
+  anchorIsPeriodEnd?: boolean
 }): ProjectedRow[] {
   const { anchorDate, anchorBalance, payment, fit, medianDays, maturity } = opts
   const paymentDom = opts.paymentDom ?? null
@@ -340,7 +366,22 @@ export function projectRows(opts: {
     const prevDate = date
     if (monthly) {
       if (k === 0) {
-        date = nextPaymentOnOrAfter(anchorDate, dom, Math.max(1, Math.round(medianDays / 2)))
+        // ── SESSION 274: THE MINIMUM GAP IS ABOUT AMBIGUITY, NOT DISTANCE ────
+        // The half-period gap below exists because a mid-cycle PULL may already
+        // reflect the payment just made, so a payment day falling a few days
+        // after it is probably that same payment rather than the next one.
+        //
+        // A re-dated `period_start` anchor is not a pull. It is the CLOSE of a
+        // completed period, so the next payment day after it is unambiguously
+        // the next payment and there is nothing to disambiguate. Applying the
+        // gap there skips a month: Funding Circle anchors at 2026-08-31 and pays
+        // on the 1st, so 2026-09-01 sits ONE day past the anchor, was rejected,
+        // and the projection jumped straight to October -- silently dropping the
+        // September payment out of a schedule that gets staged into Xero.
+        // A month-boundary error of exactly the kind sessions 245 and 272 paid
+        // for, arriving through a guard that is correct everywhere else.
+        const minGap = opts.anchorIsPeriodEnd === true ? 1 : Math.max(1, Math.round(medianDays / 2))
+        date = nextPaymentOnOrAfter(anchorDate, dom, minGap)
       } else {
         const d = new Date(Date.parse(prevDate + 'T00:00:00Z'))
         d.setUTCMonth(d.getUTCMonth() + 1, 1)

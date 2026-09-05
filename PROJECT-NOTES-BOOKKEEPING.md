@@ -1,6 +1,147 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 272, 2026-09-04)
+> ## ⏭️ START HERE — first thing, next session (left by session 275, 2026-09-05)
+>
+> ### 0m. ⏭️ NEXT SESSION STARTS HERE — THE ANCHOR FIX IS WRITTEN AND TESTED, NOT DEPLOYED
+>
+> **State at hand-off (2026-09-05): two files changed, 30 new assertions green, whole suite green,
+> NOTHING committed, NOTHING deployed, NO schedule re-derived.** Everything below is measured.
+>
+> #### What §0e and §0k got wrong, and what the cause actually is
+> §0e concluded the ~$15/month was a period-LABELLING problem and §0k built a plan around the
+> statement arriving a month late. Both are wrong. **The cause is that `derive-schedule.ts` picks
+> the wrong statement to anchor its projection on**, and it does so because it lacks two rules
+> `loan-find-difference` has always had:
+>
+> ```
+> loan-find-difference (the walk)      anchorsByBalanceDate(
+>                                        stmts.filter(s => s.balance_basis === 'principal_only'),
+>                                        dateBasis)                       ← allowlist + re-dating
+> derive-schedule (the projection)     stmts.filter(s => s.balance_basis !== 'total_payback')
+>                                                                          ← denylist, no re-dating
+> ```
+>
+> Not different logic. The SAME logic, missing from the other branch that reaches the same kind of
+> answer — session 231, almost verbatim. It is also exactly why the walk reported clean figures on
+> a loan whose schedule was a month out: the walk had already discarded the offending document.
+>
+> On Funding Circle the anchor was the **2026-08-03** pull (66,215.03 — a July month-end figure,
+> `balance_basis` never recorded) instead of **2026-08-01** (65,173.94, which under `period_start`
+> means the August month END). Every projected row was therefore one period late: the schedule's
+> "September" row closed at 65,173.93, a balance the lender says was already true at 31 August.
+> **That is where the misposted interest came from, and it is why the staged September card carried
+> August's split.** The lag was never inherent — nothing forces us to re-read the newest statement
+> each month; the recurrence carries itself forward and the statement's job is only to confirm it.
+>
+> #### THREE defects, one root cause. Two were found by RUNNING the code, not reading it.
+> 1. **The anchor allowlist / re-dating** (above).
+> 2. **Filtering the stated PAYMENT by `balance_basis` too** — the first cut of the fix did this and
+>    made Funding Circle refuse with `no_stated_payment`, because its only statement carrying a
+>    `total_amount_due` ($2,033.77) is that same unlabelled 08-03 row. `balance_basis` says what the
+>    BALANCE means; it says nothing about the lender's stated amount due. **Two questions, two
+>    filters.** Session 270 removed the typed fallback, so losing it is a refusal, not a degradation.
+> 3. **A re-dated month-end anchor skipped a whole month.** `nextPaymentOnOrAfter` rejects a payment
+>    day within half a period of the anchor, because a mid-cycle PULL may already reflect it. A
+>    re-dated `period_start` anchor is not a pull — it is the CLOSE of a completed period, so the
+>    next payment day is unambiguously the next payment. FC anchors 08-31 and pays on the 1st, so
+>    2026-09-01 sat one day past the anchor, was rejected, and the projection jumped to October —
+>    **silently dropping September out of a schedule whose rows get staged into Xero.**
+>    `projectRows({ anchorIsPeriodEnd: true })` is the fix; the flag is inert on `balance_date` loans
+>    and that inertness is asserted.
+>
+> ⚠️ **Had this shipped after the first dry run "looked right", FC would have had no September row.**
+> The version that looked correct was wrong twice. Do not trust a plausible-looking projection here;
+> print the rows.
+>
+> #### Measured before/after, all seven loans carrying a derived schedule (2026-09-05)
+>
+> | Loan | anchor before → after | first row | before | after |
+> |---|---|---|---|---|
+> | Funding Circle | 08-03 (unknown) → 08-01, balance date 08-31 | 2026-09-01 | 992.67 / **1,041.10** | 977.07 / **1,056.70** |
+> | E-Transit 4140 | 08-28 (unknown) → 08-17 | 2026-09-17 | int 48.54 | int **75.23** |
+> | E-Transit E5-4751 | 08-23 (unknown) → 08-12 | 2026-09-12 | int 160.40 | int **248.62** |
+> | E-Transit E6-7410 | 08-20 (unknown) → 08-09 | 2026-09-09 | int 109.20 | int **169.27** |
+> | E-Transit E4-9744 | unchanged | — | identical | identical |
+> | BayFirst SBA Loan | unchanged | — | identical | identical |
+> | BayFirst SBA 2 | unchanged | — | identical | identical |
+>
+> The three Ford loans are the SAME balance — the unlabelled row is a duplicate pull ~11 days after
+> the real statement — so the defect there is not a stale balance but a **shortened accrual window**:
+> the model was told 20 days had passed when 31 had. Checked by hand: E6 is
+> 22,168.92 × 8.99% ÷ 365 × 31 = **$169.4**. The old figure under-stated the first month's interest,
+> and the first row is the one that gets staged. The three unchanged loans are the control.
+>
+> FC's new September split (977.07 / 1,056.70) was **independently derived twice**: once by fitting
+> the lender's own eight months by hand (median monthly rate 1.4991657% = 17.9900%/yr, worst
+> prediction error ONE CENT across eight months) and once by the shipped `chooseFit` + `projectRows`.
+> Two methods, same answer to the cent.
+>
+> #### What is on disk right now
+> * `supabase/functions/_shared/derive-schedule.ts` — new exported `selectAnchorEvidence()` (pure,
+>   testable; the extraction is the point), `anchorFiled` vs re-dated anchor date, payment evidence
+>   split out, `anchorIsPeriodEnd` passed, refusal message now names what it skipped.
+> * `supabase/functions/_shared/rate-fit.ts` — `medianDayOfMonth()` split out of
+>   `paymentDayOfMonth()`, `projectRows({ anchorIsPeriodEnd })`.
+> * `tests/derive-anchor.test.mts` — 30 assertions, **every one paired with a discrimination check**
+>   that runs the pre-fix rule and asserts a different (wrong) answer.
+> * `tests/fixtures/derive-anchor-2026-09-05.json` — 🧊 **FROZEN**, 7 loans / 87 real statements.
+>   Its subject is the state that exposed the bug; re-pulling it turns the proof into a transcript.
+>
+> ⚠️ **`anchor_statement_date` MUST keep the FILED date, never the re-dated one.** `loan-xero-post`'s
+> staleness guard compares that column against the newest FILED statement date. Storing 2026-08-31
+> against a filed maximum of 2026-08-03 would make the anchor permanently "newer than any statement"
+> and the guard could never fire again — fail-open, in the one place that must fail closed. Asserted
+> in §4 of the test, including the discrimination that the value we did NOT store would break it.
+>
+> #### Suite, measured 2026-09-05 (not inherited)
+> * **Browser harness: 1,851 assertions, 1,850 passed.** The single red is `[history] s240 #10`,
+>   Tech Debt #19, red ON PURPOSE. Run in two halves; a full sweep exceeds one call's budget.
+>   (Chromium and `~/syslibs` had to be reinstalled this session — per-session sandbox, ~4 minutes,
+>   commands are in `tests/run-harness.sh`. **Do not run `npx playwright install chromium`.**)
+> * **Node: every `.test.mts` green**, including the new 30. `loan-bundle.test.mts` still cannot
+>   import `pdfjs-dist` on this machine — pre-existing, unrelated.
+>
+> #### DO THESE NEXT, in this order
+> 1. **Commit** (nothing is committed). Then David pushes — the sandbox has no network.
+> 2. **Deploy the three functions that import the changed modules** — `loan-derive-schedule`,
+>    `loan-ingest-statement`, `loan-record-principal-payment`. (`loan-xero-post` only mentions
+>    derive-schedule in a comment; it does not import it.) **Verify by CONTENT** — grep the deployed
+>    bundle for `selectAnchorEvidence` and `anchorIsPeriodEnd`, plus a control string that should
+>    return 0. A version number proves a deploy was accepted, not that it runs.
+> 3. **Re-derive all seven loans** (`loan-derive-schedule`, dry run first) and check the written rows
+>    against the table above. **The ROWS are the proof the deploy is live**, not the version.
+> 4. **Re-stage Funding Circle's September card at 977.07 / 1,056.70.** It is currently
+>    `pending_review` (David removed the stage 2026-09-05; Xero reads `status: DELETED`, verified).
+>    Do NOT re-stage before the re-derive, or it will regenerate August's figures.
+> 5. **Only then** build §0k's true-up and the one-time journal. They compare the lender's figure
+>    against WHAT WAS BOOKED, and what gets booked changes from here on.
+>
+> ⚠️ **The backlog does not fix itself.** Re-anchoring corrects what we book NEXT month; it does not
+> move a cent of the ~$60.16 already sitting in Interest Expense ($29.64 of it inside closed books).
+> The projection self-heals because it is re-anchored every month; **the BOOKS do not.** Ship the
+> journal and the fix together, or say plainly which one shipped — §0k's trap #1, still true.
+>
+> ### 0l. 🐛 SMALL, REAL, UNFIXED: "View schedule" 404s on every DERIVED schedule
+>
+> David hit `Could not load file: Object not found` on the Loans splits table. It is the **View
+> schedule** link: a derived schedule is stored with a synthetic `storage_path`
+> (`derived://loan-derive-schedule/<id>/<date>`) because there is no document, so the fetch can never
+> succeed. Every FC statement PDF is present and intact (checked in the `loan-statements` bucket —
+> `2026-08-01` 51,667 bytes, `2026-07-01` 51,673 bytes); the evidence is fine.
+>
+> The row should not offer a file link at all. It should say the schedule was COMPUTED from this
+> loan's own statements rather than issued by the lender — which is the more important point anyway:
+> presenting our own arithmetic as a document someone could open is exactly the wrong impression to
+> give about a projection.
+>
+> ### 0k. ⚠️ PARTIALLY SUPERSEDED BY §0m — ITS DIAGNOSIS IS WRONG, ITS DECISION STANDS
+>
+> **Read §0m first.** The provisional/true-up DECISION David made here is still what we are building,
+> and the ONE RULE, TWO CALLERS architecture below is still right. But the premise — that the split is
+> stale because the statement arrives a month late — is not the cause. The cause is the anchor. Once
+> the anchor is fixed the derived schedule IS the measured-rate projection, re-anchored monthly, so
+> the separate provisional-split mechanism this section proposes is not needed: do not build a second
+> implementation of arithmetic `rate-fit.ts` already performs.
 >
 > ### 0k. ⏭️ NEXT SESSION STARTS HERE — BOOK PROVISIONALLY, TRUE UP ON THE STATEMENT
 >
@@ -3093,6 +3234,49 @@ to "what is running".
 ---
 
 ---
+
+### Session 275 (2026-09-05) — THE PROJECTION WAS ANCHORED TO THE WRONG STATEMENT, FOR 274 SESSIONS
+
+David asked how the Funding Circle gap gets resolved for good. Answering it properly overturned
+yesterday's diagnosis (§0e) and the plan built on it (§0k). **Full detail in START HERE §0m** — the
+before/after table for all seven loans, the three defects, the frozen fixture, and the ordered
+hand-off. What belongs in the log rather than the block:
+
+**David's question was the one that cracked it.** *"I would think that deriving the interest split for
+next month would be simple arithmetic as long as we know HOW the lender calculates."* It is. Fitting
+Funding Circle's own eight months gives a flat 1.4991657%/month (17.9900%/yr) and predicts every one
+of them within **one cent**. That immediately reframed the problem: if the arithmetic is that good,
+the ~$15/month cannot be an accuracy problem, so it had to be an INPUT problem — which is where the
+anchor was found. The typed `loan_accounts.interest_rate` still reads 20.000%, still wrong, still
+correctly unused by anything that posts money (session 230).
+
+**And the answer to "does it self-correct?" is the reason §0k needs both halves.** It does not: an
+error of $5 in a booked principal leaves the carried balance $5 high, so next month's interest is
+$0.07 high, and the balance error grows ~1.5%/month — $5 becomes $5.98 in a year. What corrects it is
+the RE-ANCHOR, not the chain, and the re-anchor only fixes what we book NEXT. The books never
+self-heal. That is precisely the shape of the $60.16: every individual month looked fine, the bank
+reconciled every month because the total is always $2,033.77, and only the accumulated balance gap
+ever gave it away.
+
+**Three process notes worth more than the fix.**
+
+*One.* Two of the three defects were found by RUNNING the code, and the SQL that "proved" six of seven
+loans were unaffected was wrong — it compared anchor BALANCES, and three Ford loans move because their
+anchor DATE moved, shortening the first accrual window by 11 days. A query can only disprove what you
+thought to ask it.
+
+*Two.* The discrimination helper in the new test was itself wrong on first writing: it applied
+`collapseDuplicateBalances` to the pre-fix anchor list, which the old code did not, making the defect
+look absent on 4140 and sending E4-9744's anchor back to a $5,000 lump in May. **The three CONTROL
+loans caught it** — they are asserted to agree with the OLD rule as well as the new one, so a
+mis-stated old rule goes red. Controls are not padding; they are what makes a discrimination check
+trustworthy. (Session 245's transcription trap, arriving inside the test written to avoid it.)
+
+*Three.* The staged September card was removed before any of this, and Xero was checked rather than
+believed: `matched_xero_bank_transaction_id` was populated, which reads like a bank-feed match and is
+actually where staging keeps its own Xero id. The transaction was `AUTHORISED, reconciled: false`, so
+the unstage was clean — and after David removed it, Xero reads `status: DELETED`. Both facts came from
+`xero-read`, not from the dashboard's word.
 
 ### Session 274 (2026-09-04) — THE CLOSE BAR GETS A PROGRESS BAR, AND A GREY TAIL THAT KEEPS IT HONEST
 
