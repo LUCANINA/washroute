@@ -3959,6 +3959,57 @@ to "what is running".
 
 ---
 
+### Session 280 cont. 3 (2026-09-06) — A SHELL THAT CAN PUSH
+
+David: *"Set up a shell to push to GitHub."* Built; **one step remains and only he can do it.**
+
+**Two assumptions in `docs/washroute/DESIGN-RELEASE-PIPELINE.md` were tested rather than
+trusted, and both held:** the device VM reaches `github.com:22` AND `ssh.github.com:443`, and
+`ssh -T git@github.com` answers *"Permission denied (publickey)"* — which is the transport
+working and only the key missing. Nobody had checked; if port 22 had been closed the whole
+deploy-key design would have been wrong.
+
+**Where the key lives, and why it is not where the design doc said.** The doc said keep it
+outside the repo, in a separately-connected folder. That folder cannot be created from here:
+`device_request_folder_access` on `~/Projects` timed out with David away from the Mac, and the
+VM's own `$HOME` is a **per-session sandbox** — a key written there is gone next session, which
+would leave a public key registered on GitHub whose private half no longer exists. Worse than
+not starting.
+
+So the key is at **`.git/wr-deploy-key`**. Inside the repo FOLDER, inside `.git/` — which git
+refuses to track under any circumstances, because it will not add its own directory. That is a
+*stronger* guarantee than `.gitignore`, which one `git add -f` or an edited ignore file defeats,
+and it satisfies exactly what the doc's "outside the repo" was protecting against. It persists,
+because the folder does. Move it the day a secrets folder gets connected; nothing else changes
+but one path in `scripts/push.sh`.
+
+**`scripts/push.sh`** does the push and refuses four states, each one a way to ship something
+nobody looked at — a push reaches customers in about thirty seconds:
+
+* no key, with the generate-and-register instructions inline;
+* not on `main`;
+* a dirty working tree (it caught its own untracked self on the first run);
+* nothing to push.
+
+It then NAMES what is about to ship: the commits, the client files Vercel will deploy (and that
+every open tab reloads onto), and — separately — any edge function in the diff, with the exact
+`npx supabase functions deploy` line, because **a push has never deployed a function** and a
+script that pushes silently is precisely how that gets forgotten again. `--dry-run` says all of
+it and pushes nothing. Reads use `--no-optional-locks`; the push uses an explicit SSH URL so
+`origin` stays https and anonymous fetch is unaffected.
+
+⚠️ **THE REMAINING STEP IS DAVID'S AND CANNOT BE DELEGATED.** The public key must be added at
+**github.com/LUCANINA/washroute → Settings → Deploy keys → Add deploy key**, with **Allow write
+access** ticked. Until then `push.sh` fails with `Permission denied (publickey)` — the plumbing
+proven, the door not yet fitted. This is the right shape: I built a lock, he decides whether it
+opens his repo.
+
+⚠️ **AND BE CLEAR-EYED.** Once that key is registered, ANY session with this folder connected
+can ship to production unattended. The guards above are real but they are not a review. The
+deploy-state rule is unchanged: a push proves code REACHED GitHub, never that it RUNS.
+
+---
+
 ### Session 280 cont. 2 (2026-09-06) — STAGE 2: IN FLIGHT ADOPTS THE SHARED VOCABULARY
 
 David was away and said to keep going. Stage 2 of the consolidation is in; stages 3-4 are not.
