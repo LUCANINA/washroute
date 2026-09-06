@@ -114,6 +114,42 @@ Forcing either onto the other is tidiness, not consolidation.
 
 ---
 
+## Corrections made during stage 2 — read these before the column table above
+
+Three of the spec's column decisions did not survive contact with the code. They are
+recorded here rather than edited away, because a spec that quietly rewrites itself teaches
+nobody anything.
+
+1. **Opening and Drawn are NOT on In flight.** The table above said "kept / kept". They
+   cannot be: In flight's **Books** column is the live `xero` balance (Rule 1), so
+   `opening + drawn − principal` would not foot to the Books figure beside it, and a reader
+   would try to add the row up. On Closing they foot exactly, because Books *is* `computed`.
+   Four columns that do not add up is a worse defect than two columns missing, so In flight
+   carries Principal and Interest — the month's real movement — and stops there.
+2. **Ledger is NOT on In flight.** It is measured per closed month; on the month in flight
+   it would print `·` on every row forever. A column that always says the same thing is one
+   people stop reading (LESS IS BEST test 1).
+3. **The money format is unchanged so far.** Closing prints bare figures, In flight prints
+   `$` on every cell. One rule still wins — Closing's — but changing it moves numbers on
+   both tables at once and belongs in the same commit as the Closing merge, not bolted onto
+   the In flight rebuild.
+
+So the shared set is **13 columns on In flight** and will be **16 on Closing**, with the
+extra three (Opening, Drawn, Ledger) being the close workpaper's own evidence. In flight is
+a strict subset of Closing in the same order, with the same words — which is what "one
+format" can honestly mean here.
+
+**Also found and fixed in stage 2, and it was a live defect:** In flight's Principal and
+Interest read off ONE split (the last payment) while Closing summed the month. A lender that
+drafts weekly showed one week on one view and four on the other, under identical headings.
+Both are the month's sum now (`loan-table-consolidation` group, with the discrimination
+that the cell must NOT equal the single split).
+
+**And one the suite caught:** the first `_bkLoanStatusMark` map omitted the `na` group — the
+automatic loan, which has no lender document at all — so it fell through to `unchecked` and
+told the reader to run a check that would never cover it. The map is exhaustive now and an
+unrecognised group renders as stated-unrecognised rather than as a confident dot.
+
 ## Build order
 
 Stage 1 and 2 are each shippable on their own; the suite must be green between them.

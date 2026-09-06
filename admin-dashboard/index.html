@@ -3615,6 +3615,11 @@
             .lcb-src.soft { color: var(--gray-500); font-style: italic; }
             .lcb-sub { display: block; font-size: 11px; color: var(--gray-400); font-weight: 400; margin-top: 2px; }
             .lcb-sub.soft { color: var(--gray-400); font-style: italic; }
+            /* Session 280: the Agreement tick, moved off its own column and onto
+               the loan it describes (LESS IS BEST test 3). Quiet by design — it
+               states that a contract exists to check against, and its absence
+               blocks nothing, so it must never compete with the row's verdict. */
+            .lit-agree { color: var(--green); font-weight: 700; font-size: 11px; margin-left: 4px; }
             .lcb-total > td { border-top: 1px solid var(--gray-300); border-bottom: 0;
                               font-weight: 700; color: var(--gray-900); }
             .lcb-ofwhich > td { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
@@ -18625,6 +18630,47 @@
     return agreement;
   }
 
+  // The month in flight, in ONE place. Three surfaces derived it independently
+  // with `today().slice(0, 7)` — the period bar, the in-flight strip and now the
+  // table's own month sums. Three copies of a date rule is how two of them end
+  // up on different months at 5pm Pacific on the last day of a month (the
+  // session-223 timezone bug, which `today()` already fixes and which only stays
+  // fixed while everybody calls the same thing).
+  function _bkInFlightMonth() { return today().slice(0, 7); }
+
+  // ── THE STATUS MARK — ONE VOCABULARY (session 280) ──────────────────────
+  // Closing prints ✓ / ✗ / · ; In flight printed words in its Variance cell
+  // ("explained", "small", "per schedule") and no Status column at all. Same six
+  // states underneath — _bkRosterState's `group`, which the roster, the Overview
+  // statusline and the close band already share — so they get one mark and one
+  // sentence. The dot is NOT a failure and never reads as one: it means the check
+  // did not run, which is a third answer and has always needed its own symbol.
+  function _bkLoanStatusMark(st) {
+    const g = (st && st.group) || 'unchecked';
+    const MARK = {
+      reconciled: { cls: 'lcb-mark-ok', sym: '\u2713', why: 'Ties to the lender, or the difference is fully explained by payments dated after the document.' },
+      immaterial: { cls: 'lcb-mark-ok', sym: '\u2713', why: 'A real difference, too small to be worth chasing on its own. It turns red if it grows.' },
+      variance:   { cls: 'lcb-mark-off', sym: '\u2717', why: 'A real dollar difference against the lender, worth resolving.' },
+      byschedule: { cls: 'lcb-mark-na', sym: '\u00b7', why: 'Closed on the contractual schedule — the same document the balance was built from, so agreeing proves nothing about the outside world. Settled, not independently confirmed.' },
+      unverified: { cls: 'lcb-mark-na', sym: '\u00b7', why: 'Measured against our own record rather than a lender document. Upload a statement and this becomes a real check.' },
+      unchecked:  { cls: 'lcb-mark-na', sym: '\u00b7', why: 'No reconciliation check has covered this loan yet — run one to find out.' },
+      // An automatic loan (Stripe Capital) never gets a manually computed split
+      // and has no lender document to compare against — its balance is a live
+      // Xero snapshot. That is a THIRD thing, not a failure and not a pass, and
+      // it was the one group the first cut of this table left out: it fell
+      // through to `unchecked` and told the reader to run a check that would
+      // never cover it. Caught by the suite, which is why the map is exhaustive
+      // and the fallback is now a stated unknown rather than a plausible guess.
+      na:         { cls: 'lcb-mark-na', sym: '\u00b7', why: 'Nothing outside our books to compare this balance with — it is a live Xero snapshot from the lender\u2019s own feed, not a figure from a statement.' },
+    };
+    // An unrecognised group is stated as unrecognised, never quietly folded into
+    // a neighbour — a new _bkRosterState group must fail visibly here rather than
+    // render as a confident dot (the allowlist habit, session 245).
+    const m = MARK[g] || { cls: 'lcb-mark-na', sym: '\u00b7', why: `This loan's state (${g}) has no description yet — it is not a pass or a failure, it is unrecognised.` };
+    const why = m.why + (st && st.reason ? ` \u2014 ${st.reason}` : '');
+    return `<span class="lcb-mark ${m.cls}" title="${esc(why)}" aria-label="${esc(g)}">${m.sym}</span>`;
+  }
+
   function _bkLoanSource(a) {
   // SOURCE — what settles this loan's month. Reads the RECORDED close basis
   // and nothing else. The temptation is to infer "schedule" from the
@@ -21280,8 +21326,37 @@
       // interest across fourteen loans when every figure sits at a different
       // indent. Two numeric columns, right-aligned, one number each.
       const dash = `<span style="color:var(--gray-300)">—</span>`;
-      const principalCell = lastSplit ? `<span class="td-mono">${money2(lastSplit.principal_amount)}</span>` : dash;
-      const interestCell = lastSplit ? `<span class="td-mono">${money2(lastSplit.interest_amount)}</span>` : dash;
+      // ── SESSION 280: THE MONTH'S SUM, NOT ONE SPLIT ──────────────────────
+      // These read off `lastSplit` — ONE payment — while the Closing table's
+      // Principal and Interest sum the whole month (`_monthSplits`). Two tables,
+      // two columns, one pair of headings, and they have never meant the same
+      // thing: a lender that drafts weekly showed one week here and four there.
+      // Found while consolidating the two views (design doc, column 8/9). The
+      // month sum wins, because it is the figure the close is built on and the
+      // one that foots against the rollforward.
+      const mSplits = _monthSplits(a.id, _bkInFlightMonth());
+      const mPrincipal = mSplits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
+      const mInterest  = mSplits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
+      const monthTitle = esc(`${mSplits.length} payment${mSplits.length === 1 ? '' : 's'} recorded so far in ${_cvMonthName(_bkInFlightMonth())}. This is the month's total, the same basis the Closing table uses — not the single last payment shown to the left.`);
+      const principalCell = mSplits.length ? `<span class="td-mono" title="${monthTitle}">${money2(mPrincipal)}</span>` : dash;
+      const interestCell  = mSplits.length ? `<span class="td-mono" title="${monthTitle}">${money2(mInterest)}</span>` : dash;
+
+      // ── THE LOAN CELL CARRIES LENDER AND AGREEMENT (session 280) ─────────
+      // Lender was its own column here and a sub-line under the name on Closing.
+      // One shape wins and it is Closing's: it frees a whole column on a table
+      // that needed the room, and the lender filter pill moves onto the sub-line
+      // rather than being lost. The Agreement tick attaches to the loan it
+      // describes instead of standing as its own column — LESS IS BEST test 3,
+      // and its own tooltip says it blocks nothing.
+      const agree = _bkLoanAgreement(a);
+      const loanCell = `<div class="td-name" title="${esc(agree.title)}">${esc(a.xero_account_name || '—')}${
+        agree.has ? ' <span class="lit-agree" aria-label="Agreement on file">\u2713</span>' : ''}</div>`
+        + `<div class="lcb-sub">${a.lender ? _loansFilterPill('lender', a.lender, esc(a.lender), f.lender === a.lender) : '—'}</div>`;
+
+      // Source and Status are the SHARED cells — one definition, both tables.
+      const src = _bkLoanSource(a);
+      const sourceCell = `<span title="${esc(src.title)}">${src.cell}</span>`;
+      const statusCell = _bkLoanStatusMark(r.st);
       // Prefer the tie-out's own lender figure: it is the number the difference was
       // measured against, so Xero − Statement on screen equals Variance exactly.
       const stmtAmount = v.lender != null ? v.lender : (bal ? bal.amount : null);
@@ -21326,10 +21401,16 @@
         varianceCell = `<span style="font-size:11.5px;color:var(--gray-400)" title="${esc(v.reason || '')}">not checked</span>`;
       }
 
-      return `<tr onclick="openLoanDetailModal('${a.id}')" style="cursor:pointer">
-        <td>${a.lender ? _loansFilterPill('lender', a.lender, esc(a.lender), f.lender === a.lender) : `<span style="color:var(--gray-300)">—</span>`}</td>
-        <td class="td-name">${esc(a.xero_account_name || '—')}</td>
+      // data-loan: the row's identity as DATA, not as the text of a cell.
+      // Session 280 folded the lender and the agreement tick into the Loan cell,
+      // so its text is no longer the loan's name — anything matching on that text
+      // (the suite did, in four places) silently stopped finding rows. The close
+      // band has carried its facts as attributes since session 249 for the same
+      // reason: a cell's text is for a reader, an attribute is for a machine.
+      return `<tr onclick="openLoanDetailModal('${a.id}')" style="cursor:pointer" data-loan="${esc(a.xero_account_name || '')}" data-loan-id="${esc(a.id)}">
+        <td>${loanCell}</td>
         <td class="td-mono lit-acct">#${esc(a.lender_account_number)}</td>
+        <td>${sourceCell}</td>
         <td style="text-align:right">${lastPaymentCell}</td>
         <td>${dateCell}</td>
         <td style="text-align:right">${principalCell}</td>
@@ -21344,6 +21425,7 @@
         <td style="text-align:right">${xeroCell}</td>
         <td style="text-align:right">${balCell}</td>
         <td style="text-align:right">${varianceCell}</td>
+        <td style="text-align:center">${statusCell}</td>
       </tr>`;
     };
 
@@ -21373,31 +21455,41 @@
     // it would invite reading one for the other on the exact screen where the
     // difference between them is the point.
     el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto;padding:14px 6px 0"><table class="lit" style="table-layout:fixed;width:100%;min-width:1290px">
-      <!-- Twelve columns as of session 267 (Staging). The widths sum to 100 and
-           the colgroup, the header, every row and the tfoot's colspan all have to
+      <!-- THIRTEEN columns as of session 280 (the consolidation: Lender folded
+           into Loan, Source and Status added). The widths sum to 100 and the
+           colgroup, the header, every row and the tfoot's colspans all have to
            move together -- a colgroup one <col> short silently collapses the last
-           column instead of erroring. -->
-      <colgroup><col style="width:11%"><col style="width:13%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:9%"></colgroup>
+           column instead of erroring.
+           Column names are now the SHARED vocabulary, and two of them changed
+           meaning rather than merely their label -- see
+           docs/bookkeeping/DESIGN-LOAN-TABLE-CONSOLIDATION.md:
+             Xero      -> Books   the figure OUR books carry
+             Statement -> Lender  the lender's own figure, and its date
+           so that Variance means one thing on both tables: books minus lender,
+           as of the date on the row. -->
+      <colgroup><col style="width:15%"><col style="width:9%"><col style="width:7%"><col style="width:8%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:5%"></colgroup>
       <thead><tr>
-        ${thSort('lender', 'Lender')}
         ${thSort('loan', 'Loan')}
         ${thSort('account', 'Account #')}
+        <th title="What this loan is CLOSED against — its source of truth. Statements means an outside document from the lender settles the month. Schedule means a recorded policy to close against the contractual amortization instead, so no statement is expected. This reads the recorded close basis, never the mere presence of a schedule file.">Source</th>
         ${thSort('lastpayment', 'Last payment', true)}
         ${thSort('date', 'Date')}
         ${thSort('principal', 'Principal', true)}
         ${thSort('interest', 'Interest', true)}
         ${thSort('type', 'Type')}
         ${thSort('staging', 'Staging')}
-        ${thSort('xero', 'Xero', true)}
-        ${thSort('outstanding', 'Statement', true)}
+        ${thSort('xero', 'Books', true)}
+        ${thSort('outstanding', 'Lender', true)}
         ${thSort('variance', 'Variance', true)}
+        <th style="text-align:center" title="Does this loan tie to the lender? ✓ ties, or the difference is fully explained or too small to chase. ✗ is a real dollar difference to resolve. · means the check was not run — either the balance traces back to the same document it is being compared with (so agreeing proves nothing), or there is no lender evidence yet. The same three marks, and the same underlying classification, as the Closing table.">Status</th>
       </tr></thead>
-      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
+      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="13" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
       <tfoot><tr>
         <td colspan="9">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
         <td style="text-align:right">${money2(totalXero)}</td>
         <td style="text-align:right">${money2(totalStatement)}</td>
         <td style="text-align:right"${totalVariance < 0.005 ? '' : ' class="lit-off"'} title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '<span class="lit-quiet">$0.00</span>' : money2(totalVariance)}</td>
+        <td></td>
       </tr></tfoot>
     </table></div>`;
   }

@@ -3959,6 +3959,69 @@ to "what is running".
 
 ---
 
+### Session 280 cont. 2 (2026-09-06) — STAGE 2: IN FLIGHT ADOPTS THE SHARED VOCABULARY
+
+David was away and said to keep going. Stage 2 of the consolidation is in; stages 3-4 are not.
+
+**What the In flight table looks like now.** Thirteen columns, the shared vocabulary, in the
+Closing table's order: Loan · Account # · **Source** · Last payment · Date · Principal ·
+Interest · Type · Staging · **Books** · **Lender** · Variance · **Status**.
+
+* **Lender folded into the Loan cell** as a sub-line (`lcb-sub`, the close band's own class),
+  with the filter pill still on it so nothing is lost. The **Agreement** tick moved onto that
+  cell too — LESS IS BEST test 3, and its own tooltip says it blocks nothing.
+* **`Xero` → `Books`, `Statement` → `Lender`.** Not labels: this is what makes Variance mean
+  ONE thing on both tables — books minus lender, as of the date on the row. The suite asserts
+  the old names are GONE, not merely that the new ones appeared; two headings for one fact is
+  the defect being removed.
+* **Source and Status are the shared cells**, `_bkLoanSource` and `_bkLoanStatusMark`, and the
+  suite proves it by calling those functions directly in page context and comparing to the
+  rendered DOM rather than to a string written in the test.
+
+**THE LIVE DEFECT THIS TURNED UP.** In flight's Principal and Interest read off `lastSplit` —
+ONE payment — while Closing summed the month with `_monthSplits`. Two tables, identical
+headings, and they have never meant the same thing: a lender that drafts weekly showed one
+week on one view and four on the other. Both are the month's sum now. Asserted by
+construction — a second split is injected into the in-flight month and the cell must equal
+both together AND must NOT equal either alone, because without the second half a cell still
+showing one split goes green whenever the two happen to match, which on this book's weekly
+loans is likely.
+
+**Two more the suite caught, both worth reading:**
+
+* `_bkLoanStatusMark`'s first map omitted the `na` group — the automatic loan (Stripe
+  Capital), which has no lender document at all. It fell through to `unchecked` and told the
+  reader to run a reconciliation that would never cover it. The map is exhaustive now, and an
+  unrecognised group renders as *stated* unrecognised rather than as a confident dot.
+* Four assertions matched rows by the **text of the Loan cell**. Folding the lender into that
+  cell broke all four — and broke them in the direction that reads like a MISSING ROW rather
+  than a renamed one, which is the expensive kind of red. Fixed properly rather than with a
+  substring match: the row now carries `data-loan` / `data-loan-id`, and identity is read from
+  the attribute. Same habit as the close band's `data-gates` since session 249 — a cell's text
+  is for a reader, an attribute is for a machine.
+
+**Three spec decisions were overturned by the code and are recorded in the design doc rather
+than edited away:** Opening and Drawn cannot go on In flight (Books there is the live `xero`
+balance, so the row would not foot — on Closing it does, because Books *is* `computed`);
+Ledger cannot (it would print `·` on every row forever); and the money format change waits for
+stage 3, where both tables move together. So the shared set is 13 columns on In flight and
+will be 16 on Closing, In flight being a strict subset in the same order with the same words.
+
+**Verified: 2,155 browser assertions across all 46 groups, 2,154 passing** (two halves), the
+single red being `[history] s240 #10`, Tech Debt #19, red on purpose. New group
+`loan-table-consolidation`, 30 assertions. ⚠️ It was first pushed BELOW the `--list`/`--only`
+gate and was invisible to both — the session-279 failure, repeated within a week. Registering
+a group after that gate makes `--only` refuse it and `--list` never name it. Push groups
+ABOVE it.
+
+**Still to do — stage 3 is the big one:** the **Action** column on In flight (it still shows
+red variances with no path to a fix — the single biggest functional gap), then Closing gains
+Account #, Last payment, Date, Staging and sortable headers, `Computed`→`Books`,
+`Closing`→`Lender`, Agreement onto the Loan cell, Booked folded into Status, and one money
+format across both.
+
+---
+
 ### Session 280 cont. (2026-09-06) — ONE LOAN TABLE, TWO PERIODS (spec + stage 1 of 4)
 
 David: *"Identify ways to harmonize/consolidate the two LOAN views. Ideally we have one

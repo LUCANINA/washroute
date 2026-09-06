@@ -1041,7 +1041,14 @@ GROUPS.push({
       const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(th => th.innerText.replace(/\s+/g, ' ').trim());
       const rows = [...document.querySelectorAll('#loans-table-wrap tbody tr')].map(tr => {
         const c = [...tr.children].map(td => td.innerText.replace(/\s+/g, ' ').trim());
-        const o = {}; hdr.forEach((h, i) => o[h] = c[i]); return o;
+        // Session 280: identity comes from data-loan, never from the Loan cell's
+        // text. The consolidation folded the lender and the agreement tick into
+        // that cell, so its text is "E-Transit Loan - 4140 Ford Pro FinSimple ✓"
+        // and four assertions that matched on it stopped finding their rows —
+        // failing in the direction that LOOKS like a missing row rather than a
+        // renamed one, which is the expensive kind of red.
+        const o = { __loan: tr.getAttribute('data-loan') || '', __cells: tr.children.length };
+        hdr.forEach((h, i) => o[h] = c[i]); return o;
       });
       return { hdr, rows, today: today() };
     });
@@ -1089,7 +1096,7 @@ GROUPS.push({
       } });
       const { rows } = await readRows(p);
       const name = await p.evaluate(() => window.__WR_FIXTURE.__loan);
-      const row = rows.find(r => r.Loan === name);
+      const row = rows.find(r => r.__loan === name);
       t.ok(row && !/12,434\.68/.test(row['Last payment'] || ''),
            'a VOIDED split never becomes the loan\'s "Last payment"',
            row ? `${name}: last payment "${row['Last payment']}" dated ${row.Date} (${row.Type})` : 'row not found');
@@ -1118,7 +1125,10 @@ GROUPS.push({
       const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(th => th.innerText.replace(/\s+/g, ' ').trim());
       const rows = [...document.querySelectorAll('#loans-table-wrap tbody tr')].map(tr => {
         const c = [...tr.children].map(td => td.innerText.replace(/\s+/g, ' ').trim());
-        const o = { __cells: c.length }; hdr.forEach((h, i) => o[h] = c[i]); return o;
+        // Session 280: identity from data-loan, never from the Loan cell's text —
+        // the consolidation folded the lender and the agreement tick into it.
+        const o = { __cells: c.length, __loan: tr.getAttribute('data-loan') || '' };
+        hdr.forEach((h, i) => o[h] = c[i]); return o;
       });
       const cols = [...document.querySelectorAll('#loans-table-wrap colgroup col')].length;
       const foot = [...document.querySelectorAll('#loans-table-wrap tfoot tr')].map(tr =>
@@ -1166,13 +1176,13 @@ GROUPS.push({
            'the fixture really does contain staged splits for this column to report',
            `staged loans: ${JSON.stringify(staged)}`);
       const stagedNames = new Set(staged.map(x => x.name));
-      const shown = rows.filter(r => stagedNames.has(r.Loan));
+      const shown = rows.filter(r => stagedNames.has(r.__loan));
       t.eq(shown.length, staged.length,
            'every loan with a staged split is on the table to be seen');
       t.ok(shown.every(r => /scheduled/.test(r.Staging || '')),
            "...and each one is marked 'scheduled'",
            shown.map(r => `${r.Loan}: "${r.Staging}"`).join(' · '));
-      const quiet = rows.filter(r => !stagedNames.has(r.Loan));
+      const quiet = rows.filter(r => !stagedNames.has(r.__loan));
       t.ok(quiet.every(r => !/scheduled|needs a look/.test(r.Staging || '')),
            'a loan with nothing staged claims nothing in the Staging column',
            quiet.filter(r => /scheduled|needs a look/.test(r.Staging || ''))
@@ -1201,7 +1211,7 @@ GROUPS.push({
       } });
       const { rows } = await readRows(p);
       const name = await p.evaluate(() => window.__WR_FIXTURE.__loan);
-      const row = rows.find(r => r.Loan === name);
+      const row = rows.find(r => r.__loan === name);
       t.ok(!!row, 'the flagged loan is on the table', `looked for ${JSON.stringify(name)}`);
       if (row) {
         t.ok(/needs a look/.test(row.Staging || ''),
@@ -1297,11 +1307,13 @@ GROUPS.push({
         const th = [...document.querySelectorAll('#loans-table-wrap thead th')]
           .find(x => x.innerText.trim() === 'Staging');
         th.click();
-        const rows = [...document.querySelectorAll('#loans-table-wrap tbody tr')]
-          .map(tr => [...tr.children].map(td => td.innerText.replace(/\s+/g, ' ').trim()));
+        const trs = [...document.querySelectorAll('#loans-table-wrap tbody tr')];
+        const rows = trs.map(tr => [...tr.children].map(td => td.innerText.replace(/\s+/g, ' ').trim()));
         const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(x => x.innerText.trim());
-        const i = hdr.indexOf('Staging'), n = hdr.indexOf('Loan');
-        return { first: rows[0] ? rows[0][i] : '', firstName: rows[0] ? rows[0][n] : '',
+        const i = hdr.indexOf('Staging');
+        // Session 280: the name comes off data-loan, not the Loan cell — that cell
+        // now also carries the lender and the agreement tick.
+        return { first: rows[0] ? rows[0][i] : '', firstName: trs[0] ? (trs[0].getAttribute('data-loan') || '') : '',
                  col: rows.map(r => r[i]), name: window.__WR_FIXTURE.__loan };
       });
       t.ok(/needs a look/.test(out.first),
@@ -10770,6 +10782,185 @@ GROUPS.push({
          JSON.stringify({ words: before.words, dup: beforeDup.length }));
 
     await p.close();
+  },
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ONE LOAN TABLE, TWO PERIODS — the consolidation (session 280, David)
+
+   "Identify ways to harmonize/consolidate the two LOAN views. Ideally we have
+   one format for both." The settled design is
+   docs/bookkeeping/DESIGN-LOAN-TABLE-CONSOLIDATION.md.
+
+   The defect this fixes is not cosmetic. The two tables were two different
+   questions wearing one word: on 2026-09-06 BayFirst SBA 2 read -0.01 on
+   Closing and +$695.23 on In flight, and four more loans tied on one view while
+   carrying a variance on the other. Both correct, neither labelled.
+
+   So these assertions are about the SHARED VOCABULARY actually arriving, not
+   about either table looking tidy. Two of them are paired with their own
+   discrimination, because the month-sum fix and the shared-cell claim are both
+   the kind that pass trivially if you assert them loosely.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'loan-table-consolidation',
+  async run(t) {
+    const heads = (p) => p.evaluate(() =>
+      [...document.querySelectorAll('#loans-table-wrap thead th')].map(th => th.innerText.replace(/\s+/g, ' ').trim()));
+
+    // ── (a) the shared vocabulary is on the In flight table ─────────────────
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const hdr = await heads(p);
+      for (const col of ['Loan', 'Account #', 'Source', 'Last payment', 'Date',
+                         'Principal', 'Interest', 'Staging', 'Books', 'Lender', 'Variance', 'Status']) {
+        t.ok(hdr.includes(col), `s280: In flight carries the shared column "${col}"`, JSON.stringify(hdr));
+      }
+      /* THE RENAMES HAVE TO HAVE HAPPENED, not merely the new names appeared.
+         "Xero" and "Statement" surviving beside "Books" and "Lender" would be
+         the same fact told twice under two headings — the exact defect the
+         consolidation exists to remove. */
+      t.ok(!hdr.includes('Xero'), 's280: ⭐ ...and "Xero" is GONE, not sitting beside "Books"', JSON.stringify(hdr));
+      t.ok(!hdr.includes('Statement'), 's280: ⭐ ...and "Statement" is GONE, not sitting beside "Lender"', JSON.stringify(hdr));
+      t.ok(!hdr.includes('Lender ') && hdr.filter(h => h === 'Lender').length === 1,
+           's280: ...and Lender is one column, not also the old left-hand lender column', JSON.stringify(hdr));
+      await p.close();
+    }
+
+    // ── (b) the Loan cell absorbed the lender, and did not DROP it ──────────
+    /* Cutting a column must never drop a claim (ce17). The lender name has to be
+       on the row still; data-loan has to still hold the bare loan name, because
+       four assertions elsewhere match on it. */
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const seen = await p.evaluate(() => {
+        const trs = [...document.querySelectorAll('#loans-table-wrap tbody tr')];
+        const names = {};
+        (window.__WR_FIXTURE.loan_accounts || []).forEach(a => { names[a.id] = a; });
+        return trs.map(tr => {
+          const id = tr.getAttribute('data-loan-id');
+          const a = names[id] || {};
+          return { dataLoan: tr.getAttribute('data-loan') || '', lender: a.lender || '',
+                   name: a.xero_account_name || '', cell: (tr.children[0].innerText || '').replace(/\s+/g, ' ').trim() };
+        });
+      });
+      t.ok(seen.length > 0, 's280: the In flight table rendered rows to check');
+      t.ok(seen.every(r => r.dataLoan === r.name),
+           's280: ⭐ data-loan carries the bare loan name, so identity survives the fold',
+           JSON.stringify(seen.filter(r => r.dataLoan !== r.name).slice(0, 3)));
+      const withLender = seen.filter(r => r.lender);
+      t.ok(withLender.length > 0, 's280: ...and the fixture has lenders for that to mean something');
+      t.ok(withLender.every(r => r.cell.includes(r.lender)),
+           's280: ⭐ ...and every row still NAMES its lender — the column folded, the claim did not go',
+           JSON.stringify(withLender.filter(r => !r.cell.includes(r.lender)).slice(0, 3)));
+      await p.close();
+    }
+
+    // ── (c) Principal and Interest are the MONTH's sum, not one split ───────
+    /* The defect: In flight read these off `lastSplit` — ONE payment — while
+       Closing summed the month. A lender that drafts weekly showed one week here
+       and four there, under identical headings.
+
+       Asserted by CONSTRUCTION so it cannot pass by luck: a second split is
+       added to the in-flight month, and the cell must equal BOTH together. The
+       paired assertion is that it does NOT equal either one alone — without it,
+       a cell that still showed a single split would pass whenever the two
+       happened to be equal, and this fixture's weekly loans make that likely. */
+    {
+      const ADD = { principal: 1234.56, interest: 78.90 };
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const month = (d._meta && d._meta.pulled_at || '').slice(0, 7);
+        const base = d.loan_splits.find(sp => sp.status !== 'voided' && sp.status !== 'staged'
+          && (sp.period_label || '').slice(0, 7) === month);
+        d.__month = month;
+        d.__loanId = base.loan_account_id;
+        d.__was = { principal: Number(base.principal_amount), interest: Number(base.interest_amount) };
+        d.loan_splits.push(Object.assign({}, base, {
+          id: 'harness-consolidation-2nd', period_label: base.period_label,
+          principal_amount: 1234.56, interest_amount: 78.90, total_amount: 1313.46,
+        }));
+      } });
+      const out = await p.evaluate(() => {
+        const f = window.__WR_FIXTURE;
+        const tr = [...document.querySelectorAll('#loans-table-wrap tbody tr')]
+          .find(x => x.getAttribute('data-loan-id') === f.__loanId);
+        const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(x => x.innerText.trim());
+        const cell = (name) => tr ? (tr.children[hdr.indexOf(name)].innerText || '').replace(/[^0-9.]/g, '') : '';
+        // Sum every live split the month actually holds, from the fixture itself —
+        // never a number typed here, which would rot on the next refresh.
+        const live = (f.loan_splits || []).filter(sp => sp.loan_account_id === f.__loanId
+          && sp.status !== 'voided' && (sp.period_label || '').slice(0, 7) === f.__month);
+        const sum = (k) => live.reduce((n, sp) => n + Number(sp[k] || 0), 0);
+        return { found: !!tr, principal: cell('Principal'), interest: cell('Interest'),
+                 nSplits: live.length,
+                 expP: sum('principal_amount').toFixed(2), expI: sum('interest_amount').toFixed(2),
+                 aloneP: f.__was.principal.toFixed(2), aloneI: f.__was.interest.toFixed(2) };
+      });
+      t.ok(out.found, 's280: the mutated loan is on the table', JSON.stringify(out));
+      t.ok(out.nSplits >= 2, 's280: ...and its month really holds more than one split, so the sum can differ from one', JSON.stringify(out));
+      t.eq(out.principal, out.expP, 's280: ⭐ Principal is the MONTH’s sum, the same basis Closing uses', JSON.stringify(out));
+      t.eq(out.interest, out.expI, 's280: ⭐ ...and so is Interest', JSON.stringify(out));
+      /* The discrimination. Without these two, a cell still reading one split
+         would go green the moment the two splits matched. */
+      t.ok(out.principal !== out.aloneP,
+           's280: ⭐ ...and it is NOT the single last split, which is what it used to be', JSON.stringify(out));
+      t.ok(out.interest !== out.aloneI,
+           's280: ...same for Interest', JSON.stringify(out));
+      await p.close();
+    }
+
+    // ── (d) Source and Status come from the SHARED cells ────────────────────
+    /* The whole point of the extraction: one function computes, both tables
+       display. The proof is that the same loan reads the same on both views —
+       which is precisely what was NOT true of Variance before this work. */
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const out = await p.evaluate(() => {
+        const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(x => x.innerText.trim());
+        const si = hdr.indexOf('Source'), ti = hdr.indexOf('Status');
+        const rows = [...document.querySelectorAll('#loans-table-wrap tbody tr')].map(tr => ({
+          id: tr.getAttribute('data-loan-id'),
+          source: (tr.children[si].innerText || '').trim(),
+          status: (tr.children[ti].innerText || '').trim(),
+        }));
+        // What the shared functions themselves say, called directly.
+        const direct = {};
+        (_allLoanAccounts || []).forEach(a => {
+          direct[a.id] = {
+            source: _bkLoanSource(a).cell.replace(/<[^>]*>/g, '').trim(),
+            group: (_bkRosterState(a) || {}).group,
+          };
+        });
+        return { rows, direct };
+      });
+      t.ok(out.rows.length > 0, 's280: rows to compare against the shared cells');
+      t.ok(out.rows.every(r => r.source === (out.direct[r.id] || {}).source),
+           's280: ⭐ every Source cell is exactly what _bkLoanSource returns — one definition, both tables',
+           JSON.stringify(out.rows.filter(r => r.source !== (out.direct[r.id] || {}).source).slice(0, 3)));
+      /* EXHAUSTIVE, and it has to be. The first cut of this map omitted 'na' —
+         the automatic loan, which has no lender document at all — and the cell
+         fell through to 'unchecked', telling the reader to run a check that
+         would never cover it. The suite caught it; the product now names every
+         group and states an unrecognised one as unrecognised. */
+      const MARK = { reconciled: '·', immaterial: '·', variance: '·',
+                     byschedule: '·', unverified: '·', unchecked: '·', na: '·' };
+      MARK.reconciled = '✓'; MARK.immaterial = '✓'; MARK.variance = '✗';
+      /* A group the map does not know must FAIL here rather than pass as a dot —
+         otherwise this assertion goes green on exactly the omission it exists
+         to catch. */
+      t.ok(out.rows.every(r => MARK[(out.direct[r.id] || {}).group] !== undefined),
+           's280: every rendered row has a KNOWN roster group — a new one fails here, not silently',
+           JSON.stringify(out.rows.filter(r => MARK[(out.direct[r.id] || {}).group] === undefined).slice(0, 3)));
+      t.ok(out.rows.every(r => r.status === MARK[(out.direct[r.id] || {}).group]),
+           's280: ⭐ ...and every Status mark is the roster classification’s, the same one the close band reads',
+           JSON.stringify(out.rows.filter(r => r.status !== MARK[(out.direct[r.id] || {}).group]).slice(0, 3)));
+      /* NON-VACUITY: three marks exist and the fixture exercises more than one,
+         or "every row matches" is a statement about a single repeated symbol. */
+      t.ok(new Set(out.rows.map(r => r.status)).size > 1,
+           's280: ...and the fixture puts more than one Status mark on screen',
+           JSON.stringify([...new Set(out.rows.map(r => r.status))]));
+      await p.close();
+    }
   },
 });
 
