@@ -84,14 +84,31 @@ if [ -n "$CLIENT" ]; then
   echo "    tab reloads within ~30s:"
   echo "$CLIENT" | sed 's/^/      /'
 fi
-FUNCS="$(git --no-optional-locks diff --name-only origin/main..main -- supabase/functions 2>/dev/null | cut -d/ -f3 | sort -u || true)"
-if [ -n "$FUNCS" ]; then
+# `_shared` is a LIBRARY, not a function, and the first cut of this script offered
+# `functions deploy _shared` — a command that does not exist, printed with the
+# same confidence as the real ones. A wrong instruction in a script people trust
+# is worse than no instruction. It is listed separately and correctly: a change
+# there reaches production only when each function that IMPORTS it is redeployed,
+# which is the more dangerous case, not the lesser one.
+TOUCHED="$(git --no-optional-locks diff --name-only origin/main..main -- supabase/functions 2>/dev/null | cut -d/ -f3 | sort -u || true)"
+FUNCS="$(echo "$TOUCHED" | grep -v '^_shared$' | grep -v '^$' || true)"
+SHARED="$(echo "$TOUCHED" | grep '^_shared$' || true)"
+if [ -n "$FUNCS" ] || [ -n "$SHARED" ]; then
   echo ""
-  echo "⚠️  Edge functions changed. A PUSH DOES NOT DEPLOY THEM — it never has."
-  echo "    Deploy each one yourself, and verify by BEHAVIOUR, not by git:"
+  echo "⚠️  Edge function code changed. A PUSH DOES NOT DEPLOY IT — it never has."
+  echo "    Deploy from the repo root, and verify by BEHAVIOUR, not by git:"
   for f in $FUNCS; do
     echo "      npx -y supabase@latest functions deploy $f --project-ref umjpbuxrdydwejqtensq --no-verify-jwt"
   done
+  if [ -n "$SHARED" ]; then
+    echo ""
+    echo "    supabase/functions/_shared changed — it is a LIBRARY, not a function."
+    echo "    Nothing deploys it directly. It reaches production only when each"
+    echo "    function that imports it is redeployed. Which ones import it:"
+    grep -rl "_shared/" supabase/functions --include=index.ts 2>/dev/null \
+      | cut -d/ -f3 | sort -u | sed 's/^/      · /' || true
+  fi
+  echo ""
   echo "    (--no-verify-jwt is not optional on a function currently set verify_jwt:false)"
 fi
 
