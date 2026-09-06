@@ -754,7 +754,18 @@ function readSurfaces() {
       checklistTitle: txt('#cv-checklist-title'),
       checklistCount: txt('#cv-checklist-count'),
       checklist: txt('#cv-checklist'),
-      debtTiles: tiles('#cv-debt-tiles'),
+      // Session 280: the Loans page's four portfolio tiles moved into
+      // #cv-subview-debt and REPLACED the measured debt tiles that stood here
+      // (total owed / interest paid 12mo / principal retired 12mo / committed).
+      // Same node as loans.summaryTiles now, deliberately — see cross-surface
+      // (b), which no longer compares the two, because there are no longer two.
+      debtTiles: tiles('#cv-subview-debt #loans-summary'),
+      debtTilesLegacyNode: !!document.querySelector('#cv-debt-tiles'),
+      tilesUnderDebtSubview: (() => {
+        const sum = document.getElementById('loans-summary');
+        const sub = document.getElementById('cv-subview-debt');
+        return !!(sum && sub && sub.contains(sum));
+      })(),
       chartNote: txt('#cv-chart-note'),
       chartLabels: [...document.querySelectorAll('#cv-debt-chart svg text')].map(t => t.textContent.trim()),
       chartTitles: [...document.querySelectorAll('#cv-debt-chart svg title')].map(t => t.textContent.trim()),
@@ -2184,15 +2195,39 @@ GROUPS.push({
     const seg = Number((s.overview.segApprovals || '').match(/\((\d+)\)/)?.[1]);
     t.eq(badge, seg, 'nav badge equals the Approvals count on Overview');
 
-    // (b) Total outstanding (Loans) vs Total owed (Client View)
+    // (b) SESSION 280: THIS COMPARISON WAS RETIRED, AND WHY MATTERS ────────
+    // It read: Loans "Total outstanding" equals Client View "Total owed" — two
+    // surfaces printing one number, which is a real check while there are two
+    // surfaces. David moved the Loans tiles INTO Client View > Debt Schedule,
+    // replacing the measured debt tiles that stood there, so both keys now read
+    // the SAME node. Keeping the assertion would have left a check whose inputs
+    // share a source, green forever and incapable of failing — session 246's
+    // exact defect, and the reason this is a rewrite rather than a rename.
+    //
+    // What replaces it is the pair that is still independent: the relocation
+    // itself, and the Debt Schedule table's own total at (g) below, which
+    // renderDebtSchedule() computes separately from `enriched`.
     const outstanding = parseMoney(s.loans.summaryTiles['Total outstanding']?.value);
-    const owed = parseMoney(s.client.debtTiles['Total owed']?.value);
-    t.eq(money(outstanding), money(owed), 'Loans "Total outstanding" equals Client View "Total owed"');
+    t.eq(s.client.debtTilesLegacyNode, false,
+         's280: #cv-debt-tiles is gone — its tiles were REPLACED, not duplicated beside the new ones',
+         JSON.stringify(s.client.debtTiles));
+    t.eq(s.client.tilesUnderDebtSubview, true,
+         's280: ⭐ the four portfolio tiles render inside Client View > Debt Schedule',
+         JSON.stringify(s.client.debtTiles));
+    t.ok(outstanding > 0, 's280: ...and Total outstanding is a real figure there',
+         JSON.stringify(s.loans.summaryTiles));
 
-    // (c) active-loan count agrees between the two tiles
+    // (c) the four labels are all present — a relocation that drops one is the
+    // failure this pins, and a paneText match could not tell a tile from prose.
+    for (const label of ['Active loans', 'Total outstanding']) {
+      t.ok(s.client.debtTiles && s.client.debtTiles[label],
+           `s280: ...carrying "${label}"`, JSON.stringify(Object.keys(s.client.debtTiles || {})));
+    }
+    t.ok(Object.keys(s.client.debtTiles || {}).some(k => /^Paid last month/.test(k))
+      && Object.keys(s.client.debtTiles || {}).some(k => /^Paid YTD/.test(k)),
+         's280: ...and both Paid tiles, month label included',
+         JSON.stringify(Object.keys(s.client.debtTiles || {})));
     const activeTile = Number(s.loans.summaryTiles['Active loans']?.value);
-    const owedSub = Number((s.client.debtTiles['Total owed']?.delta || '').match(/(\d+)/)?.[1]);
-    t.eq(activeTile, owedSub, 'Loans "Active loans" equals Client View "across N active loans"');
 
     // (d) paid-last-month vs the close band's own principal + interest
     const cb = s.loans.closeBand;
@@ -2391,12 +2426,17 @@ GROUPS.push({
       }
     }
 
-    // (g) the debt schedule's own total vs Client View's "Total owed"
+    // (g) the debt schedule's own total vs the Total outstanding tile above it.
+    // Session 280: this is now the LOAD-BEARING cross-surface check on that
+    // figure — the tile and the table sit on one screen and are computed by two
+    // different functions (renderLoansSummary from _loanOutstandingBalance over
+    // active loans, renderDebtSchedule from its own `enriched`), so they can
+    // still genuinely disagree, which (b) no longer can.
     if (s.client.debtSched && s.client.debtSched.foot.length) {
       const dsTotals = s.client.debtSched.foot.map(parseMoney).filter(x => x != null);
-      t.ok(dsTotals.some(v => Math.abs(v - owed) < 0.005),
-           'Debt Schedule total agrees with Client View "Total owed"',
-           `debt schedule footer figures ${JSON.stringify(s.client.debtSched.foot)} vs owed ${money(owed)}`);
+      t.ok(dsTotals.some(v => Math.abs(v - outstanding) < 0.005),
+           's280: ⭐ Debt Schedule total agrees with the "Total outstanding" tile above it',
+           `debt schedule footer figures ${JSON.stringify(s.client.debtSched.foot)} vs outstanding ${money(outstanding)}`);
     }
     await p.close();
   },
@@ -2725,9 +2765,12 @@ GROUPS.push({
     {
       const p = await newHarnessPage({ tab: 'client', sub: 'dashboard', defaultLatency: 60 });
       const s = await p.surfaces();
-      const owed = parseMoney(s.client.debtTiles['Total owed']?.value);
+      // Session 280: 'Total owed' was replaced by 'Total outstanding' when the
+      // Loans tiles moved into this sub-view. Same question asked of the new
+      // tile: did the cold-opened Client View converge once loadLoans resolved?
+      const owed = parseMoney(s.client.debtTiles['Total outstanding']?.value);
       t.ok(owed > 0, 's238: Client View refreshes after loadLoans resolves (tab switched cold)',
-           `Total owed rendered as ${JSON.stringify(s.client.debtTiles['Total owed'])}`);
+           `Total outstanding rendered as ${JSON.stringify(s.client.debtTiles['Total outstanding'])}`);
       t.notMatch(s.client.checklistCount, /^0 of 0/, 's238: checklist is not "0 of 0" after data lands');
       await p.close();
     }
@@ -9594,8 +9637,16 @@ GROUPS.push({
       return {
         bandExists: !!band,
         bandOutsidePanes: !!band && !inPane(band),
+        // Session 280: the tiles left the Loans page altogether for Client View >
+        // Debt Schedule. "Outside both panes" was the right property while they
+        // lived here; it is now trivially true and would go green on a deletion,
+        // so what is pinned instead is where they actually went.
         tilesOutsidePanes: !!sum && !inPane(sum),
-        tilesShown: !!(sum && sum.offsetParent && sum.textContent.trim().length > 0),
+        tilesUnderDebtSubview: (() => {
+          const sub = document.getElementById('cv-subview-debt');
+          return !!(sum && sub && sub.contains(sum));
+        })(),
+        tilesRendered: !!(sum && sum.textContent.trim().length > 0),
         bandEmptyHtml: !!(band && band.innerHTML.trim() === ''),
         keys: rows.map(r => r.getAttribute('data-bkkey') || ''),
         reachable: rows.filter(r => r.offsetParent).length,
@@ -9614,7 +9665,13 @@ GROUPS.push({
       t.eq(seen.bandOutsidePanes, true,
            's276b: ⭐ ...outside BOTH period panes, so the two tabs cannot drift apart', JSON.stringify(seen));
       t.eq(seen.tilesOutsidePanes, true,
-           's276c: ...and so do the summary tiles — above the switch is period-invariant', JSON.stringify(seen));
+           's276c: ...and so do the summary tiles — they are period-invariant', JSON.stringify(seen));
+      t.eq(seen.tilesUnderDebtSubview, true,
+           's280a: ⭐ ...and they now live in Client View > Debt Schedule, not on Loans at all',
+           JSON.stringify(seen));
+      t.eq(seen.tilesRendered, true,
+           's280b: ...still rendered from the Loans page load, one renderer and one node',
+           JSON.stringify(seen));
       await p.close();
     }
 
@@ -9659,14 +9716,20 @@ GROUPS.push({
       t.ok(/\d/.test(subLine),
            's276e4: ...and the collapsed header still states a COUNT, not just a title',
            JSON.stringify(subLine));
-      t.eq(onClosing.tilesShown, true, 's276f: ...with the tiles showing on the Closing tab too', JSON.stringify(onClosing));
+      // Session 280: the tiles are no longer on either period tab — they moved to
+      // Client View > Debt Schedule. What s276f/h were really pinning is that the
+      // tiles do not appear on ONE tab and not the other, and the strongest form
+      // of that is now that they appear on NEITHER, from the same single node.
+      t.eq(onClosing.tilesUnderDebtSubview, true,
+           's276f: ...with the tiles on neither period tab — one node, in Client View', JSON.stringify(onClosing));
 
       await p.evaluate(() => switchLoansPeriod('inflight'));
       const onInflight = await p.evaluate(probe);
       t.eq(JSON.stringify(onInflight.keys.slice().sort()), JSON.stringify(onClosing.keys.slice().sort()),
            's276g: ⭐ ...and the band holds the SAME work on both tabs — the period orders it, never filters it',
            `closing ${JSON.stringify(onClosing.keys)} · inflight ${JSON.stringify(onInflight.keys)}`);
-      t.eq(onInflight.tilesShown, true, 's276h: ...tiles show on In flight as well', JSON.stringify(onInflight));
+      t.eq(onInflight.tilesUnderDebtSubview, true,
+           's276h: ...and switching to In flight does not bring them back', JSON.stringify(onInflight));
 
       /* ── DISCRIMINATION, and it must fail the way the OLD code failed ────
          Rebuild the shipped _bkLoansBandItems from its own source with a period
@@ -9737,8 +9800,15 @@ GROUPS.push({
       t.eq(strip && strip.chips, 0,
            's276ad: ⭐ ...with no chip row — the same shape session 264 gave the Closing strip',
            JSON.stringify(strip));
-      t.eq(strip && strip.hasMeter, false,
-           's276ae: ...and no progress meter (David: September has no statements due to measure)',
+      // ── SESSION 280: THE METER IS BACK, BY DAVID'S REVERSAL ──────────────
+      // s276ae asserted NO meter, on David's own reasoning that the month in
+      // flight has no statements due yet. He has now asked for the opposite:
+      // "replace the [in flight] info/counter bar with the one from the CLOSING
+      // view so they only measure the number of uploaded statements out of total
+      // expected." Flipped here rather than deleted, so the record shows the
+      // decision reversing instead of the assertion quietly vanishing.
+      t.eq(strip && strip.hasMeter, true,
+           's280ae: ⭐ ...and it carries the Closing strip\'s progress meter (David, reversing s276ae)',
            JSON.stringify(strip));
       t.ok(strip && Array.isArray(strip.gates) && strip.gates.length > 0,
            's276af: ⭐ ...but every chip\'s claim survives in data-gates — cut the words, keep the claim',
@@ -9751,14 +9821,35 @@ GROUPS.push({
       t.ok(strip && (strip.gates || []).some(g => g.bad === false),
            's276ah: ...including the non-blocking ones, which are what leaving the screen actually means',
            JSON.stringify(strip && strip.gates));
-      t.ok(strip && /to fix|Nothing to fix|ties to its lender/.test(strip.lead + ' ' + strip.asks),
-           's276ai: ...and the verdict plus the one actionable figure stay VISIBLE',
+      // s276ai pinned "the verdict plus the one actionable figure stay VISIBLE",
+      // where the figure was "N loans to fix — $X to resolve". Session 280 removed
+      // exactly that, on David's instruction, and put the statement counter in its
+      // place. The claim it carried is NOT deleted: every variance chip is still in
+      // data-gates (s276af/ag/ah above, unchanged and still green) and the table
+      // below states it per row. So this becomes an assertion about the NEW visible
+      // figure, and the old one keeps its test one line up.
+      t.ok(strip && /\bof\b/.test(strip.asks) && /statements uploaded/.test(strip.asks),
+           's280ai: ⭐ ...and what is visible is the uploaded-statement count, "N of M"',
            JSON.stringify(strip));
-      t.ok(strip && strip.sep && strip.sep !== 'none' && strip.sep !== 'normal',
-           's276aj: ⭐ ...separated from the lead — with no meter between them they ran together',
+      t.ok(strip && !/to fix|to resolve/.test(strip.lead + ' ' + strip.asks),
+           's280ai2: ...with the old "N loans to fix — $X to resolve" gone from the strip',
+           JSON.stringify(strip));
+      t.ok(strip && (strip.gates || []).some(g => g.key === 'variance'),
+           's280ai3: ⭐ ...and that figure survives in data-gates — cut the words, keep the claim',
+           JSON.stringify(strip && strip.gates));
+      // s276aj asked for a CSS ::before separator, which existed only because
+      // nothing sat between lead and asks. The meter sits between them now, so the
+      // separator is correctly absent and the gap is real. Assert the meter, not
+      // the punctuation — the reason for the rule was legibility, not the glyph.
+      t.eq(strip && strip.hasMeter, true,
+           's280aj: ⭐ ...separated from the lead by the meter itself, not by a bullet',
            JSON.stringify(strip && strip.sep));
-      t.eq(strip && strip.askColour, 'rgb(220, 38, 38)',
-           's276ak: ⭐ ...and the figure that means WORK is red, not the page\'s neutral grey',
+      // s276ak required the actionable figure to be red. The visible figure is no
+      // longer an action — it is a count of documents that have arrived, and the
+      // Closing strip prints the identical figure in the same neutral weight. A red
+      // count here would be the only red on a month nobody is closing.
+      t.eq(strip && strip.askColour, null,
+           's280ak: ...and carries no red ask, because a statement count is not work',
            JSON.stringify(strip && strip.askColour));
       await p.close();
     }

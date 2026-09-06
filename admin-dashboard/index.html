@@ -4168,35 +4168,18 @@
           <!-- Session 248: the chip row that used to sit under these tabs is gone
                (David: "REMOVE this section ... to add breathing room"), so the
                spacing it incidentally provided is stated here instead. -->
-          <!-- ── THE TILES SIT ABOVE THE SWITCH, AND THAT IS THE WHOLE RULE ──
-               (session 276, David: "make it a standard in both places, with the
-               toggle between closing month and in flight month below this.")
+          <!-- ── SESSION 280: THE TILES LEFT THIS PAGE ─────────────────────
+               David: "move the LOANS stats/tiles to the CLIENT VIEW > DEBT
+               SCHEDULE. This replaces the tiles already there."
 
-               These four figures do not depend on the period. renderLoansSummary()
-               never reads _loansPeriod: Active loans is every active loan, Total
-               outstanding is each one's current balance, and Paid last month / Paid
-               YTD come from today() -- not from the tab. They rendered only on In
-               flight for one reason: this div happened to live inside
-               #loans-period-inflight. Session 223 cont. put it there ("bare summary
-               tiles, no wrapping card"), which was a styling decision that silently
-               became a scoping one.
-
-               That was not merely lopsided, it was misleading. The tiles sat under a
-               tab reading SEPTEMBER while the third of them read "Paid last month
-               (2026-08)", which invites every reader to take the tab as their scope.
-
-               So the page now states one rule a reader learns once:
-
-                   ABOVE the switch  = true regardless of period
-                   BELOW the switch  = this period
-
-               ⚠ KEEP THE EXPLICIT MONTH IN "Paid last month (YYYY-MM)". It currently
-               equals the closing month, so the tile still LOOKS period-scoped. The two
-               coincide only while the close runs one month behind; let it slip two and
-               the tile would read August beside a tab reading July. That label is what
-               makes the difference honest instead of confusing. -->
-          <div id="loans-summary" style="margin-bottom:20px"></div>
-
+               Session 276 had just moved them ABOVE the period switch, to state
+               a rule a reader learns once: above the switch = true regardless of
+               period, below = this period. That rule is now answered a stronger
+               way — the four figures are not period-scoped at all, so they belong
+               on the report that is ABOUT the portfolio rather than on the
+               workbench that is about a month. #loans-summary now lives in
+               #cv-subview-debt; renderLoansSummary() is unchanged and still owns
+               it, so there is one renderer and one node, not a copy. -->
           <div id="loans-period-bar" class="lpb"></div>
 
           <!-- ── THE WORK BAND — ONE CONTAINER, DELIBERATELY NOT TWO (session 276) ──
@@ -4570,7 +4553,21 @@
                 <h3>What the debt is costing</h3>
                 <span class="cv-why">Across your active loans. None of this appears on a P&amp;L or balance sheet in one place.</span>
               </div>
-              <div id="cv-debt-tiles" style="margin-bottom:12px"></div>
+              <!-- Session 280: the Loans page's four tiles land here, replacing
+                   the measured debt tiles that stood in this spot (total owed,
+                   interest paid 12mo, principal retired 12mo, committed each
+                   month + coverage). Two tile rows on one screen make a reader
+                   compare them instead of reading either — the same argument
+                   session 238 used to clear the Debt Schedule card's own tiles.
+                   ⚠ WHAT THE OLD TILES CLAIMED, AND WHERE IT WENT: interest paid
+                   and principal retired over the last twelve months are drawn,
+                   by month, in the chart directly below — that is where a reader
+                   sees the shape rather than the sum. The recurring monthly
+                   commitment and its coverage ratio are NOT elsewhere on this
+                   screen; that is a real removal and it is David's, made in the
+                   knowledge of it (session 280). If either is wanted back it
+                   belongs on this section, not on Loans. -->
+              <div id="loans-summary" style="margin-bottom:12px"></div>
               <div class="card" style="padding:16px 20px 12px">
                 <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px">
                   <div class="card-title" style="font-size:13.5px">Every debt payment, split</div>
@@ -15668,6 +15665,66 @@
     };
   }
 
+  // ── THE STATEMENT STRIP — ONE BUILDER, TWO PERIODS (session 280, David) ──
+  //
+  // David: "replace the [in flight] info/counter bar with the one from the
+  // CLOSING view so they only measure the number of uploaded statements out of
+  // total expected."
+  //
+  // Session 276 built the in-flight strip as a deliberate near-copy of the
+  // closing one, and the twelve sessions before it are the record of what a
+  // near-copy costs — two strips sharing a class drifted apart for twelve
+  // sessions because a decision moved one and not its twin. So the bar and its
+  // one figure are built HERE, once, and both strips call it. A change to
+  // either reaches both by construction rather than by somebody remembering.
+  //
+  // ⚠️ GREEN MEANS CHECKED, NEVER MERELY UPLOADED. The headline counts documents
+  // that have ARRIVED (session 273, David's own wording), and the amber segment
+  // beside it is what keeps session 262's close gate visible on screen: on file,
+  // never compared against Xero. If the amber segment is ever removed from the
+  // bar, the headline MUST go back to "checked" in the same commit, or the
+  // gate's whole point leaves the screen.
+  //
+  // `otherBad` is the grey tail — blockers no upload can clear. The close band
+  // passes its own non-statement gates; the month in flight passes none, because
+  // it is not being closed and nothing there is blocked.
+  function _bkStatementStrip(sg, otherBad) {
+    const bad = otherBad || [];
+    const nDone = sg.done, nUnchecked = sg.unanalysed.length, nAwait = sg.awaiting.length;
+    const barTotal = sg.total;
+    const nUploaded = nDone + nUnchecked;
+    // See session 273: the tail is derived, never a fresh count, so it cannot
+    // disagree with the verdict the same gates decided.
+    const tailUnits = bad.length ? Math.max(1, Math.round(barTotal * 0.18)) : 0;
+    // Names live in the segment's own title. LESS IS BEST test 3 — a blocking
+    // count still has to answer "which loans", and an attribute reaches every
+    // reader, exports in full and costs no width (session 249).
+    const segTitle = (n, what, nm) => esc(`${n} ${what}${nm && nm.length ? ': ' + nm.join(', ') : ''}`);
+    const barHtml = barTotal ? `<span class="lcb-bar" role="img" aria-label="${esc(
+        `${nDone} of ${barTotal} statements checked`
+        + (nUnchecked ? `, ${nUnchecked} on file but not checked` : '')
+        + (nAwait ? `, ${nAwait} still owed` : '')
+        + (tailUnits ? ', and the close is blocked for another reason' : ''))}"
+        >${nDone ? `<i class="s-done" style="flex:${nDone}" title="${segTitle(nDone, 'uploaded and checked against Xero')}"></i>` : ''
+        }${nUnchecked ? `<i class="s-unchecked" style="flex:${nUnchecked}" title="${segTitle(nUnchecked, 'on file, not yet checked against Xero', sg.unanalysed.map(r => r.name))}"></i>` : ''
+        }${nAwait ? `<i class="s-await" style="flex:${nAwait}" title="${segTitle(nAwait, 'still owed', sg.awaiting.map(r => r.name))}"></i>` : ''
+        }${tailUnits ? `<i class="s-tail" style="flex:${tailUnits}" title="${esc(bad.map(g => g.text).join(' \u00b7 '))}"></i>` : ''
+        }</span>` : '';
+    const askHtml = barTotal
+      ? `<span title="${esc('A statement is UPLOADED once the lender\u2019s own document for this month is on file. '
+          + 'It is not evidence until it has also been checked against Xero \u2014 the bar beside this splits the two: '
+          + 'green is uploaded and checked, amber is on file and not yet compared.')}"`
+        + `><b>${nUploaded} of ${barTotal}</b> statements uploaded</span>`
+      : '';
+    // Same reasoning as data-gates: the numbers this bar draws must survive as
+    // data, so the suite asserts on what was COMPUTED rather than on pixel widths.
+    const progress = {
+      checked: nDone, unchecked: nUnchecked, awaiting: nAwait, total: barTotal,
+      uploaded: nUploaded, tail: !!tailUnits, tailKeys: bad.map(g => g.key),
+    };
+    return { barHtml, askHtml, progress, uploaded: nUploaded, total: barTotal, complete: barTotal > 0 && nUploaded >= barTotal };
+  }
+
   // Has this loan EVER sent a real document? Drives the checklist's wording:
   // "August statement" for a lender that normally delivers, versus "any
   // statement" for one that never has — a different ask, to a different person.
@@ -15678,6 +15735,10 @@
 
   function renderClientView() {
     renderClientChecklist();
+    // Session 280: the four portfolio tiles moved here from Loans, so this view
+    // now has to render them. renderLoansSummary() is still the ONE renderer and
+    // #loans-summary the ONE node — this is a second CALLER, not a second copy.
+    renderLoansSummary();
     renderClientDebtSummary();
   }
 
@@ -15927,56 +15988,30 @@
     return avg / committed;
   }
 
+  // Session 280: this used to render four measured tiles into #cv-debt-tiles —
+  // total owed, interest paid over twelve months (with an effective rate),
+  // principal retired, and the recurring monthly commitment with its coverage
+  // ratio. David replaced that row with the Loans page's four tiles, which
+  // renderLoansSummary() owns and renders into #loans-summary directly above.
+  // What survives: interest and principal are drawn per month by the chart this
+  // function still builds — the shape, not the sum. What does not: the committed
+  // figure and the coverage ratio, deliberately, and named as removed in the
+  // markup above so nobody rediscovers them as a bug.
+  //
+  // _cvDebtTotals() is UNCHANGED and still called — the chart reads its byMonth,
+  // and its exclusion rule (a loan whose records disagree with its lender
+  // contributes nothing) is the reason the chart can be trusted at all.
   function renderClientDebtSummary() {
-    const el = document.getElementById('cv-debt-tiles');
-    if (!el) return;
-    // Same rule as the checklist: $0.00 owed across 0 loans is a claim, and it
-    // is false. Show nothing rather than something wrong.
+    // Same rule as the checklist: a chart of $0.00 across 0 loans is a claim,
+    // and it is false. Show nothing rather than something wrong.
     if (!(_allLoanAccounts || []).length) {
-      const dash = '\u2014';
-      el.innerHTML = '<div class="bk-tiles">' + [
-        'Total owed', 'Interest paid, last 12 months',
-        'Principal retired, last 12 months', 'Committed each month',
-      ].map(label => `<div class="bk-tile"><div class="bk-tile-label">${label}</div>` +
-        `<div class="bk-tile-value" style="color:var(--gray-300)">${dash}</div></div>`).join('') + '</div>';
-      const host = document.getElementById('cv-debt-chart');
-      if (host) host.innerHTML = '';
-      const note = document.getElementById('cv-chart-note');
-      if (note) note.textContent = '';
+      const host0 = document.getElementById('cv-debt-chart');
+      if (host0) host0.innerHTML = '';
+      const note0 = document.getElementById('cv-chart-note');
+      if (note0) note0.textContent = '';
       return;
     }
     const t = _cvDebtTotals();
-    const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const tile = (label, value, sub, color) => `<div class="bk-tile">
-      <div class="bk-tile-label">${esc(label)}</div>
-      <div class="bk-tile-value"${color ? ` style="color:${color}"` : ''}>${esc(value)}</div>
-      ${sub ? `<div class="bk-tile-delta flat">${esc(sub)}</div>` : ''}</div>`;
-
-    const cover = _cvCoverage(t.committed);
-    // A loan left out of these totals is said so, on the tiles it was left out
-    // of. Session 240's lesson, applied: an understated figure that looks whole
-    // is worse than a figure that admits its gap, because nobody investigates
-    // the first one.
-    const exclNote = t.unreconciled.length
-      ? ` · ${t.unreconciled.length} loan${t.unreconciled.length === 1 ? '' : 's'} left out — records don't agree with the lender`
-      : '';
-    // Effective cost: what the borrowing actually cost over the trailing year,
-    // against the average balance across it. Measured, like everything else on
-    // this page — never a weighted average of rates somebody typed.
-    const avgBalance = t.owed + t.principal / 2;
-    const effective = avgBalance > 0 ? (t.interest / avgBalance) * 100 : null;
-
-    el.innerHTML = `<div class="bk-tiles">` +
-      tile('Total owed', money(t.owed), `Across ${t.active.length} active loan${t.active.length === 1 ? '' : 's'}`) +
-      tile('Interest paid, last 12 months', money(t.interest),
-           (effective != null ? `≈ ${effective.toFixed(1)}% effective — interest over average balance` : '') + exclNote) +
-      tile('Principal retired, last 12 months', money(t.principal),
-           'Paid down against the balances above' + exclNote, 'var(--green)') +
-      tile('Committed each month', money(t.committed),
-           (cover ? `Covered ${cover.toFixed(1)}× by operating income` : '') +
-           (t.fromRecord ? `${cover ? ' · ' : ''}${t.counted} measured from payment history, ${t.fromRecord} from the figure on the loan record` : '')) +
-      `</div>`;
-
     renderClientDebtChart(t.byMonth);
   }
 
@@ -18822,8 +18857,6 @@
     // once on file, never compared, and counted as done by every surface. Amber
     // is that state, and it has its own colour so it can never hide inside green.
     const track = _bkScheduleTrack();
-    const nDone = sg.done, nUnchecked = sg.unanalysed.length, nAwait = sg.awaiting.length;
-    const barTotal = sg.total;
     // THE GREY TAIL, AND WHY IT IS NOT DECORATION. Some blockers cannot be
     // expressed as a statement — today, an opening that is still moving because
     // July is not closed, which no amount of uploading fixes. Without the tail
@@ -18832,66 +18865,23 @@
     // derived from `gates`, so it cannot disagree with the verdict: the same
     // array decides `blocked`.
     const otherBad = gates.filter(g => g.bad && g.key !== 'coverage' && g.key !== 'checked');
-    const tailUnits = otherBad.length ? Math.max(1, Math.round(barTotal * 0.18)) : 0;
-    // Names live in the segment's own title. LESS IS BEST test 3 — a blocking
-    // count still has to answer "which loans", and an attribute reaches every
-    // reader, exports in full and costs no width (session 249). The table below
-    // names them per row; data-gates carries every sentence in full.
-    const segTitle = (n, what, nm) => esc(`${n} ${what}${nm && nm.length ? ': ' + nm.join(', ') : ''}`);
-    const barHtml = barTotal ? `<span class="lcb-bar" role="img" aria-label="${esc(
-        `${nDone} of ${barTotal} statements checked`
-        + (nUnchecked ? `, ${nUnchecked} on file but not checked` : '')
-        + (nAwait ? `, ${nAwait} still owed` : '')
-        + (tailUnits ? ', and the close is blocked for another reason' : ''))}"
-        >${nDone ? `<i class="s-done" style="flex:${nDone}" title="${segTitle(nDone, 'uploaded and checked against Xero')}"></i>` : ''
-        }${nUnchecked ? `<i class="s-unchecked" style="flex:${nUnchecked}" title="${segTitle(nUnchecked, 'on file, not yet checked against Xero', sg.unanalysed.map(r => r.name))}"></i>` : ''
-        }${nAwait ? `<i class="s-await" style="flex:${nAwait}" title="${segTitle(nAwait, 'still owed', sg.awaiting.map(r => r.name))}"></i>` : ''
-        }${tailUnits ? `<i class="s-tail" style="flex:${tailUnits}" title="${esc(otherBad.map(g => g.text).join(' \u00b7 '))}"></i>` : ''
-        }</span>` : '';
-
-    // ── THE ASK, IN THE SAME LINE ─────────────────────────────────────────
-    // What is left to do, in the order someone would do it. Red only where
-    // there is an action; the counts that are simply true stay grey.
-    // ── ONE NUMBER, AND IT IS THE UPLOAD (David, same day) ────────────────
-    // "Instead of 9 of 11 statements 'checked', I want to emphasize the number
-    // of statements uploaded so we know if we have more work to do on that
-    // front." — and then: remove the rest, "because that is self explanatory
-    // from the table."
-    //
-    // So the line is now a single figure about DOCUMENTS ARRIVING, which is the
-    // one piece of work that is nobody's but the business owner's: chasing a
-    // lender for a statement is a different job from reconciling one, and it is
-    // the job that blocks everything downstream.
-    //
-    // ⚠️ AND THE CHECKED/UPLOADED DISTINCTION IS NOT DROPPED, it MOVES. Session
-    // 262's rule is that a statement on file is not evidence until it has been
-    // compared against Xero, and a headline reading "10 of 11 uploaded" is
-    // exactly the conflation that rule exists to prevent — IF it were the only
-    // thing on the strip. It is not: the bar beside it still splits that same
-    // 10 into green (checked) and amber (never compared), both segments name
-    // their loans on hover, the Status column says it per row, and data-gates
-    // carries the full sentence. Cut the words, keep the claim (ce17). If the
-    // amber segment is ever removed from the bar, this headline MUST go back to
-    // "checked" in the same commit, or the gate's whole point is gone from the
-    // screen.
-    const nUploaded = nDone + nUnchecked;
-    const askBits = [];
-    askBits.push(`<span title="${esc('A statement is UPLOADED once the lender\u2019s own document for this month is on file. '
-      + 'It is not evidence until it has also been checked against Xero \u2014 the bar beside this splits the two: '
-      + 'green is uploaded and checked, amber is on file and not yet compared.')}"`
-      + `><b>${nUploaded} of ${barTotal}</b> statements uploaded</span>`);
-    // Same reasoning as data-gates: the numbers this bar draws must survive as
-    // data, so the suite asserts on what was COMPUTED rather than on pixel widths.
-    const progressAttr = esc(JSON.stringify({
-      checked: nDone, unchecked: nUnchecked, awaiting: nAwait, total: barTotal,
-      uploaded: nUploaded,
-      tail: !!tailUnits, tailKeys: otherBad.map(g => g.key),
+    // ── SESSION 280: THE BAR AND ITS FIGURE MOVED INTO _bkStatementStrip ────
+    // Not a refactor for tidiness: David asked the month IN FLIGHT to carry this
+    // same counter, and a second copy of thirty lines of segment arithmetic is
+    // precisely how the two strips drifted apart for twelve sessions before.
+    // Everything session 273 wrote about this bar — green means checked, the
+    // amber segment is session 262's gate on screen, the tail is derived from
+    // `gates` and never recounted — now lives on the builder, with the rules.
+    const strip = _bkStatementStrip(sg, otherBad);
+    const barHtml = strip.barHtml;
+    const askBits = [strip.askHtml];
+    const progressAttr = esc(JSON.stringify(Object.assign({}, strip.progress, {
       // Still computed, still carried, no longer printed. David: the table says
       // it. The suite reads these, so the counts keep a test even though the
       // strip stopped showing them — and a future surface that wants them calls
       // _bkScheduleTrack() rather than counting splits again.
       onSchedule: track.done, scheduleTotal: track.total, offSchedule: track.names,
-    }));
+    })));
 
     // Bare figures in the body; the currency symbol survives only on the total,
     // which is the anchor a reader checks. Fourteen dollar signs down a column
@@ -19779,6 +19769,23 @@
     // top-line stat anymore.
     const el = document.getElementById('loans-summary');
     if (!el) return;
+    // ── SESSION 280: THE COLD GUARD, AND WHY IT ARRIVED WITH THE MOVE ──────
+    // This function only ever ran from loadLoans(), i.e. after the rows landed,
+    // so it never needed one. renderClientView() now calls it too, and that runs
+    // on a TAB SWITCH — before any data. Caught by the suite's cold-boot group,
+    // which is what it is for: "Active loans 0" and "$0.00" painted over an
+    // unloaded book is a false and reassuring number, indistinguishable from a
+    // business with no debt. Same rule, same shape, as renderClientChecklist and
+    // renderClientDebtSummary: say "we don't know yet", never a confident zero.
+    if (!(_allLoanAccounts || []).length) {
+      const dash = '\u2014';
+      el.innerHTML = '<div class="lct"><div class="bk-tiles">' + [
+        'Active loans', 'Total outstanding', 'Paid last month', 'Paid YTD',
+      ].map(label => `<div class="bk-tile"><div class="bk-tile-label">${label}</div>`
+        + `<div class="bk-tile-value" style="color:var(--gray-300)">${dash}</div></div>`).join('')
+        + '</div></div>';
+      return;
+    }
     const activeLoans = _allLoanAccounts.filter(a => a.status === 'active');
     const active = activeLoans.length;
 
@@ -19863,6 +19870,12 @@
     // month's tiles — no box, one hairline between them, grey labels over black
     // figures. Two tile treatments on one page, switched by a tab, made the tab
     // look like it changed products rather than periods.
+    //
+    // Session 280: #loans-summary MOVED to Client View > Debt Schedule, where
+    // these four figures belong — none of them reads _loansPeriod, so none of
+    // them was ever about the month the Loans page is working on. This function
+    // is unchanged; only its node's home is, and it is still the only renderer
+    // of it. renderClientView() is now a second caller alongside loadLoans().
     el.innerHTML = `<div class="lct"><div class="bk-tiles">` +
       card('Active loans', active, 'var(--gray-900)') +
       card(outstandingLabel, money(totalOutstanding), 'var(--gray-900)', outstandingTitle) +
@@ -21089,12 +21102,13 @@
     const totalXero = sorted.reduce((sum, r) => sum + (r.v.xero != null ? r.v.xero : 0), 0);
     const totalStatement = sorted.reduce((sum, r) => sum + (r.v.lender != null ? r.v.lender : (r.bal ? r.bal.amount : 0)), 0);
 
-    // "Every loan ties to its lender" may only be said when every loan really
-    // was compared against one. A loan settled on its contractual schedule was
-    // not, however satisfactory that settlement is, so it keeps the strip in its
-    // ordinary state and gets its own sentence.
-    const readyToClose = varianceRows.length === 0 && unverifiedRows.length === 0
-      && byScheduleRows.length === 0 && (tiedRows.length + explainedRows.length) > 0;
+    // Session 280: `readyToClose` is gone with the verdict it decided. It said
+    // "Every loan ties to its lender" may only be claimed when every loan really
+    // was compared against one — a loan settled on its contractual schedule was
+    // not, however satisfactory that settlement is. The strip no longer makes any
+    // claim about ties, so the guard has nothing left to guard; the claim itself
+    // survives per row in the table and in `data-gates` below. If a tie verdict
+    // ever returns to this strip, that rule returns with it.
     // ── SESSION 276: THE SAME STRIP AS CLOSING, MINUS THE METER (David) ────
     // Session 264 was David's: "remove all the content in the Not ready to close
     // section." That decision was applied to the CLOSING strip and never to this
@@ -21141,21 +21155,47 @@
       bad: !/ ok"/.test(b),
       text: b.replace(/<[^>]+>/g, '').replace(/^✓\s*/, '').trim(),
     }))));
-    // The one figure a reader acts on. Blocking only — a tie, a rounding difference
-    // and a schedule-basis loan are all facts nobody has to do anything about today,
-    // and putting them beside the number that IS work is how the number stops being
-    // read (session 250, LESS IS BEST).
-    const inflightAsk = varianceRows.length
-      ? `<span class="ask" title="${esc('Loans whose books differ from their lender by an amount worth resolving. Every other state — ties, differences too small to chase, loans closed on their contractual schedule, and differences a later payment explains — is stated per row in the table below.')}">${varianceRows.length} loan${varianceRows.length === 1 ? '' : 's'} to fix — ${money2(totalVariance)} to resolve</span>`
-      : '';
-    const closeStripHtml = readyToClose
-      ? `<div class="lcb-strip clear" style="margin-bottom:14px" data-gates="${inflightGatesAttr}">
-          <span class="lcb-lead">Every loan ties to its lender</span>
-          <span class="lcb-asks">combined variance $0.00 — ready to close and lock</span>
+    // ── SESSION 280: THE STRIP MEASURES STATEMENTS, AND ONLY STATEMENTS ────
+    // David: "replace the [in flight] info/counter bar with the one from the
+    // CLOSING view so they only measure the number of uploaded statements out of
+    // total expected."
+    //
+    // What leaves the screen is the red "N loans to fix — $X to resolve" that
+    // session 276 kept here as "the one figure a reader acts on". What arrives is
+    // the closing band's own counter, scoped to THIS month — built by the shared
+    // _bkStatementStrip so the two strips can no longer drift.
+    //
+    // ⚠ CUT THE WORDS, KEEP THE CLAIM (ce17). Every chip is still computed and
+    // still carried in `data-gates` — variance, unverified, per-schedule,
+    // immaterial, explained and ties, each with its full sentence and count — and
+    // the table immediately below states all of it per row. Nothing was deleted;
+    // one line stopped restating what the rows already say.
+    //
+    // ⚠ AND THE MONTH IS THIS ONE, deliberately. Session 276 argued a bar here
+    // "would be measuring nothing" because the month in flight has no statements
+    // due yet. That is exactly the reading: _bkStatementGate(month) counts only
+    // documents dated AFTER the prior month end, so this bar starts near empty on
+    // the 1st and fills as the lenders deliver. It is a picture of statements
+    // arriving, which is the business owner's own job and the one that blocks
+    // everything downstream — not a duplicate of the closing month's verdict.
+    const inflightMonth = today().slice(0, 7);
+    const isg = _bkStatementGate(inflightMonth);
+    const istrip = _bkStatementStrip(isg, []);
+    const iname = _cvMonthName(inflightMonth);
+    const closeStripHtml = istrip.total === 0
+      // An empty required set is the no-data state, never a green tick — the
+      // same rule _bkStatementGate.ready encodes. Say which, don't imply done.
+      ? `<div class="lcb-strip" style="margin-bottom:14px" data-gates="${inflightGatesAttr}"
+             data-progress="${esc(JSON.stringify(istrip.progress))}">
+          <span class="lcb-lead">${esc(iname)} in flight</span>
+          <span class="lcb-asks">no statements are expected for this month yet</span>
         </div>`
-      : `<div class="lcb-strip" style="margin-bottom:14px" data-gates="${inflightGatesAttr}">
-          <span class="lcb-lead">${varianceRows.length ? 'Not ready to lock' : 'Nothing to fix'}</span>
-          <span class="lcb-asks">${inflightAsk}</span>
+      : `<div class="lcb-strip${istrip.complete ? ' clear' : ''}" style="margin-bottom:14px"
+             data-blocked="${istrip.complete ? '0' : '1'}" data-gates="${inflightGatesAttr}"
+             data-progress="${esc(JSON.stringify(istrip.progress))}">
+          <span class="lcb-lead">${istrip.complete ? `Every ${esc(iname)} statement is in` : `${esc(iname)} in flight`}</span>
+          ${istrip.barHtml}
+          <span class="lcb-asks">${istrip.askHtml}</span>
         </div>`;
 
     // The Staging cell. The word David chose is "scheduled", and it is the right

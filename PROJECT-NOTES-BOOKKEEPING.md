@@ -3906,6 +3906,92 @@ to "what is running".
 
 ---
 
+### Session 280 (2026-09-06) — TWO SURFACES SWAPPED, AND ONE CHECK THAT COULD NO LONGER FAIL
+
+David, in one message: (1) move the Loans stats tiles to Client View > Debt Schedule,
+replacing the tiles already there; (2) replace the In flight strip's info/counter bar with
+the Closing view's, "so they only measure the number of uploaded statements out of total
+expected."
+
+**1 — The four portfolio tiles moved, and REPLACED what was there.**
+`#loans-summary` now lives in `#cv-subview-debt`; `renderLoansSummary()` is unchanged and is
+still the only renderer of it, with `renderClientView()` as a second CALLER rather than a
+second copy. The tiles it displaced — Total owed / Interest paid 12mo / Principal retired
+12mo / Committed each month — are gone from the screen, and `renderClientDebtSummary()` is
+now only the chart's renderer.
+
+**What was lost, stated rather than glossed.** Interest paid and principal retired survive
+directly below, drawn per month by the chart this move did not touch — the shape rather than
+the sum. **The recurring monthly commitment and its debt-service coverage ratio are a real
+removal**, David's, made on an explicit instruction to replace. `_cvCoverage()` still exists
+and now has no caller; it is left in place, not deleted, because the figure it computes is
+the one a bank underwrites against and reinstating it should not mean rewriting it.
+
+**A cold guard arrived with the move, and the suite is why.** `renderLoansSummary()` never
+needed one — it only ever ran after `loadLoans()` resolved. `renderClientView()` runs on a
+TAB SWITCH, before any row lands, so the first cut painted "Active loans 0 · $0.00" over an
+unloaded book: a confident zero indistinguishable from a business with no debt. `cold-boot`
+caught it. The guard is the same shape `renderClientChecklist` and `renderClientDebtSummary`
+already use.
+
+**2 — The In flight strip now carries the Closing strip's counter, and nothing else.**
+`_bkStatementStrip(sg, otherBad)` is new and both strips call it: the bar, its segments,
+their hover names and the "N of M statements uploaded" figure are built once. This is not
+tidying. Session 276 built the in-flight strip as a deliberate near-copy of the closing one,
+and the twelve sessions before it are the record of what a near-copy costs — the same
+decision reaching one strip and not its twin. The grey tail is still the close band's alone;
+the month in flight passes an empty `otherBad`, because nothing there is blocked.
+
+**The month is THIS one, deliberately.** Session 276 argued a bar here "would be measuring
+nothing" because the month in flight has no statements due yet. That is exactly the reading:
+`_bkStatementGate` counts only documents dated after the prior month end, so the bar starts
+near empty on the 1st and fills as lenders deliver. It is a picture of statements arriving —
+the business owner's own job, and the one that blocks everything downstream — not a duplicate
+of the closing month's verdict. **s276ae asserted the opposite and was FLIPPED, not deleted**
+(`s280ae`), so the record shows a decision reversing rather than an assertion vanishing.
+
+**What left the screen, and where its claim went.** The red "N loans to fix — $X to resolve"
+is gone from the strip. Every chip is still computed and still carried in `data-gates` —
+variance, unverified, per-schedule, immaterial, explained, ties, each with its count and its
+full sentence — and the table immediately below states all of it per row. `s280ai3` pins
+exactly that. `readyToClose` went with the verdict it decided, and the rule it encoded
+("'every loan ties to its lender' may only be said when every loan really was compared
+against one") is written down here against the day a tie verdict returns to that strip.
+
+#### THE ASSERTION THAT HAD TO BE REWRITTEN RATHER THAN RENAMED (session 246, again)
+
+`two-surfaces` (b) read: **Loans "Total outstanding" equals Client View "Total owed"** — a
+real check while there are two surfaces. After the move both keys read the SAME node. Renaming
+the key would have left a check whose inputs share a source: green forever, incapable of
+failing, and *looking* like coverage. It was replaced by the two things still independent —
+the relocation itself, and the Debt Schedule table's own total, which `renderDebtSchedule()`
+computes separately from `enriched`. That comparison (g) is now the load-bearing one on that
+figure. `s276c`/`s276f`/`s276h` got the same treatment: "outside both period panes" became
+trivially true once the tiles left the page, so what is pinned is where they actually went.
+
+#### Verified
+
+**2,125 browser assertions across all 45 groups, 2,124 passing** — the single red is
+`[history] s240 #10`, Tech Debt #19, red on purpose. Run in two halves. `dashboard-syntax`
+green. ⚠️ **The harness was run in the cloud sandbox, not on David's VM**: `run-harness.sh`'s
+Chromium and its `~/syslibs` copy of `libXdamage.so.1` live under `$HOME`, a per-session
+sandbox, and the curl download stalled twice at ~150 MB. Staging `index.html`, the harness,
+the stub and both fixtures into the sandbox and running against `/opt/pw-browsers` is the
+same measurement — the harness takes `WR_INDEX`/`WR_CHROMIUM`/`WR_FIXTURE` from the
+environment — and it is far faster than reinstalling the browser. Worth knowing next time
+that VM starts cold.
+
+#### NOT COMMITTED, and that is deliberate
+
+A second session was working the same repo in parallel and had `loan-bundle/index.ts`,
+`_shared/loan-bundle-plan.ts` and `loan-bundle-balances.test.mts` dirty at the same time.
+`./commit.sh` stages every tracked change, so committing here would have swept their
+half-finished work into this commit. Left for David to commit once the other session lands.
+Two stale `.git/*.lock` files (`HEAD.lock`, `index.lock`) were present and left alone for the
+same reason.
+
+---
+
 ### Session 279 (2026-09-06) — THE CARD WAS RIGHT, AND IT SAID EVERYTHING FIVE TIMES
 
 David ran "find the difference" on E-Transit 4140, asked me to verify the assertion and to
