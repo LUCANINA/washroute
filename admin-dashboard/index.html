@@ -18996,8 +18996,41 @@
         // strip is the right home for that — one gate for the whole table rather
         // than a nag on every green row. Not built yet; see the notes.
         const _schedChoice = _loanScheduleChoice(a);
+        // ── SESSION 278: "MEASURED AGAINST IT" HAS TO BE TRUE, NOT ASSUMED ───
+        // The rule above is right and its scope was one branch too wide. It
+        // suppressed "Find the fix" wherever a schedule was unsettled AND
+        // prestaging was on -- but prestaging is about what we WRITE to Xero,
+        // while this column is about a difference we READ. The two are not the
+        // same question, and on the four Ford loans they came apart.
+        //
+        // Measured, not argued. All four close on `lender_statement`, the SOURCE
+        // column reads "Statements", and the closing anchor is grade A -- the
+        // lender's own document. loan-find-difference walked 23-25 STATEMENT
+        // spans on each and returned a confirmed diagnosis to the cent: an
+        // accountant's catch-up split double-counting interest our own journals
+        // had already booked ($415.88 on 4140, $181.99 on E4-9744, $266.42 on
+        // E5-4751), each with a correcting journal prepared and waiting. No
+        // schedule touches any of those numbers. So "a difference walked against
+        // a projection nobody agreed to cannot be evaluated" was not describing
+        // these rows: the difference rests on lender evidence, it HAS been
+        // evaluated, and the ask was standing in front of the money.
+        //
+        // Grade is the honest test, because it names where the CLOSING figure
+        // actually came from -- the same value the SOURCE badge prints. Grade B
+        // closes on the schedule, so an unagreed schedule really does invalidate
+        // the difference and the ask still wins. Grade A does not.
+        //
+        // AND ONLY WHILE THERE IS SOMETHING TO FIX. This does not delete the ask
+        // on grade-A rows; it puts it BEHIND the correction. Once the finding is
+        // resolved the question comes back on its own, because a schedule chosen
+        // by a tie-break still stages real transactions. Deferring an ask is not
+        // the same as answering it, and this defers rather than answers.
+        const _bvlFinding = (_reconFindings || []).find(f =>
+          f.loan_account_id === a.id && f.check_key === 'balance_vs_lender' && f.status === 'open');
+        const _diffRestsOnSchedule = r.grade !== 'A';
         if (_schedChoice.unsettled && r.band !== 'tie' && !r.circular
-            && (a.prestage_enabled === true || a.close_basis === 'amortization_schedule')) {
+            && (a.prestage_enabled === true || a.close_basis === 'amortization_schedule')
+            && (_diffRestsOnSchedule || !_bvlFinding)) {
           const n = _schedChoice.candidates.length;
           const diff = _loanScheduleDifference(_schedChoice.candidates);
           // Addressed to whoever is reading it. No role named, no assumption about
@@ -19073,8 +19106,9 @@
         //
         // It still proposes NOTHING where the shape is not mechanically safe;
         // that refusal lives on the server and this button cannot talk it round.
-        const finding = (_reconFindings || []).find(f =>
-          f.loan_account_id === a.id && f.check_key === 'balance_vs_lender' && f.status === 'open');
+        // Same lookup the schedule branch above already made — one read, so the
+        // two cannot disagree about whether a fix is available.
+        const finding = _bvlFinding;
         if (finding) {
           return { kind: 'fix',
                    cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="Walk this loan's history against the lender's. Where the difference has one mechanically safe explanation, the correcting journal is shown for your approval. Read-only until you approve it.">Find the fix</button>` };

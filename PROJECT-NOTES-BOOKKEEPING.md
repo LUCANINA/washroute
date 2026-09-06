@@ -2,6 +2,55 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 278, 2026-09-06)
 >
+> ### 0y. 🔴 THE FORD LOANS ARE DIAGNOSED — THREE CORRECTIONS NEED APPROVING
+>
+> **All three red Ford variances are ONE bug.** The accountant caught up several months of Ford
+> interest in a single split on one payment; our own journals had already booked those months.
+> The interest is counted twice and each loan's balance sits high by exactly the duplicate.
+>
+> | Loan | Gap | Her catch-up split | Already booked by us | Correction |
+> |---|---|---|---|---|
+> | 4140 | $415.88 | $415.88 on the 6/17 payment = Apr 147.43 + May 135.64 + Jun 132.81 | all three (`31ad48e9`, `7ce60981`, `12ef542c`) | **$415.88** |
+> | E4-9744 | $182.00 | $350.74 on the 5/11 payment = Apr 181.99 + May 168.77 | Apr (`f49a48db`) | **$181.99** |
+> | E5-4751 | $266.42 | $548.21 on the 5/12 payment = Apr 281.79 + May 266.42 | May (`85c70a85`) | **$266.42** |
+>
+> **E6-7410 is the control** — no catch-up split, ties to the cent every month. Each correction is
+> dated 2026-09-30 (books closed through 6/30). Nothing posts until David approves it in the UI;
+> the analysis was run through the internal job, which is analyze-only by construction.
+>
+> ⚠️ **E4-9744: the finding says $182.00 and the correction says $181.99.** Both are the engine's
+> own figures. Approving leaves a cent. Settle which is right before clicking.
+>
+> ⚠️ **E5-4751 is the one to read carefully.** Her Apr $281.79 had NEVER been booked, so that half
+> of her split is the only correction that month ever had and it stays — *"reversing it would
+> re-break the month it just fixed."* Only the duplicated May half reverses.
+>
+> #### THE VARIANCES ARE INHERITED, NOT AUGUST'S — and the band does not say so
+> Measured at three month ends: the books-vs-lender gap is IDENTICAL at 6/30, 7/31 and 8/31
+> (415.88 / 182.00 / 266.42), and each loan's August movement is exactly right. `loan-find-difference`
+> agrees independently: *"Every span since the books closed (2026-06-30) ties to the cent."*
+> So the close band prints a closed-period cause as this month's red work, on loans whose August is
+> clean. Session 272's witch-hunt shape. **Not fixed** — the fix is a band that separates an
+> inherited opening gap from movement created this month, and that is a design question, not a patch.
+>
+> #### ✅ FIXED: the row offered "Which schedule?" and hid the correction
+> Session 277's rule — the schedule question outranks "Find the fix" — keyed on `prestage_enabled`.
+> That is about what we WRITE to Xero; this column is about a difference we READ. On all four Fords
+> the two came apart: they close on `lender_statement`, the closing anchor is grade A, and the walk
+> ran over 23-25 STATEMENT spans. No schedule touches any of those numbers, so *"cannot be
+> evaluated"* was untrue of exactly these rows — it HAD been evaluated, to the cent.
+> Now scoped on `r.grade` (where the closing figure actually came from, the same value the SOURCE
+> badge prints), and it only DEFERS the ask: resolve the finding and the question returns, because a
+> schedule chosen by a tie-break still stages real transactions.
+>
+> #### STILL OPEN ON FORD
+> * The three E-Transit `portal_manual_pull` rows dated 08-28 / 08-23 / 08-20 are still
+>   `balance_basis='unknown'` — the same shape as BayFirst's, and three of the five loans inside
+>   Tech Debt #19's red. Their balances duplicate the labelled ones exactly, so nothing numeric
+>   moves; they are simply excluded. Not touched without David's word, per §0x.
+> * `loan_accounts.interest_rate` still says 9.000% on all four Fords; measured is 8.29 / 9.29 /
+>   9.99 / 8.99. Correct by design (nothing that posts reads it), noted so it is not re-discovered.
+>
 > ### 0x. ✅ AUGUST IS UNBLOCKED, AND THE REVIEW FOUND FOUR THINGS BIGGER THAN IT
 >
 > **Deploy state, checked 2026-09-06 by `list_edge_functions` + epoch conversion, not inferred:**
@@ -3828,6 +3877,54 @@ to "what is running".
 ---
 
 ---
+
+### Session 278 cont. (2026-09-06) — THE FORD VARIANCES ARE ONE BUG, AND THE ROW WAS HIDING ITS OWN ANSWER
+
+Three red Ford rows, one cause: an accountant's multi-month interest catch-up on a single payment,
+against months our own journals had already booked. Figures, journal ids and the per-loan reading
+are in START HERE §0y. `loan-find-difference` produced all of it — the engine did the work; what
+this session found is that **the answer had no way in from the row where the problem is noticed.**
+
+**The diagnosis was reached by walking, not by inference.** 23-25 statement spans per loan, and the
+engine distinguished a duplicate from a genuine correction on E5-4751 — her April $281.79 had never
+been booked, so that half stays. A blanket reversal would have re-broken the month her entry fixed.
+
+**THE VARIANCE IS INHERITED AND NOTHING SAYS SO.** Measured at three month ends, the books-vs-lender
+gap is identical at 6/30, 7/31 and 8/31 on all three loans, and each August movement is exactly
+right. The close band still prints +415.88 / +182.00 / +266.42 in red under a column headed by this
+month. That is the session-272 shape — *"what should be a straightforward 'here's a suggested
+adjustment' becomes a 12 month witchhunt"* — and it is NOT fixed here, because separating an
+inherited opening gap from movement created this month is a design change, not a patch. Recorded in
+§0y rather than quietly left.
+
+**FIXED: `prestage_enabled` was standing in for "the difference rests on the schedule".**
+Session 277's precedence rule is right — a difference walked against a projection nobody agreed to
+cannot be evaluated, session 245's *no export, no verdict* applied to schedules. Its SCOPE was one
+branch too wide. `prestage_enabled` says what we WRITE to Xero; this column is about what we READ,
+and on the Fords the two came apart: `close_basis='lender_statement'`, closing anchor grade A, walk
+over statement spans, no schedule anywhere in the arithmetic. The rows asked "Which schedule?" while
+a $415.88 correction sat prepared behind it.
+
+Now scoped on `r.grade` — where the closing figure actually came from, the same value the SOURCE
+badge prints. Grade B still yields to the ask; grade A does not. **And it DEFERS rather than
+answers:** the condition also requires an open `balance_vs_lender` finding, so once the correction
+is done the question comes back on its own. A schedule picked by a tie-break still stages real
+transactions, and a scoping change must not quietly settle a question nobody answered.
+
+The two lookups were merged into one `_bvlFinding` read so the branch that defers and the branch
+that offers the fix cannot disagree about whether a fix exists — the same one-source discipline as
+`_bkLoanAttentionItems`.
+
+**Tests: `fix-beats-schedule-ask`, 16 assertions, 0 red.** It asserts the preconditions FIRST — that
+every clause the old code used to send this row to 'decide' is still true — so a green cannot come
+from a row that would have shown 'fix' anyway. It asserts the narrowed rule as a table-wide
+invariant (**no row offering a fix closes on a schedule**) rather than on one loan, so it keeps
+holding as the fixture moves. And the control puts session 277's precedence back via `revertFn` and
+confirms the row returns to "Which schedule?" with no way to reach the correction.
+
+Suite re-run in four batches after the change: **2,100 assertions, 2,099 passing**, the red being
+Tech Debt #19. Three of the five loans inside that red are the E-Transit `unknown` portal pulls
+noted in §0y.
 
 ### Session 278 (2026-09-06) — A FORM THAT ASKED FOR A PRINCIPAL BALANCE AND REFUSED TO RECORD THAT IT WAS ONE
 

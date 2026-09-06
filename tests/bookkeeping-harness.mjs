@@ -4213,6 +4213,10 @@ const CLOSE_REVERTS = {
   // the assertions encoding the OLD one and fix them in the same commit.
   // A control that cannot rebuild is a positive assertion with nothing proving
   // it can fail.
+  // SESSION 278: the inverse of the grade scoping — restore the state where the
+  // schedule ask outranked "Find the fix" on EVERY unsettled prestaging loan,
+  // including one whose closing came from the lender's own document.
+  'schedule-ask-always-wins': ['&& (_diffRestsOnSchedule || !_bvlFinding)) {', ') {'],
   'no-schedule-dedup': ["r.balance != null &&\n      String(r.schedule_id || '') === choice.id);", 'r.balance != null);'],
   // The row_type allowlist moved UP into _loanScheduleRows (review F11) so the
   // schedule PICK is made from the rows that will actually be read. It is now
@@ -10339,6 +10343,106 @@ GROUPS.push({
            '⭐ WITHOUT the guard the same click sends the statement anyway — which is what the assertions above would have missed');
       t.eq(wouldPass.basis, undefined,
            '⭐ ...carrying no basis at all, so the row would land "unknown" and leave the lender checks — the exact defect, reproduced');
+    }
+
+    await p.close();
+  },
+});
+
+/* ── A READY CORRECTION BEATS A SCHEDULE QUESTION IT DOES NOT DEPEND ON ────
+ *
+ * Session 277 made the schedule question outrank "Find the fix", on the rule
+ * that a difference walked against a projection nobody agreed to cannot be
+ * evaluated. Right rule, one branch too wide: it keyed on `prestage_enabled`,
+ * which is about what we WRITE to Xero, while this column is about a difference
+ * we READ.
+ *
+ * The four Ford loans are where the two came apart. All close on
+ * `lender_statement`, all carry a grade-A closing anchor, and
+ * loan-find-difference walked 23-25 STATEMENT spans on each and returned a
+ * confirmed diagnosis with a correcting journal prepared. The rows offered
+ * "Which schedule?" and hid it.
+ *
+ * The scoping is now `r.grade` — where the CLOSING figure actually came from,
+ * the same value the SOURCE badge prints — and it only DEFERS the ask, never
+ * deletes it. Both halves are asserted below, and both have a control. */
+GROUPS.push({
+  name: 'fix-beats-schedule-ask',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const fordRow = async () => {
+      const cb = (await p.surfaces()).loans.closeBand;
+      return cb.rows.find(r => /4140/.test(r.name || ''));
+    };
+
+    /* ── 1. THE PRECONDITIONS ARE REAL — not a row that would have been 'fix'
+     *      anyway. Every clause the OLD code used to send this to 'decide' is
+     *      still true; only the grade test changes the answer. ───────────── */
+    const pre = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '61564140');
+      if (!a) return { err: 'no 4140' };
+      const c = _loanScheduleChoice(a);
+      return {
+        unsettled: c.unsettled,
+        prestage: a.prestage_enabled === true,
+        closeBasis: a.close_basis,
+        finding: !!(_reconFindings || []).find(f =>
+          f.loan_account_id === a.id && f.check_key === 'balance_vs_lender' && f.status === 'open'),
+      };
+    });
+    t.ok(!pre.err, 'the fixture carries E-Transit 4140', pre.err || '');
+    t.eq(pre.unsettled, true, 'its schedule choice is UNSETTLED — the ask would fire');
+    t.eq(pre.prestage, true, '...and prestaging is on, which is what pulled it into scope');
+    t.eq(pre.closeBasis, 'lender_statement', '⭐ but it closes on the LENDER’S statements, not on a schedule');
+    t.eq(pre.finding, true, '...and it has an open balance-vs-lender finding to walk');
+
+    const row = await fordRow();
+    t.ok(!!row, 'and the close band renders a row for it');
+    if (row) {
+      t.eq(row.grade, 'A', '⭐ its closing figure is grade A — the lender’s own document, not the projection');
+      t.eq(row.action, 'fix',
+           '⭐ so the row offers the CORRECTION, not a question about a schedule the difference never touched',
+           JSON.stringify({ action: row.action, text: row.actionText }));
+      t.ok(/find the fix/i.test(row.actionText || ''),
+           '...and it says so in words', JSON.stringify(row.actionText));
+    }
+
+    /* ── 2. DEFERRED, NOT ANSWERED ───────────────────────────────────────── */
+    // The scoping must not quietly settle a question nobody answered: a schedule
+    // picked by a tie-break still stages real Xero transactions on this loan.
+    t.eq(pre.unsettled, true,
+         '⭐ the schedule question is still UNSETTLED as a fact — the row defers it, it does not answer it');
+
+    /* ── 3. THE RULE IT NARROWS IS INTACT ────────────────────────────────── */
+    // Stated as an invariant over the whole table rather than one loan, so it
+    // keeps holding as the fixture moves: a fix is only ever offered where the
+    // closing came from the lender.
+    const cbAll = (await p.surfaces()).loans.closeBand;
+    const fixRows = cbAll.rows.filter(r => r.action === 'fix');
+    t.ok(fixRows.length > 0, 'some rows do offer a fix', String(fixRows.length));
+    t.eq(fixRows.filter(r => r.grade !== 'A').length, 0,
+         '⭐ and NOT ONE of them closes on a schedule — a difference measured against an unagreed projection still cannot be evaluated',
+         JSON.stringify(fixRows.map(r => ({ n: r.name, g: r.grade }))));
+
+    /* ── 4. A ROW THAT TIES STILL GETS NOTHING ───────────────────────────── */
+    const e6 = cbAll.rows.find(r => /7410/.test(r.name || ''));
+    if (e6 && e6.band === 'tie') {
+      t.ok(!e6.action || e6.action === 'none',
+           'E6-7410 ties and still gets no action — a column that always says something is one people stop reading',
+           JSON.stringify({ action: e6.action }));
+    }
+
+    /* ── 5. IT DISCRIMINATES ─────────────────────────────────────────────── */
+    // Put the OLD precedence back and the correction disappears behind the ask.
+    const rev = await revertFn(p, 'renderLoansCloseBand', EDITS('schedule-ask-always-wins'));
+    t.ok(rev.ok, 'CONTROL: the pre-session-278 precedence could be rebuilt', JSON.stringify(rev.missing));
+    if (rev.ok) {
+      const b = await fordRow();
+      t.eq(b.action, 'decide',
+           '⭐ CONTROL: with the old scoping the row asks "Which schedule?" again — the defect, reproduced',
+           JSON.stringify({ action: b.action, text: b.actionText }));
+      t.ok(!/find the fix/i.test(b.actionText || ''),
+           '⭐ CONTROL: ...and the prepared $415.88 correction has no way in from the row where it is noticed');
     }
 
     await p.close();
