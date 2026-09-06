@@ -2,115 +2,101 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 276, 2026-09-05)
 >
-> ### 0v. ✅ DONE AND VERIFIED — BAYFIRST'S DUPLICATE IS GONE (session 277, 2026-09-05)
+> ### 0w. 🔴 START HERE — ONE FIELD IS BLOCKING AUGUST (session 277, 2026-09-06)
 >
-> Deployed, pushed, and the cleanup is complete. **Verified by the numbers, not by the absence
-> of an error:**
+> **The statement is on file. It is unlabelled, and that makes it invisible.**
 >
-> | July, BayFirst SBA 2 (acct 6917479106) | principal | interest | rows |
-> |---|---|---|---|
-> | before | $1,666.61 | $2,549.88 | 2 |
-> | after | **$807.95** | **$1,300.30** | **1** |
->
-> * `loan-xero-post` **v69**, `loan-ingest-statement` **v46**, both deployed 2026-09-05 and both
->   with `verify_jwt` preserved (false / true respectively — the flags were passed correctly).
-> * v69 **BOOTS, by behaviour**: an unauthenticated call to the new mode returned
->   `403 {"error":"Not authorized."}` — the function's own words, not a 503 on the preflight.
-> * Split `597882d1` is `voided`, stamped `voided_by = David Macquart-Moulin` with the reason on
->   the row. The real July payment (`2026-07-02`, $807.95) keeps its journal `38955254`,
->   untouched. `2026-08` is intact. **Nothing was written to Xero at any point** — neither row
->   ever carried a journal.
-> * Migration `session_277_period_label_basis` applied, and the data API was proven to see the
->   column BEFORE either function shipped (session 176's ordering trap).
->
-> #### 🟡 A 409 THAT IS CORRECT BEHAVIOUR, WRITTEN DOWN SO IT IS NOT RE-DEBUGGED
-> Running the cleanup snippet a SECOND time prints a red `409` for the unmark and a green `200`
-> for the void. Both are right, and the asymmetry is deliberate:
-> * the unmark refuses because the row is by then **voided** — session 273's guard, saying so in
->   English instead of surfacing a raw constraint error;
-> * `void_loan_split` is idempotent by construction (*"a retry is a no-op, never an error"*).
->
-> **A red line in the console is not evidence the first run failed.** The proof it succeeded is
-> in the row: the retraction sentence in `review_notes` is written by nothing but the new unmark,
-> and the void's own guard refuses `already_in_xero` outright — so the void could only have
-> succeeded after a retraction had already landed. Read the row, not the console.
->
-> #### 🔴 THE UPLOAD THAT LOOKED LIKE A REFUSAL — AND WAS NEITHER (session 277 cont.)
-David: *"why is BayFirst 2 still not accepting this statement"*, three times, while I answered a
-question he had not asked. Writing down the whole chain because every link cost real time and
-none of them was the gate:
->
-> 1. **The August PDF cannot close August, correctly.** BayFirst's cycle is 7/20-8/17 and its
->    newest FIGURE is dated 7/31 — the payment applied on the last day of the cycle, the bank
->    drafted 8/3, and the balance did not move again until 9/02. `_loanClosingAnchor`'s
->    `asOf > priorEnd` test refuses it, and the comment on that test names **this loan and this
->    month** as the reason it exists (session 239: one document answering both ends of the walk
->    collapsed to a fake $0.00 tie). I offered to "derive it from this document" before reading
->    that comment. **That would have re-introduced exactly the defect 239 removed.**
-> 2. **So the answer needed a document dated after 8/31** — which the portal had, since the 9/02
->    payment has landed. No code change substitutes for that.
-> 3. **But the roll-back then refused anyway**, on the month-labelled `2026-09` card. Fixed in
->    `e964f3c` — the split points at a schedule row dated 2026-09-02, the same PAYMENT DUE DATE
->    the lender prints. The day was never missing.
-> 4. **And the upload itself was never creating a statement.** Not a refusal: the file was
->    filed. `balance_screenshot` is a keep-on-file kind and keep-on-file kinds compute nothing.
->
-> #### THE ONE THAT MATTERS — the extractor worked and the form threw it away
-> Session 230's three-lines-per-payment grouping did its job: *"Auto-read from image: 1
-> transaction. Check the figures below before importing."* — in green, on screen. And the kind
-> sat on **Balance screenshot — keep on file**, so the figures table was HIDDEN (only the chosen
-> kind's fieldset shows) and the button read **Attach Document**. The screen said figures were
-> ready to import; the button did the one thing that cannot import them; nothing reconciled the
-> two. Pressing it files the picture and drops the transaction, silently.
->
-> Both halves are correct in isolation — the auto-set respects a kind the human has touched (a
-> person's choice must outrank a guess) and the fieldset follows the kind. **A COUNT AND THE LIST
-> BEHIND IT MOVE TOGETHER, OR THE COUNT BECOMES A LIE**, session 276's rule, in a fourth place.
-> Fixed in `bc9f5ec`: a live warning under the kind select naming what will be lost, placed in
-> `onLoanIntakeKindChanged` so it tracks the dropdown. It never changes the kind.
->
-> #### AND A SWALLOWED ERROR THAT SENT ME DOWN A RABBIT HOLE
-> `extracted_transactions.error` was set by the server and read by nobody: with `ok:false` the
-> client chain fell through to the plain classification message, so a failed read printed
-> *"Read this as: Balance screenshot"* — word for word what a successful filing prints. I spent
-> an afternoon inferring which of those two had happened from a message that cannot tell them
-> apart. Now shown. **A swallowed error spends the reader's trust on a claim the code never made.**
->
-> #### ⚠️ FOR NEXT TIME, AND THIS IS THE REAL LESSON
-> **Three uploads produced no statement row, and I never once queried `loan_statements` before
-> theorising about the gate.** One query would have said "newest document is still 7/31, created
-> 25 August" in the first minute. When a screen will not show a number, read the ROWS the screen
-> reads before reasoning about the code that reads them.
-
-#### ⏭️ WHAT REMAINS FROM THIS THREAD — Funding Circle's three pairs
-> Same SHAPE, **different cause** (the Xero backfill meeting statement ingest), all still open.
-> The unmark mode makes them removable for the first time:
 > ```
-> 2026-02  952.18/1,081.59  already_in_xero  ←→  2026-02-18  952.18/1,081.59  posted
-> 2026-03  966.45/1,067.32  already_in_xero  ←→  2026-03-18  966.45/1,067.32  posted
-> 2026-04  980.93/1,052.84  already_in_xero  ←→  2026-05-18  980.93/1,052.84  posted
+> loan_statements  BayFirst SBA 2 (6917479106)
+>   2026-09-02   135,206.37   portal_manual_pull   balance_basis = 'unknown'   ← entered 00:10
+>   2026-07-31   135,901.60   portal_manual_pull   balance_basis = 'principal_only'
 > ```
-> The third pair is offset by a month, which is its own question.
 >
-> ⚠️ **DIAGNOSE BEFORE REMOVING, and do not assume v46 covers them.** BayFirst's duplicate came
-> from the statement-date inference now fixed; Funding Circle's did not. Removing these without
-> finding the cause means the backfill recreates them exactly as the ingest recreated BayFirst's
-> — which is the whole reason session 258's correction did not hold.
+> `_loanClosingAnchor`'s roll-back branch requires `_balanceBasisIsLabelled(doc)` and refuses with
+> *"the later statement does not say what its balance measures, so it cannot be walked back to
+> month end."* The refusal IS recorded — it is in the row's hover — but the row reads as though
+> nothing arrived. **An unlabelled balance is an invisible one** (the skill's own words), and this
+> is the twelfth row in that state.
 >
-> ⚠️ Also: **these three all sit in CLOSED books** (`books_closed_through = 2026-06-30`). The
-> unmark is a record-state write and the close-date guard covers it, so it will refuse them.
-> That refusal is correct and is the question to answer first, not a bug to route around.
+> #### STEP 1 — unblock August (one field, and it is a fact not a guess)
+> The portal screen's "Balance" IS a principal balance: the same document's own rows print
+> `PRINCIPAL PAYMENT SPLIT OUT -695.23 → 135,206.37`, and all five older rows on this loan are
+> `principal_only`.
+> ```sql
+> update loan_statements set balance_basis = 'principal_only'
+> where id = (select st.id from loan_statements st
+>             join loan_accounts la on la.id = st.loan_account_id
+>             where la.lender_account_number = '6917479106' and st.statement_date = '2026-09-02'
+>               and st.balance_basis = 'unknown');
+> ```
+> Then August must read **$135,901.60** against books of $135,901.60 — variance **0.00** —
+> because the roll-back adds September's $695.24 principal back to $135,206.37. **Verify by the
+> number, not by the absence of an error.**
 >
-> #### Also not done, deliberately
-> Part 3 of §0u's plan — NAMING the straddle on the row (*"applied by the lender 7/31, cleared
-> 8/3 — $858.66 in transit"*) rather than reporting it as a `balance_vs_lender` gap. Presentation,
-> and it follows the correctness fix. The material is now on the row: `period_label_basis` says
-> whether the month was measured, and `review_notes` carries the sentence naming both dates.
+> #### STEP 2 — THE ROOT CAUSE, and it is a real gap
+> **A HAND-ENTERED STATEMENT CAN NEVER BE LABELLED.** Three paths write `balance_basis`:
+> * bulk anchors-only import → `'principal_only'` (index.html ~23628) ✅
+> * PDF-parsed single statement → `_loanUploadParsedBalanceBasis` (~23682) ✅
+> * **typed by hand → `undefined`**, and `loan-ingest-statement` only sets the column when the
+>   value is exactly `'principal_only'` (~line 525), so the row lands `unknown` ❌
 >
-> #### And one gap this exposed
-> **There is still no UI for any of it.** Unmark and void are console-only; the dashboard has no
-> control for either, on any of the 40 remaining `already_in_xero` rows. Worth building before
-> the Funding Circle pairs, or the next person to need this reaches for raw SQL.
+> The form asks for a date and a "principal balance" and then declines to record that it is a
+> principal balance. **The field's own label is the answer to the question it never asks.**
+>
+> Fix options, in the order I would take them:
+> 1. Default a hand-entered statement to `principal_only` — the form literally labels the input
+>    "principal balance", so the basis is stated, just not stored. Smallest honest change.
+> 2. Add the basis as an explicit choice on the manual form, for a lender whose screen shows a
+>    payoff or total-payback figure instead.
+> 3. Note that `loan-ingest-statement` ALREADY promotes `unknown → principal_only` when a footing
+>    check proves it (`basisProvenBy`, ~line 1419). Hand-entry has no footing to prove, which is
+>    why it never gets promoted — do not try to route it through that path.
+>
+> ⚠️ **And there are ELEVEN other `unknown` rows** (START HERE §3, Tech Debt #19's own subject —
+> Dexter, three Fords, Stripe). Fixing the form does NOT fix those. They are excluded from every
+> lender comparison right now, which is a silence rather than a safeguard.
+>
+> #### STEP 3 — the screenshot path still cannot date itself, and the fix is known
+> Deployed and working as designed: the extractor now REFUSES rather than inventing 2024, and
+> `fcc8c41` made the 1900 sentinel outrank the model's `year_printed` flag so both rows give the
+> same honest reason. **But the BayFirst portal prints no year anywhere** ("Sep 2", "Jul 31"), so
+> that screenshot can never be dated from its own contents.
+>
+> **The answer is in the file name.** *"Screenshot 2026-09-05 at 4.02.55 PM"* — a balance screen is
+> current as of when it was captured, and "Sep 2" plus a 2026-09-05 capture has exactly one
+> possible year. That is reading the document's own capture metadata, NOT inferring a date from our
+> books (which would be circular — session 245). Pass `file.lastModified` from the uploader,
+> resolve a missing year against it only when unambiguous, and **say on screen that it was resolved
+> that way** so a person can correct it. Would fix Ford's screenshots too.
+>
+> #### WHAT SHIPPED IN SESSION 277 — all pushed except `fcc8c41`
+> `078f19e` `8de86a2` `e964f3c` `bc9f5ec` `42e8510` `3287415` `9e3721c` `9c40e5a` `fb217ab`
+> `4b39554` `96ca086` — pushed. **`fcc8c41` is NOT pushed and `loan-document-intake` needs
+> redeploying for it:**
+> ```
+> npx -y supabase@latest functions deploy loan-document-intake --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+> ⚠️ **A `git push` does NOT deploy an edge function.** I read that rule in CLAUDE.md at the start
+> of this session, gave David a push, called it done, and cost him three more round trips on
+> exactly the failure session 261 documented. Three edge functions changed today; I handed over
+> commands for two.
+>
+> Migrations applied: `session_277_period_label_basis`, `session_277_close_evidence_exception`,
+> `session_277_chosen_schedule`, `session_277_set_chosen_schedule`. All four proved visible to the
+> data API before any code read them.
+>
+> #### STILL OPEN, in the order that matters
+> 1. **Eight loans carry competing schedules and nobody has chosen** (cont. 3/4). Four rows now
+>    ask "Which schedule?" — the button opens the loan detail modal, which does NOT yet render the
+>    candidates or offer the choice. **`set_loan_chosen_schedule` exists and is tested; the UI to
+>    call it does not.** That is the first build tomorrow if the checklist is not.
+> 2. **The close checklist** (cont. 5) — designed in full, not built. One list, two audiences,
+>    derived states, dated items.
+> 3. **Auto-staging (§0t) must not be switched on** until (1) is settled — the chain makes the
+>    chosen schedule load-bearing on all eight.
+> 4. **No `cpa` role exists** in `profiles`. David: *"for now, it's me. We'll create an Accountant
+>    permission."* The RPC's allowlist is ready for it.
+> 5. The eleven unlabelled balances above.
 >
 > ### 0t. ⏭️ NEXT SESSION STARTS HERE — AUTO-STAGING, AND ITS PARKED CONDITION IS **MET**
 >
