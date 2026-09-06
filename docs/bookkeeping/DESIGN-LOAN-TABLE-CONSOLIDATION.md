@@ -150,6 +150,49 @@ automatic loan, which has no lender document at all — so it fell through to `u
 told the reader to run a check that would never cover it. The map is exhaustive now and an
 unrecognised group renders as stated-unrecognised rather than as a confident dot.
 
+## Settled by David after seeing it live (session 280)
+
+* **No Action column on In flight.** On the month in flight most loans have no statement
+  yet, so the upload ask would land on nearly every row — a nag, not a gate, and the
+  statement bar above the table already carries that count.
+* **`Type` is `Booked`.** David: *"I am confused about what Type refers to."* The column
+  predated Staging and Status and carried three questions at once. One question, one name,
+  and it is Closing's name. `posted` / `already_in_xero` both read "booked"; the provenance
+  survives on the hover.
+* **Green means one thing: a live staged transaction in Xero.** Booked work is quiet.
+  Colour is spent once, or the thing that needs to stand out cannot.
+* **Money format: Closing's.** Bare figures in the body, the currency symbol on the total.
+* **"Committed each month" and the coverage ratio are gone**, not deferred.
+* **Opening, Drawn and Ledger stay OFF In flight.** Opening and Drawn would not foot
+  against a live Books figure; Ledger has no measured movement to check on an open month
+  and would print `·` on every row.
+
+### THE PAIR DAVID SPOTTED, AND THE ONE HE ACTUALLY FOUND
+
+He asked: *"Status vs. Ledger, Books vs. Lender. Are these essentially the same things said
+differently?"*
+
+Neither pair is. **Books and Lender** are the two sides of one subtraction — remove either
+and Variance becomes unauditable. **Status and Ledger** ask genuinely different questions:
+does our balance agree with the lender (an outside check) versus do our splits explain what
+actually moved in Xero (an internal completeness check). PayPal 2 ties to the cent while
+$3,142.26 of principal came off the ledger with nothing behind it — fold them and that
+disappears.
+
+**But the instinct was right one column over.** On the In flight table, Status was
+`_bkRosterState`'s verdict and the Variance cell beside it already rendered that same
+verdict, in colour and in words. Two statements of one fact, introduced by me earlier in
+the same session while adding the shared vocabulary. Cut.
+
+⚠️ **It STAYS on the Closing table, and the asymmetry is the point.** There Status also
+goes ✗ for a payment sitting unposted this month — a claim no money column makes — and the
+suite pins the rule that Action must offer something whenever it does. Cutting it there
+would drop a claim rather than a duplicate (ce17). I recommended cutting it from both
+before checking that; the check is what stopped it.
+
+So In flight is **12 columns** and Closing will be 15, In flight a strict subset in the
+same order with the same words.
+
 ## Build order
 
 Stage 1 and 2 are each shippable on their own; the suite must be green between them.

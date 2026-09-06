@@ -21034,6 +21034,20 @@
     // this code and none of them saw it; it took rendering the DOM.
     const money2 = (v) => (Number(v) < 0 ? '−' : '') + '$' +
       Math.abs(Number(v)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // ── ONE MONEY RULE ACROSS BOTH TABLES (session 280, David: "chose Closing view")
+    // Bare figures down the body, the currency symbol only on the total — the
+    // close band's rule since it was built, and the reasoning holds here for the
+    // same reason: fourteen dollar signs under a heading that already says the
+    // column is money is fourteen characters of noise, and they make a column of
+    // figures harder to scan, not easier. The total keeps its $ because it is the
+    // anchor a reader checks, and because it is the one number that leaves this
+    // screen in a conversation.
+    // Sign in FRONT, and money2 owns that too — callers used to prepend their own
+    // '−' to a value already rendered as "$-1,008.06", so Variance published
+    // "−$-1,008.06" live for months. `bare2` keeps the identical sign handling so
+    // the bug cannot come back through the new function.
+    const bare2 = (v) => (Number(v) < 0 ? '−' : '') +
+      Math.abs(Number(v)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     // One place decides the Type value+label+badge for a loan, whether it comes from
     // a real split or the loan's own ingestion method -- so the Type column and its
     // click-filter always agree on what a loan "is."
@@ -21344,7 +21358,7 @@
       // to "Date"; "Split" now spells out principal/interest instead of relying on
       // a hover tooltip nobody could discover.
       const lastPaymentCell = lastSplit
-        ? `<span class="td-mono">${money2(lastSplit.total_amount)}</span>`
+        ? `<span class="td-mono">${bare2(lastSplit.total_amount)}</span>`
         : (isAutomaticLoan ? `<span style="color:var(--gray-300)" title="Balance is a live Xero snapshot, not a pulled statement">n/a — automatic</span>` : `<span style="color:var(--gray-300)">—</span>`);
       const dateCell = lastSplit
         ? `<span class="td-mono">${esc(lastSplit.period_label)}</span>`
@@ -21367,8 +21381,8 @@
       const mPrincipal = mSplits.reduce((n, sp) => n + Number(sp.principal_amount || 0), 0);
       const mInterest  = mSplits.reduce((n, sp) => n + Number(sp.interest_amount || 0), 0);
       const monthTitle = esc(`${mSplits.length} payment${mSplits.length === 1 ? '' : 's'} recorded so far in ${_cvMonthName(_bkInFlightMonth())}. This is the month's total, the same basis the Closing table uses — not the single last payment shown to the left.`);
-      const principalCell = mSplits.length ? `<span class="td-mono" title="${monthTitle}">${money2(mPrincipal)}</span>` : dash;
-      const interestCell  = mSplits.length ? `<span class="td-mono" title="${monthTitle}">${money2(mInterest)}</span>` : dash;
+      const principalCell = mSplits.length ? `<span class="td-mono" title="${monthTitle}">${bare2(mPrincipal)}</span>` : dash;
+      const interestCell  = mSplits.length ? `<span class="td-mono" title="${monthTitle}">${bare2(mInterest)}</span>` : dash;
 
       // ── THE LOAN CELL CARRIES LENDER AND AGREEMENT (session 280) ─────────
       // Lender was its own column here and a sub-line under the name on Closing.
@@ -21385,19 +21399,36 @@
       // Source and Status are the SHARED cells — one definition, both tables.
       const src = _bkLoanSource(a);
       const sourceCell = `<span title="${esc(src.title)}">${src.cell}</span>`;
-      const statusCell = _bkLoanStatusMark(r.st);
+      // ── NO STATUS COLUMN HERE, AND THE REASON IS NOT SYMMETRY (session 280) ──
+      // David, looking at the consolidated table: "Status vs. Ledger, Books vs.
+      // Lender. Are these essentially the same things said differently?" Books and
+      // Lender are the two sides of one subtraction and Ledger asks a genuinely
+      // different question — but the pair he was circling turned out to be real,
+      // one column over: on THIS table Status was _bkRosterState's verdict, and the
+      // Variance cell beside it already renders that same verdict, in colour and in
+      // words ("small", "explained", "per schedule"). Two statements of one fact,
+      // two columns apart — the LESS IS BEST test 2 failure, introduced by me
+      // earlier in this same session while adding the shared vocabulary.
+      //
+      // ⚠️ IT STAYS ON THE CLOSING TABLE, and that asymmetry is deliberate. There
+      // Status ALSO goes ✗ for a payment sitting unposted this month, which no
+      // money column states, and `tests/bookkeeping-harness.mjs` pins the rule that
+      // Action must offer something whenever it does. Cutting it there would drop a
+      // claim rather than a duplicate (ce17). The month in flight has no such
+      // second meaning to carry, so it does not get the column.
+      // `_bkLoanStatusMark` stays — the close band is its caller.
       // Prefer the tie-out's own lender figure: it is the number the difference was
       // measured against, so Xero − Statement on screen equals Variance exactly.
       const stmtAmount = v.lender != null ? v.lender : (bal ? bal.amount : null);
       const balCell = stmtAmount != null
-        ? `<span class="td-mono" title="as of ${esc(v.asOf || (bal && bal.asOf) || '')}">${money2(stmtAmount)}</span>`
+        ? `<span class="td-mono" title="as of ${esc(v.asOf || (bal && bal.asOf) || '')}">${bare2(stmtAmount)}</span>`
         : dash;
 
       // Xero's own balance, and the variance between them. Both read off the
       // loan's tie-out row so the subtraction on screen is always exact —
       // Variance is literally Xero minus Statement on every row that shows both.
       const xeroCell = v.xero != null
-        ? `<span class="td-mono" title="Xero's rebuilt balance as of ${esc(v.asOf || '')}">${money2(v.xero)}</span>`
+        ? `<span class="td-mono" title="Xero's rebuilt balance as of ${esc(v.asOf || '')}">${bare2(v.xero)}</span>`
         : dash;
 
       // The cell follows r.st.group, the shared classification, for exactly the
@@ -21412,16 +21443,16 @@
         varianceCell = `<span class="lit-quiet" style="font-size:11.5px" title="Agrees with the contractual schedule, not with a lender document. This tie-out compares the books with the document the books were built from, so the agreement is arithmetic rather than evidence about the world. ${esc(st.reason || '')}">per schedule</span>`;
       } else if (st.group === 'immaterial') {
         const d2 = st.difference;
-        varianceCell = `<span class="td-mono lit-quiet" title="A real difference, too small to be worth chasing on its own — it turns red if it grows.">${d2 > 0 ? '+' : ''}${money2(d2)} <span style="font-size:11px">small</span></span>`;
+        varianceCell = `<span class="td-mono lit-quiet" title="A real difference, too small to be worth chasing on its own — it turns red if it grows.">${d2 > 0 ? '+' : ''}${bare2(d2)} <span style="font-size:11px">small</span></span>`;
       } else if (st.group === 'variance') {
         const d2 = st.difference;
         const dir = d2 > 0 ? `Xero is ABOVE ${againstWord}` : `Xero is BELOW ${againstWord}`;
-        varianceCell = `<span class="td-mono lit-off" title="${esc(dir)} as of ${esc(v.asOf || '')} — this one blocks the close">${d2 > 0 ? '+' : ''}${money2(d2)}</span>`;
+        varianceCell = `<span class="td-mono lit-off" title="${esc(dir)} as of ${esc(v.asOf || '')} — this one blocks the close">${d2 > 0 ? '+' : ''}${bare2(d2)}</span>`;
       } else if (v.state === 'ties') {
-        varianceCell = `<span class="td-mono lit-quiet" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">$0.00</span>`;
+        varianceCell = `<span class="td-mono lit-quiet" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">0.00</span>`;
       } else if (v.state === 'explained') {
         // Not red, and deliberately so: the books are right, the gap is timing.
-        varianceCell = `<span class="td-mono lit-quiet" title="${esc(v.reason || '')} — nothing to fix">${v.difference > 0 ? '+' : ''}${money2(v.difference)} <span style="font-size:11px">explained</span></span>`;
+        varianceCell = `<span class="td-mono lit-quiet" title="${esc(v.reason || '')} — nothing to fix">${v.difference > 0 ? '+' : ''}${bare2(v.difference)} <span style="font-size:11px">explained</span></span>`;
       } else if (v.state === 'unverified') {
         varianceCell = `<span class="lit-off" style="font-size:11.5px;font-weight:600" title="${esc(v.reason || '')}">no statement — ${money2(v.difference)} vs our projection</span>`;
       } else if (v.state === 'na') {
@@ -21454,7 +21485,6 @@
         <td style="text-align:right">${xeroCell}</td>
         <td style="text-align:right">${balCell}</td>
         <td style="text-align:right">${varianceCell}</td>
-        <td style="text-align:center">${statusCell}</td>
       </tr>`;
     };
 
@@ -21496,7 +21526,7 @@
              Statement -> Lender  the lender's own figure, and its date
            so that Variance means one thing on both tables: books minus lender,
            as of the date on the row. -->
-      <colgroup><col style="width:15%"><col style="width:9%"><col style="width:7%"><col style="width:8%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:5%"></colgroup>
+      <colgroup><col style="width:16%"><col style="width:9%"><col style="width:7%"><col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:7%"></colgroup>
       <thead><tr>
         ${thSort('loan', 'Loan')}
         ${thSort('account', 'Account #')}
@@ -21510,15 +21540,13 @@
         ${thSort('xero', 'Books', true)}
         ${thSort('outstanding', 'Lender', true)}
         ${thSort('variance', 'Variance', true)}
-        <th style="text-align:center" title="Does this loan tie to the lender? ✓ ties, or the difference is fully explained or too small to chase. ✗ is a real dollar difference to resolve. · means the check was not run — either the balance traces back to the same document it is being compared with (so agreeing proves nothing), or there is no lender evidence yet. The same three marks, and the same underlying classification, as the Closing table.">Status</th>
       </tr></thead>
-      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="13" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
+      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
       <tfoot><tr>
         <td colspan="9">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
         <td style="text-align:right">${money2(totalXero)}</td>
         <td style="text-align:right">${money2(totalStatement)}</td>
         <td style="text-align:right"${totalVariance < 0.005 ? '' : ' class="lit-off"'} title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '<span class="lit-quiet">$0.00</span>' : money2(totalVariance)}</td>
-        <td></td>
       </tr></tfoot>
     </table></div>`;
   }

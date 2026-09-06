@@ -1055,23 +1055,36 @@ GROUPS.push({
 
     {
       const p = await newHarnessPage({ tab: 'loans' });
-      const { rows, today } = await readRows(p);
+      const { rows, hdr, today } = await readRows(p);
       const thisMonth = today.slice(0, 7);
+
+      /* ── SESSION 280: THE COLUMN IS `Booked`, AND THAT MATTERS HERE ────────
+         `Type` was removed (David: "I am confused about what Type refers to").
+         Three assertions below are `filter(...).length === 0` over that column —
+         and reading a column that DOES NOT EXIST yields undefined, which every
+         one of them passes. They went green on the rename, which is the failure
+         mode this suite exists to catch, so the column's presence is pinned
+         first and a future rename fails loudly instead of quietly. */
+      t.ok(hdr.includes('Booked'), 's280: the Loans table has a Booked column', JSON.stringify(hdr));
+      t.ok(!hdr.includes('Type'), 's280: ...and "Type" is gone, not sitting beside it', JSON.stringify(hdr));
+      t.ok(rows.some(r => (r.Booked || '').trim().length > 0),
+           's280: ⭐ ...and it is POPULATED — the three empty-filter checks below are vacuous otherwise',
+           JSON.stringify(rows.slice(0, 3).map(r => r.Booked)));
 
       // "Last payment" is money that has ALREADY MOVED. A staged or future
       // period is a projection — the same today-or-earlier rule
       // _loanOutstandingBalance lives by.
       const future = rows.filter(r => r.Date && /^\d{4}-\d{2}/.test(r.Date) && r.Date.slice(0, 7) > thisMonth);
       t.ok(future.length === 0, '"Last payment" is never a future period',
-           future.map(r => `${r.Loan}: ${r['Last payment']} dated ${r.Date} (${r.Type})`).join(' · '));
-      const staged = rows.filter(r => /staged/.test(r.Type || ''));
+           future.map(r => `${r.__loan}: ${r['Last payment']} dated ${r.Date} (${r.Booked})`).join(' · '));
+      const staged = rows.filter(r => /staged|scheduled/.test(r.Booked || ''));
       t.ok(staged.length === 0, '"Last payment" is never a staged (not-yet-paid) split',
            staged.map(r => `${r.Loan}: ${r['Last payment']} ${r.Date} staged`).join(' · '));
 
       // The Type column must never print a raw database enum.
-      const raw = rows.filter(r => /_/.test(r.Type || ''));
+      const raw = rows.filter(r => /_/.test(r.Booked || ''));
       t.ok(raw.length === 0, 'the Type column never prints a raw database enum',
-           raw.map(r => `${r.Loan}: "${r.Type}"`).join(' · '));
+           raw.map(r => `${r.__loan}: "${r.Booked}"`).join(' · '));
 
       // Variance must be single-signed: "−$1,008.06", never "−$-1,008.06".
       const dbl = rows.filter(r => /\$-/.test(r.Variance || ''));
@@ -1193,9 +1206,9 @@ GROUPS.push({
       // the money has not moved". For a staged entry the Staging column now
       // says that, better and by name. Two badges for one fact on one row is
       // how a table stops being read.
-      t.ok(shown.every(r => !/upcoming/.test(r.Type || '')),
+      t.ok(shown.every(r => !/upcoming/.test(r.Booked || '')),
            'a staged loan does not ALSO carry "+1 upcoming" in Type — one fact, one place',
-           shown.map(r => `${r.Loan}: Type "${r.Type}"`).join(' · '));
+           shown.map(r => `${r.__loan}: Booked "${r.Booked}"`).join(' · '));
       await p.close();
     }
 
