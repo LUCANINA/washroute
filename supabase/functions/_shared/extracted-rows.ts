@@ -125,7 +125,17 @@ export function validateExtractedRows(rows: ExtractedRow[], todayIso: string): {
     // years back, which no arithmetic check downstream could catch, because the
     // figures were all fine. This module's rule already covered it and the schema
     // was quietly overriding it: A DATE IS MEASURED OR ASKED FOR, NEVER INFERRED.
-    if (r.yearPrinted === false) {
+    // THE SENTINEL OUTRANKS THE FLAG. The model was told to use 1900 when no year
+    // is printed AND to set year_printed false. On a real BayFirst portal screenshot
+    // it did the first and not the second for one of two rows, so that row arrived
+    // as 1900-09-02 with year_printed TRUE and fell through to the generic
+    // "date outside a plausible range" — a true statement about a cause it gets
+    // wrong, which sends the reader looking for a bad date instead of a missing year.
+    //
+    // A flag is the model's CLAIM; the sentinel is what it actually wrote. Prefer the
+    // harder evidence, and prefer it in the direction that refuses.
+    const yearMissing = r.yearPrinted === false || r.date < '1900-12-31'
+    if (yearMissing) {
       rejected.push({ date: r.dateAsPrinted ? `"${r.dateAsPrinted}"` : r.date,
         reason: 'the document prints no year for this row, and a year is never guessed -- add this one by hand with its date' })
       continue

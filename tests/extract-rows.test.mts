@@ -108,6 +108,23 @@ console.log('\n§4 — a guessed year is not a date')
      validateExtractedRows(withYear as any, TODAY).periods.length, 1)
 }
 
+console.log('\n§4b — the sentinel outranks the flag')
+{
+  // The real thing, from a live BayFirst portal screenshot: the model used the 1900
+  // sentinel and set year_printed TRUE on the same row. It fell through to the
+  // generic "date outside a plausible range" -- true, but the wrong cause, which
+  // sends the reader hunting a bad date instead of a missing year.
+  const lying = [row({ date: '1900-09-02', yearPrinted: true, dateAsPrinted: 'Sep 2',
+                       principal: 695.23, balance: 135206.37, kind: 'principal' })]
+  const r = validateExtractedRows(lying as any, TODAY)
+  eq('a 1900 date is not imported however the flag reads', r.periods.length, 0)
+  ok('⭐ ...and the refusal names the MISSING YEAR, not a implausible date',
+     /never guessed/.test(r.rejected.map(x => x.reason).join(' ')),
+     JSON.stringify(r.rejected))
+  ok('...quoting what the page actually printed',
+     r.rejected.some(x => x.date === '"Sep 2"'), JSON.stringify(r.rejected))
+}
+
 console.log('\n§5 — silence is not consent')
 {
   // A model that omits year_printed has not told us the year was on the page.
