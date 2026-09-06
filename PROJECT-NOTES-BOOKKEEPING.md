@@ -55,6 +55,28 @@
 > 2026-08-03. The three Ford variances must be UNCHANGED. If the Fords move, stop and read
 > `_shared/gap-closure.ts` — the walk is supposed to be monotone.
 >
+> ### 0zc. 📦 SESSION 280 DEPLOY & PUSH STATE — checked 2026-09-06 ~20:30 UTC, by BEHAVIOUR
+>
+> | Thing | State | How it was established |
+> |---|---|---|
+> | Commits `1b41c71`, `288524a`, `2e785ac`, `ba13932` | **PUSHED** | `git ls-remote` against the real remote returns `ba13932` — the same SHA as local `main`. Not the tracking ref, which is what goes stale. |
+> | Client, stage 2 | **LIVE — content-verified** | `admin.familylaundry.com/build-version.txt` = **20260906193621**, exactly the stamp this commit's hook wrote. The served `index.html` defines `_bkStatementStrip` and `_bkLoanStatusMark` (7 hits) and contains **zero** occurrences of the old `thSort('xero', 'Xero'` header. A version number can coincide; an absent old line cannot. |
+> | Edge functions | **NOTHING DEPLOYED BY ME, and one is outstanding** | Session 280 changed no function. But `reconciliation-run` and `_shared/loan-bundle-plan.ts` came in from the parallel session and are on GitHub **undeployed** — a push has never deployed a function. `scripts/push.sh --dry-run` names them and prints the exact CLI line. |
+> | **`scripts/push.sh` — Claude can now push** | **WORKING — proven by round-trip** | A deploy key at `.git/wr-deploy-key`, registered by David after enabling the org's Member-privileges deploy-key policy (new orgs disable it by default, which is what blocked it). Verified by BEHAVIOUR, not by the key existing: `ssh -T` answers *"Hi LUCANINA/washroute!"*, and a throwaway ref was pushed and deleted to prove **write**, since authentication alone does not. Branch list back to its original four afterwards. |
+>
+> ⚠️ **This changes the working assumption in the `washroute` and `washroute-bookkeeping` skills**
+> that says *"Never run `git push` from this sandbox — it has no network access and will always
+> fail with a 403."* That was never quite right — the network is fine and always was; what was
+> missing is authentication — and it is now wrong outright. Use `bash scripts/push.sh`, which
+> refuses a dirty tree, a non-`main` branch and a missing key, and names what is about to reach
+> production before it does.
+>
+> ⚠️ **And be clear-eyed: any session with this folder connected can now ship to production
+> unattended, in about thirty seconds.** The guards are real; they are not a review.
+>
+> 🧹 The remote carries a stray branch **`mai`** — a typo of `main`, not a real branch. Nobody has
+> checked what is on it. Worth deleting once somebody has.
+
 > ### 0za. 📦 SESSION 279 DEPLOY & PUSH STATE — checked 2026-09-06 18:00 UTC, by BEHAVIOUR
 >
 > | Thing | State | How it was established |
