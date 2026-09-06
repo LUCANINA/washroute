@@ -3736,6 +3736,90 @@ to "what is running".
 
 ---
 
+### Session 277 cont. 5 (2026-09-06) — ⏭️ NEXT SESSION STARTS HERE: THE CLOSE CHECKLIST (designed, not built)
+
+David's proposal, from the FinancialCents month-end request his accountant sends him today —
+a list of "upload X" items that cross off as each arrives, one row per DOCUMENT rather than per
+loan. For BayFirst SBA 2 that is two items.
+
+**THE MACHINERY EXISTS. This is a granularity change, not a new system.** Client View already
+renders *"<Month> — what's still needed"* with a dropzone and a shared verdict
+(`renderClientChecklist`), at ONE ROW PER LOAN. `_loanCloseEvidenceNeeded(a, month)` already
+returns the per-item list. The work is item-level rendering plus the states below.
+
+#### ✅ SETTLED BY DAVID
+* **ONE checklist, two audiences.** *"The accountant simply sees the same checklist with the
+  decision items unhidden. The client is only told what the accountant needs; the accountant sees
+  both the required documents AND the required fixes."* So **audience is a property of the ITEM,
+  not of the page** — one computation, one list, filtered. Two lists would be the count-and-list
+  drift this module keeps re-fixing.
+* **A due date per item** (his choice, FinancialCents-shaped) — see the defaulting below, because
+  28 hand-typed dates a month is a chore, and a stale due date fails exactly like a stale
+  requirement.
+* **Both the checklist and the row asks can coexist** while he decides which earns its place.
+  Safe ONLY because both read `_loanCloseEvidenceNeeded` — one function, many callers. Two
+  surfaces each recomputing is the hazard; two reading one function is the pattern.
+
+#### 🔴 THE ONE RULE THAT MATTERS MOST — DERIVED, NEVER MANUALLY TICKED
+FinancialCents' boxes are SELF-REPORTED. In the Jul '26 request David showed, every item is
+crossed out and the request is closed — including *"3. BayFirst SBA - two Loan Statements"* —
+while BayFirst SBA 2's August evidence had never arrived, which is what cost this whole session.
+**A list that crosses off on a human's word can say "done" about a month that is not.**
+
+Our items cross themselves off from the EVIDENCE. This is session 262's close-gate rule at item
+granularity: on the day that gate shipped, ten of eleven loans had a statement on file and only
+six had been compared to Xero — four documents sat there uncompared while every surface counted
+them as done.
+
+#### FOUR STATES PER ITEM, and the middle two are the point
+| state | means | reads as |
+|---|---|---|
+| `unavailable` | cannot exist yet (`_evidenceGettable` says so) | *"the portal balance, from Sep 3"* — **never overdue** |
+| `needed` | available, not on file | the ask, dated |
+| `uploaded` | on file, not yet compared to Xero | **not crossed off** |
+| `checked` | tie-out `as_of` equals the document's date | crossed off |
+
+Crossing off at `uploaded` would overstate readiness by exactly the four-documents-uncompared
+amount. `_bkStatementGate` already distinguishes these two — reuse it, do not recompute.
+
+#### TWO ITEM KINDS
+* `document` — audience: client **and** accountant. Fetching is the owner's chore, and that is
+  what makes asking cheap (session 262).
+* `decision` — audience: accountant **only**. "Which of these two schedules does the lender
+  follow?" is not a client question.
+
+**This is also where the schedule decision finally belongs.** Session 277 cont. 4 had to suppress
+it on tying rows — *"a row that ties gets no action; a column that always says something is a
+column people stop reading"* — which left a loan that ties every month never being asked while its
+prestaging creates Xero transactions off a tie-break. A checklist is not a nag on a green row; it
+is a list someone consults. **Building this closes that gap.**
+
+#### DUE DATES — one setting, derived per item, override where needed
+* New setting: the day of the month the books should be closed by. **Default 5, and that is
+  MEASURED not invented** — the FinancialCents request for Jul '26 was due Aug 5th.
+* Item due date derives from that plus its own availability. BayFirst 2's screenshot becomes
+  available on the 3rd and is due on the 5th.
+* **An item that cannot exist yet never reads as overdue** — the thing their list gets wrong when
+  a document genuinely is not out.
+* Per-item override for a reliably-late lender, recorded like any other decision (who/when/why).
+
+#### AND THE STRUCTURAL ADVANTAGE OVER WHAT HE HAS TODAY
+Their line reads *"two Loan Statements"* because a human knew it was two and typed it. If BayFirst
+changes its cycle that line is wrong until somebody notices. Ours derives the count from the
+loan's own cadence — the same argument that killed the typed-policy draft in cont. 2.
+
+#### ⚠️ KNOWN TRAPS WHEN BUILDING IT
+* ~28 items a month against FinancialCents' ~10. Group by loan, collapse satisfied. LESS IS BEST.
+* **The denominator must not shrink**: two items for BayFirst SBA 2 means the list says 2.
+  Exempt/automatic loans are counted and NAMED, never quietly dropped (amendment A2).
+* A new readiness gate key must be declared in `GATE_KEYS` or every close-band scenario reds out,
+  and gate text may contain no `"` characters — it is re-emitted into the CSV export.
+* Client-facing copy must not leak accountant-only concepts.
+* **Nobody chases this list.** FinancialCents has a due date AND a person behind it; a list nobody
+  owns rots quietly. The due dates above are the deadline; whether anything reminds is undecided.
+
+---
+
 ### Session 277 cont. 3 (2026-09-05) — ⭐ STANDING RULE: WHEN THE SYSTEM CANNOT SETTLE IT, ASK THE PERSON IN CHARGE
 
 > **David, 2026-09-05:** *"That's where a human decision (by the accountant) can help. The purpose
