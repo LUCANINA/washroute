@@ -13,6 +13,7 @@ import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './d
 // read it from one place rather than each growing their own copy.
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { allBalancesForLoan } from '../_shared/book-balances.ts'
+import { walkToClosure } from '../_shared/gap-closure.ts'
 import { explainBalanceGap, dailyWithholdingFromBalances } from '../_shared/settlement-lag.ts'
 import { isExaminedForResolve } from '../_shared/resolve-scope.ts'
 import { diagnoseUnexplainedGap, type LaterEntry, type AmortRow, type SiblingFinding } from '../_shared/gap-diagnosis.ts'
@@ -737,7 +738,41 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
     r.date > anchor.statement_date && r.date <= today)
   const laterNet = laterOnLoan.reduce((sum: number, r: any) => sum + effect(r, code), 0)
   const residualAfterLater = Math.round((diff + laterNet) * 100) / 100
-  const closesIt = laterOnLoan.length > 0 && Math.abs(residualAfterLater) < 0.02
+
+  // ── session 279: THE GAP CLOSES WHEN THE MONEY ARRIVES, NOT AT THE END ─────
+  // This test was right in principle and measured over the wrong window. It asked
+  // whether the NET of every later entry up to today closes the gap -- so the
+  // instant a SECOND payment lands, the sum sails past zero and a gap that was
+  // closed exactly by the first one reads as an exception again, for ever.
+  //
+  // Both of the two largest unexplained exceptions on the book were this, and
+  // both to the cent (measured 2026-09-06, and each first entry confirmed against
+  // its own line in Xero):
+  //
+  //   PCV 202555         gap 5,335.52 @ 08-01 -> 08-03 payment, line on 254 = 5,335.52
+  //                      then 09-01 overshoots to -5,357.75 and it "un-explains"
+  //   BayFirst SBA Loan  gap   971.56 @ 08-05 -> 08-06 payment, line on 243 =   971.56
+  //                      then a second entry overshoots to -1,046.56
+  //
+  // So walk FORWARD and stop at the first date the running total closes it. That
+  // is the rollforward asked properly -- "did the money actually arrive" -- not an
+  // amount match: nothing here compares the gap to a payment's size, it adds up
+  // real entries in date order until they account for it.
+  //
+  // ⚠ THE CHANGE IS MONOTONE, WHICH IS THE SAFETY PROPERTY. The full set is
+  // itself a prefix, so anything that closed under the old test still closes here
+  // (possibly at an earlier date). It can only ever turn an exception INTO an
+  // explanation, never the reverse, and never touches a loan with no later
+  // entries at all. Measured effect on the live book: 2 of 9 open exceptions
+  // resolve; five have zero later entries and cannot move by construction --
+  // including all three Fords, whose corrections stay exactly as they are.
+  // The walk lives in _shared/gap-closure.ts so it can be tested against the two
+  // real shapes without standing up an edge function. Nothing about it is
+  // specific to this caller.
+  const closure = walkToClosure(diff, laterOnLoan.map((r: any) => ({ date: String(r.date), effect: effect(r, code) })))
+  const closedOn = closure.closed_on
+  const closedAfterEntries = closure.closed_after_entries
+  const closesIt = closedOn !== null
   const ties = Math.abs(diff) < 0.02
 
   const gap = isMaterialGap(residualAfterLater, Number(anchor.principal_balance))
@@ -766,6 +801,15 @@ function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, ancho
       material: ties || closesIt ? null : gap.material,
       material_share: ties || closesIt ? null : Math.round(gap.share * 1e6) / 1e6,
       later_entry_types: Array.from(new Set(laterOnLoan.map((r: any) => String(r.srcType)))),
+      // ── session 279: AN EXPLANATION NOBODY CAN INSPECT IS A SILENCE ────────
+      // 'explained' raises no finding, so without these two fields a loan simply
+      // vanishes off the queue and nobody can tell whether it was reasoned about
+      // or dropped. David asked for this directly: the row records WHICH payment
+      // closed the gap and how many entries it took, so an accountant can look it
+      // up. Null on every other status -- a field that is always populated stops
+      // meaning anything.
+      closed_on: closesIt ? closedOn : null,
+      closed_after_entries: closesIt ? closedAfterEntries : null,
       // Session 253 (item 13b): the actual dates of the later entries, not just
       // their count/types -- checkBalanceVsLender's self-diagnosis matches these
       // against the amortization schedule and the loan's other findings. Kept as

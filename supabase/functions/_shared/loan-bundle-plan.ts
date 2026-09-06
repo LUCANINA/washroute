@@ -788,6 +788,23 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     if (wanted && wrong.length) {
       const from = wrong[0].statement_date, to = wrong[wrong.length - 1].statement_date
       const one = wrong.length === 1
+      // ── session 279 stage 1: SAY WHICH DATE MOVES ──────────────────────────
+      // Labelling changes no figure. What it changes is WHICH DAY the loan is
+      // compared against: an unlabelled row is excluded from anchoring, so the
+      // newest labelled row is the anchor today, and labelling moves it forward.
+      //
+      // On E-Transit E6-7410 that is 9 Aug → 20 Aug, and a $643.50 payment
+      // (principal $470.64) sits inside the gap. The figure the card writes is
+      // harmless; the date it moves is not. A reader cannot weigh that against
+      // the clock unless the card says it, so it says it.
+      const anchorNow = lenderRows
+        .filter(r => r.balance_basis && r.balance_basis !== 'unknown')
+        .map(r => r.statement_date).sort().pop() || null
+      const anchorAfter = lenderRows.map(r => r.statement_date).sort().pop() || null
+      const anchorMoves = !!(anchorNow && anchorAfter && anchorAfter > anchorNow)
+      const anchorLine = anchorMoves
+        ? ` The date this loan is compared against moves from ${anchorNow} to ${anchorAfter}.`
+        : ''
       conflicts.push({
         key: 'statement_basis_unknown',
         statement: `${wrong.length} balance${one ? '' : 's'} from this lender (${from} to ${to}) do${one ? 'es' : ''} not say what ${one ? 'it measures' : 'they measure'}, while the rest of what this lender has sent does.`,
@@ -798,7 +815,7 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
         id: nextId('basisfix'),
         kind: 'correct_statement_basis',
         title: `Label ${wrong.length} unlabelled lender balance${one ? '' : 's'} (${from} to ${to})`,
-        plain_english: `Labels ${wrong.length} unlabelled balance${one ? '' : 's'} from this lender as ${wanted}, which puts ${one ? 'it' : 'them'} back inside the lender-comparison checks.`,
+        plain_english: `Labels ${wrong.length} unlabelled balance${one ? '' : 's'} from this lender as ${wanted}, which puts ${one ? 'it' : 'them'} back inside the lender-comparison checks.${anchorLine}`,
         // ── session 279: THIS SENTENCE USED TO BE FALSE ───────────────────
         // It said "They came from the same place, on the same basis, as every
         // other balance on this loan." Of the rows it selected, 348 of 352

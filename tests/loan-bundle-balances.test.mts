@@ -1598,6 +1598,33 @@ section('the basis action never labels our own book rows')
        /lender balance/.test(String(collideFix.title)), String(collideFix.title))
   }
 
+  // ── STAGE 1: THE CARD SAYS WHICH DATE MOVES ────────────────────────────
+  // Labelling writes no figure; it moves the comparison date. That is the whole
+  // effect of the action and the card has to state it, or a reader ticking the
+  // box is agreeing to something the card never mentioned.
+  if (collideFix) {
+    const pe = String(collideFix.plain_english)
+    ok('⭐ the card names the date the comparison moves TO',
+       /moves from 2026-07-06 to 2026-08-26/.test(pe), pe)
+    ok('...and it still fits the 40-word budget',
+       pe.trim().split(/\s+/).length <= 40, `${pe.trim().split(/\s+/).length}w`)
+  }
+
+  // ...and says nothing when the anchor does NOT move — a line that always
+  // appears is one people stop reading (LESS IS BEST).
+  {
+    const noMove = buildPlan(ctxOf({
+      statements: [
+        lender('2026-08-26', 123091.66, 'total_payback'),
+        lender('2026-07-06', 145875, 'unknown'),
+      ] as any,
+    }))
+    const f = noMove.actions.find(a => a.kind === 'correct_statement_basis')
+    ok('⭐ no date sentence when labelling an OLDER row leaves the anchor put',
+       !!f && !/moves from/.test(String(f.plain_english)),
+       f ? String(f.plain_english) : 'no action')
+  }
+
   // IT DISCRIMINATES. Rebuild the pre-session-279 selection by hand and confirm
   // it picks up the books snapshots — if this cannot reproduce the defect, the
   // assertions above prove nothing.
