@@ -3906,6 +3906,57 @@ to "what is running".
 
 ---
 
+### Session 280 cont. (2026-09-06) — ONE LOAN TABLE, TWO PERIODS (spec + stage 1 of 4)
+
+David: *"Identify ways to harmonize/consolidate the two LOAN views. Ideally we have one
+format for both, with the understanding that the CLOSE view is the most built out."*
+
+**The finding, and it is worse than a styling mismatch.** The two tables are two different
+questions wearing one word. On the day this was written they printed different money for the
+same loan: BayFirst SBA 2 read −0.01 on Closing and +$695.23 on In flight; BayFirst SBA Loan,
+PCV, Rapid and E6-7410 all tied on Closing and carried a variance on In flight. Closing asks
+*did August's movement reconcile* (`opening + drawn − principal` vs the month-end anchor);
+In flight asks *does Xero match the newest document today* (`_loanVariance` off
+`loan_tie_outs`). Both correct, neither labelled. **This module's signature defect, on its two
+largest tables.** Consolidation is the fix for it, not tidying.
+
+**The settled design is `docs/bookkeeping/DESIGN-LOAN-TABLE-CONSOLIDATION.md`** — read it
+before touching either table. Decisions, all David's:
+
+* **ONE VARIANCE: books − lender, as of the date on the row.** Closing keeps its rebuilt
+  `computed` (the more rigorous book figure); In flight uses the live `xero` balance; the
+  hover names which. Same word, same question, both views.
+* **In flight anchors to the newest evidence, dated per row** — not a strict September
+  rollforward. ⚠️ **The rejected alternative is the important half.** A true in-flight
+  rollforward collides with `_directIsStale`: Closing already REFUSES to compare when the
+  lender document predates payments we have booked (`rf.staleAnchorRows`). On the month in
+  flight that is most rows, so a true rollforward either collapses into the strict-empty view
+  David did not pick, or prints money that is knowingly wrong. Do not revisit without reading
+  that function.
+* **16 shared columns.** In flight gains Source, Status, Ledger, Staging-parity and — the
+  biggest functional gap — **Action**: it was showing five red variances with no path to a
+  fix. Closing gains Account #, Last payment, Date, Staging and sortable headers. `Computed`
+  and `Xero` become one **Books** column; `Closing` and `Statement` become one **Lender ·
+  date**. Lender folds to a sub-line under Loan, Agreement becomes a marker on that cell,
+  Booked folds into Status.
+* ⚠️ **A real defect found on the way, not yet fixed:** In flight's Principal/Interest read
+  off ONE split (the last payment) while Closing sums the whole month. Those columns have
+  never meant the same thing. The month sum wins on both — stage 2.
+
+**Stage 1 shipped and it is behaviour-neutral by construction:** `_bkLoanAgreement(a)` and
+`_bkLoanSource(a)` lifted out of the close band's row builder as shared cells. They were
+chosen first because they are PERIOD-INVARIANT — an agreement is on file or it is not, a
+close basis is a recorded policy — so lifting them cannot change a number. 498 assertions
+across `close-band`, `close-band-columns`, `loans-table`, `two-surfaces`, `schedule-choice`,
+`fix-beats-schedule-ask` and `statement-basis-asked`, all green, no edits to any of them —
+which is the proof that nothing moved.
+
+**Stages 2-4 are not done.** Build order is in the design doc. The period-dependent cells
+(Status, Ledger, Action) are the hard part and must be lifted together: half-lifting one is
+how a guard ends up on the wrong branch (session 231).
+
+---
+
 ### Session 280 (2026-09-06) — TWO SURFACES SWAPPED, AND ONE CHECK THAT COULD NO LONGER FAIL
 
 David, in one message: (1) move the Loans stats tiles to Client View > Debt Schedule,

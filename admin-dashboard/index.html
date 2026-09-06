@@ -18593,6 +18593,58 @@
     </div>`;
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  //  SHARED LOAN-ROW CELLS (session 280) — ONE DEFINITION, BOTH TABLES
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // David: "Identify ways to harmonize/consolidate the two LOAN views. Ideally
+  // we have one format for both." The settled design is
+  // docs/bookkeeping/DESIGN-LOAN-TABLE-CONSOLIDATION.md — read it before
+  // changing anything here. Every decision in it was made against a real
+  // alternative, and the rejected ones are written down with their reasons.
+  //
+  // THE RULE THAT MAKES THE CONSOLIDATION STICK: neither table computes a
+  // displayed value itself; both call these. This module's history is a
+  // sequence of two surfaces answering one question with two numbers, and the
+  // fix every time was one function computing it and every display calling it.
+  //
+  // These two are PERIOD-INVARIANT — an agreement is on file or it is not, and
+  // a close basis is a recorded policy. Neither reads the month, which is why
+  // they lifted first. The period-dependent cells (Status, Ledger, Action)
+  // follow in stage 3; see the design doc's build order, and do not half-lift
+  // one of them.
+
+  function _bkLoanAgreement(a) {
+  const agreementDocs = (_allLoanDocuments || []).filter(d =>
+    d.loan_account_id === a.id && d.doc_type === 'agreement');
+  const agreement = agreementDocs.length
+    ? { has: true, cell: '<span class="lcb-mark lcb-mark-ok" aria-label="Agreement on file">✓</span>',
+        title: `Signed agreement on file${agreementDocs[0].file_name ? ` — ${agreementDocs[0].file_name}` : ''}. The original amount, rate and term can be checked against the contract rather than against a typed field.` }
+    : { has: false, cell: '<span class="lcb-mark lcb-mark-na" aria-label="No agreement on file">—</span>',
+        title: 'No signed agreement uploaded for this loan. Nothing is wrong with the month because of it — but the rate, original amount and term on file are somebody\'s typed notes, with no contract behind them to check against. Drop the agreement in the box at the top of this page.' };
+    return agreement;
+  }
+
+  function _bkLoanSource(a) {
+  // SOURCE — what settles this loan's month. Reads the RECORDED close basis
+  // and nothing else. The temptation is to infer "schedule" from the
+  // presence of a schedule file; that is forbidden, because most schedules
+  // on this book were DERIVED from the loan's own statements, so inferring
+  // it would let a loan excuse itself from its only outside evidence on the
+  // strength of our own arithmetic (the close-gate rule, session 262).
+  // A genuine lender schedule sitting unused is worth saying out loud: it is
+  // the one case where the recorded basis could reasonably be something else,
+  // and David spotted it on PCV before this column did. Derived schedules
+  // are deliberately NOT counted here — see _bkRealSchedulesFor.
+  const realSched = (typeof _bkRealSchedulesFor === 'function') ? _bkRealSchedulesFor(a.id) : [];
+  const basis = (a.close_basis === 'amortization_schedule')
+    ? { cell: '<span class="lcb-basis sched">Schedule</span>',
+        title: `Closed against the contractual amortization schedule — a recorded policy${a.close_basis_reason ? `: ${a.close_basis_reason}` : ''}. No lender statement is expected for this loan, and it is excluded from the statement gate by that policy rather than by accident. Where the opening and closing both trace to that same schedule, the variance cannot fail and is reported as agreeing by construction, not as a pass.` }
+    : { cell: `<span class="lcb-basis stmt">Statements</span>${realSched.length ? '<span class="lcb-basis-alt" title="A lender-issued amortization schedule is also on file for this loan, but the recorded policy still closes it on statements. That is a legitimate choice — statements are outside evidence and a schedule is not — but it is the one case where the basis could reasonably be the other. Open the loan to switch it.">·</span>' : ''}`,
+        title: 'Closed against the lender\'s own statements. A current statement is expected each month, and the month cannot close until one has been uploaded AND compared.' };
+    return basis;
+  }
+
   function renderLoansCloseBand() {
     const el = document.getElementById('loans-close-band');
     if (!el) return;
@@ -18941,30 +18993,8 @@
       // typed number is never evidence" (session 230, where four Ford rates and
       // a Funding Circle payment were all wrong on file) and having something
       // outside our own records to compare a typed figure with.
-      const agreementDocs = (_allLoanDocuments || []).filter(d =>
-        d.loan_account_id === a.id && d.doc_type === 'agreement');
-      const agreement = agreementDocs.length
-        ? { has: true, cell: '<span class="lcb-mark lcb-mark-ok" aria-label="Agreement on file">✓</span>',
-            title: `Signed agreement on file${agreementDocs[0].file_name ? ` — ${agreementDocs[0].file_name}` : ''}. The original amount, rate and term can be checked against the contract rather than against a typed field.` }
-        : { has: false, cell: '<span class="lcb-mark lcb-mark-na" aria-label="No agreement on file">—</span>',
-            title: 'No signed agreement uploaded for this loan. Nothing is wrong with the month because of it — but the rate, original amount and term on file are somebody\'s typed notes, with no contract behind them to check against. Drop the agreement in the box at the top of this page.' };
-
-      // SOURCE — what settles this loan's month. Reads the RECORDED close basis
-      // and nothing else. The temptation is to infer "schedule" from the
-      // presence of a schedule file; that is forbidden, because most schedules
-      // on this book were DERIVED from the loan's own statements, so inferring
-      // it would let a loan excuse itself from its only outside evidence on the
-      // strength of our own arithmetic (the close-gate rule, session 262).
-      // A genuine lender schedule sitting unused is worth saying out loud: it is
-      // the one case where the recorded basis could reasonably be something else,
-      // and David spotted it on PCV before this column did. Derived schedules
-      // are deliberately NOT counted here — see _bkRealSchedulesFor.
-      const realSched = (typeof _bkRealSchedulesFor === 'function') ? _bkRealSchedulesFor(a.id) : [];
-      const basis = (a.close_basis === 'amortization_schedule')
-        ? { cell: '<span class="lcb-basis sched">Schedule</span>',
-            title: `Closed against the contractual amortization schedule — a recorded policy${a.close_basis_reason ? `: ${a.close_basis_reason}` : ''}. No lender statement is expected for this loan, and it is excluded from the statement gate by that policy rather than by accident. Where the opening and closing both trace to that same schedule, the variance cannot fail and is reported as agreeing by construction, not as a pass.` }
-        : { cell: `<span class="lcb-basis stmt">Statements</span>${realSched.length ? '<span class="lcb-basis-alt" title="A lender-issued amortization schedule is also on file for this loan, but the recorded policy still closes it on statements. That is a legitimate choice — statements are outside evidence and a schedule is not — but it is the one case where the basis could reasonably be the other. Open the loan to switch it.">·</span>' : ''}`,
-            title: 'Closed against the lender\'s own statements. A current statement is expected each month, and the month cannot close until one has been uploaded AND compared.' };
+      const agreement = _bkLoanAgreement(a);
+      const basis = _bkLoanSource(a);
 
       // ACTION — one suggestion, and only where there is one worth making.
       // Two rules from this module decide what may appear here:
