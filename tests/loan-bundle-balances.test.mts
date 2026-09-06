@@ -29,10 +29,11 @@
 // remove.
 
 import fs from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  buildPlan, REAL_ANCHOR_SOURCES, ORIGINATION_SOURCE,
+  buildPlan, REAL_ANCHOR_SOURCES, ORIGINATION_SOURCE, isLenderIssued,
   type PlanContext, type BundlePlan, type PlannedAction,
 } from '../supabase/functions/_shared/loan-bundle-plan.ts'
 import {
@@ -1505,6 +1506,120 @@ section('the itemised screen is not described by the paid identity (cont. 4)')
      !/total due less the amount paid to date/.test(text), text.slice(0, 200))
   ok('it describes what this screen actually prints',
      /of principal and .* of fee still owed come to/.test(text), text.slice(0, 300))
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── session 279: A BOOK ROW IS NOT A LENDER STATEMENT ────────────────────────
+//
+// `correct_statement_basis` was default-checked and read `loan_statements`
+// without asking who wrote each row. Measured on this book on 2026-09-06: of
+// the 352 rows carrying `balance_basis = 'unknown'`, **348 are ours**
+// (xero_derived / xero_balance_snapshot) and **4 are the lender's**. One click
+// would have stamped a lender's basis onto all 348.
+//
+// Stripe Capital is the worst case and it is the fixture below: every one of
+// its 7 unknown rows is a books snapshot, and its labelled rows say
+// `total_payback` — so the action would have written a GROSS PAYBACK basis onto
+// seven snapshots that are net principal by construction, on the one loan whose
+// carrying basis is still an open question. `_shared/carrying-basis-drift.ts`
+// then tests one model instead of both; its own comment at :645 warns this
+// becomes reachable "the day the rebuild starts labelling them".
+//
+// The assertions come in pairs on purpose: what the action must NOT select, and
+// what it must still select. Only "must not" is satisfied by disabling the
+// action entirely; only "must still" is satisfied by changing nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+section('the basis action never labels our own book rows')
+{
+  const lender = (statement_date: string, principal_balance: number, balance_basis: string) =>
+    ({ statement_date, principal_balance, balance_basis, source: 'portal_manual_pull' })
+
+  // Stripe's real shape: labelled lender rows say total_payback, and every
+  // unknown row is a books snapshot.
+  const stripe = buildPlan(ctxOf({
+    statements: [
+      lender('2026-07-06', 145875, 'total_payback'),
+      lender('2026-08-26', 123091.66, 'total_payback'),
+      sweep('2026-07-01', 145875, 'unknown'),
+      sweep('2026-08-01', 133000, 'unknown'),
+      sweep('2026-08-26', 125257.71, 'unknown'),
+    ] as any,
+  }))
+  const stripeFix = stripe.actions.find(a => a.kind === 'correct_statement_basis')
+  ok('⭐ no basis action at all when every unlabelled row is our own',
+     !stripeFix,
+     stripeFix ? JSON.stringify((stripeFix as any).payload) : '')
+
+  // The date collision, which is the reason the apply needed its own filter:
+  // a books snapshot and a lender pull on the SAME day.
+  const collide = buildPlan(ctxOf({
+    statements: [
+      lender('2026-07-06', 145875, 'total_payback'),
+      lender('2026-08-26', 123091.66, 'unknown'),
+      sweep('2026-08-26', 125257.71, 'unknown'),
+    ] as any,
+  }))
+  const collideFix = collide.actions.find(a => a.kind === 'correct_statement_basis')
+  ok('a genuine unlabelled LENDER row still gets an action', !!collideFix)
+  if (collideFix) {
+    const dates = (collideFix as any).payload.statement_dates as string[]
+    ok('...selecting exactly one row', dates.length === 1, JSON.stringify(dates))
+    ok('...and it is the lender pull, not the snapshot beside it on the same day',
+       dates[0] === '2026-08-26')
+    ok('...labelled from what the LENDER said, not from our rows',
+       (collideFix as any).payload.balance_basis === 'total_payback',
+       String((collideFix as any).payload.balance_basis))
+
+    // ⚠ THE PLANNER CANNOT PROTECT THIS ONE. Both rows are dated 2026-08-26,
+    // both are 'unknown', and the apply matches on (loan, statement_date). The
+    // payload being right is not enough — the WRITE has to ask about source
+    // too, which is why the predicate is exported and used on both branches.
+    const applySrc = readFileSync(new URL('../supabase/functions/loan-bundle/index.ts', import.meta.url), 'utf8')
+    const block = applySrc.slice(applySrc.indexOf("act.kind === 'correct_statement_basis'"))
+      .slice(0, 1200)
+    ok('⭐ the APPLY filters by source too — the branch that actually writes',
+       /\.in\('source', REAL_ANCHOR_SOURCES\)/.test(block), block.slice(0, 400))
+    ok('...and it still refuses to overwrite an established basis',
+       /\.eq\('balance_basis', 'unknown'\)/.test(block))
+  }
+
+  // The card's claim. It used to say these rows "came from the same place, on
+  // the same basis, as every other balance on this loan" — untrue of 348 of the
+  // 352 it selected, which under THE CARD IS THE DECISION is a lie, not a trim.
+  if (collideFix) {
+    const w = String((collideFix as any).working || '')
+    ok('the card no longer claims the rows came from the same place',
+       !/came from the same place/.test(w), w.slice(0, 160))
+    ok('⭐ ...and says plainly that our own book rows are not touched',
+       /book rows/.test(w) && /NOT touched/.test(w), w.slice(0, 200))
+    ok('...naming them, so a reader can check', /xero_derived/.test(w))
+    ok('the title says whose balances these are',
+       /lender balance/.test(String(collideFix.title)), String(collideFix.title))
+  }
+
+  // IT DISCRIMINATES. Rebuild the pre-session-279 selection by hand and confirm
+  // it picks up the books snapshots — if this cannot reproduce the defect, the
+  // assertions above prove nothing.
+  {
+    const rows = [
+      lender('2026-07-06', 145875, 'total_payback'),
+      sweep('2026-07-01', 145875, 'unknown'),
+      sweep('2026-08-26', 125257.71, 'unknown'),
+    ] as any[]
+    const oldWay = rows.filter(s => s.balance_basis === 'unknown')
+    const newWay = rows.filter(s => isLenderIssued(s) && s.balance_basis === 'unknown')
+    ok('⭐ CONTROL: the old selection takes 2 of our own book rows',
+       oldWay.length === 2 && oldWay.every(r => !isLenderIssued(r)))
+    ok('⭐ CONTROL: the new selection takes none', newWay.length === 0)
+  }
+
+  // And the predicate itself, since two branches now depend on it.
+  ok('isLenderIssued accepts the three real sources',
+     ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'].every(s => isLenderIssued({ source: s })))
+  ok('...and refuses our own, including a missing source',
+     !['xero_derived', 'xero_balance_snapshot', 'amortization_schedule', 'contract_origination', ''].some(s => isLenderIssued({ source: s }))
+     && !isLenderIssued(null) && !isLenderIssued({}))
 }
 
 

@@ -363,6 +363,31 @@ const TOL = 0.01
 export const REAL_ANCHOR_SOURCES = RATE_SOURCES
 
 /**
+ * ── session 279: THE ONE PLACE THAT DECIDES WHETHER A ROW IS THE LENDER'S ──
+ *
+ * `loan_statements` holds two different kinds of thing under one table: rows a
+ * lender issued, and rows WE computed (`xero_derived`, `xero_balance_snapshot`,
+ * `amortization_schedule`). Measured 2026-09-06: of the 352 rows carrying
+ * `balance_basis = 'unknown'`, **348 are ours and 4 are the lender's.**
+ *
+ * Section 4's basis-labelling action read the table without asking, so one
+ * default-checked click would have written a lender's basis onto 348 of our own
+ * book rows — worst on Stripe Capital, whose 7 unknown rows are all ours and
+ * whose labelled rows are `total_payback`, so it would have stamped a gross
+ * payback basis onto seven snapshots that are net principal by construction, on
+ * the one loan whose carrying basis is the open question.
+ *
+ * This is exported and used by BOTH the planner and the apply, because they are
+ * two branches reaching the same write and session 231's rule is to put the
+ * check where they converge. A filter in the planner alone still lets the apply
+ * catch a book row that happens to share a statement_date with a lender row —
+ * which on Funding Circle, 65 book rows against 1 lender row, is not
+ * hypothetical.
+ */
+export const isLenderIssued = (s: { source?: string | null } | null | undefined): boolean =>
+  REAL_ANCHOR_SOURCES.includes(String(s?.source ?? ''))
+
+/**
  * What section 4b writes into loan_statements.source.
  *
  * The column is free text with no CHECK constraint, so the choice is entirely
@@ -749,24 +774,38 @@ export function buildPlan(ctx: PlanContext): BundlePlan {
     // means it stands whether or not the carrying basis was established. Only a
     // unanimous existing basis counts; a loan whose history already disagrees
     // with itself is not one to add more labels to.
-    const labelled = ctx.statements.map(s => s.balance_basis).filter(b => b && b !== 'unknown')
+    // ⚠ BOTH SIDES ARE SCOPED, and the second one is the one that writes.
+    // `wanted` must come from the lender's own rows or a label we invented
+    // could teach itself back; `wrong` must be the lender's rows or the action
+    // relabels our arithmetic. Measured on this book the two happen to agree on
+    // `wanted` for every loan — which is exactly why scoping only `wrong` would
+    // have looked correct and been one branch short (s231).
+    const lenderRows = ctx.statements.filter(isLenderIssued)
+    const labelled = lenderRows.map(s => s.balance_basis).filter(b => b && b !== 'unknown')
     const distinct = [...new Set(labelled)]
     const wanted = distinct.length === 1 ? distinct[0] : null
-    const wrong = ctx.statements.filter(s => s.balance_basis === 'unknown')
+    const wrong = lenderRows.filter(s => s.balance_basis === 'unknown')
     if (wanted && wrong.length) {
       const from = wrong[0].statement_date, to = wrong[wrong.length - 1].statement_date
+      const one = wrong.length === 1
       conflicts.push({
         key: 'statement_basis_unknown',
-        statement: `${wrong.length} balance${wrong.length === 1 ? '' : 's'} on file (${from} to ${to}) do not say what they measure, while the rest of this loan's history does.`,
+        statement: `${wrong.length} balance${one ? '' : 's'} from this lender (${from} to ${to}) do${one ? 'es' : ''} not say what ${one ? 'it measures' : 'they measure'}, while the rest of what this lender has sent does.`,
         expected: wanted, found: 'unknown', sources: ['loan history'], severity: 'warn',
-        caveat: `An unlabelled balance is quietly excluded from the checks that compare your books to the lender, so a real discrepancy in this range would not have been reported.`,
+        caveat: `An unlabelled LENDER balance is quietly excluded from the checks that compare your books to the lender, so a real discrepancy in this range would not have been reported. Our own book rows are excluded by their source whether or not they carry a label, so an unlabelled one of those hides nothing.`,
       })
       actions.push({
         id: nextId('basisfix'),
         kind: 'correct_statement_basis',
-        title: `Label ${wrong.length} unlabelled balance${wrong.length === 1 ? '' : 's'} (${from} to ${to})`,
-        plain_english: `Labels ${wrong.length} unlabelled balance${wrong.length === 1 ? '' : 's'} as ${wanted}, which puts ${wrong.length === 1 ? 'it' : 'them'} back inside the lender-comparison checks.`,
-        working: `They came from the same place, on the same basis, as every other balance on this loan — they were simply never labelled, and an unlabelled balance is excluded from every comparison rather than being checked and passing.`,
+        title: `Label ${wrong.length} unlabelled lender balance${one ? '' : 's'} (${from} to ${to})`,
+        plain_english: `Labels ${wrong.length} unlabelled balance${one ? '' : 's'} from this lender as ${wanted}, which puts ${one ? 'it' : 'them'} back inside the lender-comparison checks.`,
+        // ── session 279: THIS SENTENCE USED TO BE FALSE ───────────────────
+        // It said "They came from the same place, on the same basis, as every
+        // other balance on this loan." Of the rows it selected, 348 of 352
+        // across this book were OUR OWN xero_derived / xero_balance_snapshot
+        // rows, which did not come from the same place at all. Under THE CARD
+        // IS THE DECISION that is a lie, not a trim.
+        working: `Every other balance this lender has sent for this loan is labelled ${wanted}; ${one ? 'this one was' : 'these were'} simply never labelled, and an unlabelled balance is excluded from every comparison rather than being checked and passing. Our own book rows (${['xero_derived', 'xero_balance_snapshot'].join(', ')}) are NOT touched by this: they are already excluded from lender comparison by their source, so labelling them would change no check and would put our own arithmetic on the lender's side of one.`,
         payload: { statement_dates: wrong.map(s => s.statement_date), balance_basis: wanted },
         default_checked: true,
       })

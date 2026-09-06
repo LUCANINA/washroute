@@ -62,7 +62,7 @@ import {
   verifyDecompositionRule, splitCsvRecords, splitCsvLine,
   type ContractTerm, type StripeCsvParseResult, type DecompositionResult,
 } from '../_shared/stripe-capital.ts'
-import { buildPlan, summarisePlan, type PlanContext, type BundleDocument, type BundlePlan } from '../_shared/loan-bundle-plan.ts'
+import { buildPlan, summarisePlan, REAL_ANCHOR_SOURCES, type PlanContext, type BundleDocument, type BundlePlan } from '../_shared/loan-bundle-plan.ts'
 import {
   checkApproveList, divergedActions, findingFingerprint, buildFindingWrite,
   mergeReceipt, mergeDecisions, releaseStatus, closingStatus,
@@ -1457,9 +1457,17 @@ async function applyBundle(supa: any, who: string, body: any) {
 
       } else if (act.kind === 'correct_statement_basis') {
         const dates: string[] = p.statement_dates || []
+        // ── session 279: THE SECOND BRANCH, AND IT IS THE ONE THAT WRITES ──
+        // The planner now selects only rows the LENDER issued, but this apply
+        // matched on (loan_account_id, statement_date) alone — so a book row
+        // sharing a date with a selected lender row was labelled too. On
+        // Funding Circle that is 65 of our own rows against 1 of the lender's.
+        // A guard is only as good as the branch it sits on (s231): the same
+        // predicate the planner uses, on the write.
         const { data: wrote, error: e } = await supa.from('loan_statements')
           .update({ balance_basis: p.balance_basis })
           .eq('loan_account_id', loanId).in('statement_date', dates)
+          .in('source', REAL_ANCHOR_SOURCES)
           .eq('balance_basis', 'unknown')   // never overwrite a basis somebody already established
           .select('statement_date')
         if (e) throw e
