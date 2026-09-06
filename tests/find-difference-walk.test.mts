@@ -199,8 +199,19 @@ section('THE GATE — a divergence in closed books is history, not work')
     Math.abs(Math.abs(r.total_period_diff) - 2544.96) < 0.02, `total_period_diff=${r.total_period_diff}`)
 
   const joined = r.conclusions.join(' | ')
-  ok('one conclusion names the close date and says nothing to do',
-    /closed through 2026-06-30/.test(joined) && /Nothing to do/.test(joined), joined)
+  // ── session 279: THE SENTENCE MOVED; THE CLAIM DID NOT ────────────────────
+  // The closed-books sentence used to be a visible bullet AND the span table's
+  // own closed fold, which states the same count, the same money and the same
+  // "settled, nothing to do" a centimetre below it. It is now made once, by the
+  // fold, and ships unabridged in `no_action_detail` — which the client renders
+  // behind "Show the working". So this asserts where it went, not that it left:
+  // an assertion that only checked it was gone would go green on a deletion,
+  // which is exactly backwards.
+  const nad = (r.no_action_detail || []).join(' | ')
+  ok('the close-date sentence still SHIPS, in no_action_detail',
+    /closed through 2026-06-30/.test(nad) && /Nothing to do/.test(nad), nad)
+  ok('...and is not ALSO a visible bullet — the fold makes that claim now',
+    !/closed through 2026-06-30/.test(joined), joined)
   ok('NO conclusion sends the reader hunting in that span',
     !/2026-02-25 is off by/.test(joined) && !/Recode it and re-run/.test(joined), joined)
   ok('the open book is reported as clean', /ties to the cent/.test(joined), joined)
@@ -227,8 +238,13 @@ section('BOTH AT ONCE — the gate separates them, it does not silence either')
     Math.abs(Math.abs(r.total_period_diff) - (2544.96 + 1234.56)) < 0.02, `total=${r.total_period_diff}`)
   const joined = r.conclusions.join(' | ')
   ok('the open one is spelled out', /2026-08-05/.test(joined), joined)
+  // s279: "summarised" now means summarised by the span table's closed fold and
+  // carried in full by no_action_detail — never spelled out as a bullet, and
+  // never dropped.
+  const nad2 = (r.no_action_detail || []).join(' | ')
   ok('the closed one is summarised, not spelled out',
-    /closed through 2026-06-30/.test(joined) && !/2026-02-25 is off by/.test(joined), joined)
+    /closed through 2026-06-30/.test(nad2) && !/2026-02-25 is off by/.test(joined + nad2),
+    `${joined} || NAD: ${nad2}`)
 }
 
 section('A SPAN THAT STRADDLES THE CLOSE DATE STAYS OPEN')

@@ -1019,6 +1019,9 @@ function analyzeWalk(o: {
   // a straddling pair by the leg that is closed.
   const openPairLegs = periods.filter(p => p.timing_pair && !p.closed_period).length
   const conclusions: string[] = []
+  // s279: set when the focus bullet has already said the lender and Xero agree,
+  // so the closed-books line below does not say it a second time.
+  let focusTiesStated = false
 
   // ── session 272: THE FOCUS MONTH LEADS ─────────────────────────────────────
   // The caller's row is about one month. If this walk has nothing to say about
@@ -1045,7 +1048,8 @@ function analyzeWalk(o: {
         : `; until then there is nothing here to investigate.`))
   } else if (focusPeriod && focusSpans.every(p => p.verdict === 'clean')) {
     conclusions.push(
-      `Every span in ${monthName(focusPeriod)} ties to the cent (${focusSpans.length} statement${focusSpans.length === 1 ? '' : 's'}) — Xero and the lender agree on the month your row is about.`)
+      `Every span in ${monthName(focusPeriod)} ties to the cent.`)
+    focusTiesStated = true
   }
 
   // The exception is the most confident statement the engine can make about a
@@ -1069,20 +1073,29 @@ function analyzeWalk(o: {
     const sp0 = cpaException.period
     const comps = (dg.components || [])
     const booked = comps.filter((c: any) => c.already_booked)
-    let s = `${sp0.from} → ${sp0.to} is off by ${money(Math.abs(periods.find(p => p.from === sp0.from)?.diff ?? 0))} — your accountant's own split on the ${cpaException.entry?.date} payment carries `
-    s += `${comps.map((c: any) => c.period).join(' + ')} interest (${money(dg.at_source)}), `
+    // ── session 279: A CLAIM IS STATED ONCE PER SCREEN ────────────────────
+    // This bullet used to spell out the month list and the at-source figure,
+    // both of which are the exception table rendered a few centimetres below
+    // it -- 42 words to say what the reader was about to read anyway. It now
+    // states only what leads: the span, its gap, the cause in one clause, and
+    // the action. Every figure removed is still on screen, in the table.
+    // The span and its gap are the table's own row and the fold summary above
+    // it; this bullet is the DECISION, so it leads with the money that gets
+    // written and names the payment once (s279).
+    let s = `Your accountant's own split on the ${cpaException.entry?.date} payment `
     // session 272: `booked.length === comps.length` is also true when BOTH are
     // zero, which printed the nonsense "and all 0 of those months were already
     // booked" on PayPal 2. An empty decomposition is not a statement that
     // everything was booked -- it is a statement that we could not decompose it.
     s += comps.length === 0
-      ? `and it could not be decomposed into months. `
+      ? `could not be decomposed into months. `
       : booked.length === comps.length
-        ? `and all ${booked.length} of those month${booked.length === 1 ? ' was' : 's were'} already booked. `
-        : `of which ${money(dg.duplicated)} was already booked. `
+        ? `duplicates interest we had already booked. `
+        : `duplicates ${money(dg.duplicated)} of interest we had already booked. `
     s += cpaException.proposed_entry
       ? `Approve the prepared ${money(cpaException.proposed_entry.amount)} correction below — nothing else to fix in this span.`
       : `Nothing is proposed: see the detail below.`
+    s = s.charAt(0).toUpperCase() + s.slice(1)
     conclusions.push(s)
   }
 
@@ -1098,6 +1111,11 @@ function analyzeWalk(o: {
   // keeps its own count, and the money and the months stay in the fields and on
   // the rows. LESS IS BEST, applied to the reassurances rather than the findings.
   const noAction: string[] = []
+  // s279: true when the closed-books sentence is already made by the client's
+  // closed-spans fold, so it is not also made as a bullet.
+  // Its INDEX, not a boolean: `slice(0, -1)` would silently drop the wrong
+  // sentence the day a category is added after this one.
+  let closedCarriedByFold = -1
   const noActionShort: string[] = []
   // session 272: a distant pair is a DIFFERENT story from an adjacent one and gets
   // its own sentence. Folding both into "a payment dated just after the cutoff"
@@ -1234,14 +1252,27 @@ function analyzeWalk(o: {
       `${closedDivergent.length} span${closedDivergent.length === 1 ? '' : 's'} (${span}) sit${closedDivergent.length === 1 ? 's' : ''} inside books closed through ${closeDate}`
       + `${Math.abs(tot) >= TOL ? `, ${money(Math.abs(tot))} in total` : ''} — your accountant has already settled those months with her own adjustments. `
       + `Nothing to do; they are listed below for reference only.`)
+    // ── session 279: A CLAIM IS STATED ONCE PER SCREEN ──────────────────────
+    // The client's own closed-books fold is this sentence: it states the count,
+    // the money, that they are settled and that they are there for reference,
+    // and it sits directly under the table it is about. A bullet repeating it
+    // is the second statement, and on 4140 it spent 34 of 420 visible words
+    // doing so. It stays, unabridged, in `no_action_detail` -- which the client
+    // now renders behind "Show the working" even when it holds a single entry,
+    // so the claim is one click away rather than deleted (the ce17 limit).
+    // Every OTHER no-action category has no such fold, so it still speaks.
+    closedCarriedByFold = noAction.length - 1
   }
 
   // One category keeps its full, specific sentence. Two or more collapse, because
   // three reassurances in a row is how the findings got pushed off the screen.
-  if (noAction.length === 1) conclusions.push(noAction[0])
-  else if (noAction.length > 1) {
-    const total = openPairLegs + periods.filter(p => p.month_nets && !p.closed_period).length + closedDivergent.length
-    conclusions.push(`${total} flagged span${total === 1 ? '' : 's'} need no action: ${noActionShort.join('; ')}. The rows are below with their figures.`)
+  const visibleNoAction = noAction.filter((_, i) => i !== closedCarriedByFold)
+  const visibleShort = noActionShort.filter((_, i) => i !== closedCarriedByFold)
+  if (visibleNoAction.length === 1) conclusions.push(visibleNoAction[0])
+  else if (visibleNoAction.length > 1) {
+    const total = openPairLegs + periods.filter(p => p.month_nets && !p.closed_period).length
+      + (closedCarriedByFold >= 0 ? 0 : closedDivergent.length)
+    conclusions.push(`${total} flagged span${total === 1 ? '' : 's'} need no action: ${visibleShort.join('; ')}. The rows are below with their figures.`)
   }
   // The unabridged sentences survive the collapse and ship every time, so the
   // client can offer them behind "Show the working". A claim that leaves the
@@ -1265,9 +1296,18 @@ function analyzeWalk(o: {
   // open book is clean would leave the reader without the one answer they came
   // for. So it states the open result and names the closed ones it is excluding.
   if (!openDivergent.length && !nettedMonths.length && !pairFirsts.length) {
-    conclusions.push(closedDivergent.length
-      ? `Every span since the books closed (${closeDate}) ties to the cent — Xero and the lender agree on everything still open.`
-      : `Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
+    // The "Xero and the lender agree" clause is the focus bullet's, when there
+    // is one -- saying it twice on one screen is the s279 defect (a claim is
+    // stated once). Without a focus bullet this is the only place it is said.
+    // s279: with a focus bullet on screen, this sentence is made twice — once
+    // for the focus month above, and once by every open fold's own "— all tie".
+    // Without one it is the only place the open book is spoken about, so it
+    // stays. The claim never disappears; only the second statement of it does.
+    if (!focusTiesStated) {
+      conclusions.push(closedDivergent.length
+        ? `Every span since the books closed ties to the cent — Xero and the lender agree on everything still open.`
+        : `Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
+    }
   }
   const finalConclusions = conclusions.slice(0, 4)
 

@@ -8454,7 +8454,13 @@ GROUPS.push({
   },
 });
 
-if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
+// ── session 279: --list ran HERE and exited, so it never saw the seventeen
+// groups pushed below it — it reported 29 of 46. The skill tells you to run the
+// suite in two halves "by group name from --list", which meant a third of the
+// suite was quietly never named, and a half run from that list is a green run
+// that tested less than it looked. It moved to just above the run loop, where
+// every push has happened. Do not move it back up to keep it near the flags.
+
 
 const cr = await getChromium();
 const launchOpts = { args: ['--allow-file-access-from-files', '--disable-web-security'] };
@@ -10448,6 +10454,235 @@ GROUPS.push({
     await p.close();
   },
 });
+
+// ── session 279: A CLAIM IS STATED ONCE PER SCREEN ───────────────────────────
+// David ran "find the difference" on E-Transit 4140 and got a card that was
+// thorough, correct, and 420 visible words. No sentence in it was long. The
+// defect was that four sections had each been written to stand alone, so each
+// restated the whole diagnosis: every figure on the card appeared at least
+// twice and $415.88, 2026-04, 2026-05 and 2026-06 appeared FIVE times each.
+//
+// The 40-word budget could not see it — it measures one card, and this screen
+// was four in-budget cards saying the same thing. So this group measures the
+// WHOLE MODAL: the rendered visible string, with everything inside a <details>
+// excluded, exactly as a reader meets it.
+//
+// It asserts the pair, and both halves matter:
+//   1. no figure is stated twice in the visible text (the rule), and
+//   2. every figure that left the visible text is still in the working (the
+//      ce17 limit — a cut that drops a claim is a lie, not a trim).
+// Assertion 2 alone is satisfied by deleting nothing; assertion 1 alone is
+// satisfied by deleting everything. Only together do they describe the fix.
+GROUPS.push({
+  name: 'fdiff-copy-budget',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    // The real 4140 payload, shaped as loan-find-difference returns it. The
+    // figures are the ones verified against Xero in session 279: her split at
+    // source was account 800 $415.88 on the reconciled 2026-06-17 SPEND, and
+    // the three journals are the ones our own loan_splits rows carry.
+    const PAYLOAD = {
+      verdict: 'divergent', close_date: '2026-06-30', focus_period: '2026-08',
+      can_post: false, can_post_exception: true,
+      conclusions: [], no_action_detail: [], periods: [], cpa_exception: null,
+    };
+    const mk = (over) => JSON.parse(JSON.stringify(Object.assign({}, PAYLOAD, over)));
+
+    const PERIODS = [
+      { from: '2026-07-28', to: '2026-08-10', lender_delta: 5000, xero_delta: 5000, verdict: 'clean', in_focus: true },
+      { from: '2026-08-10', to: '2026-08-17', lender_delta: 1070.29, xero_delta: 1070.29, verdict: 'clean', in_focus: true },
+      { from: '2026-06-24', to: '2026-07-28', lender_delta: 1058.94, xero_delta: 1058.94, verdict: 'clean' },
+      { from: '2026-05-28', to: '2026-06-17', lender_delta: 283.07, xero_delta: 0, verdict: 'divergent', closed_period: true, diff: 283.07 },
+    ];
+    const EXCEPTION = {
+      token: 'tok', entry: { date: '2026-06-17' }, period: { from: '2026-05-28', to: '2026-06-17' },
+      diagnosis: {
+        at_source: 415.88, owed: 132.81, duplicated: 415.88, carry_over: null,
+        components: [
+          { period: '2026-04', interest: 147.43, already_booked: true, booked_by: 'our_journal', journal_id: '31ad48e9-43fb-4d38-9b88-44006c53c2b8' },
+          { period: '2026-05', interest: 135.64, already_booked: true, booked_by: 'our_journal', journal_id: '7ce60981-76f6-4824-bdf4-64203ad78021' },
+          { period: '2026-06', interest: 132.81, already_booked: true, booked_by: 'our_journal', journal_id: '12ef542c-17d5-4f4f-b108-185d8ac1f441' },
+        ],
+      },
+      proposed_entry: {
+        amount: 415.88, Date: '2026-09-30',
+        dated_because: 'books are closed through 2026-06-30 and the month after that is being closed',
+        Narration: 'E-Transit Loan - 4140 — reverse duplicated interest allocation (2026-04, 2026-05, 2026-06)',
+        JournalLines: [
+          { LineAmount: 415.88, AccountCode: '242', Description: 'E-Transit Loan - 4140 — reverse duplicated interest allocation' },
+          { LineAmount: -415.88, AccountCode: '800', Description: 'Interest already booked (2026-04, 2026-05, 2026-06)' },
+        ],
+      },
+    };
+
+    // AFTER — what the server builds today.
+    const AFTER = mk({
+      periods: PERIODS,
+      // Kept in step with the generator by tests/copy-budget.test.mts, which
+      // asserts against the real source of these sentences. A transcription
+      // that nothing pins is not a test (s245).
+      conclusions: [
+        'Every span in August 2026 ties to the cent.',
+        "Your accountant's own split on the 2026-06-17 payment duplicates interest we had already booked. Approve the prepared $415.88 correction below — nothing else to fix in this span.",
+      ],
+      no_action_detail: ['1 span (2026-05-28 → 2026-06-17) sits inside books closed through 2026-06-30, $283.07 in total — your accountant has already settled those months with her own adjustments. Nothing to do; they are listed below for reference only.'],
+      cpa_exception: Object.assign({}, EXCEPTION, {
+        note: 'She split it herself, across the months below. Every one of them was already booked, so the whole split is counted twice.',
+        note_working: 'Her split is 2026-04 $147.43 + 2026-05 $135.64 + 2026-06 $132.81, against $132.81 that this period actually owes. $415.88 of it was already booked once before (2026-04 by journal 31ad48e9, 2026-05 by journal 7ce60981, 2026-06 by journal 12ef542c). This span is only off by $283.07: $132.81 of the correction answers a duplicate that surfaces in a different span, because the journal that made it is dated outside this one. The correction is a separate journal for $415.88; nothing posts until it is approved.',
+      }),
+    });
+
+    // BEFORE — the card as David saw it. Kept verbatim, because a measurement
+    // that cannot go red on the thing it was written for measures nothing.
+    const BEFORE = mk({
+      periods: PERIODS,
+      conclusions: [
+        'Every span in August 2026 ties to the cent (2 statements) — Xero and the lender agree on the month your row is about.',
+        "2026-05-28 → 2026-06-17 is off by $283.07 — your accountant's own split on the 2026-06-17 payment carries 2026-04 + 2026-05 + 2026-06 interest ($415.88), and all 3 of those months were already booked. Approve the prepared $415.88 correction below — nothing else to fix in this span.",
+        '1 span (2026-05-28 → 2026-06-17) sits inside books closed through 2026-06-30, $283.07 in total — your accountant has already settled those months with her own adjustments. Nothing to do; they are listed below for reference only.',
+        'Every span since the books closed (2026-06-30) ties to the cent — Xero and the lender agree on everything still open.',
+      ],
+      no_action_detail: [],
+      cpa_exception: Object.assign({}, EXCEPTION, {
+        note: "Your accountant split this payment herself, putting $415.88 on Interest Expense — that is 2026-04 $147.43 + 2026-05 $135.64 + 2026-06 $132.81, against $132.81 that this period actually owes. $415.88 of it was already booked once before (2026-04 by journal 31ad48e9, 2026-05 by journal 7ce60981, 2026-06 by journal 12ef542c), so that much is counted twice. Note this span is only off by $283.07: $132.81 of the correction answers a duplicate that surfaces in a different span, because the journal that made it is dated outside this one. Her entry stays exactly as it is; the correction is a separate journal for $415.88, dated 2026-09-30 (books are closed through 2026-06-30 and the month after that is being closed). Nothing posts until it is approved.",
+        note_working: '',
+      }),
+    });
+
+    // Measured in page context, on the DOM the reader actually gets.
+    const measure = async (data) => p.evaluate((d) => {
+      const host = document.createElement('div');
+      host.innerHTML = _bkFdiffHtml(d, 'f1', 'l1');
+      const all = host.textContent.replace(/\s+/g, ' ').trim();
+      // Visible = everything except what a <details> hides. The <summary> is
+      // visible; the rest of the element is not until someone opens it.
+      const vis = host.cloneNode(true);
+      vis.querySelectorAll('details').forEach((el) => {
+        const sum = el.querySelector('summary');
+        el.textContent = sum ? sum.textContent + ' ' : '';
+      });
+      const visible = vis.textContent.replace(/\s+/g, ' ').trim();
+      const FIG = /\$[\d,]+\.\d{2}|\b\d{4}-\d{2}-\d{2}\b|\b\d{4}-\d{2}\b|\b[0-9a-f]{8}\b/g;
+      const tally = (s) => {
+        const m = {};
+        for (const f of (s.match(FIG) || [])) m[f] = (m[f] || 0) + 1;
+        return m;
+      };
+      // ⚠ ONE ROW IS ONE STATEMENT. The span table prints "Lender moved
+      // $5,000.00 · Xero moved $5,000.00" — two sources agreeing, which is the
+      // entire point of the table, not a figure said twice. Same for the
+      // exception footer's "$415.88 · counted twice: $415.88". So a figure
+      // repeated INSIDE a single <tr> counts once; across rows and sections it
+      // counts every time. Getting this wrong would have made the rule demand
+      // the deletion of the comparison it exists to protect.
+      const tallyByRow = (root) => {
+        const m = {};
+        const seenIn = (el) => new Set(String(el.textContent || '').match(FIG) || []);
+        const rows = [...root.querySelectorAll('tr')];
+        for (const r of rows) for (const f of seenIn(r)) m[f] = (m[f] || 0) + 1;
+        const clone = root.cloneNode(true);
+        clone.querySelectorAll('tr').forEach((r) => { r.textContent = ''; });
+        for (const f of (clone.textContent.match(FIG) || [])) m[f] = (m[f] || 0) + 1;
+        return m;
+      };
+      return {
+        words: visible.split(/\s+/).filter(Boolean).length,
+        visibleText: visible,
+        visibleFigs: tallyByRow(vis),
+        allFigs: tally(all),
+        hasDetails: /<details/.test(host.innerHTML),
+        openedText: all,
+      };
+    }, data);
+
+    const after = await measure(AFTER);
+    const before = await measure(BEFORE);
+
+    /* ── 1. THE BUDGET, ON THE WHOLE MODAL ───────────────────────────────── */
+    t.ok(before.words >= 380,
+         'CONTROL: the card as it shipped measures over 380 visible words', String(before.words));
+    // ⚠ 225 IS A CHOSEN LIMIT, NOT THE MEASUREMENT. The card renders at 207
+    // today. The slack is deliberate: a budget pinned to the current number
+    // goes red on an honest rewording, and a test that cries wolf gets tuned
+    // rather than read. It is still a real constraint — another paragraph does
+    // not fit inside 18 words.
+    //
+    // AND IT IS THE SOFTER OF THE TWO GUARDS. The hard one is "no figure is
+    // stated twice" below, which cannot be satisfied by writing tersely and
+    // cannot be satisfied by deleting either, because assertion 3 requires
+    // every figure to survive. If these two ever disagree, the dedup rule wins
+    // and this number moves — the reverse is how a card gets shortened by
+    // dropping claims, which is the failure this whole rule forbids.
+    t.ok(after.words <= 225,
+         '⭐ the whole modal fits the 225-word budget', String(after.words));
+    t.ok(before.words - after.words >= 180,
+         '...a cut of at least 180 words against the card as it shipped',
+         `${before.words} → ${after.words}`);
+
+    /* ── 2. A CLAIM IS STATED ONCE ───────────────────────────────────────── */
+    // The two exemptions, and only two: the decision's own figure may lead AND
+    // appear on the journal it writes (a lead has to state the figure; a
+    // journal has to show both legs). Everything else is once.
+    const EXEMPT = { '$415.88': 4 };
+    const overstated = (m) => Object.entries(m)
+      .filter(([f, n]) => n > (EXEMPT[f] || 1)).map(([f, n]) => `${f}×${n}`);
+    const beforeDup = overstated(before.visibleFigs);
+    const afterDup = overstated(after.visibleFigs);
+    t.ok(beforeDup.length >= 8,
+         'CONTROL: the shipped card states at least 8 figures more than once', beforeDup.join(' '));
+    t.eq(afterDup.length, 0,
+         '⭐ NO FIGURE IS STATED TWICE in the visible text',
+         afterDup.join(' '));
+    if (process.env.FDIFF_DEBUG) { console.log('AFTER VISIBLE:', JSON.stringify(after.visibleFigs)); console.log(after.visibleText); }
+
+    /* ── 3. AND NOTHING WAS DELETED (the ce17 limit) ─────────────────────── */
+    // Every figure the old card showed must still be SOMEWHERE — visible, or
+    // one click away. This is the half that stops the rule becoming a licence
+    // to trim claims off the screen.
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const isoOf = (txt) => {
+      const out = new Set();
+      const re = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{4})/g;
+      let m; while ((m = re.exec(txt))) {
+        out.add(`${m[3]}-${String(MON.indexOf(m[1]) + 1).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`);
+      }
+      return out;
+    };
+    const afterHuman = isoOf(after.openedText);
+    const lost = Object.keys(before.allFigs)
+      .filter((f) => !(f in after.allFigs) && !afterHuman.has(f));
+    t.eq(lost.length, 0,
+         '⭐ every figure the long card carried survives, visible or in the working',
+         lost.join(' '));
+    for (const claim of ['$147.43', '$135.64', '$132.81', '31ad48e9', '7ce60981', '12ef542c']) {
+      t.ok(after.openedText.includes(claim), `...including ${claim}`);
+    }
+    t.ok(after.hasDetails, 'and the working is behind a real disclosure');
+
+    /* ── 4. THE WORKING ACTUALLY RENDERS ─────────────────────────────────── */
+    // A `working` written and never shown is evidence deleted with extra steps.
+    t.ok(/that this period actually owes/.test(after.openedText),
+         '⭐ the relocated note_working is RENDERED, not just carried in the payload');
+    t.ok(!/that this period actually owes/.test(
+           after.openedText.slice(0, 0) + JSON.stringify(after.visibleFigs)) &&
+         after.words < before.words,
+         '...and it is not visible until opened');
+    t.ok(/settled those months with her own adjustments/.test(after.openedText),
+         '⭐ the closed-books sentence survives in no_action_detail, not deleted with the bullet');
+
+    /* ── 5. IT DISCRIMINATES ─────────────────────────────────────────────── */
+    // Feed the OLD payload through the SAME measurement. If it still passes,
+    // the measurement is decoration.
+    t.ok(before.words > 200 || beforeDup.length > 0,
+         '⭐ CONTROL: the shipped card FAILS both assertions above — the measurement can go red',
+         JSON.stringify({ words: before.words, dup: beforeDup.length }));
+
+    await p.close();
+  },
+});
+
+if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
 if (ONLY.length) {
   const known = new Set(GROUPS.map(g => g.name));

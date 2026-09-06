@@ -33,6 +33,11 @@
 > dated 2026-09-30 (books closed through 6/30). Nothing posts until David approves it in the UI;
 > the analysis was run through the internal job, which is analyze-only by construction.
 >
+> ✅ **4140 IS VERIFIED (session 279).** Her $415.88 at-source split was read off the Xero
+> transaction itself (`0d297c29`, lines 242 $764.44 / 800 $415.88), the three journals are on
+> our own posted splits, and the live tie-out still shows the gap at exactly $415.88. Safe to
+> approve. The other two have not been re-verified this way.
+>
 > ⚠️ **E4-9744: the finding says $182.00 and the correction says $181.99.** Both are the engine's
 > own figures. Approving leaves a cent. Settle which is right before clicking.
 >
@@ -3615,6 +3620,8 @@ an explanation of this gap; it is a different event that happens to be nearby. W
 
 **34. ✅ CLOSED (session 263 cont. 3) — `fitBasis` now reads the basis, and the party, of the balance it is handed.** `chooseObservation()` takes the newest BOOK balance (allowlisted sources), refuses when there is none rather than diagnosing our ledger from the lender's statement, and the declared `balance_basis` restricts which models may be compared to it. Both sides are cut at the observation's own date inside the module. Two further defects were found and fixed in the same pass: a TypeError when a labelled balance met a loan with no terms, and the split window being cut at the wrong date. 27 assertions in `tests/carrying-basis.test.mts`. **The note this replaced was wrong about the impact** — measured against production, no loan was actually producing `fits_neither`, because 13 of 14 bail on missing terms first. See #35 for the real blocker and session 263 cont. 3 for the working.
 
+**38. 🟡 `xero-read`'s `with_lines` path loses an entry with all three counters at zero (session 279).** Fetching one bank transaction by id returned `count: 1, hydrated: 0, unreadable: 0, not_attempted: 0, complete: false, results: []`. In `fetchWithLines`, `fetchOneById` returning `null` ("not found", per the code's own comment on line 333) is counted in NONE of the three buckets — `undefined` increments `unreadable`, a truthy value is pushed, and `null` falls through both branches and vanishes. So the caller is correctly told the search was incomplete and is given no way to learn why, which is half of what `complete` was built for: the file's comment says "a caller must not treat a miss as an absence", and a miss with three zeros beside it reads exactly like an absence with a glitch. Next step: a fourth counter (`not_found`) incremented on `null`, and `complete` unchanged. Found while verifying the 4140 correction; it did not affect that answer, because `payment_picture` takes its own path and reported its incompleteness honestly (`listed 147, read 75, not_attempted 72`).
+
 **33. 🟠 Nothing reconciles a projected schedule row against the lender's later actual (session 263).** PayPal 2's schedule is `amort_type='actual_payment_history_from_lender_csv'` — an earlier parse of the lender's own history CSV, with rows past the parse date projected forward. When a newer CSV arrives, the PayPal ingest path files **statements** and never touches the schedule, so a projected row stays a projection permanently even once the lender has settled the period. Session 263 found two such rows (2026-08-19 and 2026-09-02) each a penny out, and corrected them by hand; 36 of 38 agreed, so the projection is good, which is exactly what makes this easy to leave broken. **It matters because on a `prestage_enabled` loan those projected rows are what get created in Xero** — the 2026-09-02 stage carries the projection's 3180.34/234.37 against the lender's 3180.33/234.38. Next step: when a lender history CSV is ingested for a loan whose schedule is of this `amort_type`, reconcile past rows against the file and correct any that the lender has since settled, recording the supersession on the row. Never touch rows on or after a period whose split has left `pending_review` without saying so — a corrected row under a staged split is a discrepancy someone must be told about, not one to silently paper over.
 
 **32. 🟡 NARROWED (session 265) — the ask was WRONG before it was misrouted, and fixing it emptied most of this item.** The original note assumed the request was right and pointed at the wrong reader. Measuring it first found the request itself was wrong on **six of the eight rows the CPA reads**: `_bkEvidenceAsk` asked whenever the newest lender figure predated the month END, so closing August it fired on Ford's 17 August statement, PayPal's 5 August and BayFirst's 5 August, while the close gate and the client's own checklist said ten of eleven statements were in and exactly ONE loan was outstanding — **two surfaces, one question, answers eleven apart**, with the genuinely-missing document buried under five requests for paper we hold. The test now asks whether a REAL LENDER DOCUMENT speaks for the date the gap is measured at (the relation `_bkStatementGate` calls `analysed`), because `loan_tie_outs` rebuilds the books side at the statement's own date — so a gap measured on 5 August is real on 5 August. **Structural consequence: the ask can never fire on the Issues table at all**, since everything reaching it either has a real lender anchor by definition or is a schedule-policy loan the function refuses. Twelve asks became one. **What remains, and it is the honest residue of this item:** the `unverified` population — loans whose balance nothing outside our books has confirmed — reaches NEITHER surface. They are excluded from Issues by `_bkIssueQueueItems` (deliberately, per David's mockup note) and they only reach the Client View checklist if `_bkStatementCoverage` counts them missing. Those are precisely the loans where "a statement would turn this into a real check", and nobody is being asked for one. `ask-not-claim` k4 now pins the gate and the checklist to the same documents and the same count, so the eleven-to-one shape cannot return unnoticed. Longer term David's answer is still better than any of this: lender integrations remove the chore instead of routing it.
@@ -3889,6 +3896,68 @@ to "what is running".
 ---
 
 ---
+
+### Session 279 (2026-09-06) — THE CARD WAS RIGHT, AND IT SAID EVERYTHING FIVE TIMES
+
+David ran "find the difference" on E-Transit 4140, asked me to verify the assertion and to
+cut the card by at least 255 words, and to make it a rule.
+
+**THE ASSERTION HOLDS — verified against three sources that do not share one.**
+
+| Claim | Checked against | Result |
+|---|---|---|
+| She put $415.88 on Interest Expense at source on 6/17 | Xero itself, txn `0d297c29`, SPEND $1,180.32, reconciled | lines **242 → $764.44**, **800 → $415.88** |
+| Apr/May/Jun already booked by `31ad48e9` / `7ce60981` / `12ef542c` | `loan_splits` | 147.43 / 135.64 / 132.81, all posted, ids match. Sum **$415.88** |
+| The books therefore sit high by $415.88 | latest `loan_tie_outs` (09-06 04:29 UTC) | xero 11,101.40 − lender 10,685.52 = **$415.88** |
+
+Direction is right too: her split reduced account 242 by only $764.44, our three journals
+credited $415.88 back onto it, so `Debit 242 / Credit 800 $415.88` removes exactly the
+overstatement. **No cent to settle on this one** — unlike E4-9744, the finding and the
+correction are both 415.88.
+
+⚠️ **`payment_picture`'s forward search was INCOMPLETE and said so**: `listed 147, read 75,
+not_attempted 72, complete: false`. On its own it could not have proved nobody has already
+posted a correction. What closes that hole is the third row above — a correction landing
+would have shrunk the gap, and the gap is still exactly $415.88 this morning. **Do not read
+a `complete: false` picture as an absence** (the function's own comment says this; it is
+easy to skim past when the answer looks right).
+
+**THE CUT: 420 → 207 visible words, and not one figure lost.** The rule is in the skill
+under **A CLAIM IS STATED ONCE PER SCREEN**. The short version: nothing on that card was
+over-written; four sections had each been authored to stand alone, so each restated the
+whole diagnosis. Measured on the rendered string, **every figure appeared at least twice
+and $415.88 / 2026-04 / 2026-05 / 2026-06 appeared five times each.** The 40-word budget
+cannot see that — it measures one card, and this was four in-budget cards in a column.
+
+Where the claims went, none deleted:
+* the 126-word amber note → a 24-word note plus `note_working` behind **Show the working**
+* the month list, the journal ids → the components table that was already under the note
+* the closed-books bullet → the span table's own closed fold, plus `no_action_detail`
+* the posting date and its reason → the prepared-correction block, which shows the date
+
+**Two bugs found by the new test, both fixed:**
+1. `_bkFdiffExceptionHtml` ran the prepared journal's date through `fmtDate`, which parses
+   a date-only string as a moment — the harness (UTC) rendered **2026-09-30 as "Sep 29"**.
+   On the posting date of a journal. Now `_bkDay`, like the span rows. The wider `fmtDate`
+   bug is still latent everywhere else (s272 noted it; still true).
+2. `tests/run-harness.sh --list` **exited before seventeen of the 46 groups were
+   registered** — it reported 29. The skill tells you to run the suite in two halves "by
+   group name from `--list`", so a third of the suite was never named and a half-run from
+   that list tested less than it looked. `LIST` moved to just above the run loop.
+
+**And one that is NOT fixed:** `xero-read`'s `with_lines` path dropped my single id and
+answered `hydrated 0, unreadable 0, not_attempted 0, complete false` — a "not found" is
+counted in none of the three, so a caller is told the read was incomplete and never why.
+Tech Debt #38.
+
+**Suite: 2,117 browser assertions, 2,116 passing** (the red is Tech Debt #19, on purpose),
+run in three batches; **Node 38/0 in copy-budget, 131/0 in find-difference-walk**, no other
+file moved. Two assertions in `find-difference-walk` encoded the OLD invariant and were
+rewritten in the same commit to assert where the sentence WENT — an assertion that only
+checked it was gone would go green on a deletion, which is backwards. And one assertion
+pushed back and won: `fdiff-tiers` refused the trim of the month out of the lead table's
+label, correctly — session 272 put it there on purpose, and two words is not worth
+weakening a heading that names the period its rows cover.
 
 ### Session 278 cont. (2026-09-06) — THE FORD VARIANCES ARE ONE BUG, AND THE ROW WAS HIDING ITS OWN ANSWER
 

@@ -12579,8 +12579,8 @@
       parts.push(`<div style="margin-top:12px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:var(--gray-800);line-height:1.55">
         <div style="font-weight:700;margin-bottom:6px">What likely happened</div>
         <ul style="margin:0;padding-left:18px">${data.conclusions.map(c => `<li style="margin-top:6px">${esc(c)}</li>`).join('')}</ul>
-        ${(Array.isArray(data.no_action_detail) && data.no_action_detail.length > 1) ? `<details style="margin-top:8px">
-          <summary style="cursor:pointer;font-size:12px;color:var(--gray-500)">Show the working — why each of those needs no action</summary>
+        ${(Array.isArray(data.no_action_detail) && data.no_action_detail.length >= 1) ? `<details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--gray-500)">Show the working</summary>
           <ul style="margin:6px 0 0;padding-left:18px">${data.no_action_detail.map(c => `<li style="margin-top:4px">${esc(c)}</li>`).join('')}</ul>
         </details>` : ''}
       </div>`);
@@ -12615,6 +12615,26 @@
     return parts.join('');
   }
 
+  // ── session 279: DISPLAY ONLY — the journal that posts is never changed ────
+  // The prepared block printed the loan name three times (the modal title
+  // already names it) and the month list twice. This trims what is DRAWN. It
+  // takes no argument from the payload and returns no value that is posted:
+  // `pe.JournalLines` and `pe.Narration` go to Xero exactly as the server built
+  // them, which is the half of this that must not move. A claim is stated once
+  // per screen; a journal still carries its own full description into the
+  // ledger, where the screen is not there to give it context.
+  function _bkJrnlShort(text, narrationHasMonths) {
+    let t = String(text || '');
+    // "E-Transit Loan - 4140 — reverse duplicated…" → "Reverse duplicated…"
+    const dash = t.indexOf(' — ');
+    if (dash > 0 && /loan|line of credit|capital/i.test(t.slice(0, dash))) t = t.slice(dash + 3);
+    // The month parenthetical belongs to the narration, not to every line under it.
+    if (narrationHasMonths && /\(\d{4}-\d{2}(, \d{4}-\d{2})*\)\s*$/.test(t)) {
+      t = t.replace(/\s*\(\d{4}-\d{2}(, \d{4}-\d{2})*\)\s*$/, '');
+    }
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
   // ── session 234: the exception, with its working shown ─────────────────────
   // Before this, an entry the accountant had already touched produced one amber
   // sentence: "she decides". The engine was holding the whole answer at that
@@ -12629,21 +12649,23 @@
         <thead><tr style="text-align:left;color:#92400e;opacity:.75">
           <th style="padding:3px 6px 3px 0;font-weight:600">Month</th>
           <th style="padding:3px 6px;font-weight:600;text-align:right">Interest</th>
-          <th style="padding:3px 0 3px 6px;font-weight:600">Already booked once before?</th>
+          <th style="padding:3px 0 3px 6px;font-weight:600">Already booked by</th>
         </tr></thead>
         <tbody>${d.components.map(c => `<tr style="border-top:1px solid #fde68a">
           <td style="padding:4px 6px 4px 0">${esc(c.period)}</td>
           <td style="padding:4px 6px;text-align:right;font-variant-numeric:tabular-nums">${esc(fmtMoney(c.interest))}</td>
           <td style="padding:4px 0 4px 6px">${c.already_booked
             ? (c.booked_by === 'at_source'
-              ? `<span style="color:#b45309">yes — handled directly in Xero</span>`
-              : `<span style="color:#b45309">yes — journal ${esc(String(c.journal_id || '').slice(0, 8))}</span>`)
-            : `<span style="color:var(--gray-500)">no — never booked</span>`}</td>
+              ? `<span style="color:#b45309">directly in Xero</span>`
+              // s279: the column heading says "already booked by", so the cell
+              // says only WHO. The full id stays copyable in the title.
+              : `<span style="color:#b45309" title="journal ${esc(String(c.journal_id || ''))}">journal ${esc(String(c.journal_id || '').slice(0, 8))}</span>`)
+            : `<span style="color:var(--gray-500)">never booked</span>`}</td>
         </tr>`).join('')}</tbody>
         <tfoot><tr style="border-top:2px solid #fde68a;font-weight:700">
           <td style="padding:4px 6px 4px 0">Her split, at source</td>
           <td style="padding:4px 6px;text-align:right;font-variant-numeric:tabular-nums">${esc(fmtMoney(d.at_source))}</td>
-          <td style="padding:4px 0 4px 6px">counted twice: ${esc(fmtMoney(d.duplicated))}${d.carry_over
+          <td style="padding:4px 0 4px 6px">counted twice: ${Math.abs(Number(d.duplicated) - Number(d.at_source)) < 0.005 ? 'all of it' : esc(fmtMoney(d.duplicated))}${d.carry_over
             ? ` · left alone: ${esc(fmtMoney(d.carry_over.amount))}` : ''}</td>
         </tr></tfoot>
       </table>` : '';
@@ -12656,13 +12678,30 @@
         ${d.carry_over.months.length === 1 ? 'the month' : 'the months'} it just fixed.
       </div>` : '';
 
+    // ── session 279: A CLAIM IS STATED ONCE PER SCREEN ──────────────────────
+    // Everything the 126-word note used to say in prose above the table it was
+    // describing. It is rendered with <details>, so it needs no JS and prints
+    // expanded -- the same shape the Overview queue and the bundle cards use.
+    // A `working` written and never shown is evidence deleted with extra steps
+    // (the copy-budget rule), so this renders whenever the server sends one.
+    const working = (ex.note_working && String(ex.note_working).trim()) ? `
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:#92400e;opacity:.8">Show the working</summary>
+        <div style="margin-top:6px;line-height:1.5">${esc(ex.note_working)}</div>
+      </details>` : '';
+
     const prepared = pe ? `
       <div style="margin-top:12px;padding:12px;background:#fff;border:1px solid #fde68a;border-radius:8px">
-        <div style="font-weight:700;color:#166534">Prepared correction — a separate journal; her entry is not touched</div>
-        <div style="margin-top:6px;font-weight:600">${esc(pe.Narration)} (dated ${esc(fmtDate(pe.Date))})</div>
+        <div style="font-weight:700;color:#166534">Prepared correction — her entry is not touched</div>
+        <div style="margin-top:6px;font-weight:600">${esc(_bkJrnlShort(pe.Narration, true))} (dated ${esc(_bkDay(pe.Date))})</div>
         <div style="color:var(--gray-500);margin-top:2px;font-size:11.5px">Dated here because ${esc(pe.dated_because || '')}.</div>
         ${(pe.JournalLines || []).map(l => `<div style="color:var(--gray-600);margin-top:3px;font-size:12px">
-          <strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} — ${esc(l.Description)}</div>`).join('')}
+          <strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}${(() => {
+            // A leg whose description just repeats the narration above it is
+            // width, not information (s279). The posted journal keeps both.
+            const d = _bkJrnlShort(l.Description, pe.Narration);
+            return d && d !== _bkJrnlShort(pe.Narration, true) ? ` — ${esc(d)}` : '';
+          })()}</div>`).join('')}
         ${data.can_post_exception
           ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-ex-${findingId}" onclick="bkPostFdiffException('${findingId}','${loanId}','${esc(ex.token)}', this)">Approve &amp; post correction to Xero</button></div>`
           : data.read_only_view
@@ -12673,7 +12712,7 @@
     return `<div style="margin-top:10px;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e">
       <div style="font-weight:700">Your accountant already worked this payment</div>
       <div style="margin-top:4px;line-height:1.5">${esc(ex.note || '')}</div>
-      ${rows}${carry}${prepared}
+      ${rows}${carry}${working}${prepared}
     </div>`;
   }
 
@@ -12784,7 +12823,7 @@
     const off = rows.filter(p => p.verdict === 'divergent' && !p.timing_pair);
     const tot = off.reduce((t, p) => t + Number(p.diff || 0), 0);
     return `<details style="margin-top:8px">
-      <summary style="cursor:pointer;font-size:12px;color:var(--gray-500)">${label}${off.length ? ` — ${off.length} of them differ, ${esc(fmtMoney(Math.abs(tot)))} in total` : ' — all tie'}</summary>
+      <summary style="cursor:pointer;font-size:12px;color:var(--gray-500)">${label}${off.length ? (off.length === rows.length ? ` — ${esc(fmtMoney(Math.abs(tot)))}` : ` — ${off.length} differ, ${esc(fmtMoney(Math.abs(tot)))} in total`) : ' — all tie'}</summary>
       ${_bkFdiffSpanTableShell(_bkFdiffSpanRows(rows))}
     </details>`;
   }
@@ -12807,13 +12846,21 @@
     const after  = inFocus.length ? open.filter(p => !p.in_focus && p.to >= focus) : [];
     if (!lead.length && !closed.length) return _bkFdiffSpanTableShell(_bkFdiffSpanRows(all));
     const head = inFocus.length && typeof _cvMonthName === 'function'
+      // s279 tried trimming the month out of this label, on the grounds that the
+      // modal title names it. `fdiff-tiers` said no, and it is right: session 272
+      // put the month here deliberately, and a heading that names the period its
+      // rows cover is not a repeat of a title six inches away — it is the label.
+      // Two words is not worth weakening it.
       ? `<div style="margin-top:10px;font-size:12px;color:var(--gray-500);font-weight:600">${esc(_cvMonthName(focus))} — the month this row is about</div>`
       : '';
     return head
       + _bkFdiffSpanTableShell(_bkFdiffSpanRows(lead))
       + _bkFdiffFold(`${before.length} earlier span${before.length === 1 ? '' : 's'}, still open`, before)
       + _bkFdiffFold(`${after.length} later span${after.length === 1 ? '' : 's'}, still open`, after)
-      + _bkFdiffFold(`${closed.length} span${closed.length === 1 ? '' : 's'} in books closed through ${closeLabel} · settled, for reference`, closed);
+      // ── session 279: this summary is now the ONLY place the closed-books
+      // sentence is made (the server stopped emitting it as a bullet), so it
+      // carries the whole claim: settled by the accountant, nothing to do.
+      + _bkFdiffFold(`${closed.length} span${closed.length === 1 ? '' : 's'} closed through ${closeLabel} · settled by your accountant, nothing to do`, closed);
   }
 
   // ── Lender-level "Find the difference" (session 228) ──────────────────────

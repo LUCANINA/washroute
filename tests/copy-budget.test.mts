@@ -14,6 +14,7 @@
 
 import { buildPlan, type PlanContext, type BundlePlan } from '../supabase/functions/_shared/loan-bundle-plan.ts'
 import { parsePayPalHistoryCsv } from '../supabase/functions/_shared/paypal-history.ts'
+import { diagnoseWorkedEntry } from '../supabase/functions/loan-find-difference/diagnose-exception.ts'
 import { readFileSync } from 'node:fs'
 
 let pass = 0, fail = 0
@@ -215,6 +216,96 @@ section('the queue rows stay one line, with the rest one click away')
   ok('the working helper is declared', declAt > -1)
   ok('...before every call site', calls.length > 0 && calls.every(i => i > declAt),
      `declared at ${declAt}, calls at ${calls.join(', ')}`)
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── session 279: A CLAIM IS STATED ONCE PER SCREEN ──────────────────────────
+//
+// David ran "find the difference" on E-Transit 4140 and got a card that was
+// correct, thorough, and 420 visible words. Nothing in it was over-written:
+// four sections had each been authored to stand alone, so each restated the
+// whole diagnosis. Every figure appeared at least twice; $415.88 and the three
+// month labels appeared FIVE times each. The 40-word budget above cannot see
+// that, because it measures ONE card and this screen was four in-budget cards
+// saying the same thing.
+//
+// The rendered measurement lives in tests/bookkeeping-harness.mjs, group
+// `fdiff-copy-budget` — it needs a DOM, because "visible" means "not inside a
+// <details>". What belongs HERE is the half that can be checked against the
+// real generators: the exception note, produced by the real function, and the
+// bullet templates, read out of the real source. The harness transcribes those
+// sentences into a fixture; these assertions are what stop that transcription
+// drifting away from the code (s245: a test that transcribes is not a test —
+// so the transcription has to be pinned to something that is not a copy).
+// ─────────────────────────────────────────────────────────────────────────────
+section('the exception note states the decision, and relocates the rest')
+{
+  const d = diagnoseWorkedEntry({
+    lines: [{ c: '242', a: 764.44 }, { c: '800', a: 415.88 }],
+    loanCode: '242', interestCode: '800', paymentPeriod: '2026-06',
+    loanName: 'E-Transit Loan - 4140', gap: 283.07,
+    postingDate: '2026-09-30', postingWhy: 'books are closed through 2026-06-30',
+    ownJournalInSpan: false,
+    splits: [
+      { period_label: '2026-04', interest_amount: 147.43, status: 'posted', xero_manual_journal_id: '31ad48e9-43fb-4d38-9b88-44006c53c2b8' },
+      { period_label: '2026-05', interest_amount: 135.64, status: 'posted', xero_manual_journal_id: '7ce60981-76f6-4824-bdf4-64203ad78021' },
+      { period_label: '2026-06', interest_amount: 132.81, status: 'posted', xero_manual_journal_id: '12ef542c-17d5-4f4f-b108-185d8ac1f441' },
+    ] as any,
+  } as any)
+
+  ok('the 4140 shape still diagnoses as a duplicated reallocation',
+     d.shape === 'duplicated_reallocation' || d.shape === 'partly_duplicated', d.shape)
+  ok('the visible note fits the budget',
+     words(d.note) <= WORD_BUDGET, `${words(d.note)}w: ${d.note}`)
+
+  // NOTHING IS DELETED — the ce17 limit. Each of these left the visible note in
+  // session 279 and has to be somewhere: in `note_working`, or on a surface the
+  // client renders beside it. The first three are the working's job; the rest
+  // are asserted where they landed, by the harness group.
+  for (const claim of ['$147.43', '$135.64', '$132.81', '31ad48e9', '7ce60981', '12ef542c', '$132.81 that this period actually owes']) {
+    ok(`...and "${claim}" survives in the working`, d.note_working.includes(claim))
+  }
+  ok('the working actually has content to show', words(d.note_working) > 20)
+
+  // And the note does not re-state what sits directly beneath it: the split
+  // figure is the table footer's, the journal ids are the table's own column,
+  // the date and its reason are the prepared block's.
+  ok('the note does not repeat the journal ids', !/31ad48e9|7ce60981|12ef542c/.test(d.note))
+  ok('the note does not repeat the posting date', !d.note.includes('2026-09-30'))
+  ok('the note does not repeat "her entry is not touched"',
+     !/entry (stays|is not touched)/i.test(d.note), d.note)
+}
+
+section('the conclusion bullets no longer restate the table below them')
+{
+  const src = readFileSync(new URL('../supabase/functions/loan-find-difference/index.ts', import.meta.url), 'utf8')
+
+  // The exception bullet used to spell out the month list and the at-source
+  // figure — both of which are the exception table, a few centimetres down.
+  ok('the exception bullet no longer lists the months',
+     !src.includes("comps.map((c: any) => c.period).join(' + ')"))
+  ok('...nor repeats the at-source figure',
+     !src.includes('interest (${money(dg.at_source)})'))
+
+  // The closed-books sentence is the span table's own fold summary now. It must
+  // still SHIP — in no_action_detail — or the cut deleted a claim.
+  ok('the closed-books sentence is still built', src.includes('has already settled those months'))
+  ok('...and is excluded from the visible bullets by index, not by position',
+     src.includes('noAction.filter((_, i) => i !== closedCarriedByFold)'))
+  ok('...and still ships in no_action_detail', /no_action_detail:\s*noActionDetail/.test(src)
+     || src.includes('noActionDetail'))
+
+  // The harness fixture transcribes these sentences. If a template changes and
+  // nobody updates the fixture, the harness measures a card that no longer
+  // exists — so pin the shapes the fixture depends on.
+  const harness = readFileSync(new URL('./bookkeeping-harness.mjs', import.meta.url), 'utf8')
+  ok('the harness fixture still quotes the focus-tie sentence the source builds',
+     src.includes('ties to the cent.`)') &&
+     harness.includes('Every span in August 2026 ties to the cent.'))
+  ok('the harness fixture still quotes the approve sentence the source builds',
+     src.includes('Approve the prepared ${money(cpaException.proposed_entry.amount)} correction below') &&
+     harness.includes('Approve the prepared $415.88 correction below'))
 }
 
 

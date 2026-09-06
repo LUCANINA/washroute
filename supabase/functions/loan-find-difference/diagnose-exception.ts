@@ -80,8 +80,20 @@ export interface WorkedEntryDiagnosis {
     Status: 'POSTED'
     JournalLines: Array<{ LineAmount: number; AccountCode: string; Description: string; TaxType: 'NONE' }>
   } | null
-  /** One paragraph a human reads. Always present. */
+  /** The decision, visible, at most ~35 words. Always present. */
   note: string
+  /**
+   * Everything the short note used to say, unabridged, for "Show the working".
+   * ── session 279: A CLAIM IS STATED ONCE PER SCREEN ─────────────────────────
+   * The old single `note` was 126 words of prose that restated, in order: the
+   * month table rendered directly beneath it, the journal ids in that table's
+   * own column, the carry-over box, and the prepared entry's date and dating
+   * reason. Every figure on the card was on screen at least twice and the
+   * important ones five times. Nothing here is deleted -- it is relocated
+   * behind a <details>, which is where a second statement of a visible claim
+   * belongs. Empty string when there is nothing beyond the short note.
+   */
+  note_working: string
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -242,6 +254,7 @@ export function diagnoseWorkedEntry(o: {
         + `This loan's own schedule says ${o.paymentPeriod} owes ${money(owed)}, and the difference does not `
         + `resolve into a run of consecutive months — so the engine cannot say what the extra covers. `
         + `Left for her; nothing here is proposed.`,
+      note_working: '',
     }
   }
 
@@ -301,10 +314,12 @@ export function diagnoseWorkedEntry(o: {
       ...base,
       shape: 'no_duplication',
       duplicated: 0,
-      note: `Your accountant's ${money(atSource)} interest split covers ${components.length} month${components.length === 1 ? '' : 's'} `
-        + `(${monthList}). None of it was booked anywhere else — no reallocation journal on our side, and nothing `
-        + `marked as handled directly in Xero — so her entry is the only correction these months have had. `
-        + `Nothing is double-counted and there is nothing to propose.`,
+      // The month-by-month figures are the table directly below this note; the
+      // note states only what the table cannot (s279).
+      note: `Your accountant's ${money(atSource)} interest split covers the ${components.length} month${components.length === 1 ? '' : 's'} below. `
+        + `None of it was booked anywhere else, so nothing is double-counted and there is nothing to propose.`,
+      note_working: `Her split covers ${monthList}. No reallocation journal on our side books any of it, and none `
+        + `is marked as handled directly in Xero — so her entry is the only correction these months have had.`,
     }
   }
 
@@ -329,10 +344,11 @@ export function diagnoseWorkedEntry(o: {
       ...base,
       shape: partial ? 'partly_duplicated' : 'duplicated_reallocation',
       duplicated,
-      note: `Your accountant's ${money(atSource)} interest split covers ${monthList}. `
-        + `${money(foreignSum)} of that belongs to other months, so this span should be off by `
-        + `${money(expectedGap)} — the walk says ${money(o.gap)}. Something else is moving here too, `
-        + `and the engine will not propose an entry it cannot fully account for. This one is hers.`,
+      note: `Her ${money(atSource)} split should leave this span off by ${money(expectedGap)} — the walk says `
+        + `${money(o.gap)}. Something else is moving here too, so nothing is proposed. This one is hers.`,
+      note_working: `Her split covers ${monthList}. ${money(foreignSum)} of that belongs to other months, which is `
+        + `where the expected ${money(expectedGap)} comes from. The engine will not propose an entry it cannot `
+        + `fully account for.`,
     }
   }
 
@@ -366,9 +382,28 @@ export function diagnoseWorkedEntry(o: {
       Status: 'POSTED',
       JournalLines,
     },
-    note: `Your accountant split this payment herself, putting ${money(atSource)} on Interest Expense — that is `
-      + `${monthList}, against ${money(owed)} that this period actually owes. `
-      + `${money(duplicated)} of it was already booked once before (${journalList}), so that much is counted twice. `
+    // ── session 279: A CLAIM IS STATED ONCE PER SCREEN ──────────────────────
+    // Everything below the first sentence used to be visible prose sitting
+    // directly above the table, the carry-over box and the prepared entry that
+    // each state the same thing again. The claims are unchanged and none is
+    // dropped; they moved to the surface that already owns them:
+    //   month-by-month interest ......... the components table's own rows
+    //   which journal booked each one ... that table's "Already booked" column
+    //   the carry-over months ........... the carry-over box (client)
+    //   the entry's date and why ........ the prepared-correction block (client)
+    //   everything else ................. note_working, behind Show the working
+    // The decision figure and the fact her entry is untouched stay visible,
+    // because they are the decision.
+    // The figure is the table footer's ("Her split, at source"), and "her entry
+    // is not touched" is the prepared block's own heading. Neither is repeated
+    // here; this states the one thing neither of them says (s279).
+    note: `She split it herself, across the `
+      + `month${components.length === 1 ? '' : 's'} below. `
+      + (Math.abs(duplicated - atSource) < TOL
+        ? `Every one of them was already booked, so the whole split is counted twice.`
+        : `${money(duplicated)} of it was already booked, so that much is counted twice.`),
+    note_working: `Her split is ${monthList}, against ${money(owed)} that this period actually owes. `
+      + `${money(duplicated)} of it was already booked once before (${journalList}). `
       + (partial
         ? `The other ${money(carryOver)} (${notBooked.map((c) => c.period).join(', ')}) had never been booked at all — `
           + `her split is the only correction ${notBooked.length === 1 ? 'that month has' : 'those months have'} had, so it stays; `
@@ -380,10 +415,9 @@ export function diagnoseWorkedEntry(o: {
             : '')
         : '')
       + (Math.abs(beyondSpan) >= TOL
-        ? `Note this span is only off by ${money(o.gap)}: ${money(beyondSpan)} of the correction answers a duplicate `
+        ? `This span is only off by ${money(o.gap)}: ${money(beyondSpan)} of the correction answers a duplicate `
           + `that surfaces in a different span, because the journal that made it is dated outside this one. `
         : '')
-      + `Her entry stays exactly as it is; the correction is a separate journal for ${money(amount)}, dated ${o.postingDate} `
-      + `(${o.postingWhy}). Nothing posts until it is approved.`,
+      + `The correction is a separate journal for ${money(amount)}; nothing posts until it is approved.`,
   }
 }
