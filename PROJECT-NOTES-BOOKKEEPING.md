@@ -2,6 +2,31 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 278, 2026-09-06)
 >
+> ### 0zb. ⛔ TWO COMMITS UNPUSHED, TWO FUNCTIONS UNDEPLOYED — and this sandbox CANNOT do either
+>
+> Established 2026-09-06 ~19:30 UTC by trying, not by assuming:
+>
+> | Route | Result |
+> |---|---|
+> | `git push` from the device VM | **No credentials of any kind.** No `credential.helper`, no `~/.ssh`, no `~/.git-credentials`, no `~/.netrc`, no token in env, no `gh`. Network is fine (`github` answers 200, `git ls-remote` works anonymously because the repo is public) — it is authentication that is absent, and nothing here can supply it. |
+> | MCP `deploy_edge_function` | **Over the size ceiling, definitively.** `reconciliation-run/index.ts` is **158,825 bytes on its own**, before ~120KB of `_shared` deps and its two local modules. The ceiling is ~100–130KB of file content per call. `loan-bundle`'s bundle is ~404KB. Never truncate a file to force it through. |
+> | Computer use on the Mac | Possible in principle — Terminal has the Mac's own git credentials — but `computer_list_granted_applications` returns an EMPTY allowlist, and granting prompts on the machine itself, which is no use while David is away from it. |
+>
+> **So the following must be run by David, from his own terminal, in this order:**
+> ```
+> git push
+> npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> npx -y supabase@latest functions deploy loan-bundle       --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+> ⚠️ **`--no-verify-jwt` is not optional on either.** Both are currently `verify_jwt: false`; omitting
+> the flag flips them to requiring a JWT and breaks every caller (session 260's near-miss).
+>
+> **The behavioural proof to look for afterwards** — not the version number, not the git log:
+> re-run a reconciliation check and **BayFirst SBA Loan's $971.56 and PCV's $5,335.52 should both
+> stop being exceptions**, with `loan_tie_outs.detail.closed_on` reading 2026-08-06 and
+> 2026-08-03. The three Ford variances must be UNCHANGED. If the Fords move, stop and read
+> `_shared/gap-closure.ts` — the walk is supposed to be monotone.
+>
 > ### 0za. 📦 SESSION 279 DEPLOY & PUSH STATE — checked 2026-09-06 18:00 UTC, by BEHAVIOUR
 >
 > | Thing | State | How it was established |
@@ -4042,6 +4067,59 @@ Two stale `.git/*.lock` files (`HEAD.lock`, `index.lock`) were present and left 
 same reason.
 
 ---
+
+### Session 279 cont. (2026-09-06) — A GAP CLOSES WHEN THE MONEY ARRIVES, NOT AT THE END
+
+Three designs, two killed by counting. The record of what was rejected matters more than
+the thing that shipped, because both rejects looked obviously right.
+
+**WHAT SHIPPED.** `computeTieOut`'s "did the later entries account for the gap" test netted
+EVERY entry after the anchor up to today. Right for one payment, wrong for two: the instant a
+second lands the sum sails past zero and a gap closed exactly by the first reads as an
+exception again, permanently. The two largest unexplained exceptions on the book were both
+this, to the cent, each first entry confirmed against its own line in Xero:
+
+| Loan | Gap @ anchor | Closed by | Then the net overshoots to |
+|---|---|---|---|
+| PCV 202555 | 5,335.52 @ 08-01 | 08-03 payment, account 254 = 5,335.52 | −5,357.75 |
+| BayFirst SBA Loan | 971.56 @ 08-05 | 08-06 payment, account 243 = 971.56 | −1,046.56 |
+
+Now walks forward and stops at the first date the running total accounts for the difference —
+`_shared/gap-closure.ts`, extracted so it is testable without standing up an edge function.
+**It is MONOTONE, and that is the safety property:** the full set is itself a prefix, so
+anything that closed before still closes, and a loan with no later entries cannot move.
+Measured: **2 of 9 open exceptions resolve; five cannot move by construction**, all three
+Fords among them, so §0y's prepared corrections are untouched.
+
+**IT IS NOT AMOUNT MATCHING, AND THE FIRST DRAFT WAS.** That draft found a payment near the
+anchor whose SIZE equalled the gap; it needed four paragraphs justifying why it was
+admissible, which is the tell. What shipped compares the gap to nothing — it adds up real
+entries in date order until they account for it. "Did the money arrive" is measured; "is there
+something about the right size nearby" is a pattern found in data (s245).
+
+**THE TWO REJECTED DESIGNS, so nobody re-invents them:**
+1. *"The lender reported no movement while our books moved."* Fires on **38 pairs** across this
+   book. Every Ford is pulled TWICE a month and the second pull correctly shows nothing —
+   normal behaviour on four loans for eight months. A nag machine.
+2. *"The payment window crosses a month end."* **8 of 10 loans sit at 83–100%.** It measures how
+   often statements are pulled, not timing risk.
+
+**AND I WAS WRONG ABOUT E6-7410, in public, before catching it.** I claimed labelling its
+08-20 row would move the variance by $470.64 and turn the control loan red, reasoning from one
+span: books moved, lender did not. The row I had not checked: 07-20 → 08-09 the lender fell by
+exactly 470.64, so its 08-09 balance ALREADY contained the 08-10 payment. Ford applies on the
+9th, the bank debits on the 10th. **All three unknown Ford rows are safe to label.** The lesson
+is the module's own: measure the pattern, not the span in front of you.
+
+**AN EXPLANATION NOBODY CAN INSPECT IS A SILENCE.** `explained` raises no finding, so a loan
+used to vanish off the queue with no way to tell whether it was reasoned about or dropped. The
+tie-out row now carries `closed_on` and `closed_after_entries`, null on every other status.
+
+**Stage 1 of the basis work:** the labelling card now states which comparison date moves —
+the whole effect of that action, never previously mentioned. 40-word budget still met.
+
+Commits `1aa040a` (basis source filter) and `2df7667` (this). **NEITHER IS PUSHED, and neither
+edge function is deployed** — see §0zb.
 
 ### Session 279 (2026-09-06) — THE CARD WAS RIGHT, AND IT SAID EVERYTHING FIVE TIMES
 
