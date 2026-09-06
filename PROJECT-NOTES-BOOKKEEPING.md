@@ -2,6 +2,15 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 278, 2026-09-06)
 >
+> ### 0za. 📦 SESSION 279 DEPLOY & PUSH STATE — checked 2026-09-06 18:00 UTC, by BEHAVIOUR
+>
+> | Thing | State | How it was established |
+> |---|---|---|
+> | Commit `fb1a93d` | **PUSHED** | `git rev-parse HEAD` == `git rev-parse origin/main` == `fb1a93d`, `log origin/main..main` empty |
+> | `loan-find-difference` **v30** | **LIVE — content-verified** | Fetched the DEPLOYED file. It defines `note_working`, `closedCarriedByFold`, `visibleNoAction`, `focusTiesStated` and the new `She split it herself` / `duplicates interest we had already booked` strings, and carries **no trace** of `Note this span is only off by`, `Her entry stays exactly as it is`, or the `all ${booked.length} of those months` clause. A version number can coincide; five absent old lines cannot. `verify_jwt` still **false** — the CLI flag was not dropped. |
+> | Client, commit `fb1a93d` | **LIVE — content-verified** | `admin.familylaundry.com/build-version.txt` = **20260906175734**, the exact stamp this commit's pre-commit hook wrote. The served `index.html` defines `_bkJrnlShort`, renders `note_working`, prints `Already booked by` and `settled by your accountant, nothing to do`, uses `_bkDay(pe.Date)` — and contains **zero** occurrences of `Already booked once before?`, `fmtDate(pe.Date)`, `yes — journal ` or the old fold summary. |
+> | `loan-bundle` v55 | ⚠️ **MOVED, and session 279 did not ask for it** | `updated_at` 2026-09-06 17:58:55 UTC, ~20s after `loan-find-difference`. No session-279 commit touches it. Probably a second CLI deploy of current `main`; **nobody has established what changed, and §0x #3's default-checked `correct_statement_basis` defect is in that code.** Do not run a bundle until #3 is fixed. |
+>
 > ### 0z. 📦 DEPLOY & PUSH STATE — checked 2026-09-06 02:0x, and HOW is written down
 >
 > This block has carried a wrong deploy claim seven days running, every time written by the
