@@ -4204,11 +4204,20 @@ const CLOSE_REVERTS = {
   'no-row-type-filter': ['CLOSE_SCHEDULE_ROW_TYPES.includes(String(r.row_type || \'\')) &&\n      r.balance != null && r.row_date', 'r.balance != null && r.row_date'],
   // The schedule is read from ALL of a loan's schedules at once — Verdant's two
   // are merged into one walk, which is what happens when nobody de-duplicates.
-  'no-schedule-dedup': ['return mine.filter(r => r.schedule_id === bestId);', 'return mine;'],
+  // SESSION 278: both anchors below were DEAD. Session 277 replaced the
+  // `bestId` de-duplication with `_loanScheduleChoice`, which rewrote
+  // _loanScheduleRows entirely -- so neither revert could rebuild, ce2 and ce7
+  // reported it, and because the assertions they gate sit behind `if (rev.ok)`
+  // the rest of both controls SILENTLY STOPPED RUNNING rather than going red.
+  // That is the suite's own rule, missed: when an invariant changes, grep for
+  // the assertions encoding the OLD one and fix them in the same commit.
+  // A control that cannot rebuild is a positive assertion with nothing proving
+  // it can fail.
+  'no-schedule-dedup': ["r.balance != null &&\n      String(r.schedule_id || '') === choice.id);", 'r.balance != null);'],
   // The row_type allowlist moved UP into _loanScheduleRows (review F11) so the
   // schedule PICK is made from the rows that will actually be read. It is now
   // enforced in two places, and reproducing the defect means patching both.
-  'no-row-type-in-picker': ["CLOSE_SCHEDULE_ROW_TYPES.includes(String(r.row_type || '')) && r.balance != null);", 'r.balance != null);'],
+  'no-row-type-in-picker': ["CLOSE_SCHEDULE_ROW_TYPES.includes(String(r.row_type || '')) && r.balance != null &&", 'r.balance != null &&'],
   // The circularity guard keyed on a schedule id, as the design draft had it.
   // Verdant's opening carries no schedule_id, so the guard cannot fire and the
   // row prints a green tie against the document it was built from.
@@ -10191,6 +10200,148 @@ GROUPS.push({
     t.eq(quiet.unsettledStill, true,
          'the question is still UNSETTLED as a fact — the scoping is about whether to ASK, not about pretending it is answered');
     await q.close();
+  },
+});
+
+/* ── A HAND-ENTERED BALANCE MUST SAY WHAT IT MEASURES (session 278) ────────
+ *
+ * Three paths wrote loan_statements.balance_basis and only two of them could:
+ * the bulk anchors-only import stamps principal_only, a PDF parser reads the
+ * lender's own label, and a human typing into the box sent nothing -- so the row
+ * landed 'unknown' and dropped out of every lender comparison. That is what
+ * blocked the August close on BayFirst SBA 2.
+ *
+ * The fix ASKS rather than defaults, and the reason is worth keeping next to the
+ * test: this value feeds selectAnchorEvidence, which feeds the projection that
+ * STAGES REAL XERO TRANSACTIONS. A default here is a guess that can cost money.
+ *
+ * Most of what follows is about the REFUSAL, and it is driven by CLICKING the
+ * button -- a dead onclick passes every test that calls the handler by name. */
+GROUPS.push({
+  name: 'statement-basis-asked',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+
+    /* ── 1. THE CONTROL, AND THE SET IT OFFERS ──────────────────────────── */
+    const shape = await p.evaluate(() => {
+      openLoanIntakeModal();
+      const sel = document.getElementById('li-balance-basis');
+      const fields = document.getElementById('li-statement-fields');
+      return {
+        present: !!sel,
+        inStatementFields: !!(sel && fields && fields.contains(sel)),
+        values: sel ? Array.from(sel.options).map(o => o.value).join(',') : '',
+        initial: sel ? sel.value : null,
+        note: (document.getElementById('li-basis-note') || {}).textContent || '',
+      };
+    });
+    t.ok(shape.present, 'the intake form asks what the balance measures');
+    t.ok(shape.inStatementFields, '...on the statement path only, not on bulk/schedule/document');
+    t.eq(shape.values, ',principal_only,total_payback,payoff_quote',
+         '⭐ it offers exactly the CHECK constraint set MINUS "unknown" — a default is a state a row falls into, never a claim a person makes');
+    t.eq(shape.initial, '',
+         '⭐ and it has NO pre-selected value: this basis feeds the projection that stages real Xero transactions, so it is stated, never assumed');
+    t.ok(/left out of every check/.test(shape.note),
+         '...and the form says what an unlabelled balance actually costs');
+
+    /* ── 2. A DOCUMENT-READ BASIS SAYS SO; OURS DOES NOT PRETEND TO ─────── */
+    const notes = await p.evaluate(() => {
+      _liSetBasisControl('principal_only', true);
+      const doc = { v: document.getElementById('li-balance-basis').value,
+                    n: document.getElementById('li-basis-note').textContent };
+      _liSetBasisControl(null, false);
+      const cleared = { v: document.getElementById('li-balance-basis').value,
+                        n: document.getElementById('li-basis-note').textContent };
+      return { doc, cleared };
+    });
+    t.eq(notes.doc.v, 'principal_only', 'a parsed basis pre-fills the control');
+    t.ok(/Read from the document/.test(notes.doc.n),
+         '⭐ ...and the note distinguishes what the LENDER printed from what we suggested — the whole distinction the fix rests on');
+    t.eq(notes.cleared.v, '', 'clearing it clears the control');
+    t.ok(/left out of every check/.test(notes.cleared.n), '...and restores the warning');
+
+    /* ── 3. THE REFUSAL, BY CLICKING ────────────────────────────────────── */
+    // Everything the OLD guard required is present; only the basis is missing.
+    // So a green here can only be the new check firing.
+    const fill = async () => p.evaluate(() => {
+      const loan = (_allLoanAccounts || []).find(a => a.lender_account_number === '6917479106');
+      document.getElementById('li-kind-select').value = LI_STATEMENT_KIND;
+      document.getElementById('li-loan-select').value = loan.id;
+      document.getElementById('li-statement-date').value = '2026-09-02';
+      document.getElementById('li-principal-balance').value = '135206.37';
+      document.getElementById('li-balance-basis').value = '';
+      _loanUploadFile = { filename: 'bayfirst.pdf', base64: 'AAAA' };
+      _loanUploadParsedBalanceBasis = null;
+      window.__basisCalls = [];
+      const realFn = _loanFn;
+      _loanFn = async (name, body) => { window.__basisCalls.push({ name, body }); return { ok: true, data: {} }; };
+      window.__restoreLoanFn = () => { _loanFn = realFn; };
+    });
+    await fill();
+    await p.page.click('#li-submit-btn');
+    await p.settle();
+    const refused = await p.evaluate(() => ({
+      shown: document.getElementById('li-error').style.display !== 'none',
+      text: document.getElementById('li-error').textContent || '',
+      calls: (window.__basisCalls || []).length,
+      modalStillOpen: !!document.getElementById('li-balance-basis'),
+    }));
+    t.ok(refused.shown, '⭐ clicking Upload with no basis chosen is REFUSED');
+    t.ok(/what that balance measures/.test(refused.text),
+         '...naming the missing thing rather than a generic "required field"', JSON.stringify(refused.text));
+    t.ok(/left out of every check/.test(refused.text),
+         '...and stating the consequence, so the ask reads as a reason and not a chore');
+    t.eq(refused.calls, 0, '⭐ and NOTHING was sent — a statement is not stored unlabelled and repaired later');
+    t.ok(refused.modalStillOpen, '...the modal stays open on the field that needs answering');
+
+    /* ── 4. A CHOSEN BASIS IS THE ONE THAT TRAVELS ──────────────────────── */
+    await p.evaluate(() => { document.getElementById('li-balance-basis').value = 'total_payback'; });
+    await p.page.click('#li-submit-btn');
+    await p.settle();
+    const sent = await p.evaluate(() => {
+      const c = (window.__basisCalls || []).find(x => x.name === 'loan-ingest-statement');
+      return { n: (window.__basisCalls || []).length, basis: c ? c.body.balance_basis : null };
+    });
+    t.eq(sent.n, 1, 'with a basis chosen the ingest is called');
+    t.eq(sent.basis, 'total_payback',
+         '⭐ and the PERSON’S answer is what travels — not principal_only smuggled in as a default');
+
+    /* ── 5. IT DISCRIMINATES ────────────────────────────────────────────── */
+    // Re-apply the INVERSE of the fix to the shipped function's own source and
+    // confirm the refusal goes red. An assertion that passes against both the
+    // fixed and the broken code is decoration (session 245).
+    const broke = await p.evaluate(() => {
+      window.__restoreLoanFn && window.__restoreLoanFn();
+      const src = _submitIntakeStatement.toString();
+      // strip the basis guard, exactly as it read before the fix
+      const stripped = src.replace(/if \(!balanceBasis\) \{[\s\S]*?return;\s*\}/, '');
+      if (stripped === src) return { rebuilt: false };
+      const rebuilt = new Function('return (async function ' + stripped.replace(/^async function\s*/, '') + ')')();
+      return { rebuilt: true, src: stripped };
+    });
+    t.ok(broke.rebuilt, 'the inverse of the fix could be applied to the shipped source');
+    if (broke.rebuilt) {
+      const wouldPass = await p.evaluate((strippedSrc) => {
+        const fn = new Function('return (async function ' + strippedSrc.replace(/^async function\s*/, '') + ')')();
+        document.getElementById('li-error').style.display = 'none';
+        document.getElementById('li-error').textContent = '';
+        document.getElementById('li-balance-basis').value = '';
+        window.__basisCalls = [];
+        const realFn = _loanFn;
+        _loanFn = async (name, body) => { window.__basisCalls.push({ name, body }); return { ok: true, data: {} }; };
+        return fn().then(() => {
+          _loanFn = realFn;
+          return { calls: window.__basisCalls.length,
+                   basis: (window.__basisCalls[0] || {}).body ? window.__basisCalls[0].body.balance_basis : undefined };
+        });
+      }, broke.src);
+      t.eq(wouldPass.calls, 1,
+           '⭐ WITHOUT the guard the same click sends the statement anyway — which is what the assertions above would have missed');
+      t.eq(wouldPass.basis, undefined,
+           '⭐ ...carrying no basis at all, so the row would land "unknown" and leave the lender checks — the exact defect, reproduced');
+    }
+
+    await p.close();
   },
 });
 

@@ -1,8 +1,115 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 276, 2026-09-05)
+> ## ⏭️ START HERE — first thing, next session (left by session 278, 2026-09-06)
 >
-> ### 0w. 🔴 START HERE — ONE FIELD IS BLOCKING AUGUST (session 277, 2026-09-06)
+> ### 0x. ✅ AUGUST IS UNBLOCKED, AND THE REVIEW FOUND FOUR THINGS BIGGER THAN IT
+>
+> **Deploy state, checked 2026-09-06 by `list_edge_functions` + epoch conversion, not inferred:**
+> `loan-document-intake` v11 at **00:07:31 UTC**, against commit `fcc8c41` at **00:08:02** — the
+> deploy is 31 seconds BEFORE the commit, so it is probably live and the proof is
+> coincidence-shaped. **Probe it behaviourally before trusting it.** §0w below said `fcc8c41` was
+> unpushed; it is pushed — local `main` and `origin/main` are both `e494ba2`.
+>
+> #### DONE — the one field
+> ```
+> loan_statements  BayFirst SBA 2 (6917479106)  2026-09-02  →  balance_basis = 'principal_only'
+> ```
+> One row, verified by RETURNING. **But §0w's promised number is wrong by a cent.** August reads
+> **135,901.61**, variance **$0.01**, not 135,901.60 / 0.00. `_loanRollbackWalk` sums OUR SPLITS,
+> not the lender's arithmetic, and the only split in the window is the `2026-09` card carrying
+> **695.24** from our derived schedule; the lender's own split was **695.23**.
+>
+> ⚠️ **So the roll-back branch's comment — *"arithmetic on lender evidence, not a projection"* — is
+> FALSE when the in-window split is `amortization_schedule`-sourced.** Here it costs a cent. On a
+> loan where our schedule and the lender's actual split diverge more, that error lands in the
+> closing figure and is reported as THAT month's variance, caused entirely by the NEXT month's
+> projection. Session 246's shape, one branch over.
+>
+> #### 🔴 1. JULY'S $858.66 EXCEPTION ON BAYFIRST SBA 2 IS NOT A DISCREPANCY
+> `loan_tie_outs as_of 2026-07-31: exception, xero 136,760.26, lender 135,901.60, diff 858.66`,
+> recomputed on every run since 09-04. July is **open** (`books_closed_through = 2026-06-30`).
+>
+> Probed Xero rather than reasoning from our books — one reconciled transaction:
+> ```
+> 2026-08-03  SPEND  $2,108.24  AUTHORISED, reconciled
+> contact: "First Home Bank ISAOA ATIMA"
+> ```
+> **The money moved 2026-08-03.** Our books are right to call it August; the lender's 07-31 portal
+> pull had already applied a payment the bank did not debit until three days later. By session
+> 277's own rule — *a payment's month comes from the money, not the paper* — the books win.
+>
+> **And it is STRUCTURAL, not a one-off.** This loan's payment is due on the 2nd, so *every*
+> month-end pull will sit one payment ahead of the books and manufacture the same false variance,
+> for ever. BayFirst SBA Loan is the same lender and wants checking. That is the nag session 262
+> warns about, and it is currently blocking a real close.
+>
+> #### 🔴 2. THE CONTACT DRIFT IS WORSE THAN §0t RECORDED — and it gates auto-staging
+> §0t says the stage was created against *"BayFirst National Bank (SBA)"* while the feed said
+> *"BayFirst National Bank"* — a near-miss. **It is not a near-miss.** The reconciled
+> transaction's contact is **"First Home Bank ISAOA ATIMA"** (BayFirst's former name), while
+> `loan_accounts.lender` is `"BayFirst National Bank (SBA)"` — and that field is what
+> `loan-xero-post:1613` puts on every stage as free-text `Contact: { Name: … }`, which Xero
+> silently creates rather than rejecting. **Nothing anywhere compares the two.**
+> §0t asks for this to be measured across the eleven prestaging loans; the first one measured is
+> a total mismatch, so **that measurement is now the gating item for auto-staging, ahead of the
+> guard work.**
+>
+> #### 🔴 3. ONE CLICK IN THE BUNDLE WOULD MISLABEL 348 OF OUR OWN BOOK ROWS — default-checked
+> `_shared/loan-bundle-plan.ts:745` builds `correct_statement_basis` from `ctx.statements`, which
+> `loan-bundle/index.ts:776` fills with **no source filter** — so `xero_derived` and
+> `xero_balance_snapshot` rows are in it. The apply at `index.ts:1458` matches on
+> `(loan_account_id, statement_date)`, also unfiltered. Measured today:
+>
+> | Loan | would be labelled | of which are OUR book rows |
+> |---|---|---|
+> | Funding Circle | 66 → `principal_only` | 65 |
+> | Aquarecycle | 59 → `principal_only` | 59 |
+> | BayFirst SBA Loan | 44 → `principal_only` | 44 |
+> | Rapid Credit Line | 37 → `principal_only` | 37 |
+> | BayFirst SBA 2 | 28 → `principal_only` | 27 |
+> | EIDL SBA | 9 → `principal_only` | 9 |
+> | **Stripe Capital** | **7 → `total_payback`** | **7** |
+>
+> Stripe is the worst: its 38 labelled rows are all `total_payback`, so the action would stamp
+> `total_payback` onto seven books snapshots that are net principal by construction — on the one
+> loan whose carrying basis is the open question. `_shared/carrying-basis-drift.ts:261` then tests
+> one model instead of both; its own comment at `:645` warns this becomes reachable "the day the
+> rebuild starts labelling them".
+>
+> **And the card makes a false claim:** *"They came from the same place, on the same basis, as
+> every other balance on this loan."* They did not. Under THE CARD IS THE DECISION that is a lie,
+> not a trim. **Fix before anyone runs a bundle.**
+>
+> #### 🟠 4. THE AUTO-STAGING REFUSALS IN §0t DO NOT ALL EXIST
+> Audited every guard §0t makes load-bearing, against the branch it actually sits on:
+> * **`backlog_warning` is computed on the confirm path and discarded** — read exactly once, at
+>   `loan-xero-post:1603`, **inside `if (!confirm)`**. Only a human eye on the preview makes it
+>   load-bearing today. §0t's "applies untouched" is false.
+> * **`duplicate_suspected` never blocks the matched branch, and line 893 WIPES it** with a bare
+>   `null` rather than `keepFlag`. The duplicate check at 904 sits below the `IsReconciled`
+>   early-exit at 838, so it cannot see a matched split.
+> * **No amount comparison exists in the matched branch at all** (838-902 checks `Status`,
+>   `IsReconciled`, `UpdatedDateUTC` only). The "within 2c of projected" refusal has no code.
+> * **No close-date check on the sweep** — `isPeriodClosed` is called at 1021, *after* the sweep
+>   returns at 951. (Mitigated: `ensureUpcomingSplit` only takes `row_date >= today`.)
+> * **There is no "first stage" concept anywhere.** Zero grep hits across `supabase/functions/`
+>   and `admin-dashboard/index.html`. The nearest proxy, `prestage_enabled`, is set BY THE MACHINE
+>   (`loan-ingest-amortization:218`, `_shared/derive-schedule.ts:480,521`) — dropping a CSV in the
+>   dropzone can turn it on with no human involved.
+>
+> Genuinely clean and worth crediting: `stale_projection` is guarded on **both** branches (859,
+> 1430) and survives every sweep write via `keepFlag`; `matched_early_suspect` correctly suppresses
+> the next card; both never-stage-twice checks fail CLOSED on a Xero error; the partial unique
+> index really is live (though it is **not in `migrations/`** — the repo is not its record).
+>
+> #### 🟡 5. TWO NUMBERS IN §0w ARE WRONG, AND ONE FRAMING IS
+> There are **353** `balance_basis='unknown'` rows across 14 loans, not eleven. But only **five**
+> come from a real lender source (`portal_manual_pull`): BayFirst SBA 2 @09-02 (now fixed), the
+> three E-Transits, Funding Circle @08-03. The other 348 are `xero_derived` /
+> `xero_balance_snapshot` and are already excluded **by source**, so "a silence rather than a
+> safeguard" applies to the five, not the 353. Quote it, never assume it — same rule as prestaging.
+>
+> ### 0w. ~~ONE FIELD IS BLOCKING AUGUST~~ — DONE, see §0x (session 277, 2026-09-06)
 >
 > **The statement is on file. It is unlabelled, and that makes it invisible.**
 >
@@ -3721,6 +3828,78 @@ to "what is running".
 ---
 
 ---
+
+### Session 278 (2026-09-06) — A FORM THAT ASKED FOR A PRINCIPAL BALANCE AND REFUSED TO RECORD THAT IT WAS ONE
+
+Deep review of the module, then one fix built properly. Findings are in START HERE §0x; this is
+what SHIPPED and the reasoning behind it.
+
+**1. The hand-entry path can now state its basis (`admin-dashboard/index.html`, `loan-ingest-statement` v47).**
+Three paths wrote `balance_basis` and only two could: bulk anchors-only stamps `principal_only`,
+a PDF parser reads the lender's own label, and a human typing into the box sent **nothing** — so
+the row landed `unknown` and dropped out of every lender comparison. That is what blocked August.
+
+**The tempting fix was to default it to `principal_only`, because the form's own input says
+"Principal balance". David chose to ask instead, and the review says that was right.** The five
+parser paths are safe precisely because the *lender's document* carries the label; our form's
+label is our own word about a box a human typed into. And this value feeds
+`selectAnchorEvidence` → the projection → `loan_splits` → **staged AUTHORISED Xero
+transactions**. `derive-schedule.ts:104` records the measured cost of one wrong anchor on Funding
+Circle: every row a period late, ~$15/month misposted. A default here is a guess that spends money.
+
+So: a required `#li-balance-basis` select offering exactly the CHECK constraint's set **minus
+`unknown`** — `unknown` is the column default, a state a row falls into, never a claim a person
+makes. No pre-selected value. `_liSetBasisControl(basis, fromDocument)` is the ONE place that
+drives it (three callers, written before there was a second branch to get wrong), and
+`fromDocument` is the whole distinction: a parsed value pre-fills and the note says *"Read from
+the document itself"*; anything else shows what an unlabelled balance costs. **Never disabled** —
+a bad parse is exactly when a human must be able to overrule it.
+
+Server: `INGESTIBLE_BALANCE_BASIS = ['principal_only','total_payback','payoff_quote']`. Still an
+allowlist, not a pass-through — an unrecognised value falls through to the default rather than
+being written. Widening it is what lets the form ask; it does not weaken the v22 rule.
+
+**2. TWO DISCRIMINATION CONTROLS HAD BEEN DEAD SINCE SESSION 277, and the suite did not say so.**
+Session 277 replaced `bestId` de-duplication with `_loanScheduleChoice`, rewriting
+`_loanScheduleRows`. Both `CLOSE_REVERTS` anchors that patch that function stopped matching:
+`no-schedule-dedup` referenced a line that no longer exists anywhere, `no-row-type-in-picker` a
+line that had moved to `_loanScheduleCandidates`.
+
+The failure mode is the expensive part. `ce2`/`ce7` reported *"could not be rebuilt"* — but the
+assertions they gate sit behind `if (rev.ok)`, so **six further control assertions silently
+stopped running rather than going red.** A control that cannot rebuild leaves a positive
+assertion with nothing proving it can fail. Repointing both anchors took the second harness half
+from **899 → 905 assertions, 0 red.**
+
+This is the suite's own pre-emptive-fix rule, missed: *when an invariant changes, grep the suite
+for assertions encoding the OLD one and fix them in the same commit.* Session 277 changed the
+schedule-selection invariant across eleven commits and never re-ran the suite.
+
+**3. Tests: new group `statement-basis-asked`, 19 assertions, and it discriminates.**
+Driven by **clicking `#li-submit-btn`**, not by calling the handler — a dead `onclick` passes
+every test that invokes a function by name. It asserts the refusal, that the error names the
+missing thing AND its consequence, that **nothing is sent** (a statement is not stored unlabelled
+and repaired later), and that the person's answer is what travels rather than `principal_only`
+smuggled in as a default. Then §5 strips the guard out of the shipped function's own
+`.toString()`, rebuilds it with `new Function()`, and confirms the same click sends the statement
+carrying no basis at all — the exact defect, reproduced.
+
+**4. One data fix, and it is a fact rather than a guess.** BayFirst SBA 2's 2026-09-02
+`portal_manual_pull` → `principal_only`. The same document's own rows print
+`PRINCIPAL PAYMENT SPLIT OUT`, and all five older rows on the loan agree. One row, verified by
+`RETURNING`. Root cause shipped alongside it, per the Root-Cause Rule — the form is why it
+happened.
+
+**Suite after the change, measured in three halves, not inherited: 2,084 browser assertions,
+2,083 passing**, the single red being Tech Debt #19, red on purpose. All 30 `.test.mts` files run
+clean. (`tests/run-harness.sh:32` still claims 1,620 — it has been stale for thirteen sessions and
+is the first thing an operator reads.)
+
+**Note for whoever runs the harness next:** the browser lives under `$HOME`, a per-session
+sandbox, so it is gone every session. The recovery in `run-harness.sh` works and takes about two
+minutes, but it needed a THIRD step this time that the script does not print — chrome also wants
+`libXdamage.so.1`, fetched from ubuntu-ports into `~/syslibs`. The script's own error message
+covered it on the second run; worth knowing it is two downloads, not one.
 
 ### Session 277 cont. 5 (2026-09-06) — ⏭️ NEXT SESSION STARTS HERE: THE CLOSE CHECKLIST (designed, not built)
 

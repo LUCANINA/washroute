@@ -205,6 +205,13 @@ import { resolvePeriodLabel } from '../_shared/period-label.ts'
 // it falls back to the v15 behavior (create the row) and flags the failure in the
 // response, so a Xero hiccup never silently loses a genuine actionable item.
 
+// The basis values a CALLER may assert, i.e. the loan_statements.balance_basis
+// CHECK constraint's set minus 'unknown'. 'unknown' is the column default and
+// means "nobody has said" -- it is a state a row falls into, never one a caller
+// declares, so admitting it here would let a request erase a basis somebody
+// already established.
+const INGESTIBLE_BALANCE_BASIS = ['principal_only', 'total_payback', 'payoff_quote']
+
 const MISMATCH_TOLERANCE = 2.00 // dollars
 const AMOUNT_TOLERANCE = 0.02   // dollars -- for exact-dollar Xero matching
 const INTEREST_ACCOUNT_CODE = '800'
@@ -520,9 +527,20 @@ async function handleRequest(req: Request): Promise<Response> {
         storage_path: storagePath,
         source: 'portal_manual_pull',
         pulled_by: pulled_by ?? null,
-        // v22: only the whitelisted value ever lands; everything else keeps the
+        // v22: only a whitelisted value ever lands; everything else keeps the
         // column's default. Never let a caller invent a basis.
-        ...(balance_basis === 'principal_only' ? { balance_basis: 'principal_only' } : {}),
+        //
+        // v47 (session 278): the allowlist is the CHECK constraint's own set minus
+        // 'unknown', which is the column default and is never something a caller
+        // asserts. Until now only 'principal_only' was accepted, so the intake
+        // form could not report a total-payback or payoff-quote balance even when
+        // the person uploading knew which it was -- the row landed 'unknown' and
+        // dropped out of every lender comparison. Widening the allowlist is what
+        // lets the form ASK instead of guess; it does not weaken the rule, because
+        // an unrecognised value still falls through to the default rather than
+        // being written. Deliberately still an allowlist and not a pass-through.
+        ...(INGESTIBLE_BALANCE_BASIS.includes(String(balance_basis ?? ''))
+          ? { balance_basis: String(balance_basis) } : {}),
       }, { onConflict: 'loan_account_id,statement_date,source' })
       .select()
       .single()

@@ -4911,6 +4911,28 @@
                   <div class="form-group"><label class="form-label">Total amount due</label><input type="number" step="0.01" class="form-input" id="li-total-due" placeholder="0.00"></div>
                   <div class="form-group"><label class="form-label">Payment due date</label><input type="date" class="form-input" id="li-due-date"></div>
                 </div>
+                <!-- ── SESSION 278: A HAND-ENTERED BALANCE CAN NOW SAY WHAT IT MEASURES ──
+                     Three paths wrote balance_basis; only two of them could. A bulk
+                     anchors-only import stamps principal_only, a PDF parser reads the
+                     lender's own label -- and a human typing into the box above sent
+                     nothing, so the row landed 'unknown'. An unlabelled balance is
+                     excluded from every lender comparison, which is a silence rather
+                     than a safeguard, and it is what blocked the August close.
+                     Defaulting it was the tempting fix and the wrong one: this value
+                     feeds selectAnchorEvidence, which feeds the projection that STAGES
+                     REAL XERO TRANSACTIONS. A guess there costs money. So we ask, the
+                     same way the bundle already asks, and we ask for the one thing the
+                     person holding the document can answer without leaving the screen. -->
+                <div class="form-group">
+                  <label class="form-label">What does that balance measure?</label>
+                  <select class="form-input" id="li-balance-basis">
+                    <option value="">&mdash; choose &mdash;</option>
+                    <option value="principal_only">Principal only &mdash; what you still owe on the loan</option>
+                    <option value="total_payback">Total payback &mdash; principal plus all the interest still to come</option>
+                    <option value="payoff_quote">Payoff quote &mdash; what it would cost to settle the loan today</option>
+                  </select>
+                  <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px" id="li-basis-note">A balance that does not say what it measures is left out of every check that compares your books to the lender, so a real difference inside it would never be reported.</div>
+                </div>
               </div>
 
               <div id="li-bulk-fields" style="display:none"></div>
@@ -13026,6 +13048,24 @@
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
   let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
   let _loanUploadParsedBalanceBasis = null; // 'principal_only' from a PDF parser whose statement labels its own balance (session 256, round 7)
+
+  // ONE place decides what the basis control says, so the three callers cannot
+  // drift (session 231's rule, applied before there is a second branch to get
+  // wrong). `fromDocument` is the whole distinction the review turned on: a value
+  // the LENDER printed is evidence, a value we pre-filled is a suggestion, and the
+  // note says which one the reader is looking at. Never disabled -- a bad parse is
+  // exactly the case where a human must be able to overrule it.
+  const LI_BASIS_UNLABELLED_NOTE = 'A balance that does not say what it measures is left out of every check that compares your books to the lender, so a real difference inside it would never be reported.';
+  function _liSetBasisControl(basis, fromDocument) {
+    const sel = document.getElementById('li-balance-basis');
+    const note = document.getElementById('li-basis-note');
+    if (!sel) return;
+    sel.value = basis || '';
+    if (!note) return;
+    note.textContent = (basis && fromDocument)
+      ? 'Read from the document itself. Change it only if the lender\u2019s own wording disagrees.'
+      : LI_BASIS_UNLABELLED_NOTE;
+  }
   let _loanUploadParsedBulkPeriods = null; // array of {statementDate, principalBalance, explicitSplit, totalAmountDue} from a multi-period CSV (e.g. PayPal), if any
   let _loanUploadBulkAnchorsOnly = false;  // session 225: true when the bulk periods are a Ford transaction history — file as reconciliation anchors, create no splits
   let _liRawFile = null;           // the raw File object -- the document path uploads it directly to storage
@@ -22413,6 +22453,7 @@ ${noActivityNote}
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedBalanceBasis = null;
+    _liSetBasisControl(null, false);
     _loanUploadParsedBulkPeriods = null;
     _loanUploadBulkAnchorsOnly = false;
     _liParsedSchedule = null;
@@ -23133,6 +23174,7 @@ ${noActivityNote}
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedBalanceBasis = null;
+    _liSetBasisControl(null, false);
     _loanUploadParsedBulkPeriods = null;
     _loanUploadBulkAnchorsOnly = false;
     _liParsedSchedule = null;
@@ -23299,6 +23341,7 @@ ${noActivityNote}
       _loanUploadParsedTransactions = browserParsed.transactions || null;
       _loanUploadParsedExplicitSplit = browserParsed.explicitSplit || null;
       _loanUploadParsedBalanceBasis = browserParsed.balanceBasis || null;
+      _liSetBasisControl(_loanUploadParsedBalanceBasis, true);
       _loanUploadParsedAcctNum = browserParsed.accountNumber || null;
       if (browserParsed.accountNumber) {
         _liSelectLoanFromDocument(browserParsed.accountNumber);
@@ -23660,9 +23703,25 @@ ${noActivityNote}
     const totalDue = document.getElementById('li-total-due').value;
     const dueDate = document.getElementById('li-due-date').value;
 
+    // The basis is REQUIRED and deliberately has no default. Session 278: the
+    // form asked for a "principal balance" and then declined to record that it
+    // was one, so every hand-entered row landed 'unknown' and dropped out of
+    // every lender comparison. Defaulting it here would have admitted an
+    // unproven value into the allowlist that feeds staging -- so the person
+    // holding the document answers instead, which costs one click and is the
+    // only reading of that number nobody has to guess at.
+    const basisSel = document.getElementById('li-balance-basis');
+    const balanceBasis = basisSel ? String(basisSel.value || '') : '';
+
     if (!loan || !statementDate || !principalBalance || !_loanUploadFile) {
       errEl.textContent = 'Loan, statement date, principal balance, and a file are all required.';
       errEl.style.display = ''; return;
+    }
+    if (!balanceBasis) {
+      errEl.textContent = 'Say what that balance measures. An unlabelled balance is left out of every check that compares your books to the lender.';
+      errEl.style.display = '';
+      if (basisSel) basisSel.focus();
+      return;
     }
 
     const btn = document.getElementById('li-submit-btn');
@@ -23679,7 +23738,7 @@ ${noActivityNote}
         pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
         transactions: _loanUploadParsedTransactions || undefined,
         explicit_split: _loanUploadParsedExplicitSplit || undefined,
-        balance_basis: _loanUploadParsedBalanceBasis || undefined,
+        balance_basis: balanceBasis || _loanUploadParsedBalanceBasis || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       closeLoanIntakeModal();
