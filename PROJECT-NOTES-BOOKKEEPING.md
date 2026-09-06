@@ -2,7 +2,22 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 278, 2026-09-06)
 >
-> ### 0y. 🔴 THE FORD LOANS ARE DIAGNOSED — THREE CORRECTIONS NEED APPROVING
+> ### 0z. 📦 DEPLOY & PUSH STATE — checked 2026-09-06 02:0x, and HOW is written down
+>
+> This block has carried a wrong deploy claim seven days running, every time written by the
+> session that had just changed it. So: what was checked, by what method, and what was NOT.
+>
+> | Thing | State | How it was established |
+> |---|---|---|
+> | Both session-278 commits `0dc4b94`, `6ea17d3` | **PUSHED** | `git rev-parse HEAD` == `git rev-parse origin/main` == `6ea17d3`, and `log origin/main..main` empty |
+> | `loan-ingest-statement` **v47** | **LIVE — content-verified** | Fetched the DEPLOYED file. It defines `INGESTIBLE_BALANCE_BASIS = ['principal_only','total_payback','payoff_quote']`, uses it in the `loan_statements` upsert, and carries **no trace** of the old `balance_basis === 'principal_only'` ternary. `updated_at` 2026-09-06 00:46:39 UTC. A version number could coincide; the absent old line cannot. |
+> | Client, commit `0dc4b94` | **LIVE — seen on screen** | David's close-band screenshot showed BayFirst SBA 2 at **135,901.61, variance −0.01** — the cent this session predicted from `_loanRollbackWalk`, and NOT the 135,901.60 / 0.00 §0x's predecessor promised. Only the new code produces that figure. |
+> | Client, commit `6ea17d3` | **PUSHED, NOT SEEN** | `build-version.txt` = `20260906020236`. Vercel builds on push and the SPAs poll and reload, but nobody has confirmed the Ford rows on screen. **Verify by looking: the three Ford rows should read "Find the fix", E6-7410 should stay blank.** |
+> | `loan-document-intake` v11 (`fcc8c41`) | ⚠️ **UNPROVEN — do not claim it** | Deployed 2026-09-06 **00:07:31** UTC against a commit at **00:08:02** — 31 seconds BEFORE the commit. Probably live, but that is coincidence-shaped evidence, which is exactly the shape that has been wrong here before. **It has still never been probed behaviourally.** |
+>
+> `6ea17d3` changed no edge function, so nothing needs deploying for it.
+>
+> ### 0y. 🔴 THE FORD LOANS ARE DIAGNOSED — THREE CORRECTIONS NEED APPROVING (not yet approved as of hand-off)
 >
 > **All three red Ford variances are ONE bug.** The accountant caught up several months of Ford
 > interest in a single split on one payment; our own journals had already booked those months.
@@ -53,11 +68,8 @@
 >
 > ### 0x. ✅ AUGUST IS UNBLOCKED, AND THE REVIEW FOUND FOUR THINGS BIGGER THAN IT
 >
-> **Deploy state, checked 2026-09-06 by `list_edge_functions` + epoch conversion, not inferred:**
-> `loan-document-intake` v11 at **00:07:31 UTC**, against commit `fcc8c41` at **00:08:02** — the
-> deploy is 31 seconds BEFORE the commit, so it is probably live and the proof is
-> coincidence-shaped. **Probe it behaviourally before trusting it.** §0w below said `fcc8c41` was
-> unpushed; it is pushed — local `main` and `origin/main` are both `e494ba2`.
+> **Deploy state: superseded — see §0z above**, which carries the current, method-stated version.
+> (§0w below said `fcc8c41` was unpushed; it was already pushed.)
 >
 > #### DONE — the one field
 > ```
