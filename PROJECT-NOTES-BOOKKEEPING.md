@@ -2,6 +2,34 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 278, 2026-09-06)
 >
+> ### 0zc. 🔑 FIRST BUILD NEXT SESSION: THE RELEASE PIPELINE — `docs/washroute/DESIGN-RELEASE-PIPELINE.md`
+>
+> David, session 279: *"we need a better solution than me pushing every time."* Designed in
+> full, **not built**. Read the doc; the short version:
+>
+> * **A repo-scoped DEPLOY KEY**, not a personal access token, kept in a SEPARATE connected
+>   folder `~/WashRoute-Secrets` — never inside the repo, which has a hook that stages tracked
+>   changes and would eventually commit it to a PUBLIC repo.
+> * **GitHub Actions deploys the functions a push changed**, so `SUPABASE_ACCESS_TOKEN` lives in
+>   GitHub where neither Claude nor the device VM can read it. This is the half that matters:
+>   it fixes *"a git push does NOT deploy an edge function"* for everyone, not just for Claude.
+>   The repo has **no `.github/workflows` at all** today.
+> * Three things in that workflow are load-bearing: `--no-verify-jwt` (every function here is
+>   `verify_jwt: false`; session 260), the `_shared` fan-out (a shared file changing means its
+>   importers need redeploying, and nothing in the path says so), and changed-only deploys.
+>
+> **§6 of the doc is a click-by-click for David and takes about ten minutes.** Parts A and B are
+> his; Part C is Claude's, and Part C ends by proving the chain on a comment-only change to one
+> small function before the pipeline is trusted with anything real.
+>
+> ⚠️ **The deploy-state rule survives all of this untouched.** A green Actions run proves a
+> deploy was ACCEPTED, not that the function RUNS — session 264's function was accepted and
+> never booted for eighteen hours. Probe it.
+>
+> ⚠️ **Two skill rules become wrong the day this ships** and must be edited in the same session
+> that proves it (§7): *"never git push from this sandbox"* (the device VM has network; the
+> failure is authentication) and *"a git push does NOT deploy an edge function"*.
+>
 > ### 0zb. ⛔ TWO COMMITS UNPUSHED, TWO FUNCTIONS UNDEPLOYED — and this sandbox CANNOT do either
 >
 > Established 2026-09-06 ~19:30 UTC by trying, not by assuming:
