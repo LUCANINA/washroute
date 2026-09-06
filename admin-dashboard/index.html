@@ -21037,12 +21037,38 @@
     // One place decides the Type value+label+badge for a loan, whether it comes from
     // a real split or the loan's own ingestion method -- so the Type column and its
     // click-filter always agree on what a loan "is."
+    // ── "TYPE" IS GONE — IT WAS A LABEL ABOUT NOTHING (session 280, David) ──
+    // David: "I am confused about what Type refers to. Remove it unless necessary."
+    // He is right, and the reason is the consolidation: this column predates both
+    // Staging and Status, and it was carrying three unrelated questions at once —
+    // did the split reach Xero, is a transaction staged, does anything need you.
+    // Staging answers the second now and Status answers the tie-out, so what is
+    // left is one question with one honest name: IS THIS MONTH'S PAYMENT BOOKED?
+    // Which is the Closing table's own column, `Booked`. So this is not a deletion
+    // and not a rename for tidiness — it is the same consolidation as Books and
+    // Lender: two tables that asked one question in two vocabularies now ask it in
+    // one.
+    //
+    // ⚠ CUT THE WORDS, KEEP THE CLAIM (ce17). `posted` and `already_in_xero` both
+    // mean the money reached Xero and both now read "booked" — the distinction
+    // (we posted it vs it was already there) is real and survives on the hover,
+    // because it is provenance, not an action. Nothing that asks for a human —
+    // awaiting review, needs attention — was merged into anything.
+    //
+    // ⚠ AND COLOUR IS SPENT ONCE. David: "any live scheduled staging should be in
+    // green." So green means A LIVE STAGED TRANSACTION IN XERO, on this table, and
+    // nothing else. `booked` is finished work nobody has to look at, so it is
+    // quiet; if it were green too, the one thing he asked to stand out could not.
     const typeInfo = (a, lastSplit) => {
-      if (a.ingestion_method === 'automatic') return { key: 'automatic', label: 'automatic', badge: `<span class="badge badge-gray">automatic</span>` };
-      if (!lastSplit) return { key: 'no_split', label: 'no split yet', badge: `<span class="badge badge-gray">no split yet</span>` };
-      if (lastSplit.status === 'posted') return { key: 'posted', label: 'posted', badge: `<span class="badge badge-green">posted</span>` };
-      if (lastSplit.status === 'already_in_xero') return { key: 'in_xero', label: 'in Xero', badge: `<span class="badge badge-gray">in Xero</span>` };
-      if (lastSplit.status === 'staged') return { key: 'staged', label: 'staged', badge: `<span class="badge badge-blue" title="A pre-split transaction sits in Xero waiting for the payment to land — the CPA clicks Match on the reconcile screen.">staged</span>` };
+      if (a.ingestion_method === 'automatic') return { key: 'automatic', label: 'automatic', badge: `<span class="badge badge-gray" title="This loan is synced automatically from the lender's own feed — there is no split for anyone to book or review.">automatic</span>` };
+      if (!lastSplit) return { key: 'no_split', label: 'no payment yet', badge: `<span class="badge badge-gray" title="No payment has been recorded against this loan yet.">no payment yet</span>` };
+      if (lastSplit.status === 'posted') return { key: 'posted', label: 'booked', badge: `<span class="badge badge-gray" title="Booked — we posted the interest/principal split to Xero ourselves.">booked</span>` };
+      if (lastSplit.status === 'already_in_xero') return { key: 'in_xero', label: 'booked', badge: `<span class="badge badge-gray" title="Booked — the split was already in Xero when we looked; we did not post it.">booked</span>` };
+      // Nearly unreachable: `lastSplit` deliberately excludes staged rows, because a
+      // staged transaction is not a payment that has happened. Kept so a future
+      // change to that filter cannot make this column start claiming one — and it
+      // points at the column that owns the fact rather than repeating it.
+      if (lastSplit.status === 'staged') return { key: 'staged', label: 'scheduled', badge: `<span class="badge badge-gray" title="Scheduled in Xero, not yet paid — see the Staging column, which owns this.">see Staging</span>` };
       if (lastSplit.status === 'needs_attention') return { key: 'needs_attention', label: 'needs attention', badge: `<span class="badge badge-red">needs attention</span>` };
       // Anything else gets a human label. The fallback used to print the raw
       // column value, so the Loans page showed a business owner the words
@@ -21300,7 +21326,10 @@
       }
       const sp = all[0];
       const periods = all.map(x => x.period_label).join(', ');
-      return `<span class="badge badge-blue" style="cursor:pointer" onclick="${open(sp)}"
+      // GREEN, at David's instruction (session 280): a live staged transaction is the
+      // one healthy in-flight state on this table, and it is the only thing here that
+      // earns the colour. Everything finished is quiet; everything wrong is red.
+      return `<span class="badge badge-green" style="cursor:pointer" onclick="${open(sp)}"
         title="A pre-split transaction is already sitting in Xero for ${esc(periods)}, waiting for the payment to land in the bank feed. The CPA clicks Match and it posts — nothing here needs you. The nightly sweep watches it and flags this cell if it goes wrong.">scheduled${
         all.length > 1 ? ` ×${all.length}` : ''}</span>`;
     };
@@ -21476,7 +21505,7 @@
         ${thSort('date', 'Date')}
         ${thSort('principal', 'Principal', true)}
         ${thSort('interest', 'Interest', true)}
-        ${thSort('type', 'Type')}
+        ${thSort('type', 'Booked')}
         ${thSort('staging', 'Staging')}
         ${thSort('xero', 'Books', true)}
         ${thSort('outstanding', 'Lender', true)}
