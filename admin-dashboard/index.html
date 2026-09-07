@@ -18671,6 +18671,49 @@
     return `<span class="lcb-mark ${m.cls}" title="${esc(why)}" aria-label="${esc(g)}">${m.sym}</span>`;
   }
 
+  // ── THE STAGING CELL — SHARED (session 280) ────────────────────────────
+  // Lifted out of renderLoansTable's closure so the close band can show it too:
+  // a live staged transaction in Xero was visible on the month in flight and
+  // INVISIBLE on the close, which is the wrong way round — it is money the
+  // product itself put into Xero.
+  //
+  // Takes the loan account and derives the splits, rather than the In flight
+  // table's row object, so the close band does not have to build one. ALL staged
+  // splits, never just the newest: a weekly lender can carry two staged periods
+  // at once and a column that showed one would be quietly wrong about the other.
+  // Flagged ones are held separately because they are a different fact —
+  // staged-and-waiting is finished work, staged-and-flagged is the sweep saying
+  // it does not like what it found, and only the second is a job.
+  const _BK_SWEEP_FLAG_TEXT = {
+    duplicate_suspected: 'a look-alike transaction appeared beside it — open it to see what to check',
+    matched_early_suspect: 'it was matched BEFORE its scheduled date, so it likely caught the wrong bank line — open it to see how to fix',
+  };
+  function _bkLoanStagingCell(a) {
+    const all = (_allLoanSplits || []).filter(sp => sp.loan_account_id === a.id && sp.status === 'staged');
+    if (!all.length) return `<span style="color:var(--gray-300)">—</span>`;
+    const bad = all.filter(sp => sp.stage_sweep_flag);
+    // Clicking opens the SPLIT, not the loan — this cell is about one staged
+    // transaction, and the row's own click is the wrong destination for it.
+    // stopPropagation, or you get both.
+    const open = (sp) => `event.stopPropagation();openLoanReviewModal('${sp.id}')`;
+    if (bad.length) {
+      const sp = bad[0];
+      const why = _BK_SWEEP_FLAG_TEXT[sp.stage_sweep_flag]
+        || 'the payment is overdue and still unmatched — open it to see what to check';
+      return `<span class="badge badge-red" style="cursor:pointer" onclick="${open(sp)}"
+        title="Staged in Xero for ${esc(sp.period_label)}, but ${esc(why)}.">needs a look</span>${
+        all.length > bad.length ? `<span class="lit-quiet" style="font-size:11px;margin-left:5px">+${all.length - bad.length} scheduled</span>` : ''}`;
+    }
+    const sp = all[0];
+    const periods = all.map(x => x.period_label).join(', ');
+    // GREEN, at David's instruction (session 280): a live staged transaction is
+    // the one healthy in-flight state on these tables, and it is the only thing
+    // that earns the colour. Finished work is quiet; anything wrong is red.
+    return `<span class="badge badge-green" style="cursor:pointer" onclick="${open(sp)}"
+      title="A pre-split transaction is already sitting in Xero for ${esc(periods)}, waiting for the payment to land in the bank feed. The CPA clicks Match and it posts — nothing here needs you. The nightly sweep watches it and flags this cell if it goes wrong.">scheduled${
+      all.length > 1 ? ` ×${all.length}` : ''}</span>`;
+  }
+
   function _bkLoanSource(a) {
   // SOURCE — what settles this loan's month. Reads the RECORDED close basis
   // and nothing else. The temptation is to infer "schedule" from the
@@ -19504,8 +19547,7 @@
       ].filter(Boolean).join(' · ');
 
       return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
-        <td><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
-        <td class="lcb-c" data-agreement="${agreement.has ? '1' : '0'}" title="${esc(agreement.title)}">${agreement.cell}</td>
+        <td data-agreement="${agreement.has ? '1' : '0'}"><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${agreement.has ? `<span class="lit-agree" title="${esc(agreement.title)}" aria-label="Agreement on file">\u2713</span>` : ''}${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
         <td class="lcb-c" data-close-basis="${esc(a.close_basis || '')}" title="${esc(basis.title)}">${basis.cell}</td>
         <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
         <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
@@ -19515,6 +19557,7 @@
         <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
         <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
         <td>${bookedCell}</td>
+        <td>${_bkLoanStagingCell(a)}</td>
         <td>${booked}</td>
         <td>${ledgerCell}</td>
         <td class="lcb-action" data-action="${esc(action.kind)}">${action.cell}</td>
@@ -19590,7 +19633,7 @@
       : '';
     const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" data-drawn-measured="${ta.drawnMeasured}" class="lcb-total">
       <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}${coverageLabel}</td>
-      <td></td><td></td>
+      <td></td>
       <td class="lcb-n" data-amount="${ta.opening}"${rollTitle}>${money(ta.opening)}</td>
       <td class="lcb-n" data-amount="${ta.drawn}"${drawnTitle}>${money(ta.drawn)}</td>
       <td class="lcb-n" data-amount="${ta.principal}">${money(ta.principal)}</td>
@@ -19598,7 +19641,7 @@
       <td class="lcb-n" data-amount="${ta.computed}"${rollTitle}>${money(ta.computed)}</td>
       <td class="lcb-n" data-amount="${ta.perLender}"${closingTitle}>${money(ta.perLender)}</td>
       <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}"${closingTitle}>${varianceCell(ta)}</td>
-      <td></td><td></td><td></td><td></td>
+      <td></td><td></td><td></td><td></td><td></td>
     </tr>`;
 
     // The close date is NOT stated here. It moved to the period bar, beside the
@@ -19670,14 +19713,13 @@
           <table class="lcb-table" id="lcb-table">
             <thead><tr>
               <th>Loan</th>
-              <th title="Is a signed loan agreement on file? A green tick means the contract itself has been uploaded, so the original amount, rate and term can be checked against something the lender signed rather than against a figure somebody typed. A dash means none is on file — useful to have, but nothing to act on: it does not block the close.">Agreement</th>
               <th title="What this loan is CLOSED against — its source of truth. Statements means an outside document from the lender settles the month. Schedule means a recorded policy to close against the contractual amortization instead, so no statement is expected. This reads the recorded close basis, never the mere presence of a schedule file: most schedules on this book were derived from the loan's own statements, and closing against those would let a loan excuse itself from its only outside evidence on the strength of our own arithmetic.">Source</th>
               <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
               <th class="lcb-n">Drawn</th>
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
-              <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what the closing balance should be.">Computed</th>
-              <th class="lcb-n">Closing</th>
-              <th class="lcb-n">Variance</th><th>Booked</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
+              <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what OUR books say the closing balance should be. Renamed from Computed in session 280: this table and the month-in-flight table now use one word for our own figure and one for the lender's, so Variance means the same thing on both.">Books</th>
+              <th class="lcb-n" title="The LENDER's own closing figure for this month, and the date of the document it came from (hover the cell). Renamed from Closing in session 280 to match the month-in-flight table — Variance is Books minus Lender on both.">Lender</th>
+              <th class="lcb-n">Variance</th><th>Booked</th><th title="A pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed — green means the staging loop is working and nothing here needs you. This column was on the month-in-flight table and not here, so a live staged transaction was invisible on the close (session 280).">Staging</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
               <th title="The next thing to do about this row. A difference nobody can evaluate asks for the document that would settle it — uploading a current statement is far easier than investigating a gap measured against a stale one. Nothing appears here for a row that ties.">Action</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
@@ -21319,35 +21361,8 @@
     // "scheduled" tells them what is going to happen, which is the thing they came
     // to the column to find out. The number only appears when there is more than
     // one, because "scheduled ×1" is a count nobody asked for.
-    const SWEEP_FLAG_TEXT = {
-      duplicate_suspected: 'a look-alike transaction appeared beside it — open it to see what to check',
-      matched_early_suspect: 'it was matched BEFORE its scheduled date, so it likely caught the wrong bank line — open it to see how to fix',
-    };
-    const stagingCell = (r) => {
-      const all = r.stagedSplits, bad = r.stagedFlagged;
-      if (!all.length) return `<span style="color:var(--gray-300)">—</span>`;
-      // Clicking opens the split, not the loan -- this cell is about one staged
-      // transaction, and the row's own click (the loan detail view) is the wrong
-      // destination for it. stopPropagation, or you get both.
-      const open = (sp) => `event.stopPropagation();openLoanReviewModal('${sp.id}')`;
-      if (bad.length) {
-        const sp = bad[0];
-        const why = SWEEP_FLAG_TEXT[sp.stage_sweep_flag]
-          || 'the payment is overdue and still unmatched — open it to see what to check';
-        return `<span class="badge badge-red" style="cursor:pointer" onclick="${open(sp)}"
-          title="Staged in Xero for ${esc(sp.period_label)}, but ${esc(why)}.">needs a look</span>${
-          all.length > bad.length ? `<span class="lit-quiet" style="font-size:11px;margin-left:5px">+${all.length - bad.length} scheduled</span>` : ''}`;
-      }
-      const sp = all[0];
-      const periods = all.map(x => x.period_label).join(', ');
-      // GREEN, at David's instruction (session 280): a live staged transaction is the
-      // one healthy in-flight state on this table, and it is the only thing here that
-      // earns the colour. Everything finished is quiet; everything wrong is red.
-      return `<span class="badge badge-green" style="cursor:pointer" onclick="${open(sp)}"
-        title="A pre-split transaction is already sitting in Xero for ${esc(periods)}, waiting for the payment to land in the bank feed. The CPA clicks Match and it posts — nothing here needs you. The nightly sweep watches it and flags this cell if it goes wrong.">scheduled${
-        all.length > 1 ? ` ×${all.length}` : ''}</span>`;
-    };
-
+    // Session 280: the staging cell moved to _bkLoanStagingCell, shared with the
+    // close band. One builder, both tables — the rule that stops them drifting.
     const loanRow = (r) => {
       const { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusBadge, type, bal, v } = r;
       // David's ask: Lender moved to the far left; "Last statement" (the pulled
@@ -21392,8 +21407,13 @@
       // describes instead of standing as its own column — LESS IS BEST test 3,
       // and its own tooltip says it blocks nothing.
       const agree = _bkLoanAgreement(a);
-      const loanCell = `<div class="td-name" title="${esc(agree.title)}">${esc(a.xero_account_name || '—')}${
-        agree.has ? ' <span class="lit-agree" aria-label="Agreement on file">\u2713</span>' : ''}</div>`
+      // ⚠ THE TICK LIVES OUTSIDE .td-name, and that is not cosmetic. Inside it, the
+      // cell's own name text became "Paypal 2 ✓" and a harness helper that looks a
+      // loan up by that text stopped finding it — a failure that reads like a
+      // missing loan rather than a decorated one. A cell may carry more than the
+      // name; the element that IS the name must hold only the name.
+      const loanCell = `<div><span class="td-name">${esc(a.xero_account_name || '—')}</span>${
+        agree.has ? `<span class="lit-agree" title="${esc(agree.title)}" aria-label="Agreement on file">\u2713</span>` : ''}</div>`
         + `<div class="lcb-sub">${a.lender ? _loansFilterPill('lender', a.lender, esc(a.lender), f.lender === a.lender) : '—'}</div>`;
 
       // Source and Status are the SHARED cells — one definition, both tables.
@@ -21475,16 +21495,16 @@
         <td>${dateCell}</td>
         <td style="text-align:right">${principalCell}</td>
         <td style="text-align:right">${interestCell}</td>
+        <td style="text-align:right">${xeroCell}</td>
+        <td style="text-align:right">${balCell}</td>
+        <td style="text-align:right">${varianceCell}</td>
         <td>${_loansFilterPill('type', type.key, type.badge, f.type === type.key)}${
           // A STAGED newer entry is what the Staging column beside this one is
           // for, and two badges saying the same thing on one row is how a table
           // stops being read. The badge survives for every OTHER in-flight state
           // (a pending_review period, say), which nothing else on this row shows.
           inFlight && inFlight.status !== 'staged' ? `<span class="badge badge-blue" style="margin-left:5px" title="A newer entry for ${esc(inFlight.period_label)} is on file (${esc(String(inFlight.status).replace(/_/g, ' '))}) but the money has not moved yet, so it is not counted in the figures on this row.">+1 upcoming</span>` : ''}</td>
-        <td>${stagingCell(r)}</td>
-        <td style="text-align:right">${xeroCell}</td>
-        <td style="text-align:right">${balCell}</td>
-        <td style="text-align:right">${varianceCell}</td>
+        <td>${_bkLoanStagingCell(a)}</td>
       </tr>`;
     };
 
@@ -21526,7 +21546,7 @@
              Statement -> Lender  the lender's own figure, and its date
            so that Variance means one thing on both tables: books minus lender,
            as of the date on the row. -->
-      <colgroup><col style="width:16%"><col style="width:9%"><col style="width:7%"><col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:7%"></colgroup>
+      <colgroup><col style="width:16%"><col style="width:9%"><col style="width:7%"><col style="width:8%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"></colgroup>
       <thead><tr>
         ${thSort('loan', 'Loan')}
         ${thSort('account', 'Account #')}
@@ -21535,18 +21555,19 @@
         ${thSort('date', 'Date')}
         ${thSort('principal', 'Principal', true)}
         ${thSort('interest', 'Interest', true)}
-        ${thSort('type', 'Booked')}
-        ${thSort('staging', 'Staging')}
         ${thSort('xero', 'Books', true)}
         ${thSort('outstanding', 'Lender', true)}
         ${thSort('variance', 'Variance', true)}
+        ${thSort('type', 'Booked')}
+        ${thSort('staging', 'Staging')}
       </tr></thead>
       <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
       <tfoot><tr>
-        <td colspan="9">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
+        <td colspan="7">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
         <td style="text-align:right">${money2(totalXero)}</td>
         <td style="text-align:right">${money2(totalStatement)}</td>
         <td style="text-align:right"${totalVariance < 0.005 ? '' : ' class="lit-off"'} title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '<span class="lit-quiet">$0.00</span>' : money2(totalVariance)}</td>
+        <td></td><td></td>
       </tr></tfoot>
     </table></div>`;
   }

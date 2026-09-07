@@ -3981,6 +3981,57 @@ to "what is running".
 
 ---
 
+### Session 280 cont. 4 (2026-09-07) — STAGE 3: THE TWO TABLES SPEAK ONE LANGUAGE
+
+The consolidation is done. Both tables now read **numeric spine first, verdicts and actions
+after**, in the same order, with the same words.
+
+**Closing** (14): Loan · Source · Opening · Drawn · Principal · Interest · **Books** ·
+**Lender** · Variance · Booked · **Staging** · Status · Ledger · Action.
+**In flight** (12): Loan · Account # · Source · Last payment · Date · Principal · Interest ·
+Books · Lender · Variance · Booked · Staging.
+
+* **`Computed` → `Books`, `Closing` → `Lender`.** The point of the whole exercise: Variance
+  means one thing on both tables — our figure minus the lender's, as of the date on the row.
+* **Staging arrived on the close band.** A live pre-split transaction sitting in Xero was
+  visible on the month in flight and INVISIBLE on the close. Wrong way round: it is money the
+  product itself put there. `_bkLoanStagingCell(a)` is now shared — it takes the loan account
+  and derives the splits, so the close band did not have to grow a row object to use it.
+* **Agreement folded onto the Loan cell** on both, freeing a column.
+
+#### FOUR MISTAKES, ALL CAUGHT BY THE SUITE, ALL WORTH WRITING DOWN
+
+1. **The Staging cell went in after Status instead of after Booked** — header and row
+   disagreed by one, which shears every cell to its left. `close-band-columns` asserts body,
+   header and footer cell counts against each other precisely because a colgroup or a row one
+   short does not throw; it silently renders a lie.
+2. **I called `_bkLoanStagingCell` before writing it.** It existed only as a closure inside
+   `renderLoansTable` over that table's own row object.
+3. **The totals row was not updated** when Agreement left and Staging arrived — one fewer
+   leading blank, one more trailing. Same shearing failure, on the row a CPA reads first.
+4. **The agreement tick went INSIDE `.td-name`**, so the loan's own name text became
+   "Paypal 2 ✓" and a helper that looks a loan up by that text threw `no such loan`. The rule
+   that came out of it: **a cell may carry more than the name; the element that IS the name
+   must hold only the name.** The tick sits outside the span now, on both tables.
+
+**The suite's fixed-index readers were the other half of the work.** `close-band-columns`
+reads `tr.children[1]`/`[2]` for the agreement and basis attributes, and those shifted when
+Agreement folded in. Every one was FOLLOWED to its new home rather than deleted — an
+assertion that goes green because the thing it checked moved is the failure mode this file
+keeps recording. The reader's key names (`computed`, `closing`) deliberately did NOT change,
+because ~150 assertions read them and renaming the reader's vocabulary too would have made
+one diff about two things.
+
+**Verified: 2,159 browser assertions across all 46 groups, 2,158 passing.** The single red is
+`[history] s240 #10`, Tech Debt #19, red on purpose.
+
+**Not done, and deliberately:** sortable headers on the close band. In flight has them; the
+band renders `rf.rows` in a fixed order and giving it sorting is a feature, not a rename, on
+the surface a CPA signs off. It is the last item of parity and it can wait for a session that
+starts with it.
+
+---
+
 ### Session 280 cont. 3 (2026-09-06) — A SHELL THAT CAN PUSH
 
 David: *"Set up a shell to push to GitHub."* Built; **one step remains and only he can do it.**

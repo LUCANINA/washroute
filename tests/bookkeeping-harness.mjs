@@ -10826,7 +10826,7 @@ GROUPS.push({
       const p = await newHarnessPage({ tab: 'loans' });
       const hdr = await heads(p);
       for (const col of ['Loan', 'Account #', 'Source', 'Last payment', 'Date',
-                         'Principal', 'Interest', 'Staging', 'Books', 'Lender', 'Variance', 'Status']) {
+                         'Principal', 'Interest', 'Staging', 'Books', 'Lender', 'Variance']) {
         t.ok(hdr.includes(col), `s280: In flight carries the shared column "${col}"`, JSON.stringify(hdr));
       }
       /* THE RENAMES HAVE TO HAVE HAPPENED, not merely the new names appeared.
@@ -10834,6 +10834,16 @@ GROUPS.push({
          the same fact told twice under two headings — the exact defect the
          consolidation exists to remove. */
       t.ok(!hdr.includes('Xero'), 's280: ⭐ ...and "Xero" is GONE, not sitting beside "Books"', JSON.stringify(hdr));
+      /* ── STATUS IS NOT ON THIS TABLE, AND THAT IS THE POINT (session 280) ──
+         I added it here earlier this session, and David spotted the shape of the
+         problem: the Variance cell beside it already renders the same verdict, in
+         colour and in words ("small", "explained", "per schedule"). Two statements
+         of one fact. It stays on the CLOSING table because there it also goes ✗ for
+         an unposted payment — a claim no money column makes — which is why this is
+         an asymmetry rather than an oversight. */
+      t.ok(!hdr.includes('Status'),
+           's280: ⭐ ...and In flight has NO Status column — Variance already says it',
+           JSON.stringify(hdr));
       t.ok(!hdr.includes('Statement'), 's280: ⭐ ...and "Statement" is GONE, not sitting beside "Lender"', JSON.stringify(hdr));
       t.ok(!hdr.includes('Lender ') && hdr.filter(h => h === 'Lender').length === 1,
            's280: ...and Lender is one column, not also the old left-hand lender column', JSON.stringify(hdr));
@@ -10930,11 +10940,10 @@ GROUPS.push({
       const p = await newHarnessPage({ tab: 'loans' });
       const out = await p.evaluate(() => {
         const hdr = [...document.querySelectorAll('#loans-table-wrap thead th')].map(x => x.innerText.trim());
-        const si = hdr.indexOf('Source'), ti = hdr.indexOf('Status');
+        const si = hdr.indexOf('Source');
         const rows = [...document.querySelectorAll('#loans-table-wrap tbody tr')].map(tr => ({
           id: tr.getAttribute('data-loan-id'),
           source: (tr.children[si].innerText || '').trim(),
-          status: (tr.children[ti].innerText || '').trim(),
         }));
         // What the shared functions themselves say, called directly.
         const direct = {};
@@ -10955,23 +10964,24 @@ GROUPS.push({
          fell through to 'unchecked', telling the reader to run a check that
          would never cover it. The suite caught it; the product now names every
          group and states an unrecognised one as unrecognised. */
-      const MARK = { reconciled: '·', immaterial: '·', variance: '·',
-                     byschedule: '·', unverified: '·', unchecked: '·', na: '·' };
-      MARK.reconciled = '✓'; MARK.immaterial = '✓'; MARK.variance = '✗';
-      /* A group the map does not know must FAIL here rather than pass as a dot —
-         otherwise this assertion goes green on exactly the omission it exists
-         to catch. */
-      t.ok(out.rows.every(r => MARK[(out.direct[r.id] || {}).group] !== undefined),
-           's280: every rendered row has a KNOWN roster group — a new one fails here, not silently',
-           JSON.stringify(out.rows.filter(r => MARK[(out.direct[r.id] || {}).group] === undefined).slice(0, 3)));
-      t.ok(out.rows.every(r => r.status === MARK[(out.direct[r.id] || {}).group]),
-           's280: ⭐ ...and every Status mark is the roster classification’s, the same one the close band reads',
-           JSON.stringify(out.rows.filter(r => r.status !== MARK[(out.direct[r.id] || {}).group]).slice(0, 3)));
-      /* NON-VACUITY: three marks exist and the fixture exercises more than one,
-         or "every row matches" is a statement about a single repeated symbol. */
-      t.ok(new Set(out.rows.map(r => r.status)).size > 1,
-           's280: ...and the fixture puts more than one Status mark on screen',
-           JSON.stringify([...new Set(out.rows.map(r => r.status))]));
+      /* The Status half of this check moved to the CLOSING table, which is where
+         the column now lives. Same proof shape: the rendered mark must equal what
+         the shared classification says, so the two cannot drift. */
+      await p.evaluate(() => switchLoansPeriod('closing'));
+      await p.settle();
+      const marks = await p.evaluate(() => {
+        // #lcb-table is the close band's own table; the band div wraps more than it.
+        const hdr2 = [...document.querySelectorAll('#lcb-table thead th')].map(x => x.textContent.replace(/\s+/g, ' ').trim());
+        const si2 = hdr2.indexOf('Status');
+        return { si2, hdr2, glyphs: [...document.querySelectorAll('#lcb-table tbody tr')]
+          .map(tr => si2 >= 0 && tr.children[si2] ? (tr.children[si2].textContent || '').trim() : '')
+          .filter(g => g !== '') };
+      });
+      t.ok(marks.si2 >= 0, 's280: ⭐ Status DOES still exist on the Closing table — it carries the unposted claim too',
+           JSON.stringify(marks));
+      t.ok(marks.glyphs.length > 0 && marks.glyphs.every(g => ['✓', '✗', '·'].includes(g)),
+           's280: ...and every mark there is one of the three, not prose',
+           JSON.stringify(marks.glyphs));
       await p.close();
     }
   },
