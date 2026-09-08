@@ -11,6 +11,7 @@
 import assert from 'node:assert'
 import {
   endOfMonth, balanceAsOf, anchorsByBalanceDate, looksPeriodLabelled, normalizeBasis,
+  anchorRefusal, refusedAnchors, measuredDate,
 } from '../supabase/functions/_shared/statement-period.ts'
 
 let pass = 0, fail = 0
@@ -149,6 +150,97 @@ t('a null balance cannot crash it', () => {
     { statement_date: '2026-08-03', principal_balance: 66215.03 },
   ], 'balance_date'))
 })
+
+/* ── session 284, Tech Debt #46: A DUE DATE IS NOT A BALANCE DATE ──────────
+   SBA EIDL issues its statement about three weeks AHEAD of the payment and
+   dates it to the DUE date; the document prints the date its balance is true
+   as "Last Payment Date". The real figures below are EIDL's own: the 09/25/2026
+   statement, Last Payment Date 08/24/2026, Outstanding Balance $960,005.00. */
+
+h('a measurement outranks every rule about what a filed date means')
+t('a stated date wins over balance_date', () =>
+  assert.equal(balanceAsOf('2026-09-25', 'balance_date', '2026-08-24'), '2026-08-24'))
+t('...and over period_start, which would otherwise say month end', () =>
+  assert.equal(balanceAsOf('2026-09-01', 'period_start', '2026-08-24'), '2026-08-24'))
+t('...and over due_date, which is the case it was built for', () =>
+  assert.equal(balanceAsOf('2026-09-25', 'due_date', '2026-08-24'), '2026-08-24'))
+t('a timestamp is accepted by its date part, not rejected', () =>
+  assert.equal(balanceAsOf('2026-09-25', 'due_date', '2026-08-24T00:00:00Z'), '2026-08-24'))
+
+h('...and anything that is not a date is NOT a measurement')
+for (const junk of [null, undefined, '', 'unknown', '08/24/2026', '2026-8-24', 'Last Payment Date', 0, {}])
+  t(`measuredDate refuses ${JSON.stringify(junk)}`, () => assert.equal(measuredDate(junk), null))
+t('...so an unmeasured due_date row falls back to the FILED date, never a guess', () =>
+  // The tempting version walks back a month. That is right for a lender due on
+  // the 25th and wrong for one due on the 5th, and nothing on screen would say
+  // which — session 245. The row is refused instead; see below.
+  assert.equal(balanceAsOf('2026-09-25', 'due_date'), '2026-09-25'))
+t('due_date NEVER shifts a date by arithmetic', () => {
+  for (const d of ['2026-09-05', '2026-09-25', '2026-01-31', '2024-02-29'])
+    assert.equal(balanceAsOf(d, 'due_date'), d)
+})
+
+h('the refusal: it withholds a claim, and asks')
+t('an unmeasured due_date row is refused', () => {
+  const r = anchorRefusal('2026-09-25', 'due_date')
+  assert.ok(r && /DUE DATE/i.test(r), r ?? 'no refusal')
+  assert.ok(/2026-09-25/.test(r!), 'names the date it will not trust')
+  assert.ok(/Last Payment Date/i.test(r!), 'ASKS for the field that settles it — session 262')
+})
+t('a MEASURED due_date row is not refused', () =>
+  assert.equal(anchorRefusal('2026-09-25', 'due_date', '2026-08-24'), null))
+t('no other basis is ever refused — this must not touch 13 of 14 loans', () => {
+  assert.equal(anchorRefusal('2026-09-25', 'balance_date'), null)
+  assert.equal(anchorRefusal('2026-09-01', 'period_start'), null)
+  assert.equal(anchorRefusal('2026-09-25', 'wat' as any), null)
+})
+
+h('anchorsByBalanceDate and refusedAnchors are a PAIR — nothing is lost')
+const EIDL = [
+  { statement_date: '2026-08-25', principal_balance: 960005.00, balance_as_of: null },
+  { statement_date: '2026-09-25', principal_balance: 960005.00, balance_as_of: null },
+]
+t('an unmeasured due-date row does not reach a caller as an anchor', () =>
+  assert.equal(anchorsByBalanceDate(EIDL, 'due_date').length, 0))
+t('...and comes back from refusedAnchors instead, with the reason', () => {
+  const r = refusedAnchors(EIDL, 'due_date')
+  assert.equal(r.length, 2)
+  assert.ok(r.every(x => /DUE DATE/i.test(x.anchor_refusal)))
+  // An exclusion nobody can see is evidence deleted (session 245). Every row
+  // the filter dropped must be obtainable, with its document, from this side.
+  assert.deepEqual(r.map(x => x.statement_date).sort(), ['2026-08-25', '2026-09-25'])
+})
+t('measure them and they anchor, on the date the DOCUMENT gave', () => {
+  const measured = EIDL.map((s, i) => ({ ...s, balance_as_of: i ? '2026-08-24' : '2026-07-22' }))
+  const a = anchorsByBalanceDate(measured, 'due_date')
+  assert.equal(a.length, 2)
+  assert.deepEqual(a.map(x => x.statement_date), ['2026-07-22', '2026-08-24'])
+  // The filed date survives, because the three upload-dedupe checks compare
+  // against the date a document was FILED under (session 282).
+  assert.deepEqual(a.map(x => x.filed_date), ['2026-08-25', '2026-09-25'])
+  assert.equal(refusedAnchors(measured, 'due_date').length, 0)
+})
+t('re-dating can REORDER, and the pair must survive it', () => {
+  // A due-date loan whose two documents are filed in one order and measured in
+  // the other. Sorting by the measured date is the whole point.
+  const a = anchorsByBalanceDate([
+    { statement_date: '2026-09-25', principal_balance: 2, balance_as_of: '2026-07-22' },
+    { statement_date: '2026-08-25', principal_balance: 1, balance_as_of: '2026-08-24' },
+  ], 'due_date')
+  assert.deepEqual(a.map(x => x.statement_date), ['2026-07-22', '2026-08-24'])
+})
+t('THE CONTROL: on balance_date the same rows are untouched and none is refused', () => {
+  const a = anchorsByBalanceDate(EIDL, 'balance_date')
+  assert.deepEqual(a.map(x => x.statement_date), ['2026-08-25', '2026-09-25'])
+  assert.equal(refusedAnchors(EIDL, 'balance_date').length, 0)
+})
+
+h('looksPeriodLabelled must not start nagging a due-date loan')
+t('it is silent on due_date — that question is already answered', () =>
+  assert.equal(looksPeriodLabelled([
+    { statement_date: '2026-08-01', principal_balance: 65173.94 },
+    { statement_date: '2026-08-03', principal_balance: 66215.03 },
+  ], 'due_date'), null))
 
 console.log('\n' + '='.repeat(64))
 console.log(`  ${pass} passed, ${fail} failed`)

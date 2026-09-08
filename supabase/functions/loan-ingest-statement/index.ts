@@ -212,6 +212,20 @@ import { resolvePeriodLabel } from '../_shared/period-label.ts'
 // already established.
 const INGESTIBLE_BALANCE_BASIS = ['principal_only', 'total_payback', 'payoff_quote']
 
+// Session 284, Tech Debt #46. `balance_as_of` is the date the DOCUMENT ITSELF
+// states its balance is true -- SBA EIDL prints "Last Payment Date", three
+// weeks behind the due date it files the statement under. It is a MEASUREMENT,
+// so it is accepted only as a bare YYYY-MM-DD and is never computed here from a
+// due date, a period label or our own books (session 245: a date is measured or
+// asked for, never inferred). An unparseable value keeps the column NULL, which
+// means "the document did not say" and hands the question back to the loan's
+// statement_date_basis -- the safe direction, and the same shape as the basis
+// allowlist above.
+const asMeasuredDate = (v: unknown): string | null => {
+  const d = String(v ?? '').slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null
+}
+
 const MISMATCH_TOLERANCE = 2.00 // dollars
 const AMOUNT_TOLERANCE = 0.02   // dollars -- for exact-dollar Xero matching
 const INTEREST_ACCOUNT_CODE = '800'
@@ -436,7 +450,7 @@ async function handleRequest(req: Request): Promise<Response> {
       lender_account_number, statement_date, principal_balance,
       payoff_amount, payoff_good_thru, total_amount_due, payment_due_date,
       csv_filename, csv_base64, pulled_by, transactions, explicit_split,
-      anchors_only, balance_basis, allow_settled_loan_write,
+      anchors_only, balance_basis, balance_as_of, allow_settled_loan_write,
       split_period_label, allow_duplicate_document,
     } = body
 
@@ -609,6 +623,10 @@ async function handleRequest(req: Request): Promise<Response> {
         // being written. Deliberately still an allowlist and not a pass-through.
         ...(INGESTIBLE_BALANCE_BASIS.includes(String(balance_basis ?? ''))
           ? { balance_basis: String(balance_basis) } : {}),
+        // Same discipline, one line down: written only when it parses as a
+        // date, omitted otherwise so the column keeps its NULL rather than
+        // being set to something nobody measured.
+        ...(asMeasuredDate(balance_as_of) ? { balance_as_of: asMeasuredDate(balance_as_of) } : {}),
       }, { onConflict: 'loan_account_id,statement_date,source' })
       .select()
       .single()

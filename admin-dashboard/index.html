@@ -11976,6 +11976,7 @@
         // branch it sits on. Change one of these two call sites, change both.
         split_period_label: p.splitPeriodLabel || undefined,
         balance_basis: p.balanceBasis || undefined,
+        balance_as_of: p.balanceAsOfDate || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       return;
@@ -13135,6 +13136,7 @@
   let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
   let _loanUploadParsedSplitPeriod = null; // 'YYYY-MM' when the statement's own date is NOT the split's month (session 281)
   let _loanUploadParsedBalanceBasis = null; // 'principal_only' from a PDF parser whose statement labels its own balance (session 256, round 7)
+  let _loanUploadParsedBalanceAsOf = null;  // the date the DOCUMENT states its balance is true, when it prints one (session 284, Tech Debt #46)
 
   // ONE place decides what the basis control says, so the three callers cannot
   // drift (session 231's rule, applied before there is a second branch to get
@@ -14840,8 +14842,36 @@
     }
     for (const s of rows) {
       if (s.filed_date == null) s.filed_date = s.statement_date;
-      if (basis.get(s.loan_account_id) === 'period_start') s.statement_date = _endOfMonthIso(s.filed_date);
-      s.anchor_excluded = s.anchor_exclusion_reason != null;
+      const b = basis.get(s.loan_account_id);
+      // ── SESSION 284, THE THIRD BASIS ──────────────────────────────────────
+      // The browser half of _shared/statement-period.ts, kept deliberately in
+      // step with it — same three bases, same precedence, same refusal.
+      //
+      // A date the DOCUMENT stated outranks any rule about what its filed date
+      // means: the rule is a policy about a lender, the measurement is this
+      // page. So balance_as_of wins over both re-dating branches below.
+      const measured = /^\d{4}-\d{2}-\d{2}$/.test(String(s.balance_as_of || '').slice(0, 10))
+        ? String(s.balance_as_of).slice(0, 10) : null;
+      if (measured) s.statement_date = measured;
+      else if (b === 'period_start') s.statement_date = _endOfMonthIso(s.filed_date);
+      // 'due_date' RE-DATES NOTHING. SBA EIDL issues a statement three weeks
+      // ahead of the payment and files it under the DUE date, so that date says
+      // nothing about when the balance was true. Walking back a month would be
+      // right for a lender due on the 25th and wrong for one due on the 5th,
+      // with nothing on screen to say which — a derived quantity of exactly the
+      // kind sessions 245-247 were spent deleting. Instead the row is refused as
+      // a balance ANCHOR and the reader is asked for the date the document
+      // prints. Refused is not deleted: the row keeps its document and stays as
+      // evidence for its own period, exactly like anchor_exclusion_reason.
+      s.anchor_refusal = (b === 'due_date' && !measured)
+        ? `this lender dates its statement to the payment DUE date (${s.filed_date}), which says nothing about when the balance was true — the statement is issued weeks ahead of it. The document prints the date itself, usually as “Last Payment Date”; until that is recorded this balance cannot be placed in time.`
+        : null;
+      // The two objections are INDEPENDENT and both must exclude: a human's
+      // recorded reason (session 282) and this machine refusal. Every branch
+      // that chooses a balance already reads anchor_excluded, which is why the
+      // refusal is folded into it here rather than added as a ninth thing to
+      // remember (session 231).
+      s.anchor_excluded = s.anchor_exclusion_reason != null || s.anchor_refusal != null;
     }
     return rows;
   }
@@ -22258,7 +22288,7 @@
       ? `<div style="max-height:220px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
           <thead><tr><th>Date</th><th style="text-align:right">Balance</th><th>Basis</th><th>Source</th></tr></thead>
           <tbody>${stmts.map(s => `<tr>
-            <td class="td-mono" title="${esc(s.anchor_exclusion_reason || (s.filed_date !== s.statement_date ? 'Filed under ' + s.filed_date + '; its balance is true as of ' + s.statement_date + '.' : ''))}">${esc(s.filed_date || s.statement_date)}${s.filed_date && s.filed_date !== s.statement_date ? ` <span style="color:var(--gray-400)">· as of ${esc(s.statement_date)}</span>` : ''}${s.anchor_excluded ? ` <span style="color:var(--gray-400)">· not an anchor</span>` : ''}</td>
+            <td class="td-mono" title="${esc(s.anchor_exclusion_reason || s.anchor_refusal || (s.filed_date !== s.statement_date ? 'Filed under ' + s.filed_date + '; its balance is true as of ' + s.statement_date + '.' : ''))}">${esc(s.filed_date || s.statement_date)}${s.filed_date && s.filed_date !== s.statement_date ? ` <span style="color:var(--gray-400)">· as of ${esc(s.statement_date)}</span>` : ''}${s.anchor_excluded ? ` <span style="color:var(--gray-400)">· not an anchor</span>` : ''}</td>
             <td class="td-mono" style="text-align:right">${money2(s.principal_balance)}</td>
             <td style="font-size:12px;color:var(--gray-500)">${esc((s.balance_basis || 'unknown').replace(/_/g, ' '))}</td>
             <td style="font-size:12px;color:var(--gray-500)">${esc((s.source || '').replace(/_/g, ' '))}</td>
@@ -22910,6 +22940,7 @@ ${noActivityNote}
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedSplitPeriod = null;
     _loanUploadParsedBalanceBasis = null;
+    _loanUploadParsedBalanceAsOf = null;
     _liSetBasisControl(null, false);
     _loanUploadParsedBulkPeriods = null;
     _loanUploadBulkAnchorsOnly = false;
@@ -23372,6 +23403,16 @@ ${noActivityNote}
         const appliedInterest = text.match(/Applied\s+to\s+Interest\s+\$?([\d,]+\.\d{2})/i);
         const outstandingBalance = text.match(/Outstanding\s+Balance\s+\$?([\d,]+\.\d{2})/i);
         const paymentDue = text.match(/Payment\s+Due\s+\$?([\d,]+\.\d{2})/i);
+        // Session 284, Tech Debt #46. The SBA issues this statement about three
+        // weeks AHEAD of the payment and dates it to the DUE date, so
+        // `statementDate` above is NOT the date the balance is true. The
+        // document says which date is, on its own face, and the sample in the
+        // comment at the top of this extractor shows it interleaved the same way
+        // as the rest: "...Last Payment Date  07/22/2026  Applied to Principal...".
+        // Capturing it is the whole of the fix -- nothing anywhere computes this
+        // date, because a computed one is right for a lender due on the 25th and
+        // wrong for one due on the 5th, with nothing on screen to say which.
+        const lastPaymentDate = text.match(/Last\s+Payment\s+Date\s+(\d{2}\/\d{2}\/\d{4})/i);
         if (!loanNum || !statementDate || !appliedPrincipal || !appliedInterest || !outstandingBalance) return null;
         return {
           statementDate: _mdyToIso(statementDate[1]),
@@ -23379,6 +23420,10 @@ ${noActivityNote}
           accountNumber: loanNum[1],
           // "Outstanding Balance" -- SBA EIDL's own label. Session 256, round 7.
           balanceBasis: 'principal_only',
+          // Absent from an older layout is fine: the row is then REFUSED as a
+          // balance anchor and the reader is asked for the date, which is the
+          // honest outcome. It is never filled in by inference.
+          balanceAsOfDate: lastPaymentDate ? _mdyToIso(lastPaymentDate[1]) : null,
           explicitSplit: {
             principal: parseFloat(appliedPrincipal[1].replace(/,/g, '')),
             interest: parseFloat(appliedInterest[1].replace(/,/g, '')),
@@ -23644,6 +23689,7 @@ ${noActivityNote}
     _loanUploadParsedExplicitSplit = null;
     _loanUploadParsedSplitPeriod = null;
     _loanUploadParsedBalanceBasis = null;
+    _loanUploadParsedBalanceAsOf = null;
     _liSetBasisControl(null, false);
     _loanUploadParsedBulkPeriods = null;
     _loanUploadBulkAnchorsOnly = false;
@@ -23823,6 +23869,7 @@ ${noActivityNote}
       _loanUploadParsedExplicitSplit = browserParsed.explicitSplit || null;
       _loanUploadParsedSplitPeriod = browserParsed.splitPeriodLabel || null;
       _loanUploadParsedBalanceBasis = browserParsed.balanceBasis || null;
+      _loanUploadParsedBalanceAsOf = browserParsed.balanceAsOfDate || null;
       _liSetBasisControl(_loanUploadParsedBalanceBasis, true);
       _loanUploadParsedAcctNum = browserParsed.accountNumber || null;
       if (browserParsed.accountNumber) {
@@ -24222,6 +24269,10 @@ ${noActivityNote}
         explicit_split: _loanUploadParsedExplicitSplit || undefined,
         split_period_label: _loanUploadParsedSplitPeriod || undefined,
         balance_basis: balanceBasis || _loanUploadParsedBalanceBasis || undefined,
+        // Session 284: the date the DOCUMENT says its balance is true, when it
+        // says one. Only a parser ever sets this -- there is no control for it,
+        // deliberately, because a typed date is not a measurement.
+        balance_as_of: _loanUploadParsedBalanceAsOf || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       closeLoanIntakeModal();

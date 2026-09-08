@@ -2,6 +2,120 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
+> ### 0zo. ✅ TECH DEBT #46 — A DUE DATE IS NOT A BALANCE DATE. BUILT, NOT YET DEPLOYED. (session 284)
+>
+> SBA EIDL issues its statement ~3 weeks AHEAD and dates it to the payment DUE date. The 09/25
+> document prints its own evidence: *Last Payment Date 08/24/2026 · Applied to Principal $0.00 ·
+> Outstanding Balance $960,005.00.* The balance is true on **08/24**; the row says **09/25**. Same
+> defect as iBusiness/FC, second lender, on the $960k loan.
+>
+> **THE THIRD BASIS DOES NO ARITHMETIC, AND THAT IS THE DESIGN.** The obvious `due_date` walks back
+> a month, or to the previous month end. It is right for a lender due on the 25th and wrong for one
+> due on the 5th, with nothing on screen to say which — a derived quantity of exactly the kind
+> sessions 245–247 were spent deleting. *A DATE IS MEASURED OR ASKED FOR, NEVER INFERRED.*
+>
+> So there are two pieces and the column is the load-bearing one:
+>
+> | Piece | What it is |
+> |---|---|
+> | `loan_statements.balance_as_of` (new, nullable) | the date the DOCUMENT states its balance is true. Written only by a parser reading the page. NULL = the document did not say. |
+> | `statement_date_basis = 'due_date'` (new value) | records that the filed date is a due date and therefore is NOT a balance date. It re-dates nothing; it makes the measurement REQUIRED, and refuses the row as an anchor without one. |
+>
+> **Precedence, asserted both sides:** a measurement outranks every basis rule, including
+> `period_start`. The rule is a policy about a lender; the measurement is this page.
+>
+> **REFUSED IS NOT DELETED** — the row keeps its document, stays in the statement list, and carries
+> the reason, which ASKS for the missing date rather than claiming a gap (session 262).
+> `anchorsByBalanceDate` filters refused rows so every branch inherits the refusal without knowing
+> the rule exists (session 231); `refusedAnchors()` hands them back with the reason, because an
+> exclusion nobody can see is evidence deleted (session 245). **The two are a pair — do not use one
+> without the other.**
+>
+> ⚠️ **With its only in-window document refused, the close band shows NO lender figure rather than
+> last month's opening.** That is deliberate: substituting a stale balance for a misdated one is the
+> same defect wearing a different number. Asserted as an absence, with the reason asserted separately
+> so "refused" can never read as "no document".
+>
+> **Migration `session_284_statement_balance_as_of_and_due_date_basis` IS APPLIED**, reviewed first
+> (`washroute-migration-review`): nullable, no default, no rewrite; the CHECK widening is a superset;
+> zero references to either name anywhere before this change. **PostgREST visibility PROVEN before
+> any dependent code** — `select=id,balance_as_of` over REST returned 200, not PGRST204 (session
+> 176/177's trap, and the reason nothing is deployed yet).
+>
+> **Tests. 51 Node assertions in `statement-period.test.mts` (was 27)** — including the whole junk
+> set `measuredDate` must refuse, a proof that `due_date` never shifts a date, the pair property
+> (every filtered row obtainable with its reason), and the control that 13 of 14 loans are untouched.
+> **Harness `statement-date-basis` 7 → 17**, on the same three-armed structure as the section above
+> it, and the discriminator is about the DATE, not the figure: without the basis the same row anchors
+> on the day the payment is DUE, and the Lender cell reads the same money either way — which is
+> exactly why a figure-only assertion here would have been decoration.
+>
+> ### ⏭️ 0zo-ii. WHAT DAVID STILL HAS TO DO — IN THIS ORDER
+>
+> Nothing below is optional and the order is the safe one: every piece is a no-op until the last
+> step, so a half-finished sequence cannot produce a wrong number.
+>
+> 1. **`git push`** (the sandbox has no network). Vercel takes the dashboard live in ~30s.
+> 2. **Deploy the three edge functions. THE FLAG IS A DECISION — probed 2026-09-08, by behaviour:**
+>
+>    | Function | no-auth POST said | so |
+>    |---|---|---|
+>    | `loan-ingest-statement` | `401 UNAUTHORIZED_NO_AUTH_HEADER` → `verify_jwt` **true** | **no flag** |
+>    | `reconciliation-run` | `403 {"error":"Not authorized."}` → **false** | **`--no-verify-jwt`** |
+>    | `loan-find-difference` | `403 {"error":"Not authorized."}` → **false** | **`--no-verify-jwt`** |
+>
+>    ```
+>    npx -y supabase@latest functions deploy loan-ingest-statement --project-ref umjpbuxrdydwejqtensq
+>    npx -y supabase@latest functions deploy reconciliation-run    --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+>    npx -y supabase@latest functions deploy loan-find-difference  --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+>    ```
+>    Re-probe afterwards and confirm each answers the same way it did above.
+> 3. **ONLY THEN set the loan:** `update loan_accounts set statement_date_basis='due_date' where lender ilike '%EIDL%'`.
+>    ⚠️ **Not before.** `normalizeBasis` maps an unknown value to `balance_date`, so the DB would
+>    accept `'due_date'` while the old code silently ignored it — safe, but it would look applied and
+>    do nothing.
+> 4. **Re-upload the two EIDL PDFs** (2026-08-25 and 2026-09-25) through the intake. That is the data
+>    fix David chose, and it is better than an UPDATE: the same code path that prevents recurrence
+>    writes the dates, off the documents' own `Last Payment Date`, and a successful re-upload is live
+>    proof the capture works. The upsert key is (loan, statement_date, source) so each replaces its
+>    own row; the sha256 duplicate guard only refuses a same-bytes row under a DIFFERENT date.
+>    **Until step 4 both rows are refused as anchors and the close band shows no EIDL lender figure** —
+>    correct, and visible, rather than a balance a month out of place.
+>
+> ⚠️ **Nothing here changes a number today and that is why it was worth doing now.** EIDL's principal
+> is not moving ($0.00 applied, same $960,005.00 on both statements), so a misdated balance is right
+> on every date. The day it starts amortizing it is a month out, silently, on the largest loan on the
+> book.
+>
+> ### 0zn-ii. ✅ THE EIGHT SILENT HARNESS GROUPS ARE NOT MACHINE-SPECIFIC — one stale pair of labels (session 284)
+>
+> §0zl left this open: *"somebody should find out whether those groups throw everywhere or only on
+> this machine, because eight silent groups is a third of the close-band coverage."* **It is neither
+> the machine nor the fixture. `readSurfaces` asked for a "Computed" column and a "Closing" column;
+> session 280's consolidation renamed them Books and Lender.** `colIx` throws on a missing header —
+> deliberately and correctly — so the shared reader threw, taking `cold-boot`, `loader-failure`,
+> `tab-races`, `two-surfaces`, `close-band`, `money-format`, `history` and `closing-evidence` with it.
+>
+> **Two labels. 794 assertions came back** in those seven alone, plus `closing-evidence`.
+>
+> ⚠️ **AND THEY WERE NOT ALL GREEN — six red, and every one MEASURED against HEAD rather than
+> assumed.** I swapped the shipped `index.html` for `git show HEAD:` and re-ran: identical either
+> side, so **none of the six is session 284's**. They are findings that have been invisible for a
+> week, and they are the first thing the next session should look at:
+>
+> * `two-surfaces` — *"statement coverage: Loans close-band gate equals the Client View checklist
+>   count"*. This is Tech Debt #32's eleven-to-one shape, and `ask-not-claim` k4 exists to stop it
+>   returning unnoticed. It returned; the assertion that would have said so was in a group that could
+>   not run.
+> * `history` — *"s240 #10: no non-principal_only balance basis inside the published debt total"*.
+> * `closing-evidence` ce16 ×4, including its own CONTROL — *"pre-review, the client card said July
+>   was ready for the accountant"*. A failing control means the group's premise no longer holds, so
+>   read it before trusting anything else it says.
+>
+> **The lesson is the cheap part and it is the same one as §0zn:** a test that cannot RUN is
+> indistinguishable from one that passes, exactly as a test that transcribes is (session 245). A
+> throwing group should be as loud as a red assertion; today it is one line in a run nobody totals.
+>
 > ### 0zn. ✅ TECH DEBT #47'S ROOT CAUSE IS FOUND AND FIXED — and there was a SECOND field (session 284)
 >
 > **`_bkFileItem` — the BATCH intake — calls `loan-ingest-statement` and dropped two fields that
@@ -3137,13 +3251,18 @@ it does.** Principal is not moving at all — $0.00 applied to principal, and th
 $960,005.00 on both the 08-25 and the 09-25 statements. A misdated balance that never changes is
 right on every date. The day principal starts amortizing, this misdates by a month silently.
 
-**Next step:** decide whether EIDL needs a third `statement_date_basis` (`due_date`, re-dating back
-to the last payment date the document itself prints) or whether the existing `period_start` shape
-covers it. Do NOT simply re-date the rows by hand — §0zl's whole lesson is that the fix belongs in
-the basis field, once, at load, so all eight comparison branches inherit it. Also note the document
-prints `Last Payment Date`, `Applied to Principal` and `Applied to Interest`, none of which we
-capture — the same capture gap as §0zh's paid-ahead fields, and the same payoff: the product could
-say *"no principal applied — interest-only"* instead of showing a balance that looks frozen.
+✅ **BUILT session 284, AWAITING DEPLOY — and the answer was neither option this note offered.**
+`period_start` does not cover it (09/25 would move to 09/30, five days the WRONG way), and a
+`due_date` that re-dates to the last payment date by ARITHMETIC is an inference — right for a lender
+due on the 25th, wrong for one due on the 5th, with nothing on screen to say which. The fix
+**measures**: new nullable `loan_statements.balance_as_of`, written only by a parser reading the
+document's own `Last Payment Date`, which outranks every basis rule. The third basis exists and does
+no arithmetic at all — `due_date` records that the filed date is NOT a balance date, so the row
+anchors only on a measured date and is otherwise REFUSED, keeping its document and asking for the
+one field that settles it. 51 Node + 17 harness assertions. Full write-up and the ordered deploy
+steps: START HERE §0zo and §0zo-ii. ⏭️ **Still uncaptured:** `Applied to Principal` /
+`Applied to Interest`, the same gap as §0zh's paid-ahead fields — the product could say *"no
+principal applied — interest-only"* rather than showing a balance that looks frozen.
 
 **47. `balance_basis='unknown'` can still be produced on a real lender document — §0w reopened
 (session 283).** Session 281 relabelled the four unlabelled rows and declared *"zero unlabelled

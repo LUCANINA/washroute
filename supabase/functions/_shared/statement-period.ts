@@ -33,12 +33,43 @@
 // would be shopping for the answer, which is the thing this whole engine exists
 // to stop.
 
-export type StatementDateBasis = 'balance_date' | 'period_start'
+// ── THE THIRD BASIS: A DUE DATE IS NOT A BALANCE DATE (session 284) ───────
+// SBA COVID-EIDL issues a statement about three weeks AHEAD of the payment and
+// dates it to the DUE date. The 09/25/2026 document prints its own evidence --
+// Last Payment Date 08/24/2026, Applied to Principal $0.00, Outstanding Balance
+// $960,005.00 -- so the balance is true on 08/24 and the row says 09/25.
+//
+// 'due_date' therefore RE-DATES NOTHING BY ARITHMETIC. The tempting version
+// subtracts a month, or walks back to the previous month end, and that is a
+// derived quantity of exactly the kind sessions 245-247 were spent deleting: it
+// happens to be right for a lender whose payment falls on the 25th and is wrong
+// for one whose payment falls on the 5th, and nothing on screen would say which
+// you had. A DATE IS MEASURED OR ASKED FOR, NEVER INFERRED (session 245).
+//
+// So the basis does the one honest thing instead: it says the filed date is not
+// a balance date, and a row on such a loan may anchor a balance ONLY when the
+// document's own date was captured into loan_statements.balance_as_of. Without
+// it the row is REFUSED as an anchor -- it keeps its document and stays as
+// evidence for its own period, exactly like anchor_exclusion_reason (s282), and
+// the reader is asked for the date rather than told a wrong one.
+//
+// It costs nothing today and that is the reason to do it now: EIDL's principal
+// is not moving ($0.00 applied, same balance on both statements), so a misdated
+// balance is right on every date. The day it starts amortizing it is a month out
+// on the largest loan on the book, silently.
 
-export const STATEMENT_DATE_BASES: StatementDateBasis[] = ['balance_date', 'period_start']
+export type StatementDateBasis = 'balance_date' | 'period_start' | 'due_date'
+
+export const STATEMENT_DATE_BASES: StatementDateBasis[] = ['balance_date', 'period_start', 'due_date']
 
 export function normalizeBasis(v: unknown): StatementDateBasis {
-  return v === 'period_start' ? 'period_start' : 'balance_date'
+  return v === 'period_start' ? 'period_start' : v === 'due_date' ? 'due_date' : 'balance_date'
+}
+
+/** A bare YYYY-MM-DD, or null. Anything else is not a measurement. */
+export function measuredDate(v: unknown): string | null {
+  const s = String(v ?? '').slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null
 }
 
 /** Last calendar day of the month containing `iso` (YYYY-MM-DD in, YYYY-MM-DD out). */
@@ -56,8 +87,52 @@ export function endOfMonth(iso: string): string {
  * 'balance_date' (the default, and every loan until one is marked otherwise)
  * returns the stored date untouched, so this is a no-op for them.
  */
-export function balanceAsOf(statementDate: string, basis: StatementDateBasis): string {
+export function balanceAsOf(statementDate: string, basis: StatementDateBasis, measured?: unknown): string {
+  // A date the DOCUMENT stated outranks any rule about what its filed date
+  // means -- the rule is a policy about a lender, the measurement is this page.
+  const m = measuredDate(measured)
+  if (m) return m
+  // 'due_date' deliberately falls through UNCHANGED rather than guessing. The
+  // row is refused as an anchor by anchorRefusal() below, so this date is never
+  // used to compare anything; returning it keeps the function total and keeps
+  // the row sorting where its document was filed.
   return normalizeBasis(basis) === 'period_start' ? endOfMonth(statementDate) : String(statementDate || '')
+}
+
+/**
+ * Why this row may not be used as a balance anchor, in words for the reader, or
+ * null when it may. The ONLY refusal this function makes is the due-date one; a
+ * human's `anchor_exclusion_reason` is a separate and independent objection and
+ * is not read here.
+ *
+ * ASK, DON'T CLAIM (session 262). The sentence names the document we hold and
+ * the field that would settle it, because uploading or reading one date is far
+ * cheaper than anybody scrambling to work out whether a gap is real.
+ */
+export function anchorRefusal(
+  statementDate: string, basis: StatementDateBasis, measured?: unknown,
+): string | null {
+  if (normalizeBasis(basis) !== 'due_date') return null
+  if (measuredDate(measured)) return null
+  return `this lender dates its statement to the PAYMENT DUE DATE (${statementDate}), which says nothing about when the balance was true — the statement is issued weeks ahead of it. The document prints the date itself, usually as "Last Payment Date"; until that is recorded on this row this balance cannot be placed in time, so it is kept as evidence for its period and not used as a balance anchor.`
+}
+
+/**
+ * The rows `anchorsByBalanceDate` REFUSED, each carrying `anchor_refusal` in
+ * words. Session 245: an exclusion nobody can see is evidence deleted — so the
+ * two functions are a PAIR, and a caller that reports why it has no anchor
+ * calls this one. It never returns a row that the other one returned.
+ */
+export function refusedAnchors<T extends { statement_date: string; balance_as_of?: unknown }>(
+  anchors: T[], basis: StatementDateBasis,
+): (T & { anchor_refusal: string })[] {
+  const b = normalizeBasis(basis)
+  const out: (T & { anchor_refusal: string })[] = []
+  for (const s of anchors || []) {
+    const r = anchorRefusal(s.statement_date, b, (s as any).balance_as_of)
+    if (r) out.push({ ...s, anchor_refusal: r })
+  }
+  return out
 }
 
 /**
@@ -67,12 +142,26 @@ export function balanceAsOf(statementDate: string, basis: StatementDateBasis): s
  * pull filed on the 3rd and a period-start row filed on the 1st of the same
  * month land in the opposite order once the latter moves to month end.
  */
-export function anchorsByBalanceDate<T extends { statement_date: string }>(
+export function anchorsByBalanceDate<T extends { statement_date: string; balance_as_of?: unknown }>(
   anchors: T[], basis: StatementDateBasis,
-): (T & { statement_date: string; filed_date: string })[] {
+): (T & { statement_date: string; filed_date: string; anchor_refusal: string | null })[] {
   const b = normalizeBasis(basis)
   return (anchors || [])
-    .map(s => ({ ...s, filed_date: s.statement_date, statement_date: balanceAsOf(s.statement_date, b) }))
+    .map(s => ({
+      ...s,
+      filed_date: s.statement_date,
+      statement_date: balanceAsOf(s.statement_date, b, (s as any).balance_as_of),
+      // Session 284: computed HERE, once, at load, for the same reason the
+      // re-dating is -- every branch that picks a balance inherits it without
+      // knowing the rule exists, including the one somebody adds tomorrow.
+      anchor_refusal: anchorRefusal(s.statement_date, b, (s as any).balance_as_of),
+    }))
+    // Session 284: a REFUSED row never reaches a caller as an anchor. Filtering
+    // here rather than in each caller is the same choice as re-dating here --
+    // every branch that picks a balance inherits the refusal without knowing the
+    // rule exists (session 231). The rows are not lost: refusedAnchors() above
+    // returns them with the reason, for the surface that tells the reader.
+    .filter(s => !s.anchor_refusal)
     // Session 282: ties are REAL under 'period_start' -- every document issued in
     // one month re-dates to that month's end, so the period statement filed on the
     // 1st and an off-cycle notice filed on the 3rd land on the same date. Ordering
@@ -99,7 +188,9 @@ export function looksPeriodLabelled(
   statements: { statement_date: string; principal_balance: number | string | null }[],
   basis: StatementDateBasis,
 ): string | null {
-  if (normalizeBasis(basis) === 'period_start') return null
+  // A due-date loan cannot show this shape (its rows are refused, not re-dated),
+  // and a period_start loan is already answered.
+  if (normalizeBasis(basis) !== 'balance_date') return null
   const rows = (statements || [])
     .filter(s => s.principal_balance != null && /^\d{4}-\d{2}-\d{2}$/.test(String(s.statement_date)))
     .sort((a, b) => String(a.statement_date).localeCompare(String(b.statement_date)))

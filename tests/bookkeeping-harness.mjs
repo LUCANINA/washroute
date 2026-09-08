@@ -430,9 +430,27 @@ function readSurfaces() {
     // the text was a copy decision and this reads the fact.
     const C = { loan: colIx('Loan'), opening: colIx('Opening'),
                 drawn: colIx('Drawn'), principal: colIx('Principal'),
-                interest: colIx('Interest'), computed: colIx('Computed'),
-                closing: colIx('Closing'), variance: colIx('Variance'),
+    // ── AND THEY WERE RENAMED IN SESSION 280, WHICH THIS READER MISSED ───
+    // The consolidation renamed the two money columns: "Computed" became
+    // **Books** and "Closing" became **Lender** — the two things the row is
+    // actually comparing, said in the reader's words instead of the model's.
+    // colIx throws on a missing header, deliberately and correctly, so this
+    // reader has thrown ever since — taking EIGHT groups down with it:
+    // cold-boot, loader-failure, tab-races, two-surfaces, close-band,
+    // money-format, history and closing-evidence, about a third of the close
+    // band's coverage, silent for a week. Session 282 saw the failures, proved
+    // they were identical on HEAD, and left open whether they were specific to
+    // that machine. They were not: it is this one stale pair of labels.
+    //
+    // ⚠️ The internal names stay `computed`/`closing` on purpose. Renaming them
+    // here would touch ~40 assertions for no gain and would mean the diff that
+    // fixed this could not be read at a glance.
+                interest: colIx('Interest'), computed: colIx('Books'),
+                closing: colIx('Lender'), variance: colIx('Variance'),
                 status: colIx('Status') };
+    // `lender` here is the lender's NAME, folded into the Loan cell in session
+    // 249 — NOT the Lender column above, which is the lender's BALANCE. Two
+    // different facts that ended up sharing a word.
     C.lender = C.loan; C.openingSrc = C.opening;
     C.closingDate = C.closing; C.closingSrc = C.closing;
     // ── THE NOTES COLUMN IS GONE (session 247, David's layout pass) ───────
@@ -2596,6 +2614,123 @@ GROUPS.push({
            'a data API not returning anchor_exclusion_reason is reported, not failed open',
            `banner read: ${banner.slice(0, 200) || '(empty)'}`);
       await p.close();
+    }
+
+    /* ══ THE THIRD BASIS: A DUE DATE IS NOT A BALANCE DATE (session 284) ════
+     *
+     * Tech Debt #46. SBA EIDL issues its statement about three weeks AHEAD of
+     * the payment and files it under the DUE date, so the date on the row is not
+     * the date the balance is true — the document says that itself, as "Last
+     * Payment Date". Same defect as iBusiness/FC, second lender, on the $960k
+     * loan, and latent only because its principal is not moving.
+     *
+     * The three cases arm the two halves separately, exactly as the four above
+     * do, because either one alone would also pass against code that landed on
+     * the right answer for an unrelated reason.
+     */
+    {
+      const DUE_FILED = `${MONTH}-25`;          // what the lender dates it
+      const MEASURED  = `${MONTH}-08`;          // what the document says is true
+      const MEASURED_SHORT = `${lm.getMonth() + 1}/8`;
+      const DUE_FILED_SHORT = `${lm.getMonth() + 1}/25`;
+      const OPENING = 67240.74;
+
+      const rebuildDue = (d, over) => {
+        const a = rebuild(d, { basis: over.basis, excludeNotice: false });
+        // One opening, and ONE due-date-filed statement. No notice, no
+        // period-start row: this section must not be able to pass on the back of
+        // the mechanisms the cases above test.
+        d.loan_statements = d.loan_statements.filter(st => st.loan_account_id !== a.id);
+        const proto = { id: 'due-open', loan_account_id: a.id, statement_date: PRIOR_MONTH_END,
+                        principal_balance: OPENING, source: 'portal_manual_pull',
+                        balance_basis: 'principal_only', payoff_amount: null,
+                        anchor_exclusion_reason: null, balance_as_of: null };
+        d.loan_statements.push({ ...proto });
+        d.loan_statements.push({ ...proto, id: 'due-stmt', statement_date: DUE_FILED,
+                                 principal_balance: TRUE_BAL,
+                                 balance_as_of: over.measured ? MEASURED : null });
+        return a;
+      };
+
+      const DUE_CASES = [
+        { name: 'the document’s own date is what the row is placed on',
+          over: { basis: 'due_date', measured: true },
+          expect: TRUE_BAL, expectAsOf: MEASURED_SHORT },
+        // NOTE the expectation: NOT the opening. With its only in-window
+        // document refused, the band has no lender balance it can place in this
+        // month, and says nothing rather than presenting last month's opening as
+        // this month's lender figure. A wrong date is what this whole change is
+        // about; substituting a stale one would be the same defect wearing a
+        // number. Asserted below as an ABSENCE, with the reason checked
+        // separately so "refused" can never read as "no document".
+        { name: 'with no measured date the row is REFUSED as an anchor',
+          over: { basis: 'due_date', measured: false },
+          expectNoFigure: true },
+        // THE DISCRIMINATOR, and it is about the DATE, not the figure: without
+        // the basis the same row anchors on the day the payment is DUE. The
+        // Lender cell reads the same money either way, which is precisely why a
+        // figure-only assertion here would be decoration.
+        { name: 'NEITHER armed still places the balance on the DUE date',
+          over: { basis: 'balance_date', measured: false },
+          expect: TRUE_BAL, expectAsOf: DUE_FILED_SHORT },
+      ];
+
+      for (const c of DUE_CASES) {
+        let loanName = null;
+        const p = await newHarnessPage({ tab: 'loans', mutate: (d) => { loanName = rebuildDue(d, c.over).xero_account_name; } });
+        const cell = await lenderCell(p, loanName);
+        if (c.expectNoFigure) {
+          t.ok(cell && !cell.text,
+               `due_date — ${c.name}`,
+               `expected no lender figure, cell read ${cell ? cell.text : '(no row)'}`);
+        } else {
+          t.ok(cell && Math.abs(Number(cell.text) - c.expect) < 0.005,
+               `due_date — ${c.name}`,
+               `expected ${c.expect.toFixed(2)}, cell read ${cell ? cell.text : '(no row)'}`);
+        }
+        if (c.expectAsOf) {
+          t.eq(cell && cell.asOf, c.expectAsOf, `due_date as-of — ${c.name}`);
+        }
+        await p.close();
+      }
+
+      /* REFUSED IS NOT DELETED. The row must still be listed, with its document
+       * and the reason — session 282's rule, and the thing that separates this
+       * from quietly dropping evidence (session 245). */
+      {
+        let loanName = null;
+        const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+          loanName = rebuildDue(d, { basis: 'due_date', measured: false }).xero_account_name;
+        } });
+        const row = await p.evaluate(() => {
+          const st = (_allLoanStatements || []).find(s => s.id === 'due-stmt');
+          return st ? { excluded: !!st.anchor_excluded, refusal: st.anchor_refusal || '',
+                        stillListed: (_allLoanStatements || []).some(s => s.id === 'due-stmt') } : null;
+        });
+        t.ok(row && row.excluded, '⭐ a due-date row with no measured date is excluded from anchoring');
+        t.ok(row && /DUE date/i.test(row.refusal),
+             '...with the reason in words, naming what makes the date unusable', JSON.stringify((row || {}).refusal || '').slice(0, 160));
+        t.ok(row && /Last Payment Date/i.test(row.refusal),
+             '⭐ ...and ASKING for the field that would settle it, rather than claiming a gap (session 262)');
+        t.ok(row && row.stillListed,
+             '⭐ ...and the row is still there — refused is not deleted, it is the evidence for its own period');
+        await p.close();
+      }
+
+      /* And the measurement OUTRANKS the basis rule, not the other way round.
+       * A period_start loan whose document states its own date must use the
+       * stated one — otherwise the two mechanisms fight and month-end wins by
+       * accident of ordering. */
+      {
+        let loanName = null;
+        const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+          loanName = rebuildDue(d, { basis: 'period_start', measured: true }).xero_account_name;
+        } });
+        const cell = await lenderCell(p, loanName);
+        t.eq(cell && cell.asOf, MEASURED_SHORT,
+             '⭐ a date the DOCUMENT states beats the loan’s re-dating rule — the rule is a policy, the measurement is this page');
+        await p.close();
+      }
     }
   },
 });
