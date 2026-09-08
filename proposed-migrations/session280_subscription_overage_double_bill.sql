@@ -412,3 +412,10 @@ BEGIN
   END IF;
 END
 $assert$;
+
+-- 12 ── applied immediately after: Supabase's default privileges auto-grant
+--       EXECUTE to `authenticated` on newly created functions, which the
+--       REVOKEs above did not cover (they named PUBLIC and anon). The two
+--       money-moving functions must be reachable ONLY by the webhook.
+REVOKE EXECUTE ON FUNCTION public.claim_subscription_overage(UUID) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.release_subscription_overage(UUID, UUID[]) FROM authenticated;
