@@ -2467,6 +2467,139 @@ GROUPS.push({
   },
 });
 
+/* 4c ── WHAT DATE IS A STATEMENT'S BALANCE AS OF? (session 282) ──────────────
+   David: "the LOANS (closing) page shows iBusiness loan as 66,215.03 (LENDER)
+   when the latest statement clearly shows a current principal balance of
+   65,173.94."
+
+   Two independent defects produced that one wrong number, and this group tests
+   them SEPARATELY, because either one alone is enough to date August's close on
+   July's balance:
+
+     1. the close band ignored loan_accounts.statement_date_basis, so a loan that
+        files each statement under the FIRST day of the period it covers had every
+        balance read a period early;
+     2. a payment-due notice restating the prior period's closing figure sat in
+        loan_statements as an ordinary row and outranked the real statement.
+
+   THE THIRD CASE IS THE ONE THAT MAKES THIS A TEST. It feeds the SAME two rows
+   with neither mechanism engaged and asserts the OLD, WRONG answer. Without it,
+   every assertion here would also pass against code that simply picked the older
+   row for some unrelated reason — the "prove it discriminates" rule, expressed as
+   a case rather than as a .toString() rebuild, because here the inverse of the fix
+   is just a different fixture.                                                  */
+GROUPS.push({
+  name: 'statement-date-basis',
+  async run(t) {
+    const now = new Date(HARNESS_NOW);
+    const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
+    const MONTH_END = new Date(lm.getFullYear(), lm.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const PRIOR_MONTH_END = new Date(lm.getFullYear(), lm.getMonth(), 0).toISOString().slice(0, 10);
+    // The cell prints a short human date, not ISO. Assert on what it renders.
+    const MONTH_END_SHORT = `${lm.getMonth() + 1}/${new Date(lm.getFullYear(), lm.getMonth() + 1, 0).getDate()}`;
+
+    // The real shape, with the real figures. TRUE is the balance the statement
+    // issued after month end reports; DUE_NOTICE is the prior period's closing
+    // figure, restated on a notice issued three days into the month.
+    const TRUE_BAL = 65173.94, DUE_NOTICE = 66215.03;
+
+    // Rebuild one loan's statements from scratch so the assertion depends on
+    // nothing the fixture happens to hold. `over` decides which defect is armed.
+    const rebuild = (d, over) => {
+      const a = d.loan_accounts.find(x => x.status === 'active'
+        && String(x.close_basis || '') === 'lender_statement'
+        && d.loan_statements.some(st => st.loan_account_id === x.id));
+      if (!a) throw new Error('no statement-closed active loan in the fixture');
+      a.statement_date_basis = over.basis;
+      const proto = d.loan_statements.find(st => st.loan_account_id === a.id);
+      const mk = (filed, bal, reason) => Object.assign(JSON.parse(JSON.stringify(proto)), {
+        id: 'harness-' + filed + '-' + Math.random().toString(36).slice(2, 8),
+        loan_account_id: a.id, statement_date: filed, principal_balance: bal,
+        source: 'portal_manual_pull', balance_basis: 'principal_only',
+        payoff_amount: null, anchor_exclusion_reason: reason,
+      });
+      d.loan_statements = d.loan_statements.filter(st => st.loan_account_id !== a.id);
+      // The opening, so the row is checkable at all.
+      d.loan_statements.push(mk(PRIOR_MONTH_END, 67240.74, null));
+      // Filed on the FIRST of the month. Under period_start its balance is true
+      // at MONTH_END; under balance_date it is true on the 1st.
+      d.loan_statements.push(mk(`${MONTH}-01`, TRUE_BAL, null));
+      // The due notice, filed on the 3rd, restating the prior closing figure.
+      d.loan_statements.push(mk(`${MONTH}-03`, DUE_NOTICE, over.excludeNotice
+        ? 'Not a balance as of this date: a payment-due notice restating the prior period closing figure.' : null));
+      // A schedule would give the row a grade-B fallback and mask the question.
+      d.loan_amortization_rows = d.loan_amortization_rows.filter(r => r.loan_amortization_schedules?.loan_account_id !== a.id);
+      d.__loan = a.xero_account_name;
+      return a;
+    };
+
+    // The LENDER cell, read by header name so a column move cannot silently
+    // repoint this at a different figure.
+    const lenderCell = (p, loanName) => p.evaluate((name) => {
+      const heads = [...document.querySelectorAll('#lcb-table thead th')]
+        .map(th => th.innerText.replace(/\s+/g, ' ').trim().toLowerCase());
+      const ix = heads.indexOf('lender');
+      if (ix < 0) throw new Error('no Lender column: ' + JSON.stringify(heads));
+      const tr = [...document.querySelectorAll('#lcb-table tbody tr')]
+        .find(r => (r.querySelector('.td-name') || {}).innerText?.includes(name));
+      if (!tr) return null;
+      const td = tr.children[ix];
+      return { text: (td.innerText || '').replace(/[^0-9.]/g, ''), asOf: td.getAttribute('data-closing-date') };
+    }, loanName);
+
+    const CASES = [
+      { name: 'the exclusion alone fixes it',
+        over: { basis: 'balance_date', excludeNotice: true },
+        expect: TRUE_BAL },
+      { name: 'the date basis alone fixes it',
+        over: { basis: 'period_start', excludeNotice: false },
+        expect: TRUE_BAL, expectAsOf: MONTH_END_SHORT },
+      { name: 'both together',
+        over: { basis: 'period_start', excludeNotice: true },
+        expect: TRUE_BAL, expectAsOf: MONTH_END_SHORT },
+      // THE DISCRIMINATOR. Neither mechanism armed = the bug David reported.
+      { name: 'NEITHER armed still reproduces the old wrong answer',
+        over: { basis: 'balance_date', excludeNotice: false },
+        expect: DUE_NOTICE },
+    ];
+
+    for (const c of CASES) {
+      let loanName = null;
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => { loanName = rebuild(d, c.over).xero_account_name; } });
+      const cell = await lenderCell(p, loanName);
+      t.ok(cell && Math.abs(Number(cell.text) - c.expect) < 0.005,
+           `close band Lender — ${c.name}`,
+           `expected ${c.expect.toFixed(2)}, cell read ${cell ? cell.text : '(no row)'}`);
+      if (c.expectAsOf) {
+        t.eq(cell && cell.asOf, c.expectAsOf,
+             `close band Lender as-of — ${c.name}: a period-labelled statement is dated at month end`);
+      }
+      await p.close();
+    }
+
+    // ── THE SUPPRESSION MUST BE ABLE TO VERIFY ITSELF ────────────────────────
+    // loadLoans selects '*'. If PostgREST serves a schema snapshot from before
+    // anchor_exclusion_reason existed, the key is ABSENT from every row rather
+    // than null, and `!s.anchor_exclusion_reason` would re-admit every excluded
+    // document with nothing on screen to say so. _bkDismissalHolds failed exactly
+    // this way in session 245. It must be loud instead.
+    {
+      let loanName = null;
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        loanName = rebuild(d, { basis: 'balance_date', excludeNotice: true }).xero_account_name;
+        for (const st of d.loan_statements) delete st.anchor_exclusion_reason;
+      } });
+      const banner = await p.evaluate(() =>
+        [...document.querySelectorAll('.bk-load-banner')].map(el => el.innerText).join(' · '));
+      t.ok(/anchor_exclusion_reason/.test(banner),
+           'a data API not returning anchor_exclusion_reason is reported, not failed open',
+           `banner read: ${banner.slice(0, 200) || '(empty)'}`);
+      await p.close();
+    }
+  },
+});
+
 /* 5 ── CLOSE-BAND EDGES (all synthesised in the stub, never in the DB) ───── */
 GROUPS.push({
   name: 'close-band',

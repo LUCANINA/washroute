@@ -437,7 +437,7 @@ async function handleRequest(req: Request): Promise<Response> {
       payoff_amount, payoff_good_thru, total_amount_due, payment_due_date,
       csv_filename, csv_base64, pulled_by, transactions, explicit_split,
       anchors_only, balance_basis, allow_settled_loan_write,
-      split_period_label,
+      split_period_label, allow_duplicate_document,
     } = body
 
     if (!lender_account_number || !statement_date || principal_balance == null || !csv_base64) {
@@ -533,6 +533,46 @@ async function handleRequest(req: Request): Promise<Response> {
     // 1. Upload the raw CSV to storage (permanent proof record)
     const storagePath = `${loanAcct.id}/${statement_date}-${safeObjectName(csv_filename)}`
     const csvBytes = Uint8Array.from(atob(csv_base64), c => c.charCodeAt(0))
+    // ── THE SAME DOCUMENT, FILED TWICE, UNDER TWO DATES (session 282) ────────
+    //
+    // loan_statements.file_sha256 has existed since the column was added and this
+    // function never wrote it, so it was null on all 914 rows and the duplicate
+    // check the dashboard already performs against it (bkIntake) could never fire.
+    // iBusiness/FC's 08/03 statement was filed FOUR times, twice as a statement
+    // row: once at 2026-07-01 under the loan's period_start convention and once at
+    // its literal billing date 2026-08-03. The 08-03 row then outranked the real
+    // August statement and dated August's close on July's balance.
+    //
+    // THE GUARD IS DELIBERATELY NARROW, because "same file, different date" is
+    // ALSO the shape of a legitimate bulk import: Ford Pro's transaction-history
+    // PDF is one document that backs 45 statement rows, filed one period at a
+    // time, and refusing those would break the importer. What is never legitimate
+    // is the same file filed twice reporting the SAME BALANCE on two dates -- that
+    // is one reading of the loan wearing two dates, and exactly one of them can be
+    // right. So: same loan + same bytes + same balance + different date = refused,
+    // nameable and overridable, rather than silently creating a second anchor.
+    const fileSha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', csvBytes)))
+      .map(b => b.toString(16).padStart(2, '0')).join('')
+    if (allow_duplicate_document !== true) {
+      const { data: sameFile } = await supa
+        .from('loan_statements')
+        .select('id, statement_date, principal_balance, storage_path')
+        .eq('loan_account_id', loanAcct.id)
+        .eq('file_sha256', fileSha)
+      const clash = (sameFile ?? []).find((r: any) =>
+        r.statement_date !== statement_date &&
+        Math.abs(Number(r.principal_balance) - Number(principal_balance)) < 0.005)
+      if (clash) {
+        return new Response(JSON.stringify({
+          error: `This is the same document already on file for ${clash.statement_date}, reporting the same balance of $${Number(principal_balance).toFixed(2)} -- byte for byte the same file. Filing it again under ${statement_date} would create a second balance for one reading of this loan, and whichever is newer would outrank the other on the closing band. Check which date this document actually reports; if it belongs on ${statement_date}, correct the existing row instead. If you really do mean to file it twice, resend with allow_duplicate_document.`,
+          refused: 'duplicate_document',
+          loan_account_id: loanAcct.id,
+          existing: clash,
+          statement_date,
+          file_sha256: fileSha,
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+      }
+    }
     const { error: uploadErr } = await supa.storage
       .from('loan-statements')
       .upload(storagePath, csvBytes, { contentType: contentTypeFor(csv_filename), upsert: true })
@@ -552,6 +592,7 @@ async function handleRequest(req: Request): Promise<Response> {
         total_amount_due: total_amount_due ?? null,
         payment_due_date: payment_due_date ?? null,
         storage_path: storagePath,
+        file_sha256: fileSha,
         source: 'portal_manual_pull',
         pulled_by: pulled_by ?? null,
         // v22: only a whitelisted value ever lands; everything else keeps the

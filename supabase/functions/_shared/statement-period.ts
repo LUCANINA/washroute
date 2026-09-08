@@ -73,7 +73,15 @@ export function anchorsByBalanceDate<T extends { statement_date: string }>(
   const b = normalizeBasis(basis)
   return (anchors || [])
     .map(s => ({ ...s, filed_date: s.statement_date, statement_date: balanceAsOf(s.statement_date, b) }))
-    .sort((x, y) => (x.statement_date < y.statement_date ? -1 : x.statement_date > y.statement_date ? 1 : 0))
+    // Session 282: ties are REAL under 'period_start' -- every document issued in
+    // one month re-dates to that month's end, so the period statement filed on the
+    // 1st and an off-cycle notice filed on the 3rd land on the same date. Ordering
+    // by filed_date within a tie makes the result deterministic and puts the row
+    // filed under the loan's own convention first. Without it the winner was the
+    // query's return order, which is how iBusiness/FC read a payment-due notice as
+    // its August closing balance.
+    .sort((x, y) => (x.statement_date < y.statement_date ? -1 : x.statement_date > y.statement_date ? 1 :
+                     x.filed_date < y.filed_date ? -1 : x.filed_date > y.filed_date ? 1 : 0))
 }
 
 /**

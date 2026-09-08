@@ -1,7 +1,121 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 281, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 282, 2026-09-08)
 >
+> ### 0zk. ⏭️ TWO DEPLOYS ARE OUTSTANDING, AND ONE OF THEM HAS NO SAFE COMMAND (session 282)
+>
+> The DB migration and the data fix are LIVE. The dashboard ships with the next push. **Two edge
+> functions are changed and NOT deployed:**
+>
+> | Function | current `verify_jwt` (probed 2026-09-08) | how |
+> |---|---|---|
+> | `reconciliation-run` | **false** (403 in its own words) | CLI **with** `--no-verify-jwt` |
+> | `loan-ingest-statement` | **true** (401 `UNAUTHORIZED_NO_AUTH_HEADER`) | ⚠️ **no safe command exists** |
+>
+> §0zj says a deploy ASSIGNS `verify_jwt` and the CLI's default is `false`. `loan-ingest-statement`
+> must stay `true`, the CLI has no `--verify-jwt` to force it, and the function is ~177KB with its
+> `_shared` imports — well past `deploy_edge_function`'s ~100–130KB ceiling, which is the only route
+> that defaults to `true`. **So the one function that must be `true` is the one the MCP tool cannot
+> reach.** Do not deploy it by guessing. Either set the flag through the Management API
+> (`PATCH /v1/projects/umjpbuxrdydwejqtensq/functions/loan-ingest-statement`, body `{"verify_jwt":true}`)
+> immediately after a CLI deploy, or shrink its import graph. **Probe after either, always** — 401
+> from the gateway means `true`, the function's own words mean `false`.
+>
+> Nothing is broken while it waits: the duplicate-document guard is a NEW refusal, so an undeployed
+> `loan-ingest-statement` simply behaves as it did yesterday.
+>
+> ### 0zl. ✅ iBUSINESS READ JULY'S BALANCE AS AUGUST'S — three defects, one wrong number (session 282)
+>
+> David: *"the LOANS (closing) page shows iBusiness loan as 66,215.03 (LENDER) when the latest
+> statement clearly shows a current principal balance of $65,173.94."* He was right, and the causes
+> ran three deep.
+>
+> **1. The close band never applied `statement_date_basis`.** `_shared/statement-period.ts` has
+> existed since session 273 and `admin-dashboard/index.html` contained **zero references to it** —
+> so did `reconciliation-run`. Only `loan-find-difference` and `derive-schedule.ts` ever honoured the
+> basis. Three surfaces read one table and two of them read it a period out of place. Session 231's
+> rule, at file scale: *a guard is only as good as the branch it sits on.*
+>
+> **2. The 2026-08-03 row is the same PDF as the 2026-07-01 row.** Byte-identical — 51,673 bytes,
+> etag `0787c07563d7112162dfb885bc13e52a`. One document (issued 08/03 for the period beginning
+> 07/01) filed twice, once under this loan's convention and once under its literal billing date. Its
+> $66,215.03 is the 7/31 closing principal; it reads as an August document only because it also
+> carries the $2,033.77 then due on 08/18.
+>
+> **3. `balance_basis` was carrying two different facts, and that is why 281 undid 273.** Session 273
+> defused the row with `balance_basis='unknown'`. That field answers WHAT a figure is — principal
+> only, payoff, unknown — and has no room for WHEN, and no room for why. So the row said *"we don't
+> know what this is"* when the truth was *"we know exactly what it is and its date is wrong"*, and
+> §0zi relabelled it `principal_only` in good faith on proof about the FIGURE
+> (66,215.03 − 1,041.09 = 65,173.94, which is real and which proves nothing about the date). The
+> relabel made it the newest eligible anchor and it won.
+>
+> **The fix keeps the two facts in two fields.** New column `loan_statements.anchor_exclusion_reason`
+> (migration `session_282_statement_anchor_exclusion_reason`): NULL = eligible as a balance anchor,
+> text = a human recorded why this document's balance is not a balance as of its filed date, in their
+> own words, shown to the reader. A CHECK enforces ≥20 characters so nothing is suppressed by a
+> one-word string. `balance_basis` keeps saying WHAT and stays `principal_only`, which is true.
+>
+> **EXCLUDED IS NOT DELETED** — the row keeps its document and still appears in the loan's statement
+> list, labelled *"not an anchor"* with the reason on hover. It is the evidence for its own period.
+>
+> **Blast radius, measured rather than assumed.** One loan. iBusiness/FC is the only `period_start`
+> loan on the book (13 of 14 active loans are `balance_date`), and it is the only loan holding two
+> statement rows from one file reporting one balance. Rapid Credit Line also shows same-month rising
+> balances, and that is a revolving line drawing down — correct, and untouched.
+>
+> **A TIE THE TEST FOUND AND I HAD NOT.** Re-dating collapses every document issued in a month onto
+> that month's END, so the period statement filed on the 1st and the notice filed on the 3rd arrive
+> at the ranker with the SAME date — and the winner was whatever order PostgREST returned, which was
+> the notice. Fixing only the basis would have left the bug in place on a different mechanism.
+> `_rankByAuthority` and `anchorsByBalanceDate` now break a tie on `filed_date` ascending: the row
+> filed under the loan's declared convention wins, because a document filed later in the same period
+> is an intra-period pull and an intra-period balance is by definition not the period's closing
+> figure. **The four-case test is what found this** — see below.
+>
+> **The re-dating is done ONCE, at load, in both surfaces**, not at each comparison
+> (`_normalizeStatementAnchorDates` in the dashboard, `anchorsByBalanceDate` in `reconciliation-run`).
+> Eight branches in the dashboard compare a statement date against a month end; re-dating the rows as
+> they land makes all eight correct without knowing the rule exists, and makes the ninth one somebody
+> adds tomorrow correct too. The filed date survives on `filed_date`, and the three upload-dedupe
+> checks — which legitimately compare against the date a document is FILED under — now read that.
+>
+> **The suppression can verify itself.** `loadLoans` selects `*`, so a stale PostgREST schema cache
+> returns rows with the key ABSENT rather than null, and `!s.anchor_exclusion_reason` would silently
+> re-admit every excluded document. That is session 245's `_bkDismissalHolds` failing open, exactly.
+> A missing key now raises a load banner naming the column. There is an assertion for it.
+>
+> **`file_sha256` was never written — on any of 914 rows.** The column existed, the intake screen
+> already deduped against it (`bkIntake`, line ~10698), and `loan-ingest-statement` never populated
+> it, so that check could not fire even once. It does now, and the guard is deliberately NARROW:
+> refused only on **same loan + same bytes + same balance + a different date**, because "same file,
+> different date" is ALSO the shape of Ford Pro's legitimate bulk import (one transaction-history PDF
+> backing 45 statement rows, each a different balance). Overridable with `allow_duplicate_document`.
+> ⏭️ **Existing rows are still all-null**, so the guard protects from now on and cannot see the past.
+> Backfilling means hashing 914 storage objects; the S3 etag is MD5 and cannot substitute.
+>
+> **Test group `statement-date-basis`, and the fourth case is the point.** It rebuilds one loan's
+> statements from scratch so it depends on nothing the fixture holds, and arms the two mechanisms
+> SEPARATELY: exclusion alone → 65,173.94 · basis alone → 65,173.94 (as-of 8/31) · both → 65,173.94 ·
+> **neither → 66,215.03, the bug, asserted as such.** Without that last case every assertion here
+> would also pass against code that picked the older row for an unrelated reason. Verified against
+> HEAD: the six new assertions go RED on the old code and the discriminator stays GREEN, and the
+> other 700 assertions in the suite are byte-identical either side of the change.
+>
+> ⚠️ **The harness on this machine reports 14 pre-existing failures in batch 1** (`cold-boot`,
+> `loader-failure`, `tab-races`, `two-surfaces`, `close-band`, `money-format`, `history`,
+> `closing-evidence` all THROW; `close-band-columns` fails 6 assertions about "Agreement" and
+> "Computed" columns that the shipped table no longer has). **Identical on HEAD** — measured, not
+> assumed — so none of them is session 282's. But the notes' figure of 2,117 assertions is not
+> reachable here; this run saw 700. Somebody should find out whether those groups throw everywhere or
+> only on this machine, because eight silent groups is a third of the close-band coverage.
+>
+> ⏭️ **Still open, deliberately:** the 2026-08 split (`3daf1dc1`) carries session 273's unresolved
+> $30.52 — its $1,025.71/$1,008.06 describe the JUNE payment, while the lender's own breakdown for
+> the period is $1,041.09/$992.68. It is `already_in_xero`, so correcting it means deciding what Xero
+> should say. David asked for an investigation and a proposal, not a write. **Not done in this
+> session.**
+
 > ### 0zj. ⚠️ `--no-verify-jwt` IS NOT A "LEAVE IT ALONE" FLAG — IT IS AN ASSIGNMENT (session 281)
 >
 > **The rule in CLAUDE.md and in both skills is stated for ONE direction only, and I got the other
@@ -74,10 +188,12 @@
 > two honest numbers, and I quoted the one nobody acts on as though it were the one he reads. Check
 > which surface a number appears on before calling it the biggest thing on the book.
 >
-> ⏭️ **Still open on this thread:** the existing iBusiness row remains dated 2026-08-01 against its
-> document's 09/03 billing date. It is no longer the anchor (08-03 outranks it now), so it is not
-> doing harm — but it is wrong, and correcting it makes it the newest document and the anchor again.
-> Fix the row deliberately, with a re-run, not as a tidy-up.
+> ✅ **CLOSED by session 282, and the reading above was backwards.** The 2026-08-01 row is CORRECT —
+> this loan's `statement_date_basis` is `period_start`, so the 09/03 statement is filed under the
+> first day of the period it covers and its $65,173.94 is true at 8/31. The row that is wrong is the
+> **2026-08-03** one, which §0zi relabelled `principal_only` and thereby made the anchor: it is the
+> SAME PDF as the 2026-07-01 row (identical bytes) and dated August's close on July's balance.
+> See §0zk.
 >
 > ### 0zh. ⚠️ E4-9744 — I CALLED THE LENDER BALANCE STALE. IT IS NOT. (session 281, corrected)
 >

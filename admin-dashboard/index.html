@@ -10781,11 +10781,14 @@
       // 14 days still covers the pull-day-vs-content-date lag it exists for,
       // while different-month statements with a frozen balance file cleanly.
       const daysBetween = (a, b) => Math.abs(Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000;
-      const already = loan && (_allLoanStatements || []).some(s => s.loan_account_id === loan.id && s.statement_date === p.statementDate);
+      // filed_date, not statement_date (session 282): an upload is deduped against
+      // the date a document is FILED under, which for a period-labelled loan is not
+      // the date its balance is true.
+      const already = loan && (_allLoanStatements || []).some(s => s.loan_account_id === loan.id && s.filed_date === p.statementDate);
       const nearSame = !already && loan && (_allLoanStatements || []).find(s =>
         s.loan_account_id === loan.id && s.principal_balance != null &&
         Math.abs(Number(s.principal_balance) - Number(p.principalBalance)) < 0.005 &&
-        s.statement_date && daysBetween(s.statement_date, p.statementDate) <= 14);
+        s.filed_date && daysBetween(s.filed_date, p.statementDate) <= 14);
       item.kind = 'lender_statement'; item.label = p.lenderLabel; item.confidence = 'high'; item.method = 'browser_parser';
       if (already) {
         item.status = 'duplicate'; item.dupOf = 'statement_date'; item.loan = loan;
@@ -10812,7 +10815,7 @@
       const first = item.browserBulk[0], last = item.browserBulk[item.browserBulk.length - 1];
       item.kind = 'transaction_history'; item.label = 'Ford Pro transaction history'; item.confidence = 'high'; item.method = 'browser_parser';
       if (loan) {
-        const onFile = new Set((_allLoanStatements || []).filter(s => s.loan_account_id === loan.id).map(s => s.statement_date));
+        const onFile = new Set((_allLoanStatements || []).filter(s => s.loan_account_id === loan.id).map(s => s.filed_date));
         const newPeriods = item.browserBulk.filter(per => !onFile.has(per.statementDate)).length;
         item.loan = loan;
         if (newPeriods === 0) {
@@ -10840,7 +10843,7 @@
       if (loan) {
         // Session 224 acceptance test: check the periods against what's already
         // imported instead of offering a full re-file of a known history.
-        const onFile = new Set((_allLoanStatements || []).filter(s => s.loan_account_id === loan.id).map(s => s.statement_date));
+        const onFile = new Set((_allLoanStatements || []).filter(s => s.loan_account_id === loan.id).map(s => s.filed_date));
         const newPeriods = item.browserBulk.filter(per => !onFile.has(per.statementDate)).length;
         // Second acceptance-test finding: this history's periods can already be
         // tracked through the loan's AMORTIZATION SCHEDULE (Paypal 2's 34 rows,
@@ -14651,7 +14654,9 @@
     }
     _bkLoansLoaded = true;
     _allLoanAccounts   = accounts || [];
-    _allLoanStatements = statements || [];
+    // Re-date period-labelled statements to the date their balances are true
+    // BEFORE anything reads them (session 282). Must run after accounts are set.
+    _allLoanStatements = _normalizeStatementAnchorDates(statements || [], _allLoanAccounts);
     _allLoanSplits     = splits || [];
     _allLoanAmortRows  = amortRows || [];
     _allLoanDocuments  = documents || [];
@@ -14709,6 +14714,7 @@
     const graceIso = addDaysPacific(todayIso, 31);
     const rows = (_allLoanStatements || []).filter(s =>
       (accountId == null || s.loan_account_id === accountId) &&
+      _isAnchorEligible(s) &&
       (s.statement_date <= todayIso || (_VARIANCE_REAL_ANCHORS.includes(s.source) && s.statement_date <= graceIso)));
     return accountId == null ? rows : _rankByAuthority(rows);
   }
@@ -14753,10 +14759,99 @@
   // Real lender evidence first (newest of it at the head) when it is current
   // enough, then everything else newest-first. Never drops a row — callers that
   // want the whole list still get it, only the ORDER changes.
+  // ══ WHAT DATE IS A STATEMENT'S BALANCE ACTUALLY AS OF? (session 282) ═════
+  //
+  // This is the browser half of supabase/functions/_shared/statement-period.ts,
+  // which has existed since session 273 and which THIS FILE never applied. The
+  // engine re-dated Funding Circle's period-labelled statements; the close band
+  // did not, so the two surfaces read the same table and disagreed by a period.
+  //
+  // Funding Circle issues a statement on the 3rd of the FOLLOWING month and we
+  // file it under the 1st of the period it covers, so the row we call
+  // "2026-08-01" carries the AUGUST MONTH-END balance. Most lenders date a
+  // statement with its balance date and are untouched here; the convention is
+  // RECORDED per loan on loan_accounts.statement_date_basis by a human who
+  // opened a PDF, and is never inferred at runtime.
+  //
+  // WHY THIS IS DONE ONCE AT LOAD, NOT AT EACH COMPARISON. Eight places in this
+  // file compare a statement_date against a month end, and session 231's lesson
+  // is that a guard is only as good as the branch it sits on. Re-dating the rows
+  // as they land makes every one of those branches correct without knowing this
+  // rule exists, and makes a branch added tomorrow correct too. The filed date
+  // is kept on `filed_date` so nothing is lost, and the three upload-dedupe
+  // checks — which legitimately compare against the date a document is FILED
+  // under — read that field instead.
+  function _endOfMonthIso(iso) {
+    const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(iso || ''));
+    if (!m) return String(iso || '');
+    // Day 0 of the next month is the last day of this one; UTC so no zone shifts it.
+    return new Date(Date.UTC(Number(m[1]), Number(m[2]), 0)).toISOString().slice(0, 10);
+  }
+
+  // Rewrites statement_date to the date the balance is true, in place, and
+  // stamps the two fields the rest of the file reads. Idempotent: it keys off
+  // filed_date, so calling it twice cannot shift a row twice.
+  function _normalizeStatementAnchorDates(statements, accounts) {
+    const basis = new Map((accounts || []).map(a => [a.id, String(a.statement_date_basis || 'balance_date')]));
+    // STALE-CACHE GUARD (session 176/177's trap, applied to a read). loadLoans
+    // selects '*', so if PostgREST is serving a schema snapshot from before
+    // anchor_exclusion_reason existed the key is ABSENT from every row rather
+    // than null — and `!s.anchor_exclusion_reason` would then quietly re-admit
+    // every excluded document. A suppression that cannot verify itself must say
+    // so out loud rather than fail open.
+    const rows = statements || [];
+    if (rows.length && !Object.prototype.hasOwnProperty.call(rows[0], 'anchor_exclusion_reason')) {
+      _bkNoteLoadError('statement_anchor_exclusion',
+        'The data API is not returning loan_statements.anchor_exclusion_reason, so documents a human ruled out as balance anchors cannot be identified. Closing balances may be taken from a document whose date is known to be wrong. Reload; if it persists the PostgREST schema cache needs a project restart.');
+    }
+    for (const s of rows) {
+      if (s.filed_date == null) s.filed_date = s.statement_date;
+      if (basis.get(s.loan_account_id) === 'period_start') s.statement_date = _endOfMonthIso(s.filed_date);
+      s.anchor_excluded = s.anchor_exclusion_reason != null;
+    }
+    return rows;
+  }
+
+  // ── A DOCUMENT CAN BE EVIDENCE AND STILL NOT BE AN ANCHOR (session 282) ───
+  //
+  // A payment-due notice restates the PRIOR period's closing balance and prints
+  // the amount now owed. Filed under its issue date it looks like the freshest
+  // reading of the loan, and it outranks the real one. iBusiness/FC's 2026-08-03
+  // row is that shape — byte-identical to the 2026-07-01 row, same document —
+  // and it dated August's close on July's balance.
+  //
+  // Session 273 defused it with balance_basis='unknown'. That field answers WHAT
+  // the figure is (principal only, payoff, unknown); it has no room for WHEN, and
+  // no room for why. So the row said "we don't know what this is" when the truth
+  // was "we know exactly what it is and its date is wrong", and session 281
+  // relabelled it, in good faith, on proof about the figure. The two facts now
+  // live in two fields: balance_basis keeps saying what, and
+  // anchor_exclusion_reason carries the date objection in a human's own words.
+  //
+  // EXCLUDED IS NOT DELETED. The row stays in _allLoanStatements, keeps its
+  // document, and still appears in the loan's statement list — it is the evidence
+  // for its own period. It is skipped only where a balance is CHOSEN, which is
+  // these five places and no others (grep: `anchor_excluded`):
+  //   _loanStatementsToDate · _loanBalanceAsOf · _loanBalanceMoveDates
+  //   _loanClosingAnchor's roll-back candidates · the origination comparison.
+  function _isAnchorEligible(s) { return !!s && !s.anchor_excluded; }
+
   function _rankByAuthority(rows) {
     if (!rows || rows.length < 2) return rows || [];
+    // Session 282 tie-break, and it is not cosmetic. Re-dating a period-labelled
+    // loan's statements collapses every document issued in one month onto that
+    // month's END, so the period statement filed on the 1st and an off-cycle
+    // notice filed on the 3rd arrive here with the SAME date and the winner was
+    // decided by whatever order the query happened to return -- which on
+    // iBusiness/FC was the notice. On a tie the row filed EARLIER wins, because
+    // that is the one filed under the loan's declared convention; a document
+    // filed later in the same period is an intra-period pull, and an
+    // intra-period balance is by definition not the period's closing figure.
+    // For every balance_date loan filed_date === statement_date, so ties are as
+    // rare as they ever were and this comparator changes nothing for them.
     const byDate = rows.slice().sort((x, y) =>
-      (y.statement_date || '').localeCompare(x.statement_date || ''));
+      (y.statement_date || '').localeCompare(x.statement_date || '')
+      || (x.filed_date || x.statement_date || '').localeCompare(y.filed_date || y.statement_date || ''));
     const newestIso = byDate[0].statement_date;
     const isReal = (r) => _VARIANCE_REAL_ANCHORS.includes(String(r.source || ''));
     const current = byDate.filter(r =>
@@ -16589,6 +16684,7 @@
     const labelledOnly = !!(opts && opts.labelledOnly);
     const rows = (_allLoanStatements || []).filter(s =>
       s.loan_account_id === a.id && s.principal_balance != null &&
+      _isAnchorEligible(s) &&
       s.statement_date <= asOfIso &&
       (!realOnly || _VARIANCE_REAL_ANCHORS.includes(String(s.source || ''))) &&
       (!labelledOnly || _balanceBasisIsLabelled(s)));
@@ -17058,6 +17154,7 @@
   function _loanBalanceMoveDates(a) {
     const real = (_allLoanStatements || [])
       .filter(s => s.loan_account_id === a.id && s.principal_balance != null
+        && _isAnchorEligible(s)
         && _VARIANCE_REAL_ANCHORS.includes(String(s.source || ''))
         && _balanceBasisIsLabelled(s))
       .map(s => ({ d: String(s.statement_date).slice(0, 10), b: Number(s.principal_balance) }))
@@ -17287,6 +17384,7 @@
     const todayIso = today();
     const later = (_allLoanStatements || []).filter(s =>
       s.loan_account_id === a.id && s.principal_balance != null &&
+      _isAnchorEligible(s) &&
       _VARIANCE_REAL_ANCHORS.includes(String(s.source || '')) &&
       s.statement_date > monthEndIso && s.statement_date <= todayIso &&
       _daysBetweenIso(s.statement_date, monthEndIso) <= ROLLBACK_WINDOW_DAYS)
@@ -17298,6 +17396,7 @@
       // rather than to see an empty cell.
       const future = (_allLoanStatements || []).some(s =>
         s.loan_account_id === a.id && s.principal_balance != null &&
+        _isAnchorEligible(s) &&
         _VARIANCE_REAL_ANCHORS.includes(String(s.source || '')) &&
         s.statement_date > todayIso &&
         _daysBetweenIso(s.statement_date, monthEndIso) <= ROLLBACK_WINDOW_DAYS);
@@ -18022,6 +18121,7 @@
       if (book) {
         const orig = (_allLoanStatements || [])
           .filter(s => s.loan_account_id === a.id && s.principal_balance != null &&
+                       _isAnchorEligible(s) &&
                        String(s.source || '') === 'contract_origination' &&
                        s.statement_date <= priorEnd)
           .sort((x, y) => (x.statement_date < y.statement_date ? 1 : -1))[0];
@@ -22124,7 +22224,7 @@
       ? `<div style="max-height:220px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
           <thead><tr><th>Date</th><th style="text-align:right">Balance</th><th>Basis</th><th>Source</th></tr></thead>
           <tbody>${stmts.map(s => `<tr>
-            <td class="td-mono">${esc(s.statement_date)}</td>
+            <td class="td-mono" title="${esc(s.anchor_exclusion_reason || (s.filed_date !== s.statement_date ? 'Filed under ' + s.filed_date + '; its balance is true as of ' + s.statement_date + '.' : ''))}">${esc(s.filed_date || s.statement_date)}${s.filed_date && s.filed_date !== s.statement_date ? ` <span style="color:var(--gray-400)">· as of ${esc(s.statement_date)}</span>` : ''}${s.anchor_excluded ? ` <span style="color:var(--gray-400)">· not an anchor</span>` : ''}</td>
             <td class="td-mono" style="text-align:right">${money2(s.principal_balance)}</td>
             <td style="font-size:12px;color:var(--gray-500)">${esc((s.balance_basis || 'unknown').replace(/_/g, ' '))}</td>
             <td style="font-size:12px;color:var(--gray-500)">${esc((s.source || '').replace(/_/g, ' '))}</td>

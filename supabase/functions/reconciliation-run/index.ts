@@ -23,6 +23,11 @@ import { diagnoseUnexplainedGap, type LaterEntry, type AmortRow, type SiblingFin
 import { matchAgainstPatterns, clusterCandidates, splitRowForMatch, unexplainedHandPosted,
   checkAdjustmentPatternCandidates, type AdjustmentPattern } from './adjustment-patterns.ts'
 import { staleRunIds, STALE_RUN_MS } from '../_shared/stale-runs.ts'
+// Session 282. statement-period.ts has existed since session 273 and this function
+// never imported it, so it read Funding Circle's period-labelled statements one
+// period out of place -- the same defect the admin dashboard carried. The basis is
+// recorded per loan by a human; balanceAsOf is a no-op for every other loan.
+import { anchorsByBalanceDate, normalizeBasis } from '../_shared/statement-period.ts'
 
 // ────────────────────────────────────────────────────────────────────────
 // Bookkeeping → Reconciliation Check (session 212, 2026-08-15)
@@ -1829,7 +1834,7 @@ async function handle(req: Request): Promise<Response> {
   }).select().single()
 
   try {
-    const [{ data: loans }, { data: statements }, { data: splits }, { data: amortRows }, { data: contractTerms }, { data: bookBalanceRows }] = await Promise.all([
+    const [{ data: loans }, { data: rawStatements }, { data: splits }, { data: amortRows }, { data: contractTerms }, { data: bookBalanceRows }] = await Promise.all([
       supa.from('loan_accounts').select('*'),
       supa.from('loan_statements').select('*').order('statement_date', { ascending: false }),
       supa.from('loan_splits').select('*'),
@@ -1911,6 +1916,40 @@ async function handle(req: Request): Promise<Response> {
     // otherwise have been short — inside the "~60 days" this comment already
     // budgeted for, and pullXero slices it a month at a time so the page cap is
     // untouched.
+    // ── THE DATE A STATEMENT'S BALANCE IS ACTUALLY AS OF (session 282) ──────
+    //
+    // Two corrections, both applied ONCE here so that every check below inherits
+    // them. Session 231: a guard is only as good as the branch it sits on, and
+    // `statements` is read by nine of them.
+    //
+    // 1. RE-DATE. A loan whose recorded statement_date_basis is 'period_start'
+    //    files each statement under the FIRST day of the period it covers, so its
+    //    balance is true at that month's END. anchorsByBalanceDate moves the date
+    //    and keeps the filed one on `filed_date`. A no-op for every other loan --
+    //    most lenders date a statement with its balance date and shifting those
+    //    would corrupt them, which is why the basis is recorded by a human who
+    //    opened a PDF and is never inferred here.
+    //
+    // 2. DROP THE ROWS A HUMAN RULED OUT. anchor_exclusion_reason non-null means
+    //    someone determined this document's stated balance is not a balance as of
+    //    its date -- a payment-due notice restating the prior period's closing
+    //    figure is the shape that forced this. Such a row is still evidence and
+    //    still on file; it just cannot answer "what did the lender say on date X",
+    //    which is the only question this function asks of it. The dashboard keeps
+    //    them and labels them; nothing here displays a document list.
+    const excludedAnchors = (rawStatements || []).filter((s: any) => s.anchor_exclusion_reason != null)
+    const eligible = (rawStatements || []).filter((s: any) => s.anchor_exclusion_reason == null)
+    const byLoanBasis = new Map((loans || []).map((l: any) => [l.id, normalizeBasis(l.statement_date_basis)]))
+    const statements = (loans || []).flatMap((l: any) =>
+      anchorsByBalanceDate(eligible.filter((s: any) => s.loan_account_id === l.id), byLoanBasis.get(l.id)!))
+      // Every downstream check assumes newest-first, the order the query asked for.
+      .sort((a: any, b: any) => String(b.statement_date).localeCompare(String(a.statement_date)))
+    // Orphans (a statement whose loan row was not returned) would silently vanish
+    // in the flatMap above. There should be none; say so rather than lose them.
+    if (statements.length + excludedAnchors.length !== (rawStatements || []).length) {
+      console.warn(`[recon] ${(rawStatements || []).length - statements.length - excludedAnchors.length} statement row(s) belong to no loaded loan and were dropped`)
+    }
+
     const anchorDates = (statements || [])
       .filter(s => REAL_ANCHOR_SOURCES.includes(s.source) && s.statement_date <= today)
       .map(s => s.statement_date)
