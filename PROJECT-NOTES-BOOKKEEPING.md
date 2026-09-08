@@ -2,6 +2,141 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
+> ### 0zq. 🔍 THE EIDL $5 — investigated, NOT diagnosed, and the search itself is the finding (session 284)
+>
+> David asked why we would not just propose a $5 adjustment: *"It's easy and cheap."* He was right
+> about the cost and right that a standing −5.00 in the Variance column has a price of its own — a
+> reader who learns to skim one red number skims the next. So it was investigated properly.
+>
+> **Every journal that has EVER touched account 299 — there is exactly one.** 2024-03-31, narrated
+> *"To record the SBA Loan payments to interest asper statement"*: 299 −10,280.81 / 800 +10,280.81,
+> taking the balance 949,719.19 → **960,000.00**, which foots to the cent. Searched every manual
+> journal 2020-01-01 → today matching "SBA" and "EIDL"; that is the only one.
+>
+> **So the $5 is not a missing entry of ours. It exists only on the lender's side.** Our 960,000.00
+> is the loan's face amount (`loan_accounts.original_amount` agrees) and the books balance is a
+> `trial_balance` checkpoint with zero movement since.
+>
+> Two things fell out that matter more than the $5:
+>
+> 1. **Our figure was reconciled against a statement nobody can now look at.** "as per statement",
+>    March 2024 — and the oldest EIDL statement on file is 2026-07. If that 2024 statement also said
+>    960,005, the round number is ours and has been $5 wrong for two years. **One older statement
+>    settles it, and that is cheaper than any journal search.**
+> 2. **The EIDL statement says "Outstanding Balance", not "Principal Balance"** (Tech Debt #47 raised
+>    exactly this). If that figure carries accrued fees or interest, our 960,000 principal is CORRECT
+>    and a debit to the loan account would be booking a fee as principal. That is not a $5 question —
+>    it is the same question that governs the whole $960,005.
+>
+> **⏭️ Next step, and it is not a journal:** pull one 2024 or 2025 EIDL statement from the SBA portal.
+> If it reads 960,005, the entry is $5 to loan cost / interest with the narration stating that the
+> March 2024 balance was recorded from a statement we no longer hold. If it reads 960,000, the SBA
+> added $5 later and it belongs in the period it appeared. **Same $5, different account and different
+> period** — which is the whole reason not to book it blind, and the reason the write-off card asks
+> for the document rather than offering the button as the first move.
+>
+> ### 0zp. ✅ THE WRITE-OFF — the first correction NOT derived from a diagnosis (session 284)
+>
+> David: *"I want this to be automatic going forward: person clicks on find the fix (or Review and
+> Post), sees a history and/or explanation, is proposed a one-time post/adjustment, click on Post OR
+> on Ignore."*
+>
+> **The gap was real and precise.** Both existing proposals are built FROM a cause — `proposal`
+> reallocates one identified lumped payment, and `diagnoseWorkedEntry` refuses to propose anything
+> unless its entry equals the span's gap to the cent. A difference nobody can explain therefore
+> produced no proposal at all: it landed in the grey immaterial band, blocked nothing, and sat
+> there forever. **EIDL's $5 had no button because no button had ever been safe to offer.**
+>
+> So this is the one posting path in the module capable of becoming a plug machine, and it is fenced
+> six ways. Every fence RECORDS its refusal (`writeoff.why`) rather than just withholding a button —
+> a fence you cannot see is a mystery, and a mystery is what makes someone go looking for another
+> way to do it.
+>
+> | Fence | Why |
+> |---|---|
+> | immaterial only, **strict** (below) | the one that stops "$5 tidy-up" becoming "make $2,000 disappear" |
+> | nothing was diagnosed | a proposal, a CPA exception or a `self_diagnosis` IS the action |
+> | the search ran and came back empty | walk attributed nothing, fingerprint hunt matched nothing — a timeout must never read as "unexplained" |
+> | the whole gap is the unexplained part | `still_unexplained === difference`; a partly-explained gap is a different question |
+> | a REAL lender document anchors it | writing our books off to agree with our own arithmetic is circular (s246) |
+> | an account is nominated | `settings.loan_writeoff_account_code`, **NULL on ship** — the feature is turned on by an accounting decision, not by a deploy |
+>
+> ### 🔴 0zp-ii. THE FIND THAT MATTERS: `!isMaterialGap` WOULD HAVE ALLOWED **$2,400** ON EIDL
+>
+> The ceiling was going to reuse the existing materiality policy — deliberately, to avoid inventing a
+> second threshold. Writing the tests is what caught it.
+>
+> **`isMaterialGap` is an AND: material = big in dollars AND big as a share. So NOT-material is an
+> OR — under the floor *or* under the share.** That is correct for its own job, which is deciding how
+> loudly to print a number. Reused unchanged as a POSTING ceiling it says something else entirely:
+>
+> > 0.25% of $960,005 is **$2,400**. Every difference up to roughly that came back "not material" and
+> > would have been offered as a **one-click write-off with no cause**, on the largest loan on the book.
+>
+> **That is the plug machine arriving through its own fence.** The ceiling now requires BOTH bars to
+> be small — under the floor AND under the share — so in practice the $25 floor binds and an
+> unexplained difference is capped in DOLLARS however large the loan is. *"Small relative to the
+> balance" is an argument about presentation and never an argument about being allowed to write money
+> off without knowing why.* Raising it is now a deliberate decision rather than a side effect of a
+> loan being big.
+>
+> ⚠️ **The discriminator is the whole proof:** the test reverts the ceiling to `if (mat.material)` on
+> the shipped source and asserts that $2,000 **is offered**. Without that case, "we refuse $2,000"
+> would have been passing for an unrelated reason.
+>
+> ### 0zp-iii. WHAT ELSE THIS SESSION LEARNED THE HARD WAY
+>
+> **The materiality policy now lives in `_shared/materiality.ts`** — moved rather than copied, so the
+> figure the close band greys out and the figure a person may write off cannot drift apart.
+> `reconciliation-run` re-exports it (the definition moved, the surface did not). ⚠️ **Two tests
+> broke on the move and both broke CORRECTLY:** `find-difference-walk`'s loader had no rewrite for
+> the new path, and `queue-hygiene` reads the threshold out of source text and **refused loudly**
+> rather than quietly reading a stale literal — exactly what it was rewritten to do. `queue-hygiene`
+> now also pins the strict ceiling in place, so nobody later "tidies" it back into an
+> `isMaterialGap` call and raises the cap a hundredfold in a one-line diff.
+>
+> **The SIGN is measured, not assumed.** Xero credits a liability with a NEGATIVE `LineAmount` —
+> proven on the real 2024-03-31 EIDL journal, where −10,280.81 to account 299 raised the balance
+> 949,719.19 → 960,000.00. The loan leg therefore takes `difference` itself. The card also prints
+> *"After this, your books read $960,005.00 — the same as the lender"*, so a sign error reads as an
+> obviously wrong sentence instead of posting quietly.
+>
+> **The narration is the entire long-term value of the entry.** It says CAUSE UNKNOWN in those words,
+> carries both balances and the date, names what was searched for and not found, and **never says
+> "adjustment"** — asserted. An entry that does not say why is indistinguishable, a year later, from
+> a correction of something real, which is the distinction this module exists to preserve.
+>
+> **A fixture was wrong and the code was right.** The first run had every eligible-case assertion red
+> on the close-date fence: the test hardcoded a posting date one month after the close date, but
+> `postingDateFor` clears the closed month AND the month being closed. The good failure.
+>
+> **Tests:** `tests/writeoff-fences.test.mts`, **37 assertions, 37 green**, of which eleven are
+> refusals each changing exactly ONE input from the eligible fixture, plus three discriminators
+> (the loose ceiling, the lender-document fence, the sign). Node suite 33/34 files green (loan-bundle's
+> pdfjs import remains the known pre-existing one). Harness unaffected: 808/810 and 869/879 across two
+> batches, the reds being only the six `close-band-columns` and four `closing-evidence` failures
+> §0zn-ii measured identical on HEAD.
+>
+> ### ⏭️ 0zp-iv. WHAT IS LEFT FOR DAVID
+>
+> 1. **The feature is OFF until Ramona names an account.** `settings.loan_writeoff_account_code` is
+>    NULL: no card, and the server refuses `post_writeoff`. Ask her for a code — something like
+>    "Loan balance adjustments" — and record who and when in the two sibling columns. Putting every
+>    write-off in ONE account is deliberate: if this is ever used more than it should be, that account
+>    is the alarm. Spread across interest expense it would be invisible.
+> 2. **Push, then deploy `loan-find-difference` and `reconciliation-run`** (both `verify_jwt: false`,
+>    so BOTH take `--no-verify-jwt` — re-probe first, per CLAUDE.md).
+> 3. **The migration is applied and PostgREST visibility proven** (REST round-trip returned the three
+>    columns, not PGRST204).
+> 4. ⏭️ **"History" was delivered as EXPLANATION, not as an account timeline.** The card states both
+>    balances, their dates, the anchor's source, everything searched, and the exact sentence that will
+>    be written. What it does NOT yet show is the loan account's own journal history — which is what
+>    actually cracked the $5 by hand today (*one journal has ever touched account 299, dated
+>    2024-03-31, and it set the balance to a round number by hand to match a statement we do not
+>    hold*). That needs one more `xero-read` call and is the obvious next increment.
+> 5. ⏭️ **The $5 itself is still not diagnosed** and now has a button that would close it. Worth one
+>    older EIDL statement first — see §0zq.
+>
 > ### 0zo-0. ✅ #46 IS DEPLOYED, THE DATA IS FIXED, AND THE CAPTURE CORROBORATED ITSELF (session 284, 2026-09-08 ~16:45 UTC)
 >
 > **All three functions verified by BEHAVIOUR and by CONTENT, not by version number.**

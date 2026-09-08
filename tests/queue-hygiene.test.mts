@@ -47,6 +47,14 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ENGINE = path.join(HERE, '..', 'supabase', 'functions', 'reconciliation-run', 'index.ts')
+// session 284: MATERIAL_FLOOR / MATERIAL_SHARE moved to _shared/materiality.ts,
+// so that loan-find-difference's write-off ceiling reads the SAME policy rather
+// than a third copy of it. reconciliation-run re-exports them, so its behaviour
+// is unchanged — but a re-export is not a `const`, and this file reads the
+// SOURCE TEXT to get the real number rather than trusting a transcription.
+// It refused loudly instead of quietly reading a stale literal, which is why
+// this line is a one-word change and not an afternoon.
+const MATERIALITY = path.join(HERE, '..', 'supabase', 'functions', '_shared', 'materiality.ts')
 
 let pass = 0, fail = 0
 const ok = (label: string, cond: boolean, detail = '') => {
@@ -59,10 +67,17 @@ const section = (s: string) => console.log(`\n── ${s} ${'─'.repeat(Math.ma
 // is a failure, not a skip — an assertion that quietly stops firing is the exact
 // failure mode this file was rewritten to remove.
 const src = fs.readFileSync(ENGINE, 'utf8')
+const matSrc = fs.readFileSync(MATERIALITY, 'utf8')
 const constant = (name: string): number => {
-  const m = src.match(new RegExp(`export const ${name}\\s*=\\s*(-?[0-9.]+)`))
-  if (!m) throw new Error(`${name} is no longer an exported const in ${ENGINE} — this test cannot read the real threshold`)
+  const m = matSrc.match(new RegExp(`export const ${name}\\s*=\\s*(-?[0-9.]+)`))
+  if (!m) throw new Error(`${name} is no longer an exported const in ${MATERIALITY} — this test cannot read the real threshold`)
   return Number(m[1])
+}
+// ...and the engine must still SURFACE them, or its own callers and this file's
+// sibling tests break silently. Reading the definition from one file and the
+// re-export from the other is what makes the move testable at all.
+if (!/export \{[^}]*MATERIAL_FLOOR[^}]*\}/.test(src)) {
+  throw new Error(`reconciliation-run no longer re-exports MATERIAL_FLOOR — moving the definition must not remove the surface`)
 }
 const MATERIAL_FLOOR = constant('MATERIAL_FLOOR')
 const MATERIAL_SHARE = constant('MATERIAL_SHARE')
@@ -71,9 +86,35 @@ section('the two bars, as the engine actually declares them')
 {
   ok('MATERIAL_FLOOR is $25', MATERIAL_FLOOR === 25, String(MATERIAL_FLOOR))
   ok('MATERIAL_SHARE is 25 basis points', MATERIAL_SHARE === 0.0025, String(MATERIAL_SHARE))
-  ok('isMaterialGap is still the single place the two are applied',
-     /export function isMaterialGap/.test(src) && (src.match(/isMaterialGap\(/g) || []).length >= 2,
+  // session 284: the definition moved to _shared/materiality.ts; the engine
+  // still calls it. The intent is unchanged and is about DERIVATION, not
+  // location — one function computes the verdict and everyone else reads it.
+  ok('isMaterialGap is still the single place the MATERIALITY VERDICT is computed',
+     /export function isMaterialGap/.test(matSrc)
+       && !/export function isMaterialGap/.test(src)
+       && (src.match(/isMaterialGap\(/g) || []).length >= 1,
      'the dashboard reads tie_out.detail.material; if a second call site re-derives it, the roster and the queue can disagree again')
+
+  // ⚠️ AND THE ONE PLACE THAT DOES NOT USE IT, ON PURPOSE.
+  // loan-find-difference's write-off ceiling compares the two constants
+  // DIRECTLY rather than calling isMaterialGap, because it needs the stricter
+  // reading: isMaterialGap is an AND, so `!material` is an OR — under the floor
+  // OR under the share. On a $960,005 loan that admits ~$2,400 as "immaterial",
+  // which is fine for greying a number and is not fine for authorising a
+  // one-click write-off with no cause. This asserts the exception EXISTS and is
+  // the strict form, so nobody later "tidies" it into an isMaterialGap call and
+  // silently raises the cap a hundredfold.
+  const fdiff = fs.readFileSync(
+    path.join(HERE, '..', 'supabase', 'functions', 'loan-find-difference', 'index.ts'), 'utf8')
+  ok('the write-off ceiling requires BOTH bars, not either',
+     /const withinShare = mat\.share < MATERIAL_SHARE/.test(fdiff)
+       && /const withinFloor = Math\.abs\(difference\) < MATERIAL_FLOOR/.test(fdiff)
+       && /if \(!withinFloor \|\| !withinShare\)/.test(fdiff),
+     'a write-off must be under the floor AND under the share; the OR form would allow ~$2,400 on the largest loan on the book')
+  ok('...and it reads the shared constants rather than restating the numbers',
+     /from '\.\.\/_shared\/materiality\.ts'/.test(fdiff)
+       && !/MATERIAL_FLOOR\s*=\s*[0-9]/.test(fdiff),
+     'a third copy of the threshold is how the close band and the post button start disagreeing')
 }
 
 section('the six real balance gaps of 2026-08-27, against those bars')

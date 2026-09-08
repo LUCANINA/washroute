@@ -27,6 +27,7 @@ import { staleRunIds, STALE_RUN_MS } from '../_shared/stale-runs.ts'
 // never imported it, so it read Funding Circle's period-labelled statements one
 // period out of place -- the same defect the admin dashboard carried. The basis is
 // recorded per loan by a human; balanceAsOf is a no-op for every other loan.
+import { MATERIAL_FLOOR, MATERIAL_SHARE, isMaterialGap } from '../_shared/materiality.ts'
 import { anchorsByBalanceDate, normalizeBasis } from '../_shared/statement-period.ts'
 
 // ────────────────────────────────────────────────────────────────────────
@@ -645,13 +646,14 @@ interface TieOut {
   detail: Record<string, unknown>
 }
 
-export const MATERIAL_FLOOR = 25
-export const MATERIAL_SHARE = 0.0025
-export function isMaterialGap(residual: number, lenderBalance: number | null): { material: boolean; share: number } {
-  const lender = Math.abs(Number(lenderBalance ?? 0))
-  const share = lender > 0 ? Math.abs(residual) / lender : 1
-  return { material: Math.abs(residual) >= MATERIAL_FLOOR && share >= MATERIAL_SHARE, share }
-}
+// Session 284: the definition moved to _shared/materiality.ts so
+// loan-find-difference's write-off ceiling reads the SAME policy instead of
+// restating it. Re-exported here because this module's own tests and callers
+// import these names from it -- the definition moved, the surface did not.
+// (Imported at the top of the file, because the body below uses isMaterialGap
+// as well as re-exporting it; a bare `export ... from` would re-export without
+// binding the name locally, which fails at runtime rather than at parse.)
+export { MATERIAL_FLOOR, MATERIAL_SHARE, isMaterialGap }
 
 function computeTieOut(loan: any, ledger: any, cp: number, cpDate: string, anchors: any[], windowFrom: string, haveCheckpoint: boolean, today: string): TieOut {
   const base: TieOut = {

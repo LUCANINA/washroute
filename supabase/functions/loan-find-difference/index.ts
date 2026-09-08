@@ -4,6 +4,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { effectiveCloseDate, postingDateFor, isProtectedDate } from '../_shared/close-date.ts'
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 import { anchorsByBalanceDate, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
+import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
 
 // ── loan-find-difference (session 225) ──────────────────────────────────────
 // "Find the difference": when the reconciliation engine says a loan's Xero
@@ -1414,6 +1415,188 @@ const duplicateJournalError = (hit: any) =>
 // refuse a journal dated into a settled month -- this is the only thing that
 // will. Every proposal gets its date from here, and both post paths re-check it
 // against the freshly-computed value before touching Xero.
+// ═══════════════════════════════════════════════════════════════════════════
+// THE WRITE-OFF: the one correction NOT derived from a diagnosis (session 284)
+// ═══════════════════════════════════════════════════════════════════════════
+// David: "person clicks Find the fix, sees a history and/or explanation, is
+// proposed a one-time post/adjustment, clicks Post or Ignore."
+//
+// Every other entry this file proposes is built FROM a cause. `proposal`
+// reallocates one identified lumped payment; diagnose-exception refuses to
+// propose anything unless its entry equals the span's gap to the cent. Those are
+// safe because the arithmetic has to work out before a button appears.
+//
+// A write-off has no such property. It is, by definition, the amount nobody
+// could explain -- so it is the only posting path here capable of becoming a
+// plug machine, and the reason it is fenced this hard. The fences:
+//
+//  1. IMMATERIAL ONLY, by the shared policy (_shared/materiality.ts), not a
+//     threshold invented for this feature. Above it there is no button and the
+//     difference must be diagnosed. This is the fence that matters: it is what
+//     stops "tidy up $5" from becoming "make $2,000 go away".
+//  2. NOTHING WAS DIAGNOSED -- no proposal, no CPA exception, no self-diagnosis
+//     on the finding. If any of those produced an answer, that answer is the
+//     action, and a write-off would be papering over a fix we already have.
+//  3. THE SEARCH ACTUALLY RAN AND CAME BACK EMPTY. The span walk found nothing
+//     to attribute, and the fingerprint hunt matched no live transaction of that
+//     amount. A crash, a timeout or an unexamined span must never present as
+//     "unexplained" -- that would turn a failure to look into a licence to post.
+//  4. THE WHOLE GAP IS THE UNEXPLAINED PART. If later entries account for some
+//     of it, the remainder is a different question with a different answer.
+//  5. A REAL LENDER DOCUMENT anchors the comparison. Writing our books off to
+//     agree with our own arithmetic would be circular -- session 246's rule.
+//  6. AN ACCOUNT IS CONFIGURED. NULL means the feature is off; see the migration.
+//
+// And the narration states, in words, that the cause is UNKNOWN and what was
+// looked for. That sentence is the entire long-term value of the entry: an
+// adjustment that does not say why is indistinguishable, a year later, from a
+// correction of something real, and this module has spent a great many sessions
+// on the consequences of not being able to tell those apart.
+//
+// ── THE SIGN, because getting it backwards is silent ──────────────────────
+// `difference` is books MINUS lender. Xero credits a liability with a NEGATIVE
+// LineAmount -- measured, not assumed: the 2024-03-31 EIDL journal posted
+// -10,280.81 to account 299 and the balance ROSE by exactly that, 949,719.19 ->
+// 960,000.00. So the loan leg takes `difference` itself and the offset takes its
+// negation. The card also prints the resulting balance in words, so a sign error
+// reads as an obviously wrong sentence instead of posting quietly.
+
+// Mirrors reconciliation-run's REAL_ANCHOR_SOURCES. Belt and braces: a
+// balance_vs_lender finding can only be raised off one of these already, so this
+// re-checks a property rather than establishing it -- but the day that changes,
+// this is the fence that should refuse rather than the one that assumes.
+const WRITEOFF_REAL_ANCHORS = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
+
+function buildWriteoff(o: {
+  loan: any, code: string, headline: any, detail: any,
+  proposal: any, cpaException: any, totalPeriodDiff: number, hunt: any,
+  postingDate: string, postingWhy: string, closeDate: string | null, today: string,
+  writeoffAccount: string | null, acctMap: Record<string, string>,
+}): any {
+  const { loan, code, headline, detail, proposal, cpaException, totalPeriodDiff, hunt,
+          postingDate, postingWhy, closeDate, today, writeoffAccount, acctMap } = o
+
+  // Every refusal is RECORDED rather than returned as a bare null. A button that
+  // is simply absent teaches nobody anything; "not offered, because X" is the
+  // difference between a fence and a mystery, and it is what lets the card say
+  // what would have to change.
+  const refuse = (why: string) => ({ eligible: false, why })
+
+  if (!writeoffAccount) return refuse('no write-off account has been nominated yet, so nothing can be posted anywhere')
+  if (!headline || headline.difference == null) return refuse('there is no open books-vs-lender difference on this loan')
+  const difference = r2(Number(headline.difference))
+  if (Math.abs(difference) < 0.01) return refuse('the books already agree with the lender')
+
+  if (proposal) return refuse('a specific correction has already been identified — post that instead')
+  if (cpaException?.proposed_entry) return refuse('a prepared CPA exception already explains this — post that instead')
+  if (detail?.self_diagnosis) return refuse('the reconciliation check has already named a cause for this difference')
+
+  const stillUnexplained = detail?.still_unexplained == null ? null : r2(Number(detail.still_unexplained))
+  if (stillUnexplained == null || Math.abs(stillUnexplained - difference) > TOL) {
+    return refuse('later entries account for part of this difference, so the remainder is a different question')
+  }
+  if (Math.abs(totalPeriodDiff) >= TOL) {
+    return refuse('the period-by-period walk found differences to attribute — those are the lead, not a write-off')
+  }
+  if (hunt?.matches?.length) {
+    return refuse(`a live transaction of exactly ${money(Math.abs(difference))} exists in Xero — look at that before writing anything off`)
+  }
+  if (!WRITEOFF_REAL_ANCHORS.includes(String(detail?.anchor_source ?? ''))) {
+    return refuse('the balance this is measured against did not come from a lender document')
+  }
+
+  const lenderBalance = detail?.lender_balance == null ? null : Number(detail.lender_balance)
+  const mat = isMaterialGap(difference, lenderBalance)
+
+  // ⚠️ THE CEILING IS STRICTER THAN `!isMaterialGap`, AND THE DIFFERENCE MATTERS.
+  //
+  // isMaterialGap is an AND: material means big in dollars AND big as a share.
+  // So NOT-material is an OR — under the floor, *or* under the share. That is
+  // right for its own job, which is deciding how loudly to print a number: a
+  // variance that is tiny by either measure should not shout.
+  //
+  // Reused unchanged as a POSTING ceiling it says something else entirely. On
+  // this book's largest loan, 0.25% of $960,005 is $2,400, so every difference
+  // up to roughly $2,400 comes back "not material" and would have been offered
+  // as a one-click write-off with no cause. That is precisely the plug machine
+  // this action was fenced against, arriving through the fence itself.
+  //
+  // So a write-off requires BOTH to be small: under the absolute floor AND under
+  // the share. In practice the floor binds, which is the intent — an unexplained
+  // difference is capped in DOLLARS regardless of how large the loan is, because
+  // "small relative to the balance" is an argument about presentation and never
+  // an argument about being allowed to write money off without knowing why.
+  //
+  // Raising it is a deliberate decision, not a side effect of a loan being big.
+  const withinShare = mat.share < MATERIAL_SHARE
+  const withinFloor = Math.abs(difference) < MATERIAL_FLOOR
+  if (!withinFloor || !withinShare) {
+    return refuse(`${money(Math.abs(difference))} is over the write-off ceiling — a write-off is capped at ${money(MATERIAL_FLOOR)} AND ${(MATERIAL_SHARE * 100).toFixed(2)}% of the balance, and this is ${!withinFloor ? `over the ${money(MATERIAL_FLOOR)} cap` : `${(mat.share * 100).toFixed(3)}% of the balance`}. A difference this size is diagnosed, never written off`)
+  }
+  if (isProtectedDate(postingDate, closeDate, today)) {
+    return refuse(`the only date this could be posted to (${postingDate}) falls in a period your accountant has closed`)
+  }
+
+  const booksBal = detail?.xero_balance == null ? null : Number(detail.xero_balance)
+  const asOf = headline.as_of || detail?.anchor_date || null
+  const loanName = loan.xero_account_name || loan.lender || 'this loan'
+  const offsetName = acctMap[String(writeoffAccount)] ?? null
+
+  const narration =
+    `${loanName} — ${money(Math.abs(difference))} difference between our books and the lender, CAUSE UNKNOWN, written off. `
+    + `Our balance ${booksBal == null ? '(unknown)' : money(booksBal)} against the lender's ${lenderBalance == null ? '(unknown)' : money(lenderBalance)}`
+    + `${asOf ? ` as of ${asOf}` : ''}, from a ${String(detail?.anchor_source ?? 'lender').replace(/_/g, ' ')}. `
+    + `No cause was found: the period-by-period walk attributed nothing, no prepared correction applies, and no transaction of this amount exists in Xero. `
+    + `Written off as immaterial (under ${money(MATERIAL_FLOOR)} and under ${(MATERIAL_SHARE * 100).toFixed(2)}% of the balance). `
+    + `[WR-WRITEOFF ${code} ${postingDate}]`
+
+  return {
+    eligible: true,
+    kind: 'unexplained_difference_writeoff',
+    amount: difference,
+    as_of: asOf,
+    books_balance: booksBal,
+    lender_balance: lenderBalance,
+    // Said in words so a sign error is legible rather than silent.
+    result_sentence: lenderBalance == null ? null
+      : `After this, your books read ${money(lenderBalance)} for ${loanName} — the same as the lender.`,
+    material_share: mat.share,
+    dated_into: postingDate,
+    dated_because: postingWhy,
+    account: { code: String(writeoffAccount), name: offsetName },
+    searched: [
+      'the period-by-period walk against every usable lender statement',
+      'a prepared reallocation for a lumped payment',
+      'a CPA exception on an entry already worked',
+      `every live Xero transaction totalling exactly ${money(Math.abs(difference))}`,
+    ],
+    journal: {
+      Narration: narration,
+      Date: postingDate,
+      Status: 'POSTED',
+      JournalLines: [
+        { LineAmount: difference, AccountCode: String(code), Description: `${loanName} — unexplained difference written off`, TaxType: 'NONE', AccountName: acctMap[String(code)] ?? null },
+        { LineAmount: r2(-difference), AccountCode: String(writeoffAccount), Description: `${loanName} — unexplained loan balance difference, cause not found`, TaxType: 'NONE', AccountName: offsetName },
+      ],
+    },
+    token: proposalToken(loan.id, 'writeoff', difference, 'unexplained_writeoff', postingDate),
+  }
+}
+
+/**
+ * The account a write-off may post to, or null. NULL is the shipped state and it
+ * disables the action entirely -- see the migration comment on
+ * settings.loan_writeoff_account_code for why this is configuration rather than
+ * a constant. A read failure returns null, i.e. OFF: the safe direction for a
+ * setting whose only job is to permit a posting.
+ */
+async function writeoffAccount(supa: any): Promise<string | null> {
+  const { data } = await supa.from('settings')
+    .select('loan_writeoff_account_code').eq('id', 1).maybeSingle()
+  const code = data?.loan_writeoff_account_code
+  return code ? String(code).trim() || null : null
+}
+
 async function postingWindow(supa: any, today: string) {
   const cd = await effectiveCloseDate(supa)
   const postingDate = postingDateFor(cd.date, today)
@@ -2051,6 +2234,10 @@ async function handle(req: Request): Promise<Response> {
   const supa = admin()
   const body = await req.json().catch(() => ({}))
   const { loan_account_id, post_fix, proposal_token, posted_by } = body
+  const post_writeoff = body.post_writeoff === true
+  // Optional. The journal always carries the computed story; this is only for a
+  // person who knows something the system does not, and an empty one never blocks.
+  const writeoff_note = typeof body.writeoff_note === 'string' ? body.writeoff_note.trim().slice(0, 500) : ''
   // ── session 272: THE BUTTON MATCHES THE ROW ────────────────────────────────
   // David, on PayPal 2: the Loans row showed an August variance and the modal it
   // opened led with December. Two different investigations behind one button, and
@@ -2078,10 +2265,10 @@ async function handle(req: Request): Promise<Response> {
   // below, so this refuses nothing those would have allowed -- it exists so the refusal
   // is a STATEMENT rather than a side effect of a role's absence from an array, and so
   // that widening one of those arrays cannot silently hand a write path to a cron job.
-  if (internal && (post_fix || post_exception || body.post_crossloan || body.lender_analysis)) {
+  if (internal && (post_fix || post_exception || post_writeoff || body.post_crossloan || body.lender_analysis)) {
     return new Response(JSON.stringify({ error: 'The internal job may run analyze only. Nothing was posted.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
-  if ((post_fix || post_exception) && !['admin', 'manager'].includes(role)) {
+  if ((post_fix || post_exception || post_writeoff) && !['admin', 'manager'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Only an admin or manager can post a correction. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   // v10: lender-level analysis — read-only by construction; corrections are
@@ -2250,6 +2437,19 @@ async function handle(req: Request): Promise<Response> {
   if (proposal) bits.push(`One span has a mechanically safe fix: the gap equals the ${proposal.period} interest portion exactly — the correcting journal below closes it using only the lender's own figures. Nothing posts until you approve.`)
   if (cpaException) bits.push(cpaException.note)
 
+  // ── The write-off proposal (session 284) ──────────────────────────────
+  // Built LAST, because it is defined by what everything above failed to find:
+  // it consults `proposal`, `cpaException`, the walk's own total and the
+  // fingerprint hunt, and refuses if any of them produced a lead. Computing it
+  // earlier would mean deciding "nothing was found" before the finding was done.
+  const woAccount = await writeoffAccount(supa)
+  const wo = buildWriteoff({
+    loan, code, headline, detail: findings?.[0]?.detail ?? null,
+    proposal, cpaException, totalPeriodDiff, hunt,
+    postingDate: pw.postingDate, postingWhy: pw.postingWhy, closeDate: pw.closeDate, today,
+    writeoffAccount: woAccount, acctMap,
+  })
+
   const analysis = {
     ok: true, mode: 'analyze' as string,
     posting_window: pw,
@@ -2284,10 +2484,74 @@ async function handle(req: Request): Promise<Response> {
     cpa_exception_closed: aw.cpa_exception_closed,
     fingerprint_hunt: hunt,
     proposal, cpa_exception: cpaException,
+    // session 284: the third proposal, and the only one not built from a cause.
+    // Carried even when NOT eligible, because `why` is what lets the card say
+    // what would have to change instead of just showing no button.
+    writeoff: wo,
     can_post: !!proposal && ['admin', 'manager'].includes(role),
     can_post_exception: !!cpaException?.proposed_entry && ['admin', 'manager'].includes(role),
+    can_post_writeoff: !!wo?.eligible && ['admin', 'manager'].includes(role),
     conclusions: finalConclusions,
     narrative: bits.join(' '),
+  }
+
+  // ── post_writeoff: the difference nobody could explain (session 284) ──────
+  //
+  // Every guard below is RE-CHECKED here rather than trusted from the render.
+  // buildWriteoff has just run again on fresh data, so a difference that grew
+  // past the ceiling, a cause found since, a close date that moved, or an
+  // account un-nominated between looking and clicking all refuse at this point.
+  // The token then pins the exact figure and date the person actually read --
+  // an approval is for one number, not for the idea of writing something off.
+  if (post_writeoff) {
+    if (!wo?.eligible) {
+      return new Response(JSON.stringify({ error: `This can no longer be written off — ${wo?.why || 'the analysis has changed since you looked'}. Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (wo.token !== proposal_token) {
+      return new Response(JSON.stringify({ error: 'The figure changed since you reviewed it — check the current one and approve that instead. Nothing was posted.', analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    // Belt and braces on the fence that matters most. buildWriteoff already
+    // refused a material gap; this says so again at the last instant before a
+    // write, because session 231's lesson is that a guard is only as good as the
+    // branch it sits on, and this is the branch that spends money.
+    // Note this repeats buildWriteoff's STRICT ceiling (floor AND share), not
+    // `isMaterialGap` — using the looser one here would mean the last guard
+    // before the write was the weakest one on the path.
+    const matNow = isMaterialGap(wo.amount, wo.lender_balance)
+    if (Math.abs(wo.amount) >= MATERIAL_FLOOR || matNow.share >= MATERIAL_SHARE) {
+      return new Response(JSON.stringify({ error: `${money(Math.abs(wo.amount))} is over the write-off ceiling — it must be diagnosed, not written off. Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (isProtectedDate(wo.journal.Date, pw.closeDate, today)) {
+      return new Response(JSON.stringify({ error: `That write-off is dated ${wo.journal.Date}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    // The narration carries the loan code and the posting date, so a second
+    // click, a double submit or a re-run finds its own journal and stops.
+    let dupW: any = null
+    try { dupW = await alreadyPostedInXero(wo.journal.Narration, wo.journal.Date, headers) }
+    catch (e) {
+      return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (dupW) {
+      return new Response(JSON.stringify({ error: duplicateJournalError(dupW), already_posted: dupW }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    const narration = (wo.journal.Narration
+      + (writeoff_note ? ` Note from ${posted_by || 'the approver'}: ${writeoff_note}` : '')
+      + (posted_by ? ` Approved by ${posted_by}.` : '')).slice(0, 4000)
+    const woRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ManualJournals: [{ Narration: narration, Date: wo.journal.Date, Status: wo.journal.Status, JournalLines: wo.journal.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
+    })
+    const woJson = await woRes.json().catch(() => null)
+    if (!woRes.ok || woJson?.Elements?.[0]?.ValidationErrors?.length) {
+      return new Response(JSON.stringify({ error: 'Xero journal post failed', status: woRes.status, details: woJson }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    const woJournal = woJson.ManualJournals?.[0]
+    return new Response(JSON.stringify({
+      ok: true, mode: 'post_writeoff',
+      posted_journal: { id: woJournal?.ManualJournalID, narration, date: wo.journal.Date, lines: wo.journal.JournalLines },
+      posted_by: posted_by || null,
+      note: 'Written off. The journal says the cause was not found and what was looked for — it is a record of an open question closed deliberately, not of a problem solved. Run a reconciliation check to confirm the loan now ties.',
+    }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } })
   }
 
   // ── post_exception: the prepared correction for an entry the accountant

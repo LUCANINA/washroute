@@ -12652,7 +12652,113 @@
         ${data.can_post ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}', this)">Approve & post correction to Xero</button></div>` : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
       </div>`);
     }
+    // ── THE WRITE-OFF (session 284) ────────────────────────────────────────
+    // LAST on the card, deliberately. It is what is left when nothing above
+    // found anything, and putting it above a real proposal would offer the
+    // shortcut before the answer. The server refuses it whenever either of the
+    // two blocks above produced something, so this ordering matches the rule
+    // rather than merely looking like it.
+    if (data.writeoff) parts.push(_bkFdiffWriteoffHtml(data.writeoff, data, findingId, loanId));
     return parts.join('');
+  }
+
+  // ── session 284: the difference nobody could explain ──────────────────────
+  //
+  // David: "person clicks Find the fix, sees a history and/or explanation, is
+  // proposed a one-time post/adjustment, clicks Post or Ignore."
+  //
+  // Two states and BOTH of them say something. Eligible: the two balances, what
+  // was searched, the exact sentence that will be written, Post and Ignore.
+  // Not eligible: the reason, in one line. A button that is merely absent
+  // teaches nobody anything — "not offered, because X" is the difference
+  // between a fence and a mystery, and it is what stops someone concluding the
+  // screen is broken and going looking for another way to do it.
+  function _bkFdiffWriteoffHtml(wo, data, findingId, loanId) {
+    const ignoreBtn = `<button class="btn" style="font-size:12px;padding:6px 12px" onclick="bkIgnoreVariance('${loanId}', this)">Ignore</button>`;
+
+    if (!wo.eligible) {
+      // Silent when there is nothing to write off anyway — a card explaining why
+      // you cannot do a thing you were not trying to do is noise (LESS IS BEST).
+      if (/^the books already agree|^there is no open books/.test(String(wo.why || ''))) return '';
+      return `<div style="margin-top:10px;padding:10px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12px;color:var(--gray-600)">
+        <strong>Not offered as a write-off</strong> — ${esc(wo.why || 'the conditions for one are not met')}.
+      </div>`;
+    }
+
+    const lines = (wo.journal?.JournalLines || []).map(l =>
+      `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} ${Number(l.LineAmount) >= 0 ? 'into' : 'out of'} ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('');
+
+    return `<div style="margin-top:10px;padding:12px;background:#f8fafc;border:1px solid var(--gray-300);border-radius:8px;font-size:12.5px">
+      <div style="font-weight:700">No cause found — this can be written off</div>
+      <div style="margin-top:4px;line-height:1.5;color:var(--gray-600)">
+        Your books read <strong>${esc(fmtMoney(wo.books_balance))}</strong> and the lender
+        <strong>${esc(fmtMoney(wo.lender_balance))}</strong>${wo.as_of ? ` as of ${esc(fmtDate(wo.as_of))}` : ''} —
+        a difference of <strong>${esc(fmtMoney(Math.abs(wo.amount)))}</strong>, too small to block the close
+        and small enough to write off rather than chase.
+      </div>
+      ${wo.result_sentence ? `<div style="margin-top:6px;font-weight:600">${esc(wo.result_sentence)}</div>` : ''}
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--gray-600)">Show the working</summary>
+        <div style="margin-top:6px;line-height:1.55;color:var(--gray-600)">
+          <div style="font-weight:600">Looked for, and did not find:</div>
+          <ul style="margin:4px 0 0 16px;padding:0">${(wo.searched || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+          <div style="margin-top:8px;font-weight:600">The entry that would post, dated ${esc(fmtDate(wo.dated_into))}:</div>
+          ${lines}
+          <div style="margin-top:6px">Dated there because ${esc(wo.dated_because || '')}.</div>
+          <div style="margin-top:8px;font-weight:600">The sentence that will be written into Xero:</div>
+          <div style="margin-top:2px;font-style:italic">${esc(wo.journal?.Narration || '')}</div>
+        </div>
+      </details>
+      ${data.can_post_writeoff ? `
+        <div style="margin-top:10px">
+          <input id="fdiff-wo-note-${findingId}" class="form-input" style="font-size:12px;padding:6px 8px"
+                 placeholder="Anything you know that we don't (optional)" maxlength="500">
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-wo-${findingId}"
+                  onclick="bkPostFdiffWriteoff('${findingId}','${loanId}','${esc(wo.token)}', this)">Post the write-off</button>
+          ${ignoreBtn}
+        </div>
+        <div style="margin-top:6px;font-size:11.5px;color:var(--gray-500)">Ignore changes nothing anywhere — it just takes this off the list, and it comes back on its own if the figure moves.</div>`
+        : data.read_only_view
+          ? `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-500)">Open this loan on its own to post it — the lender-level view never writes.</div>`
+          : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
+    </div>`;
+  }
+
+  // Ignore, from inside the modal. Same soft dismissal as every other queue —
+  // substance-keyed, so a materially different number comes straight back.
+  async function bkIgnoreVariance(loanId, srcEl) {
+    if (srcEl) srcEl.disabled = true;
+    await bkArchiveIssue(encodeURIComponent('variance-' + loanId));
+    showToast('Ignored — nothing was written. It returns if the figure changes.', 'success');
+  }
+
+  async function bkPostFdiffWriteoff(findingId, loanId, token, srcEl) {
+    const btn = srcEl || _fdiffEl('wo', findingId, null);
+    const noteEl = document.getElementById('fdiff-wo-note-' + findingId);
+    const note = noteEl ? String(noteEl.value || '').trim() : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Re-checking and posting…'; }
+    const { ok, data } = await _loanFn('loan-find-difference', {
+      loan_account_id: loanId, post_writeoff: true, proposal_token: token,
+      writeoff_note: note || undefined,
+      posted_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
+    }, 180000);
+    const out = _fdiffOutOf(btn, findingId);
+    if (!ok || data.error) {
+      showToast(data.error || 'Could not post the write-off.', 'error');
+      // A 409 ships the fresh analysis — the figure or the verdict moved between
+      // looking and clicking, and the person reads what it is now.
+      if (data.analysis && out) out.innerHTML = _bkFdiffHtml(data.analysis, findingId, loanId);
+      else if (btn) { btn.disabled = false; btn.textContent = 'Post the write-off'; }
+      return;
+    }
+    showToast('Written off.', 'success');
+    if (out) out.innerHTML = `<div style="margin-top:10px;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534">
+      <div style="font-weight:700">✓ Written off</div>
+      <div style="margin-top:4px;color:var(--gray-600)">${esc(data.posted_journal?.narration || '')} — dated ${esc(fmtDate(data.posted_journal?.date))}. The journal records that the cause was not found and what was looked for.</div>
+      <div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="runReconciliationCheck()">Run Reconciliation Check</button></div>
+    </div>`;
   }
 
   // ── session 279: DISPLAY ONLY — the journal that posts is never changed ────

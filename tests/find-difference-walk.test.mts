@@ -64,6 +64,10 @@ async function loadWalk(mutate?: (src: string) => string) {
     // session 273 cont.: the statement-date basis rule lives in _shared too, and
     // it is loaded for real -- a stub here would test the stub, not the rule.
     .replace(/from '\.\.\/_shared\/statement-period\.ts'/, `from '${new URL('statement-period.ts', SHARED).href}'`)
+    // session 284: the materiality policy moved out of reconciliation-run into
+    // _shared so the write-off ceiling could read it rather than restate it.
+    // Loaded for real, like the two above — a stub would test the stub.
+    .replace(/from '\.\.\/_shared\/materiality\.ts'/, `from '${new URL('materiality.ts', SHARED).href}'`)
     .replace(/from '\.\/diagnose-exception\.ts'/, `from '${new URL('diagnose-exception.ts', FN_DIR).href}'`)
   src = `globalThis.Deno = { serve: () => {}, env: { get: () => '' } };\n` + src
   src += `\nexport { analyzeWalk, trimAnchors, effect, entryView, r2, TOL };\n`
