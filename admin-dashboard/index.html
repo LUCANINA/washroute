@@ -1403,6 +1403,7 @@
     .team-role-badge.manager { background:#fef3c7;color:#92400e; }
     .team-role-badge.laundry_tech { background:#d1fae5;color:#065f46; }
     .team-role-badge.attendant { background:#ede9fe;color:#5b21b6; }
+    .team-role-badge.cpa { background:#fee2e2;color:#991b1b; }
     /* pos_device now lives under Team > Devices with its own honest label
        ("POS Terminal") — restored to its original light-blue badge so it
        reads distinct from the (legacy) attendant purple. */
@@ -5321,6 +5322,7 @@
                   <select id="invite-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
                     <option value="attendant">Attendant (POS only)</option>
                     <option value="laundry_tech">Laundry Tech (Processing only)</option>
+                    <option value="cpa">CPA (Bookkeeping, read-only)</option>
                     <option value="manager">Manager (Operations)</option>
                     <option value="admin">Admin (Full access)</option>
                   </select>
@@ -5357,6 +5359,7 @@
                   <select id="create-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
                     <option value="attendant">Attendant (POS only)</option>
                     <option value="laundry_tech">Laundry Tech (Processing only)</option>
+                    <option value="cpa">CPA (Bookkeeping, read-only)</option>
                     <option value="manager">Manager (Operations)</option>
                     <option value="admin">Admin (Full access)</option>
                   </select>
@@ -5380,6 +5383,7 @@
               <select id="role-modal-select" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none;margin-bottom:22px">
                 <option value="attendant">Attendant (POS only)</option>
                 <option value="laundry_tech">Laundry Tech (Processing only)</option>
+                <option value="cpa">CPA (Bookkeeping, read-only)</option>
                 <option value="manager">Manager (Operations)</option>
                 <option value="admin">Admin (Full access)</option>
               </select>
@@ -5433,6 +5437,7 @@
       <select class="form-input" id="tm-role" style="background:white">
         <option value="attendant">Attendant (POS only)</option>
         <option value="laundry_tech">Laundry Tech (Processing only)</option>
+        <option value="cpa">CPA (Bookkeeping, read-only)</option>
         <option value="manager">Manager (Operations)</option>
         <option value="admin">Admin (Full access)</option>
       </select>
@@ -8560,7 +8565,7 @@
   // so the labels can be honest again — POS Terminal / Laundry Kanban — instead
   // of the prior "pos_device → Attendant" display hack that conflated permission
   // intent across roles.
-  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Kanban', attendant: 'Attendant', pos_device: 'POS Terminal' };
+  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Kanban', attendant: 'Attendant', pos_device: 'POS Terminal', cpa: 'CPA' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','smsdelivery','bookkeeping','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
@@ -8621,7 +8626,7 @@
     const { data, error } = await db
       .from('profiles')
       .select('id, first_name, last_name, email, phone, role, pos_pin')
-      .in('role', ['admin', 'manager'])
+      .in('role', ['admin', 'manager', 'cpa'])
       .order('role').order('first_name');
     if (error || !data) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
@@ -19377,25 +19382,6 @@
         // quote marks is exactly the wrong trade. Caught by the harness, not by reading.
         text: `${bandOutside.length} more waiting on you outside ${_cvMonthName(month)} — in the Action column, with the month named on the button` });
     }
-    // ── SESSION 288: THE SCHEDULE QUESTION, ONCE FOR THE WHOLE TABLE ──────
-    // The row-level ask is now scoped to a MATERIAL difference (David: "why show
-    // 'Which schedule?' unless there's actually something for the reader to do?").
-    // That is right for the row and it leaves a real hole, which session 277 wrote
-    // down and did not fill: a schedule picked by an internal tie-break goes on
-    // CREATING TRANSACTIONS IN XERO whether the row is material, immaterial or
-    // tying, so a loan that ties every month would never be asked at all.
-    //
-    // This is the home that session named -- "one gate for the whole table rather
-    // than a nag on every green row". It names its loans, per the session-256 rule.
-    // bad:false: nothing here stops August closing, and a gate that blocked over a
-    // decision about FUTURE periods would be the nag this module keeps removing.
-    const schedUnsettled = rf.rows.filter(r =>
-      (r.a.prestage_enabled === true || r.a.close_basis === 'amortization_schedule')
-      && _loanScheduleChoice(r.a).unsettled);
-    if (schedUnsettled.length) {
-      gates.push({ key: 'schedule-choice', bad: false, tick: false, n: schedUnsettled.length,
-        text: `${schedUnsettled.length} loan${schedUnsettled.length === 1 ? '' : 's'} carry more than one payment schedule and nothing in the data prefers one -- the projection is picked by an internal tie-break, and these loans stage real transactions in Xero from it: ${names(schedUnsettled, r => r.a)}` });
-    }
     const provisional = _bkOpeningProvisional(rf.priorEnd);
     if (provisional) {
       const openMonth = _cvMonthName(String(provisional.priorEnd).slice(0, 7));
@@ -19589,112 +19575,58 @@
                        )}">Upload screenshot of balance</button>`
                      : `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">Upload statement</button>` };
         }
-        // ── EVIDENCE COMES BEFORE THE DECISION, and the order was wrong first ──
-        // The schedule question below outranks "Find the fix" -- a difference walked
-        // against a projection nobody agreed to cannot be evaluated. But it must NOT
-        // outrank the ask above it: a month with no closing evidence cannot be closed
-        // whichever schedule wins, and uploading a balance is cheap while choosing a
-        // schedule takes thought. Put the considered decision in front of the cheap
-        // unblock and the cheap unblock never gets seen -- which is exactly what my
-        // first cut did to BayFirst SBA 2's row.
-        // ── AN UNAGREED PROJECTION OUTRANKS A DIFFERENCE MEASURED AGAINST IT ──
-        // (Session 277, David's rule.) Eight active loans carry more than one live
-        // schedule and nothing in the data prefers any of them; the code was picking
-        // on a sort key. This asks instead — and it asks FIRST, before "Find the
-        // fix", because a difference walked against a projection nobody has agreed
-        // to cannot be evaluated. Same shape as session 245's "no lender export, no
-        // verdict": no agreed schedule, no verdict on a schedule-based one.
+        // ══════════════════════════════════════════════════════════════════
+        //  SESSION 288 cont. — "WHICH SCHEDULE?" IS GONE (David)
+        // ══════════════════════════════════════════════════════════════════
+        // David: "'which schedule?' reads as: pick one, which we don't allow. It
+        // is not useful information."
         //
-        // Scoped to loans where the choice actually bites: prestaging CREATES a
-        // transaction in Xero off the projection, and a schedule-basis close reads
-        // its closing balance from it. On a lender-statement loan with prestaging
-        // off, a second schedule on file changes no number and asking would be a
-        // chore — an ask nobody needs is the nag this rule warns about.
-        // ⚠️ AND NOT ON A ROW THAT TIES. The harness caught this: E-Transit E6-7410
-        // ties on a lender document and my question appeared on it anyway, breaking
-        // a deliberate invariant — "a row that ties gets no action: a column that
-        // always says something is a column people stop reading." That reasoning is
-        // right and outranks my wish to raise this here.
+        // He is right, and it is worse than the reading. The button opened
+        // openLoanDetailModal, WHICH HAS NO SCHEDULE PICKER IN IT, and its own
+        // tooltip promised "Choosing records the answer against the loan, with your
+        // reason, and this stops being asked." The database has
+        // `set_loan_chosen_schedule` -- live, role-gated, reason required, written in
+        // session 277 -- and NOTHING IN THIS FILE HAS EVER CALLED IT. So the product
+        // asked a question it would not accept an answer to, on eight loans, every
+        // month. That is session 277's own rule ("what was asked for and what the
+        // button does must agree") broken by the session that wrote it, and the same
+        // shape as the balance note: read path built, write path never wired.
         //
-        // WHICH LEAVES A REAL GAP, recorded rather than hidden: a loan that ties
-        // every month never gets asked, while its prestaging goes on creating Xero
-        // transactions off a schedule chosen by a tie-break. The band's readiness
-        // strip is the right home for that — one gate for the whole table rather
-        // than a nag on every green row. Not built yet; see the notes.
-        const _schedChoice = _loanScheduleChoice(a);
-        // ── SESSION 278: "MEASURED AGAINST IT" HAS TO BE TRUE, NOT ASSUMED ───
-        // The rule above is right and its scope was one branch too wide. It
-        // suppressed "Find the fix" wherever a schedule was unsettled AND
-        // prestaging was on -- but prestaging is about what we WRITE to Xero,
-        // while this column is about a difference we READ. The two are not the
-        // same question, and on the four Ford loans they came apart.
+        // ⚠️ THE RISK IS REAL AND IT IS NOT FIXED BY THIS CUT. Eight active loans
+        // carry more than one live schedule, prestaging is on for all eight, and the
+        // projection they stage from is chosen by `_loanScheduleChoice`'s sort key.
+        // Cutting the ask removes the NAG, not the exposure. It is written down as
+        // Tech Debt #47 rather than left on screen, because a question nobody can
+        // answer teaches a reader to stop reading the column -- and this column is
+        // now also the work queue, so that habit would cost more than it did before.
         //
-        // Measured, not argued. All four close on `lender_statement`, the SOURCE
-        // column reads "Statements", and the closing anchor is grade A -- the
-        // lender's own document. loan-find-difference walked 23-25 STATEMENT
-        // spans on each and returned a confirmed diagnosis to the cent: an
-        // accountant's catch-up split double-counting interest our own journals
-        // had already booked ($415.88 on 4140, $181.99 on E4-9744, $266.42 on
-        // E5-4751), each with a correcting journal prepared and waiting. No
-        // schedule touches any of those numbers. So "a difference walked against
-        // a projection nobody agreed to cannot be evaluated" was not describing
-        // these rows: the difference rests on lender evidence, it HAS been
-        // evaluated, and the ask was standing in front of the money.
+        // ⚠️ AND THE DATA SAYS THE QUESTION WAS THE WRONG ONE ANYWAY. Measured
+        // against production on 2026-09-08: of the eight, PCV and Verdant each hold a
+        // `client_parsed_verified` schedule that already outranks its sibling, so they
+        // were never unsettled. Of the remaining six, FOUR (E-Transit 4140, E5-4751,
+        // E6-7410, and one pair on Funding Circle) are duplicate copies agreeing on
+        // every date and row count -- there is nothing to choose, the answer is to
+        // delete one. Only E4-9744 (first payment Sep 9 vs Aug 20) and BayFirst SBA 2
+        // (Sep 2 / 88 rows vs Aug 31 / 89) are genuine disagreements, and both of
+        // those are `derived_from_statements` on both sides: schedules WE computed,
+        // twice, differently. "Which one does the lender follow" is unanswerable for
+        // them because neither came from the lender.
         //
-        // Grade is the honest test, because it names where the CLOSING figure
-        // actually came from -- the same value the SOURCE badge prints. Grade B
-        // closes on the schedule, so an unagreed schedule really does invalidate
-        // the difference and the ask still wins. Grade A does not.
+        // `_loanScheduleChoice` and `_loanScheduleDifference` STAY. The choice still
+        // decides which schedule's rows the close reads (`_loanScheduleRows`), and
+        // `chosen_schedule_id` still outranks everything if a picker is ever wired.
+        // What is deleted is the ASK, not the machinery behind it.
         //
-        // AND ONLY WHILE THERE IS SOMETHING TO FIX. This does not delete the ask
-        // on grade-A rows; it puts it BEHIND the correction. Once the finding is
-        // resolved the question comes back on its own, because a schedule chosen
-        // by a tie-break still stages real transactions. Deferring an ask is not
-        // the same as answering it, and this defers rather than answers.
+        // ⚠️ AND THIS LOOKUP SURVIVED THE CUT ON PURPOSE. It sat inside the deleted
+        // branch, and taking it out with the branch left `_bvlFinding` undefined at
+        // the bottom of this function -- which threw, blanked the whole close band,
+        // and turned two groups into "cannot read properties of null". A deletion
+        // that removes a shared value along with its first reader is the ordinary
+        // way this goes wrong; the harness caught it in one run. ONE read, so the
+        // "explained" and "fix" branches below cannot disagree about whether a fix
+        // is available.
         const _bvlFinding = (_reconFindings || []).find(f =>
           f.loan_account_id === a.id && f.check_key === 'balance_vs_lender' && f.status === 'open');
-        const _diffRestsOnSchedule = r.grade !== 'A';
-        // ── SESSION 288: AN IMMATERIAL ROW IS NOT A QUESTION EITHER (David) ──
-        // David, auditing this page: "why show 'Which schedule?' unless there's
-        // actually something for the reader to do?" -- looking at BayFirst SBA 2,
-        // which is off by ONE CENT and was being asked to settle a schedule.
-        //
-        // The tie exemption three lines below already encodes exactly this rule
-        // ("a row that ties gets no action: a column that always says something
-        // is a column people stop reading"), and an immaterial band is the same
-        // fact with a rounding difference attached -- session 247's own reasoning
-        // for de-escalating it everywhere else on this page. So the test is now
-        // POSITIVE: the ask fires on a MATERIAL difference, and on nothing else.
-        // `unbooked` is excluded by the same logic, and more strongly: that row's
-        // difference is already explained by payments waiting to post, so the
-        // schedule cannot be what is wrong with it.
-        //
-        // ⚠️ THE CLAIM DOES NOT LEAVE THE SCREEN, and this is what session 277
-        // recorded as "not built yet". A schedule chosen by an internal tie-break
-        // still STAGES REAL TRANSACTIONS IN XERO whether the row is material,
-        // immaterial or tying -- so silencing the row without saying so anywhere
-        // would be a deletion, not a trim (ce17). The band's readiness strip now
-        // carries a `schedule-choice` gate counting every loan with an unsettled
-        // schedule, named, which is the one-gate-for-the-whole-table home session
-        // 277 said was the right one. It is bad:false: an unagreed projection is
-        // not a reason August cannot close, it is a reason to go and decide.
-        if (_schedChoice.unsettled && r.band === 'material' && !r.circular
-            && (a.prestage_enabled === true || a.close_basis === 'amortization_schedule')
-            && (_diffRestsOnSchedule || !_bvlFinding)) {
-          const n = _schedChoice.candidates.length;
-          const diff = _loanScheduleDifference(_schedChoice.candidates);
-          // Addressed to whoever is reading it. No role named, no assumption about
-          // who they are (David, 2026-09-05) -- and it says what changes once it is
-          // answered, which is what stops an ask being a nag.
-          const t = `${n} payment schedules are on file for this loan and nothing in the data prefers one: `
-            + `${diff}. Until one is chosen, the projection is picked by an internal tie-break -- `
-            + `and this loan pre-stages transactions in Xero from it, so a schedule dated wrongly `
-            + `books a payment into the wrong period. Which one does the lender actually follow? `
-            + `Choosing records the answer against the loan, with your reason, and this stops being asked.`
-            + (_schedChoice.staleRecord ? ' A schedule was chosen before but is no longer on file, so the question is open again.' : '');
-          return { kind: 'decide',
-                   cell: `<button type="button" class="lcb-do lcb-decide" onclick="openLoanDetailModal('${esc(a.id)}')" title="${esc(t)}">Which schedule?</button>` };
-        }
         // ⚠ SESSION 273: UNPOSTED BEATS A TIE HERE TOO, BECAUSE IT ALREADY DOES
         // IN THE STATUS COLUMN. David, looking at Rapid the moment it started
         // tying: "where do I approve the balance fee?" The row said Pending

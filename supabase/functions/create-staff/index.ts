@@ -53,7 +53,11 @@ Deno.serve(async (req: Request) => {
   // Default fallback is 'attendant' instead of the legacy 'staff' value, which would silently lock out new POS users from the dashboard nav.
   // (Session 231: this line existed only in the DEPLOYED function — the repo copy was
   // still on the old 'staff' allowlist. Reconciled so the repo is the source of truth.)
-  const safeRole = ['admin', 'manager', 'laundry_tech', 'attendant', 'pos_device'].includes(role ?? '') ? role! : 'attendant';
+  // (Session 262: 'cpa' added — read-only Bookkeeping role for David's accountant.
+  //  It was already a valid profiles.role value and already referenced by the
+  //  bookkeeping RLS policies; this allowlist was silently downgrading it to
+  //  'attendant' on create.)
+  const safeRole = ['admin', 'manager', 'laundry_tech', 'attendant', 'pos_device', 'cpa'].includes(role ?? '') ? role! : 'attendant';
   const e164Phone = toE164(phone);
 
   // ── Session 231: refuse to create a SECOND account for someone already on the team ──
@@ -71,7 +75,7 @@ Deno.serve(async (req: Request) => {
     // and '(510) 757-2669' are the same person), so an ilike pattern silently misses
     // half the duplicates. The staff roster is a few dozen rows — pull it and compare
     // normalized values.
-    const STAFF_ROLES = ['admin', 'manager', 'laundry_tech', 'attendant', 'pos_device', 'driver'];
+    const STAFF_ROLES = ['admin', 'manager', 'laundry_tech', 'attendant', 'pos_device', 'driver', 'cpa'];
     const { data: existing } = await adminClient
       .from('profiles')
       .select('id, first_name, last_name, email, phone, role')
