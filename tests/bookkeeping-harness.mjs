@@ -365,6 +365,11 @@ async function newHarnessPage(opts = {}) {
       orders: window.__WR_STUB.log.queries.map(q => q.table + ':' + q.orders.join(',')),
     })),
     evaluate: (...a) => page.evaluate(...a),
+    // s289: screenshot one element. An assertion proves the markup; only a
+    // picture proves it READS -- which is the gap the START HERE block names on
+    // the close band's `+N`. Used by a throwaway group, kept because the next
+    // person auditing a card will want it and will otherwise rebuild it.
+    shot: (sel, path) => page.locator(sel).screenshot({ path }),
     async close() { await ctx.close(); },
   };
   if (opts.settle !== false) { await api.release(...(opts.hold || [])); await api.settle(); }
@@ -930,6 +935,127 @@ const CONFIDENT_ZERO = /\$0(?:\.00)?\b/;
 
 /* ═══════════════════════════ SCENARIO GROUPS ═════════════════════════════ */
 const GROUPS = [];
+
+/* ── s289 ── THE RECORDED-CAUSE ENTRY, AND THE ACCOUNT IT REFUSES TO GUESS ──
+   The card's whole reason for existing is that it OFFERS the adjustment where
+   three earlier proposals all refuse. The thing worth testing is not that it
+   draws -- it is the one field a machine must not fill in. `Post to Xero` is
+   armed by a human choosing a GL code and by nothing else, and the loan's own
+   account is not on the menu, because an entry with both legs on one account
+   posts cleanly, reports success and changes nothing. */
+GROUPS.push({
+  name: 'recorded-entry',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const REC = {
+      eligible: true, kind: 'recorded_cause_adjustment', amount: -5, as_of: '2026-07-22',
+      books_balance: 960000, lender_balance: 960005,
+      result_sentence: 'After this, your books read $960,005.00 for EIDL SBA Loan — the same as the lender.',
+      dated_into: '2026-09-30', dated_because: 'books are closed through 2026-06-30 and the month after that is being closed',
+      recorded_by: 'David', recorded_at: '2026-09-08',
+      loan_leg: { AccountCode: '2500', AccountName: 'EIDL SBA Loan', LineAmount: -5, Description: 'balance adjustment' },
+      offset_leg: { AccountCode: null, LineAmount: 5, Description: 'added by the lender' },
+      narration: 'EIDL SBA Loan — $5.00 adjustment ... [WR-ADJUST 2500 2026-09-30]',
+      accounts: [{ code: '437', name: 'Interest Expense' }, { code: '404', name: 'Bank Fees' }],
+      token: 'tok',
+    };
+    const BASE = {
+      verdict: 'divergent', close_date: '2026-06-30', conclusions: [], no_action_detail: [],
+      periods: [{ from: '2026-06-22', to: '2026-07-22', lender_delta: 0, xero_delta: 0, verdict: 'clean' }],
+      cpa_exception: null, proposal: null,
+      writeoff: { eligible: false, why: 'someone has recorded an explanation for this difference — it is not unexplained, so read that and act on it' },
+      recorded_entry: REC, can_post_recorded: true,
+    };
+    const mk = (over) => JSON.parse(JSON.stringify(Object.assign({}, BASE, over)));
+
+    const draw = (d) => p.evaluate((data) => {
+      const host = document.createElement('div');
+      host.id = 'rec-host';
+      const old = document.getElementById('rec-host');
+      if (old) old.remove();
+      host.innerHTML = _bkFdiffHtml(data, 'f1', 'l1');
+      document.body.appendChild(host);
+      const btn = host.querySelector('#fdiff-rec-f1');
+      const sel = host.querySelector('#fdiff-rec-acct-f1');
+      return {
+        hasBtn: !!btn,
+        btnDisabled: btn ? btn.disabled : null,
+        options: sel ? [...sel.options].map(o => o.value) : null,
+        text: host.textContent.replace(/\s+/g, ' ').trim(),
+        // The columns each figure lands in, read off the rendered row rather
+        // than off the payload -- a sign error has to be VISIBLE as a debit and
+        // a credit swapping places, which is only true if this reads the DOM.
+        loanRowCells: (() => {
+          const rows = [...host.querySelectorAll('.fdc-act tbody tr')];
+          const r = rows.find(x => /2500/.test(x.textContent));
+          return r ? [...r.children].map(c => c.textContent.trim()) : null;
+        })(),
+      };
+    }, d);
+
+    /* 1 ── THE BUTTON IS NOT ARMED UNTIL A HUMAN ANSWERS THE ONE OPEN FIELD ── */
+    const fresh = await draw(mk({}));
+    t.ok(fresh.hasBtn, 'the adjustment is OFFERED — a recorded cause gets an entry, not a dead end');
+    t.eq(fresh.btnDisabled, true, '⭐ Post is DISABLED until an account is chosen — the offset leg is never guessed');
+
+    /* 2 ── AND THE LOAN'S OWN ACCOUNT IS NOT ON THE MENU ─────────────────── */
+    t.ok(!fresh.options.includes('2500'),
+         '⭐ the loan account is absent from the picker — both legs on one account posts nothing and reports success',
+         JSON.stringify(fresh.options));
+    t.ok(fresh.options.includes('437') && fresh.options[0] === '',
+         'the real accounts are offered, behind an empty "choose" default', JSON.stringify(fresh.options));
+
+    /* 3 ── CHOOSING ONE ARMS IT. Proves the gate is a gate and not a lock. ── */
+    const armed = await p.evaluate(() => {
+      const sel = document.querySelector('#fdiff-rec-acct-f1');
+      sel.value = '437';
+      sel.dispatchEvent(new Event('change'));
+      return document.querySelector('#fdiff-rec-f1').disabled;
+    });
+    t.eq(armed, false, '⭐ choosing an account arms Post');
+    const disarmed = await p.evaluate(() => {
+      const sel = document.querySelector('#fdiff-rec-acct-f1');
+      sel.value = '';
+      sel.dispatchEvent(new Event('change'));
+      return document.querySelector('#fdiff-rec-f1').disabled;
+    });
+    t.eq(disarmed, true, '...and clearing it disarms Post again — the gate is not one-way');
+
+    /* 4 ── THE SIGN IS READ FROM THE FIGURE, NOT ASSERTED IN A LABEL ─────── */
+    // loan_leg is NEGATIVE, so the loan account is CREDITED: em dash in the
+    // debit column, the money in the credit column.
+    t.ok(fresh.loanRowCells && fresh.loanRowCells[1] === '—' && /5\.00/.test(fresh.loanRowCells[2]),
+         '⭐ a negative loan leg renders as a CREDIT — the columns follow the sign',
+         JSON.stringify(fresh.loanRowCells));
+    const flipped = await draw(mk({ recorded_entry: Object.assign({}, REC, {
+      loan_leg: Object.assign({}, REC.loan_leg, { LineAmount: 5 }), offset_leg: Object.assign({}, REC.offset_leg, { LineAmount: -5 }) }) }));
+    t.ok(flipped.loanRowCells && /5\.00/.test(flipped.loanRowCells[1]) && flipped.loanRowCells[2] === '—',
+         'CONTROL: flipping the sign swaps the columns — the renderer reads the number',
+         JSON.stringify(flipped.loanRowCells));
+
+    /* 5 ── THE WRITE-OFF STOPS SAYING "ACT ON IT" WHEN THERE IS SOMETHING TO
+           ACT WITH. Its refusal is answered by the block above it. ───────── */
+    t.ok(!/Not offered as a write-off/.test(fresh.text),
+         '⭐ the write-off refusal is silent while the adjustment is offered', fresh.text.slice(0, 160));
+    const noRec = await draw(mk({ recorded_entry: { eligible: false, why: 'nobody has recorded what this difference is, so there is no explanation to book it against' } }));
+    t.ok(/Not offered as a write-off/.test(noRec.text),
+         'CONTROL: with no adjustment on offer the write-off speaks again — the line was suppressed, not deleted');
+    t.ok(!/Not offered as a one-off adjustment/.test(noRec.text),
+         '...and the adjustment does not add a SECOND refusal beside it (LESS IS BEST)');
+
+    /* 6 ── A READER WHO CANNOT POST SEES THE ENTRY AND NO BUTTON ─────────── */
+    const ro = await draw(mk({ can_post_recorded: false }));
+    t.ok(!ro.hasBtn && /review this but not post it/.test(ro.text),
+         'a read-only reader gets the entry and a reason, never a button that will fail');
+
+    await p.close();
+  },
+});
+
+
+
+
+
 
 /* Every table the Bookkeeping page reads on boot. 17 now: session 246 added
    loan_book_balances and session 262 added loan_attributions to loadLoans()'s
@@ -12119,8 +12245,21 @@ GROUPS.push({
     const before = await measure(BEFORE);
 
     /* ── 1. THE BUDGET, ON THE WHOLE MODAL ───────────────────────────────── */
-    t.ok(before.words >= 380,
-         'CONTROL: the card as it shipped measures over 380 visible words', String(before.words));
+    // ⚠ 350, NOT 380, SINCE SESSION 289 — AND THE REASON MATTERS MORE THAN THE
+    // NUMBER. This control feeds the OLD COPY through the CURRENT RENDERER. s289
+    // collapsed an all-tie span table behind a disclosure, which takes ~9 words
+    // off whatever copy is fed in, the old payload included: 380 → 371. So the
+    // threshold moved because the renderer improved, not because the card got
+    // wordier and somebody tuned the guard to accept it.
+    //
+    // That distinction is only safe to make because THIS IS NOT THE
+    // DISCRIMINATING CONTROL. The one that proves the measurement can fail is
+    // the last assertion in this group — the shipped card must go red on BOTH
+    // the dedup rule and the survival rule — and it is untouched, still red on
+    // the old payload, and would catch a deletion this word count cannot see.
+    // If the two ever disagree, that one wins (the softer-guard rule).
+    t.ok(before.words >= 350,
+         'CONTROL: the card as it shipped measures over 350 visible words', String(before.words));
     // ⚠ 225 IS A CHOSEN LIMIT, NOT THE MEASUREMENT. The card renders at 207
     // today. The slack is deliberate: a budget pinned to the current number
     // goes red on an honest rewording, and a test that cries wolf gets tuned

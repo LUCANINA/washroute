@@ -1291,7 +1291,39 @@ function analyzeWalk(o: {
     const tail = skippedEarlier.length
       ? `${skippedEarlier.length} earlier statement${skippedEarlier.length === 1 ? ' is' : 's are'} on file but unusable (balance basis unmarked) — mark them principal-only to pin it down`
       : `upload earlier statements to pin it down`
-    conclusions.push(`${money(Math.abs(residual))} predates the earliest usable statement (${winFrom})${k ? ` — equals ${k.what}` : ''}; ${tail}.`)
+    const sentence = `${money(Math.abs(residual))} predates the earliest usable statement (${winFrom})${k ? ` — equals ${k.what}` : ''}; ${tail}.`
+    // ── session 289: AN ESTABLISHED CAUSE OUTRANKS THE ASK ──────────────────
+    //
+    // David, on the EIDL SBA card. A human had recorded what the $5.00 IS —
+    // the SBA added it between the March and April 2026 payments, proven by
+    // three statements, with a date and a source document. Directly underneath,
+    // this bullet said the $5.00 "predates the earliest usable statement" and
+    // sent the reader off to mark nine statements principal-only "to pin it
+    // down". Both sentences were true of their own inputs: the WALK cannot see
+    // before its window, and it never knew the note existed — `balanceNoteOf`
+    // runs at the response, five hundred lines from here, and nothing carried
+    // it in. So the card asked a bookkeeper to go and establish a fact that the
+    // paragraph above it had already established, in the one place they had no
+    // reason to doubt.
+    //
+    // That is session 262's rule exactly ("ask when evidence is missing; STATE
+    // the cause when it is established"), and s279's at screen level: two
+    // sections answering "what is this?" and disagreeing about the answer.
+    //
+    // The test is narrow on purpose. The note is written about the WHOLE
+    // books-vs-lender difference, so it only answers this bullet when the
+    // residual IS that difference — a note explaining $5.00 of a $500.00 gap
+    // leaves the other $495.00 genuinely unexplained, and the ask still earns
+    // its place. `balanceNoteOf` supplies "current": a note with no recorded
+    // amount is stale by construction, so this can never fail open (s245).
+    const note = balanceNoteOf(loan, headline?.difference ?? null)
+    const noteAnswersIt = !!note && !note.stale && headline?.difference != null
+      && Math.abs(Math.abs(r2(Number(headline.difference))) - Math.abs(residual)) <= TOL
+    // NOTHING IS DELETED (ce17). It moves behind "Show the working", where the
+    // reader who distrusts the note still finds the walk's own account of the
+    // same figure, unabridged and in the same words.
+    if (noteAnswersIt) noActionDetail.push(sentence)
+    else conclusions.push(sentence)
   }
   // session 272: "every span ties" is now a statement about the OPEN book. Saying
   // it while closed spans diverge would be false; saying nothing at all when the
@@ -1624,6 +1656,168 @@ function buildWriteoff(o: {
       ],
     },
     token: proposalToken(loan.id, 'writeoff', difference, 'unexplained_writeoff', postingDate),
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE RECORDED-CAUSE ENTRY (session 289) — the fourth proposal
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// David, on the EIDL SBA card: "Offer a solution (in this case, a $5 adjustment
+// to the loan principal)."
+//
+// The card could not. There were three proposals and none of them fit:
+//   `proposal`      reallocates a lumped payment we identified
+//   `cpa_exception` reverses interest the accountant double-booked
+//   `writeoff`      posts a difference NOBODY could explain
+//
+// EIDL's $5.00 is the one shape none of those covers: a difference a HUMAN
+// explained. And the write-off does not merely fail to fit — it REFUSES, and
+// correctly, because posting "CAUSE UNKNOWN" into the ledger under a written
+// explanation would put a lie in the books.
+//
+// So the product diagnosed the difference, proved it from three statements,
+// wrote the cause down, and then dead-ended: "read that and act on it", with
+// nothing on the screen to act WITH. A card that names the fix and cannot offer
+// it is the same screen as a card that found nothing, for the person holding
+// the mouse.
+//
+// This is that fourth path. It is the write-off's mirror image and every
+// difference between them follows from one fact — this one HAS a cause:
+//
+//   * The note is the ENABLING condition here and the REFUSING condition there.
+//   * There is no materiality ceiling. The ceiling exists to stop money being
+//     plugged away unexamined; a recorded explanation is the examination. What
+//     replaces it is stricter in the way that matters: `balanceNoteOf` already
+//     requires the note to record the figure it was written about and to equal
+//     the live difference to the cent, so a human has looked at THIS number.
+//     A note with no amount is stale by construction and never reaches here.
+//   * The narration cites the explanation and its author instead of reciting
+//     what was searched for and not found.
+//
+// ⚠️ THE ACCOUNT IS NOT GUESSED, AND THAT IS THE WHOLE DESIGN OF THIS FUNCTION.
+// The other side of this entry is a real GL code, and a wrong one posts money
+// somewhere silently — the payroll `wage_account_code` failure mode exactly.
+// Worse, on the loan this was built for the note's own closing line IS "which
+// account should the $5.00 go to?", so guessing would be answering the open
+// question on the reader's behalf and burying it in a journal. Session 230's
+// rule says a typed number is never evidence; a GUESSED account is not even a
+// typed one. So the journal ships with the offset leg's AccountCode NULL, the
+// card makes the person choose, and the post path validates the choice against
+// Xero's own chart. It is one dropdown, and it is the only thing on this card
+// a machine has no business deciding.
+function buildRecordedCauseEntry(o: {
+  loan: any, code: string, headline: any, detail: any,
+  proposal: any, cpaException: any, totalPeriodDiff: number,
+  postingDate: string, postingWhy: string, closeDate: string | null, today: string,
+  acctMap: Record<string, string>, balanceNote: any,
+}): any {
+  const { loan, code, headline, detail, proposal, cpaException, totalPeriodDiff,
+          postingDate, postingWhy, closeDate, today, acctMap, balanceNote } = o
+
+  // Same discipline as the write-off: a refusal is RECORDED, never a bare null.
+  const refuse = (why: string) => ({ eligible: false, why })
+
+  // The one condition that makes this action exist. A STALE note is not an
+  // answer to the figure on screen and says so itself, so it does not enable a
+  // posting either -- it would be booking today's difference on last month's
+  // reasoning.
+  if (!balanceNote || balanceNote.stale) {
+    return refuse('nobody has recorded what this difference is, so there is no explanation to book it against')
+  }
+  if (!headline || headline.difference == null) return refuse('there is no open books-vs-lender difference on this loan')
+  const difference = r2(Number(headline.difference))
+  if (Math.abs(difference) < 0.01) return refuse('the books already agree with the lender')
+
+  // A more specific correction always wins. These are ordered causes; this is a
+  // recorded one, and a machine-derived entry that names the actual transaction
+  // is better evidence than prose about it.
+  if (proposal) return refuse('a specific correction has already been identified — post that instead')
+  if (cpaException?.proposed_entry) return refuse('a prepared CPA exception already explains this — post that instead')
+
+  // The note explains the WHOLE books-vs-lender difference. If later entries
+  // account for part of it, the remainder is a different question and the note
+  // is not evidence about it (the same test the residual bullet uses upstream).
+  const stillUnexplained = detail?.still_unexplained == null ? null : r2(Number(detail.still_unexplained))
+  if (stillUnexplained == null || Math.abs(stillUnexplained - difference) > TOL) {
+    return refuse('later entries account for part of this difference, so the remainder is a different question')
+  }
+  // If the walk itself attributed differences period by period, those are the
+  // lead. An explanation of the closing gap must not paper over spans that
+  // disagree for reasons of their own.
+  if (Math.abs(totalPeriodDiff) >= TOL) {
+    return refuse('the period-by-period walk found differences to attribute — those are the lead, not a single adjustment')
+  }
+  // Same anchor rule as the write-off, and for the same reason: an entry that
+  // moves the books to agree with "the lender" must be measured against a
+  // document the LENDER produced, never against our own record of one.
+  if (!WRITEOFF_REAL_ANCHORS.includes(String(detail?.anchor_source ?? ''))) {
+    return refuse('the balance this is measured against did not come from a lender document')
+  }
+  // s231: the close date binds WRITES, not just proposals. This org's Xero
+  // carries no lock date, so nothing downstream would refuse it.
+  if (isProtectedDate(postingDate, closeDate, today)) {
+    return refuse(`the only date this could be posted to (${postingDate}) falls in a period your accountant has closed`)
+  }
+
+  const booksBal = detail?.xero_balance == null ? null : Number(detail.xero_balance)
+  const lenderBalance = detail?.lender_balance == null ? null : Number(detail.lender_balance)
+  const asOf = headline.as_of || detail?.anchor_date || null
+  const loanName = loan.xero_account_name || loan.lender || 'this loan'
+  const who = balanceNote.set_by ? String(balanceNote.set_by) : null
+  // The explanation goes into the ledger with the entry. A journal is read years
+  // later by someone who does not have this screen -- s247's lesson is that the
+  // sentence beside the number is what a CPA actually reads, so the sentence
+  // travels with the number.
+  const cited = String(balanceNote.text || '').replace(/\s+/g, ' ').trim().slice(0, 1200)
+
+  const narration =
+    `${loanName} — ${money(Math.abs(difference))} adjustment to agree with the lender, cause RECORDED. `
+    + `Our balance ${booksBal == null ? '(unknown)' : money(booksBal)} against the lender's ${lenderBalance == null ? '(unknown)' : money(lenderBalance)}`
+    + `${asOf ? ` as of ${asOf}` : ''}, from a ${String(detail?.anchor_source ?? 'lender').replace(/_/g, ' ')}. `
+    + `Explanation on file${who ? ` (${who})` : ''}${balanceNote.set_at ? `, recorded ${String(balanceNote.set_at).slice(0, 10)}` : ''}: ${cited} `
+    + `[WR-ADJUST ${code} ${postingDate}]`
+
+  return {
+    eligible: true,
+    kind: 'recorded_cause_adjustment',
+    amount: difference,
+    as_of: asOf,
+    books_balance: booksBal,
+    lender_balance: lenderBalance,
+    // Said in words so a sign error is legible rather than silent (s284).
+    result_sentence: lenderBalance == null ? null
+      : `After this, your books read ${money(lenderBalance)} for ${loanName} — the same as the lender.`,
+    dated_into: postingDate,
+    dated_because: postingWhy,
+    recorded_by: who,
+    recorded_at: balanceNote.set_at ?? null,
+    // The leg we know, and the leg the person must choose. Kept as two named
+    // fields rather than a half-filled JournalLines array, so nothing can post
+    // this by accident with a null AccountCode in it.
+    loan_leg: {
+      AccountCode: String(code),
+      AccountName: acctMap[String(code)] ?? null,
+      LineAmount: difference,
+      Description: `${loanName} — balance adjustment, cause recorded`,
+    },
+    offset_leg: {
+      AccountCode: null,
+      LineAmount: r2(-difference),
+      Description: `${loanName} — ${money(Math.abs(difference))} added by the lender, per the recorded explanation`,
+    },
+    narration,
+    // Every account Xero will accept, for the picker. The card cannot invent a
+    // code that is not on this list, and the post path re-checks it anyway.
+    accounts: Object.entries(acctMap)
+      .filter(([c]) => String(c) !== String(code))
+      .map(([c, n]) => ({ code: String(c), name: String(n) }))
+      .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })),
+    // The token pins the FIGURE and the DATE the person read. It deliberately
+    // does NOT pin the account: the account is what they are choosing, and
+    // baking it in would mean every change of the dropdown invalidated the
+    // approval it is part of.
+    token: proposalToken(loan.id, 'recorded', difference, 'recorded_cause', postingDate),
   }
 }
 
@@ -2279,6 +2473,11 @@ async function handle(req: Request): Promise<Response> {
   const body = await req.json().catch(() => ({}))
   const { loan_account_id, post_fix, proposal_token, posted_by } = body
   const post_writeoff = body.post_writeoff === true
+  // s289: the recorded-cause adjustment. `adjust_account_code` is the one leg
+  // the server refuses to choose -- see buildRecordedCauseEntry's header.
+  const post_recorded = body.post_recorded === true
+  const adjust_account_code = typeof body.adjust_account_code === 'string'
+    ? body.adjust_account_code.trim() : ''
   // Optional. The journal always carries the computed story; this is only for a
   // person who knows something the system does not, and an empty one never blocks.
   const writeoff_note = typeof body.writeoff_note === 'string' ? body.writeoff_note.trim().slice(0, 500) : ''
@@ -2309,10 +2508,10 @@ async function handle(req: Request): Promise<Response> {
   // below, so this refuses nothing those would have allowed -- it exists so the refusal
   // is a STATEMENT rather than a side effect of a role's absence from an array, and so
   // that widening one of those arrays cannot silently hand a write path to a cron job.
-  if (internal && (post_fix || post_exception || post_writeoff || body.post_crossloan || body.lender_analysis)) {
+  if (internal && (post_fix || post_exception || post_writeoff || post_recorded || body.post_crossloan || body.lender_analysis)) {
     return new Response(JSON.stringify({ error: 'The internal job may run analyze only. Nothing was posted.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
-  if ((post_fix || post_exception || post_writeoff) && !canWriteBookkeeping(role)) {
+  if ((post_fix || post_exception || post_writeoff || post_recorded) && !canWriteBookkeeping(role)) {
     return new Response(JSON.stringify({ error: 'Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   // v10: lender-level analysis — read-only by construction; corrections are
@@ -2494,6 +2693,16 @@ async function handle(req: Request): Promise<Response> {
     postingDate: pw.postingDate, postingWhy: pw.postingWhy, closeDate: pw.closeDate, today,
     writeoffAccount: woAccount, acctMap, balanceNote,
   })
+  // s289: the fourth proposal. Built from the SAME freshly-walked figures as the
+  // write-off, right beside it, so the two can never disagree about what the
+  // difference is -- they are mutually exclusive by construction (one requires a
+  // current note, the other refuses one) and this is where that is visible.
+  const rec = buildRecordedCauseEntry({
+    loan, code, headline, detail: findings?.[0]?.detail ?? null,
+    proposal, cpaException, totalPeriodDiff,
+    postingDate: pw.postingDate, postingWhy: pw.postingWhy, closeDate: pw.closeDate, today,
+    acctMap, balanceNote,
+  })
 
   const analysis = {
     ok: true, mode: 'analyze' as string,
@@ -2533,6 +2742,10 @@ async function handle(req: Request): Promise<Response> {
     // Carried even when NOT eligible, because `why` is what lets the card say
     // what would have to change instead of just showing no button.
     writeoff: wo,
+    // s289: carried even when NOT eligible, exactly like the write-off, because
+    // `why` is what lets the card say what would have to change instead of
+    // showing an absence the reader has to interpret.
+    recorded_entry: rec,
     // session 284: rendered at the TOP of the fix modal and summarised in the
     // close band's Action column, because an explanation filed where nobody
     // looks is the same as no explanation.
@@ -2540,8 +2753,77 @@ async function handle(req: Request): Promise<Response> {
     can_post: !!proposal && canWriteBookkeeping(role),
     can_post_exception: !!cpaException?.proposed_entry && canWriteBookkeeping(role),
     can_post_writeoff: !!wo?.eligible && canWriteBookkeeping(role),
+    can_post_recorded: !!rec?.eligible && canWriteBookkeeping(role),
     conclusions: finalConclusions,
     narrative: bits.join(' '),
+  }
+
+  // ── post_recorded: the difference somebody DID explain (session 289) ─────
+  //
+  // Same shape as post_writeoff below and for the same reason: every guard is
+  // RE-CHECKED here on freshly-walked data rather than trusted from the render,
+  // because between looking and clicking the difference can move, a better
+  // correction can appear, the close date can advance, or the note can be
+  // edited to be about a different figure. s231: a guard is only as good as the
+  // branch it sits on, and this is a branch that spends money.
+  if (post_recorded) {
+    if (!rec?.eligible) {
+      return new Response(JSON.stringify({ error: `This can no longer be adjusted — ${rec?.why || 'the analysis has changed since you looked'}. Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (rec.token !== proposal_token) {
+      return new Response(JSON.stringify({ error: 'The figure changed since you reviewed it — check the current one and approve that instead. Nothing was posted.', analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    // ⚠️ THE ACCOUNT IS VALIDATED HERE, NOT TRUSTED FROM THE CARD. The picker
+    // is built from `rec.accounts`, but the request is just JSON and anything
+    // can send one. A code that is not in Xero's own chart, or that is the loan
+    // account itself (which would post both legs to one account and net to
+    // nothing while reporting success), is refused before the write.
+    if (!adjust_account_code) {
+      return new Response(JSON.stringify({ error: 'Choose the account the adjustment should go to — the system will not pick one for you. Nothing was posted.', analysis }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (!Object.prototype.hasOwnProperty.call(acctMap, adjust_account_code)) {
+      return new Response(JSON.stringify({ error: `Account ${adjust_account_code} is not in your Xero chart of accounts. Nothing was posted.`, analysis }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (String(adjust_account_code) === String(code)) {
+      return new Response(JSON.stringify({ error: 'Both sides of the entry cannot be the loan account — that would post a journal that changes nothing. Nothing was posted.', analysis }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (isProtectedDate(rec.dated_into, pw.closeDate, today)) {
+      return new Response(JSON.stringify({ error: `That adjustment is dated ${rec.dated_into}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    // The narration carries the loan code and the posting date, so a second
+    // click, a double submit or a re-run finds its own journal and stops. This
+    // is the loan module's Stripe-idempotency standard: a retry is a no-op or a
+    // loud error, NEVER a duplicate journal.
+    let dupR: any = null
+    try { dupR = await alreadyPostedInXero(rec.narration, rec.dated_into, headers) }
+    catch (e) {
+      return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    if (dupR) {
+      return new Response(JSON.stringify({ error: duplicateJournalError(dupR), already_posted: dupR }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    const offsetName = acctMap[String(adjust_account_code)] ?? null
+    const recLines = [
+      { LineAmount: rec.loan_leg.LineAmount, AccountCode: rec.loan_leg.AccountCode, Description: rec.loan_leg.Description, TaxType: 'NONE' },
+      { LineAmount: rec.offset_leg.LineAmount, AccountCode: String(adjust_account_code), Description: rec.offset_leg.Description, TaxType: 'NONE' },
+    ]
+    const recNarration = (rec.narration
+      + (posted_by ? ` Approved by ${posted_by}, posted to ${adjust_account_code}${offsetName ? ` ${offsetName}` : ''}.` : '')).slice(0, 4000)
+    const recRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ManualJournals: [{ Narration: recNarration, Date: rec.dated_into, Status: 'POSTED', JournalLines: recLines }] }),
+    })
+    const recJson = await recRes.json().catch(() => null)
+    if (!recRes.ok || recJson?.Elements?.[0]?.ValidationErrors?.length) {
+      return new Response(JSON.stringify({ error: 'Xero journal post failed', status: recRes.status, details: recJson }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    const recJournal = recJson.ManualJournals?.[0]
+    return new Response(JSON.stringify({
+      ok: true, mode: 'post_recorded',
+      posted_journal: { id: recJournal?.ManualJournalID, narration: recNarration, date: rec.dated_into, lines: recLines },
+      posted_by: posted_by || null,
+      note: 'Posted. The journal carries the recorded explanation, so the reason travels with the number into the ledger. Run a reconciliation check to confirm the loan now ties.',
+    }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } })
   }
 
   // ── post_writeoff: the difference nobody could explain (session 284) ──────
