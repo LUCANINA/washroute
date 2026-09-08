@@ -2,7 +2,56 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
-> ### 0zo. ✅ TECH DEBT #46 — A DUE DATE IS NOT A BALANCE DATE. BUILT, NOT YET DEPLOYED. (session 284)
+> ### 0zo-0. ✅ #46 IS DEPLOYED, THE DATA IS FIXED, AND THE CAPTURE CORROBORATED ITSELF (session 284, 2026-09-08 ~16:45 UTC)
+>
+> **All three functions verified by BEHAVIOUR and by CONTENT, not by version number.**
+>
+> | | no-auth POST | booted? | new code present? |
+> |---|---|---|---|
+> | `loan-ingest-statement` | `401 UNAUTHORIZED_NO_AUTH_HEADER` → still `true` | anon-JWT POST → **400 in its own words** | `asMeasuredDate` ×3, `balance_as_of` ×11 (both **0** in the prior version); s281's `split_period_label` ×5 and s283's `file_sha256` ×4 still present |
+> | `reconciliation-run` | `403 {"error":"Not authorized."}` → still `false` | that 403 IS its own words | `anchorRefusal` ×4, `refusedAnchors` ×2, `due_date` ×7 |
+> | `loan-find-difference` | `403` → still `false` | same | identical counts |
+>
+> **EIDL is `statement_date_basis='due_date'`** — one loan, set only after the deploys, per §0zo-ii.
+>
+> ✅ **THE DATA FIX WORKED, AND IT PROVED ITSELF ON THREE DOCUMENTS.** David filed all three EIDL
+> statements through the intake. Every one captured its own printed `Last Payment Date`:
+>
+> | filed as | balance_as_of | gap |
+> |---|---|---|
+> | 2026-07-25 | **2026-06-22** | 33 days |
+> | 2026-08-25 | **2026-07-22** | 34 days |
+> | 2026-09-25 | **2026-08-24** | 32 days |
+>
+> **Three documents, three independent extractions, a consistent ~33-day lead, and the 09-25 row's
+> 08-24 is exactly what session 283 read off that PDF by hand.** That is corroboration rather than a
+> single reading believed twice — and note what it also rules out: an arithmetic `due_date` (previous
+> month end) would have dated these 06-30 / 07-31 / 08-31, wrong by 8, 9 and 7 days respectively. The
+> derived version would have been *plausible on every row and wrong on every row.*
+>
+> ⚠️ **A DUPLICATE 2026-08-25 ROW EXISTS, DELIBERATELY LEFT.** The original arrived by email
+> (`email_pdf_upload`, no hash, no date); the re-file came through the intake
+> (`portal_manual_pull`). The upsert key is (loan, statement_date, **source**), so it is a second row
+> rather than a replacement. **It needs no cleanup and got none:** under `due_date` the dateless copy
+> is REFUSED as an anchor and the measured one wins, which is the mechanism working, and the email
+> copy is still the evidence of when the document arrived. Deleting it would be the only wrong move.
+> (2026-09-25 was already `portal_manual_pull`, so that one upserted in place — same `created_at`.)
+>
+> ⏭️ **ONE THING THE INTAKE SAYS WRONG, filed here rather than fixed.** Both re-files were first
+> SKIPPED with *"a statement for that date is already on file."* True, and not the useful half: this
+> copy carried a date the copy on file did not. The dedupe compares the FILED date and stops, so it
+> cannot see that the incoming row has fields the existing one lacks. **A skip that hides new
+> evidence is the same shape as a check that cannot fail.** Next step: when an incoming statement
+> matches an existing row, compare the FIELDS too and say *"already on file — but this copy carries a
+> balance date the one on file does not"*, rather than making the person click "File anyway" on a
+> guess.
+>
+> ⏭️ **The August close band still shows EIDL at Books 960,000.00 · Lender 960,005.00 · variance
+> −5.00 · Pending review** — the long-standing $5 (see §17587), unchanged by any of this, and now
+> measured against a document anchored at **08-24** instead of one whose balance was really July's.
+> Press *Run Reconciliation Check* to move the verdicts onto the new dates.
+>
+> ### 0zo. ✅ TECH DEBT #46 — A DUE DATE IS NOT A BALANCE DATE. BUILT AND NOW DEPLOYED. (session 284)
 >
 > SBA EIDL issues its statement ~3 weeks AHEAD and dates it to the payment DUE date. The 09/25
 > document prints its own evidence: *Last Payment Date 08/24/2026 · Applied to Principal $0.00 ·
