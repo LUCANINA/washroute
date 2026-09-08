@@ -936,6 +936,77 @@ const CONFIDENT_ZERO = /\$0(?:\.00)?\b/;
 /* ═══════════════════════════ SCENARIO GROUPS ═════════════════════════════ */
 const GROUPS = [];
 
+
+
+/* ── s289 ── THE MEASURED CAUSE, AND WHO LEADS WHEN BOTH EXIST ─────────────
+   Two things can now answer "what is this difference?" — a human's attestation
+   and a sentence we derived. The defect to guard is not that either is wrong;
+   it is BOTH being stated on one screen, which is s279 exactly, and which is
+   how they end up disagreeing after one of them rots. */
+GROUPS.push({
+  name: 'derived-cause',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const DC = {
+      months: 3, covers_event: false,
+      sentence: 'The 3 payments on file from 2026-07 to 2026-09 apply $0.00 to principal — every one goes entirely to interest. Where no principal is being applied, a rise in the balance is a fee or capitalised interest rather than a missed repayment — though this difference predates 2026-04, so those months are not among the ones read here.',
+      working: "From our own payment records, not the lender's: 2026-07 $0.00 principal / $4,791.00 interest. Tech Debt #46's leftover.",
+    };
+    const NOTE = { text: 'The SBA added $5.00 between the March and April payments.', written_about: -5, set_by: 'David', set_at: '2026-09-08', stale: false, stale_why: null };
+    const BASE = { verdict: 'divergent', conclusions: [], no_action_detail: [], periods: [], cpa_exception: null, proposal: null };
+    const draw = (over) => p.evaluate((d) => {
+      const old = document.getElementById('dc-host'); if (old) old.remove();
+      const host = document.createElement('div'); host.id = 'dc-host';
+      host.innerHTML = _bkFdiffHtml(d, 'f1', 'l1');
+      document.body.appendChild(host);
+      const vis = host.cloneNode(true);
+      vis.querySelectorAll('details').forEach((el) => { const sm = el.querySelector('summary'); el.textContent = sm ? sm.textContent + ' ' : ''; });
+      return {
+        all: host.textContent.replace(/\s+/g, ' ').trim(),
+        visible: vis.textContent.replace(/\s+/g, ' ').trim(),
+        labels: [...host.querySelectorAll('.fdc-lab')].map(e => e.textContent.trim()),
+      };
+    }, Object.assign({}, BASE, over));
+
+    /* 1 ── NO NOTE: the measured sentence IS the answer ───────────────────
+       This is the whole reason for measuring it. A loan nobody has attested to
+       still gets an explanation, and nobody types one the splits already prove. */
+    const alone = await draw({ derived_cause: DC });
+    t.ok(/apply \$0\.00 to principal/.test(alone.visible),
+         '⭐ with no note, the measured cause LEADS — visible, not folded away', alone.visible.slice(0, 120));
+    t.ok(alone.labels[0] === 'What this difference is',
+         '...under the same label a human note would have carried', JSON.stringify(alone.labels));
+    t.ok(/not the lender's/.test(alone.all) && !/not the lender's/.test(alone.visible),
+         'and its provenance is in the working, one click away, never deleted (ce17)');
+
+    /* 2 ── A CURRENT NOTE OUTRANKS IT, AND THE CLAIM IS MADE ONCE ─────────
+       The attestation is the stronger claim: somebody looked at THIS figure and
+       put their name to it. The measured sentence corroborates from inside the
+       note's own working. */
+    const both = await draw({ derived_cause: DC, balance_note: NOTE });
+    t.ok(/The SBA added \$5\.00/.test(both.visible),
+         'the human attestation leads when it is current', both.visible.slice(0, 120));
+    t.ok(!/apply \$0\.00 to principal/.test(both.visible),
+         '⭐ the measured sentence is NOT stated a second time on the visible card (s279)', both.visible.slice(0, 200));
+    t.ok(/apply \$0\.00 to principal/.test(both.all),
+         '...but it is still there, behind the note\'s own working — suppressed, not deleted');
+    t.eq(both.labels.filter(l => l === 'What this difference is').length, 1,
+         '⭐ exactly ONE section answers "what is this difference?"', JSON.stringify(both.labels));
+
+    /* 3 ── A STALE NOTE DOES NOT OUTRANK A MEASUREMENT ABOUT TODAY ───────
+       It was written about a different figure and says so. The measured
+       sentence is about the number on screen now, so it goes above. */
+    const stale = await draw({ derived_cause: DC, balance_note: Object.assign({}, NOTE, { stale: true, stale_why: 'written about $500.00 and the difference is now $5.00' }) });
+    t.ok(stale.labels[0] === 'What this difference is' && stale.labels[1] === 'An earlier explanation — about a different figure',
+         '⭐ the measurement leads a STALE note, and the note stays as history', JSON.stringify(stale.labels));
+    t.ok(/apply \$0\.00 to principal/.test(stale.visible),
+         '...and it is visible, because nothing current is answering the question instead');
+
+    await p.close();
+  },
+});
+
+
 /* ── s289 ── THE RECORDED-CAUSE ENTRY, AND THE ACCOUNT IT REFUSES TO GUESS ──
    The card's whole reason for existing is that it OFFERS the adjustment where
    three earlier proposals all refuse. The thing worth testing is not that it
@@ -981,6 +1052,7 @@ GROUPS.push({
         hasBtn: !!btn,
         btnDisabled: btn ? btn.disabled : null,
         options: sel ? [...sel.options].map(o => o.value) : null,
+        selected: sel ? sel.value : null,
         text: host.textContent.replace(/\s+/g, ' ').trim(),
         // The columns each figure lands in, read off the rendered row rather
         // than off the payload -- a sign error has to be VISIBLE as a debit and
@@ -996,7 +1068,23 @@ GROUPS.push({
     /* 1 ── THE BUTTON IS NOT ARMED UNTIL A HUMAN ANSWERS THE ONE OPEN FIELD ── */
     const fresh = await draw(mk({}));
     t.ok(fresh.hasBtn, 'the adjustment is OFFERED — a recorded cause gets an entry, not a dead end');
-    t.eq(fresh.btnDisabled, true, '⭐ Post is DISABLED until an account is chosen — the offset leg is never guessed');
+    t.eq(fresh.btnDisabled, true, '⭐ with NO default on offer, Post is DISABLED — the offset leg is never guessed');
+
+    /* 1b ── A DEFAULT ARMS IT, AND IS STILL ONLY A DEFAULT ────────────────
+       800 is not a guess: it is the constant loan-xero-post puts the interest
+       leg of every loan payment on. So it is pre-selected and Post starts
+       armed -- but the picker stays a picker and the reason is printed, because
+       the judgment left to the human is "interest, or a fee?", not "which
+       account exists?". */
+    const withDflt = await draw(mk({ recorded_entry: Object.assign({}, REC, {
+      accounts: [{ code: '800', name: 'Interest Expense' }, { code: '404', name: 'Bank Fees' }],
+      default_account: { code: '800', name: 'Interest Expense' },
+      default_account_why: 'the account every loan interest posting on this book already uses',
+    }) }));
+    t.eq(withDflt.btnDisabled, false, '⭐ a default arms Post — no dropdown to answer a question the product already answers');
+    t.eq(withDflt.selected, '800', '...and it is the DEFAULT that is selected, not merely present');
+    t.ok(/change it if this is a fee rather than interest/.test(withDflt.text),
+         '...and the card says it is a default and what would make it wrong', withDflt.text.slice(0, 200));
 
     /* 2 ── AND THE LOAN'S OWN ACCOUNT IS NOT ON THE MENU ─────────────────── */
     t.ok(!fresh.options.includes('2500'),
@@ -1005,7 +1093,12 @@ GROUPS.push({
     t.ok(fresh.options.includes('437') && fresh.options[0] === '',
          'the real accounts are offered, behind an empty "choose" default', JSON.stringify(fresh.options));
 
-    /* 3 ── CHOOSING ONE ARMS IT. Proves the gate is a gate and not a lock. ── */
+    /* 3 ── CHOOSING ONE ARMS IT. Proves the gate is a gate and not a lock. ──
+       Re-draw the NO-DEFAULT payload first: `draw` replaces the host, so the
+       DOM currently holds the with-default render and this would otherwise be
+       driving a select that no longer offers 437. A test that quietly acts on
+       the wrong render is the transcription failure in miniature (s245). */
+    await draw(mk({}));
     const armed = await p.evaluate(() => {
       const sel = document.querySelector('#fdiff-rec-acct-f1');
       sel.value = '437';

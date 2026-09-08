@@ -12790,7 +12790,24 @@
     // FIRST on the card, above every proposal. If a person has already found out
     // what this difference is, that is the most valuable thing on the screen and
     // reading it changes what the reader does with everything below.
-    if (data.balance_note) parts.unshift(_bkBalanceNoteHtml(data.balance_note));
+    // ── session 289 cont.: THE CAUSE WE MEASURED ───────────────────────────
+    // A human's attestation still LEADS when it is current -- it is the stronger
+    // claim, because somebody looked at this figure and put their name to it.
+    // The measured sentence then corroborates it from inside the note's own
+    // working, which is what stops the two from being two sections answering
+    // "what is this?" and risking disagreement (s279).
+    //
+    // With no current note the measured sentence IS the lead, and that is the
+    // point of measuring it: a loan nobody has attested to still gets an
+    // explanation, and nobody has to type one that the splits already prove.
+    if (data.balance_note && !data.balance_note.stale) {
+      parts.unshift(_bkBalanceNoteHtml(data.balance_note, data.derived_cause));
+    } else {
+      if (data.balance_note) parts.unshift(_bkBalanceNoteHtml(data.balance_note, null));
+      // unshift order: this lands ABOVE a stale note, which is right -- the
+      // stale one is history and says so, the measured one is about today.
+      if (data.derived_cause) parts.unshift(_bkDerivedCauseHtml(data.derived_cause));
+    }
 
     // ── THE RECORDED-CAUSE ADJUSTMENT (session 289) ────────────────────────
     // Above the write-off and below a derived proposal, which is exactly where
@@ -12845,7 +12862,21 @@
   // when the figure has moved the note is shown as history rather than as an
   // answer — still readable, because what somebody found out last month is worth
   // reading, but visibly not about the number on screen now.
-  function _bkBalanceNoteHtml(n) {
+  // The measured cause, standing on its own. Labelled for where it came from,
+  // because "measured from our own payments" and "the lender told us" are
+  // different strengths of claim and a CPA reads the difference (s246).
+  function _bkDerivedCauseHtml(dc) {
+    return `<section class="fdc-sec">
+      <div class="fdc-lab">What this difference is</div>
+      <div>${esc(dc.sentence)}</div>
+      <details style="margin-top:7px">
+        <summary>Show the working</summary>
+        <div style="margin-top:5px;line-height:1.5;color:var(--gray-600)">${esc(dc.working)}</div>
+      </details>
+    </section>`;
+  }
+
+  function _bkBalanceNoteHtml(n, derived) {
     // s289: _bkDay, NOT fmtDate. A note stamped 2026-09-08 printed as "Sep 7,
     // 2026" for any reader east of Pacific -- fmtDate builds a Date from a
     // date-only string, which the engine parses in the BROWSER'S zone and then
@@ -12871,6 +12902,10 @@
       <div class="fdc-lab">What this difference is</div>
       <div style="white-space:pre-wrap">${esc(n.text)}</div>
       <div class="fdc-quiet" style="margin-top:6px">Recorded about ${esc(fmtMoney(Math.abs(Number(n.written_about))))}${stamp ? ` · ${stamp}` : ''}</div>
+      ${derived ? `<details style="margin-top:7px">
+        <summary>Show the working</summary>
+        <div style="margin-top:5px;line-height:1.5;color:var(--gray-600)">${esc(derived.sentence)} ${esc(derived.working)}</div>
+      </details>` : ''}
     </section>`;
   }
 
@@ -12918,8 +12953,16 @@
         <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${isDebit ? '—' : esc(fmtMoney(amt))}</td>
       </tr>`;
     const sel = `fdiff-rec-acct-${findingId}`;
+    // s289 cont.: the default is PRE-SELECTED and the button starts armed. The
+    // first cut shipped an empty picker beside an explanation that already said
+    // "interest", which made a bookkeeper answer a question the product had
+    // already answered for every other loan payment it posts. What stays true
+    // is that it is a DEFAULT: the picker is still a picker, the reason is
+    // printed beside it, and the real judgment -- interest, or a fee? -- is
+    // still the human's.
+    const dflt = rec.default_account && rec.default_account.code ? String(rec.default_account.code) : '';
     const options = (rec.accounts || []).map(a =>
-      `<option value="${esc(a.code)}">${esc(a.code)} — ${esc(a.name)}</option>`).join('');
+      `<option value="${esc(a.code)}"${String(a.code) === dflt ? ' selected' : ''}>${esc(a.code)} — ${esc(a.name)}</option>`).join('');
     return `<div class="fdc-act">
       <div class="fdc-lab">Suggested entry — dated ${esc(_bkDay(rec.dated_into))}, nothing posts until you approve</div>
       ${rec.result_sentence ? `<div style="color:var(--gray-700)">${esc(rec.result_sentence)}</div>` : ''}
@@ -12934,8 +12977,9 @@
             <td style="padding:6px 0;border-top:1px solid #e8cfa4">
               <select id="${sel}" class="form-input" style="font-size:12.5px;padding:4px 6px;max-width:320px"
                       onchange="bkRecAcctPicked(this,'fdiff-rec-${findingId}')">
-                <option value="">Choose the account…</option>${options}
+                <option value=""${dflt ? '' : ' selected'}>Choose the account…</option>${options}
               </select>
+              ${dflt ? `<div class="fdc-quiet" style="margin-top:3px">${esc(rec.default_account_why || 'the usual account')} — change it if this is a fee rather than interest</div>` : ''}
             </td>
             <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${dr ? '—' : esc(fmtMoney(amt))}</td>
             <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${dr ? esc(fmtMoney(amt)) : '—'}</td>
@@ -12953,7 +12997,7 @@
       </details>
       ${data.can_post_recorded ? `
         <div style="margin-top:11px;display:flex;gap:8px;align-items:center">
-          <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-rec-${findingId}" disabled
+          <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-rec-${findingId}"${dflt ? '' : ' disabled'}
                   onclick="bkPostFdiffRecorded('${findingId}','${loanId}','${esc(rec.token)}','${sel}', this)">Post to Xero</button>
           <button class="btn" style="font-size:12px;padding:6px 12px" onclick="bkIgnoreVariance('${loanId}', this)">Ignore</button>
         </div>`

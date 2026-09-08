@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { effectiveCloseDate, postingDateFor, isProtectedDate } from '../_shared/close-date.ts'
+import { deriveIncreaseCause } from './derive-cause.ts'
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 import { anchorsByBalanceDate, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
 import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
@@ -1659,6 +1660,7 @@ function buildWriteoff(o: {
   }
 }
 
+
 // ═══════════════════════════════════════════════════════════════════════════
 // THE RECORDED-CAUSE ENTRY (session 289) — the fourth proposal
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1807,6 +1809,24 @@ function buildRecordedCauseEntry(o: {
       Description: `${loanName} — ${money(Math.abs(difference))} added by the lender, per the recorded explanation`,
     },
     narration,
+    // ⚠️ A DEFAULT, AND IT IS NOT A GUESS. `INTEREST_EXPENSE_ACCOUNT_CODE` is
+    // the constant `loan-xero-post` puts the interest leg of EVERY loan payment
+    // on, on this book. Refusing to pre-select it was over-caution of the kind
+    // that costs a bookkeeper a decision they have no way to make better: the
+    // account is the product's own established convention, and the FIRST card
+    // this was built for showed a picker with nothing in it beside an
+    // explanation that already said "interest".
+    //
+    // The real question the human is answering is not "which account exists?"
+    // but "is this interest, or is it a fee?" -- and if it is a fee, this
+    // default is wrong and they change it. So it is offered as a default and
+    // never as an answer, which is why `default_account_why` travels with it
+    // and the picker stays a picker. Null when the chart does not carry the
+    // code, because a default that is not in Xero would fail at the post.
+    default_account: Object.prototype.hasOwnProperty.call(acctMap, INTEREST_EXPENSE_ACCOUNT_CODE)
+      ? { code: INTEREST_EXPENSE_ACCOUNT_CODE, name: acctMap[INTEREST_EXPENSE_ACCOUNT_CODE] }
+      : null,
+    default_account_why: 'the account every loan interest posting on this book already uses',
     // Every account Xero will accept, for the picker. The card cannot invent a
     // code that is not on this list, and the post path re-checks it anyway.
     accounts: Object.entries(acctMap)
@@ -2697,6 +2717,13 @@ async function handle(req: Request): Promise<Response> {
   // write-off, right beside it, so the two can never disagree about what the
   // difference is -- they are mutually exclusive by construction (one requires a
   // current note, the other refuses one) and this is where that is visible.
+  // s289 cont.: measured, every walk, and independent of whether anybody has
+  // written a note. It is EVIDENCE, so it renders whether or not the entry is
+  // eligible -- a reader deciding what to do about a difference wants it even
+  // on a loan nobody has attested to yet.
+  const derivedCause = deriveIncreaseCause({
+    splits: splits || [], headline, winFrom: usable[0]?.statement_date || '', residual: aw.residual,
+  })
   const rec = buildRecordedCauseEntry({
     loan, code, headline, detail: findings?.[0]?.detail ?? null,
     proposal, cpaException, totalPeriodDiff,
@@ -2746,6 +2773,7 @@ async function handle(req: Request): Promise<Response> {
     // `why` is what lets the card say what would have to change instead of
     // showing an absence the reader has to interpret.
     recorded_entry: rec,
+    derived_cause: derivedCause,
     // session 284: rendered at the TOP of the fix modal and summarised in the
     // close band's Action column, because an explanation filed where nobody
     // looks is the same as no explanation.
