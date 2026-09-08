@@ -13,7 +13,7 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: September 8, 2026 — Session 280 — **Subscription overage was being billed twice; 12 customers overcharged $1,113.75. Root cause fixed, queued double-charges stopped, refunds pending.***
+*Last updated: September 8, 2026 — Session 280 — **Subscription overage was being billed twice; 12 customers overcharged $1,113.75. Root cause fixed, queued double-charges stopped, all $1,113.75 refunded.***
 
 David green-lit the fix flagged in the QA pass. Both customer-facing renderers — `generateInvoiceHTML` (the on-screen / printed invoice) and `buildInvoicePdfBase64` (the emailed PDF) — formatted every figure with a bare `.toFixed(2)`, so Kidango's five-figure August total read `$10536.00`. All **23** money sites across the two functions now go through one shared helper:
 
@@ -2019,10 +2019,18 @@ put every subscription onto the measured basis: **$0.00 owed across the whole bo
 overage ever raised had in fact been collected on its order — which is the cleanest possible
 confirmation that the invoice path had only ever produced duplicates.
 
-**Refunds:** `scripts/session280-overage-refunds.js` — a dry-run-by-default console script for the
-11 outstanding refunds ($979.00). `refund-charge` requires an admin/manager JWT, so it cannot be
-driven from a session like this one; it runs from David's own logged-in dashboard. `suppress_sms`
-is on, so these customers get a human explanation rather than a bare refund text.
+**Refunds: DONE — 11/11, $979.00, same day.** `scripts/session280-overage-refunds.js` (dry-run by
+default) was run by David from his logged-in dashboard at 19:56–19:57 UTC; `refund-charge` requires
+an admin/manager JWT, so it cannot be driven from an agent session. Verified in the DB rather than
+from the console output: eleven `customer_transactions` refund rows totalling $979.00, and every
+one of the thirteen invoice events now reconciles to **$0.00 still owed** — the twelve double
+charges refunded in full (Mayumi's $134.75 by John on the 8th, the other $979.00 here).
+
+The thirteenth, **Lachar Burns, is correctly NOT refunded**: his $365.75 invoice never collected —
+there is no `subscription_invoice` transaction for it — so there is nothing to give back. A naive
+"invoiced minus refunded" report will show $365.75 outstanding against his name forever; that is
+the absence of a charge, not an unpaid debt, and nobody should chase it. `suppress_sms` was on for
+all eleven, so no automated text went out — the explanation is David's to make.
 
 
 ### Aug 7, 2026 (session 207) — Payroll: employee tax withholding was being double-counted (found by auditing the previous day's own work)
