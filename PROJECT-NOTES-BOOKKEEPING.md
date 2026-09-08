@@ -84,15 +84,25 @@
 > Zero then, present now — a version number can coincide, an absent line appearing cannot. A no-auth
 > POST answers **403 in its own words**, so it booted and `verify_jwt` is still `false`.
 >
-> ⏭️ **The row-level proof is still outstanding: no run has happened under the new code.** Every
-> verdict on screen right now is from run `087862bb`, i.e. the old walk. Press reconcile, then
-> confirm at least one `explained` tie-out carries `closed_on` — that is the proof that survives a
-> version-number coincidence, and it is one query:
-> ```sql
-> select count(*) from loan_tie_outs
->  where run_id = (select id from reconciliation_runs order by created_at desc limit 1)
->    and detail ? 'closed_on';
-> ```
+> ✅ **ROW-LEVEL PROOF DONE — run of 2026-09-08 01:14:38 UTC.** 22 tie-outs, 7 `explained`, and all
+> seven carry a real `closed_on` date. The new walk ran.
+>
+> **And it did exactly what `2df7667` claimed, on exactly the two loans it named, to the date:**
+>
+> | Loan | gap | before | after | `closed_on` | entries |
+> |---|---|---|---|---|---|
+> | PCV 202555 | 5,335.52 | exception | **explained** | 2026-08-03 | 1 |
+> | BayFirst SBA Loan (4708139103) | 971.56 | exception | **explained** | 2026-08-06 | 1 |
+>
+> **No other row changed status.** A fix that moves precisely the two cases it was written for and
+> nothing else is the shape you want; a fix that also quietly reclassifies four unrelated loans is
+> the shape that costs a session later. Two false exceptions are off the board.
+>
+> **Exceptions remaining (same run), in order:** iBusiness/FC Marketplace 1,085.87 @08-01 · Rapid
+> Credit Line 457.14 @09-04 · Ford 4140 415.88 @08-17 · Ford E5-4751 266.42 @08-12 · Ford E4-9744
+> 182.00 @08-20 · PayPal 21.65 @09-02 · EIDL SBA −5.00 @08-25. The three Fords are unchanged, as
+> expected — that is the diagnosed catch-up bug, and 9744's is still measured against the frozen
+> anchor (§0zh). **The top two are now the unexamined ones.**
 >
 > 💡 **The lesson is the cheap check, not the failure.** Two `get_edge_function` pulls either side of
 > a deploy, grepped for one identifier the new code introduces, settles "is it live" in seconds
@@ -4112,6 +4122,12 @@ deploy claim, and the first time it was caught within the hour rather than costi
 
 **The cheap check, worth adopting:** two `get_edge_function` pulls either side of a deploy, grepped
 for one identifier the new code introduces. Seconds, and it does not wait for a job to run.
+
+The run that followed (01:14:38 UTC) closed the loop: 7 explained rows, all carrying `closed_on`,
+and **PCV 202555 and BayFirst SBA Loan flipped exception → explained on 2026-08-03 and 2026-08-06 —
+the two loans and the two dates `2df7667`'s own message named.** Nothing else moved. That is the
+whole verification chain the deploy state has been missing for nine days: content diff proves it is
+installed, a status change on a predicted row proves it works.
 
 **2. E4-9744's lender balance has been frozen for three months, and the whole Ford diagnosis on
 that loan rests on it.**
