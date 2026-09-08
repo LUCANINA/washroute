@@ -74,6 +74,83 @@
 > so check rather than trust it — which is the same discipline §0ze demands of the deploy state.
 >
 >
+> ### 0ac. ⭐⭐ THE OUTSIDE WITNESS WAS ALREADY HALF ON FILE (session 289 cont., David)
+>
+> Starting on Tech Debt #46's leftover, the first thing was to read the real rows. Two findings, and
+> the first is a defect in code that had shipped an hour earlier.
+>
+> **`loan-ingest-statement` v21 ALREADY captures it.** Its own comment names SBA EIDL as one of three
+> lenders that state their own split, and it lands the figure verbatim as
+> `loan_splits.source='explicit_split'` — **36 rows across 8 loans.** EIDL's 2026-08 and 2026-09 are
+> two of them.
+>
+> **So `deriveIncreaseCause`'s provenance clause was FALSE.** It said flatly *"From our own payment
+> records, not the lender's"*. For two of the three months it read, that was the lender's own line
+> item. Understating evidence is the safer direction to be wrong in, and it is still a wrong claim
+> inside the one sentence whose entire job is to say where a claim comes from — it told a reader the
+> witness was missing when it was on file.
+>
+> **And the third row should never have counted at all.** 2026-07 is `statement_delta`, where
+> `principal = the balance delta` by construction. On a question about why a BALANCE moved,
+> *"$0.00 principal"* there says only *"the balance did not move"* — the conclusion restated as its
+> own evidence. **§246, and not weaker evidence but none at all**, sitting as one of three rows
+> carrying a claim about whether principal was repaid.
+>
+> `LENDER_STATED = ['explicit_split']` now gates the claim: two or more, or nothing is said and the
+> ask for the documents stands (§262). `statement_delta` and `amortization_schedule` rows are NAMED
+> in the working and discounted with the reason — dropped from the claim, never from the card (ce17).
+> `tests/derive-cause.test.mts` 17 → 22; the new controls are the load-bearing ones (*two of OUR
+> delta rows say nothing however many we hold*; *a schedule is ours too*). **The fixture rows now
+> carry `source`, whose absence from the first version of that file is exactly what let this
+> through** — the §287 lesson again, in a test I wrote the same day.
+>
+> ### 0ac-i. ✅ MIGRATION APPLIED — `loan_statements.applied_to_principal` / `_interest`
+>
+> `migrations/session_289_statement_applied_split.sql`, applied 2026-09-08.
+>
+> **What was left of #46 is narrower than it looked, and it is the half that matters.** The stated
+> split only survives if a SPLIT was raised — and inside a closed period `loan-ingest-statement`
+> raises none (it stores the statement as evidence and stops, §230's rule). That is **exactly EIDL's
+> April and May 2026**: the $5.00 arose between them, both sit in closed books, and both documents
+> state *"Applied to Principal $0.00"*. Filing them (list item 3) would have captured nothing.
+>
+> Nullable, no default, and that is load-bearing: NULL means *"the document did not say"*, the
+> `balance_as_of` discipline. **A `DEFAULT 0` would have asserted that all 920 existing statements
+> stated $0.00 applied to principal — manufacturing an outside witness for every loan on the book,
+> for the exact claim `deriveIncreaseCause` keys on.**
+>
+> **Visibility PROVEN, not assumed** (§176/177): a REST round-trip naming both columns returned 200,
+> and a control naming a bogus column returned `42703`, so the check is not vacuous. No code reads or
+> writes them yet — populating them at ingest is separate work, deployed separately, which is the
+> ordering rule rather than an accident.
+>
+> ### 0ac-ii. 🔴 THE DEPLOY COULD NOT BE DONE FROM HERE, AND WHY
+>
+> David asked me to deploy what is built. I could not, and both reasons are recorded rules rather
+> than effort:
+>
+> 1. **`loan-find-difference/index.ts` is 198KB** (was 158KB before today). CLAUDE.md's ceiling for
+>    `deploy_edge_function` is ~100–130KB of file content, and it says in terms: *"Never truncate or
+>    re-type a file to force it through the tool."* It also pulls six `../_shared/*` modules.
+> 2. **The CLI needs an access token this sandbox does not have.** MEASURED, not assumed: the device
+>    shell DOES reach `api.supabase.com` (401, i.e. connected and unauthenticated) and `npx` is
+>    present, but `SUPABASE_ACCESS_TOKEN` is unset and there is no `~/.supabase`, so
+>    `supabase login` would prompt.
+>
+> **`bash deploy-session-289.sh` is still the whole procedure, and its flags were RE-CHECKED against
+> `list_edge_functions` on 2026-09-08 — all eight match**, the five `--no-verify-jwt` ones being
+> `loan-xero-post`, `loan-find-difference`, `loan-bundle`, `xero-payout-sync`,
+> `xero-payout-coverage`, and the three bare ones `payroll-xero-post`, `loan-ingest-statement`,
+> `loan-ingest-amortization`. `loan-find-difference` was independently probed: a no-auth POST
+> answers `403 {"error":"Not authorized."}` in the function's own words, so `verify_jwt` is false and
+> the flag is required.
+>
+> **Deploy state, measured by the DEPLOYED SOURCE rather than a version number:** `get_edge_function`
+> on `loan-find-difference` contains **zero** occurrences of `buildRecordedCauseEntry`,
+> `deriveIncreaseCause`, `post_recorded` or `recorded_entry`. None of session 289's function work is
+> live. The CARD is (Vercel auto-deploys), and it degrades cleanly — `recorded_entry` and
+> `derived_cause` are simply absent and the card renders as it did before, plus the visual cleanup.
+>
 > ### 0ab. ⭐⭐ THE CARD OFFERS THE ENTRY — AND FOUR TINTED BOXES BECAME ONE (session 289, David)
 >
 > David, on the EIDL SBA $5.00 card: *"Offer a solution (in this case, a $5 adjustment to the loan
