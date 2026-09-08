@@ -2,6 +2,28 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
+> ### 0zt. 📦 DEPLOY STATE — checked 2026-09-08 ~18:0x UTC, BY BEHAVIOUR AND BY THE ROWS
+>
+> **Everything in session 284 is pushed and live.** Checked, not inferred from the push (§0ze's rule).
+>
+> | | gateway | booted | new code present |
+> |---|---|---|---|
+> | `loan-find-difference` | `403` in its own words → `verify_jwt` false, unchanged | that 403 IS its own words | `balanceNoteOf` ×2, `buildWriteoff` ×5, `WRITEOFF_REAL_ANCHORS` ×2, `post_writeoff` ×8, `withinFloor` ×3, `_shared/materiality` ×3 |
+> | `reconciliation-run` | `403`, unchanged | same | (deployed in the same pass) |
+>
+> ✅ **AND PROVEN BY THE ANSWER, NOT ONLY BY THE SOURCE** — the strongest check available here, since
+> a version number can coincide and a grep only proves the bytes shipped. A live `analyze` against
+> EIDL returned **200** with:
+>
+> * `balance_note.stale = false`, `written_about = -5`, the note text present
+> * `writeoff.eligible = false`, `why = "someone has recorded an explanation for this difference — it
+>   is not unexplained, so read that and act on it"`
+> * `can_post_writeoff = false`
+>
+> **So the whole chain is live in production:** the explanation is stored, it is current, it reaches
+> the surfaces, and it is REFUSING the write-off on the loan the write-off was built for. The two
+> features shipped four hours apart, and the second one correctly stops the first.
+>
 > ### 0zr. ✅ THE EIDL $5 IS DIAGNOSED — AND MY HYPOTHESIS WAS WRONG (session 284)
 >
 > David uploaded the April, May and June 2026 SBA statements. They settle it in three rows:
