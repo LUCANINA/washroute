@@ -20,10 +20,18 @@
 > `verify_jwt: true` function the 401 would look identical over a SyntaxError, which is session
 > 264's trap wearing a new hat. Anon key is inline in `public.sweep_autocharge_ready_orders`.
 >
-> ⏭ **THE ONE THING STILL UNPROVEN: no statement has been uploaded since the deploy**, so
-> `file_sha256` is still null on all 914 rows and the guard has not fired once in the wild. The
-> code is verified; the BEHAVIOUR is not. Next upload, check the row carries a hash — that is the
-> proof that survives a version-number coincidence (§0zg's rule), and it costs one query.
+> ✅ **PROVEN IN BEHAVIOUR TOO, later the same night.** David filed an EIDL statement; the row
+> stored `file_sha256 = 4964d8ae…`, which is `sha256sum` of that PDF byte-for-byte. First non-null
+> hash on 914 rows. The guard also correctly stayed QUIET on it — same balance on two dates is its
+> trigger shape, but the two EIDL PDFs are genuinely different files, so the hashes differ and the
+> legitimate second document went through. **Existing rows are still all-null**: the guard protects
+> from now on and cannot see the past (backfill = hashing 914 storage objects; the S3 etag is MD5
+> and cannot substitute).
+>
+> ⏭ **That upload also opened Tech Debt #46 and #47** — EIDL is dated to its DUE date rather than
+> its balance date (§0zl's defect on a second lender, on the $960k loan, latent only because its
+> principal is not moving), and the intake produced `balance_basis='unknown'` on a real lender
+> document eleven days after §0w was declared closed. Neither was touched; both have next steps.
 >
 > ### 0zk-ii. ❌ §0zj WAS WRONG. THE CLI DOES NOT TURN THE GATEWAY OFF. (session 283)
 >
@@ -3069,6 +3077,50 @@ against Xero.** David's rule, stated as one he wishes had existed from the start
 Per the Root-Cause Rule: a one-time data fix without its root-cause fix is not done. When the
 root-cause fix can't ship in the same session it goes HERE, with a concrete next step — not into
 prose halfway down the session log where the next session won't find it.
+
+**46. EIDL's statement date is its DUE date, not its balance date — §0zl's defect, second lender
+(session 283, found on David's 09/25 upload).** SBA COVID-EIDL statements are issued ~3 weeks
+ahead and dated to the payment due date. The 09/25/2026 document filed on 09/08 states its own
+evidence plainly: *Last Payment Date 08/24/2026 · Applied to Principal $0.00 · Applied to Interest
+$4,791.00 · Outstanding Balance $960,005.00.* **The balance is true as of 08/24; the row is dated
+09/25.** The loan's `statement_date_basis` is `balance_date`, i.e. "the statement date IS the date
+this balance is true", which for this lender is false — exactly what iBusiness/FC cost sessions 281
+and 282, on the largest loan on the book ($960k).
+
+⚠️ **It is producing no wrong number TODAY, and the reason it isn't is the reason to fix it before
+it does.** Principal is not moving at all — $0.00 applied to principal, and the balance is
+$960,005.00 on both the 08-25 and the 09-25 statements. A misdated balance that never changes is
+right on every date. The day principal starts amortizing, this misdates by a month silently.
+
+**Next step:** decide whether EIDL needs a third `statement_date_basis` (`due_date`, re-dating back
+to the last payment date the document itself prints) or whether the existing `period_start` shape
+covers it. Do NOT simply re-date the rows by hand — §0zl's whole lesson is that the fix belongs in
+the basis field, once, at load, so all eight comparison branches inherit it. Also note the document
+prints `Last Payment Date`, `Applied to Principal` and `Applied to Interest`, none of which we
+capture — the same capture gap as §0zh's paid-ahead fields, and the same payoff: the product could
+say *"no principal applied — interest-only"* instead of showing a balance that looks frozen.
+
+**47. `balance_basis='unknown'` can still be produced on a real lender document — §0w reopened
+(session 283).** Session 281 relabelled the four unlabelled rows and declared *"zero unlabelled
+lender documents remain on the book"*, closing §0w. The 09/25 EIDL upload came in `unknown` eleven
+days later, from the ordinary intake path, on a `portal_manual_pull` source. **The August statement
+of the same loan, same figure, same document type, is `principal_only`** — so this is inconsistency
+in the intake, not a considered judgment about the document.
+
+The consequence is the one the skill states: an unlabelled balance is excluded from every
+lender-comparison check, so a real discrepancy inside it is never reported. **A silence, not a
+safeguard** — and this one is silent on $960,005.00.
+
+⚠️ **Session 281 fixed the DATA and called both root causes fixed; this row is the counter-example.**
+Whatever produced it is still live.
+
+**Next step:** find where intake decides `balance_basis` and establish why this document yielded
+`unknown` where August's yielded `principal_only`. Do NOT bulk-relabel to clear the count — §0zl is
+precisely the story of a good-faith relabel that made a bad row into the winning anchor. Note also
+that `unknown` may be the HONEST answer here: the PDF says "Outstanding Balance", not "Principal
+Balance". If so the defect is that an honest `unknown` is invisible rather than flagged, which is
+Tech Debt #19's subject and should be settled with it.
+
 
 **1. ✅ SHIPPED session 222, 2026-08-19 — `reconciliation-run` v13. Awaiting a live run to confirm.**
 `checkDerivedDrift` now sums every live entry on the loan's code posted within
