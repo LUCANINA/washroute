@@ -2,15 +2,39 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 282, 2026-09-08)
 >
-> ### 0zk. ⏭️ TWO DEPLOYS ARE OUTSTANDING, AND ONE OF THEM HAS NO SAFE COMMAND (session 282)
+> ### 0zk. ⏭️ ONE DEPLOY IS OUTSTANDING, AND IT HAS NO SAFE COMMAND (session 282)
 >
-> The DB migration and the data fix are LIVE. The dashboard ships with the next push. **Two edge
-> functions are changed and NOT deployed:**
+> The DB migration, the data fix, the dashboard (build `20260908031619`, confirmed by fetching the
+> deployed file) and **`reconciliation-run` are all LIVE.** One edge function is changed and NOT
+> deployed:
 >
-> | Function | current `verify_jwt` (probed 2026-09-08) | how |
+> | Function | `verify_jwt` (probed 2026-09-08) | state |
 > |---|---|---|
-> | `reconciliation-run` | **false** (403 in its own words) | CLI **with** `--no-verify-jwt` |
+> | `reconciliation-run` | **false** (403 in its own words) | ✅ deployed 03:1x UTC, verified below |
 > | `loan-ingest-statement` | **true** (401 `UNAUTHORIZED_NO_AUTH_HEADER`) | ⚠️ **no safe command exists** |
+>
+> ✅ **`reconciliation-run` VERIFIED BY CONTENT, not by the deploy succeeding.** The deployed source
+> was pulled and grepped for identifiers session 282 introduces — `excludedAnchors` ×3,
+> `anchor_exclusion_reason` ×3, `anchorsByBalanceDate` ×4, `normalizeBasis` ×6, `statement-period` ×4,
+> all **zero** in the version before. Session 279's `walkToClosure` ×3 is still there, so nothing
+> regressed. A no-auth POST answers **403 in the function's own words**: it booted, and `verify_jwt`
+> is still `false`.
+>
+> ✅ **ROW-LEVEL PROOF — run `6d414f6d`, 2026-09-08 03:21:37 UTC.** Diffed against the last pre-deploy
+> run (`21aeb614`), **exactly ONE tie-out on the entire book changed:**
+>
+> | Loan | before | after |
+> |---|---|---|
+> | iBusiness / FC Marketplace | exception **2026-08-03** · 44.78 | exception **2026-08-31** · **60.16** |
+>
+> **No other row moved** — not a status, not an as-of, not a difference. A fix that moves precisely
+> the loan it was written for and nothing else is the shape you want (§0zg's lesson, second time).
+>
+> ⚠️ **The number went UP, 44.78 → 60.16, and that is the CORRECT direction.** The old figure measured
+> August against the 08-03 payment-due notice, i.e. against July's balance at a July-ish date — a
+> smaller gap because it was the wrong comparison, not because the books were closer. 60.16 is the
+> real August gap and it decomposes exactly: **29.64 (closed books) + 15.14 (Jul) + 15.38 (Aug)**.
+> **The engine and the close band now print the same number for this loan for the first time.**
 >
 > §0zj says a deploy ASSIGNS `verify_jwt` and the CLI's default is `false`. `loan-ingest-statement`
 > must stay `true`, the CLI has no `--verify-jwt` to force it, and the function is ~177KB with its
@@ -110,11 +134,35 @@
 > reachable here; this run saw 700. Somebody should find out whether those groups throw everywhere or
 > only on this machine, because eight silent groups is a third of the close-band coverage.
 >
-> ⏭️ **Still open, deliberately:** the 2026-08 split (`3daf1dc1`) carries session 273's unresolved
-> $30.52 — its $1,025.71/$1,008.06 describe the JUNE payment, while the lender's own breakdown for
-> the period is $1,041.09/$992.68. It is `already_in_xero`, so correcting it means deciding what Xero
-> should say. David asked for an investigation and a proposal, not a write. **Not done in this
-> session.**
+> ### 0zm. 💡 THE $30.52 WAS AN ARTIFACT OF THE BUG ABOVE. IT IS $15.38. (session 282)
+>
+> Split `3daf1dc1` (2026-08, `already_in_xero`) has carried an OPEN ITEM since session 273: its
+> $1,025.71 / $1,008.06 describe the JUNE payment, the lender's own breakdown for the period is
+> $1,041.09 / $992.68, and the note put the understatement at **$30.52**. Investigated on David's
+> instruction — proposal only, **nothing written**.
+>
+> **$30.52 is wrong, and it is wrong for the same reason the Lender column was.** It compared the
+> lender's 1,041.09 against Ramona's 2026-08-11 source split of 1,010.57, which belongs to the
+> **July** payment — a cross-period comparison, produced by the very misalignment this session fixed.
+> `statement-period.ts`'s own header predicted this in session 273: *"~$30/month of divergence on a
+> loan whose real drift is ~$15/month."*
+>
+> **What Xero actually holds for August**, from `loan_book_balances` `2026-08-31` (basis
+> `xero_rebuild`, `movement_measured: true`): account 253 saw **one** reducing entry of **$1,025.71**
+> and **zero drawn**, taking the books 66,259.81 → 65,234.10. The lender applied **$1,041.09**.
+>
+> > **The difference is $15.38, not $30.52** — same total payment ($2,033.77 both ways), different
+> > principal/interest attribution.
+>
+> **PROPOSAL, for David and Ramona to accept or reject:** move **$15.38** from 800 Interest Expense to
+> 253 for the August payment, bringing the books to the lender's own attribution. That leaves
+> **$44.78** — which is 29.64 + 15.14, both in CLOSED periods, and is the CPA's adjustment to make or
+> to leave, not a WashRoute write. **$44.78 is also, to the cent, what the tie-out reported before the
+> re-dating**, which is an independent corroboration of the decomposition rather than a coincidence.
+>
+> ⏭️ **Still open:** the split's `review_notes` still state the superseded $30.52. Correct the note
+> when the attribution decision is made, not before — and see §0zl's *"a rule can outlive the fact it
+> was written for"*: a stale sentence beside a correct number is what a CPA reads.
 
 > ### 0zj. ⚠️ `--no-verify-jwt` IS NOT A "LEAVE IT ALONE" FLAG — IT IS AN ASSIGNMENT (session 281)
 >
