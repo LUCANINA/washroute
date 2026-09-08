@@ -1043,12 +1043,23 @@ function analyzeWalk(o: {
     // was the first sentence a reader saw and it contradicted every one of them.
     // The claim about the FOCUS MONTH is unconditional; the claim about the whole
     // walk is not, and must be earned.
+    // ── s289 rule D/E: SAY THE ASK, NOT THE REASONING BEHIND IT ────────────
+    // 45 words became 20. What went: the clause restating which month the row is
+    // about (the modal title already says it), and the clause promising there is
+    // nothing to investigate (the ✓ line says what is outstanding, so saying it
+    // here made one card state the same reassurance twice).
+    //
+    // ⚠️ Those two clauses are NOT quoted here on purpose. copy-budget.test.mts
+    // asserts their absence from this file, and a comment naming them verbatim
+    // makes that assertion pass forever — a guard defeated by the note
+    // explaining the guard. It caught exactly that on the first run.
+    // The DATE we hold stays -- it is the one fact a reader cannot get from
+    // anywhere else on the card, and it is what tells them which file to fetch.
     conclusions.push(
-      `Nothing in this walk covers ${monthName(focusPeriod)} — the row you opened is about that month, and the newest lender statement on file is dated ${lastAnchor}. `
-      + `Upload the ${monthName(focusPeriod)} statement and the difference on that row can be measured`
+      `${monthName(focusPeriod)}'s statement is not on file — the newest is ${lastAnchor}. Upload it and this row can be measured`
       + (realDivergent.length
-        ? `. Separately, ${realDivergent.length} earlier span${realDivergent.length === 1 ? '' : 's'} in this walk still ${realDivergent.length === 1 ? 'needs' : 'need'} a look — below.`
-        : `; until then there is nothing here to investigate.`))
+        ? `. Separately, ${realDivergent.length} earlier span${realDivergent.length === 1 ? '' : 's'} still ${realDivergent.length === 1 ? 'needs' : 'need'} a look — below.`
+        : `.`))
   } else if (focusPeriod && focusSpans.every(p => p.verdict === 'clean')) {
     conclusions.push(
       `Every span in ${monthName(focusPeriod)} ties to the cent.`)
@@ -1340,8 +1351,13 @@ function analyzeWalk(o: {
     // stays. The claim never disappears; only the second statement of it does.
     if (!focusTiesStated) {
       conclusions.push(closedDivergent.length
-        ? `Every span since the books closed ties to the cent — Xero and the lender agree on everything still open.`
-        : `Every span ties to the cent — Xero and the lender agree completely (${winFrom} → ${winTo}).`)
+        // ⚠️ s289 rule D: A RANGE IS STATED BY THE THING IT GOVERNS. This
+        // bullet used to carry `(${winFrom} → ${winTo})` while the client's ✓
+        // line carried the FOCUS month's range -- so one card stated the same
+        // claim with two different ranges, and a reader could not reconcile
+        // them. The ✓ line owns the range now; this sentence owns the verdict.
+        ? `Every span since the books closed ties to the cent.`
+        : `Every span ties to the cent — Xero and the lender agree completely.`)
     }
   }
   const finalConclusions = conclusions.slice(0, 4)

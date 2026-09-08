@@ -50,7 +50,13 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> ✅ **DEPLOY STATE: SESSION 289'S EIGHT FUNCTIONS ARE LIVE. Pushed and deployed by David
+> ⚠️ **§0ad CHANGED `loan-find-difference` AGAIN (two conclusion sentences, rules D/E) AND THE CARD
+> (rules A–E). The CARD is live on push; THAT FUNCTION IS NOT until it is redeployed —
+> `npx -y supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`.
+> Until then the two bullets keep their old long wording and everything else on the card is already
+> shorter, which is a cosmetic mismatch rather than a break.**
+>
+> ✅ **DEPLOY STATE BELOW WAS TRUE AT 23:36 UTC and covers sessions 287–289 up to §0ac: Pushed and deployed by David
 > 2026-09-08; CHECKED HERE at 23:36 UTC, and checked the way §0ze demands rather than by the
 > script exiting 0.** This block has carried a wrong deploy claim five days running, every time
 > written by the session that had just changed it — so here is exactly what was measured:
@@ -82,6 +88,66 @@
 > seven commits. The next session should still MEASURE `git log origin/main..HEAD` rather than trust
 > this line — this sandbox cannot fetch, so a stale ref is the failure mode here, exactly as it is
 > for the deploy state.
+>
+> ### 0ad. ⭐⭐⭐ FIVE FORMATTING RULES — THE CARD ANSWERS THREE QUESTIONS, ONCE EACH (session 289 cont., David)
+>
+> David, measuring the LIVE card against his mockup: **~300 visible words against ~95**, and *"each
+> hour we save for the CPA is worth at least $15, and this is where every detail matters."* He asked
+> for RULE changes rather than another trim. Five, and they are now the shape of this surface:
+>
+> **A — A MEASURED SENTENCE OUTRANKS A HUMAN'S PROSE WHEN BOTH ANSWER THE SAME QUESTION.**
+> **This inverts §0ac's precedence, which shipped that same morning.** The reasoning then was that an
+> attestation is the stronger claim because somebody put their name to the figure. That is true of
+> what it AUTHORISES and false of what should be READ. The derived sentence is budgeted, re-derives
+> every walk and cannot rot; prose is none of the three. On EIDL the note ran **164 words to say what
+> the derivation says in 35** — and two of its three paragraphs were facts the card states elsewhere
+> anyway. The attestation does not vanish: it is named on the ENTRY it authorises (*"Cause recorded
+> by David · Sep 8, 2026"*) and its full text is one click away. A note still LEADS where there is no
+> derivation, because then it is the only answer.
+>
+> **B — A FACT THE PRODUCT ENFORCES IS NEVER ALSO AN INSTRUCTION.** *"Do not write this off as
+> unexplained"* — `buildWriteoff` already refuses, in code, for that exact reason. 18 words of
+> distrust.
+>
+> **C — A QUESTION WITH A CONTROL ON SCREEN IS ASKED BY THE CONTROL.** *"For Ramona: which account
+> should the $5.00 go to?"* is the dropdown twelve inches lower. Never both.
+>
+> **D — A DATE OR RANGE IS STATED BY THE THING IT GOVERNS, ONCE.** The posting date appeared three
+> times (label, `dated_because`, and the note's closed-books line). **And this one caught a real bug,
+> not words:** the card stated the tie range TWICE with TWO DIFFERENT RANGES — the server bullet
+> carried the whole walk (`2026-04-22 → 2026-07-22`), the ✓ line carried the focus month
+> (`Jun 22 → Jul 22`). A reader could not reconcile them and one was wrong. §279's dedup rule earning
+> its keep: the second statement was never emphasis, it was a second thing to keep true, and it had
+> already drifted. The bullet dropped its parenthetical; the ✓ line owns ranges and now spans every
+> OPEN row.
+>
+> **E — ONE DISCLOSURE PER CARD.** Three stacked *"Show the working"* links is a filing cabinet. They
+> collect into `_bkFdiffWorkingHtml` and render once at the foot, each labelled.
+>
+> ### 0ad-i. WHAT IT MEASURES, AND WHY THE BUDGET IS 170 AND NOT 120
+>
+> The EIDL card renders **203 visible words** and reads as the mockup: one cause, one tinted entry,
+> one ✓ line, one disclosure. `fdiff-copy-budget`'s AFTER fixture — the CPA-exception shape — renders
+> **138**, and the budget moved **225 → 170**, NOT to 120.
+>
+> **The reason is the rule, not the number.** What is left visible on the exception card is its
+> components table (three months, their interest, the journal that already booked each), and that
+> table is the EVIDENCE for the correction beneath it. Cutting it to reach a rounder number is
+> precisely the ce17 error the budget exists to prevent. One budget over two shapes must clear the
+> taller one; the common recorded-cause shape is pinned under 120 separately in `derived-cause`.
+>
+> ### 0ad-ii. 🔴 A GUARD DEFEATED BY THE COMMENT EXPLAINING THE GUARD
+>
+> `copy-budget.test.mts` gained 13 assertions reading the REAL source: the tie bullet has no range
+> parenthetical, the ✓ line spans `allOpen`, the two dropped clauses are absent, every one of the
+> five `W`-accepting renderers actually accepts it (a collector nothing threads is s245's
+> "defined but never exercised"), and the card prefers `derived_cause`.
+>
+> **One went red immediately, and on the right thing: my own comment in
+> `loan-find-difference/index.ts` quoted the dropped clause verbatim while explaining that it had
+> been dropped** — which would have made that assertion pass forever. The comment was reworded; the
+> assertion was not touched. Worth remembering as a shape: a test that greps a file is defeated by
+> prose ABOUT the file, and the note explaining a guard is the likeliest place for it.
 >
 > ### 0ac. ⭐⭐ THE OUTSIDE WITNESS WAS ALREADY HALF ON FILE (session 289 cont., David)
 >

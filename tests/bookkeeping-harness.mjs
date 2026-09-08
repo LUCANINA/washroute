@@ -938,6 +938,8 @@ const GROUPS = [];
 
 
 
+
+
 /* ── s289 ── THE MEASURED CAUSE, AND WHO LEADS WHEN BOTH EXIST ─────────────
    Two things can now answer "what is this difference?" — a human's attestation
    and a sentence we derived. The defect to guard is not that either is wrong;
@@ -965,6 +967,9 @@ GROUPS.push({
         all: host.textContent.replace(/\s+/g, ' ').trim(),
         visible: vis.textContent.replace(/\s+/g, ' ').trim(),
         labels: [...host.querySelectorAll('.fdc-lab')].map(e => e.textContent.trim()),
+        disclosures: host.querySelectorAll('details').length,
+        workingLabels: [...host.querySelectorAll('details .fdc-lab')].map(e => e.textContent.trim()),
+        words: vis.textContent.replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean).length,
       };
     }, Object.assign({}, BASE, over));
 
@@ -979,28 +984,48 @@ GROUPS.push({
     t.ok(/not the lender's/.test(alone.all) && !/not the lender's/.test(alone.visible),
          'and its provenance is in the working, one click away, never deleted (ce17)');
 
-    /* 2 ── A CURRENT NOTE OUTRANKS IT, AND THE CLAIM IS MADE ONCE ─────────
-       The attestation is the stronger claim: somebody looked at THIS figure and
-       put their name to it. The measured sentence corroborates from inside the
-       note's own working. */
+    /* 2 ── ⭐⭐ RULE A: THE MEASURED SENTENCE OUTRANKS THE PROSE ──────────
+       This INVERTS what shipped that morning, and the reason is the whole rule.
+       An attestation is the stronger claim about AUTHORITY -- somebody put their
+       name to this figure -- and that makes it the warrant for the entry, not
+       the thing a reader has to wade through. The derivation is budgeted,
+       re-derives every walk and cannot rot; the prose is none of those. On EIDL
+       the note ran 164 words to say what the derivation says in 35. */
     const both = await draw({ derived_cause: DC, balance_note: NOTE });
-    t.ok(/The SBA added \$5\.00/.test(both.visible),
-         'the human attestation leads when it is current', both.visible.slice(0, 120));
-    t.ok(!/apply \$0\.00 to principal/.test(both.visible),
-         '⭐ the measured sentence is NOT stated a second time on the visible card (s279)', both.visible.slice(0, 200));
-    t.ok(/apply \$0\.00 to principal/.test(both.all),
-         '...but it is still there, behind the note\'s own working — suppressed, not deleted');
+    t.ok(/apply \$0\.00 to principal/.test(both.visible),
+         '⭐ the MEASURED sentence leads, even with a current note on file', both.visible.slice(0, 140));
+    t.ok(!/The SBA added \$5\.00/.test(both.visible),
+         '⭐ the human prose is NOT also on the visible card — one answer per question', both.visible.slice(0, 220));
+    t.ok(/The SBA added \$5\.00/.test(both.all),
+         '...and it survives in the working, verbatim — demoted, never deleted (ce17)');
     t.eq(both.labels.filter(l => l === 'What this difference is').length, 1,
          '⭐ exactly ONE section answers "what is this difference?"', JSON.stringify(both.labels));
+    t.ok(both.workingLabels.includes('The explanation on file'),
+         '...and the working NAMES it, so a reader can find the attestation', JSON.stringify(both.workingLabels));
 
-    /* 3 ── A STALE NOTE DOES NOT OUTRANK A MEASUREMENT ABOUT TODAY ───────
-       It was written about a different figure and says so. The measured
-       sentence is about the number on screen now, so it goes above. */
+    /* 2b ── ⭐ RULE E: ONE DISCLOSURE PER CARD ───────────────────────────── */
+    t.eq(both.disclosures, 1,
+         '⭐ exactly ONE "Show the working" on the card, however many sections contribute to it',
+         `saw ${both.disclosures}`);
+    t.ok(both.words < 120,
+         '⭐ the visible card fits the post-rule budget', `${both.words} words`);
+
+    /* 3 ── A STALE NOTE IS HISTORY AND DOES NOT COMPETE EITHER ──────────── */
     const stale = await draw({ derived_cause: DC, balance_note: Object.assign({}, NOTE, { stale: true, stale_why: 'written about $500.00 and the difference is now $5.00' }) });
-    t.ok(stale.labels[0] === 'What this difference is' && stale.labels[1] === 'An earlier explanation — about a different figure',
-         '⭐ the measurement leads a STALE note, and the note stays as history', JSON.stringify(stale.labels));
-    t.ok(/apply \$0\.00 to principal/.test(stale.visible),
-         '...and it is visible, because nothing current is answering the question instead');
+    t.eq(stale.labels.filter(l => l === 'What this difference is').length, 1,
+         'still exactly one answer to the question', JSON.stringify(stale.labels));
+    t.ok(/apply \$0\.00 to principal/.test(stale.visible) && !/The SBA added/.test(stale.visible),
+         '⭐ the measurement is the visible answer; the stale note is in the working');
+    t.ok(stale.workingLabels.some(l => /earlier explanation/i.test(l)),
+         '...labelled as an earlier explanation about a different figure', JSON.stringify(stale.workingLabels));
+
+    /* 4 ── WITH NO DERIVATION A CURRENT NOTE STILL LEADS ─────────────────
+       Rule A demotes the prose only when something better answers the same
+       question. With nothing measured, the note IS the answer. */
+    const noteOnly = await draw({ balance_note: NOTE });
+    t.ok(/The SBA added \$5\.00/.test(noteOnly.visible),
+         '⭐ CONTROL: with no derivation the human note leads — the rule demotes, it does not delete',
+         noteOnly.visible.slice(0, 120));
 
     await p.close();
   },
@@ -12351,9 +12376,23 @@ GROUPS.push({
     // the dedup rule and the survival rule — and it is untouched, still red on
     // the old payload, and would catch a deletion this word count cannot see.
     // If the two ever disagree, that one wins (the softer-guard rule).
-    t.ok(before.words >= 350,
-         'CONTROL: the card as it shipped measures over 350 visible words', String(before.words));
-    // ⚠ 225 IS A CHOSEN LIMIT, NOT THE MEASUREMENT. The card renders at 207
+    t.ok(before.words >= 320,
+         'CONTROL: the card as it shipped measures over 320 visible words', String(before.words));
+    // ⚠ 170 SINCE s289's FIVE RULES. It was 225. The number moved because the
+    // RULES moved -- a measured sentence outranks prose (A), an enforced fact is
+    // not also an instruction (B), a question with a control on screen is asked
+    // by the control (C), a date or range is stated once by the thing it governs
+    // (D), one disclosure per card (E). The budget follows the rules; it has
+    // never once led them, which is the only way a number like this stays honest.
+    // ⚠ 170 IS A CHOSEN LIMIT, NOT THE MEASUREMENT, and it is set for the
+    // WORST shape rather than the common one. This fixture is the CPA-exception
+    // card, which renders at 138 because its components table (three months,
+    // their interest, the journal that already booked each) is the EVIDENCE for
+    // the correction below it -- "evidence leads" keeps it visible, and cutting
+    // it to reach a rounder number would be exactly the ce17 error the budget
+    // exists to prevent. The recorded-cause shape, which is what most cards are,
+    // measures under 120 and the `derived-cause` group pins it there separately.
+    // One budget over two shapes must clear the taller one. The card renders at 207
     // today. The slack is deliberate: a budget pinned to the current number
     // goes red on an honest rewording, and a test that cries wolf gets tuned
     // rather than read. It is still a real constraint — another paragraph does
@@ -12365,8 +12404,8 @@ GROUPS.push({
     // every figure to survive. If these two ever disagree, the dedup rule wins
     // and this number moves — the reverse is how a card gets shortened by
     // dropping claims, which is the failure this whole rule forbids.
-    t.ok(after.words <= 225,
-         '⭐ the whole modal fits the 225-word budget', String(after.words));
+    t.ok(after.words <= 170,
+         '⭐ the whole modal fits the 170-word budget', String(after.words));
     t.ok(before.words - after.words >= 180,
          '...a cut of at least 180 words against the card as it shipped',
          `${before.words} → ${after.words}`);

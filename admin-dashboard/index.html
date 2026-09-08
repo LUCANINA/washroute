@@ -12717,117 +12717,137 @@
     el.textContent = bits.length ? bits.join(' · ') : '';
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // session 289 cont. — THE CARD ANSWERS THREE QUESTIONS, ONCE EACH
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // David, measuring the live card against the mockup: ~300 visible words
+  // against ~95, and "each hour we save for the CPA is worth at least $15".
+  //
+  // The shape is now fixed, and everything that is not one of these three
+  // answers is working BY DEFINITION rather than by judgement:
+  //
+  //   1. What is this difference?      one block
+  //   2. What do I do about it?        one block, the only tinted one
+  //   3. Is anything else wrong?       one line
+  //
+  // ⚠️ ONE DISCLOSURE PER CARD (rule E). Every section used to carry its own
+  // "Show the working" -- three of them stacked down one card, which reads as a
+  // filing cabinet rather than a card. They collect into `working` and render
+  // once, at the foot, each labelled. NOTHING IS DELETED by any of this (ce17):
+  // it changes what is VISIBLE, never what is on the card.
+  function _bkFdiffWorkingHtml(items) {
+    if (!items.length) return '';
+    return `<details style="margin-top:16px;padding-top:14px;border-top:1px solid var(--gray-200)">
+      <summary>Show the working</summary>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:12px">
+        ${items.map(i => `<div>
+          <div class="fdc-lab">${esc(i.label)}</div>
+          <div style="line-height:1.55;color:var(--gray-600)">${i.html}</div>
+        </div>`).join('')}
+      </div>
+    </details>`;
+  }
+
   function _bkFdiffHtml(data, findingId, loanId) {
     const parts = [];
-    // ── session 273 cont.: THE ASSUMPTION THAT WAS WRONG FOR A YEAR ──────────
-    // The walk assumes a statement's date is the date its balance was true. On
-    // Funding Circle it is not -- statements are filed under the first day of the
-    // period they cover -- and that alone was the difference between reporting
-    // ~$30/month of drift and the real ~$15. The server raises the question when
-    // a loan's own statements contradict the basis it is filed under; a
-    // suspicion nobody can see is not a check, so it leads, above the answer.
+    // The collector. Helpers take it as an optional last argument; called
+    // WITHOUT one (the lender-level handoff at the bottom of this file) they
+    // keep rendering their own inline disclosure, so that surface is unchanged.
+    const working = [];
+    const W = (label, html) => { if (html) working.push({ label, html }); };
+
+    // ── 0. A CAVEAT ON THE FIGURES LEADS EVERYTHING ────────────────────────
+    // session 273 cont.: the walk assumes a statement's date is the date its
+    // balance was true. On Funding Circle it is not. A suspicion nobody can see
+    // is not a check, so it sits above the answer -- and it carries WEIGHT (a
+    // rule and a bold label) rather than a second tint competing with the block
+    // the reader acts on.
     if (data.date_basis_suspicion) {
-      // s289: a caveat on the figures is not an action, so it is not filled.
-      // It leads, and it carries WEIGHT (a rule and a bold label) instead of a
-      // second tint competing with the one block the reader acts on.
       parts.push(`<section class="fdc-sec"><div style="border-left:3px solid #d97706;padding-left:11px">
         <div style="font-weight:700;color:#8a5300;margin-bottom:3px">Check this before trusting the figures below</div>
         ${esc(data.date_basis_suspicion)}
       </div></section>`);
     }
-    // Session 226 (David): conclusions FIRST — "3-4 bullet points MAX". The
-    // narrative wall is gone; everything evidentiary collapses below.
+
+    // ── 1. WHAT IS THIS DIFFERENCE? ────────────────────────────────────────
+    //
+    // ⚠️ A MEASURED SENTENCE OUTRANKS A HUMAN'S PROSE (rule A), and this
+    // INVERTS what shipped this morning. The reasoning then was that an
+    // attestation is the stronger claim because somebody put their name to the
+    // figure. That is true of what it AUTHORISES and false of what should be
+    // READ: the derived sentence is budgeted, re-derives on every walk and
+    // cannot rot, and the prose is none of those three. On EIDL the note ran
+    // 164 words saying what the derivation says in 35 -- and two of its three
+    // paragraphs were facts the card states elsewhere anyway.
+    //
+    // The attestation does not disappear; it moves to where it does its job.
+    // It is named on the ENTRY it authorises, and its full text is one click
+    // away. A note still LEADS when there is no derivation, because then it is
+    // the only answer to the question.
+    const note = data.balance_note;
+    const dc = data.derived_cause;
+    if (dc) {
+      parts.push(_bkDerivedCauseHtml(dc, W));
+      if (note) {
+        W(note.stale ? 'An earlier explanation — written about a different figure'
+                     : 'The explanation on file',
+          `<div style="white-space:pre-wrap">${esc(note.text)}</div>`
+          + (note.stale && note.stale_why ? `<div style="margin-top:5px">${esc(note.stale_why)} — read it as history, not as an answer to this.</div>` : ''));
+      }
+    } else if (note) {
+      parts.push(_bkBalanceNoteHtml(note, null));
+    }
+
+    // ── 2. WHAT LIKELY HAPPENED ────────────────────────────────────────────
     if (Array.isArray(data.conclusions) && data.conclusions.length) {
       parts.push(`<section class="fdc-sec">
         <div class="fdc-lab">What likely happened</div>
         <ul style="margin:0;padding-left:17px">${data.conclusions.map(c => `<li style="margin-top:5px">${esc(c)}</li>`).join('')}</ul>
-        ${(Array.isArray(data.no_action_detail) && data.no_action_detail.length >= 1) ? `<details style="margin-top:8px">
-          <summary>Show the working</summary>
-          <ul style="margin:6px 0 0;padding-left:17px">${data.no_action_detail.map(c => `<li style="margin-top:4px">${esc(c)}</li>`).join('')}</ul>
-        </details>` : ''}
       </section>`);
-    } else {
-      parts.push(`<section class="fdc-sec">${esc(data.narrative || '')}</section>`);
+      if (Array.isArray(data.no_action_detail) && data.no_action_detail.length) {
+        W('Spans that need no action', `<ul style="margin:0;padding-left:17px">${data.no_action_detail.map(c => `<li style="margin-top:4px">${esc(c)}</li>`).join('')}</ul>`);
+      }
+    } else if (data.narrative) {
+      parts.push(`<section class="fdc-sec">${esc(data.narrative)}</section>`);
     }
-    if (data.verdict === 'not_enough_history') return parts.join('');
-    // Session 226 v7 (David): the output is the bullets + the span table, FULL
-    // STOP. No entry dumps, no candidate cards, no amount-hunt list — the
-    // candidates power the bullets server-side and never render on their own.
-    // ── session 289: EVIDENCE LEADS, REASSURANCE TRAILS ────────────────────
-    // When spans DIVERGE the table is the evidence for the correction below it,
-    // so it stays where it is -- you read the rows, then you approve the entry
-    // that answers them. When every span TIES it is not evidence for anything;
-    // it is the answer to a different question ("is anything ELSE wrong?"), and
-    // that question is asked after the decision, not before it. So it drops
-    // below the action, where the mockup put it and where a reader who has
-    // already decided will actually read it.
+    if (data.verdict === 'not_enough_history') {
+      return `<div class="fdc">${parts.join('')}${_bkFdiffWorkingHtml(working)}</div>`;
+    }
+
+    // ── EVIDENCE LEADS, REASSURANCE TRAILS ─────────────────────────────────
+    // A DIVERGENT table is the evidence for the correction below it, so it stays
+    // where it is. An ALL-TIE one is not evidence for anything -- it answers
+    // question 3, which is asked after the decision -- so it becomes one ✓ line
+    // at the foot with its rows in the working.
     let trailingSpans = '';
     if (Array.isArray(data.periods) && data.periods.length) {
-      const html = _bkFdiffSpanTable(data.periods, data);
       const open = data.periods.filter(p => !p.closed_period);
-      if (open.length && open.every(p => p.verdict === 'clean')) trailingSpans = html;
-      else parts.push(html);
+      if (open.length && open.every(p => p.verdict === 'clean')) trailingSpans = _bkFdiffSpanTable(data.periods, data, W);
+      else parts.push(_bkFdiffSpanTable(data.periods, data));
     }
-    // The accountant already worked this entry. Session 234: deference carries a
-    // diagnosis — the months her split covers, which of them our own splits
-    // record as already reallocated (by journal id), and the prepared entry that
-    // reverses only the duplicated part. Her entry is never touched.
-    if (data.cpa_exception) {
-      parts.push(_bkFdiffExceptionHtml(data.cpa_exception, data, findingId, loanId));
-    }
-    // The safe fix, review-gated
+
+    // ── 3. WHAT DO I DO ABOUT IT? — the one tinted block ───────────────────
+    if (data.cpa_exception) parts.push(_bkFdiffExceptionHtml(data.cpa_exception, data, findingId, loanId, W));
     if (data.proposal) {
       const pr = data.proposal;
+      // s289: the narration and the reasoning are the WORKING; the visible
+      // block is the legs, the date and the two buttons.
+      W('The entry that will post', `<div style="font-style:italic">${esc(pr.journal?.Narration || '')}</div>`
+        + (pr.based_on ? `<div style="margin-top:5px">${esc(pr.based_on)}</div>` : ''));
       parts.push(`<div class="fdc-act">
-        <div class="fdc-lab">Suggested entry — nothing posts until you approve</div>
-        <div style="font-weight:600">${esc(pr.journal?.Narration || '')} <span class="fdc-quiet">· dated ${esc(fmtDate(pr.journal?.Date))}</span></div>
-        ${(pr.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-600);margin-top:3px;font-size:12.5px"><strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))}${l.AccountName ? ` ${esc(l.AccountName)}` : ''} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}</div>`).join('')}
-        ${pr.based_on ? `<details style="margin-top:8px"><summary>Show the working</summary><div style="margin-top:5px;color:var(--gray-600);line-height:1.5">${esc(pr.based_on)}</div></details>` : ''}
+        <div class="fdc-lab">Suggested entry — dated ${esc(_bkDay(String(pr.journal?.Date || '')))}, nothing posts until you approve</div>
+        ${(pr.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-700);margin-top:3px;font-size:12.5px"><strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))}${l.AccountName ? ` ${esc(l.AccountName)}` : ''} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}</div>`).join('')}
         ${data.can_post ? `<div style="margin-top:11px;display:flex;gap:8px;align-items:center"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}', this)">Post to Xero</button><button class="btn" style="font-size:12px;padding:6px 12px" onclick="bkIgnoreVariance('${loanId}', this)">Ignore</button></div>` : `<div class="fdc-quiet" style="margin-top:8px">Your account can review this but not post it.</div>`}
       </div>`);
     }
-    // ── THE RECORDED EXPLANATION (session 284) ─────────────────────────────
-    // FIRST on the card, above every proposal. If a person has already found out
-    // what this difference is, that is the most valuable thing on the screen and
-    // reading it changes what the reader does with everything below.
-    // ── session 289 cont.: THE CAUSE WE MEASURED ───────────────────────────
-    // A human's attestation still LEADS when it is current -- it is the stronger
-    // claim, because somebody looked at this figure and put their name to it.
-    // The measured sentence then corroborates it from inside the note's own
-    // working, which is what stops the two from being two sections answering
-    // "what is this?" and risking disagreement (s279).
-    //
-    // With no current note the measured sentence IS the lead, and that is the
-    // point of measuring it: a loan nobody has attested to still gets an
-    // explanation, and nobody has to type one that the splits already prove.
-    if (data.balance_note && !data.balance_note.stale) {
-      parts.unshift(_bkBalanceNoteHtml(data.balance_note, data.derived_cause));
-    } else {
-      if (data.balance_note) parts.unshift(_bkBalanceNoteHtml(data.balance_note, null));
-      // unshift order: this lands ABOVE a stale note, which is right -- the
-      // stale one is history and says so, the measured one is about today.
-      if (data.derived_cause) parts.unshift(_bkDerivedCauseHtml(data.derived_cause));
-    }
+    if (data.recorded_entry) parts.push(_bkFdiffRecordedHtml(data.recorded_entry, data, findingId, loanId, W));
+    if (data.writeoff) parts.push(_bkFdiffWriteoffHtml(data.writeoff, data, findingId, loanId, W));
 
-    // ── THE RECORDED-CAUSE ADJUSTMENT (session 289) ────────────────────────
-    // Above the write-off and below a derived proposal, which is exactly where
-    // it sits in the server's own refusal chain: a machine-identified
-    // correction beats prose about one, and prose beats "cause unknown".
-    if (data.recorded_entry) parts.push(_bkFdiffRecordedHtml(data.recorded_entry, data, findingId, loanId));
-
-    // ── THE WRITE-OFF (session 284) ────────────────────────────────────────
-    // LAST on the card, deliberately. It is what is left when nothing above
-    // found anything, and putting it above a real proposal would offer the
-    // shortcut before the answer. The server refuses it whenever either of the
-    // two blocks above produced something, so this ordering matches the rule
-    // rather than merely looking like it.
-    if (data.writeoff) parts.push(_bkFdiffWriteoffHtml(data.writeoff, data, findingId, loanId));
+    // ── 4. IS ANYTHING ELSE WRONG? — one line ──────────────────────────────
     if (trailingSpans) parts.push(trailingSpans);
-    // s289: one card. The hairlines between sections come from `.fdc-sec +
-    // .fdc-sec`, so the first section never carries a rule above it however the
-    // branches above ordered themselves — which is what a per-part margin could
-    // never get right.
-    return `<div class="fdc">${parts.join('')}</div>`;
+
+    return `<div class="fdc">${parts.join('')}${_bkFdiffWorkingHtml(working)}</div>`;
   }
 
   // ── session 284: is the recorded explanation about the figure ON SCREEN? ──
@@ -12865,18 +12885,16 @@
   // The measured cause, standing on its own. Labelled for where it came from,
   // because "measured from our own payments" and "the lender told us" are
   // different strengths of claim and a CPA reads the difference (s246).
-  function _bkDerivedCauseHtml(dc) {
+  function _bkDerivedCauseHtml(dc, W) {
+    if (W) W('How we know', esc(dc.working));
     return `<section class="fdc-sec">
       <div class="fdc-lab">What this difference is</div>
       <div>${esc(dc.sentence)}</div>
-      <details style="margin-top:7px">
-        <summary>Show the working</summary>
-        <div style="margin-top:5px;line-height:1.5;color:var(--gray-600)">${esc(dc.working)}</div>
-      </details>
+      ${W ? '' : `<details style="margin-top:7px"><summary>Show the working</summary><div style="margin-top:5px;line-height:1.5;color:var(--gray-600)">${esc(dc.working)}</div></details>`}
     </section>`;
   }
 
-  function _bkBalanceNoteHtml(n, derived) {
+  function _bkBalanceNoteHtml(n) {
     // s289: _bkDay, NOT fmtDate. A note stamped 2026-09-08 printed as "Sep 7,
     // 2026" for any reader east of Pacific -- fmtDate builds a Date from a
     // date-only string, which the engine parses in the BROWSER'S zone and then
@@ -12902,10 +12920,6 @@
       <div class="fdc-lab">What this difference is</div>
       <div style="white-space:pre-wrap">${esc(n.text)}</div>
       <div class="fdc-quiet" style="margin-top:6px">Recorded about ${esc(fmtMoney(Math.abs(Number(n.written_about))))}${stamp ? ` · ${stamp}` : ''}</div>
-      ${derived ? `<details style="margin-top:7px">
-        <summary>Show the working</summary>
-        <div style="margin-top:5px;line-height:1.5;color:var(--gray-600)">${esc(derived.sentence)} ${esc(derived.working)}</div>
-      </details>` : ''}
     </section>`;
   }
 
@@ -12933,7 +12947,7 @@
   // stays disabled until it is answered. On the loan this was built for, the
   // recorded explanation's own last line is "which account should the $5.00 go
   // to?" — this dropdown is that question, on the screen where it gets answered.
-  function _bkFdiffRecordedHtml(rec, data, findingId, loanId) {
+  function _bkFdiffRecordedHtml(rec, data, findingId, loanId, W) {
     if (!rec.eligible) {
       // Silent where the write-off is already speaking, or where there is
       // nothing to adjust anyway: two boxes each explaining a different absence
@@ -12952,6 +12966,21 @@
         <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${isDebit ? esc(fmtMoney(amt)) : '—'}</td>
         <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${isDebit ? '—' : esc(fmtMoney(amt))}</td>
       </tr>`;
+    // ⚠️ s289 rule D: THE DATE IS STATED BY THE THING IT GOVERNS, ONCE. The
+    // label carries it; `dated_because` explains it and belongs in the working.
+    // It used to appear three times on one card — label, this line, and the
+    // note's own "April and May sit inside closed books".
+    if (W) {
+      W('The entry that will post',
+        `<div style="font-style:italic">${esc(rec.narration || '')}</div>`
+        + `<div style="margin-top:5px">Dated ${esc(_bkDay(rec.dated_into))} because ${esc(rec.dated_because || '')}.</div>`);
+    }
+    // ⚠️ s289 rule A: THE ATTESTATION IS NAMED ON WHAT IT AUTHORISES. The note's
+    // prose moved to the working; who signed for this figure has to stay where
+    // the money moves, or the card offers an entry with no visible warrant.
+    const att = rec.recorded_by
+      ? `<div class="fdc-quiet" style="margin-top:7px">Cause recorded by ${esc(rec.recorded_by)}${rec.recorded_at ? ` · ${esc(_bkDay(String(rec.recorded_at).slice(0, 10)))}` : ''}</div>`
+      : '';
     const sel = `fdiff-rec-acct-${findingId}`;
     // s289 cont.: the default is PRE-SELECTED and the button starts armed. The
     // first cut shipped an empty picker beside an explanation that already said
@@ -12987,14 +13016,11 @@
           ${row(rec.loan_leg.AccountName, rec.loan_leg.AccountCode, dr)}
         </tbody>
       </table>
-      <div class="fdc-quiet" style="margin-top:8px">Dated here because ${esc(rec.dated_because || '')}.</div>
-      <details style="margin-top:8px">
-        <summary>Show the working</summary>
-        <div style="margin-top:6px;line-height:1.55;color:var(--gray-600)">
-          <div style="font-weight:600">The sentence that will be written into Xero:</div>
-          <div style="margin-top:2px;font-style:italic">${esc(rec.narration || '')}</div>
-        </div>
-      </details>
+      ${att}
+      ${W ? '' : `<div class="fdc-quiet" style="margin-top:8px">Dated here because ${esc(rec.dated_because || '')}.</div>
+      <details style="margin-top:8px"><summary>Show the working</summary>
+        <div style="margin-top:6px;line-height:1.55;color:var(--gray-600)"><div style="font-weight:600">The sentence that will be written into Xero:</div><div style="margin-top:2px;font-style:italic">${esc(rec.narration || '')}</div></div>
+      </details>`}
       ${data.can_post_recorded ? `
         <div style="margin-top:11px;display:flex;gap:8px;align-items:center">
           <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-rec-${findingId}"${dflt ? '' : ' disabled'}
@@ -13047,7 +13073,7 @@
     </div></div>`;
   }
 
-  function _bkFdiffWriteoffHtml(wo, data, findingId, loanId) {
+  function _bkFdiffWriteoffHtml(wo, data, findingId, loanId, W) {
     const ignoreBtn = `<button class="btn" style="font-size:12px;padding:6px 12px" onclick="bkIgnoreVariance('${loanId}', this)">Ignore</button>`;
 
     if (!wo.eligible) {
@@ -13069,6 +13095,14 @@
     const lines = (wo.journal?.JournalLines || []).map(l =>
       `<div style="color:var(--gray-500);margin-top:2px">${esc(l.Description)} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))} ${Number(l.LineAmount) >= 0 ? 'into' : 'out of'} ${esc(String(l.AccountCode))}${l.AccountName ? ` — ${esc(l.AccountName)}` : ''}</div>`).join('');
 
+    // s289 rule E: into the card's single disclosure.
+    if (W) W('What was searched, and the entry that would post', `<div style="font-weight:600">Looked for, and did not find:</div>
+          <ul style="margin:4px 0 0 16px;padding:0">${(wo.searched || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+          <div style="margin-top:8px;font-weight:600">The entry that would post, dated ${esc(_bkDay(wo.dated_into))}:</div>
+          ${lines}
+          <div style="margin-top:6px">Dated there because ${esc(wo.dated_because || '')}.</div>
+          <div style="margin-top:8px;font-weight:600">The sentence that will be written into Xero:</div>
+          <div style="margin-top:2px;font-style:italic">${esc(wo.journal?.Narration || '')}</div>`);
     return `<div class="fdc-act">
       <div class="fdc-lab">No cause found — this can be written off</div>
       <div style="line-height:1.5;color:var(--gray-700)">
@@ -13078,18 +13112,16 @@
         and small enough to write off rather than chase.
       </div>
       ${wo.result_sentence ? `<div style="margin-top:6px;font-weight:600">${esc(wo.result_sentence)}</div>` : ''}
-      <details style="margin-top:8px">
+      ${W ? '' : `<details style="margin-top:8px">
         <summary>Show the working</summary>
-        <div style="margin-top:6px;line-height:1.55;color:var(--gray-600)">
-          <div style="font-weight:600">Looked for, and did not find:</div>
+        <div style="margin-top:6px;line-height:1.55;color:var(--gray-600)"><div style="font-weight:600">Looked for, and did not find:</div>
           <ul style="margin:4px 0 0 16px;padding:0">${(wo.searched || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-          <div style="margin-top:8px;font-weight:600">The entry that would post, dated ${esc(fmtDate(wo.dated_into))}:</div>
+          <div style="margin-top:8px;font-weight:600">The entry that would post, dated ${esc(_bkDay(wo.dated_into))}:</div>
           ${lines}
           <div style="margin-top:6px">Dated there because ${esc(wo.dated_because || '')}.</div>
           <div style="margin-top:8px;font-weight:600">The sentence that will be written into Xero:</div>
-          <div style="margin-top:2px;font-style:italic">${esc(wo.journal?.Narration || '')}</div>
-        </div>
-      </details>
+          <div style="margin-top:2px;font-style:italic">${esc(wo.journal?.Narration || '')}</div></div>
+      </details>`}
       ${data.can_post_writeoff ? `
         <div style="margin-top:10px">
           <input id="fdiff-wo-note-${findingId}" class="form-input" style="font-size:12px;padding:6px 8px"
@@ -13168,7 +13200,7 @@
   // moment. Now it shows the decomposition (which months, which journals already
   // corrected them) and, when the recorded journals AND the span's gap agree, a
   // balanced entry dated into the first period she can actually post into.
-  function _bkFdiffExceptionHtml(ex, data, findingId, loanId) {
+  function _bkFdiffExceptionHtml(ex, data, findingId, loanId, W) {
     const d = ex.diagnosis || null;
     const pe = ex.proposed_entry || null;
     const rows = (d && Array.isArray(d.components) && d.components.length) ? `
@@ -13211,17 +13243,27 @@
     // expanded -- the same shape the Overview queue and the bundle cards use.
     // A `working` written and never shown is evidence deleted with extra steps
     // (the copy-budget rule), so this renders whenever the server sends one.
-    const working = (ex.note_working && String(ex.note_working).trim()) ? `
+    // s289 rule E: into the card's single disclosure when there is one.
+    if (W && ex.note_working && String(ex.note_working).trim()) W('Your accountant\'s entry, in full', esc(ex.note_working));
+    const working = (!W && ex.note_working && String(ex.note_working).trim()) ? `
       <details style="margin-top:8px">
         <summary style="cursor:pointer;font-size:12px;color:#92400e;opacity:.8">Show the working</summary>
         <div style="margin-top:6px;line-height:1.5">${esc(ex.note_working)}</div>
       </details>` : '';
 
+    // s289 rule D+E: the label states the date once; the narration and the
+    // reason for that date are working. They were three visible lines above a
+    // two-line journal that says the same thing in figures.
+    if (W && pe) {
+      W('The correction that will post',
+        `<div style="font-style:italic">${esc(pe.Narration || '')}</div>`
+        + `<div style="margin-top:5px">Dated ${esc(_bkDay(pe.Date))} because ${esc(pe.dated_because || '')}.</div>`);
+    }
     const prepared = pe ? `
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e8cfa4">
-        <div class="fdc-lab">Prepared correction — her entry is not touched</div>
-        <div style="margin-top:6px;font-weight:600">${esc(_bkJrnlShort(pe.Narration, true))} (dated ${esc(_bkDay(pe.Date))})</div>
-        <div style="color:var(--gray-500);margin-top:2px;font-size:11.5px">Dated here because ${esc(pe.dated_because || '')}.</div>
+        <div class="fdc-lab">Prepared correction — dated ${esc(_bkDay(pe.Date))}, her entry is not touched</div>
+        ${W ? '' : `<div style="margin-top:6px;font-weight:600">${esc(_bkJrnlShort(pe.Narration, true))} (dated ${esc(_bkDay(pe.Date))})</div>
+        <div style="color:var(--gray-500);margin-top:2px;font-size:11.5px">Dated here because ${esc(pe.dated_because || '')}.</div>`}
         ${(pe.JournalLines || []).map(l => `<div style="color:var(--gray-600);margin-top:3px;font-size:12px">
           <strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}${(() => {
             // A leg whose description just repeats the narration above it is
@@ -13354,7 +13396,7 @@
       ${_bkFdiffSpanTableShell(_bkFdiffSpanRows(rows))}
     </details>`;
   }
-  function _bkFdiffSpanTable(periods, meta) {
+  function _bkFdiffSpanTable(periods, meta, W) {
     const all = Array.isArray(periods) ? periods : [];
     const closeDate = (meta && meta.close_date) || null;
     const closeLabel = esc(closeDate ? _bkDay(closeDate) : 'the close date');
@@ -13390,15 +13432,33 @@
     // It fires only when EVERY lead row is clean. One divergent row and the
     // table is the screen again, which is the whole point of the table.
     if (lead.length && lead.every(p => p.verdict === 'clean')) {
-      const range = `${esc(_bkDay(lead[0].from))} → ${esc(_bkDay(lead[lead.length - 1].to))}`;
+      // ⚠️ s289 rule D: THE RANGE COVERS WHAT THE LINE STANDS FOR. It used to
+      // read off `lead` alone (the focus month) while the server's tie bullet
+      // named the whole walk -- so ONE CARD STATED THE SAME CLAIM WITH TWO
+      // DIFFERENT RANGES and one of them was wrong. The bullet has dropped its
+      // parenthetical; this line owns the range, so it spans every open row.
+      const allOpen = lead.concat(before, after).sort((a, b) => String(a.from).localeCompare(String(b.from)));
+      const range = `${esc(_bkDay(allOpen[0].from))} → ${esc(_bkDay(allOpen[allOpen.length - 1].to))}`;
       // s289: the whole of "nothing else is wrong" is one line with a tick on
       // it. A reader scanning this card needs to know that fact in one glance
       // and needs the rows only if they doubt it, so the rows are the
       // disclosure and the sentence is the screen.
+      // ── s289 rule E: ONE LINE, rows behind the card's single disclosure.
+      // Four stacked <details> of rows that all say "ties" is a filing cabinet;
+      // the reader needs the fact, and the rows only if they doubt it.
+      if (W) {
+        W('Every span checked',
+          _bkFdiffSpanTableShell(_bkFdiffSpanRows(allOpen))
+          + (closed.length ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500)">${closed.length} span${closed.length === 1 ? '' : 's'} closed through ${closeLabel} — settled by your accountant, nothing to do</div>`
+             + _bkFdiffSpanTableShell(_bkFdiffSpanRows(closed)) : ''));
+        return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--gray-200);display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--gray-700)">
+          <span class="fdc-ties">✓</span><div>${range} ties to the cent, nothing else outstanding.</div>
+        </div>`;
+      }
       return `<div style="margin-top:12px;display:flex;gap:9px;align-items:flex-start">
           <span class="fdc-ties">✓</span>
           <details style="flex:1 1 auto;min-width:0">
-            <summary style="cursor:pointer;font-size:13px;color:var(--gray-700);font-weight:500">${range} ties to the cent${inFocus.length && typeof _cvMonthName === 'function' ? ` — ${esc(_cvMonthName(focus))} agrees with the lender` : ''} · ${lead.length} span${lead.length === 1 ? '' : 's'}</summary>
+            <summary style="cursor:pointer;font-size:13px;color:var(--gray-700);font-weight:500">${range} ties to the cent · ${lead.length} span${lead.length === 1 ? '' : 's'}</summary>
             ${_bkFdiffSpanTableShell(_bkFdiffSpanRows(lead))}
           </details>
         </div>`

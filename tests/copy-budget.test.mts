@@ -308,6 +308,50 @@ section('the conclusion bullets no longer restate the table below them')
      harness.includes('Approve the prepared $415.88 correction below'))
 }
 
+// ── s289's five rules, pinned where the sentences are actually BUILT ────────
+// D and E moved words out of two server bullets. Neither was pinned by anything,
+// so both could drift back one careful-looking edit at a time — which is exactly
+// how the 420-word card in session 279 was assembled. These read the real source.
+{
+  const src = readFileSync(new URL('../supabase/functions/loan-find-difference/index.ts', import.meta.url), 'utf8')
+  const dash = readFileSync(new URL('../admin-dashboard/index.html', import.meta.url), 'utf8')
+
+  section('rule D — a range is stated by the thing it governs, once')
+  // The bug this rule caught was not verbosity: the bullet carried the WALK's
+  // range while the ✓ line carried the FOCUS month's, so one card stated one
+  // claim with two different ranges and a reader could not reconcile them.
+  ok('the tie bullet no longer carries a range parenthetical',
+     src.includes('Every span ties to the cent — Xero and the lender agree completely.`') &&
+     !src.includes('agree completely (${winFrom} → ${winTo})'))
+  ok('...and the ✓ line spans every OPEN row rather than the focus month alone',
+     dash.includes('const allOpen = lead.concat(before, after)'))
+
+  section('rule D/E — the ask states the ask, not the reasoning behind it')
+  ok('the missing-statement bullet dropped "the row you opened is about that month"',
+     !src.includes('the row you opened is about that month'))
+  ok('...and dropped "until then there is nothing here to investigate"',
+     !src.includes('until then there is nothing here to investigate'))
+  ok('...while KEEPING the date we hold, which is the one fact the reader cannot get elsewhere',
+     src.includes("statement is not on file — the newest is ${lastAnchor}"))
+
+  section('rule E — one disclosure per card')
+  ok('the card collects working into a single renderer',
+     dash.includes('function _bkFdiffWorkingHtml(items)'))
+  // A `W` that is never threaded is a collector that collects nothing — the
+  // "defined but never exercised" failure from s245. Assert every producer.
+  for (const fn of ['_bkDerivedCauseHtml', '_bkFdiffSpanTable', '_bkFdiffRecordedHtml',
+                    '_bkFdiffExceptionHtml', '_bkFdiffWriteoffHtml']) {
+    ok(`...and ${fn} accepts it`, new RegExp(`function ${fn}\\([^)]*\\bW\\b`).test(dash))
+  }
+
+  section('rule A — the measured sentence outranks the prose')
+  ok('the card prefers derived_cause and demotes the note to the working',
+     dash.includes('parts.push(_bkDerivedCauseHtml(dc, W))') &&
+     dash.includes("'The explanation on file'"))
+  ok('...and the attestation is named on the entry it authorises',
+     dash.includes('Cause recorded by ${esc(rec.recorded_by)}'))
+}
+
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail === 0 ? 0 : 1)
