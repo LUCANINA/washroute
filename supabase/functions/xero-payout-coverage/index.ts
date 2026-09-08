@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { sendAlertSms, alertSmsConfigFromEnv, trimForSms } from '../_shared/alert-sms.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
+import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
 // xero-payout-coverage (built Sep 3, 2026 — session 266)
 //
@@ -78,7 +79,7 @@ async function requireAdmin(req: Request) {
   const { data: { user }, error } = await supabase.auth.getUser(token)
   if (error || !user) throw new Error('Invalid or expired session')
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
-  if (!profile || !['admin', 'manager'].includes(profile.role)) throw new Error('Admin/manager role required')
+  if (!canWriteBookkeeping(profile?.role)) throw new Error('Bookkeeping write access required')
   return user
 }
 

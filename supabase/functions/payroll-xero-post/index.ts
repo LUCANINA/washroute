@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
 // payroll-xero-post
 // v13 (Aug 6) real-cash safety check after the overdraw incident.
@@ -168,11 +169,9 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!import_id) return new Response(JSON.stringify({ error: 'import_id is required' }), { status: 400 })
 
     const role = await callerRole(req)
-    if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
+    // Session 289: preview and confirm are one bar now -- see bk-write-roles.ts.
+    if (!canWriteBookkeeping(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403 })
-    }
-    if (confirm && !['admin', 'manager'].includes(role)) {
-      return new Response(JSON.stringify({ error: 'Your account has read-only access -- posting to Xero requires an admin or manager.' }), { status: 403 })
     }
 
     const supa = admin()

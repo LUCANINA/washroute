@@ -71,6 +71,7 @@ import {
 } from '../_shared/loan-bundle-apply.ts'
 import { detectCarryingBasisDrift } from '../_shared/carrying-basis-drift.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
+import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 import { matchLoan } from '../_shared/loan-matcher.ts'
 import { checkPortalTotals, mergePortal, describeScreenshot, checkDepositDate, type PortalTotals } from '../_shared/portal-figures.ts'
 import { detectPayPalHistoryCsv, parsePayPalHistoryCsv, type PayPalHistoryParseResult } from '../_shared/paypal-history.ts'
@@ -1673,18 +1674,16 @@ Deno.serve(async (req) => {
     const supa = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
     const { role, email } = await callerRole(req, supa)
     if (!role) return json({ error: 'Missing or invalid Authorization.' }, 401)
-    if (!['admin', 'manager', 'cpa'].includes(role)) return json({ error: `Forbidden (role: ${role})` }, 403)
+    if (!canWriteBookkeeping(role)) return json({ error: `Forbidden (role: ${role})` }, 403)
 
     const body = await req.json()
     const isApply = !!body.bundle_id
-    // Both halves require admin or manager, and the PLAN half is the surprising
-    // one. Planning is conceptually read-only, but it stores the uploaded files
-    // and inserts an intake_bundles row — and this function holds the service
-    // role, so it would sail straight past the RLS the migration wrote to keep
-    // the CPA out of that table. A gate the caller bypasses is not a gate.
-    if (!['admin', 'manager'].includes(role)) {
-      return json({ error: `${isApply ? 'Filing' : 'Reading a set of documents together'} requires an admin or manager account.` }, 403)
-    }
+    // Both halves require Bookkeeping write access, and the PLAN half is the
+    // surprising one. Planning is conceptually read-only, but it stores the
+    // uploaded files and inserts an intake_bundles row — and this function holds
+    // the service role, so it would sail straight past RLS. A gate the caller
+    // bypasses is not a gate. Session 289: that bar is now canWriteBookkeeping()
+    // and the CPA clears it, so the single check above is the whole gate.
     const who = email || role
     return isApply ? await applyBundle(supa, who, body) : await planBundle(req, supa, who, body)
   } catch (e) {

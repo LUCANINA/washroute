@@ -5,6 +5,7 @@ import { effectiveCloseDate, postingDateFor, isProtectedDate } from '../_shared/
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 import { anchorsByBalanceDate, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
 import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
+import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
 // ── loan-find-difference (session 225) ──────────────────────────────────────
 // "Find the difference": when the reconciliation engine says a loan's Xero
@@ -176,7 +177,7 @@ async function callerRole(req: Request) {
 // (migration session_227h_internal_call_secret).
 //
 // The secret maps to the role `internal_job`, and the name is doing real work: EVERY
-// write gate in this file is `['admin','manager'].includes(role)` -- five of them, at
+// write gate in this file is `canWriteBookkeeping(role)` (session 289) -- five of them, at
 // lines that post a Manual Journal (post_fix), the exception correction (post_exception)
 // and the cross-loan reallocation (post_crossloan), plus the two `can_post` flags. A role
 // outside that array cannot reach a single one of them by construction.
@@ -2268,7 +2269,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     })),
     skipped_loans: skippedLoans,
     window: { from: winFrom, to: winTo, read_via: oneBank ? 'one pull: bank transactions scoped to the shared checking account, plus every manual journal in the window' : 'one pull: org-wide month-sliced' },
-    can_post: ['admin', 'manager'].includes(role),
+    can_post: canWriteBookkeeping(role),
   })
 }
 
@@ -2301,18 +2302,18 @@ async function handle(req: Request): Promise<Response> {
   // because it has no user. Read the isInternalCall comment above before widening this.
   const internal = !role && await isInternalCall(req)
   if (internal) role = 'internal_job'
-  if (!role || !['admin', 'manager', 'cpa', 'internal_job'].includes(role)) {
+  if (!(canWriteBookkeeping(role) || role === 'internal_job')) {
     return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
-  // The convergence guard. `internal_job` already fails every ['admin','manager'] gate
+  // The convergence guard. `internal_job` already fails every canWriteBookkeeping() gate
   // below, so this refuses nothing those would have allowed -- it exists so the refusal
   // is a STATEMENT rather than a side effect of a role's absence from an array, and so
   // that widening one of those arrays cannot silently hand a write path to a cron job.
   if (internal && (post_fix || post_exception || post_writeoff || body.post_crossloan || body.lender_analysis)) {
     return new Response(JSON.stringify({ error: 'The internal job may run analyze only. Nothing was posted.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
-  if ((post_fix || post_exception || post_writeoff) && !['admin', 'manager'].includes(role)) {
-    return new Response(JSON.stringify({ error: 'Only an admin or manager can post a correction. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+  if ((post_fix || post_exception || post_writeoff) && !canWriteBookkeeping(role)) {
+    return new Response(JSON.stringify({ error: 'Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   // v10: lender-level analysis — read-only by construction; corrections are
   // posted from their own loan card (per-loan post_fix), never from here.
@@ -2320,9 +2321,9 @@ async function handle(req: Request): Promise<Response> {
     if (post_fix) {
       return new Response(JSON.stringify({ error: 'Post a correction from its own loan card — the lender-level analysis is read-only.' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
-    // v12: posting a reallocation is a write — admin/manager only, same bar as post_fix.
-    if (body.post_crossloan && !['admin', 'manager'].includes(role)) {
-      return new Response(JSON.stringify({ error: 'Only an admin or manager can post a reallocation. Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+    // v12: posting a reallocation is a write — same bar as post_fix.
+    if (body.post_crossloan && !canWriteBookkeeping(role)) {
+      return new Response(JSON.stringify({ error: 'Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
     return await handleLender(supa, body, role)
   }
@@ -2536,9 +2537,9 @@ async function handle(req: Request): Promise<Response> {
     // close band's Action column, because an explanation filed where nobody
     // looks is the same as no explanation.
     balance_note: balanceNote,
-    can_post: !!proposal && ['admin', 'manager'].includes(role),
-    can_post_exception: !!cpaException?.proposed_entry && ['admin', 'manager'].includes(role),
-    can_post_writeoff: !!wo?.eligible && ['admin', 'manager'].includes(role),
+    can_post: !!proposal && canWriteBookkeeping(role),
+    can_post_exception: !!cpaException?.proposed_entry && canWriteBookkeeping(role),
+    can_post_writeoff: !!wo?.eligible && canWriteBookkeeping(role),
     conclusions: finalConclusions,
     narrative: bits.join(' '),
   }

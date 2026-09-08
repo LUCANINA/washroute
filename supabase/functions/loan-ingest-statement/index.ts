@@ -4,6 +4,7 @@ import { rederiveIfDerived, REAL_SOURCES } from "../_shared/derive-schedule.ts"
 import { effectiveCloseDate, isPeriodClosed, closedNote } from "../_shared/close-date.ts"
 import { pairFeesToPayments, footingCheck, basisProvenBy } from '../_shared/statement-split-shape.ts'
 import { resolvePeriodLabel } from '../_shared/period-label.ts'
+import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
 // Ingests one pulled loan statement (Ford Pro CSV today; other lenders/methods later):
 //   1. stores the raw CSV in the loan-statements bucket (permanent proof record)
@@ -485,7 +486,7 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     const role = await callerRole(req)
-    if (!role || !['admin', 'manager'].includes(role)) {
+    if (!canWriteBookkeeping(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized -- ingesting statements requires an admin or manager account.' }), { status: 403 })
     }
 

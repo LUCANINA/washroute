@@ -5324,7 +5324,7 @@
                   <select id="invite-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
                     <option value="attendant">Attendant (POS only)</option>
                     <option value="laundry_tech">Laundry Tech (Processing only)</option>
-                    <option value="cpa">CPA (Bookkeeping, read-only)</option>
+                    <option value="cpa">CPA (Bookkeeping)</option>
                     <option value="manager">Manager (Operations)</option>
                     <option value="admin">Admin (Full access)</option>
                   </select>
@@ -5361,7 +5361,7 @@
                   <select id="create-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
                     <option value="attendant">Attendant (POS only)</option>
                     <option value="laundry_tech">Laundry Tech (Processing only)</option>
-                    <option value="cpa">CPA (Bookkeeping, read-only)</option>
+                    <option value="cpa">CPA (Bookkeeping)</option>
                     <option value="manager">Manager (Operations)</option>
                     <option value="admin">Admin (Full access)</option>
                   </select>
@@ -5385,7 +5385,7 @@
               <select id="role-modal-select" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none;margin-bottom:22px">
                 <option value="attendant">Attendant (POS only)</option>
                 <option value="laundry_tech">Laundry Tech (Processing only)</option>
-                <option value="cpa">CPA (Bookkeeping, read-only)</option>
+                <option value="cpa">CPA (Bookkeeping)</option>
                 <option value="manager">Manager (Operations)</option>
                 <option value="admin">Admin (Full access)</option>
               </select>
@@ -5439,7 +5439,7 @@
       <select class="form-input" id="tm-role" style="background:white">
         <option value="attendant">Attendant (POS only)</option>
         <option value="laundry_tech">Laundry Tech (Processing only)</option>
-        <option value="cpa">CPA (Bookkeeping, read-only)</option>
+        <option value="cpa">CPA (Bookkeeping)</option>
         <option value="manager">Manager (Operations)</option>
         <option value="admin">Admin (Full access)</option>
       </select>
@@ -8568,6 +8568,27 @@
   // of the prior "pos_device → Attendant" display hack that conflated permission
   // intent across roles.
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Kanban', attendant: 'Attendant', pos_device: 'POS Terminal', cpa: 'CPA' };
+
+  // ── WHO MAY WRITE IN BOOKKEEPING (session 289, David) ──
+  // ONE list, read by every Bookkeeping write gate on this page. It exists
+  // because the previous answer was spread across ~32 separate checks in two
+  // different shapes -- `currentUserRole === 'cpa'` in the newer code and
+  // `['admin','manager'].includes(...)` in the older -- and session 231's rule
+  // ("a guard is only as good as the branch it sits on") is unenforceable when
+  // the same decision is written down thirty-two times. Changing who may write
+  // is now one edit here, not another thirty-two-branch audit.
+  //
+  // David, session 289: the CPA posts to Xero. She previously ran the preview
+  // and was stopped at the confirm, which made the product ask her to do the
+  // reading and then hand the work back.
+  //
+  // ⚠️ This governs the PAGE only. It is one of THREE layers and the weakest --
+  // the RLS policies (public.can_write_bookkeeping()) and the edge functions
+  // (_shared/bk-write-roles.ts) enforce the same list server-side and are what
+  // actually stop a write. Change one, change all three, or a button appears
+  // that fails with a 403 nobody can explain.
+  const BK_WRITE_ROLES = ['admin', 'manager', 'cpa'];
+  function _bkCanWrite() { return BK_WRITE_ROLES.includes(currentUserRole); }
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','smsdelivery','bookkeeping','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
@@ -11105,7 +11126,7 @@
 
     const fileAllBtn = document.getElementById('bk-batch-fileall');
     if (fileAllBtn) {
-      const canFile = !sorting && !nFiling && nReady > 0 && currentUserRole !== 'cpa';
+      const canFile = !sorting && !nFiling && nReady > 0 && _bkCanWrite();
       fileAllBtn.style.display = canFile ? '' : 'none';
       fileAllBtn.textContent = `File all ${nReady}`;
     }
@@ -11119,7 +11140,7 @@
       const readable = _bkBundleReadable(items);
       // Reading a set together stores the files and creates a bundle record, so
       // it needs the same write access filing does.
-      const canBundle = !sorting && !nFiling && readable.length >= 2 && currentUserRole !== 'cpa';
+      const canBundle = !sorting && !nFiling && readable.length >= 2 && _bkCanWrite();
       bundleBtn.style.display = canBundle ? '' : 'none';
       bundleBtn.disabled = !!_lbRunning;
       bundleBtn.textContent = _lbRunning ? 'Reading…' : `Read ${readable.length} together`;
@@ -11178,7 +11199,7 @@
     // Peek is read-only and always available (cpa included) — the file is
     // already in this browser's memory, nothing is fetched or written.
     const peek = i.base64 ? btn('👁', `bkPeekItem('${i.id}')`, true) : '';
-    if (currentUserRole === 'cpa') return peek;
+    if (!_bkCanWrite()) return peek;
     switch (i.status) {
       case 'ready':      return peek + btn('Not this', `bkBatchSkip('${i.id}')`, true);
       case 'manual':     return peek + btn('Loan document', `bkBatchManual('${i.id}','loan')`, true)
@@ -11863,14 +11884,14 @@
       block('Changes to make', actions, 'Nothing is written until you apply. No payment entries are created either way.');
 
     const applyBtn = document.getElementById('lb-apply');
-    applyBtn.style.display = (p.actions || []).length && currentUserRole !== 'cpa' ? '' : 'none';
+    applyBtn.style.display = (p.actions || []).length && _bkCanWrite() ? '' : 'none';
     applyBtn.disabled = false;
     applyBtn.textContent = 'Apply selected';
   }
 
   async function bkApplyBundle() {
     if (!_lbBundleId) return;
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     // :not(:disabled) matters — :checked is orthogonal to disabled, so a blocked
     // action that shipped pre-checked would be submitted and 409 the whole apply.
     const approve = Array.from(document.querySelectorAll('.lb-act:checked:not(:disabled)')).map(c => c.value);
@@ -11931,7 +11952,7 @@
   async function bkFileAllBatch() {
     const batch = _bkBatch;
     if (!batch || batch.running) return;
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     const ready = batch.items.filter(i => i.status === 'ready');
     if (!ready.length) return;
     batch.running = true;
@@ -13842,7 +13863,7 @@
   function renderPayrollDeptRulesTable() {
     const el = document.getElementById('payroll-dept-rules-wrap');
     if (!el) return;
-    const canEdit = ['admin', 'manager'].includes(currentUserRole);
+    const canEdit = _bkCanWrite();
     const rows = [..._allPayrollDepartments].sort((a, b) => a.sort_order - b.sort_order).map(d => `<tr>
       <td>${esc(d.display_name)}</td>
       <td>${esc(d.wage_account_code)} <span style="color:var(--gray-400)">— ${esc(d.wage_account_name)}</span></td>
@@ -13863,7 +13884,7 @@
   }
 
   async function togglePayrollDeptActive(deptKey, currentlyActive) {
-    if (!['admin', 'manager'].includes(currentUserRole)) { showToast('Your account has read-only access to bucket rules.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     const dept = _allPayrollDepartments.find(d => d.key === deptKey);
     if (!dept) return;
     const next = !currentlyActive;
@@ -13887,7 +13908,7 @@
   }
 
   function openPayrollDeptEditModal(deptKey) {
-    if (!['admin', 'manager'].includes(currentUserRole)) { showToast('Your account has read-only access to bucket rules.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     const d = _allPayrollDepartments.find(x => x.key === deptKey);
     if (!d) return;
     document.getElementById('pde-title').textContent = `Edit — ${d.display_name}`;
@@ -13942,7 +13963,7 @@
 
   let _payrollUploadIsAdjustment = false;
   function openPayrollUploadModal(isAdjustment) {
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Payroll.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     _payrollUploadIsAdjustment = !!isAdjustment;
     _payrollUploadFile = null;
     document.getElementById('payroll-upload-input').value = '';
@@ -14117,7 +14138,7 @@
       <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting to Xero debits <b>wages + employer payroll tax</b> to the department accounts above, and clears net pay, employee tax withholding, employee health, and employee 401k out of the cash/clearing accounts (170, 675, 358) so each period nets to zero. The <b>employer's own</b> 401k match and health contribution shown per department here are not part of this posting — your CPA still handles those the same way as before.</div>
     `;
 
-    const canWrite = currentUserRole !== 'cpa';
+    const canWrite = _bkCanWrite();
     const canMarkReviewed = canWrite && unmatched.length === 0 && imp.status === 'parsed';
     const canPostToXero = canWrite && imp.status === 'reviewed';
     footer.innerHTML = `<button class="btn btn-ghost" onclick="closePayrollReviewModal()">Close</button>
@@ -14149,7 +14170,7 @@
       `;
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closePayrollXeroReviewModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-xero-approve-btn" onclick="approveAndPostPayroll('${importId}')">Approve &amp; Post to Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="payroll-xero-approve-btn" onclick="approveAndPostPayroll('${importId}')">Approve &amp; Post to Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
@@ -14245,7 +14266,7 @@
       `;
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closeRetailCashReclassModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="retail-cashreclass-approve-btn" onclick="approveRetailCashReclass()">Approve &amp; Post to Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="retail-cashreclass-approve-btn" onclick="approveRetailCashReclass()">Approve &amp; Post to Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
@@ -14310,7 +14331,7 @@
       `;
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closePayroll668CorrectionModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-668fix-approve-btn" onclick="approvePayroll668Correction()">Approve &amp; Post to Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="payroll-668fix-approve-btn" onclick="approvePayroll668Correction()">Approve &amp; Post to Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
@@ -14483,7 +14504,7 @@
       `;
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closePayroll171CatchupModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-171catchup-approve-btn" onclick="approvePayroll171Catchup()">Approve &amp; Post to Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="payroll-171catchup-approve-btn" onclick="approvePayroll171Catchup()">Approve &amp; Post to Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
@@ -14546,7 +14567,7 @@
       `;
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closePayrollCaDupeModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-cadupe-approve-btn" onclick="approvePayrollCaDupe()">Approve &amp; Post to Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="payroll-cadupe-approve-btn" onclick="approvePayrollCaDupe()">Approve &amp; Post to Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
@@ -14612,7 +14633,7 @@
       `;
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closePayrollTipsBenModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="payroll-tipsben-approve-btn" onclick="approvePayrollTipsBen()">Approve &amp; Post to Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="payroll-tipsben-approve-btn" onclick="approvePayrollTipsBen()">Approve &amp; Post to Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong building this preview: ${esc(e?.message || String(e))}</div>`;
@@ -14640,7 +14661,7 @@
   }
 
   async function resolvePayrollUnmatchedLine(lineId) {
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Payroll.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     const select = document.getElementById(`payroll-unmatched-dept-${lineId}`);
     const deptKey = select?.value;
     if (!deptKey) { showToast('Pick a department first.', 'error'); return; }
@@ -14669,7 +14690,7 @@
   }
 
   async function markPayrollReviewed(importId) {
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Payroll.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     const { error } = await db.from('payroll_imports').update({
       status: 'reviewed',
       reviewed_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
@@ -15441,8 +15462,8 @@
   // runs alongside the engine on this one button, so both halves of the Needs Attention
   // list are as fresh as each other. It is NOT rate-limited and does not touch Xero;
   // its own resolve sweep is scoped to source='intake' and the loans it examined, so it
-  // can never clear an engine finding. A 403 just means a cpa-role user (read-only for
-  // writes) clicked the button -- not an error worth a red toast.
+  // can never clear an engine finding. A 403 just means a user whose role is outside
+  // BK_WRITE_ROLES clicked the button -- not an error worth a red toast.
   async function _runIntakeCrossCheck(token) {
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/loan-cross-check`, {
@@ -16754,7 +16775,7 @@
   }
 
   function openDebtSchedEditModal(loanAccountId) {
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Loans.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     const a = _allLoanAccounts.find(x => x.id === loanAccountId);
     if (!a) return;
     document.getElementById('dse-title').textContent = `Edit — ${a.xero_account_name || a.lender_account_number}`;
@@ -22430,7 +22451,7 @@
   }
 
   function _bkStructureNoteHtml(a) {
-    const canWrite = currentUserRole === 'admin' || currentUserRole === 'manager';
+    const canWrite = _bkCanWrite();
     const editBtn = canWrite
       ? `<button class="btn btn-secondary btn-sm" onclick="_bkEditStructureNote('${a.id}')" style="margin-top:8px">${a.structure_note ? 'Edit' : 'Write it'}</button>`
       : '';
@@ -22714,7 +22735,7 @@
       : `<div style="color:var(--gray-400);font-size:13px;padding:10px 0">No statements on file.</div>`;
 
     // The row click used to BE the upload flow -- those entry points live here now.
-    const canWrite = currentUserRole === 'admin' || currentUserRole === 'manager';
+    const canWrite = _bkCanWrite();
     const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
     const isAutomaticLoan = a.ingestion_method === 'automatic';
     const actions = (canWrite && !isAutomaticLoan)
@@ -23163,7 +23184,7 @@ ${noActivityNote}
       .filter(d => d.loan_account_id === _loanDocsCurrentLoanId)
       .slice()
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-    const canWrite = currentUserRole === 'admin' || currentUserRole === 'manager';
+    const canWrite = _bkCanWrite();
 
     const docRows = docs.length
       ? docs.map(d => `
@@ -23212,7 +23233,7 @@ ${noActivityNote}
   }
 
   async function deleteLoanDocument(docId) {
-    if (currentUserRole !== 'admin' && currentUserRole !== 'manager') { showToast('Your account cannot remove documents.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot remove documents.', 'error'); return; }
     if (!confirm('Remove this document from the record? The file stays in storage but will no longer be listed here.')) return;
     const { error } = await db.from('loan_documents').delete().eq('id', docId);
     if (error) { showToast('Could not remove: ' + error.message, 'error'); return; }
@@ -23246,7 +23267,7 @@ ${noActivityNote}
   }
 
   function openLoanScheduleGenerateModal(loanAccountId) {
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Loans.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     const acct = _allLoanAccounts.find(a => a.id === loanAccountId);
     if (!acct) return;
     document.getElementById('lsg-title').textContent = `Generate Split — ${acct.xero_account_name || acct.lender_account_number}`;
@@ -23335,7 +23356,7 @@ ${noActivityNote}
   const LI_SCHEDULE_KIND = 'amortization_schedule';
 
   function openLoanIntakeModal(prefillLoanId) {
-    if (currentUserRole === 'cpa') { showToast('Your account has read-only access to Loans.', 'error'); return; }
+    if (!_bkCanWrite()) { showToast('Your account cannot make changes here.', 'error'); return; }
     document.getElementById('li-error').style.display = 'none';
     document.getElementById('li-parse-note').textContent = '';
     document.getElementById('li-kind-note').textContent = '';
@@ -24875,7 +24896,7 @@ ${noActivityNote}
       `;
       footer.innerHTML = `
         ${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-stage-btn" onclick="confirmStageSplit('${splitId}')">Stage in Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="loan-stage-btn" onclick="confirmStageSplit('${splitId}')">Stage in Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong preparing the staging proposal: ${esc(e?.message || String(e))}</div>`;
@@ -24936,7 +24957,7 @@ ${noActivityNote}
       footer.innerHTML = `
         <button class="btn btn-ghost" onclick="closeLoanReviewModal()">Close</button>
         <button class="btn btn-ghost" id="loan-sweep-btn" onclick="runStageSweep('${splitId}')">Check staged payments</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-ghost" id="loan-unstage-btn" style="color:var(--red)" onclick="unstageSplit('${splitId}')">Remove stage</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-ghost" id="loan-unstage-btn" style="color:var(--red)" onclick="unstageSplit('${splitId}')">Remove stage</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong loading the staged state: ${esc(e?.message || String(e))}</div>`;
@@ -25026,7 +25047,7 @@ ${noActivityNote}
   }
 
   function _bkVoidBtnHtml(splitId) {
-    if (currentUserRole === 'cpa') return '';
+    if (!_bkCanWrite()) return '';
     const s = (_allLoanSplits || []).find(x => x.id === splitId);
     if (!_bkVoidable(s)) return '';
     return `<button class="btn btn-ghost" id="loan-void-btn" style="color:var(--red)" onclick="promptVoidSplit('${splitId}')">Void this card</button>`;
@@ -25108,7 +25129,7 @@ ${noActivityNote}
     try {
       const { ok, data } = await _loanFn('loan-xero-post', { loan_split_id: splitId, confirm: false });
       if (!ok || data.error) {
-        const canPost = currentUserRole !== 'cpa';
+        const canPost = _bkCanWrite();
         // Session 221: loan-xero-post v27 distinguishes "the payment simply hasn't reached
         // Xero yet" -- the EXPECTED state for a statement uploaded the same day -- from a
         // genuine mismatch. Rendering the normal case in alarming red taught people to
@@ -25146,7 +25167,7 @@ ${noActivityNote}
             waiting ? '⏳ ' : ''}${esc(data.error || 'Could not find a matching Xero transaction.')}</div>
           ${data.candidates && data.candidates.length ? `
           <div style="margin-top:12px;font-size:12.5px;color:var(--gray-500)">
-            Candidates found${canPost ? '' : ' (read-only — ask an admin or manager to post)'}${
+            Candidates found${canPost ? '' : ' (your account cannot post)'}${
               data.anchor_date ? `, measured against this split's period of ${esc(data.anchor_date)}` : ''}:
           </div>
           ${data.candidates.filter(c => !c.already_worked && !c.used_by_period).length > 1 ? `<div style="margin-top:6px;font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">
@@ -25216,7 +25237,7 @@ ${noActivityNote}
         `;
         footer.innerHTML = `
           ${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
-          ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Split in Xero</button>`}
+          ${_bkCanWrite() ? `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Split in Xero</button>` : ''}
         `;
         return;
       }
@@ -25248,7 +25269,7 @@ ${noActivityNote}
       footer.innerHTML = `
         ${_bkSplitPeekSpec((_allLoanSplits || []).find(x => x.id === splitId)) ? `<button class="btn btn-ghost" style="margin-right:auto" onclick="bkPeekSplitDoc('${splitId}')">👁 Source document</button>` : ''}
         ${_bkVoidBtnHtml(splitId)}<button class="btn btn-ghost" onclick="closeLoanReviewModal()">Cancel</button>
-        ${currentUserRole === 'cpa' ? '' : `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Post to Xero</button>`}
+        ${_bkCanWrite() ? `<button class="btn btn-primary" id="loan-approve-btn" onclick="approveAndPostSplit('${splitId}')">Approve &amp; Post to Xero</button>` : ''}
       `;
     } catch (e) {
       body.innerHTML = `<div style="color:var(--red);font-size:13.5px">Something went wrong loading this review: ${esc(e?.message || String(e))}</div>`;

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { ensureUpcomingSplit } from "../_shared/staging-next.ts"
+import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
 // Ingests a full-life-of-loan amortization schedule (distinct from a monthly statement).
 // The row data is parsed by Claude from the lender's PDF/CSV (formats vary too much
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
     }
 
     const role = await callerRole(req)
-    if (!role || !['admin', 'manager'].includes(role)) {
+    if (!canWriteBookkeeping(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized -- ingesting amortization schedules requires an admin or manager account.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 

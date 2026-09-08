@@ -5,6 +5,7 @@ import { ensureUpcomingSplit } from '../_shared/staging-next.ts'
 import { effectiveCloseDate, isPeriodClosed } from '../_shared/close-date.ts'
 import { chooseAutoCandidate, AUTO_PICK_MAX_DAYS } from './pick-candidate.ts'
 import { scheduleGoesStale } from '../_shared/schedule-provenance.ts'
+import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
 // admin/manager may do both. Anything else is rejected outright.
@@ -761,8 +762,8 @@ async function handleStageSweep(req: Request): Promise<Response> {
   const isService = !!bearer && bearer === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!isService && !(await isInternalCall(req))) {
     const role = await callerRole(req)
-    if (!role || !['admin', 'manager'].includes(role)) {
-      return new Response(JSON.stringify({ error: 'Sweeping staged transactions requires an admin or manager account.' }), { status: 403 })
+    if (!canWriteBookkeeping(role)) {
+      return new Response(JSON.stringify({ error: 'Sweeping staged transactions requires a Bookkeeping account.' }), { status: 403 })
     }
   }
   const supa = admin()
@@ -952,11 +953,11 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!loan_split_id) return new Response(JSON.stringify({ error: 'loan_split_id is required' }), { status: 400 })
 
     const role = await callerRole(req)
-    if (!role || !['admin', 'manager', 'cpa'].includes(role)) {
+    // Session 289: one gate. The read/preview and the confirm used to be two
+    // separate bars -- cpa cleared the first and was stopped at the second --
+    // and David has made the CPA a poster, so they are now the same bar.
+    if (!canWriteBookkeeping(role)) {
       return new Response(JSON.stringify({ error: 'Not authorized.' }), { status: 403 })
-    }
-    if ((confirm || revert || attach_only || mark_already_in_xero || unmark_already_in_xero || unstage) && !['admin', 'manager'].includes(role)) {
-      return new Response(JSON.stringify({ error: 'Your account has read-only access -- posting to or reverting from Xero requires an admin or manager.' }), { status: 403 })
     }
 
     const supa = admin()
