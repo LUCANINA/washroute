@@ -12652,6 +12652,12 @@
         ${data.can_post ? `<div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}', this)">Approve & post correction to Xero</button></div>` : `<div style="margin-top:8px;font-size:11.5px;color:var(--gray-400)">Your account can review this but not post it.</div>`}
       </div>`);
     }
+    // ── THE RECORDED EXPLANATION (session 284) ─────────────────────────────
+    // FIRST on the card, above every proposal. If a person has already found out
+    // what this difference is, that is the most valuable thing on the screen and
+    // reading it changes what the reader does with everything below.
+    if (data.balance_note) parts.unshift(_bkBalanceNoteHtml(data.balance_note));
+
     // ── THE WRITE-OFF (session 284) ────────────────────────────────────────
     // LAST on the card, deliberately. It is what is left when nothing above
     // found anything, and putting it above a real proposal would offer the
@@ -12660,6 +12666,31 @@
     // rather than merely looking like it.
     if (data.writeoff) parts.push(_bkFdiffWriteoffHtml(data.writeoff, data, findingId, loanId));
     return parts.join('');
+  }
+
+  // ── session 284: somebody already worked this out ─────────────────────────
+  //
+  // Two states, and the STALE one is why the amount is stored at all. An
+  // explanation of a $5.00 difference must not keep explaining a $500.00 one, so
+  // when the figure has moved the note is shown as history rather than as an
+  // answer — still readable, because what somebody found out last month is worth
+  // reading, but visibly not about the number on screen now.
+  function _bkBalanceNoteHtml(n) {
+    const stamp = [n.set_by, n.set_at ? fmtDate(String(n.set_at).slice(0, 10)) : null]
+      .filter(Boolean).map(esc).join(' · ');
+    if (n.stale) {
+      return `<div style="margin-top:10px;padding:12px;background:var(--gray-50);border:1px solid var(--gray-300);border-radius:8px;font-size:12.5px">
+        <div style="font-weight:700;color:var(--gray-600)">An earlier explanation — written about a different figure</div>
+        <div style="margin-top:3px;font-size:11.5px;color:var(--gray-500)">${esc(n.stale_why || '')}. Read it as history, not as an answer to this.</div>
+        <div style="margin-top:6px;line-height:1.55;color:var(--gray-600);white-space:pre-wrap">${esc(n.text)}</div>
+        ${stamp ? `<div style="margin-top:6px;font-size:11.5px;color:var(--gray-400)">${stamp}</div>` : ''}
+      </div>`;
+    }
+    return `<div style="margin-top:10px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;color:#1e40af">
+      <div style="font-weight:700">What this difference is</div>
+      <div style="margin-top:5px;line-height:1.55;white-space:pre-wrap">${esc(n.text)}</div>
+      <div style="margin-top:7px;font-size:11.5px;opacity:.8">Recorded about ${esc(fmtMoney(Math.abs(Number(n.written_about))))}${stamp ? ` · ${stamp}` : ''}</div>
+    </div>`;
   }
 
   // ── session 284: the difference nobody could explain ──────────────────────
@@ -19536,6 +19567,26 @@
         // Same lookup the schedule branch above already made — one read, so the
         // two cannot disagree about whether a fix is available.
         const finding = _bvlFinding;
+        // ── SOMEBODY ALREADY WORKED THIS OUT (session 284) ─────────────────
+        // David: "write that up so it comes up in the ACTION column". A recorded
+        // explanation outranks "Find the fix", because sending a reader to go
+        // and investigate a difference we have already investigated is how a
+        // queue teaches people to ignore it.
+        //
+        // Same modal, different promise: the button says the answer is in there.
+        // ⚠️ It is gated on the note being CURRENT — `balance_note_amount` must
+        // still match the difference on screen. A note about $5.00 must not
+        // announce itself as the answer to $500.00, which is session 245's
+        // dismissal rule applied to explanations.
+        const noteAmt = a.balance_note_amount == null ? null : Number(a.balance_note_amount);
+        const liveDiff = r.perLender && r.variance != null ? Number(r.variance) : null;
+        const noteCurrent = !!a.balance_note && noteAmt != null && liveDiff != null
+                            && Math.abs(noteAmt - liveDiff) <= 0.02;
+        if (finding && noteCurrent) {
+          const short = String(a.balance_note).replace(/\s+/g, ' ').slice(0, 220);
+          return { kind: 'explained',
+                   cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="${esc(short)}">Read the explanation</button>` };
+        }
         if (finding) {
           return { kind: 'fix',
                    cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="Walk this loan's history against the lender's. Where the difference has one mechanically safe explanation, the correcting journal is shown for your approval. Read-only until you approve it.">Find the fix</button>` };

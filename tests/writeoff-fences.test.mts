@@ -82,6 +82,7 @@ const base = () => ({
   proposal: null, cpaException: null, totalPeriodDiff: 0, hunt: null,
   postingDate: POSTING, postingWhy: 'books are closed through 2026-06-30', closeDate: CLOSE, today: TODAY,
   writeoffAccount: '449', acctMap: { '299': 'EIDL SBA Loan', '449': 'Loan balance adjustments' },
+  balanceNote: null,
 })
 const build = (over: any = {}) => buildWriteoff({ ...base(), ...over })
 
@@ -166,6 +167,21 @@ t('...and the share test still bites on a SMALL loan, where the floor would not'
   })
   assert.equal(r.eligible, false)
   assert.ok(/% of the balance/.test(r.why), r.why)
+})
+
+h('A RECORDED EXPLANATION IS A CAUSE (session 284, David\'s SBA statements)')
+/* Posting "CAUSE UNKNOWN" into Xero while a person's written explanation sits
+   on the same screen would put a lie in the ledger. But a note written about a
+   DIFFERENT figure is not an answer to this one, so only a current note refuses
+   — the stale case must stay postable or a two-year-old note freezes the loan. */
+t('⭐ a CURRENT explanation refuses the write-off', () => {
+  const r = build({ balanceNote: { text: 'The SBA added $5.00 in April 2026.', written_about: -5, stale: false } })
+  assert.equal(r.eligible, false)
+  assert.ok(/recorded an explanation/.test(r.why), r.why)
+})
+t('⭐ a STALE one does NOT — it was written about a different number', () => {
+  const r = build({ balanceNote: { text: 'An older note about something else.', written_about: -500, stale: true } })
+  assert.equal(r.eligible, true, `why: ${r.why}`)
 })
 
 h('the refusals — each changes exactly ONE thing from the eligible fixture')

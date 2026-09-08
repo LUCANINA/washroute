@@ -1415,6 +1415,40 @@ const duplicateJournalError = (hit: any) =>
 // refuse a journal dated into a settled month -- this is the only thing that
 // will. Every proposal gets its date from here, and both post paths re-check it
 // against the freshly-computed value before touching Xero.
+/**
+ * A human's recorded explanation of this loan's difference, with the one fact
+ * that keeps it honest: WHAT FIGURE IT WAS WRITTEN ABOUT.
+ *
+ * An explanation of a $5.00 difference must not keep explaining a $500.00 one.
+ * A note is a suppression — it turns a red question into a settled one — so it
+ * earns the same test session 245 gave dismissals: a suppression that cannot
+ * verify what it is suppressing must let the finding through. When the live
+ * difference has moved, the note is returned STALE rather than withheld, because
+ * what somebody found out last month is still worth reading; it just stops
+ * counting as the answer.
+ */
+function balanceNoteOf(loan: any, difference: number | null) {
+  const text = typeof loan?.balance_note === 'string' ? loan.balance_note.trim() : ''
+  if (!text) return null
+  const writtenAbout = loan.balance_note_amount == null ? null : r2(Number(loan.balance_note_amount))
+  // No amount on file cannot be treated as "still current" — that is the failing-
+  // open shape. It is stale until somebody says what it was about.
+  const stale = writtenAbout == null || difference == null
+    ? true
+    : Math.abs(writtenAbout - r2(difference)) > TOL
+  return {
+    text,
+    written_about: writtenAbout,
+    set_by: loan.balance_note_set_by ?? null,
+    set_at: loan.balance_note_set_at ?? null,
+    stale,
+    stale_why: !stale ? null
+      : writtenAbout == null
+        ? 'this explanation does not record which figure it was written about, so it cannot be confirmed as still current'
+        : `this explanation was written about ${money(Math.abs(writtenAbout))} and the difference is now ${money(Math.abs(difference ?? 0))}`,
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // THE WRITE-OFF: the one correction NOT derived from a diagnosis (session 284)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1471,10 +1505,10 @@ function buildWriteoff(o: {
   loan: any, code: string, headline: any, detail: any,
   proposal: any, cpaException: any, totalPeriodDiff: number, hunt: any,
   postingDate: string, postingWhy: string, closeDate: string | null, today: string,
-  writeoffAccount: string | null, acctMap: Record<string, string>,
+  writeoffAccount: string | null, acctMap: Record<string, string>, balanceNote: any,
 }): any {
   const { loan, code, headline, detail, proposal, cpaException, totalPeriodDiff, hunt,
-          postingDate, postingWhy, closeDate, today, writeoffAccount, acctMap } = o
+          postingDate, postingWhy, closeDate, today, writeoffAccount, acctMap, balanceNote } = o
 
   // Every refusal is RECORDED rather than returned as a bare null. A button that
   // is simply absent teaches nobody anything; "not offered, because X" is the
@@ -1490,6 +1524,15 @@ function buildWriteoff(o: {
   if (proposal) return refuse('a specific correction has already been identified — post that instead')
   if (cpaException?.proposed_entry) return refuse('a prepared CPA exception already explains this — post that instead')
   if (detail?.self_diagnosis) return refuse('the reconciliation check has already named a cause for this difference')
+  // ⚠️ A RECORDED EXPLANATION IS A CAUSE, AND A WRITE-OFF SAYS THERE ISN'T ONE.
+  // Posting "CAUSE UNKNOWN" into Xero while a person's written explanation sits
+  // on the same screen would put a lie in the ledger — the exact thing the
+  // narration was written to prevent. A STALE note does not refuse: it was
+  // written about a different figure and says so, so it is not an answer to this
+  // one.
+  if (balanceNote && !balanceNote.stale) {
+    return refuse('someone has recorded an explanation for this difference — it is not unexplained, so read that and act on it')
+  }
 
   const stillUnexplained = detail?.still_unexplained == null ? null : r2(Number(detail.still_unexplained))
   if (stillUnexplained == null || Math.abs(stillUnexplained - difference) > TOL) {
@@ -2443,11 +2486,12 @@ async function handle(req: Request): Promise<Response> {
   // fingerprint hunt, and refuses if any of them produced a lead. Computing it
   // earlier would mean deciding "nothing was found" before the finding was done.
   const woAccount = await writeoffAccount(supa)
+  const balanceNote = balanceNoteOf(loan, headline?.difference ?? null)
   const wo = buildWriteoff({
     loan, code, headline, detail: findings?.[0]?.detail ?? null,
     proposal, cpaException, totalPeriodDiff, hunt,
     postingDate: pw.postingDate, postingWhy: pw.postingWhy, closeDate: pw.closeDate, today,
-    writeoffAccount: woAccount, acctMap,
+    writeoffAccount: woAccount, acctMap, balanceNote,
   })
 
   const analysis = {
@@ -2488,6 +2532,10 @@ async function handle(req: Request): Promise<Response> {
     // Carried even when NOT eligible, because `why` is what lets the card say
     // what would have to change instead of just showing no button.
     writeoff: wo,
+    // session 284: rendered at the TOP of the fix modal and summarised in the
+    // close band's Action column, because an explanation filed where nobody
+    // looks is the same as no explanation.
+    balance_note: balanceNote,
     can_post: !!proposal && ['admin', 'manager'].includes(role),
     can_post_exception: !!cpaException?.proposed_entry && ['admin', 'manager'].includes(role),
     can_post_writeoff: !!wo?.eligible && ['admin', 'manager'].includes(role),

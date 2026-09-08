@@ -2,6 +2,82 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
+> ### 0zr. ✅ THE EIDL $5 IS DIAGNOSED — AND MY HYPOTHESIS WAS WRONG (session 284)
+>
+> David uploaded the April, May and June 2026 SBA statements. They settle it in three rows:
+>
+> | Statement | Last payment | Applied to principal | Outstanding balance |
+> |---|---|---|---|
+> | 04/25/2026 | 03/23/2026 | $0.00 | **$960,000.00** |
+> | 05/25/2026 | 04/22/2026 | $0.00 | **$960,005.00** |
+> | 06/25/2026 | 05/22/2026 | $0.00 | $960,005.00 |
+>
+> **The $5 appeared in April 2026.** Not a two-year-old rounding error, and the CPA did not round in
+> March 2024 — **her restatement to $960,000.00 was CORRECT**, and the books were right until the SBA
+> added $5 and nobody updated them.
+>
+> ⚠️ **§0zq's reasoning was wrong and the shape of the error is worth keeping.** It argued from a
+> round number: 960,000.00 looked hand-set, therefore probably ours, therefore possibly two years
+> stale. Plausible, and beaten by one document. **That is twice in one day the cheapest test was
+> opening a statement we could have had** (see also §0zh, where a balance that stopped moving had a
+> third explanation the PDF stated outright). A round number is a prompt to look, never a finding.
+>
+> **What the $5 IS, stated to the limit of the evidence and no further:** the balance rose while
+> $0.00 was applied to principal, so the SBA ADDED it rather than it arising from a repayment —
+> capitalised interest or a fee. **The statement does not say which, and that is the choice that
+> decides the account**, so it is not guessed here.
+>
+> ⛔ **DO NOT WRITE THIS OFF.** The write-off shipped four hours earlier posts "CAUSE UNKNOWN" into
+> Xero permanently; using it on a difference with a date and a source document would put a lie in the
+> ledger — the exact thing its narration exists to prevent. **The code now enforces this**, see below.
+>
+> ### 0zs. ✅ A RECORDED EXPLANATION, SURFACED WHERE THE DIFFERENCE IS NOTICED (session 284)
+>
+> David: *"Write that up so that it comes up in the ACTION column (after clicking on FIND the Fix for
+> example)."* A finding filed in a notes file nobody opens is the same as no finding.
+>
+> **New: `loan_accounts.balance_note` + `balance_note_amount` + `_set_by` / `_set_at`**
+> (migration `session_284_loan_balance_note`, reviewed, applied, PostgREST visibility proven). It is
+> deliberately none of the three things that already existed: not `self_diagnosis` (machine output,
+> rewritten every run, so a human's finding put there is erased by the next check), not
+> `structure_note` (how a loan WORKS, not what one difference IS), and not a PROJECT-NOTES entry.
+>
+> **`balance_note_amount` is the load-bearing column.** An explanation of a $5.00 difference must not
+> keep explaining a $500.00 one. **A note is a SUPPRESSION** — it turns a red question into a settled
+> one — so it earns session 245's dismissal test: a suppression that cannot verify WHAT it is
+> suppressing must let the finding through. When the live figure moves, the note is shown as history
+> ("written about $5.00; the difference is now $512.00"), still readable and no longer an answer. A
+> note with no amount is treated as stale from the start, because failing OPEN is the shape that
+> caused `_bkDismissalHolds`.
+>
+> **Three surfaces, one fact:**
+> * **Action column** — "Read the explanation" replaces "Find the fix", gated on the note being
+>   CURRENT. Sending someone to investigate what we have already investigated is how a queue teaches
+>   people to ignore it.
+> * **Find-the-fix modal** — rendered FIRST, above every proposal (`parts.unshift`), because if
+>   somebody already knows what this is, that changes what the reader does with everything below.
+> * **The write-off** — REFUSES while a current note exists. 2 new assertions, and the pair matters:
+>   a current note refuses, a **stale** one does NOT, or a two-year-old note would freeze the loan
+>   forever.
+>
+> **EIDL's note is written**, with `balance_note_amount = -5`, and it ends by naming the decision:
+> *"For Ramona: which account should the $5.00 go to, and do you want it recognised in the current
+> period? Do not write this off as unexplained — it has a date and a source document."*
+>
+> **Tests:** `writeoff-fences` 37 → **39, all green**. Node 33/34 files. Harness spot-check across
+> `close-band`, `statement-date-basis`, `fdiff-tiers`, `fdiff-never-strands`, `work-band`,
+> `loans-table`: **460/460**.
+>
+> ⏭️ **The three statements are NOT yet filed in the app** — they were uploaded to the chat. Filing
+> them gives the engine the April→May delta through the normal path. Note the close date means the
+> statements will STORE but raise no split (April/May are closed) — correct behaviour, and the reason
+> the note carries the question rather than waiting for the engine.
+>
+> ⏭️ **There is no UI to WRITE a balance note yet** — EIDL's was written with SQL. The read path is
+> built and tested; the write path is a textarea beside `structure_note`'s, and it should record
+> `balance_note_amount` from the live difference automatically rather than asking a person to type a
+> figure they would get wrong.
+>
 > ### 0zq. 🔍 THE EIDL $5 — investigated, NOT diagnosed, and the search itself is the finding (session 284)
 >
 > David asked why we would not just propose a $5 adjustment: *"It's easy and cheap."* He was right
