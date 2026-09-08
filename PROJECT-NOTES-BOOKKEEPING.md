@@ -1,52 +1,67 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 282, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
-> ### 0zk. ⏭️ ONE DEPLOY IS OUTSTANDING, AND IT HAS NO SAFE COMMAND (session 282)
+> ### 0zk. ✅ EVERYTHING IS DEPLOYED. THE FLAG RULE WAS WRONG AND IS FIXED. (session 283)
 >
-> The DB migration, the data fix, the dashboard (build `20260908031619`, confirmed by fetching the
-> deployed file) and **`reconciliation-run` are all LIVE.** One edge function is changed and NOT
-> deployed:
+> **`loan-ingest-statement` v51 is LIVE with `verify_jwt: true`**, and it took one ordinary CLI
+> command with no flag — no Management API, no import-graph surgery, no window of exposure. The
+> whole obstacle session 282 described was an artifact of §0zj being wrong.
 >
-> | Function | `verify_jwt` (probed 2026-09-08) | state |
-> |---|---|---|
-> | `reconciliation-run` | **false** (403 in its own words) | ✅ deployed 03:1x UTC, verified below |
-> | `loan-ingest-statement` | **true** (401 `UNAUTHORIZED_NO_AUTH_HEADER`) | ⚠️ **no safe command exists** |
+> | Check | Result |
+> |---|---|
+> | Gateway still on? | no-auth POST → `401 UNAUTHORIZED_NO_AUTH_HEADER` → `verify_jwt` **true** |
+> | Did it BOOT? | anon-JWT POST → **400 in the function's own words** (`...are required`), not a 503 preflight |
+> | Is the NEW code in it? | deployed source pulled and grepped: `allow_duplicate_document` ×3, `file_sha256` ×4, `duplicate_document` ×4, `crypto.subtle.digest` ×1 — **all zero in v50** |
+> | Did anything regress? | session 281's `split_period_label` ×5 and `closedFor(splitPeriod)` ×1 still present |
 >
-> ✅ **`reconciliation-run` VERIFIED BY CONTENT, not by the deploy succeeding.** The deployed source
-> was pulled and grepped for identifiers session 282 introduces — `excludedAnchors` ×3,
-> `anchor_exclusion_reason` ×3, `anchorsByBalanceDate` ×4, `normalizeBasis` ×6, `statement-period` ×4,
-> all **zero** in the version before. Session 279's `walkToClosure` ×3 is still there, so nothing
-> regressed. A no-auth POST answers **403 in the function's own words**: it booted, and `verify_jwt`
-> is still `false`.
+> **The two probes read DIFFERENT facts and you need both.** No-auth answers "is the gateway on";
+> only an authenticated call reaches the function body and answers "did this version boot" — on a
+> `verify_jwt: true` function the 401 would look identical over a SyntaxError, which is session
+> 264's trap wearing a new hat. Anon key is inline in `public.sweep_autocharge_ready_orders`.
 >
-> ✅ **ROW-LEVEL PROOF — run `6d414f6d`, 2026-09-08 03:21:37 UTC.** Diffed against the last pre-deploy
-> run (`21aeb614`), **exactly ONE tie-out on the entire book changed:**
+> ⏭ **THE ONE THING STILL UNPROVEN: no statement has been uploaded since the deploy**, so
+> `file_sha256` is still null on all 914 rows and the guard has not fired once in the wild. The
+> code is verified; the BEHAVIOUR is not. Next upload, check the row carries a hash — that is the
+> proof that survives a version-number coincidence (§0zg's rule), and it costs one query.
 >
-> | Loan | before | after |
-> |---|---|---|
-> | iBusiness / FC Marketplace | exception **2026-08-03** · 44.78 | exception **2026-08-31** · **60.16** |
+> ### 0zk-ii. ❌ §0zj WAS WRONG. THE CLI DOES NOT TURN THE GATEWAY OFF. (session 283)
 >
-> **No other row moved** — not a status, not an as-of, not a difference. A fix that moves precisely
-> the loan it was written for and nothing else is the shape you want (§0zg's lesson, second time).
+> §0zj concluded *"every deploy SETS `verify_jwt`, and the default is `false`"* from v49 coming up
+> false after a deploy meant to preserve `true`. **Measured tonight on a throwaway function, and it
+> is not true.**
 >
-> ⚠️ **The number went UP, 44.78 → 60.16, and that is the CORRECT direction.** The old figure measured
-> August against the 08-03 payment-due notice, i.e. against July's balance at a July-ish date — a
-> smaller gap because it was the wrong comparison, not because the books were closer. 60.16 is the
-> real August gap and it decomposes exactly: **29.64 (closed books) + 15.14 (Jul) + 15.38 (Aug)**.
-> **The engine and the close band now print the same number for this loan for the first time.**
+> The instrument: `wr-jwt-probe` — a function that reads nothing, writes nothing and is called by
+> nothing, put into `verify_jwt: true` via the MCP tool and confirmed 401. David then ran the CLI
+> deploy **with no flag**. Afterwards: still **401**, version 1→2, and the entrypoint path moved to
+> the `supabase/functions/…` shape only a repo-root CLI deploy produces. **The deploy landed and
+> the gateway stayed on.**
 >
-> §0zj says a deploy ASSIGNS `verify_jwt` and the CLI's default is `false`. `loan-ingest-statement`
-> must stay `true`, the CLI has no `--verify-jwt` to force it, and the function is ~177KB with its
-> `_shared` imports — well past `deploy_edge_function`'s ~100–130KB ceiling, which is the only route
-> that defaults to `true`. **So the one function that must be `true` is the one the MCP tool cannot
-> reach.** Do not deploy it by guessing. Either set the flag through the Management API
-> (`PATCH /v1/projects/umjpbuxrdydwejqtensq/functions/loan-ingest-statement`, body `{"verify_jwt":true}`)
-> immediately after a CLI deploy, or shrink its import graph. **Probe after either, always** — 401
-> from the gateway means `true`, the function's own words mean `false`.
+> **What actually happened in session 281: the flag rode along.** `--no-verify-jwt` was
+> pre-attached to the copy-paste command block in CLAUDE.md, so it was on the command without
+> anyone choosing it. Session 281 then read the wreckage as CLI behaviour rather than as its own
+> paste, wrote that into doctrine, and session 282 inherited a blocker that never existed — it
+> spent its last section designing a Management API dance around a problem made of a stray flag.
 >
-> Nothing is broken while it waits: the duplicate-document guard is a NEW refusal, so an undeployed
-> `loan-ingest-statement` simply behaves as it did yesterday.
+> **Root cause fixed, not just the note.** CLAUDE.md's command block no longer carries the flag.
+> It is now: probe the function, then pick the flag — `--no-verify-jwt` for a `false` function
+> (session 260's rule, UNCHANGED and still mandatory), nothing for a `true` one. *A copy-paste
+> command that silently carries a security flag is a loaded gun with the safety in the docs.*
+>
+> ⚠️ **WHAT THIS TEST CANNOT TELL YOU, stated because overclaiming is how we got here.** It cannot
+> distinguish "the CLI defaults to `true`" from "the CLI preserved what it found". The function was
+> already `true`, so both stories predict this result. It does not matter operationally — either
+> way, no flag on a `true` function leaves it `true` — and it does not touch the `false` direction,
+> where the flag stays mandatory under both stories. **Do not upgrade this measurement into the
+> broader claim it does not support.** The way to settle it, if it ever matters: flip `wr-jwt-probe`
+> to `false` and CLI-deploy it with no flag.
+>
+> ⏭ **The two `.skill` archives still teach §0zj's version** and now also the old pre-attached
+> command. Repack both (this, plus §0zf's `git push` correction, in one pass).
+>
+> 🧹 **`wr-jwt-probe` is deliberately KEPT**, in the repo and deployed. It is the instrument that
+> would have prevented two sessions of wrong doctrine, and re-running it costs one command against
+> nothing that matters. Delete it only with a reason.
 >
 > ### 0zl. ✅ iBUSINESS READ JULY'S BALANCE AS AUGUST'S — three defects, one wrong number (session 282)
 >
@@ -164,7 +179,14 @@
 > when the attribution decision is made, not before — and see §0zl's *"a rule can outlive the fact it
 > was written for"*: a stale sentence beside a correct number is what a CPA reads.
 
-> ### 0zj. ⚠️ `--no-verify-jwt` IS NOT A "LEAVE IT ALONE" FLAG — IT IS AN ASSIGNMENT (session 281)
+> ### 0zj. ❌ SUPERSEDED — THIS SECTION IS WRONG. See §0zk-ii. (session 281, corrected 283)
+>
+> ⚠️ **Kept, not deleted, because the reasoning error is the lesson.** Its headline claim — that
+> a CLI deploy assigns `verify_jwt` and defaults to `false` — was MEASURED FALSE in session 283.
+> The gateway went off because `--no-verify-jwt` was pre-attached to CLAUDE.md's command block
+> and rode along unnoticed. Session 281 diagnosed the tool from the wreckage of its own paste,
+> and the wrong conclusion then blocked session 282 for a day. **The `false`-direction rule below
+> is still correct and still mandatory; everything about the `true` direction is not.**
 >
 > **The rule in CLAUDE.md and in both skills is stated for ONE direction only, and I got the other
 > direction wrong in production tonight.**
@@ -4335,6 +4357,52 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 283 (2026-09-08) — THE BLOCKER WAS A FLAG IN A COPY-PASTE BLOCK
+
+Session 282 left one function undeployed and a paragraph explaining that it could not safely be
+deployed: `loan-ingest-statement` must stay `verify_jwt: true`, the CLI was believed to force
+`false`, the CLI has no `--verify-jwt`, and the one deploy route that defaults to `true` — the MCP
+tool — cannot carry the function's 228KB import graph past its ~130KB ceiling. Genuinely boxed in,
+IF the premise held.
+
+**It did not, and the cheap way to find out was to measure it on something that did not matter.**
+`wr-jwt-probe`: a function that reads nothing, writes nothing and is called by nothing. Put it in
+the exact state `loan-ingest-statement` was in (`verify_jwt: true`, confirmed by a 401 probe), have
+David run the CLI deploy **with no flag**, probe again. Still 401; version 1→2; entrypoint path
+moved to the CLI's `supabase/functions/…` shape. The deploy landed and the gateway stayed on.
+
+Then the real one, same command, same result — v51, gateway on, and the new code confirmed by
+grepping the DEPLOYED source (`allow_duplicate_document` ×3, `file_sha256` ×4,
+`crypto.subtle.digest` ×1, all zero in v50) with session 281's identifiers still present.
+
+**Three things worth carrying forward.**
+
+**1. A rule derived from one incident can encode the incident's accident instead of its mechanism.**
+Session 281 lost the gateway on a `true` function and concluded the CLI assigns `false`. The actual
+cause was `--no-verify-jwt` pre-attached to CLAUDE.md's copy-paste command block, riding along
+unchosen. Both stories explain the observation; only one is about the tool. Session 281 wrote the
+wrong one down, session 282 inherited it as a hard constraint, and a day went into designing a
+Management API workaround for a problem made of a stray flag. **The root cause was fixed, not the
+note**: the command block no longer carries the flag, and the flag is now a decision preceded by a
+probe.
+
+**2. On a `verify_jwt: true` function, the no-auth probe cannot tell you it booted.** The 401 comes
+from the gateway, so it reads identically whether the function is healthy or dead on a SyntaxError —
+session 264's eighteen-hour 503 in a new costume. Two probes, two facts: no-auth for the gateway,
+anon-JWT for the boot. The second answered 400 in the function's own words, which is the proof.
+
+**3. What the measurement does NOT support, recorded so nobody upgrades it.** The probe cannot
+distinguish "the CLI defaults to `true`" from "the CLI preserved what it found" — the function was
+already `true`, so both predict the result. Operationally identical here, and the `false` direction
+(where `--no-verify-jwt` stays mandatory, session 260) is untouched by either. Overclaiming from a
+single observation is precisely what produced §0zj; the correction should not repeat it.
+
+Still open: `file_sha256` is null on all 914 rows and no statement has been uploaded since the
+deploy, so the duplicate guard is verified in code and unverified in behaviour. Check the next
+uploaded row carries a hash.
 
 ---
 

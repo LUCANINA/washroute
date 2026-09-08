@@ -90,17 +90,30 @@ fixes the problem, and prefer one shared helper over N parallel edits.
   push; Supabase functions do not, and never have. Session 261 lost three round trips to
   this — the code was on GitHub, the function was still the old version, and the START HERE
   block would have said "deployed" on the strength of the push. **Deploy state is checked by
-  BEHAVIOUR, never inferred from git.** The command, from the repo root:
+  BEHAVIOUR, never inferred from git.** The command, from the repo root — note the flag is
+  DELIBERATELY NOT PRE-ATTACHED, see below:
   ```
-  npx -y supabase@latest functions deploy <name> --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+  npx -y supabase@latest functions deploy <name> --project-ref umjpbuxrdydwejqtensq
   ```
   `npx` because the `supabase` binary is not on David's PATH (`command not found` — the
-  second lost round trip). **`--no-verify-jwt` is not optional on any function that is
-  currently `verify_jwt: false`** — omitting it flips the function to requiring a JWT and
-  breaks every caller, which is how session 260 nearly killed the Stripe payout webhook.
-  To check the flag on any function in one call: POST it with no Authorization header. The
-  gateway (verify_jwt true) answers `401 {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}`; a function
-  with it false answers in its own words.
+  second lost round trip).
+  **READ THE FUNCTION'S CURRENT `verify_jwt` FIRST, THEN PICK THE FLAG.** One call: POST it
+  with no Authorization header. The gateway (`verify_jwt` true) answers
+  `401 {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}`; a function with it false answers in its own
+  words.
+  - **`verify_jwt: false`** → append **`--no-verify-jwt`**. Not optional: omitting it flips
+    the function to requiring a JWT and breaks every caller, which is how session 260 nearly
+    killed the Stripe payout webhook.
+  - **`verify_jwt: true`** → append **nothing**. Session 283 MEASURED this on a throwaway
+    function (`wr-jwt-probe`, kept in `supabase/functions/` for exactly this purpose): a CLI
+    deploy with no flag left a `true` function `true`, proven by the 401 probe and by the
+    version and entrypoint path both moving.
+  ⚠️ **This block used to carry `--no-verify-jwt` pre-attached, and that is the whole story of
+  session 281.** The flag rode along on a `verify_jwt: true` function, turned the gateway off
+  on `loan-ingest-statement`, and session 281 then concluded from the wreckage that "the CLI
+  defaults to false" — which is not what happened, and which cost session 282 a deploy it
+  could not safely make. A copy-paste command that silently carries a security flag is the
+  root cause; the fix is that the flag is now a decision, not a default.
 - **The MCP `deploy_edge_function` tool has a real size ceiling** (~100–130KB of file
   content per call) and `deploy_edge_function`'s `verify_jwt` **defaults to true**. Anything
   near that size — `loan-find-difference` (158KB), `loan-bundle` (404KB) — must go through
