@@ -1,6 +1,94 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 280, 2026-09-07)
+> ## ⏭️ START HERE — first thing, next session (left by session 281, 2026-09-08)
+>
+> ### 0zh. 🔴 E4-9744 MUST NOT BE APPROVED — THE LENDER SIDE OF ITS GAP IS FROZEN (session 281, 2026-09-08)
+>
+> **§0y asked for one thing: open the 5/11 payment in Xero and read the interest allocation.
+> Done — and the answer is that the question was aimed at the wrong half of the subtraction.**
+>
+> The measured facts, none of them inferred:
+>
+> | | Figure | How it was established |
+> |---|---|---|
+> | Her 5/11 at-source split | **793.81 → 244, 350.74 → 800** | the Xero BankTransaction itself, `30886184-e137-42be-8b8c-7fe2dc2a1aa6`, fetched by id for lines |
+> | Our April journal `f49a48db` | **800 +181.99 / 244 −181.99**, POSTED, dated 2026-04-09 | fetched by id from ManualJournals |
+> | Live tie-out gap | **182.00** (books 16,405.75, lender 16,223.75) | run `087862bb`, 2026-09-08 01:01 UTC |
+>
+> `350.74 − 168.77 (our May) = 181.97`. **So there are three figures — 181.97, 181.99, 182.00 —
+> and no two agree.** §0y read that as our side being a cent out. It is not.
+>
+> #### THE LENDER'S BALANCE ON THIS LOAN HAS NOT MOVED SINCE 2026-05-27
+>
+> Pulled `loan_statements.principal_balance` for all four Fords from 2026-05-01. The pairs-per-month
+> shape (two portal pulls, same figure) is normal and appears on all four. What is not normal:
+>
+> | Loan | May | Jun | Jul | Aug |
+> |---|---|---|---|---|
+> | 4140 | 18,862.26 | 17,814.75 | 16,755.81 | 10,685.52 |
+> | 4751 | 31,665.75 | 30,887.47 | 30,094.14 | 29,302.52 |
+> | 2094 | 23,575.78 | 23,112.29 | 22,639.56 | 22,168.92 |
+> | **9744** | **16,223.75** | **16,223.75** | **16,223.75** | **16,223.75** |
+>
+> Every other Ford steps down every month. 9744's lender figure is identical on 05-27, 06-19, 07-20
+> and 08-20 — **three months, on a loan that is certainly amortizing** (we hold its April and May
+> splits and a September card).
+>
+> **So $182.00 is not a measurement of a booking error.** It is our books moving away from a portal
+> number that stopped. The correction engine proposes reversing $181.99 against that denominator,
+> which is why its arithmetic has never closed to the cent — the residual is not a rounding, it is
+> the shape of a comparison whose right-hand side is stale.
+>
+> This is session 246's rule arriving from the other direction. That one said a check whose inputs
+> share a source cannot fail. This one: **a check whose lender side has stopped updating cannot
+> pass, and will keep manufacturing a stable-looking difference that invites a correction.** A gap
+> that is IDENTICAL at three consecutive month ends (§0y noticed this and read it as "inherited")
+> has two possible causes, and nobody tested the second.
+>
+> ⛔ **Do not approve E4-9744.** ⏭️ **Pull a fresh 9744 balance from the Ford portal first.** Then
+> re-run reconciliation and see what the gap actually is; the whole diagnosis is rebuilt from there.
+>
+> 🔍 **And 9744 has NO splits for June, July or August** — the other three Fords have every month.
+> The payments are plainly in Xero (a three-month hole would put the books ~$2,950 high, not $182),
+> so they were posted at source and never became splits. Understand that before trusting any walk
+> over this loan.
+>
+> ✅ **4140 and E5-4751 are unaffected** — both lender balances step down monthly. 4140 stays
+> verified and approvable; E5-4751's May-half-only reasoning stands.
+>
+> 🛠️ **A route around the `payment_picture` timeout, and it is the reusable part.** §0y recorded
+> that `payment_picture` times out through `net.http_post` at both 5s and 28s. It does — but
+> **`curl` from `device_bash` on David's Mac has no statement timeout**, and two cheap `xero-read`
+> calls (`bank_transactions` by amount+date, then by id for lines) answer the same question in
+> seconds. Reach for that before declaring Xero unreadable.
+>
+> ### 0zg. ⛔ `reconciliation-run` IS STILL THE OLD CODE — the deploy did not take (session 281)
+>
+> David deployed from his terminal and pressed reconcile on 2026-09-08. **The run is real
+> (`087862bb`, 01:01:36 UTC, complete). The code it ran is not the current one.**
+>
+> **Proved by ROWS, not by a version number** — the method §0z asks for:
+> session 279's `2df7667` writes `closed_on` and `closed_after_entries` into `loan_tie_outs.detail`
+> on every `explained` row (`walkToClosure`, index.ts +114/+115). This run produced four `explained`
+> rows — including `61178562` with **three** entries after its anchor, the exact multi-payment case
+> that change exists for — and **not one carries either field**. Every detail is still the old
+> `net_after_anchor` / `residual_after_later` shape.
+>
+> The function itself is fine: a no-auth POST answers **403 in its own words**, so it booted, and
+> `verify_jwt` is still `false`. Nothing was broken; nothing was shipped. The CLI most likely failed
+> on authentication (`npx supabase` needs a login or `SUPABASE_ACCESS_TOKEN`) — **read what the
+> terminal printed rather than assuming the command worked.**
+>
+> ```
+> npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+> `_shared/loan-bundle-plan.ts` is in the same commit; `loan-bundle` already redeployed after it
+> (2026-09-06 21:48 UTC) and has it. `reconciliation-run` is the only one behind.
+>
+> ⏭️ **This is the ninth day this block has carried a wrong deploy claim, and the first time the row
+> check caught it before it cost a session.** Build the Actions workflow
+> (`docs/washroute/DESIGN-RELEASE-PIPELINE.md` §6, Part C) — it needs the `SUPABASE_ACCESS_TOKEN`
+> repository secret, which is David's side and may already be done.
 >
 > ### 0zf. ✅ THE RELEASE PIPELINE IS BUILT. CLAUDE CAN PUSH. (session 280, 2026-09-07)
 >
@@ -132,8 +220,12 @@
 > our own posted splits, and the live tie-out still shows the gap at exactly $415.88. Safe to
 > approve. The other two have not been re-verified this way.
 >
-> ⚠️ **E4-9744: the finding says $182.00 and the correction says $181.99.** Both are the engine's
-> own figures. Approving leaves a cent. Settle which is right before clicking.
+> ⛔ **E4-9744 — SUPERSEDED BY §0zh (session 281). DO NOT APPROVE.** The 5/11 payment this block
+> asks for was read in Xero: her split is 793.81/350.74 at source and our April journal is a real
+> 181.99 reallocation. Neither is the problem. **The lender balance this gap is measured against
+> has not moved since 2026-05-27** — three month ends at 16,223.75 while every other Ford steps
+> down monthly. The question below ("settle which figure is right") cannot be answered, because
+> the right-hand side of the subtraction is stale. Pull a fresh portal balance first.
 >
 > ⚠️ **E5-4751 is the one to read carefully.** Her Apr $281.79 had NEVER been booked, so that half
 > of her split is the only correction that month ever had and it stays — *"reversing it would
@@ -3988,6 +4080,58 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 281 (2026-09-08) — THE GAP WAS REAL, THE THING IT WAS MEASURED AGAINST WAS NOT
+
+Two findings, and the second is the one worth keeping.
+
+**1. `reconciliation-run` ran, on the old code.** David deployed from his terminal and pressed
+reconcile; the run is genuine (`087862bb`, 01:01:36 UTC, complete) and the code is the 09-04
+build. Caught by ROWS: session 279's change writes `closed_on`/`closed_after_entries` into
+`loan_tie_outs.detail` on every `explained` row, and none of this run's four explained rows —
+including one with three entries after its anchor, the precise case the change was written for —
+carries either field. A version number would not have told us this; the absent field did. The
+function booted fine (403 in its own words, `verify_jwt` still false), so nothing was harmed. Ninth
+day in a row this block has held a wrong deploy claim, first time it was caught the same hour.
+
+**2. E4-9744's lender balance has been frozen for three months, and the whole Ford diagnosis on
+that loan rests on it.**
+
+§0y left one deciding step: open the 5/11 payment in Xero and read the interest allocation, because
+the finding said $182.00 and the correction said $181.99, and this module does not post money on
+inference. I read it. Her at-source split is **793.81 → 244, 350.74 → 800** (BankTransaction
+`30886184`, fetched by id for lines); our April journal `f49a48db` is a real **800 +181.99 /
+244 −181.99** reallocation dated 04-09. `350.74 − 168.77 = 181.97`. Three figures — 181.97, 181.99,
+182.00 — no two agreeing.
+
+That non-agreement was the tell. Pulling every Ford lender balance from 2026-05-01: 4140, 4751 and
+2094 step down every month; **9744 reads 16,223.75 on 05-27, 06-19, 07-20 AND 08-20.** It stopped.
+
+**So the gap is measuring our books drifting away from a stalled portal figure**, and the engine's
+proposed reversal is being fitted to a denominator that has not been true since May. The residual
+that never closed to the cent was never a rounding — it was the shape of a comparison with a dead
+right-hand side.
+
+**The generalisation, and it is the mirror of session 246.** That rule says a check whose inputs
+share a source cannot fail. This one: **a check whose lender side has stopped updating cannot pass,
+and keeps producing a stable-looking difference that invites a correction.** §0y observed that this
+gap is IDENTICAL at 6/30, 7/31 and 8/31 and concluded the cause was inherited from a closed period.
+That is one explanation for a constant gap. **A frozen anchor is the other, and it was not tested.**
+A difference that does not move is evidence about the measurement as much as about the books.
+
+⏭️ Pull a fresh 9744 balance from the Ford portal, re-run, then rebuild the diagnosis. 4140 and
+E5-4751 are unaffected — their lender balances move — so 4140 stays approvable and E5-4751's
+May-half-only reasoning stands. Also noted: **9744 has no splits at all for June, July or August**
+while the other three Fords have every month; the payments are in Xero (a three-month hole would
+show ~$2,950, not $182) but never became splits, and that wants understanding before any walk over
+this loan is trusted.
+
+**Reusable:** §0y recorded `payment_picture` timing out through `net.http_post` at 5s and 28s. It
+does — but `curl` from `device_bash` on David's Mac has no statement timeout, and two cheap
+`xero-read` calls (`bank_transactions` by amount+date, then by id for lines) answer the same
+question in seconds. Xero was never unreadable; the SQL transport was the limit.
 
 ---
 
