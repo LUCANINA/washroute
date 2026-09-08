@@ -50,29 +50,38 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> 🔴 **DEPLOY STATE: SESSION 289 CHANGED EIGHT EDGE FUNCTIONS AND NONE OF THEM IS DEPLOYED.**
-> §0ab added a ninth CHANGE to one already on that list — `loan-find-difference` gains
-> `buildRecordedCauseEntry` and its `post_recorded` path — so **the script is unchanged and still
-> the whole procedure**; its `--no-verify-jwt` on that line was re-MEASURED 2026-09-08 by both routes
-> §0ze asks for (a no-auth POST answered `403 {"error":"Not authorized."}`, the function's OWN words
-> rather than the gateway's `401 UNAUTHORIZED_NO_AUTH_HEADER`, and `list_edge_functions` says
-> `verify_jwt: false`, version 37). Until it runs, §0ab's CARD is live and its ENTRY is not:
-> `data.recorded_entry` is absent, the card renders as it did before, and the write-off's "read that
-> and act on it" line comes back. Nothing half-works. The
-> page and the DATABASE are live (the migration applied and was verified); the FUNCTIONS are not, and
-> that is the dangerous half of a split deploy — the dashboard now shows a CPA the post buttons while
-> the functions would still refuse her. Run `bash deploy-session-289.sh` from the repo root. The
-> per-function `--no-verify-jwt` decisions in it were MEASURED from list_edge_functions on 2026-09-08,
-> not copied. Then probe rather than trust the exit code (§0ze). Sessions 287/288 changed no function;
-> session 284's remain live as checked in §0zt.
-> ⚠️ **`git push` is owed from your own terminal** — this sandbox has no network. MEASURED at the end
-> of session 288: `git log origin/main..HEAD` says **one** commit is unpushed — 288's SECOND commit
-> (§0zz, "Which schedule?"). Its first (§0zy, the Action column) had already gone out, along with
-> David's own `7229af9` from his terminal. That ref is only as fresh as the last fetch and this
-> sandbox cannot fetch, so check rather than trust it — the same discipline §0ze demands of the
-> deploy state. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
-> so check rather than trust it — which is the same discipline §0ze demands of the deploy state.
+> ✅ **DEPLOY STATE: SESSION 289'S EIGHT FUNCTIONS ARE LIVE. Pushed and deployed by David
+> 2026-09-08; CHECKED HERE at 23:36 UTC, and checked the way §0ze demands rather than by the
+> script exiting 0.** This block has carried a wrong deploy claim five days running, every time
+> written by the session that had just changed it — so here is exactly what was measured:
 >
+> 1. **The deployed SOURCE, not the version number.** `get_edge_function` on `loan-find-difference`
+>    before the deploy contained **zero** occurrences of `buildRecordedCauseEntry`,
+>    `deriveIncreaseCause`, `LENDER_STATED`, `post_recorded`, `recorded_entry`, `derived_cause`,
+>    `default_account_why` and `derive-cause.ts`. After: **1 each.** A version number can coincide;
+>    eight new symbols and a new FILE cannot. It also carries the corrected provenance string
+>    (*"Stated by the lender…"*) and **zero** occurrences of the overclaim it replaced
+>    (*"payments on file from"*), which proves the version that shipped is §0ac's fix and not the
+>    intermediate from §0ab-iv.
+> 2. **It BOOTS.** A CORS preflight answers **200**, not the 503 that made session 264 believe a
+>    never-booting version was live for eighteen hours.
+> 3. **No flag flipped** — session 281's failure did not recur. All five `--no-verify-jwt` functions
+>    still read `verify_jwt: false` and all three bare ones still read `true`, and
+>    `loan-find-difference` independently answers a no-auth POST with
+>    `403 {"error":"Not authorized."}` — its OWN words, i.e. the gateway is still off.
+>
+> Versions moved: loan-xero-post 69→70, loan-find-difference 37→38, loan-bundle 58→59,
+> xero-payout-sync 23→24, xero-payout-coverage 3→4, payroll-xero-post 23→24,
+> loan-ingest-statement 53→54, loan-ingest-amortization 18→19.
+>
+> **`deploy-session-289.sh` has done its job and is now a hazard rather than a help** — re-running it
+> would redeploy today's code over anything a later session ships. Delete it, or date-stamp it, in
+> the next session that touches this area.
+>
+> ✅ **`git push` done by David 2026-09-08**, together with the deploy above. Session 289 left
+> seven commits. The next session should still MEASURE `git log origin/main..HEAD` rather than trust
+> this line — this sandbox cannot fetch, so a stale ref is the failure mode here, exactly as it is
+> for the deploy state.
 >
 > ### 0ac. ⭐⭐ THE OUTSIDE WITNESS WAS ALREADY HALF ON FILE (session 289 cont., David)
 >
