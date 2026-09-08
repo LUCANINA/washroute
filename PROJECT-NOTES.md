@@ -13,7 +13,7 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: September 8, 2026 — Session 280 — **Subscription overage was being billed twice; 12 customers overcharged $1,113.75. Root cause fixed, queued double-charges stopped, all $1,113.75 refunded.***
+*Last updated: September 8, 2026 — Session 281 — **30-day billing audit: post-payment total edits went unreconciled, and a pricelist guard was missing from one of three branches. Both fixed; two new P0 audit checks added.***
 
 David green-lit the fix flagged in the QA pass. Both customer-facing renderers — `generateInvoiceHTML` (the on-screen / printed invoice) and `buildInvoicePdfBase64` (the emailed PDF) — formatted every figure with a bare `.toFixed(2)`, so Kidango's five-figure August total read `$10536.00`. All **23** money sites across the two functions now go through one shared helper:
 
@@ -1927,6 +1927,91 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Sep 8, 2026 (session 281) — 30-day billing audit: two real bugs, and three of my own checks that lied
+
+**Trigger:** after the session-280 overage fix, David asked for an audit of every customer
+transaction in the last 30 days — 1,509 charges, $145,082.45 — to find any other billing errors.
+
+**Clean on every duplicate-payment check.** No order charged on two payment intents, no refund
+exceeding its charge, no orphan transactions, no customer/order mismatches, no subscription
+order carrying pay-as-you-go pricing. The 45 charges with no Stripe payment intent are all
+`payment_method='cash'` (POS), and the two near-duplicate same-amount pairs are Nit Pixies'
+two real locations and a batch charge catching up two of Donald Chu's orders.
+
+**THREE TIMES THIS AUDIT, A CHECK I HAD JUST WRITTEN PRODUCED A CONFIDENT WRONG ANSWER.**
+This is the finding, more than either bug:
+
+| My check said | Rows | What was actually true |
+|---|---|---|
+| "credit deducted, not applied" | ~30 | `total_amount` is already net of the credit line; the `credit_use` row is its match |
+| "money collected ≠ itemised" | ~100 | line items carry no tax; the card charge does. Every gap was $0.32–$0.86 |
+| "$20 loss explained by a refund" | 1 | it was a `credit_refund` that returned the credit while its discount stayed on the order — a real $20 loss, classified as fine |
+
+The existing check 24b had the credit term right all along, which is why it found exactly one
+row where I found thirty. **Scale of the symptom was the scale of my misunderstanding, every
+time** — the preflight skill's Widespread-Issue Rule, earning its place three times in one
+session. The third is the worst of the three: a classifier that can mark a genuine loss as
+explained is worse than no classifier, and it is the same failure as a check that cannot fail.
+
+**Bug 1 — an order's price can be changed after the card has been charged, and nothing
+reconciles the difference.** Eight orders in 30 days had `total_amount` edited after a
+successful charge. Six were self-consistent. Three were not, and nobody knew:
+
+* **#13302** D'Auria's — charged $16.75 (a correct $3.00 Oxi + $13.75 subscription overage),
+  then a staff member set the total back to $3.00 two hours later. **$13.75 overcharged.**
+* **#12036** Jackie Keliiaa — $40.95 → $29.95 after a $45.95 charge. **$11.00 overcharged.**
+* **#12890** Naomi Odean — total recalculated upward after an $89.95 charge. **$5.00 under.**
+
+Saving the edit moves no money; it only rewrites the record. The success toast said "updated"
+and that was the end of it. `opSaveDetails` now reads what was actually collected, and if the
+new total disagrees it states both numbers, names the direction, says plainly that saving will
+not refund or collect anything, and makes the operator confirm. It writes a
+`billing_discrepancy` order event whether they proceed or not, and the toast carries the
+outstanding amount instead of a bare success. A prior cash refund on the order is called out in
+the same dialog, because a goodwill refund reads as "underpaid" and would otherwise look like a
+new problem.
+
+**Bug 2 — a pricelist guard on two branches out of three.** Vinegar and Oxi are `Delivery`
+services. `calcProcTotal` (the charge) and the intake breakdown (the preview) both skip a
+linked service whose pricelist doesn't match the customer's, so a Commercial per-lb customer is
+correctly **not** billed for them. `_buildIntakeLineItems` — the third branch, writing the
+record — had no such guard, so it itemised them anyway. Fourteen orders across Ereene Belamide,
+Suz Burroughs and RedDoor Catering, $138.00 of line items for services nobody charged for.
+
+**The money was never wrong here and it matters that I checked before "fixing" it.** Charging
+that $138 would have overcharged three customers for a policy the code deliberately holds. What
+was wrong is that the receipt listed goods the customer wasn't billed for, and `total_amount`
+stopped equalling its own itemisation — which is what made every reconciliation check noisy.
+Session 231's rule, on the laundry side this time: **a guard is only as good as the branch it
+sits on; grep every branch that reaches the same write.**
+
+**Two more, left as data findings rather than code changes:**
+
+* **#12228** Jamie Addington, **$3.71 overcharged.** Her LOVELAUNDRY 15% discount was itemised
+  but never deducted. Cause: intake floors the subtotal at `Math.max(0, …)`, and on a
+  subscription order the base is $0.00, so a discount with nothing yet to discount is clamped
+  away — then `apply_subscription_usage_fn` adds the overage on top of the clamped zero. Two
+  such orders in 120 days, one of them paid. **Not fixed**: the honest fix is for the discount
+  to survive until the overage is known, which straddles the intake screen and the DB trigger,
+  and check 26 now catches the shape every day. Flagged here rather than papered over.
+* **#13932** Xena Hinson, **$3.00 uncollected.** The credit line says $8.50 applied; only $5.50
+  of credit was actually spent (`Math.min(credits, subtotal)` clamped it) and the line kept the
+  larger figure. Same family as the above.
+* **#13997** Erika VanHarken — delivered 2026-09-01, $55.45, **never charged.** Not a code
+  defect anyone can point to; it simply never surfaced, which is what check 27 is for.
+
+**Two new audit checks, and the reason they are worth more than the fixes.** Every defect above
+was invisible until someone went looking. `daily_audit.sql` check **26** reconciles what was
+collected against what the order itemises (line items, plus `tax_amount`, plus tip, credit lines
+excluded and `credit_use` counted as collected — each of those terms is a mistake I made and
+corrected, and the comment says so). Check **27** lists delivered orders that were never
+charged. Both are P0.
+
+**Money outstanding after this audit:** $24.75 owed to two customers (#13302 $13.75, #12036
+$11.00) plus #12228's $3.71; $63.45 uncollected (#13997 $55.45, #12890 $5.00, #13932 $3.00).
+Left for David — refunds need an admin session, and re-charging a delivered order is his call.
+
 
 ### Sep 8, 2026 (session 280) — Subscription overage was billed TWICE; 12 customers overcharged $1,113.75
 

@@ -29861,17 +29861,83 @@ ${noActivityNote}
       updated_at: new Date().toISOString(),
     };
 
+    // ── Session 281: an order that has ALREADY been charged must not have its
+    // price quietly changed underneath the payment. Editing total_amount does
+    // not move a cent — it only rewrites the record — so a reduction leaves the
+    // customer overpaid with no refund, and an increase leaves money uncollected.
+    // Both happened in the 30 days before this guard shipped (orders #12036 and
+    // #13302 overcharged $11.00 and $13.75; #12890 undercharged $5.00), and
+    // nothing surfaced any of it. State the numbers, make the operator confirm,
+    // and record the gap either way so the audit can find it if they proceed.
+    const _tipDollars = (t, tipAmt, tipType) =>
+      !tipAmt ? 0 : (tipType === 'pct' ? Math.round(t * tipAmt) / 100 : Math.round(parseFloat(tipAmt) * 100) / 100);
+    let _chargeGap = 0;
+    try {
+      const { data: _paidTx } = await db.from('customer_transactions')
+        .select('type, amount')
+        .eq('order_id', opCurrentOrderId)
+        .in('type', ['charge', 'credit_use', 'refund', 'credit_refund']);
+      const _refunded = (_paidTx || []).reduce((sum, t) =>
+        sum + (t.type === 'refund' || t.type === 'credit_refund' ? Number(t.amount) : 0), 0);
+      const _collected = (_paidTx || []).reduce((sum, t) =>
+        sum + (t.type === 'refund' || t.type === 'credit_refund' ? -Number(t.amount) : Number(t.amount)), 0);
+      if (_collected > 0.01) {
+        // creditAmt is added BACK: newTotal is already net of the account-credit
+        // line, but `_collected` counts the matching credit_use transaction as
+        // value the customer gave up. Comparing the two without this term makes
+        // every credit-bearing order look overpaid by exactly the credit — the
+        // same false positive that made 30 healthy orders look broken during the
+        // audit that produced this guard.
+        const _newOwed = newTotal + creditAmt + _tipDollars(newTotal, o.tip_amount, o.tip_type);
+        _chargeGap = Math.round((_collected - _newOwed) * 100) / 100;
+        if (Math.abs(_chargeGap) > 0.01) {
+          const _over = _chargeGap > 0;
+          const _msg =
+            `Order #${o.order_number} has already been paid — ${fmtMoney(_collected)} was collected.\n\n` +
+            `Saving this change makes the order ${fmtMoney(_newOwed)} (incl. tip), so the customer would have ` +
+            (_over ? `OVERPAID by ${fmtMoney(_chargeGap)}.` : `UNDERPAID by ${fmtMoney(Math.abs(_chargeGap))}.`) +
+            `\n\nSaving does NOT move any money. You must ` +
+            (_over ? `issue a ${fmtMoney(_chargeGap)} refund` : `collect the ${fmtMoney(Math.abs(_chargeGap))} difference`) +
+            ` from the Billing tab afterwards.` +
+            // A deliberate goodwill refund also shows as "underpaid" here. Say so,
+            // rather than letting the operator think the shortfall is a new problem.
+            (_refunded > 0.01 ? `\n\n(${fmtMoney(_refunded)} has already been refunded on this order — if that refund is why the totals differ, this is expected.)` : '') +
+            `\n\nSave anyway?`;
+          if (!confirm(_msg)) { showToast('Change cancelled — nothing was saved'); return; }
+        }
+      }
+    } catch (e) {
+      console.error('[opSaveDetails] charge-gap check failed', e);
+      if (!confirm('Could not verify whether this order was already paid.\n\nIf it was, changing the total will NOT refund or collect anything.\n\nSave anyway?')) {
+        showToast('Change cancelled — nothing was saved');
+        return;
+      }
+    }
+
     // Log detail changes BEFORE the update
     if (o.weight_lbs !== (weight > 0 ? weight : null)) await logOrderEvent(opCurrentOrderId, 'weight_updated', `Weight changed from ${o.weight_lbs || 0} lbs to ${weight} lbs`, String(o.weight_lbs || 0), String(weight));
     if (o.total_bags !== (bags || null)) await logOrderEvent(opCurrentOrderId, 'bags_updated', `Bags changed from ${o.total_bags || 0} to ${bags}`, String(o.total_bags || 0), String(bags));
     if (Math.abs((o.total_amount || 0) - newTotal) > 0.01) await logOrderEvent(opCurrentOrderId, 'total_changed', `Total changed from ${fmtMoney(o.total_amount || 0)} to ${fmtMoney(newTotal)}`, String(o.total_amount || 0), String(newTotal));
+
+    if (Math.abs(_chargeGap) > 0.01) {
+      await logOrderEvent(opCurrentOrderId, 'billing_discrepancy',
+        _chargeGap > 0
+          ? `Total lowered after payment — customer overpaid ${fmtMoney(_chargeGap)}, refund still owed`
+          : `Total raised after payment — ${fmtMoney(Math.abs(_chargeGap))} still uncollected`,
+        null, String(_chargeGap));
+    }
 
     const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to save', 'error'); return; }
     Object.assign(o, update);
     document.getElementById('op-bill-total').textContent = fmtMoney(newTotal);
     opPopulateBilling(o);
-    showToast(`Order #${o.order_number} updated — ${fmtMoney(newTotal)}`, 'success');
+    showToast(
+      Math.abs(_chargeGap) > 0.01
+        ? `Order #${o.order_number} updated — ${fmtMoney(newTotal)}. ${_chargeGap > 0 ? `REFUND ${fmtMoney(_chargeGap)} owed` : `${fmtMoney(Math.abs(_chargeGap))} still to collect`} (Billing tab)`
+        : `Order #${o.order_number} updated — ${fmtMoney(newTotal)}`,
+      Math.abs(_chargeGap) > 0.01 ? 'error' : 'success',
+      Math.abs(_chargeGap) > 0.01 ? 9000 : 3000);
 
     // Switch back to read-only with fresh data
     opRenderDetailsReadonly(o);
@@ -47367,6 +47433,17 @@ ${oneCopy}
       if (!selOpt || selOpt.is_default) return;
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (linkedSvc) {
+        // Session 281 — THE PRICELIST GUARD BELONGS ON THIS BRANCH TOO.
+        // calcProcTotal (the charge) and the intake breakdown (the preview) both skip a
+        // linked service whose pricelist doesn't match the customer's; this builder — the
+        // third branch reaching the same order — did not. A Commercial customer with
+        // Vinegar/Oxi saved as a preference was therefore charged correctly (excluded) but
+        // handed a receipt that itemised $3–$6 of them anyway, and `total_amount` no longer
+        // equalled its own line items. 14 orders across 3 commercial customers in 45 days,
+        // $138.00 of phantom line items; the money was never wrong, the record was.
+        // Session 231's rule, again: a guard is only as good as the branch it sits on.
+        const _currentPricelist = isPerLb ? 'Commercial' : 'Delivery';
+        if (linkedSvc.pricelist && linkedSvc.pricelist !== _currentPricelist && linkedSvc.pricelist !== 'Both') return;
         const price   = parseFloat(linkedSvc.base_price) || 0;
         const isItem  = linkedSvc.pricing_type === 'per_item';
         const units   = isItem ? (procAddonPrefQty[g.id] || 1) : bd.bags;

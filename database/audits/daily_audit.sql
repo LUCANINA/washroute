@@ -762,3 +762,75 @@ SELECT COUNT(*) AS orphan_profile_count FROM (
   LEFT JOIN customers c ON c.profile_id = p.id
   WHERE c.id IS NULL AND p.role = 'customer'
 ) t;
+
+
+-- @check id=26 name="Order/Payment Reconciliation — money collected vs what the order itemises" priority=P0
+-- Session 281. The single check that would have caught every billing defect found in the
+-- audit that produced it: totals edited after the card was charged (#13302 $13.75 and
+-- #12036 $11.00 overcharged, #12890 $5.00 under), a discount itemised but never deducted
+-- (#12228, $3.71 over), a credit line larger than the credit actually spent (#13932, $3.00
+-- under), and 14 commercial orders itemising add-ons the charge correctly excluded.
+--
+-- WHAT IS COMPARED, and why each term is here — three of them were wrong in earlier drafts
+-- and each mistake produced a confident, wrong answer:
+--   * line items are the reference, NOT total_amount. total_amount is a derived field that
+--     can drift from its own itemisation, and that drift is exactly what this looks for.
+--   * 'credit' lines are EXCLUDED from the sum and credit_use is COUNTED as collected.
+--     Delivery orders subtract the credit from total_amount; subscription orders do not.
+--     Treating the line as a reduction made ~30 healthy orders a month read as overpaid.
+--   * tax_amount is ADDED BACK. Line items carry no tax but the card charge does; omitting
+--     it flagged ~100 perfectly good orders at $0.32-$0.86 apiece.
+--   * a deliberate cash refund is reported, not silently netted out — but ONLY type='refund'
+--     counts as an explanation. A credit_refund must not: on #13934 a $20 credit was returned
+--     to the balance while its discount stayed on the order, and netting the two made a real
+--     $20 loss read as "explained".
+WITH owed AS (
+  SELECT o.id, o.order_number, o.customer_id, o.created_at, o.source,
+         ROUND(COALESCE((SELECT SUM((li->>'amount')::numeric)
+                         FROM jsonb_array_elements(o.line_items) li
+                         WHERE li->>'type' NOT IN ('credit','tax')),0)
+             + COALESCE(o.tax_amount,0)
+             + CASE WHEN o.tip_type='pct'
+                    THEN ROUND(o.total_amount*COALESCE(o.tip_amount,0)/100,2)
+                    ELSE COALESCE(o.tip_amount,0) END, 2) AS amount_owed
+  FROM orders o
+  WHERE o.created_at > now() - interval '45 days'
+    AND o.billing_status = 'paid'
+    -- un-itemised commercial charges have nothing to reconcile against
+    AND jsonb_typeof(o.line_items)='array' AND jsonb_array_length(o.line_items) > 0
+), coll AS (
+  SELECT order_id,
+         SUM(CASE WHEN type IN ('refund','credit_refund') THEN -amount ELSE amount END) AS collected,
+         SUM(CASE WHEN type='refund' THEN amount ELSE 0 END)                            AS cash_refunded
+  FROM customer_transactions
+  WHERE type IN ('charge','credit_use','refund','credit_refund')
+  GROUP BY order_id
+)
+SELECT c.first_name_cache || ' ' || c.last_name_cache AS customer,
+       owed.order_number, owed.created_at::date, owed.source,
+       owed.amount_owed, coll.collected, coll.cash_refunded,
+       ROUND(coll.collected - owed.amount_owed, 2) AS gap,
+       CASE WHEN coll.collected - owed.amount_owed > 0.01 THEN 'OVERCHARGED — refund owed'
+            ELSE 'UNDERCHARGED — money uncollected' END AS verdict
+FROM owed JOIN coll ON coll.order_id = owed.id
+JOIN customers c ON c.id = owed.customer_id
+WHERE coll.collected > 0.01
+  AND ABS(coll.collected - owed.amount_owed) > 0.01
+  -- a deliberate cash refund fully explains its own shortfall
+  AND NOT (coll.cash_refunded > 0.01
+           AND ABS((coll.collected - owed.amount_owed) + coll.cash_refunded) < 0.01)
+ORDER BY ABS(coll.collected - owed.amount_owed) DESC;
+
+
+-- @check id=27 name="Delivered but never charged" priority=P0
+-- Session 281. Order #13997 ($55.45) was delivered on 2026-09-01 and never billed;
+-- nothing surfaced it. Excludes on-account customers, who are invoiced separately.
+SELECT c.first_name_cache || ' ' || c.last_name_cache AS customer,
+       o.order_number, o.created_at::date, o.status, o.billing_status, o.total_amount
+FROM orders o JOIN customers c ON c.id = o.customer_id
+WHERE o.created_at > now() - interval '45 days'
+  AND o.status = 'delivered'
+  AND COALESCE(o.billing_status,'') NOT IN ('paid','refunded','written_off')
+  AND COALESCE(o.total_amount,0) > 0
+  AND COALESCE(c.billing_type,'') <> 'on_account'
+ORDER BY o.total_amount DESC;
