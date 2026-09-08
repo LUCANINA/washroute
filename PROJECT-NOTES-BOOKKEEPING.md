@@ -1,6 +1,41 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 284, 2026-09-08)
+>
+> ### 🔴 THE LIST, IN ORDER. Everything below §0zu is detail; this is the list.
+>
+> 1. **SIX RED ASSERTIONS NOBODY HAS SEEN, and they are the most valuable thing here.** §0zn-ii —
+>    two stale column labels had been taking EIGHT harness groups down for a week, so ~794 assertions
+>    never ran. Fixed; six of them fail. **All six measured identical on HEAD, so none is session
+>    284's.** Start with `two-surfaces`' *"statement coverage: Loans close-band gate equals the Client
+>    View checklist count"* — that is Tech Debt #32's eleven-to-one shape returning, and
+>    `ask-not-claim` k4 exists to catch exactly that and could not run. Then `closing-evidence` ce16
+>    ×4, **including its own CONTROL** — a failing control means the group's premise no longer holds,
+>    so read it before trusting anything else it says. Then `history`'s s240 #10.
+> 2. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026, proven
+>    by three statements. The question is which account and which period. The note is on the loan and
+>    surfaces on the Variance cell; nothing is blocked, but it is the one open financial question.
+> 3. **There is no UI to WRITE a balance note** (§0zs). EIDL's went in by SQL. The read path is built
+>    and tested; the write path is a textarea beside `structure_note`'s, and it must capture
+>    `balance_note_amount` from the live difference automatically rather than asking a person to type
+>    a figure they will get wrong.
+> 4. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
+>    intake. They will STORE and raise no split (April/May are closed) — correct, and why the note
+>    carries the question.
+> 5. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still not
+>    captured, the same gap as §0zh's paid-ahead fields. The product could say *"no principal applied
+>    — interest-only"* instead of showing a balance that looks frozen.
+> 6. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
+>    the old pre-attached command. Repack both, with §0zf's `git push` correction, in one pass.
+>
+> ✅ **DEPLOY STATE: everything from session 284 is pushed and live**, checked by behaviour, by the
+> deployed source, AND by a live answer — see §0zt, which says when it was checked. The last change
+> (§0zu) is dashboard-only and needs no function deploy.
+>
+> ⚠️ **Two things shipped today can stop each other, on purpose.** The write-off (§0zp) posts "CAUSE
+> UNKNOWN"; the recorded explanation (§0zs) refuses it while a CURRENT note exists. Verified live on
+> EIDL. If you are wondering why a write-off button is missing on a loan, that is the first thing to
+> check, and the refusal says so in words.
 >
 > ### 0zu. ❌ I PUT THE EXPLANATION IN THE WRONG COLUMN — and the fix is session 249's own rule (session 284)
 >
