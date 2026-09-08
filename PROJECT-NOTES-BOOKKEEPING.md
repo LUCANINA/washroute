@@ -4,6 +4,8 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
+> 0. **DEPLOY SESSION 289'S EIGHT FUNCTIONS** (§0aa) — see the deploy state below. Until that is done
+>    the CPA sees post buttons that 403. Nothing else on this list matters more.
 > 1. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026,
 >    proven by three statements. The question is which account and which period. The note is on the
 >    loan and surfaces on the Variance cell; nothing is blocked, but it is the one open financial
@@ -46,8 +48,13 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> ✅ **DEPLOY STATE: sessions 287 and 288 changed NO edge function** — the work was the refresh script, the
-> fixture and the harness. Session 284's functions remain live as checked in §0zt.
+> 🔴 **DEPLOY STATE: SESSION 289 CHANGED EIGHT EDGE FUNCTIONS AND NONE OF THEM IS DEPLOYED.** The
+> page and the DATABASE are live (the migration applied and was verified); the FUNCTIONS are not, and
+> that is the dangerous half of a split deploy — the dashboard now shows a CPA the post buttons while
+> the functions would still refuse her. Run `bash deploy-session-289.sh` from the repo root. The
+> per-function `--no-verify-jwt` decisions in it were MEASURED from list_edge_functions on 2026-09-08,
+> not copied. Then probe rather than trust the exit code (§0ze). Sessions 287/288 changed no function;
+> session 284's remain live as checked in §0zt.
 > ⚠️ **`git push` is owed from your own terminal** — this sandbox has no network. MEASURED at the end
 > of session 288: `git log origin/main..HEAD` says **one** commit is unpushed — 288's SECOND commit
 > (§0zz, "Which schedule?"). Its first (§0zy, the Action column) had already gone out, along with
@@ -56,6 +63,66 @@
 > deploy state. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
 > so check rather than trust it — which is the same discipline §0ze demands of the deploy state.
 >
+>
+> ### 0aa. ⭐⭐ THE CPA POSTS NOW — AND A PERMISSION WAS ONE FACT WRITTEN DOWN ~70 TIMES (session 289, David)
+>
+> David: *"remove the read-only part. The CPA needs to be able to post from the Bookkeeping section."*
+>
+> **What it actually was.** Not a label. The read-only CPA was enforced in THREE layers and about
+> seventy separate places: ~32 gates on the page (in two different shapes — `currentUserRole === 'cpa'`
+> in newer code, an `['admin','manager']` allowlist in older), 36 RLS write policies, and write gates
+> in eight edge functions. The functions' shape is worth recording because it was deliberate and good:
+> the CPA could run every PREVIEW and was refused only at `confirm`. "She cannot post" meant "she
+> cannot press the irreversible button", not "she cannot see the work" — the product asked her to do
+> the reading and then handed the job back to David.
+>
+> **The thing worth keeping from this session is not the widening, it is what the widening exposed.**
+> One decision — who may write in Bookkeeping — had been copied ~70 times. Session 231's rule ("a
+> guard is only as good as the branch it sits on") cannot be enforced against 70 copies: the next
+> change means auditing all of them, and one missed branch is a silent hole. `loan-find-difference`'s
+> own header comment had already worried about exactly this, in writing, about itself: *"a role simply
+> not appearing in an array someone may widen later."* It was right, and the array got widened.
+>
+> So each layer now holds ONE list, and they name each other:
+>
+> | Layer | The one list |
+> |---|---|
+> | page | `BK_WRITE_ROLES` / `_bkCanWrite()` — admin-dashboard/index.html |
+> | database | `public.can_write_bookkeeping()` — migrations/session_289_cpa_bookkeeping_write.sql |
+> | functions | `canWriteBookkeeping()` — supabase/functions/_shared/bk-write-roles.ts |
+>
+> **Two things the rewrite deliberately did NOT touch.**
+> *`internal_job`.* The nightly jobs authenticate on the shared secret, and session 261 put a
+> convergence guard in `loan-find-difference` that refuses an internal caller asking for any write
+> mode, BEFORE the role gates run — written precisely so that widening a role array could not hand a
+> write path to a cron job. It did its job here: this session widened the array and the guard is why
+> that is provably safe. The comment on it is now the best argument in the file for stating a refusal
+> instead of relying on an absence.
+> *The engine-output tables.* `reconciliation_runs`, `reconciliation_findings`, `loan_book_balances`,
+> `loan_tie_outs`, `loan_attributions`, `payroll_notices`, `payroll_fix_status` have no write policies
+> at all — service-role writes only. Still none. A CPA does not hand-edit a finding.
+>
+> **The migration refuses rather than corrupts.** All 34 policies carrying the admin/manager
+> expression were verified byte-identical to one canonical string first; the DO block re-checks each
+> one and raises if any clause differs, so a policy doing something extra could not be silently
+> widened. It asserts inside the transaction that 34 moved and zero remain. A second migration folded
+> in the two `payroll_employees` policies that already listed cpa inline — behaviour-neutral, done so
+> that "who may write" is genuinely one fact and not one fact plus two lookalikes.
+>
+> **Verification.** Harness: 2,265 assertions across all 48 groups, one red — Tech Debt #19's own
+> report, which is the deliberate one. RLS proved by driving `auth.uid()` directly: admin ✓ manager ✓
+> attendant ✗ driver ✗, and the cpa case (no such user exists yet) inside a DO block that flips a
+> profile, measures, and RAISEs to roll back — `attendant=f cpa=t`, the pair of assertions session 245
+> asks for, since either half alone is satisfied by a guard that checks nothing. Confirmed afterwards
+> that the rollback held.
+>
+> **⚠️ Left undone, and it is item 0:** the eight functions are committed and NOT deployed.
+>
+> **Also fixed on the way in (laundry-app side, not Bookkeeping):** `invite-staff` had never been in
+> the repo and its role allowlist had gone stale — it still carried the retired `staff` role, which
+> `profiles_role_check` now REJECTS, so an invite sent the email and then failed the profile upsert
+> behind a `console.warn`, leaving an invited user able to log in with no role at all. Repo copy added,
+> allowlist synced with `create-staff`, and the swallowed error now returns. Deployed (v35).
 >
 > ### 0zy. ⭐⭐ THE LOAN CLOSE PAGE AUDIT — THE ACTION COLUMN IS THE QUEUE (session 288, David)
 >
