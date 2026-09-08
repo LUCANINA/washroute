@@ -48,7 +48,15 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> 🔴 **DEPLOY STATE: SESSION 289 CHANGED EIGHT EDGE FUNCTIONS AND NONE OF THEM IS DEPLOYED.** The
+> 🔴 **DEPLOY STATE: SESSION 289 CHANGED EIGHT EDGE FUNCTIONS AND NONE OF THEM IS DEPLOYED.**
+> §0ab added a ninth CHANGE to one already on that list — `loan-find-difference` gains
+> `buildRecordedCauseEntry` and its `post_recorded` path — so **the script is unchanged and still
+> the whole procedure**; its `--no-verify-jwt` on that line was re-MEASURED 2026-09-08 by both routes
+> §0ze asks for (a no-auth POST answered `403 {"error":"Not authorized."}`, the function's OWN words
+> rather than the gateway's `401 UNAUTHORIZED_NO_AUTH_HEADER`, and `list_edge_functions` says
+> `verify_jwt: false`, version 37). Until it runs, §0ab's CARD is live and its ENTRY is not:
+> `data.recorded_entry` is absent, the card renders as it did before, and the write-off's "read that
+> and act on it" line comes back. Nothing half-works. The
 > page and the DATABASE are live (the migration applied and was verified); the FUNCTIONS are not, and
 > that is the dangerous half of a split deploy — the dashboard now shows a CPA the post buttons while
 > the functions would still refuse her. Run `bash deploy-session-289.sh` from the repo root. The
@@ -63,6 +71,93 @@
 > deploy state. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
 > so check rather than trust it — which is the same discipline §0ze demands of the deploy state.
 >
+>
+> ### 0ab. ⭐⭐ THE CARD OFFERS THE ENTRY — AND FOUR TINTED BOXES BECAME ONE (session 289, David)
+>
+> David, on the EIDL SBA $5.00 card: *"Offer a solution (in this case, a $5 adjustment to the loan
+> principal)."* It could not, and the reason is the interesting part.
+>
+> **Three proposals existed and none fit a difference a HUMAN had explained.** `proposal` reallocates
+> a lumped payment we identified; `cpa_exception` reverses interest she double-booked; `writeoff`
+> posts a difference nobody could explain — and the write-off does not merely fail to fit, it
+> actively REFUSES, correctly, because posting "CAUSE UNKNOWN" into the ledger underneath a written
+> explanation would put a lie in the books. So the product diagnosed the $5.00, proved it from three
+> statements, wrote the cause down, and then dead-ended on *"read that and act on it"* with nothing
+> on the screen to act WITH. **A card that names the fix and cannot offer it is, for the person
+> holding the mouse, the same card as one that found nothing.**
+>
+> **`buildRecordedCauseEntry` is the fourth path, and it is the write-off's mirror image.** A current
+> balance note is the ENABLING condition here and the REFUSING condition there. There is no
+> materiality ceiling: the ceiling exists to stop money being plugged away unexamined, and a recorded
+> explanation IS the examination. What replaces it is stricter where it counts — `balanceNoteOf`
+> already requires the note to record the figure it was written about and to equal the live
+> difference to the cent, so a human has looked at THIS number, and a note with no amount is stale by
+> construction and never reaches here. The narration carries the explanation into Xero, because the
+> sentence beside the number is what a CPA reads years later (§247).
+>
+> **⚠️ THE ACCOUNT IS NOT GUESSED, AND THAT IS THE WHOLE DESIGN.** The offset leg ships with
+> `AccountCode: null`, the card makes a person choose from Xero's own chart, and the post path
+> re-validates the choice and refuses the loan account itself (both legs on one account posts
+> cleanly, reports success and changes nothing). A wrong GL code here is the `wage_account_code`
+> failure mode exactly. And on the loan this was built for, **the note's own closing line is "which
+> account should the $5.00 go to?"** — so guessing would not have been a shortcut, it would have been
+> answering the open question on the reader's behalf and burying it in a journal.
+>
+> ### 0ab-i. ⭐ ONE CARD, ONE CONTRAST STEP — §219's RULE, BROKEN FOUR WAYS IN ONE MODAL
+>
+> Blue note, blue conclusions, green proposal, grey write-off — four tinted rectangles stacked, each
+> with its own hue, border and radius. **Nothing on that screen was louder than anything else, so the
+> one thing to DO carried the same weight as three paragraphs of reassurance.** Everything READ is
+> flat now, separated by a hairline and led by a small label; exactly one block is filled, so tint
+> means "this is the decision" and nothing else (LESS IS BEST test 4).
+>
+> Two orderings follow. **Evidence leads, reassurance trails:** a DIVERGENT span table stays above the
+> correction it evidences, because you read the rows and then approve the entry that answers them; an
+> ALL-TIE one is not evidence for anything — it answers a different question ("is anything ELSE
+> wrong?"), asked after the decision — so it drops below the action as a single ✓ line with the rows
+> one click behind it. And **the write-off's refusal goes silent while the adjustment is offered**:
+> its own words are "read that and act on it", and the block to act with is now directly above, so
+> printing it anyway tells a reader they cannot do the thing they have just been handed a button for.
+> Answered, not deleted — a control proves it speaks again the moment no adjustment is on offer.
+>
+> ### 0ab-ii. 🔴 AN ESTABLISHED CAUSE OUTRANKED THE ASK EVERYWHERE EXCEPT HERE (§262)
+>
+> The card told a bookkeeper the $5.00 *"predates the earliest usable statement (2026-04-22); 9
+> earlier statements are on file but unusable — mark them principal-only to pin it down"*, directly
+> underneath a paragraph that had already established the cause **with a date and a source
+> document**. Both sentences were true of their own inputs. `analyzeWalk` cannot see before its
+> window, **and it never knew the note existed** — `balanceNoteOf` runs five hundred lines away, at
+> the response. Nothing carried it in.
+>
+> So the screen sent someone to establish a fact that the paragraph above it had established, in the
+> one place they had no reason to doubt. That is §262's rule ("ask when evidence is missing; STATE
+> the cause when it is established") and §279's at screen level: two sections answering *what is
+> this?* and disagreeing. The bullet now moves to **Show the working** when the note covers the WHOLE
+> difference — narrow on purpose, since a note explaining $5.00 of a $500.00 gap leaves the other
+> $495.00 genuinely unexplained and the ask still earns its place.
+>
+> ### 0ab-iii. THE STAMP THAT READ A DAY EARLY, AND WHAT THE SUITE SAYS
+>
+> `_bkBalanceNoteHtml` stamped the note with `fmtDate`, which builds a `Date` from a date-only string
+> — parsed in the BROWSER'S zone, rendered in BIZ_TZ. §272 fixed exactly this on the span table. It
+> is worse on this field: the stamp tells a CPA how fresh an explanation is, and a note recorded
+> 2026-09-08 printed as **Sep 7** for any reader east of Pacific, i.e. looking like it predated the
+> statement it was written from. Now `_bkDay`, which slices the string.
+>
+> New harness group **`recorded-entry` (12 assertions)** pins the half a screenshot cannot: Post is
+> disabled until an account is chosen AND re-disabled when it is cleared (the gate is a gate, not a
+> lock); the loan account is absent from the picker; the debit/credit columns are read off the
+> figure's SIGN, with an inverse control that flips them; and the write-off's suppression has its own
+> control. `fdiff-copy-budget`'s word CONTROL moved **380 → 350**, and the reason belongs in the file
+> rather than a commit: the new renderer folds an all-tie table, which shortens the OLD payload too.
+> **The threshold moved because the renderer improved, not because the card got wordier and somebody
+> tuned the guard.** That is only safe to say because it is not the discriminating control — the one
+> proving the measurement can fail is the dedup/survival PAIR, untouched and still red on the old
+> card.
+>
+> **Still the note-writing UI's job (list item 2):** the lead paragraph is whatever prose a person
+> typed into `balance_note`. EIDL's was written as a chat message, so it reads long on a card. The
+> chrome is fixed; the COPY is fixed at the WRITE path, never by a renderer editing a human's words.
 >
 > ### 0aa. ⭐⭐ THE CPA POSTS NOW — AND A PERMISSION WAS ONE FACT WRITTEN DOWN ~70 TIMES (session 289, David)
 >
