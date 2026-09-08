@@ -10852,6 +10852,47 @@ GROUPS.push({
     });
     t.eq(stillFiles, 1, '...while a labelled statement files exactly as before — the control');
 
+    /* ── 8. A RECORDED EXPLANATION REACHES THE READER (session 284) ────────
+     *
+     * David, looking at the shipped row: "was this supposed to display
+     * differently?" It was. The note was put on the ACTION column only, and
+     * EIDL's Action is owned by a genuinely more urgent thing (an unposted
+     * split), so the explanation was invisible on the one row it was written
+     * for. Action answers "what do I do next" and an explanation is not a next
+     * action — so it now hangs off the VARIANCE figure it describes, which is
+     * visible on every row regardless of what owns the button (session 249).
+     */
+    const noteRow = await p.evaluate(async () => {
+      const a = (_allLoanAccounts || []).find(x => x.status === 'active');
+      a.balance_note = 'The lender added $5.00 in April 2026; our books have not carried it.';
+      a.balance_note_amount = null;   // set per-case below
+      a.balance_note_set_by = 'Someone';
+      a.balance_note_set_at = '2026-09-08';
+      const read = (variance) => {
+        a.balance_note_amount = variance;
+        return {
+          current: _bkNoteCurrent(a, -5),
+          attrs: _bkNoteAttrs(a, -5),
+        };
+      };
+      const off = read(null);
+      const stale = read(-500);
+      const cur = read(-5);
+      return { off, stale, cur };
+    });
+    t.eq(noteRow.cur.current, true, 'a note written about the figure on screen is CURRENT');
+    t.ok(/data-balance-note-current="1"/.test(noteRow.cur.attrs),
+         '⭐ ...and the cell is marked so a reader can see one exists without hovering every row');
+    t.ok(/What this difference is/.test(noteRow.cur.attrs),
+         '...with the note itself on the figure it explains, not in a column of its own');
+    t.eq(noteRow.stale.current, false,
+         '⭐ a note written about $500.00 is NOT current for a $5.00 difference');
+    t.ok(/read as history, not as an answer/.test(noteRow.stale.attrs),
+         '...and says so, rather than being withheld — what somebody found out is still worth reading',
+         noteRow.stale.attrs.slice(0, 160));
+    t.eq(noteRow.off.current, false,
+         '⭐ a note with NO recorded amount is not current either — failing open is what broke _bkDismissalHolds');
+
     await p.close();
   },
 });

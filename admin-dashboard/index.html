@@ -12668,6 +12668,31 @@
     return parts.join('');
   }
 
+  // ── session 284: is the recorded explanation about the figure ON SCREEN? ──
+  // One test, three call sites (the variance cell, the Action column, and the
+  // server's own refusal), because an explanation of a $5.00 difference must not
+  // announce itself as the answer to $500.00. A note with no recorded amount is
+  // NOT current — failing open is what caused _bkDismissalHolds (session 245).
+  function _bkNoteCurrent(a, variance) {
+    if (!a || !a.balance_note) return false;
+    const amt = a.balance_note_amount == null ? null : Number(a.balance_note_amount);
+    const live = variance == null ? null : Number(variance);
+    return amt != null && live != null && Math.abs(amt - live) <= 0.02;
+  }
+  // Attached to the cell rather than given a column of its own: it exports in
+  // full, reaches every reader on hover, and costs no width (session 249).
+  function _bkNoteAttrs(a, variance) {
+    if (!a || !a.balance_note) return '';
+    const cur = _bkNoteCurrent(a, variance);
+    const stamp = [a.balance_note_set_by, a.balance_note_set_at ? String(a.balance_note_set_at).slice(0, 10) : null]
+      .filter(Boolean).join(' · ');
+    const body = String(a.balance_note).replace(/\s+/g, ' ').trim();
+    const head = cur
+      ? 'What this difference is'
+      : `An earlier explanation, written about ${a.balance_note_amount == null ? 'an unrecorded figure' : fmtMoney(Math.abs(Number(a.balance_note_amount)))} — read as history, not as an answer to this`;
+    return ` data-balance-note="${esc(body)}" data-balance-note-current="${cur ? '1' : ''}" title="${esc(head + '. ' + body + (stamp ? ' — ' + stamp : ''))}"`;
+  }
+
   // ── session 284: somebody already worked this out ─────────────────────────
   //
   // Two states, and the STALE one is why the amount is stored at all. An
@@ -19578,11 +19603,15 @@
         // still match the difference on screen. A note about $5.00 must not
         // announce itself as the answer to $500.00, which is session 245's
         // dismissal rule applied to explanations.
-        const noteAmt = a.balance_note_amount == null ? null : Number(a.balance_note_amount);
-        const liveDiff = r.perLender && r.variance != null ? Number(r.variance) : null;
-        const noteCurrent = !!a.balance_note && noteAmt != null && liveDiff != null
-                            && Math.abs(noteAmt - liveDiff) <= 0.02;
-        if (finding && noteCurrent) {
+        // ⚠️ NOTE HOW FAR DOWN THIS SITS, and that it is deliberate. Everything
+        // above is a real next action — an unposted split, a schedule nobody has
+        // chosen, a missing statement — and an explanation outranking any of
+        // those would replace a thing to DO with a thing to READ. It only takes
+        // the button where the alternative was "Find the fix", i.e. where the
+        // next action would have been to go and investigate what we have already
+        // investigated. On every other row the note still reaches the reader,
+        // attached to the variance figure itself.
+        if (finding && _bkNoteCurrent(a, r.variance)) {
           const short = String(a.balance_note).replace(/\s+/g, ' ').slice(0, 220);
           return { kind: 'explained',
                    cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="${esc(short)}">Read the explanation</button>` };
@@ -19696,7 +19725,15 @@
         // Computed and Closing columns either side of it, and a reader checks it
         // by subtracting those two. The band, and therefore the WEIGHT, come
         // from the residual; the hint shows how one became the other.
-        : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-quiet'}">${signed(r.variance)}</span>`;
+        // ── AND WHEN SOMEBODY HAS ALREADY EXPLAINED THIS FIGURE (session 284) ──
+        // Session 249's rule: can it attach to the figure it describes instead
+        // of standing on its own? A note about the variance belongs ON the
+        // variance, not on the Action button — Action answers "what do I do
+        // next", and an explanation is not a next action. It also means the note
+        // is visible on EVERY row that carries one, including the rows where a
+        // more urgent action (an unposted split) rightly owns the button.
+        // Gated on the note being CURRENT, same test as everywhere else.
+        : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-quiet'}"${_bkNoteAttrs(a, r.variance)}>${signed(r.variance)}${_bkNoteCurrent(a, r.variance) ? ' <span style="font-weight:700;opacity:.7;cursor:help" title="Someone has recorded an explanation for this difference. Hover the figure to read it, or open the loan.">*</span>' : ''}</span>`;
       // ── STATUS: THE ICON IS THE VERDICT, THE WORDS STILL SAY WHAT HAPPENED ──
       // This session (David): the column reads as a checkmark or a red X now,
       // driven by the SAME tie/variance verdict the Variance column already
@@ -20041,7 +20078,7 @@
               <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
               <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what OUR books say the closing balance should be. Renamed from Computed in session 280: this table and the month-in-flight table now use one word for our own figure and one for the lender's, so Variance means the same thing on both.">Books</th>
               <th class="lcb-n" title="The LENDER's own closing figure for this month, and the date of the document it came from (hover the cell). Renamed from Closing in session 280 to match the month-in-flight table — Variance is Books minus Lender on both.">Lender</th>
-              <th class="lcb-n">Variance</th><th>Booked</th><th title="A pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed — green means the staging loop is working and nothing here needs you. This column was on the month-in-flight table and not here, so a live staged transaction was invisible on the close (session 280).">Staging</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
+              <th class="lcb-n" title="Our books against the lender, for this month. An asterisk means somebody has recorded an explanation for that figure — hover it to read what they found. The explanation is shown against the number rather than in the Action column, because Action answers what to do next and an explanation is not a next action.">Variance</th><th>Booked</th><th title="A pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed — green means the staging loop is working and nothing here needs you. This column was on the month-in-flight table and not here, so a live staged transaction was invisible on the close (session 280).">Staging</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
               <th title="The next thing to do about this row. A difference nobody can evaluate asks for the document that would settle it — uploading a current statement is far easier than investigating a gap measured against a stale one. Nothing appears here for a row that ties.">Action</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>

@@ -2,6 +2,48 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
+> ### 0zu. ❌ I PUT THE EXPLANATION IN THE WRONG COLUMN — and the fix is session 249's own rule (session 284)
+>
+> David, on the shipped row: *"was this supposed to display differently?"* It was, and it wasn't
+> displaying at all.
+>
+> **The note was wired to the Action column ONLY, and EIDL's Action is owned by something more
+> urgent** — an unposted split, so the cell reads *Review & post*. That branch sits well above the
+> `explained` one in the chain and rightly wins. **Result: the explanation was invisible on the exact
+> row it was written for**, which is the same class of failure as filing it in a notes file.
+>
+> **The reasoning error, stated plainly: ACTION ANSWERS "WHAT DO I DO NEXT", AND AN EXPLANATION IS
+> NOT A NEXT ACTION.** Putting it there meant it could only appear by DISPLACING a real thing to do,
+> so on every row that had one it had to lose. It was competing for a slot it should never have been
+> in.
+>
+> **The fix is the module's own rule, session 249, quoted in the skill:** *"Can it attach to the
+> figure it describes instead of standing on its own? A `data-` attribute plus a hover reaches every
+> reader, exports in full, and costs no width."* The note now hangs off the **Variance cell** — the
+> figure it is about — via `data-balance-note` + `title`, with a small `*` marker that explains
+> itself on hover, and the column header saying what the marker means so it is discoverable without
+> hovering a row that happens to carry one. **No legend row was added**: a marker that needs a legend
+> to be legible has not earned its width.
+>
+> **The Action override is KEPT, and only where it takes nothing.** It fires solely where the
+> alternative was *Find the fix* — i.e. where the next action would have been to go and investigate
+> what we have already investigated. Everywhere else the button keeps its real action and the note
+> still reaches the reader on the figure.
+>
+> **One test, three call sites.** `_bkNoteCurrent` is now shared by the variance cell, the Action
+> branch and (in its own copy, server-side) the write-off refusal — the same staleness question asked
+> once rather than three times, which is the fix pattern this module's 214–217 history is made of.
+>
+> **Harness `statement-basis-asked` gains section 8** (31 → 37): current marks the cell, a note about
+> $500.00 is NOT current for a $5.00 difference and says so rather than being withheld, and a note
+> with **no recorded amount** is not current either — failing open is what broke `_bkDismissalHolds`.
+> 485/485 across six groups.
+>
+> ⚠️ **The general lesson, because it will recur:** when a fact has to reach a reader, ask which
+> CELL it is about before asking which COLUMN is free. A column is a queue with one slot per row, and
+> anything put in it must beat everything else that could want that slot. An attribute on the figure
+> competes with nothing.
+>
 > ### 0zt. 📦 DEPLOY STATE — checked 2026-09-08 ~18:0x UTC, BY BEHAVIOUR AND BY THE ROWS
 >
 > **Everything in session 284 is pushed and live.** Checked, not inferred from the push (§0ze's rule).
