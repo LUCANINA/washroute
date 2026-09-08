@@ -50,13 +50,16 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> ⚠️ **§0ad CHANGED `loan-find-difference` AGAIN (two conclusion sentences, rules D/E) AND THE CARD
-> (rules A–E). The CARD is live on push; THAT FUNCTION IS NOT until it is redeployed —
-> `npx -y supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`.
-> Until then the two bullets keep their old long wording and everything else on the card is already
-> shorter, which is a cosmetic mismatch rather than a break.**
+> ✅ **§0ad IS LIVE TOO — `loan-find-difference` v39, deployed by David and CHECKED HERE at
+> 00:14 UTC, by the deployed SOURCE rather than the version number.** Both new short forms are
+> present (`agree completely.`, `statement is not on file`) and **all three long forms rules D/E
+> removed are absent** — `agree completely (`, and the two dropped clauses — which is the check that
+> matters, because a redeploy of the OLD file would also have bumped the version. §0ab/§0ac's work is
+> still in it (`LENDER_STATED`, `buildRecordedCauseEntry`, `deriveIncreaseCause`, 1 each). Preflight
+> 200, and a no-auth POST still answers `403 {"error":"Not authorized."}` in the function's own
+> words, so `verify_jwt` stayed false.
 >
-> ✅ **DEPLOY STATE BELOW WAS TRUE AT 23:36 UTC and covers sessions 287–289 up to §0ac: Pushed and deployed by David
+> ✅ **THE EIGHT-FUNCTION DEPLOY BELOW WAS CHECKED AT 23:36 UTC and covers sessions 287–289 up to §0ac: Pushed and deployed by David
 > 2026-09-08; CHECKED HERE at 23:36 UTC, and checked the way §0ze demands rather than by the
 > script exiting 0.** This block has carried a wrong deploy claim five days running, every time
 > written by the session that had just changed it — so here is exactly what was measured:
