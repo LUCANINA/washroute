@@ -62,33 +62,44 @@
 > calls (`bank_transactions` by amount+date, then by id for lines) answer the same question in
 > seconds. Reach for that before declaring Xero unreadable.
 >
-> ### 0zg. ⛔ `reconciliation-run` IS STILL THE OLD CODE — the deploy did not take (session 281)
+> ### 0zg. ✅ `reconciliation-run` IS LIVE — content-verified (session 281, 2026-09-08 ~01:15 UTC)
 >
-> David deployed from his terminal and pressed reconcile on 2026-09-08. **The run is real
-> (`087862bb`, 01:01:36 UTC, complete). The code it ran is not the current one.**
+> **It took two attempts and the first one silently did not, which is the part worth keeping.**
 >
-> **Proved by ROWS, not by a version number** — the method §0z asks for:
-> session 279's `2df7667` writes `closed_on` and `closed_after_entries` into `loan_tie_outs.detail`
-> on every `explained` row (`walkToClosure`, index.ts +114/+115). This run produced four `explained`
-> rows — including `61178562` with **three** entries after its anchor, the exact multi-payment case
-> that change exists for — and **not one carries either field**. Every detail is still the old
-> `net_after_anchor` / `residual_after_later` shape.
+> Attempt 1: David deployed and pressed reconcile. The run was real (`087862bb`, 01:01:36 UTC,
+> complete) and ran the OLD code. Caught by ROWS: session 279's `2df7667` writes `closed_on` and
+> `closed_after_entries` into `loan_tie_outs.detail` on every `explained` row, and none of that
+> run's four explained rows carried either field — including `61178562` with three entries after
+> its anchor, the exact multi-payment case the change exists for.
 >
-> The function itself is fine: a no-auth POST answers **403 in its own words**, so it booted, and
-> `verify_jwt` is still `false`. Nothing was broken; nothing was shipped. The CLI most likely failed
-> on authentication (`npx supabase` needs a login or `SUPABASE_ACCESS_TOKEN`) — **read what the
-> terminal printed rather than assuming the command worked.**
+> Attempt 2 (after David re-ran the CLI): **verified by CONTENT, by diffing the deployed file
+> against the copy pulled before the deploy.**
 >
+> | String in the DEPLOYED source | before | after |
+> |---|---|---|
+> | `walkToClosure` | 0 | 3 |
+> | `closed_after_entries` | 0 | 4 |
+> | `gap-closure` | 0 | 4 |
+>
+> Zero then, present now — a version number can coincide, an absent line appearing cannot. A no-auth
+> POST answers **403 in its own words**, so it booted and `verify_jwt` is still `false`.
+>
+> ⏭️ **The row-level proof is still outstanding: no run has happened under the new code.** Every
+> verdict on screen right now is from run `087862bb`, i.e. the old walk. Press reconcile, then
+> confirm at least one `explained` tie-out carries `closed_on` — that is the proof that survives a
+> version-number coincidence, and it is one query:
+> ```sql
+> select count(*) from loan_tie_outs
+>  where run_id = (select id from reconciliation_runs order by created_at desc limit 1)
+>    and detail ? 'closed_on';
 > ```
-> npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-> ```
-> `_shared/loan-bundle-plan.ts` is in the same commit; `loan-bundle` already redeployed after it
-> (2026-09-06 21:48 UTC) and has it. `reconciliation-run` is the only one behind.
 >
-> ⏭️ **This is the ninth day this block has carried a wrong deploy claim, and the first time the row
-> check caught it before it cost a session.** Build the Actions workflow
-> (`docs/washroute/DESIGN-RELEASE-PIPELINE.md` §6, Part C) — it needs the `SUPABASE_ACCESS_TOKEN`
-> repository secret, which is David's side and may already be done.
+> 💡 **The lesson is the cheap check, not the failure.** Two `get_edge_function` pulls either side of
+> a deploy, grepped for one identifier the new code introduces, settles "is it live" in seconds
+> without waiting for a job to run. Use it on any function whose change is not immediately visible
+> in data.
+>
+> `main` = **`ea65e9b`**, pushed (`git ls-remote` against the real remote, not the tracking ref).
 >
 > ### 0zf. ✅ THE RELEASE PIPELINE IS BUILT. CLAUDE CAN PUSH. (session 280, 2026-09-07)
 >
@@ -4087,14 +4098,20 @@ to "what is running".
 
 Two findings, and the second is the one worth keeping.
 
-**1. `reconciliation-run` ran, on the old code.** David deployed from his terminal and pressed
-reconcile; the run is genuine (`087862bb`, 01:01:36 UTC, complete) and the code is the 09-04
-build. Caught by ROWS: session 279's change writes `closed_on`/`closed_after_entries` into
-`loan_tie_outs.detail` on every `explained` row, and none of this run's four explained rows —
+**1. `reconciliation-run` needed two deploys, and the first one failed silently.** David deployed
+and pressed reconcile; the run was genuine (`087862bb`, 01:01:36 UTC, complete) and the code was
+the 09-04 build. Caught by ROWS: session 279's change writes `closed_on`/`closed_after_entries`
+into `loan_tie_outs.detail` on every `explained` row, and none of that run's four explained rows —
 including one with three entries after its anchor, the precise case the change was written for —
-carries either field. A version number would not have told us this; the absent field did. The
-function booted fine (403 in its own words, `verify_jwt` still false), so nothing was harmed. Ninth
-day in a row this block has held a wrong deploy claim, first time it was caught the same hour.
+carried either field. A version number would not have told us this; the absent field did.
+
+He re-ran the CLI and it is now live, **verified by content**: diffing the deployed source either
+side of the deploy, `walkToClosure` / `closed_after_entries` / `gap-closure` went 0 → 3/4/4. Still
+403 in its own words, `verify_jwt` still false. Ninth day in a row this block has held a wrong
+deploy claim, and the first time it was caught within the hour rather than costing the next session.
+
+**The cheap check, worth adopting:** two `get_edge_function` pulls either side of a deploy, grepped
+for one identifier the new code introduces. Seconds, and it does not wait for a job to run.
 
 **2. E4-9744's lender balance has been frozen for three months, and the whole Ford diagnosis on
 that loan rests on it.**
