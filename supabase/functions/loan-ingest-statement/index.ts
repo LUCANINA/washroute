@@ -437,10 +437,37 @@ async function handleRequest(req: Request): Promise<Response> {
       payoff_amount, payoff_good_thru, total_amount_due, payment_due_date,
       csv_filename, csv_base64, pulled_by, transactions, explicit_split,
       anchors_only, balance_basis, allow_settled_loan_write,
+      split_period_label,
     } = body
 
     if (!lender_account_number || !statement_date || principal_balance == null || !csv_base64) {
       return new Response(JSON.stringify({ error: 'lender_account_number, statement_date, principal_balance, csv_base64 are required' }), { status: 400 })
+    }
+
+    // ── THE STATEMENT'S DATE AND THE SPLIT'S MONTH ARE TWO FACTS (session 281) ──
+    //
+    // They coincide on every lender whose statement prints one date and describes
+    // that date's balance, which is why one value served both for twenty-odd
+    // versions. They do NOT coincide on a monthly BILLING statement, which states a
+    // balance current as of the billing date while its "past payment summary"
+    // describes the month just ended. iBusiness is exactly that shape: a 09/03
+    // statement carrying a 09/03 balance and August's applied split.
+    //
+    // The client used to reconcile the two by dating the whole ROW a month back
+    // (`YYYY-MM-01`) -- putting the split in the right period by putting the BALANCE
+    // on the wrong date, and a balance's date is what every lender comparison
+    // anchors on. One row cannot carry two as-of dates. So the caller may now state
+    // the split's period explicitly and the statement keeps its own real date.
+    //
+    // DERIVED WHEN ABSENT, so every existing caller is byte-for-byte unchanged.
+    // VALIDATED, never trusted: `loan_splits` is keyed on (loan_account_id,
+    // period_label), so a malformed label does not fail -- it silently creates a
+    // split in a period nobody is looking at.
+    const splitPeriod = String(split_period_label ?? '') || String(statement_date).slice(0, 7)
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(splitPeriod)) {
+      return new Response(JSON.stringify({
+        error: `split_period_label must be YYYY-MM, got "${String(split_period_label ?? '')}"`,
+      }), { status: 400 })
     }
 
     const role = await callerRole(req)
@@ -557,13 +584,19 @@ async function handleRequest(req: Request): Promise<Response> {
     // about the PERIOD, not about which route the statement arrived by.
     const closeDate = await effectiveCloseDate(supa)
     const closedFor = (label: string) => isPeriodClosed(label, closeDate.date)
-    if (closeDate.date && closedFor(statement_date.slice(0, 7))) {
+    // Session 281: keyed on splitPeriod, NOT statement_date. Identical for every
+    // caller that does not pass split_period_label. It has to be the split's own
+    // period or the guard checks a month the work was never going to land in --
+    // a 09/03 statement whose split belongs to August would sail past a gate on an
+    // August close and raise the approval this block exists to prevent. The comment
+    // above already says the rule is about the PERIOD; this makes the code say it.
+    if (closeDate.date && closedFor(splitPeriod)) {
       return new Response(JSON.stringify({
         ok: true,
         statement: { id: stmt.id, statement_date: stmt.statement_date, principal_balance: stmt.principal_balance },
         closed_period: true,
         splits_created: [],
-        note: closedNote(closeDate, statement_date.slice(0, 7)),
+        note: closedNote(closeDate, splitPeriod),
       }), { headers: { 'Content-Type': 'application/json' } })
     }
 
@@ -810,7 +843,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // v21: EXPLICIT SPLIT -- see the version note at the top of this file. Runs
       // instead of (not in addition to) the statement_delta path below, and does not
       // require `prior` to exist.
-      const periodLabel = statement_date.slice(0, 7) // 'YYYY-MM'
+      const periodLabel = splitPeriod // session 281: statement date, or the caller's stated period
       const principalAmount = money(Number(explicit_split.principal))
       const interestAmount = money(Number(explicit_split.interest))
       const totalAmount = money(principalAmount + interestAmount)
@@ -891,7 +924,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const interestPaid = totalDue != null ? Math.round((totalDue - principalPaid) * 100) / 100 : null
 
       if (totalDue && totalDue > 0) {
-        const periodLabel = statement_date.slice(0, 7) // 'YYYY-MM'
+        const periodLabel = splitPeriod // session 281: statement date, or the caller's stated period
 
         // 4. Cross-check against an amortization schedule for this loan+period, if one exists.
         let status = 'pending_review'

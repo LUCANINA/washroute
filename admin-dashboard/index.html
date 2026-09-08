@@ -13096,6 +13096,7 @@
   let _loanUploadParsedAcctNum = null;
   let _loanUploadParsedTransactions = null; // { payments: [{date, amount}], fees: [{date, amount}] } from a PDF parser, if any
   let _loanUploadParsedExplicitSplit = null; // { principal, interest } from a PDF parser, if any (session 220 cont. further)
+  let _loanUploadParsedSplitPeriod = null; // 'YYYY-MM' when the statement's own date is NOT the split's month (session 281)
   let _loanUploadParsedBalanceBasis = null; // 'principal_only' from a PDF parser whose statement labels its own balance (session 256, round 7)
 
   // ONE place decides what the basis control says, so the three callers cannot
@@ -22773,6 +22774,7 @@ ${noActivityNote}
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
+    _loanUploadParsedSplitPeriod = null;
     _loanUploadParsedBalanceBasis = null;
     _liSetBasisControl(null, false);
     _loanUploadParsedBulkPeriods = null;
@@ -23192,8 +23194,20 @@ ${noActivityNote}
         const [mm, , yyyy] = billingDate[1].split('/');
         let py = Number(yyyy), pm = Number(mm) - 1;
         if (pm === 0) { pm = 12; py -= 1; }
+        // ── ONE ROW, TWO DATES -- SAY BOTH (session 281) ────────────────────
+        // This used to date the whole row `${py}-${pm}-01` so the SPLIT landed in
+        // the month the payment happened. It did, and it put the BALANCE on a date
+        // it was never true on: "Current Principal Balance" is current as of the
+        // BILLING date, after that month's payment. Live cost -- the 09/03/2026
+        // statement filed as 2026-08-01 carrying 65,173.94, and the tie-out then
+        // compared Xero's 1 August against a 3 September figure and reported a
+        // $1,085.87 exception that was pure date misalignment.
+        // The statement now carries its own printed date and the split's period is
+        // stated separately (loan-ingest-statement `split_period_label`, session
+        // 281). Neither fact is inferred from the other any more.
         return {
-          statementDate: `${py}-${String(pm).padStart(2, '0')}-01`,
+          statementDate: _mdyToIso(billingDate[1]),
+          splitPeriodLabel: `${py}-${String(pm).padStart(2, '0')}`,
           principalBalance: principalBalance[1].replace(/,/g, ''),
           accountNumber: loanNum[1],
           // "Current Principal Balance" -- iBusiness's own label. Session 256,
@@ -23494,6 +23508,7 @@ ${noActivityNote}
     _loanUploadParsedAcctNum = null;
     _loanUploadParsedTransactions = null;
     _loanUploadParsedExplicitSplit = null;
+    _loanUploadParsedSplitPeriod = null;
     _loanUploadParsedBalanceBasis = null;
     _liSetBasisControl(null, false);
     _loanUploadParsedBulkPeriods = null;
@@ -23564,6 +23579,17 @@ ${noActivityNote}
                 statementDate: row.Statement_Date,
                 principalBalance: row.Principal_Balance,
                 accountNumber: row.Account_Number,
+                // The COLUMN IS THE LABEL. This branch only fires when a header
+                // named `Principal_Balance` is present -- the same test every
+                // other parser here applies to a lender's printed wording, and
+                // the strongest form of it, because a column header is the
+                // lender naming the field rather than a phrase near a number.
+                // Omitting this was the only parser of the six that read a
+                // basis and declined to record it: three Ford CSVs (4140 08-28,
+                // E5-4751 08-23, E6-7410 08-20) filed balance_basis='unknown'
+                // and were excluded from every lender comparison, so the close
+                // anchored on documents eleven days older. Session 281.
+                balanceBasis: 'principal_only',
                 totalAmountDue: row.Total_Amount_Due ? Number(row.Total_Amount_Due) : null,
                 paymentDueDate: row.Payment_Due_Date || null,
               };
@@ -23661,6 +23687,7 @@ ${noActivityNote}
       if (browserParsed.paymentDueDate) document.getElementById('li-due-date').value = browserParsed.paymentDueDate;
       _loanUploadParsedTransactions = browserParsed.transactions || null;
       _loanUploadParsedExplicitSplit = browserParsed.explicitSplit || null;
+      _loanUploadParsedSplitPeriod = browserParsed.splitPeriodLabel || null;
       _loanUploadParsedBalanceBasis = browserParsed.balanceBasis || null;
       _liSetBasisControl(_loanUploadParsedBalanceBasis, true);
       _loanUploadParsedAcctNum = browserParsed.accountNumber || null;
@@ -24059,6 +24086,7 @@ ${noActivityNote}
         pulled_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
         transactions: _loanUploadParsedTransactions || undefined,
         explicit_split: _loanUploadParsedExplicitSplit || undefined,
+        split_period_label: _loanUploadParsedSplitPeriod || undefined,
         balance_basis: balanceBasis || _loanUploadParsedBalanceBasis || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');

@@ -2,6 +2,45 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 281, 2026-09-08)
 >
+> ### 0zi. ✅ THE FOUR UNLABELLED BALANCES ARE GONE, AND BOTH ROOT CAUSES ARE FIXED (session 281)
+>
+> **Data:** the four real-lender rows carrying `balance_basis='unknown'` are now `principal_only`,
+> each on documentary proof David supplied, not on inference:
+>
+> | Loan | Date | Balance | Proof |
+> |---|---|---|---|
+> | Ford 4140 | 08-28 | 10,685.52 | the CSV's own `Principal_Balance` column |
+> | Ford E5-4751 | 08-23 | 29,302.52 | same |
+> | Ford E6-7410 | 08-20 | 22,168.92 | same |
+> | iBusiness/FC | 08-03 | 66,215.03 | the NEXT statement foots it: 66,215.03 − 1,041.09 ("Past Payment Summary → Principal, last month") = 65,173.94, its stated Current Principal Balance. Exact. |
+>
+> **Zero unlabelled lender documents remain on the book.** That closes §0w's long-running item.
+>
+> **Effect, measured on run `165a8141`** — every one of the four now anchors on its newest document:
+>
+> | Loan | before | after |
+> |---|---|---|
+> | **Ford E6-7410** | explained 470.64 @08-09 | **tied 0.00 @08-20** |
+> | Ford 4140 | 415.88 @08-17 | 415.88 @**08-28** |
+> | Ford E5-4751 | 266.42 @08-12 | 266.42 @**08-23** |
+> | iBusiness | 1,085.87 @08-01 | 44.78 @**08-03** |
+>
+> E6-7410 was the control loan and now ties to the cent against its own current statement. The two
+> Ford gaps are unchanged, which is the right result — they are the catch-up bug, now measured
+> against current evidence instead of documents eleven days older.
+>
+> ⚠️ **A NUMBER I OVERSTATED, on the record because the reasoning matters.** I called the $1,085.87
+> "the largest unexplained gap on the book". David: *"I don't see a $1000+ gap on iBusiness in the
+> Loans page."* He was right. That figure lives on the TIE-OUT row, which anchors on a document
+> date; the close band walks to month end and had been showing **+60.16** all along. Two surfaces,
+> two honest numbers, and I quoted the one nobody acts on as though it were the one he reads. Check
+> which surface a number appears on before calling it the biggest thing on the book.
+>
+> ⏭️ **Still open on this thread:** the existing iBusiness row remains dated 2026-08-01 against its
+> document's 09/03 billing date. It is no longer the anchor (08-03 outranks it now), so it is not
+> doing harm — but it is wrong, and correcting it makes it the newest document and the anchor again.
+> Fix the row deliberately, with a re-run, not as a tidy-up.
+>
 > ### 0zh. ⚠️ E4-9744 — I CALLED THE LENDER BALANCE STALE. IT IS NOT. (session 281, corrected)
 >
 > **The retraction is the point of this block. Read it before §0y.**
@@ -4094,6 +4133,87 @@ to "what is running".
 ---
 
 ---
+
+---
+
+### Session 281 cont. (2026-09-08) — TWO DATES ON ONE ROW, AND A COLUMN THAT WAS ITS OWN LABEL
+
+David, before letting me write anything down: *"next month, will my uploads stick (unlike this time
+around)?"* The right question, and answering it honestly found the two defects below.
+
+**The window had already closed, and that is why this was not a leak.** `0dc4b94` (2026-09-06 00:44)
+made the upload form refuse an unlabelled balance — *"Say what that balance measures."* All four bad
+rows predate it; the newest, Ford 4140's 08-28, was ingested **2026-09-03, three days before the
+fix**. So nothing was bleeding; a window was open and is shut.
+
+#### FIX 1 — THE FORD CSV PARSER READ A BASIS AND DECLINED TO RECORD IT
+
+Six lender parsers set `balanceBasis`. Five said `'principal_only'`. The Ford CSV branch did not —
+**on the one format whose own header names the field**:
+
+```js
+if (row.Principal_Balance && row.Account_Number && row.Statement_Date) {   // ← keyed on the header
+  browserParsed = { statementDate: …, principalBalance: row.Principal_Balance, … }  // ← no basis
+```
+
+A column header is the strongest form of the test the other five apply to printed wording: the
+lender naming the field, rather than a phrase sitting near a number. Cost: three CSVs filed
+`unknown`, excluded from every lender comparison, and the close anchored on documents eleven days
+older than the ones on file. One line.
+
+#### FIX 2 — A BILLING STATEMENT CARRIES TWO AS-OF DATES AND THE ROW COULD ONLY HOLD ONE
+
+`loan-ingest-statement` derives the split's period from the statement's date
+(`statement_date.slice(0,7)`). True of every lender that prints one date and describes that date's
+balance. **Not true of a monthly billing statement**, which states a balance current as of the
+BILLING date while its "past payment summary" describes the month just ended. iBusiness is exactly
+that: a 09/03 statement carrying a 09/03 balance and August's applied split.
+
+The client reconciled the two by dating the whole ROW back a month (`${py}-${pm}-01`) — putting the
+split in the right period **by putting the balance on a date it was never true on**. Measured cost:
+the 09/03/2026 statement filed as **2026-08-01** carrying 65,173.94, so the tie-out compared Xero's
+1 August against a 3 September figure and reported a **$1,085.87 exception that was pure date
+misalignment**. Session 245's rule — *a date is measured or asked for, never inferred* — breached at
+the ingest, by a line whose comment explains its own good intentions.
+
+**The fix separates the two facts instead of choosing between them.** `loan-ingest-statement` takes
+an optional `split_period_label` (`YYYY-MM`); the statement keeps its own printed date. Verified
+against the real PDF: old → `2026-08-01`; new → statement `2026-09-03`, split period `2026-08`,
+balance 65,173.94 on the date it is true, split 1,041.09 / 992.68 in the month it happened.
+
+⚠️ **AND THE GUARD HAD TO MOVE WITH IT.** The close gate keyed on `statement_date.slice(0,7)`, one
+branch above every split path. Left alone, a 09/03 statement whose split belongs to August would
+sail past a gate on an August close and raise the approval that block exists to prevent. It now
+keys on the split's own period — identical for every caller that passes no label, and the block's
+own comment already said *"the rule is about the PERIOD"*. Session 231's lesson, caught before
+shipping rather than after.
+
+**Derived when absent, validated when given.** Every existing caller is byte-identical.
+`loan_splits` is keyed on `(loan_account_id, period_label)`, so a malformed label would not fail —
+it would silently create a split in a period nobody is looking at. Hence the 400.
+
+#### 🔴 THE SUITE IS NOT 1-RED. IT IS 17-RED, AND SESSION 280'S COUNT IS WRONG
+
+Session 280 recorded *"2,159 browser assertions, 2,158 passing… the single red is Tech Debt #19."*
+Measured today across 46 groups in two halves: **693 assertions in the groups run, 676 passing, 17
+red across 11 groups** — `cold-boot` and `loader-failure` among them, which is the page failing to
+come up at all in those groups.
+
+**Every one reproduces on HEAD** (`WR_INDEX=` pointed at `git show HEAD:admin-dashboard/index.html`,
+same groups, same 14 + same 3). None are from this session. They are session 280's own
+`Computed → Books` / `Closing → Lender` rename: the harness's `colIx()` still asks for a "Computed"
+column and throws when the header is "Books". The reader's *key* names were deliberately kept —
+that part is in the notes — but the *header lookups* were not all followed, and `--list` used to
+omit seventeen groups, which is how a run could report green over this.
+
+**Being the session that did the rename is not evidence the suite is green** — the same shape as the
+deploy claims in §0z, one surface over. Verify a suite by running it, and run it against HEAD when
+you need to know whose red it is. ⏭️ **Fix `colIx` before trusting any count in this file.**
+
+**What was checked here:** `deno check` on the edge function — 6 errors, byte-identical to HEAD's
+6 (pre-existing `feeInXero` / `principal_balance` typings), so the change adds none;
+`node --check` on the extracted SPA scripts; `dashboard-syntax` 17/17, `edge-function-syntax` 8/8,
+`audit-regressions` 33/33, `evidence-gate` 37/37, `gap-closure` 18/18, `copy-budget` 38/38.
 
 ---
 
