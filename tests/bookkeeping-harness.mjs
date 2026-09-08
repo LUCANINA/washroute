@@ -486,6 +486,12 @@ function readSurfaces() {
                // the kind of drift this reader exists to catch.
                lender: lenderEl ? lenderEl.textContent.replace(/\s+/g, ' ').trim() : att(tr, 'data-lender'),
                lenderAttr: att(tr, 'data-lender'),
+               // The account key the row was rendered FOR (xero_account_name, or
+               // the lender's account number when there is no Xero name). A
+               // scenario that wants to perturb "this row" has to find the row's
+               // own account in the fixture, and matching on the displayed text
+               // cannot do it: the loan cell concatenates name and lender.
+               loanAttr: att(tr, 'data-loan'),
                // Every row now carries the sentence the detail line prints on
                // hover. It is the only home the moved facts have on screen, so
                // an assertion that a fact is still REACHABLE reads it here.
@@ -1305,9 +1311,33 @@ GROUPS.push({
     // does NOT carry this, therefore the Loans column may never be quietly
     // dropped as a duplicate of something Overview shows.
     {
+      /* ⚠️ "A LOAN THAT ALSO HAS AN ISSUE" IS NOW ESTABLISHED, NOT HOPED FOR
+         (session 287). This flagged the FIRST staged split in the fixture and
+         called it "deliberately a loan that ALSO has a variance issue" — true on
+         the day, and nowhere enforced. After the refresh that split's loan had no
+         Issues row, so the item was NOT suppressed and the assertion went red
+         reporting the suppression as gone, when what had changed was which loan
+         happened to be first. The loan is chosen by ASKING the page which loans
+         carry Issues, and the opposite case is asserted straight after. */
+      const probe = await newHarnessPage({ tab: 'overview' });
+      const issueLoans = await probe.evaluate(() =>
+        _bkIssueQueueItems().map(i => _bkIssueLoanId(i)).filter(Boolean));
+      await probe.close();
+      t.ok(issueLoans.length > 0,
+           'the book has a loan carrying an Issue to test the suppression against',
+           String(issueLoans.length));
+
       const p = await newHarnessPage({ tab: 'overview', mutate: (d) => {
-        // Deliberately a loan that ALSO has a variance issue — the suppressed case.
-        const sp = d.loan_splits.find(x => x.status === 'staged');
+        const ids = new Set(issueLoans);
+        let sp = d.loan_splits.find(x => x.status === 'staged' && ids.has(x.loan_account_id));
+        if (!sp) {
+          // None today: stage one on such a loan rather than testing a different
+          // situation and calling it this one.
+          sp = d.loan_splits.find(x => ids.has(x.loan_account_id) &&
+            (x.status === 'pending_review' || x.status === 'posted'));
+          if (sp) { sp.status = 'staged'; sp.stage_reference = 'WR-STAGE harness'; }
+        }
+        if (!sp) return;
         sp.stage_sweep_flag = 'duplicate_suspected';
         d.__loan = (d.loan_accounts.find(a => a.id === sp.loan_account_id) || {}).xero_account_name;
       } });
@@ -1330,6 +1360,28 @@ GROUPS.push({
            'DOCUMENTED: a flagged stage on a loan that already has an Issue reaches NO Overview queue — which is why the Loans Staging column is the only guaranteed surface for it',
            `issues ${seen.inIssues}, approvals ${seen.inApprovals}`);
       await p.close();
+
+      /* ...AND THE SUPPRESSION IS ABOUT THE ISSUE, NOT ABOUT STAGE FLAGS.
+         The same flag on a loan with NO Issues row does reach Approvals. Without
+         this half, the assertion above is equally satisfied by a page that has
+         quietly stopped routing stage flags anywhere at all — which is the
+         failure it is meant to be documenting the shape of. */
+      const clean = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+        const ids = new Set(issueLoans);
+        const sp = d.loan_splits.find(x => x.status === 'staged' && !ids.has(x.loan_account_id));
+        if (sp) sp.stage_sweep_flag = 'duplicate_suspected';
+        d.__loan = sp ? (d.loan_accounts.find(a => a.id === sp.loan_account_id) || {}).xero_account_name : null;
+      } });
+      const other = await clean.evaluate(() => ({
+        who: window.__WR_FIXTURE.__loan,
+        inApprovals: _bkApprovalQueueItems().filter(i => /^stage-/.test(i.key)).length,
+      }));
+      if (other.who) {
+        t.ok(other.inApprovals >= 1,
+             '...while the same flag on a loan with no Issue DOES reach Approvals — the suppression is the Issue, not the stage',
+             JSON.stringify(other));
+      }
+      await clean.close();
     }
 
     // ── (g) the column sorts ─────────────────────────────────────────────────
@@ -1550,10 +1602,42 @@ GROUPS.push({
          polluted.map(c => `"${c.text}"`).join(' · '));
 
     // ...and the claim still exists, one hover away and in the export.
-    const qualified = moneyCells.filter(c => /covers \d+ of the \d+ loans|not measured/i.test(c.title));
+    /* ⚠️ PARTIAL COVERAGE IS CONSTRUCTED NOW (session 287).
+       This asserted that SOME total on the live book was partial, which was true
+       while a loan had nothing to close against. The refresh brought August's
+       missing documents in, coverage went complete, and the assertion went red
+       because the book improved — a test that fails when the data gets better is
+       testing the data. The claim is about the RENDERER: when a total covers
+       fewer loans than the table holds, it says so on hover. So the case is made
+       rather than waited for. */
+    const stripped = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      // Take one active loan's closing evidence away — its opening stays, so the
+      // row is still counted and still rolls forward, and only the CLOSING total
+      // covers fewer loans than the table does.
+      const a = d.loan_accounts.find(x => x.status === 'active' &&
+        d.loan_statements.some(st => st.loan_account_id === x.id));
+      d.loan_statements = d.loan_statements.filter(st =>
+        !(st.loan_account_id === a.id && st.statement_date >= '2026-08-01'));
+      d.loan_amortization_rows = d.loan_amortization_rows.filter(r =>
+        !(r.loan_amortization_schedules && r.loan_amortization_schedules.loan_account_id === a.id));
+    } });
+    const pTotals = await stripped.evaluate(() => {
+      const tr = document.querySelector('#lcb-table tfoot tr');
+      return tr ? [...tr.children].map(td => ({ key: td.getAttribute('data-col'),
+        amount: td.getAttribute('data-amount'), title: td.getAttribute('title') || '' })) : [];
+    });
+    await stripped.close();
+    const qualified = pTotals.filter(c => /covers \d+ of the \d+ loans|not measured/i.test(c.title));
     t.ok(qualified.length > 0,
-         'a partial total still says so on hover — the claim moved, it was not deleted',
-         qualified.map(c => c.text).join(' · ') || 'none qualified');
+         'a partial total says so on hover — the claim moved, it was not deleted',
+         qualified.map(c => `${c.key}: ${c.title.slice(0, 80)}`).join(' · ') || 'none qualified');
+    /* AND THE OTHER HALF: a total that covers everything says nothing. Without
+       this, a renderer that qualified every total unconditionally would pass. */
+    const liveQualified = moneyCells.filter(c => /covers \d+ of the \d+ loans/i.test(c.title));
+    const liveCounts = totals && totals.rowAttrs;
+    t.ok(!(liveCounts && liveCounts.count === liveCounts.closing) || liveQualified.length === 0,
+         '...and a total that covers every loan carries no such qualifier',
+         `counts ${JSON.stringify(liveCounts)}; qualified ${liveQualified.map(c => c.key || c.text).join(', ')}`);
     t.ok(totals && totals.rowAttrs.count && totals.rowAttrs.closing,
          'and the counts remain in the row attributes the CSV export reads',
          JSON.stringify(totals && totals.rowAttrs));
@@ -1667,11 +1751,46 @@ GROUPS.push({
       .filter(([, v]) => v.real && v.basis !== 'amortization_schedule')
       .map(([k]) => k)
       .filter(n => seen.rows.some(r => r.loan === n));
-    t.ok(shouldMark.length > 0,
-         `at least one loan has a genuine schedule it is not closing on (${shouldMark.join(', ')}) — the marker assertion is not vacuous`);
+    /* Live data may or may not contain this shape — on 2026-09-08 it contains
+       none, because every loan holding a genuine lender schedule now closes on
+       one. That is a fact about the book, so it is REPORTED rather than
+       asserted, and the rule itself is proved on a constructed case below. */
     t.ok(shouldMark.every(n => marked.includes(n)),
-         'a loan holding a genuine lender schedule but closed on statements is marked',
-         `expected ${shouldMark.join(', ')}; marked ${marked.join(', ') || 'none'}`);
+         'every loan holding a genuine lender schedule but closed on statements is marked',
+         `expected ${shouldMark.join(', ') || '(none on this book today)'}; marked ${marked.join(', ') || 'none'}`);
+
+    /* ⭐ THE CASE, MADE (session 287). This used to demand the live book supply a
+       loan with a real lender schedule that it closes on statements. The refresh
+       left none, and the vacuity guard did exactly what it was for — it said the
+       marker assertion above had nothing to bite on. The answer to a guard that
+       fires is to supply the case, not to delete the guard: a genuine schedule is
+       planted on a statement-closed loan and the marker must appear. */
+    {
+      const planted = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const a = d.loan_accounts.find(x => x.status === 'active'
+          && String(x.close_basis || '') === 'lender_statement'
+          && d.loan_amortization_rows.some(r => r.loan_amortization_schedules
+              && r.loan_amortization_schedules.loan_account_id === x.id));
+        if (!a) return;
+        d.loan_amortization_rows.forEach(r => {
+          const sc = r.loan_amortization_schedules;
+          if (sc && sc.loan_account_id === a.id) {
+            sc.source = 'claude_assisted_parse';
+            sc.amort_type = 'amortization_schedule';
+          }
+        });
+        d.__loan = a.xero_account_name;
+      } });
+      const who = await planted.evaluate(() => window.__WR_FIXTURE.__loan);
+      const marks = await planted.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr')]
+        .filter(tr => tr.querySelector('[data-col="source"] .lcb-basis-alt'))
+        .map(tr => (tr.querySelector('.td-name') || {}).innerText || ''));
+      t.ok(!!who, 'a statement-closed loan with schedule rows exists to plant on', String(who));
+      t.ok(!who || marks.some(n => n.includes(who)),
+           '⭐ a loan holding a genuine lender schedule but closed on statements is marked',
+           `${who} — marked: ${marks.join(', ') || 'none'}`);
+      await planted.close();
+    }
 
     // A LOAN WHOSE ONLY PARSED ARTEFACT IS A PAYMENT HISTORY IS NOT MARKED.
     // PayPal 2 is that loan: its CSV parses like a contract and records what was
@@ -1879,9 +1998,52 @@ GROUPS.push({
     // never offered a one-click journal. Booking it to make the books agree
     // would hide the reason rather than find it — the reasoning that produced
     // the v14/v15 payroll double-count.
+    //
+    /* ⚠️ SESSION 287: THIS ASSERTED THE BAND, AND THE BAND STOPPED BEING THE TEST.
+       It read `band === 'unbooked'`, which was a fair proxy while `r.unbooked`
+       was the only branch returning a post action. Session 273 added a second
+       one deliberately — a loan carrying splits PREPARED BUT NOT IN XERO offers
+       "Review & post" whatever the dollar difference does, because the Status
+       column had already decided that unposted outranks a dollar agreement and
+       the two halves of a row must not contradict each other. No row had both an
+       unposted split and a non-unbooked band until the fixture refresh, so this
+       assertion sat green over a rule it no longer described, and then went red
+       on EIDL SBA Loan (immaterial band, two splits waiting) — reporting the
+       shipped design as a defect.
+
+       The claim it was written to protect is untouched and is now asserted
+       directly: a post action requires something PREPARED — an unposted split or
+       an unbooked explanation — never a bare disagreement. Read from the
+       rollforward rather than from the band, so it says what it means. */
     const postsOffered = seen.rows.filter(r => r.action === 'post');
-    t.ok(postsOffered.every(r => r.band === 'unbooked'),
-         'a "post" action appears ONLY where unposted payments already explain the difference',
+    const prepared = await p.evaluate(() => {
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const out = {};
+      rf.rows.forEach(r => {
+        out[r.a.xero_account_name || r.a.lender_account_number || ''] =
+          { unposted: (r.unposted || []).length, unbooked: !!r.unbooked, band: r.band };
+      });
+      return out;
+    });
+    const unearned = postsOffered.filter(r => {
+      const q = prepared[r.loan] || {};
+      return !(q.unposted > 0 || q.unbooked);
+    });
+    t.ok(unearned.length === 0,
+         'a "post" action appears ONLY where something is already prepared to post',
+         unearned.map(r => `${r.loan}: band=${r.band}, nothing waiting`).join(' · '));
+    /* AND IT DISCRIMINATES. Every row that has nothing prepared must be offering
+       something OTHER than post — without this, the assertion above is satisfied
+       by a page that offers no post buttons at all. */
+    const couldHave = seen.rows.filter(r => {
+      const q = prepared[r.loan] || {};
+      return !(q.unposted > 0 || q.unbooked) && r.band !== 'tie' && r.action;
+    });
+    t.ok(couldHave.every(r => r.action !== 'post'),
+         '...and the rows with nothing waiting are offered a different route entirely',
+         couldHave.map(r => `${r.loan}=${r.action}`).join(' · '));
+    t.ok(postsOffered.length > 0,
+         '...on a book that does offer the post route somewhere — the rule is not vacuous',
          postsOffered.map(r => `${r.loan}: band=${r.band}`).join(' · '));
 
     await p.close();
@@ -2695,18 +2857,29 @@ GROUPS.push({
       if (!a) throw new Error('no statement-closed active loan in the fixture');
       a.statement_date_basis = over.basis;
       const proto = d.loan_statements.find(st => st.loan_account_id === a.id);
-      const mk = (filed, bal, reason) => Object.assign(JSON.parse(JSON.stringify(proto)), {
+      /* ⚠️ `balance_as_of: null` IS LOAD-BEARING (session 287).
+         These rows are cloned from a real one and then overridden field by field,
+         so every field NOT named here is inherited — and production started
+         filing `balance_as_of` on this loan's statements (it is how a lender that
+         dates by due date says what its balance is actually as of). The clone
+         therefore gave all three synthetic rows an as-of of 2026-08-24, every
+         case anchored on that, and six assertions went red about figures.
+         A scenario whose SUBJECT is "what date is this balance as of" must state
+         that field rather than inherit it; the explicit-as-of case below covers
+         the non-null half deliberately. */
+      const mk = (filed, bal, reason, asOf) => Object.assign(JSON.parse(JSON.stringify(proto)), {
         id: 'harness-' + filed + '-' + Math.random().toString(36).slice(2, 8),
         loan_account_id: a.id, statement_date: filed, principal_balance: bal,
         source: 'portal_manual_pull', balance_basis: 'principal_only',
         payoff_amount: null, anchor_exclusion_reason: reason,
+        balance_as_of: asOf === undefined ? null : asOf,
       });
       d.loan_statements = d.loan_statements.filter(st => st.loan_account_id !== a.id);
       // The opening, so the row is checkable at all.
       d.loan_statements.push(mk(PRIOR_MONTH_END, 67240.74, null));
       // Filed on the FIRST of the month. Under period_start its balance is true
       // at MONTH_END; under balance_date it is true on the 1st.
-      d.loan_statements.push(mk(`${MONTH}-01`, TRUE_BAL, null));
+      d.loan_statements.push(mk(`${MONTH}-01`, TRUE_BAL, null, over.trueAsOf));
       // The due notice, filed on the 3rd, restating the prior closing figure.
       d.loan_statements.push(mk(`${MONTH}-03`, DUE_NOTICE, over.excludeNotice
         ? 'Not a balance as of this date: a payment-due notice restating the prior period closing figure.' : null));
@@ -2744,6 +2917,15 @@ GROUPS.push({
       { name: 'NEITHER armed still reproduces the old wrong answer',
         over: { basis: 'balance_date', excludeNotice: false },
         expect: DUE_NOTICE },
+      /* ⭐ THE THIRD MECHANISM, AND THE ONE PRODUCTION NOW USES (session 287).
+         A statement that STATES what its balance is as of does not need either of
+         the two above: no exclusion, no period-start basis, and the payment-due
+         notice filed two days later still loses. This is how EIDL's statements
+         are filed today, and it is what the fixture refresh revealed by breaking
+         the four cases that had inherited the field by accident. */
+      { name: 'an explicit balance_as_of outranks a later-filed notice',
+        over: { basis: 'balance_date', excludeNotice: false, trueAsOf: MONTH_END },
+        expect: TRUE_BAL, expectAsOf: MONTH_END_SHORT },
     ];
 
     for (const c of CASES) {
@@ -3350,62 +3532,135 @@ GROUPS.push({
       await p.close();
     }
     // ── s236: the close-band variance total is ABSOLUTE, never signed ──
+    //
+    // ⭐ SESSION 287: THIS SCENARIO NOW PLANTS ITS OWN OFFSETTING PAIR.
+    //
+    // It used to add +415.88 to `live[0]` and −415.88 to `live[1]` — whichever
+    // two splits production happened to put first in last month. Everything the
+    // discriminator needed was therefore borrowed from the book: that the two
+    // splits sat on DIFFERENT loans, that both rows landed in an unexplained
+    // band, and above all that the resulting residuals had OPPOSITE SIGNS,
+    // without which a signed total and an absolute one agree and the test proves
+    // nothing. Session 285 perturbed those incidental splits and this correctly
+    // went red — a fixture refresh must not be able to do that again.
+    //
+    // So the pair is now CONSTRUCTED, in three renders:
+    //   1. MEASURE the book as it stands (no mutation).
+    //   2. PROBE: move one chosen row by a known $415.88 and check the residual
+    //      moves by exactly that — proof the plant reaches the number under test,
+    //      and it is also how the direction of the effect is learned rather than
+    //      assumed.
+    //   3. PLANT: ±(the heaviest existing residual + $415.88) on two DIFFERENT
+    //      loans. Sizing the counterweight to what was measured is what makes the
+    //      opposition guaranteed instead of lucky: the plant dominates whatever
+    //      each row already carried, so one row must end positive and the other
+    //      negative whatever the book looks like on the day.
+    //
+    // MEASURED, NEVER DERIVED, applied to a test's own premise.
     {
-      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-        // Push two checkable loans equal and opposite; a signed total would read $0.00.
-        const now = new Date(HARNESS_NOW); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
-        const live = d.loan_splits.filter(sp => String(sp.period_label || '').slice(0, 7) === MONTH && sp.status !== 'voided' && sp.status !== 'staged');
-        if (live[0]) live[0].principal_amount = Number(live[0].principal_amount) + 415.88;
-        if (live[1]) live[1].principal_amount = Number(live[1].principal_amount) - 415.88;
-      } });
-      const s = await p.surfaces();
-      // This asserted 0 === 0 for its whole life. Every row rendered "$0.00 ✓",
-      // so parseMoney gave a list of zeros, absSum was 0, and the footer's
-      // "$0.00" parsed to 0 — the test passed without ever exercising the
-      // absolute-value rule it exists to protect. The session-241 redesign made
-      // ties print nothing, which turned the silent pass into a visible null and
-      // is the only reason anyone looked. Reading the numbers the renderer held
-      // makes it a real check: the mutation below puts a genuine +/-415.88 on
-      // two loans, and a signed sum would cancel to zero where an absolute one
-      // does not.
-      const cbx = s.loans.closeBand;
-      const rowVars = cbx.rows.map(r => r.varianceN).filter(x => x != null);
-      const absSum = rowVars.reduce((n, x) => n + Math.abs(x), 0);
-      t.ok(rowVars.length > 0, 's236: the rollforward rows actually report a variance to total');
-      // Session 246 split the footer by grade, so "the total" is now the sum
-      // across the subtotal rows. Reading footVarianceN alone reads grade A's
-      // line only — which happens to be right today because both grade-B rows
-      // are a tie and a circular row, and would silently under-report the moment
-      // a schedule-closed loan carried a real variance.
-      // Session 247 removed the per-grade footer rows, so there is one total to
-      // check and it is checked straight against the table. The footer sums
-      // UNEXPLAINED variance only — a tie contributes nothing and an 'unbooked'
-      // difference is owned by the posting gate — so the row-side sum is taken
-      // over the same two bands rather than over every non-null figure. Reading
-      // it any wider would make this assertion drift the first time an unbooked
-      // row appears, and drift in a test is indistinguishable from a bug.
-      const unexplainedRows = cbx.rows.filter(r => r.band === 'immaterial' || r.band === 'material');
-      /* THE RESIDUAL, not the raw figure. Session 272 gave a row a second way to
-         be partly explained (a closing anchor dated before payments booked in the
-         month), and on such a row the two differ — PayPal 2 reads −$9,429.39 raw
-         and $21.66 unexplained. The footer sums what is still UNEXPLAINED, which
-         is the honest quantity for a total headed "to resolve", so the row-side
-         sum has to be taken on the same basis. Reading `varianceN` here made this
-         assertion demand that the footer publish money it had just explained. */
-      const absUnexplained = unexplainedRows.reduce((n, r) => n + Math.abs(r.varianceResidualN ?? r.varianceN), 0);
-      t.ok(unexplainedRows.length >= 2,
-           's236: the scenario really did put a variance on more than one loan',
-           `${unexplainedRows.length} rows carry an unexplained variance`);
-      t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceN || 0)), absUnexplained, 0.05,
-        's236: the close-band variance total is the sum of ABSOLUTE row variances');
-      // The signed sum would cancel the +415.88 against the −415.88 this
-      // scenario plants; the absolute one cannot. That is the whole point.
-      const signedSum = unexplainedRows.reduce((n, r) => n + (r.varianceResidualN ?? r.varianceN), 0);
-      t.ok(Math.abs(absUnexplained - Math.abs(signedSum)) > 100,
-           's236: ...and the scenario really would have cancelled under a signed total',
-           `absolute ${absUnexplained} vs signed ${signedSum}`);
-      await p.close();
+      const UNEXP  = (r) => r.band === 'immaterial' || r.band === 'material';
+      const resid  = (r) => (r.varianceResidualN ?? r.varianceN);
+      const now = new Date(HARNESS_NOW); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
+      const acctKey = (a) => (a.xero_account_name || a.lender_account_number || '');
+      const liveSplits = (d, acctId) => (d.loan_splits || []).filter(sp =>
+        sp.loan_account_id === acctId &&
+        String(sp.period_label || '').slice(0, 7) === MONTH &&
+        sp.status !== 'voided' && sp.status !== 'staged');
+      // Returns false rather than throwing when there is nothing to move, so a
+      // scenario that cannot be planted FAILS AN ASSERTION saying so instead of
+      // rendering an unplanted page and quietly asserting against the book.
+      const plant = (d, key, amount) => {
+        const a = (d.loan_accounts || []).find(x => acctKey(x) === key);
+        if (!a) return false;
+        const sp = liveSplits(d, a.id)[0];
+        if (!sp) return false;
+        sp.principal_amount = Number(sp.principal_amount) + amount;
+        return true;
+      };
+
+      /* 1 ── the book as it stands */
+      const p0 = await newHarnessPage({ tab: 'loans' });
+      const base = (await p0.surfaces()).loans.closeBand;
+      await p0.close();
+
+      const plantable = (base.rows || []).filter(r => r.loanAttr &&
+        (baseFixture.loan_accounts || []).some(a => acctKey(a) === r.loanAttr &&
+          liveSplits(baseFixture, a.id).length));
+      t.ok(plantable.length >= 2,
+           's236: the fixture offers two loans with a live split to plant on',
+           `${plantable.length} plantable of ${(base.rows || []).length} rows in ${MONTH}`);
+      if (plantable.length >= 2) {
+        // The heaviest residual anywhere on the band — the counterweight has to
+        // outweigh it, not merely exist.
+        const heaviest = (base.rows || []).filter(UNEXP)
+          .reduce((m, r) => Math.max(m, Math.abs(Number(resid(r)) || 0)), 0);
+        const STEP  = 415.88;
+        const PLANT = Math.round((heaviest + STEP) * 100) / 100;
+        const A = plantable[0], B = plantable[1];
+
+        /* 2 ── probe: does moving a split move the figure, and which way? */
+        const pp = await newHarnessPage({ tab: 'loans', mutate: (d) => { plant(d, A.loanAttr, STEP); } });
+        const probeRow = ((await pp.surfaces()).loans.closeBand.rows || [])
+          .find(r => r.loanAttr === A.loanAttr);
+        await pp.close();
+        const moved = probeRow ? (Number(resid(probeRow)) || 0) - (Number(resid(A)) || 0) : 0;
+        t.close(Math.abs(moved), STEP, 0.02,
+          's236: planting $415.88 on a split moves that row’s residual by exactly $415.88',
+          `${A.loanAttr}: ${resid(A)} -> ${probeRow ? resid(probeRow) : 'row gone'}`);
+        const dir = moved >= 0 ? 1 : -1;   // measured, not assumed
+
+        /* 3 ── the pair, sized to the book */
+        const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+          plant(d, A.loanAttr,  dir * PLANT);
+          plant(d, B.loanAttr, -dir * PLANT);
+        } });
+        const cbx = (await p.surfaces()).loans.closeBand;
+        const rowVars = cbx.rows.map(r => r.varianceN).filter(x => x != null);
+        t.ok(rowVars.length > 0, 's236: the rollforward rows actually report a variance to total');
+
+        const rowA = cbx.rows.find(r => r.loanAttr === A.loanAttr);
+        const rowB = cbx.rows.find(r => r.loanAttr === B.loanAttr);
+        t.ok(!!rowA && !!rowB && UNEXP(rowA) && UNEXP(rowB),
+             's236: both planted loans land in an unexplained band',
+             `${A.loanAttr}=${rowA && rowA.band} ${B.loanAttr}=${rowB && rowB.band}`);
+        // THE PREMISE, ASSERTED RATHER THAN HOPED FOR. Without opposite signs a
+        // signed total and an absolute one agree, and the assertion below could
+        // not fail however the footer was computed.
+        t.ok(!!rowA && !!rowB && (Number(resid(rowA)) * Number(resid(rowB))) < 0,
+             's236: the planted pair really does point in opposite directions',
+             `${A.loanAttr}=${rowA && resid(rowA)} ${B.loanAttr}=${rowB && resid(rowB)} (plant ${PLANT})`);
+
+        // Session 246 split the footer by grade, so "the total" is now the sum
+        // across the subtotal rows. Session 247 removed the per-grade footer
+        // rows, so there is one total and it is checked straight against the
+        // table. The footer sums UNEXPLAINED variance only — a tie contributes
+        // nothing and an 'unbooked' difference is owned by the posting gate — so
+        // the row-side sum is taken over the same two bands rather than over
+        // every non-null figure.
+        //
+        // THE RESIDUAL, not the raw figure. Session 272 gave a row a second way
+        // to be partly explained (a closing anchor dated before payments booked
+        // in the month), and on such a row the two differ. Reading `varianceN`
+        // here made this assertion demand that the footer publish money it had
+        // just explained.
+        const unexplainedRows = cbx.rows.filter(UNEXP);
+        const absUnexplained = unexplainedRows.reduce((n, r) => n + Math.abs(resid(r)), 0);
+        t.ok(unexplainedRows.length >= 2,
+             's236: the scenario really did put a variance on more than one loan',
+             `${unexplainedRows.length} rows carry an unexplained variance`);
+        t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceN || 0)), absUnexplained, 0.05,
+          's236: the close-band variance total is the sum of ABSOLUTE row variances');
+        // The signed sum cancels the pair this scenario planted; the absolute one
+        // cannot. The gap is at least twice the plant BY CONSTRUCTION now, so
+        // this compares against the figure the scenario chose rather than against
+        // a round number that happened to hold on the day it was written.
+        const signedSum = unexplainedRows.reduce((n, r) => n + resid(r), 0);
+        t.ok(absUnexplained - Math.abs(signedSum) > PLANT,
+             's236: ...and the scenario really would have cancelled under a signed total',
+             `absolute ${absUnexplained} vs signed ${signedSum}, plant ${PLANT}`);
+        await p.close();
+      }
     }
     // ── s240 #21: an "all clear" has to say as of when ──
     {
@@ -4122,9 +4377,27 @@ GROUPS.push({
 GROUPS.push({
   name: 'roster-orphan-findings',
   async run(t) {
-    const p = await newHarnessPage({ tab: 'overview', mutate: (d) => {
-      d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan').status = 'paid_off';
-    } });
+    /* ⚠️ THE ERROR IS PLANTED NOW (session 287).
+       This scenario is about an INACTIVE loan's findings surviving — and the one
+       it leaned on was Funding Circle's real open balance error. The gap has
+       since shrunk to $60.16, so reconciliation-run files it as `info`, and two
+       assertions went red plus the control: the surviving item was an info-
+       severity row the control's regression does not filter, so "the findings
+       vanish" was false for a reason that had nothing to do with the roster.
+       A scenario about how an ERROR is treated has to supply one. Everything
+       else here still reads whatever the book holds. */
+    const orphan = (d) => {
+      const fc = d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan');
+      fc.status = 'paid_off';
+      const proto = (d.reconciliation_findings || []).find(f => f.check_key === 'balance_vs_lender')
+                 || d.reconciliation_findings[0];
+      d.reconciliation_findings.push(Object.assign(JSON.parse(JSON.stringify(proto)), {
+        id: 'harness-fc-open-error', loan_account_id: fc.id, status: 'open', severity: 'error',
+        check_key: 'balance_vs_lender',
+        title: 'Funding Circle Loan — Xero is $4,120.55 above the lender',
+      }));
+    };
+    const p = await newHarnessPage({ tab: 'overview', mutate: orphan });
     await p.evaluate(() => _bkSetOverviewSeg('approvals'));
     // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
     await p.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
@@ -4177,9 +4450,7 @@ GROUPS.push({
     // Issues, Approvals, and the "N need attention" headline all key off it),
     // which is exactly the shape that would silently drop an inactive loan's
     // findings the way the pre-257 roster did.
-    const p2 = await newHarnessPage({ tab: 'overview', mutate: (d) => {
-      d.loan_accounts.find(x => x.xero_account_name === 'Funding Circle Loan').status = 'paid_off';
-    } });
+    const p2 = await newHarnessPage({ tab: 'overview', mutate: orphan });
     await p2.evaluate(() => _bkSetOverviewSeg('approvals'));
     // CAP=5 truncates Approvals by default; expand so DOM checks see everything the array does.
     await p2.evaluate(() => { if (!_bkOvQueueExpanded.approvals) _bkToggleQueueExpand(); });
@@ -4203,8 +4474,21 @@ GROUPS.push({
         const fc = (_allLoanAccounts || []).find(a => a.xero_account_name === 'Funding Circle Loan');
         return _bkApprovalQueueItems().filter(it => _bkIssueLoanId(it) === fc.id).map(it => it.name);
       });
-      t.eq(b.length, 0,
-           'r2 CONTROL: with the hypothetical filter installed, the inactive loan\'s findings vanish from Approvals',
+      /* SCOPED TO WHAT THE REGRESSION ACTUALLY GOVERNS (session 287).
+         This read `b.length === 0`, which was true while every Funding Circle
+         finding came through _bkLoanAttentionItems' error/warn branch. An `info`
+         finding reaches the queue by a SECOND, deliberate path —
+         _bkReconInfoFindings, the muted "real but nothing to do" list — so once
+         the live error softened to info, an item survived the patch and the
+         control failed while proving nothing about the roster. The claim is that
+         the ERROR the filter governs disappears, and that is what is asserted;
+         the info path is named here so the next reader does not mistake its
+         survival for the bug. */
+      t.ok(!b.some(n => /\$4,120\.55 above the lender/.test(String(n))),
+           'r2 CONTROL: with the hypothetical filter installed, the inactive loan\'s error vanishes from Approvals',
+           JSON.stringify(b));
+      t.ok(b.every(n => !/harness/i.test(String(n))),
+           'r2 CONTROL: ...and anything left is from the separate info path, not the attention items',
            JSON.stringify(b));
     }
     await p2.close();
@@ -8525,14 +8809,26 @@ GROUPS.push({
       for (const a of (_allLoanAccounts || []).filter(x => x.status === 'active')) {
         const v = _bkRosterState(a);
         if (v.group !== 'variance' && v.group !== 'immaterial') continue;
-        if (fn(a, v)) named.push(a.xero_account_name);
+        // ALSO record whether we already hold a real lender document for the loan
+        // being asked — which is the actual complaint, not the headcount.
+        if (fn(a, v)) named.push({ name: a.xero_account_name,
+          held: _VARIANCE_REAL_ANCHORS.includes(String(v.anchorSource || '')) });
       }
       return { installed: true, named };
     });
     t.ok(flood.installed, 'k3: the month-end rule could be reinstated');
-    t.ok(flood.named.length >= 5,
-         'k3: ⭐ ...and the CPA’s table fills with requests for statements we already hold — so k2 discriminates',
-         `${flood.named.length}: ${flood.named.join(', ')}`);
+    /* ⚠️ WAS `>= 5` — the size of the flood on the book of the day (session 287).
+       The refresh brought August's documents in, the same regression now names
+       three loans, and the assertion went red over a number that was never the
+       point. The claim is that the old rule asks for statements WE ALREADY HOLD;
+       that is now stated directly, and the count only has to be non-zero for k2
+       to have something to discriminate against. */
+    t.ok(flood.named.length >= 1,
+         'k3: ⭐ ...and the CPA’s table fills with asks the shipped rule does not make — so k2 discriminates',
+         `${flood.named.length}: ${flood.named.map(x => x.name).join(', ')}`);
+    t.ok(flood.named.every(x => x.held),
+         'k3: ⭐ ...and every one of them is a request for a statement already on file',
+         flood.named.filter(x => !x.held).map(x => x.name).join(', ') || 'all held');
 
     /* ── 4. THE SURFACE THAT SHOULD CARRY THE ASK (Tech Debt #32) ─────────
      * The chore belongs to the business owner in the Client View, not to the
@@ -8550,17 +8846,56 @@ GROUPS.push({
         clientText: el ? el.innerText : '',
       };
     });
-    t.ok(both.awaiting.length >= 1,
-         'k4: the gate names at least one outstanding document', both.awaiting.join(', '));
+    /* The checklist prints "1 of 13 statements outstanding", so the count is the
+       LEADING number — stripping every non-digit turns that into 113, which is
+       how this assertion first went red on a page that was perfectly correct. */
+    const leadingCount = (txt) => Number((String(txt).trim().match(/^\d+/) || [0])[0]);
+
+    /* ⚠️ THE OUTSTANDING DOCUMENT IS CONSTRUCTED (session 287).
+       This demanded the live book be missing one, which it was — until the
+       refresh, when every August statement was in and the gate correctly went to
+       zero. A test that needs the paperwork to be late is a test that fails when
+       the business does well. The agreement between the two surfaces is asserted
+       in BOTH states now: at zero on the live book, and on a month with a
+       document deliberately withheld. */
+    t.eq(both.awaiting.length, leadingCount(both.clientCount),
+         'k4: ⭐ the gate and the client checklist count the same — one question, one answer',
+         `checklist "${both.clientCount}" vs gate ${both.awaiting.length}`);
     for (const name of both.awaiting) {
       t.ok(both.clientText.includes(name),
            `k4: ⭐ the client’s own checklist names it too: ${name}`);
     }
-    t.ok(both.clientCount.includes(String(both.awaiting.length)),
-         'k4: ⭐ ...and counts the same number the gate does — one question, one answer',
-         `${both.clientCount} vs gate ${both.awaiting.length}`);
-
     await p.close();
+
+    /* THE WITHHELD DOCUMENT. One loan's August statement removed: the gate must
+       name it, and the checklist must name the same one and count it. */
+    const short = await newHarnessPage({ tab: 'overview', mutate: (d) => {
+      const gap = d.loan_accounts.find(a => a.status === 'active'
+        && String(a.close_basis || '') === 'lender_statement'
+        && d.loan_statements.some(st => st.loan_account_id === a.id && st.statement_date >= '2026-08-01'));
+      if (!gap) return;
+      d.loan_statements = d.loan_statements.filter(st =>
+        !(st.loan_account_id === gap.id && st.statement_date >= '2026-08-01'));
+      d.__loan = gap.xero_account_name;
+    } });
+    const withheld = await short.evaluate(() => {
+      const gate = _bkStatementGate(_cvLastMonth());
+      renderClientChecklist();
+      const el = document.getElementById('cv-checklist');
+      const count = document.getElementById('cv-checklist-count');
+      return { who: window.__WR_FIXTURE.__loan, awaiting: gate.awaiting.map(r => r.name),
+               clientCount: count ? count.textContent : '', clientText: el ? el.innerText : '' };
+    });
+    t.ok(withheld.awaiting.length >= 1,
+         'k4: with a statement withheld, the gate names the outstanding document',
+         `${withheld.who} — gate says ${withheld.awaiting.join(', ') || 'nothing'}`);
+    t.ok(withheld.awaiting.every(n => withheld.clientText.includes(n)),
+         'k4: ⭐ ...and the client checklist names every one the gate does',
+         withheld.awaiting.filter(n => !withheld.clientText.includes(n)).join(', '));
+    t.eq(withheld.awaiting.length, leadingCount(withheld.clientCount),
+         'k4: ⭐ ...and counts the same number — one question, one answer',
+         `${withheld.clientCount} vs gate ${withheld.awaiting.length}`);
+    await short.close();
   },
 });
 
@@ -8933,10 +9268,27 @@ GROUPS.push({
     }
     t.eq(Object.keys(out).length, Object.keys(EXPECTED).length,
          'and no active loan is missing from that table');
-    t.eq(out['Funding Circle Loan'].delta, 4976.80,
-         '⭐ Funding Circle\'s real duplication survives the fix unchanged');
-    t.eq(out['E-Transit Loan E4 -9744'].delta, -4903.21,
-         '⭐ ...and so does E4-9744\'s incomplete history');
+    /* ⚠️ THESE WERE THE TWO DELTAS TRANSCRIBED (session 287): $4,976.80 and
+       −$4,903.21, true on 2026-09-03. Both loans are live, so both figures move
+       with every payment — Funding Circle reads $3,935.71 today — and the
+       assertion went red without a line of product code changing.
+
+       The claim was never the figure. It is that the fix took nothing away from
+       these two loans: their discrepancies are real, and a change that quietly
+       tidied either one would be a regression wearing a fix's clothes. That is
+       what the fix DOES — it excludes zero-cash reclassifications and drafts
+       dated outside the anchors — so "untouched" is exactly "nothing of either
+       kind was excluded here", which is on the result and cannot go stale. */
+    for (const name of ['Funding Circle Loan', 'E-Transit Loan E4 -9744']) {
+      const r = out[name];
+      t.ok(r && Math.abs(r.delta) > 0.005,
+           `⭐ ${name}'s real discrepancy is still there, in full`, JSON.stringify(r));
+      t.eq(r && r.reclassifiedRows, 0,
+           `⭐ ...and the fix excluded no reclassification from it`, JSON.stringify(r));
+      t.eq(r && r.outsideAnchorsRows, 0,
+           `⭐ ...nor any draft outside its anchors — so its delta is untouched by the fix`,
+           JSON.stringify(r));
+    }
 
     /* ── 4. THE CONSEQUENCE THE OWNER SEES ────────────────────────────────
      * `over` is not a label, it is a suppression: a loan carrying one is
@@ -9450,6 +9802,11 @@ GROUPS.push({
           splits: x.staleAnchor.splits, principal: x.staleAnchor.principal,
           raw: x.staleAnchor.rawVariance, residual: x.staleAnchor.residual,
           variance: x.variance, band: x.band,
+          closing: x.perLender && x.perLender.amount,
+          // The page's OWN banding function, applied to each figure. Recomputing
+          // the threshold here would be a second copy of the rule to keep true.
+          bandOfResidual: _closeVarianceBand(x.staleAnchor.residual, x.perLender && x.perLender.amount),
+          bandOfRaw: _closeVarianceBand(x.staleAnchor.rawVariance, x.perLender && x.perLender.amount),
         })),
         judgedNames: r.judged.map(x => x.a.xero_account_name),
         offNames: r.off.map(x => x.a.xero_account_name),
@@ -9492,9 +9849,19 @@ GROUPS.push({
          'only loans whose splits carry their own DAY can be stale-anchored — an undated payment is not evidence',
          monthlyAsking.join(', '));
 
-    const pp2 = rf.stale.find(x => /Paypal 2/i.test(x.name || ''));
-    t.ok(!!pp2, 'PayPal 2 is one of them', JSON.stringify(rf.stale.map(x => x.name)));
+    /* ⭐ SESSION 287: THE SUBJECT IS WHICHEVER ROW THE BOOK PUTS THERE.
+       These assertions used to name PayPal 2. PayPal 2 got its September
+       statement, so it is not stale-anchored any more and seven assertions went
+       red while the rule they describe worked perfectly — Stripe Capital is the
+       row now. The properties below are true of ANY stale-anchor row, so they are
+       asserted against the heaviest one the live book supplies. PayPal 2's own
+       numbers have not been dropped: the second page below rebuilds its August
+       state exactly and keeps every one of them under test. */
+    const pp2 = rf.stale.slice().sort((a, b) => Math.abs(b.raw) - Math.abs(a.raw))[0];
+    t.ok(!!pp2, 'the book supplies a stale-anchor row to examine',
+         JSON.stringify(rf.stale.map(x => x.name)));
     if (pp2) {
+      console.log(`        ${C.y}subject:${C.x} ${pp2.name}`);
       t.ok(pp2.asOf < pp2.monthEnd, `its anchor (${pp2.asOf}) predates the month end (${pp2.monthEnd})`);
       t.ok(pp2.splits >= 1, `${pp2.splits} payment(s) were booked after that date`, JSON.stringify(pp2));
       /* THE RAW FIGURE STAYS. Review found that nulling the variance took the row
@@ -9504,12 +9871,26 @@ GROUPS.push({
          kept, explanation subtracted, leftover banded normally. */
       t.ok(pp2.variance != null && Math.abs(pp2.variance - pp2.raw) < 0.02,
            'the raw variance is kept, not nulled', String(pp2.variance));
-      t.eq(pp2.band, 'immaterial',
-           'and the BAND is taken on the leftover ($21.66), so the row goes quiet without going missing');
+      /* THE BAND IS TAKEN ON THE LEFTOVER. This asserted `immaterial` — true of
+         PayPal 2's $21.66 and of nothing else in particular; on Stripe Capital the
+         leftover is $1,208.74 and material is the correct answer. The claim was
+         never about the word: it is that the band is computed on the RESIDUAL and
+         not on the raw difference. That is asserted directly now, by recomputing
+         it with the page's own function, so the assertion means the same thing on
+         whichever row the month hands it. */
+      t.eq(pp2.band, pp2.bandOfResidual,
+           'and the BAND is taken on the leftover, so the row goes quiet without going missing',
+           `residual ${pp2.residual} bands ${pp2.bandOfResidual}; raw ${pp2.raw} would band ${pp2.bandOfRaw}`);
       // NOTHING IS DELETED: the raw figure and the late principal both survive,
       // and the residual is the honest leftover a reader can check by subtracting.
-      t.ok(Math.abs(pp2.raw) > 1000, 'the raw difference is still recorded on the row', String(pp2.raw));
-      t.ok(Math.abs(pp2.principal) > 1000, 'so is the principal booked after the anchor', String(pp2.principal));
+      /* Was `> 1000` on both — PayPal 2's magnitudes, not the rule's. The claim is
+         that neither figure is thrown away, and a threshold that happens to hold
+         on one loan cannot say that. A stale anchor is DEFINED by at least one
+         payment booked after it, so the principal is non-zero by construction and
+         asserting that is asserting the definition rather than a coincidence. */
+      t.ok(pp2.raw != null, 'the raw difference is still recorded on the row', String(pp2.raw));
+      t.ok(pp2.principal != null && Math.abs(pp2.principal) > 0.005,
+           'so is the principal booked after the anchor', String(pp2.principal));
       t.ok(Math.abs(pp2.raw + pp2.principal - pp2.residual) < 0.02,
            'and the residual is exactly raw + late principal — the reader can do the subtraction',
            `${pp2.raw} + ${pp2.principal} vs ${pp2.residual}`);
@@ -9524,14 +9905,16 @@ GROUPS.push({
          to the cent — and it is exactly the information a reader wants: the late
          payments were NOT the story here, so look further. A residual that grew
          is a signal, not a failure, so this asserts the number, not a direction. */
-      t.ok(Math.abs(pp2.residual) < 100,
-           'on PayPal 2 the late payments explain all but a rounding difference',
-           `residual ${pp2.residual} against a raw ${pp2.raw}`);
-
       t.ok(rf.judgedNames.includes(pp2.name),
            'it STAYS among the loans checked — the denominator does not shrink');
-      t.ok(!rf.offNames.includes(pp2.name),
-           'but it is no longer reported as off, because nothing material is left');
+      /* Was "it is no longer reported as off, because nothing material is left" —
+         which is only true of a row whose leftover is immaterial. The rule is
+         that OFF follows the leftover, in both directions: a row that still has
+         something material left must keep blocking, or the ask would be a way of
+         closing a month over a real difference. */
+      t.eq(rf.offNames.includes(pp2.name), pp2.band === 'material',
+           'and it is reported as off exactly when the leftover is material',
+           `${pp2.name} band=${pp2.band} residual=${pp2.residual}`);
     }
 
     // THE ROW SAYS SO ON SCREEN, and the footer names the population — a
@@ -9549,10 +9932,21 @@ GROUPS.push({
       }));
       return { rows, footer: el.textContent };
     });
-    const pp2Row = screen.rows.find(x => /Paypal 2/i.test(x.loan));
-    t.ok(!!pp2Row, 'the PayPal 2 row renders a stale-anchor cell', JSON.stringify(screen.rows.map(x => x.loan)));
-    t.ok(/statement/i.test(pp2Row ? pp2Row.text : ''),
-         'the cell asks for a statement rather than printing a figure', pp2Row && pp2Row.text);
+    const pp2Row = screen.rows.find(x => pp2 && x.loan === pp2.name);
+    t.ok(!!pp2Row, 'the subject row renders a stale-anchor cell',
+         `looking for ${pp2 && pp2.name} in ${JSON.stringify(screen.rows.map(x => x.loan))}`);
+    /* BOTH HALVES, because they are one rule. A leftover that is immaterial hands
+       the cell over to the ask; a material one keeps its figure and does not hide
+       behind it (the loop below asserts that across every rendered row). Asserting
+       only the first half made the test demand the ask on a row the product is
+       right to leave red — which is what it did the moment the subject changed. */
+    if (pp2Row && pp2Row.band === 'material') {
+      t.ok(!/needs .* statement/i.test(pp2Row.text || ''),
+           'a material leftover keeps its figure rather than hiding behind the ask', pp2Row.text);
+    } else {
+      t.ok(/statement/i.test(pp2Row ? pp2Row.text : ''),
+           'the cell asks for a statement rather than printing a figure', pp2Row && pp2Row.text);
+    }
     t.ok(/Ask for statement/i.test(pp2Row ? pp2Row.action : ''),
          'and the Action column offers the ask — the button the whole feature is for', pp2Row && pp2Row.action);
     t.ok(/booked after that date/.test(pp2Row ? pp2Row.hint : ''), 'the hover states the cause',
@@ -9568,11 +9962,50 @@ GROUPS.push({
     t.ok(/waiting on a statement dated at or after/.test(screen.footer),
          'the footer names the population so the denominator is visible');
 
+    /* ⭐ THE ROW THAT STARTED THIS SESSION, REBUILT (session 287).
+       PayPal 2's August closed against a 2026-08-05 statement while three later
+       payments were booked: −$9,429.39 on screen, of which $9,451.05 was the
+       stale document and $21.66 was real. The September statement has since
+       arrived, so the live book cannot show this any more — and simply deleting
+       the assertions would delete the only record of the finding the rule exists
+       for. The state is CONSTRUCTED instead: remove the documents that came
+       later, and August is exactly the month David screenshotted. */
+    const old = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      d.loan_statements = d.loan_statements.filter(st =>
+        !(st.loan_account_id === 'f3aa83c5-6078-4847-ada3-d2214fa07c08' &&
+          st.statement_date > '2026-08-31'));
+    } });
+    const oldRow = await old.evaluate(() => {
+      renderLoansCloseBand();
+      const rf = _loanCloseRollforward(_cvLastMonth());
+      const r = rf.rows.find(x => /Paypal 2/i.test(x.a.xero_account_name || ''));
+      const td = [...document.querySelectorAll('#loans-close-band td[data-stale-anchor]')]
+        .find(x => /Paypal 2/i.test(x.closest('tr').getAttribute('data-loan') || ''));
+      return { stale: !!r.staleAnchor, raw: r.staleAnchor && r.staleAnchor.rawVariance,
+               principal: r.staleAnchor && r.staleAnchor.principal,
+               residual: r.staleAnchor && r.staleAnchor.residual, band: r.band,
+               asOf: r.anchor && r.anchor.asOf,
+               inJudged: rf.judged.some(x => /Paypal 2/i.test(x.a.xero_account_name || '')),
+               inOff: rf.off.some(x => /Paypal 2/i.test(x.a.xero_account_name || '')),
+               text: td && td.textContent.trim(),
+               action: td && td.closest('tr').lastElementChild.textContent.trim() };
+    });
+    t.eq(oldRow.stale, true, 'PayPal 2 in its August state is stale-anchored', JSON.stringify(oldRow));
+    t.eq(oldRow.asOf, '2026-08-05', '...against the five-day-old document');
+    t.close(oldRow.raw, -9429.39, 0.05, '...raw −$9,429.39, the figure on the screenshot');
+    t.close(oldRow.residual, 21.66, 0.05, '...of which $21.66 is actually left over');
+    t.eq(oldRow.band, 'immaterial', '...so it bands immaterial — quiet, not missing');
+    t.eq(oldRow.inJudged, true, '...and stays in the denominator');
+    t.eq(oldRow.inOff, false, '...without blocking the close');
+    t.ok(/statement/i.test(oldRow.text || ''), '...the cell asks for the document', oldRow.text);
+    t.ok(/Ask for statement/i.test(oldRow.action || ''), '...and the Action column offers the ask', oldRow.action);
+
     /* IT DISCRIMINATES. Rebuild the shipped _loanCloseRollforward with the
-       stale-anchor test disabled and confirm PayPal 2 comes back as a red
-       material variance — the row David screenshotted. Done via toString() in
-       page context, never by editing index.html. */
-    const inverse = await p.evaluate(() => {
+       stale-anchor test disabled and confirm that same row comes back as a red
+       material variance. Done via toString() in page context, never by editing
+       index.html — and on the reconstructed month, so it is the real finding
+       being reproduced rather than a general property standing in for it. */
+    const inverse = await old.evaluate(() => {
       const src = _loanCloseRollforward.toString();
       const anchorTxt = 'const staleAnchor = (_lateSplits.length';
       if (!src.includes(anchorTxt)) return { applied: false };
@@ -9589,9 +10022,11 @@ GROUPS.push({
     t.ok(inverse.applied, 'the inverse mutation applied', JSON.stringify(inverse));
     if (inverse.applied) {
       t.ok(inverse.variance != null, 'without the test, the row prints a variance again', JSON.stringify(inverse));
+      t.close(inverse.variance, -9429.39, 0.05, '...the whole −$9,429.39, stale document and all');
       t.eq(inverse.band, 'material', 'and it is red and material — the row that started this session');
       t.eq(inverse.inOff, true, 'and it blocks the close');
     }
+    await old.close();
 
     t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
     await p.close();
@@ -9606,31 +10041,28 @@ GROUPS.push({
    was on file the whole time and answers the question properly once walked back
    over the two payments in between.
 
-   THE FIXTURE PREDATES THAT STATEMENT (pulled 2026-09-03 15:17; the statement was
-   filed at 17:14 the same day), so this group injects the real row rather than
-   trusting a stale fixture to show the improvement — a stale fixture is a blind
-   suite, not a safe one. Every figure below is production data, not invented. */
+   SESSION 287: THE FIXTURE HAS CAUGHT UP AND THE INJECTION IS GONE. It used to
+   push the 2026-09-02 statement and post the staged split by hand, because the
+   fixture was pulled at 15:17 on 2026-09-03 and the statement was filed at 17:14
+   the same day. Both are real rows now ($46,144.59 portal_manual_pull; the split
+   posted when the sweep matched it), so the main scenario runs on the book
+   unmutated.
+
+   ⚠️ AND THE TWO VARIANTS BELOW NOW BUILD THEIR OWN STATE. They used to get it
+   from the fixture for free — "still staged" and "no later document" were simply
+   true on 2026-09-03 — so the refresh that made them false turned five assertions
+   red without a line of product code changing. A scenario that borrows its
+   premise from whatever production happened to be doing is the same defect as a
+   test that transcribes a figure: it passes for a reason it never states. Each
+   variant now says what it needs and makes it so. Every figure below is
+   production data, not invented. */
 GROUPS.push({
   name: 'rollback-beats-stale',
   async run(t) {
     const PP2 = 'f3aa83c5-6078-4847-ada3-d2214fa07c08';
-    const inject = (d) => {
-      d.loan_statements.push({
-        id: 'harness-pp2-0902', loan_account_id: PP2, statement_date: '2026-09-02',
-        principal_balance: 46144.59, source: 'portal_manual_pull', balance_basis: 'principal_only',
-        total_amount_due: null, payment_due_date: null, storage_path: null, payoff_amount: null,
-        payoff_good_thru: null, pulled_at: null, pulled_by: null, created_at: null, file_sha256: null,
-      });
-      /* The 2026-09-02 split is ALREADY in the fixture, staged. Production posted
-         it on 2026-09-04 when the stage sweep matched it in Xero, so this brings
-         the fixture to today's real state rather than adding a second payment —
-         which would have double-counted the walk. */
-      const sep = d.loan_splits.find(sp =>
-        sp.loan_account_id === PP2 && String(sp.period_label) === '2026-09-02');
-      if (sep) { sep.status = 'posted'; sep.stage_reference = null; sep.staged_at = null; }
-    };
+    const laterThanAugust = (st) => st.loan_account_id === PP2 && st.statement_date > '2026-08-31';
 
-    const p = await newHarnessPage({ tab: 'loans', mutate: inject });
+    const p = await newHarnessPage({ tab: 'loans' });
     const errs = [];
     p.page.on('pageerror', e => errs.push('pageerror: ' + e.message));
 
@@ -9698,12 +10130,13 @@ GROUPS.push({
        does its job in the meantime. Both halves are correct, and which one you get
        depends on a real fact about the books rather than on a preference. */
     const staged = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-      d.loan_statements.push({
-        id: 'harness-pp2-0902b', loan_account_id: PP2, statement_date: '2026-09-02',
-        principal_balance: 46144.59, source: 'portal_manual_pull', balance_basis: 'principal_only',
-        total_amount_due: null, payment_due_date: null, storage_path: null, payoff_amount: null,
-        payoff_good_thru: null, pulled_at: null, pulled_by: null, created_at: null, file_sha256: null,
-      });
+      /* Put the 2026-09-02 payment back into the state it was in when this rule
+         was written: STAGED — a transaction exists in Xero, the money has not
+         moved. Production posted it on 2026-09-04, so the fixture no longer
+         supplies this state and the scenario has to create it. */
+      const sep = (d.loan_splits || []).find(sp =>
+        sp.loan_account_id === PP2 && String(sp.period_label) === '2026-09-02');
+      if (sep) { sep.status = 'staged'; sep.stage_reference = 'WR-STAGE A00845102 2026-09-02'; }
     } });
     const stagedRow = await staged.evaluate((id) => {
       const rf = _loanCloseRollforward(_cvLastMonth());
@@ -9718,7 +10151,12 @@ GROUPS.push({
 
     /* NOT A SUPPRESSION. If no later document exists at all, the in-month one is
        still returned — stepping past it must never leave a loan with no evidence. */
-    const p2 = await newHarnessPage({ tab: 'loans' });   // unmutated: no 9/02 statement
+    /* THE ABSENCE IS CONSTRUCTED. This used to run unmutated because the fixture
+       happened to hold no statement after August; it holds one now, so the
+       scenario removes it and states what it is testing. */
+    const p2 = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      d.loan_statements = d.loan_statements.filter(st => !laterThanAugust(st));
+    } });
     const noLater = await p2.evaluate((id) => {
       const rf = _loanCloseRollforward(_cvLastMonth());
       const r = rf.rows.find(x => x.a.id === id);
@@ -9934,18 +10372,37 @@ GROUPS.push({
   name: 'ledger-not-checked-when-stale',
   async run(t) {
     const RAPID = /Rapid Credit Line/;
-    const stamp = (d) => d.loan_book_balances.forEach(b => { b.computed_at = '2026-09-04T17:42:20.849Z'; });
+    /* ⚠️ THE STAMP IS MEASURED FROM THE BOOK, NOT TYPED (session 287).
+       It used to be the literal '2026-09-04T17:42:20.849Z' — true of the fixture
+       on the day this was written, and the CONTROL depended on nothing else
+       having posted after it. The next refresh brought real Rapid splits posted
+       later, so the control's row was stale for a reason the control had not
+       arranged, and it went red saying "a split posted before the balance is not
+       stale" about a split that was. The premise is now built: the balance is
+       read one hour after the LAST thing this loan posted, so "nothing posted
+       after the read" is true by construction, and the stale case's own split is
+       planted an hour after that. */
+    const rapidId = (d) => (d.loan_accounts.find(a => RAPID.test(a.xero_account_name || '')) || {}).id;
+    const plus = (iso, hours) => new Date(new Date(iso).getTime() + hours * 3600e3).toISOString();
+    const lastPost = (d) => (d.loan_splits || [])
+      .filter(sp => sp.loan_account_id === rapidId(d) && sp.xero_posted_at)
+      .reduce((m, sp) => (sp.xero_posted_at > m ? sp.xero_posted_at : m), '2026-09-04T17:42:20.849Z');
+    const stamp = (d) => {
+      const at = plus(lastPost(d), 1);
+      d.loan_book_balances.forEach(b => { b.computed_at = at; });
+      return at;
+    };
 
     // A split posted AFTER the balance was read.
     const stale = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-      stamp(d);
+      const readAt = stamp(d);
       const r = d.loan_accounts.find(a => RAPID.test(a.xero_account_name || ''));
       d.loan_splits.push({
         id: 'harness-rapid-late', loan_account_id: r.id, period_label: '2026-08-31',
         principal_amount: -457.14, interest_amount: 457.14, total_amount: 0.00,
         status: 'posted', source: 'statement_delta', prior_statement_id: null,
         current_statement_id: null, matched_xero_bank_transaction_id: null,
-        xero_posted_at: '2026-09-04T21:13:45.510Z', xero_posted_by: null,
+        xero_posted_at: plus(readAt, 1), xero_posted_by: null,
         review_notes: null, computed_at: null, amortization_row_id: null,
         xero_manual_journal_id: '71ed82b2-c62e-4c27-8a0a-75074ce8e2f7',
         posting_method: 'manual_journal', pre_split_line_items_snapshot: null,
@@ -9979,14 +10436,14 @@ GROUPS.push({
        normally. Without this, "withheld" is indistinguishable from a check that
        stopped working. */
     const fresh = await newHarnessPage({ tab: 'loans', mutate: (d) => {
-      stamp(d);
+      const readAt = stamp(d);
       const r = d.loan_accounts.find(a => RAPID.test(a.xero_account_name || ''));
       d.loan_splits.push({
         id: 'harness-rapid-early', loan_account_id: r.id, period_label: '2026-08-31',
         principal_amount: -457.14, interest_amount: 457.14, total_amount: 0.00,
         status: 'posted', source: 'statement_delta', prior_statement_id: null,
         current_statement_id: null, matched_xero_bank_transaction_id: null,
-        xero_posted_at: '2026-09-04T09:00:00.000Z', xero_posted_by: null,
+        xero_posted_at: plus(readAt, -0.5), xero_posted_by: null,
         review_notes: null, computed_at: null, amortization_row_id: null,
         xero_manual_journal_id: 'harness-jnl', posting_method: 'manual_journal',
         pre_split_line_items_snapshot: null, stage_reference: null, staged_at: null,
@@ -10035,6 +10492,20 @@ GROUPS.push({
   name: 'payroll-notices',
   async run(t) {
     const withNotice = (d) => {
+      /* ⚠️ THE FLAGGED PAY PERIOD IS PLANTED (session 287).
+         s276y2 asserts that the card lists flagged imports as well as notices,
+         and it used to get its flagged import from the live book. Payroll is
+         clean now — every import posted, `attention_flag` false on all eleven —
+         so the assertion went red because nothing is wrong with the payroll, and
+         the tile-vs-list count it protects was never in question. A scenario
+         about how TWO KINDS of row are listed has to supply both kinds. */
+      const im = d.payroll_imports[0];
+      if (im) {
+        im.attention_flag = true;
+        im.attention_summary = 'Harness: one employee is unmatched in this period.';
+        im.attention_detail = 'Planted by the payroll-notices group so the card has a flagged pay period to list beside the standing notice.';
+        im.attention_checked_at = '2026-09-08T00:00:00Z';
+      }
       d.payroll_notices = [{
         key: 'harness_notice', severity: 'warning', active: true,
         title: 'Harness notice title',
@@ -10658,9 +11129,21 @@ GROUPS.push({
     t.eq(thin.after, null, '...naming that it has nothing on the far side');
 
     /* ── 4. A RECORDED EXCEPTION IS ADDED, NEVER SILENTLY OVERRIDDEN ──────── */
+    /* ⚠️ THE MONTH IS MADE UNANSWERED FIRST (session 287).
+       This ran against the live book, where August was still short of this
+       loan's evidence. The refresh brought the document in — `basis: satisfied`,
+       no items at all — and three assertions went red because the paperwork
+       arrived. A loan with nothing outstanding is the WRONG loan to ask what an
+       exception does to an outstanding requirement, so the requirement is
+       created: August's evidence is taken away for the length of the call, the
+       same way section 3 above takes away the far side of the month. */
     const withExc = await p.evaluate(() => {
       const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
       const keep = a.close_evidence_exception;
+      const sts = (_allLoanStatements || []).filter(x => x.loan_account_id === a.id
+        && x.statement_date >= '2026-08-01');
+      const keepS = sts.map(x => x.statement_date);
+      sts.forEach(x => { x.statement_date = '1990-01-01'; });
       a.close_evidence_exception = [
         { kind: 'withholding_export', label: 'a withholding export covering the window',
           window: 'in_month', earliest_day: 5, note: 'cannot be measured from our data' },
@@ -10668,8 +11151,13 @@ GROUPS.push({
       ];
       const n = _loanCloseEvidenceNeeded(a, '2026-08');
       a.close_evidence_exception = keep;
-      return { basis: n.basis, kinds: n.items.map(i => i.kind), disagreement: n.disagreement };
+      sts.forEach((x, i) => { x.statement_date = keepS[i]; });
+      return { basis: n.basis, kinds: n.items.map(i => i.kind), disagreement: n.disagreement,
+               satisfied: n.satisfied, stripped: sts.length };
     });
+    t.ok(withExc.stripped > 0,
+         'the month could be made unanswered — the premise these four assertions need',
+         JSON.stringify(withExc));
     t.ok(withExc.kinds.includes('withholding_export'), 'a recorded exception is carried through',
          JSON.stringify(withExc));
     t.ok(withExc.kinds.includes('portal_balance'),
@@ -10799,8 +11287,22 @@ GROUPS.push({
     /* ── 7. THE ASK REACHES THE ACTION COLUMN, AND OUTRANKS "FIND THE FIX" ── */
     // A difference walked against a projection nobody agreed to cannot be
     // evaluated -- session 245's "no export, no verdict", applied to schedules.
-    const cb = (await p.surfaces()).loans.closeBand;
+    /* ⚠️ THE ROW THAT OWES EVIDENCE IS BUILT (session 287).
+       This read the live row and asserted `action === 'upload'`, which held while
+       BayFirst SBA 2's August balance was outstanding. The refresh brought that
+       document in, so the row correctly moved on to the schedule question and
+       three assertions went red describing an ordering that had not changed.
+       Both halves of the ordering are asserted now, each on a page where it is
+       the live question: evidence outranks the decision where evidence is owed,
+       and the decision surfaces once it is not. */
+    const owing = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      const a = d.loan_accounts.find(x => x.lender_account_number === '6917479106');
+      d.loan_statements = d.loan_statements.filter(st =>
+        !(st.loan_account_id === a.id && st.statement_date >= '2026-08-01'));
+    } });
+    const cb = (await owing.surfaces()).loans.closeBand;
     const row = cb.rows.find(r => /BayFirst SBA 2/.test(r.name || ''));
+    t.ok(!!row, 'the loan owing evidence is on the band', String(row && row.name));
     if (row) {
       // ⚠ ORDERING, and my first cut had it backwards. The schedule question
       // outranks "Find the fix" but must NOT outrank the evidence ask: a month with
@@ -10818,6 +11320,17 @@ GROUPS.push({
            JSON.stringify(row.actionText));
       t.ok(row.awaitingEvidence,
            '...matching the ask in the closing cell — the two agree');
+    }
+    await owing.close();
+
+    /* AND THE OTHER HALF, on the live book: with the balance in, the row moves on
+       to the schedule question rather than staying stuck on a document it has. */
+    const settledRow = (await p.surfaces()).loans.closeBand.rows
+      .find(r => /BayFirst SBA 2/.test(r.name || ''));
+    if (settledRow && !settledRow.awaitingEvidence) {
+      t.eq(settledRow.action, 'decide',
+           '⭐ ...and once the evidence is in, the schedule question is what surfaces',
+           JSON.stringify({ action: settledRow.action, text: settledRow.actionText }));
     }
     // The decision still outranks a difference walk. Proven on a loan that owes no
     // evidence: strip the ask and the schedule question is what surfaces.

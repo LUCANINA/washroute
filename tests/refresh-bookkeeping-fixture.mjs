@@ -67,6 +67,37 @@ const KEY = [...html.matchAll(/eyJhbGciOi[A-Za-z0-9_.-]+/g)]
   });
 if (!KEY) throw new Error(`No anon key for ${PROJECT} found in admin-dashboard/index.html`);
 
+/* ── ONE KEY, SEVENTEEN TABLES (session 287) ─────────────────────────────────
+ * Tech Debt #40 is closed the way David chose: a service-role key on his machine
+ * only — environment, or `.env.local` at the repo root, which the existing
+ * `.env.*` rule already keeps out of git. It is never logged and never written
+ * into the fixture.
+ *
+ * ⚠️ IT IS NOT ONLY THE SEVEN. The first cut of this change used the service key
+ * for the seven anon cannot read and left the other ten on the anon key, and the
+ * population guard refused the write: NINE of those ten came back EMPTY, 200 OK,
+ * `loan_accounts` included. RLS returning no rows is not an error, so the empty
+ * pull looked exactly like a book with nothing in it — the precise trap the guard
+ * was built for after this script destroyed the fixture in session 268.
+ *
+ * So every table is pulled with the same connection at the same moment. That is
+ * also the honest shape: a fixture assembled from two keys is a fixture assembled
+ * from two answers to "what may I see", and the harness stubs Supabase out
+ * entirely, so what the browser key can read is not what the fixture is for.
+ * The anon key remains the fallback for a machine with no service key. */
+function readServiceKey() {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return process.env.SUPABASE_SERVICE_ROLE_KEY.trim();
+  const envFile = path.join(ROOT, '.env.local');
+  if (!fs.existsSync(envFile)) return null;
+  const line = fs.readFileSync(envFile, 'utf8')
+    .split('\n').find(l => l.trim().startsWith('SUPABASE_SERVICE_ROLE_KEY='));
+  if (!line) return null;
+  return line.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '') || null;
+}
+const SERVICE = readServiceKey();
+const AUTH = SERVICE || KEY;
+if (!SERVICE) console.warn('No SUPABASE_SERVICE_ROLE_KEY — falling back to the anon key, which RLS may answer with nothing.');
+
 /* PostgREST caps a response at 1,000 rows and says nothing about it — a silent
  * truncation would produce a fixture that looks complete and is not, which is
  * the single worst failure mode this file has. So every table is paged
@@ -78,7 +109,7 @@ async function fetchAll(table, query) {
     const url = `${BASE}/${table}?${query}`;
     const res = await fetch(url, {
       headers: {
-        apikey: KEY, Authorization: `Bearer ${KEY}`,
+        apikey: AUTH, Authorization: `Bearer ${AUTH}`,
         Range: `${from}-${from + PAGE - 1}`, 'Range-Unit': 'items',
         Prefer: 'count=exact',
       },
@@ -125,21 +156,79 @@ fixture.payroll_departments           = await fetchAll('payroll_departments', 's
 fixture.payroll_employees             = await fetchAll('payroll_employees',   'select=*&order=full_name');
 fixture.payroll_notices               = await fetchAll('payroll_notices',     'select=*&active=is.true');
 fixture.bk_issue_dismissals           = await fetchAll('bk_issue_dismissals', 'select=*&order=item_key');
-/* ── the seven tables anon cannot read — from the side-car ───────────────── */
+/* ── the seven tables anon cannot read ─────────────────────────────────────
+ * Tech Debt #40, decided by David in session 287: a SERVICE-ROLE KEY kept on
+ * his machine, never in the repo and never in a session's context. When it is
+ * present this script pulls all seventeen tables ITSELF, in one run, and the
+ * side-car stops being a thing a person has to remember. The old side-car file
+ * remains the fallback so a machine without the key can still refresh.
+ *
+ * The key is read from the environment, or from `.env.local` at the repo root
+ * (gitignored by the existing `.env.*` rule). It is never logged and never
+ * written into the fixture — grep this file: `SERVICE` appears only where it is
+ * read and where it is put in an Authorization header.
+ *
+ * ⚠️ THE SHAPES BELOW MUST STAY IDENTICAL TO SIDE_CAR_SQL at the bottom of this
+ * file, which remains the specification. A PostgREST query that quietly differs
+ * from the SQL is the "two different moments" bug wearing a new coat: the
+ * fixture would look refreshed and describe a book that never existed. When you
+ * change one, change the other in the same commit. */
+
 const SIDE_CAR = path.join(ROOT, 'tests/fixtures/.denied-tables.json');
-if (!fs.existsSync(SIDE_CAR)) {
-  console.error(`Missing ${SIDE_CAR}.`);
-  console.error('Run SIDE_CAR_SQL (bottom of this file) with an admin connection and save the value there.');
-  console.error('Refusing to write a fixture whose tables come from two different moments.');
-  process.exit(1);
-}
-const sideCar = JSON.parse(fs.readFileSync(SIDE_CAR, 'utf8'));
 const DENIED = ['loan_documents', 'loan_book_balances', 'bookkeeping_kpi_snapshots',
                 'reconciliation_runs', 'reconciliation_findings', 'loan_tie_outs',
                 'loan_attributions'];
-for (const t of DENIED) {
-  if (!Array.isArray(sideCar[t])) throw new Error(`side-car is missing "${t}" — regenerate it`);
-  fixture[t] = sideCar[t];
+
+if (SERVICE) {
+  console.log('service-role key found — pulling all seventeen tables directly.');
+  const denied = {};
+  denied.loan_documents     = await fetchAll('loan_documents', 'select=*&order=created_at.desc');
+  denied.loan_book_balances = await fetchAll('loan_book_balances', 'select=*&order=as_of.desc,loan_account_id');
+  denied.bookkeeping_kpi_snapshots = await fetchAll('bookkeeping_kpi_snapshots',
+    'select=captured_at,payload&error=is.null&order=captured_at.desc&limit=1');
+  denied.reconciliation_runs = await fetchAll('reconciliation_runs',
+    'select=*&order=started_at.desc&limit=10');
+  denied.reconciliation_findings = await fetchAll('reconciliation_findings',
+    'select=*&status=in.(open,resolved)&order=last_seen_at.desc,id');
+  denied.loan_attributions = await fetchAll('loan_attributions', 'select=*&order=loan_account_id');
+
+  /* The tie-outs belong to ONE run — the latest FINISHED, non-failed one. Asked
+   * for separately rather than taken from the ten above, because "the newest ten
+   * runs" and "the newest finished run" are different questions and a failed run
+   * at the top would silently answer the wrong one. Same subquery as the SQL. */
+  const latest = await fetchAll('reconciliation_runs',
+    'select=id&finished_at=not.is.null&status=neq.failed&order=started_at.desc&limit=1');
+  denied.loan_tie_outs = latest.length
+    ? await fetchAll('loan_tie_outs',
+        'select=loan_account_id,status,difference,xero_balance,lender_balance,as_of,' +
+        `anchor_source,run_id,detail&run_id=eq.${latest[0].id}&order=loan_account_id`)
+    : [];
+
+  for (const t of DENIED) fixture[t] = denied[t];
+
+  /* Written back so the fallback path stays warm and a person can still read
+   * what was pulled. Gitignored — it is a scratch file, not a fixture. */
+  fs.writeFileSync(SIDE_CAR, JSON.stringify(denied, null, 1));
+  console.log('refreshed side-car', SIDE_CAR);
+} else {
+  if (!fs.existsSync(SIDE_CAR)) {
+    console.error(`No SUPABASE_SERVICE_ROLE_KEY (env or .env.local), and no ${SIDE_CAR}.`);
+    console.error('Either put the service-role key in .env.local, or run SIDE_CAR_SQL');
+    console.error('(bottom of this file) with an admin connection and save the value there.');
+    console.error('Refusing to write a fixture whose tables come from two different moments.');
+    process.exit(1);
+  }
+  const ageDays = (Date.now() - fs.statSync(SIDE_CAR).mtimeMs) / 86400000;
+  console.warn(`No service-role key — falling back to the side-car, written ${ageDays.toFixed(1)} days ago.`);
+  if (ageDays > 1) {
+    console.warn('⚠️  THAT IS OLDER THAN THIS PULL. The seven tables it carries describe a');
+    console.warn('    different moment from the ten being pulled now. Regenerate it, or set the key.');
+  }
+  const sideCar = JSON.parse(fs.readFileSync(SIDE_CAR, 'utf8'));
+  for (const t of DENIED) {
+    if (!Array.isArray(sideCar[t])) throw new Error(`side-car is missing "${t}" — regenerate it`);
+    fixture[t] = sideCar[t];
+  }
 }
 
 /* `_meta.pulled_at` IS THE HARNESS CLOCK (session 262). The suite freezes the

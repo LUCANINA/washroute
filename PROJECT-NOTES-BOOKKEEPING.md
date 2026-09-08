@@ -1,41 +1,136 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 286, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 287, 2026-09-08)
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> 1. **The live fixture wants a real refresh** (§0zv-ii). It is pulled 2026-09-03 and now six days
->    stale — session 265's "a stale fixture is a blind suite" applies. It does NOT carry the one real
->    `anchor_exclusion_reason` in production (the 08-03 iBusiness row, recorded by session 282 the
->    morning after this snapshot), so **nothing in the suite exercises a live anchor exclusion at all.**
->    `node tests/refresh-bookkeeping-fixture.mjs` needs the privileged side-car on your machine.
->    ⚠️ Expect `history`'s `s236` discriminator to complain when you do: it depends on two incidental
->    splits landing in opposite bands, and it correctly refused when session 285 perturbed them. That
->    is the test doing its job, not fallout — fix the SCENARIO to plant its own offsetting pair.
-> 2. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026, proven
->    by three statements. The question is which account and which period. The note is on the loan and
->    surfaces on the Variance cell; nothing is blocked, but it is the one open financial question.
-> 3. **There is no UI to WRITE a balance note** (§0zs). EIDL's went in by SQL. The read path is built
->    and tested; the write path is a textarea beside `structure_note`'s, and it must capture
->    `balance_note_amount` from the live difference automatically rather than asking a person to type
->    a figure they will get wrong.
-> 4. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
+> 1. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026,
+>    proven by three statements. The question is which account and which period. The note is on the
+>    loan and surfaces on the Variance cell; nothing is blocked, but it is the one open financial
+>    question on this book.
+> 2. **There is no UI to WRITE a balance note** (§0zs). EIDL's went in by SQL. The read path is
+>    built and tested; the write path is a textarea beside `structure_note`'s, and it must capture
+>    `balance_note_amount` from the live difference automatically rather than asking a person to
+>    type a figure they will get wrong.
+> 3. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
 >    intake. They will STORE and raise no split (April/May are closed) — correct, and why the note
 >    carries the question.
-> 5. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still not
->    captured, the same gap as §0zh's paid-ahead fields. The product could say *"no principal applied
->    — interest-only"* instead of showing a balance that looks frozen.
-> 6. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
+> 4. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still
+>    not captured, the same gap as §0zh's paid-ahead fields. The product could say *"no principal
+>    applied — interest-only"* instead of showing a balance that looks frozen.
+> 5. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
 >    the old pre-attached command. Repack both, with §0zf's `git push` correction, in one pass.
-> 7. **Small leftover from §0zw:** `_bkLoanAgreement`'s `cell` field (the em-dash for "no agreement")
->    is now DEAD — session 280 stopped rendering the negative case and nothing reads `.cell`. The
->    claim is safe (it is in the CSV as of this session), so this is tidying, not a hole. Delete it
->    when you are next in that function, and not before checking nothing new reads it.
+>    ⚠️ Add session 287's rule to `washroute-bookkeeping` while you are in there: **a test may not
+>    borrow its premise from production** (§0zx-i). It is the single most expensive lesson in the
+>    file measured by assertions, and the skill does not teach it.
+> 6. **Small leftover from §0zw:** `_bkLoanAgreement`'s `cell` field (the em-dash for "no
+>    agreement") is DEAD — session 280 stopped rendering the negative case and nothing reads
+>    `.cell`. The claim is safe (it is in the CSV), so this is tidying. Delete it when you are next
+>    in that function, after checking nothing new reads it.
 >
-> ✅ **DEPLOY STATE: session 286 changed NO edge function** — the work was `admin-dashboard/index.html`
-> and the harness. Session 284's functions remain live as checked in §0zt.
-> ⚠️ **`git push` is still owed from your own terminal** — this sandbox has no network. Two commits
-> now: session 285's and this one.
+> ✅ **THE FIXTURE IS FRESH — pulled 2026-09-08 19:36 UTC, all seventeen tables from one connection
+> at one moment.** Session 286's list item 1 is done and the chore is gone for good: the refresh
+> script now reads a service-role key from `.env.local` on David's machine and pulls every table
+> itself (§0zx). **`node tests/refresh-bookkeeping-fixture.mjs` is now the whole procedure.**
+>
+> ✅ **DEPLOY STATE: session 287 changed NO edge function** — the work was the refresh script, the
+> fixture and the harness. Session 284's functions remain live as checked in §0zt.
+> ⚠️ **`git push` is owed from your own terminal** — this sandbox has no network. `git log
+> origin/main..HEAD` says **one** commit is unpushed (this session's), so 285's and 286's appear to
+> have gone out already. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
+> so check rather than trust it — which is the same discipline §0ze demands of the deploy state.
+>
+>
+> ### 0zx. ✅ THE FIXTURE REFRESH IS ONE COMMAND NOW — Tech Debt #40 closed (session 287)
+>
+> David's call, offered three ways: **a service-role key on his machine**, in `.env.local` at the
+> repo root, which the repo's existing `.env.*` rule already keeps out of git. It never passes
+> through a session's context — he pasted it into his own terminal, into a file this agent can read
+> but has never printed. `tests/refresh-bookkeeping-fixture.mjs` reads it (env first, then the
+> file) and **pulls all seventeen tables itself**. The side-car is still written and still the
+> fallback for a machine without the key, but nobody has to remember it.
+>
+> ### 0zx-i. 🔴 AND THE FIRST CUT WAS WRONG IN THE WAY THE GUARD WAS BUILT FOR
+>
+> That cut used the service key for the seven tables anon cannot read and left the other ten on the
+> anon key, which is how the script had always worked. **Nine of those ten came back EMPTY, 200 OK
+> — `loan_accounts` included.** RLS returning no rows is not an error, so an empty book and a
+> working pull are the same HTTP response, and the only thing standing between that and a fixture
+> of nothing was session 268's population guard. It refused the write and named all nine.
+>
+> So every table is now pulled on the same connection at the same moment. That is also the honest
+> shape: a fixture assembled from two keys is a fixture assembled from two answers to *what may I
+> see*, and the harness stubs Supabase out entirely, so what the browser key can read was never
+> what the fixture is for.
+>
+> `loan_attributions` came back **7 → 4** and the shrink guard refused that too. Verified against
+> the database on a second, independent connection before overriding: really four rows, rewritten
+> by `loan-attribution-run` at 11:21 that morning. A real deletion, written down with
+> `--allow-shrink` as the guard demands rather than waved through.
+>
+> ### 0zx-ii. ⭐⭐ THE REFRESH TURNED 41 ASSERTIONS RED AND NOT ONE WAS A PRODUCT DEFECT
+>
+> **A TEST MAY NOT BORROW ITS PREMISE FROM PRODUCTION.** This is the standing rule the session
+> produced, and it is session 245's *a test that transcribes is not a test* one level up: 245 was
+> about copying a FIGURE; this is about copying a SITUATION. Every one of the 41 was a scenario
+> that had quietly taken its setup from whatever the book happened to be doing on the day it was
+> written, and the book moved:
+>
+> | Group(s) | The borrowed premise | What the refresh changed |
+> |---|---|---|
+> | `stale-anchor-ask`, `rollback-beats-stale`, `ledger-not-checked-when-stale` (15) | PayPal 2 is *the* stale-anchor row; its 9/02 payment is still staged; nothing posted after a typed timestamp | PayPal 2 got its September statement — Stripe Capital is that row now |
+> | `statement-date-basis` (6) | synthetic statements cloned from a real row inherit nothing that matters | production started filing `balance_as_of`, so all three clones claimed 2026-08-24 |
+> | `close-band-columns` (3) | some total is partial; some loan holds a schedule it does not close on; only an `unbooked` row offers "post" | coverage went complete; and session 273's second post branch finally met a non-unbooked row |
+> | `roster-orphan-findings` (4) | Funding Circle carries an open balance **error** | the gap shrank to $60.16, so it is filed `info` |
+> | `ask-not-claim` (3) | August is short of a statement; the old rule floods ≥5 rows | every August statement is in |
+> | `close-evidence` (3), `schedule-choice` (3) | BayFirst SBA 2 still owes its August balance | it does not any more |
+> | `recon-window` (1) | Funding Circle's delta is $4,976.80 | it is $3,935.71 today, and moves with every payment |
+> | `payroll-notices` (1), `staging-column` (1) | a flagged import exists; the first staged split's loan also has an Issue | payroll is clean; that loan's Issue resolved |
+>
+> **Every one of them now builds what it needs.** The repair is the same shape each time and it is
+> the s236 repair from list item 1: state the premise, make it so, then assert. Where a claim was
+> genuinely about a specific historical row it is RECONSTRUCTED rather than deleted — PayPal 2's
+> −$9,429.39 August is rebuilt by removing the documents that came later, and every figure from the
+> screenshot David sent is still under test on that page.
+>
+> ### 0zx-iii. 🔴 ONE ASSERTION WAS REPORTING SHIPPED DESIGN AS A DEFECT
+>
+> `close-band-columns` asserted *a "post" action appears ONLY where band === 'unbooked'*. Session
+> 273 deliberately added a second branch — a loan with splits PREPARED BUT NOT IN XERO offers
+> "Review & post" whatever the dollar difference does, because the Status column had already
+> decided that unposted outranks a dollar agreement and the two halves of a row must not contradict
+> each other. **No row had both an unposted split and a non-unbooked band until this refresh**, so
+> the assertion sat green over a rule it no longer described, and then went red on EIDL SBA Loan
+> (immaterial band, two splits waiting) — accusing the product of the behaviour it was designed to
+> have. It now reads the rollforward: a post action requires something PREPARED, an unposted split
+> or an unbooked explanation, never a bare disagreement. The safety claim is unchanged; the proxy
+> for it is gone, and a discriminator was added so it cannot be satisfied by a page with no post
+> buttons at all.
+>
+> ### 0zx-iv. ⭐ s236 PLANTS ITS OWN OFFSETTING PAIR, SIZED TO THE BOOK
+>
+> List item 1 predicted this one and it is worth the detail. The scenario proves the close-band
+> variance total is ABSOLUTE, not signed — which requires two rows with OPPOSITE-signed residuals,
+> and it used to get them by perturbing whichever two splits production listed first. It now runs
+> in three renders: **measure** the band as it stands, **probe** one chosen row with a known $415.88
+> and check the residual moves by exactly that (which is also how the direction of the effect is
+> learned rather than assumed), then **plant** ±(heaviest existing residual + $415.88) on two
+> different loans. Sizing the counterweight to what was measured is what makes the opposition
+> guaranteed rather than lucky, and the premise itself — *the pair really does point in opposite
+> directions* — is now an assertion instead of a hope.
+>
+> ### 0zx-v. 📊 WHERE THE SUITE STANDS (measured 2026-09-08, in three batches)
+>
+> **2,254 browser assertions, 2,253 passing.** The one red is `history`'s `s240 #10` — Tech Debt
+> #19, red ON PURPOSE, and its measured detail line now reads *2 loans, $212,502.91* (Dexter Loan 2
+> basis=unknown, Stripe Capital basis=total_payback). Node: **33/34 files**, the one being
+> `loan-bundle`'s known `pdfjs-dist` import failure. Session 286's figure was 2,217/2,216.
+>
+> ⚠️ The harness browser lives under `$HOME`, a PER-SESSION sandbox, so a fresh session starts with
+> no Chromium. `tests/run-harness.sh` prints the recovery; the curl took about two minutes.
+> ⚠️ **`nohup` does not survive a `device_bash` call** — the shell runs under `bwrap
+> --die-with-parent`, so a backgrounded download is killed the moment the call returns. Run the
+> curl in the FOREGROUND with `timeout 150`; it resumes with `-C -` if a call runs out of time.
 >
 > ### 0zw. ⭐ THE SIX REDS WERE A TEST BUG POINTING AT A PRODUCT BUG (session 286)
 >
@@ -4841,7 +4936,9 @@ an explanation of this gap; it is a different event that happens to be nearby. W
 
 **41. 🔴 THREE reconciliation runs are stuck in `running`, and nothing has COMPLETED since 2026-09-02 20:51 UTC (found session 265).** `reconciliation-run` boots again — a `net.http_post` probe returns a clean 403 "Not authorized" rather than the 503-on-preflight that the never-booting v64 gave, which is the functional check, not a version comparison. But **there is no cron for this function** (`cron.job` carries only `wr-loan-attribution`, `20 */6 * * *`), so it only runs when someone presses Check — and nobody has since it broke. **Every tie-out the dashboard is reading is from yesterday evening**, which means every variance, every close-gate verdict and every Issues row on screen right now predates both session 264's and session 265's changes. First action for whoever reads this: press Check, then confirm a row appears in `reconciliation_runs` with `finished_at` set. Two further things to decide: the three rows sitting in `running` with no `finished_at` (2026-09-01 21:57, 2026-09-02 00:09, 2026-09-02 13:45) are dead v64 attempts that will never finish and should be marked failed rather than left ambiguous — `loadReconciliation` picks the newest FINISHED non-failed run so they are harmless today, but "running" is a lie about a process that is not; and whether this function should be on a cron at all, given the module now depends on its output being current.
 
-**40. 🟠 The fixture refresh needs a privileged connection, and there is no un-hacky way to give it one (session 265).** `tests/refresh-bookkeeping-fixture.mjs` pulls production rows over PostgREST, but the browser's anon key reads **nothing** — RLS returns `[]` for the tables it can see and 401 for seven others (`loan_documents`, `loan_book_balances`, `bookkeeping_kpi_snapshots`, `reconciliation_runs`, `reconciliation_findings`, `loan_tie_outs`, `loan_attributions`). ⚠️ **The obvious "fix" — granting anon read — is the exact inverse of Tech Debt #14 and must never be done to make this script simpler.** Today those seven come from a privileged connection into `tests/fixtures/.denied-tables.json` (gitignored; the `SIDE_CAR_SQL` query is at the bottom of the script), and the script REFUSES to write without it rather than emitting a fixture whose splits are from today and whose tie-outs are from last week. ⚠️ **The trap that cost an hour: `res.ok` was 200 on every empty response**, because RLS returning no rows is not an error — checking status rather than row count is how a refresh silently produces a fixture of nothing, and the script now pages explicitly and would notice. Next step is a decision, not code: either a service-role key kept in an env var on David's machine (never in the repo, never in a session's context), or a single read-only SQL function returning the whole fixture as one JSON value, exposed only to an authenticated role. The second is cleaner and needs a migration review.
+**40. ✅ CLOSED (session 287) — the service-role key on David's machine, and one connection for all seventeen tables.** The decision this item was waiting for was made: `.env.local` at the repo root (already covered by the `.env.*` rule), read by `tests/refresh-bookkeeping-fixture.mjs`, never in the repo and never in a session's context. ⚠️ The half that was NOT obvious: it is not only the seven. Leaving the other ten on the anon key produced NINE EMPTY TABLES with a 200 OK — `loan_accounts` included — because RLS returning no rows is not an error. Session 268's population guard caught it. Granting anon read remains forbidden (Tech Debt #14). Original note follows.
+
+**40 (original). 🟠 The fixture refresh needs a privileged connection, and there is no un-hacky way to give it one (session 265).** `tests/refresh-bookkeeping-fixture.mjs` pulls production rows over PostgREST, but the browser's anon key reads **nothing** — RLS returns `[]` for the tables it can see and 401 for seven others (`loan_documents`, `loan_book_balances`, `bookkeeping_kpi_snapshots`, `reconciliation_runs`, `reconciliation_findings`, `loan_tie_outs`, `loan_attributions`). ⚠️ **The obvious "fix" — granting anon read — is the exact inverse of Tech Debt #14 and must never be done to make this script simpler.** Today those seven come from a privileged connection into `tests/fixtures/.denied-tables.json` (gitignored; the `SIDE_CAR_SQL` query is at the bottom of the script), and the script REFUSES to write without it rather than emitting a fixture whose splits are from today and whose tie-outs are from last week. ⚠️ **The trap that cost an hour: `res.ok` was 200 on every empty response**, because RLS returning no rows is not an error — checking status rather than row count is how a refresh silently produces a fixture of nothing, and the script now pages explicitly and would notice. Next step is a decision, not code: either a service-role key kept in an env var on David's machine (never in the repo, never in a session's context), or a single read-only SQL function returning the whole fixture as one JSON value, exposed only to an authenticated role. The second is cleaner and needs a migration review.
 
 **39. ✅ CLOSED (session 265) — both causes in one measured change, and PayPal 2 ties to the cent.** `_loanPrincipalReconciliation()` no longer counts what a lender's balance cannot contain. The $25,681.00 it was accusing PayPal 2 of splits exactly: **$16,229.95** of zero-cash reclassification journals (Tech Debt #38's defect, one file away — same `ZERO_CASH_MOVEMENT_SOURCES` allowlist, hand-copied into `index.html` because a no-build SPA cannot import from the functions tree, and `recon-window` now asserts the two copies match) and **$9,451.05** of August drafts charged against a closing statement dated 2026-08-05, before those payments happened. The window arguments now choose which ANCHORS to look for; the splits counted are those the anchors actually bracket, both ends. PayPal 2 goes to **$0.00**, rejoins the owner's principal and interest totals, and its recurring payment can be measured again. **Measured across all fourteen active loans, nothing else moves** — Funding Circle's real duplication ($4,976.80) and E4-9744's incomplete history (−$4,903.21) both survive, which is what distinguishes a fix from a tidied-away red. ⚠️ **ONLY DAY-LABELLED SPLITS ARE PLACED, and the first cut got this wrong:** placing a month-labelled split at its month end looks more careful, but a lender dating its statement mid-month then makes every month-labelled payment look late, and four loans that tie exactly went `under` by about a payment each. That mistake is kept as mutation (d) in `recon-window` — it is the one a future change is most likely to remake. A guess is not a date.
 
@@ -12173,6 +12270,55 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 287 (2026-09-08) — THE REFRESH WAS THE TEST, AND THE TESTS FAILED IT
+
+**Trigger.** David: *"Start Here: #1"* — refresh the live fixture, six days stale, carrying none of
+the production rows session 282 had recorded.
+
+**Tech Debt #40 is closed and the chore is gone.** Offered three routes, David chose the
+service-role key kept on his own machine (`.env.local`, already covered by the repo's `.env.*`
+rule, pasted in his own terminal so it never entered this session's context).
+`tests/refresh-bookkeeping-fixture.mjs` now pulls **all seventeen tables itself**, on one
+connection, at one moment. `node tests/refresh-bookkeeping-fixture.mjs` is the whole procedure.
+
+**The first cut of that change was wrong, and session 268's population guard is why it matters.**
+Using the service key for only the seven anon cannot read left the other ten on the anon key —
+and **nine of the ten came back EMPTY with a 200, `loan_accounts` included.** RLS returning no rows
+is not an error; an empty book and a healthy pull are the same HTTP response. The guard refused the
+write and named all nine. `loan_attributions` then tripped the shrink guard at 7 → 4; that one was
+verified against the database on a separate connection before overriding — really four rows,
+rewritten by `loan-attribution-run` that morning.
+
+**Then the refresh did what a refresh is for: 41 assertions went red, and not one was a product
+defect.** Every single one was a scenario that had borrowed its SITUATION from whatever production
+happened to be doing when it was written. PayPal 2 stopped being the stale-anchor row because its
+September statement arrived. Funding Circle's balance error softened to `info` because the gap
+shrank to $60.16. August's statements all came in, which broke three groups that needed paperwork
+to be late. A scenario cloning a synthetic statement from a real one inherited `balance_as_of`,
+a field production had started filing, and dated all three clones to 2026-08-24.
+
+**THE RULE THIS PRODUCED, and it belongs beside session 245's:** *a test may not borrow its premise
+from production.* 245 was about copying a figure; this is about copying a situation, and it is the
+more expensive of the two. Every one of the 41 now builds what it needs and says so. Where the
+claim was genuinely historical it is RECONSTRUCTED rather than deleted — PayPal 2's −$9,429.39
+August is rebuilt by removing the documents that came later, and every figure from the screenshot
+David sent is still asserted on that page.
+
+**One assertion was reporting shipped design as a defect.** `close-band-columns` demanded that a
+"post" action appear only on an `unbooked` band — a fair proxy until session 273 deliberately added
+a second branch (a loan with splits prepared but not in Xero offers "Review & post" whatever the
+dollar difference does). No row had both until this refresh, so it sat green over a rule it no
+longer described and then accused EIDL SBA Loan of the behaviour the product was designed to have.
+It reads the rollforward now: a post action requires something PREPARED, never a bare disagreement.
+
+**Suite: 2,254 browser assertions, 2,253 passing** — the one red is Tech Debt #19's own report,
+red on purpose. Node 33/34, the one being `loan-bundle`'s known `pdfjs-dist` import failure.
+No edge function was changed. Three commits are now owed a `git push` from David's terminal.
+
+**Where to pick up:** the START HERE list. EIDL's $5 is the only open financial question on the
+book, and the balance-note WRITE path is still missing — the read path shipped in 285 and is
+tested. Nothing about the fixture is stale any more, so a green run means what it says.
 
 ### Session 286 (2026-09-08) — THE LOUD BUG AND THE SILENT ONE HAD ONE CAUSE
 
