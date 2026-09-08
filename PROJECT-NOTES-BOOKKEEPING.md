@@ -15,21 +15,27 @@
 > 3. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
 >    intake. They will STORE and raise no split (April/May are closed) — correct, and why the note
 >    carries the question.
-> 4. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still
+> 4. **De-duplicate the schedules, then decide about a picker** (Tech Debt #48, new). Session 288
+>    removed "Which schedule?" because it asked something the product would not accept an answer to.
+>    Four of the six loans hold duplicate copies that agree on every date and row count — that is a
+>    de-dupe, not a decision, and it is the cheap half. Only then is it worth asking whether to wire
+>    `set_loan_chosen_schedule`, which has sat in the database uncalled since session 277.
+> 5. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still
 >    not captured, the same gap as §0zh's paid-ahead fields. The product could say *"no principal
 >    applied — interest-only"* instead of showing a balance that looks frozen.
-> 5. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
+> 6. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
 >    the old pre-attached command. Repack both, with §0zf's `git push` correction, in one pass.
 >    ⚠️ Add session 287's rule to `washroute-bookkeeping` while you are in there: **a test may not
 >    borrow its premise from production** (§0zx-i). It is the single most expensive lesson in the
 >    file measured by assertions, and the skill does not teach it.
-> 6. **Small leftover from §0zw:** `_bkLoanAgreement`'s `cell` field (the em-dash for "no
+> 7. **Small leftover from §0zw:** `_bkLoanAgreement`'s `cell` field (the em-dash for "no
 >    agreement") is DEAD — session 280 stopped rendering the negative case and nothing reads
 >    `.cell`. The claim is safe (it is in the CSV), so this is tidying. Delete it when you are next
 >    in that function, after checking nothing new reads it.
 >
-> ✅ **THE FIXTURE IS FRESH — pulled 2026-09-08 19:36 UTC, all seventeen tables from one connection
-> at one moment.** Session 286's list item 1 is done and the chore is gone for good: the refresh
+> ✅ **THE FIXTURE IS FRESH — re-pulled 2026-09-08 21:40 UTC, all seventeen tables from one
+> connection at one moment, and now WITH `loan_amortization_schedules.source` (§0zz-i: it was
+> missing, and the ranking branch that reads it could never run).** Session 286's list item 1 is done and the chore is gone for good: the refresh
 > script now reads a service-role key from `.env.local` on David's machine and pulls every table
 > itself (§0zx). **`node tests/refresh-bookkeeping-fixture.mjs` is now the whole procedure.**
 >
@@ -43,9 +49,11 @@
 > ✅ **DEPLOY STATE: sessions 287 and 288 changed NO edge function** — the work was the refresh script, the
 > fixture and the harness. Session 284's functions remain live as checked in §0zt.
 > ⚠️ **`git push` is owed from your own terminal** — this sandbox has no network. MEASURED at the end
-> of session 288: `git log origin/main..HEAD` says **one** commit is unpushed (288's), so 287's went
-> out. That ref is only as fresh as the last fetch and this sandbox cannot fetch, so check rather
-> than trust it — the same discipline §0ze demands of the deploy state. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
+> of session 288: `git log origin/main..HEAD` says **one** commit is unpushed — 288's SECOND commit
+> (§0zz, "Which schedule?"). Its first (§0zy, the Action column) had already gone out, along with
+> David's own `7229af9` from his terminal. That ref is only as fresh as the last fetch and this
+> sandbox cannot fetch, so check rather than trust it — the same discipline §0ze demands of the
+> deploy state. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
 > so check rather than trust it — which is the same discipline §0ze demands of the deploy state.
 >
 >
@@ -122,6 +130,69 @@
 > ⚠️ **The discrimination control was passing while testing nothing**, and it says so in the file
 > now: `switchLoansPeriod` only shows a pane, it does not re-render one, so the control was reading
 > a pane painted before its own override. `renderLoansCloseBand()` is called directly now.
+>
+> ### 0zz. ⭐ "WHICH SCHEDULE?" IS GONE, AND THE FIXTURE WAS HIDING A BRANCH (session 288 cont.)
+>
+> David, on the ask §0zy had just narrowed: **"'which schedule?' reads as: pick one, which we don't
+> allow. It is not useful information."**
+>
+> Checked before acting, and it is worse than the reading. The button opened `openLoanDetailModal`,
+> **which has no schedule picker in it**, while its tooltip promised *"Choosing records the answer
+> against the loan, with your reason, and this stops being asked."* `set_loan_chosen_schedule` is in
+> the database — role-gated, reason required, written by session 277 — and **nothing in
+> `index.html` has ever called it**. The product asked a question it would not accept an answer to,
+> on eight loans, every month. That is session 277's own rule (*what was asked for and what the
+> button does must agree*) broken by the session that wrote it, and the same shape as the balance
+> note: read path built, write path never wired.
+>
+> **The ask AND §0zy's gate are both gone.** The exposure is Tech Debt #48, which also records the
+> finding that killed the question outright: measured against production, four of the six
+> "unsettled" loans hold DUPLICATE copies agreeing on every date and row count — a de-dupe job, not
+> a choice — and the two that genuinely differ are `derived_from_statements` on both sides, i.e.
+> schedules we computed twice and differently. Nobody can say which one the lender follows because
+> neither came from the lender.
+>
+> ⚠️ **The cut took a shared value with it.** `_bvlFinding` was declared inside the deleted branch
+> and read at the bottom of the function; removing the branch threw, blanked the whole close band,
+> and surfaced as *"cannot read properties of null"* in two groups. One harness run caught it. A
+> deletion that removes a shared declaration along with its first reader is the ordinary way this
+> goes wrong, and the only defence is running the thing.
+>
+> ⚠️ **`fix-beats-schedule-ask` had to be REBUILT, not deleted with the loser.** Its subject was an
+> ordering between two asks and one of them no longer exists — but what it really protects is that a
+> row with a PREPARED CORRECTION offers that correction, which outlives the contest. Its control is
+> inverted accordingly: instead of restoring session 277's precedence and watching the fix lose a
+> race, it splices the whole `decide` branch back in and confirms the $415.88 correction is hidden
+> again. The old `EDITS('schedule-ask-always-wins')` recipe was deleted with the code it patched — a
+> revert recipe naming code that no longer exists fails as "anchor not found", which reads as a
+> broken test rather than a removed feature.
+>
+> ### 0zz-i. 🔴 THE FIXTURE WAS MISSING A FIELD THE SHIPPED CODE BRANCHES ON
+>
+> `tests/refresh-bookkeeping-fixture.mjs` selected `loan_amortization_schedules(...)` **without
+> `source`**, while the dashboard's own query has always selected it. `_loanScheduleChoice` RANKS on
+> that field — `client_parsed_verified` 3, `claude_assisted_parse` 2, `derived_from_statements` 1 —
+> so with it null on all 1,121 rows the rank was 0 everywhere, **the `basis: 'verified'` branch could
+> never run**, and the harness saw eight unsettled loans where production has six.
+>
+> **A fixture missing a field the code branches on is not a smaller fixture, it is a different one,
+> and the branch it hides is invisible rather than red.** The general rule, now in the script's own
+> comment: *whenever a select in the refresh script is narrower than the app's, that gap is a blind
+> spot with no symptom.* Fixed at the source and the fixture re-pulled.
+>
+> ### 0zz-ii. AND THE REFRESH IMMEDIATELY PROVED §0zx-ii AGAIN, ON A TEST WRITTEN THIS SESSION
+>
+> `close-band-columns` asserted `postsOffered.length > 0` — "the rule is not vacuous" — off the LIVE
+> fixture. That held only while some loan happened to carry an unposted split in the closing month.
+> EIDL was that loan; **between two pulls hours apart its August split was posted**, and the
+> assertion went red describing nothing but a bookkeeper doing their job. One session after 41
+> assertions learned this lesson, a fresh one had the same defect. It now BUILDS the situation —
+> forces one closing-month split to `pending_review` and asserts the row offers the post route — so
+> it cannot be vacuous whatever the real book is doing on a given afternoon.
+>
+> **Suite after all of it: 2,261 browser assertions across 48 groups, ONE red** — `history`'s
+> `s240 #10`, proven pre-existing against `git show HEAD:`. Node: 33 of 34 files, the one failure
+> `loan-bundle.test.mts`'s `pdfjs-dist` import.
 >
 > ### 0zx. ✅ THE FIXTURE REFRESH IS ONE COMMAND NOW — Tech Debt #40 closed (session 287)
 >
@@ -3991,6 +4062,29 @@ one field that settles it. 51 Node + 17 harness assertions. Full write-up and th
 steps: START HERE §0zo and §0zo-ii. ⏭️ **Still uncaptured:** `Applied to Principal` /
 `Applied to Interest`, the same gap as §0zh's paid-ahead fields — the product could say *"no
 principal applied — interest-only"* rather than showing a balance that looks frozen.
+
+**48. 🟠 EIGHT LOANS PRESTAGE REAL XERO TRANSACTIONS OFF A SCHEDULE CHOSEN BY A SORT KEY, AND THE
+PRODUCT NO LONGER SAYS SO (session 288).** The "Which schedule?" ask was removed at David's
+instruction — *"it reads as: pick one, which we don't allow. It is not useful information"* — and he
+was right twice over: the button opened `openLoanDetailModal`, **which has no schedule picker**,
+while its own tooltip promised the choice would be recorded. `set_loan_chosen_schedule` has existed
+in the database since session 277 (role-gated, reason required) and **no line of `index.html` has
+ever called it**. Removing the ask removed a nag; the exposure is unchanged and now has no home on
+screen, which is why it is here. Measured against production 2026-09-08:
+
+| Loans | Shape | The honest next step |
+|---|---|---|
+| PCV, Verdant | a `client_parsed_verified` schedule already outranks its sibling | nothing — these were never unsettled |
+| E-Transit 4140, E5-4751, E6-7410, and one pair on Funding Circle | duplicate copies agreeing on every date and row count | **delete the duplicate** — there is nothing to choose |
+| E-Transit E4-9744 (first payment Sep 9 vs Aug 20), BayFirst SBA 2 (Sep 2 / 88 rows vs Aug 31 / 89) | genuine disagreement, `derived_from_statements` on BOTH sides | unanswerable as asked — neither came from the lender |
+
+⚠️ **So "which one does the lender follow" was the wrong question for every loan it was ever asked
+of.** The two real cases are two schedules WE computed from the same statements, twice, differently;
+the four duplicates are a de-duplication job, not a decision. Whoever picks this up should build the
+de-dupe first and only then decide whether a picker is worth wiring — and a picker that ships must
+call the existing RPC rather than a second write path. ⚠️ **The staging risk is real while this
+sits**: a schedule dated wrongly books a payment into the wrong period, which no invariant catches
+(session 231's "a projection's day-of-month is measured, never inherited").
 
 **47. `balance_basis='unknown'` can still be produced on a real lender document — §0w reopened
 (session 283).** Session 281 relabelled the four unlabelled rows and declared *"zero unlabelled

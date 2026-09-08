@@ -2065,9 +2065,49 @@ GROUPS.push({
     t.ok(couldHave.every(r => r.action !== 'post'),
          '...and the rows with nothing waiting are offered a different route entirely',
          couldHave.map(r => `${r.loan}=${r.action}`).join(' · '));
-    t.ok(postsOffered.length > 0,
-         '...on a book that does offer the post route somewhere — the rule is not vacuous',
-         postsOffered.map(r => `${r.loan}: band=${r.band}`).join(' · '));
+    /* ⚠️ SESSION 288 cont.: THIS BORROWED ITS PREMISE FROM PRODUCTION AND THE BOOK
+       MOVED. It read `postsOffered.length > 0` off the LIVE fixture, which held
+       only while some loan happened to be carrying an unposted split in the closing
+       month. EIDL was that loan; between two fixture pulls hours apart its August
+       split was posted, and the assertion went red describing nothing but a
+       bookkeeper doing their job. That is §0zx-ii's rule exactly — a test may not
+       borrow its premise from production — and 41 assertions learned it the
+       expensive way one session ago.
+
+       So the situation is BUILT. One split in the closing month is forced to
+       pending_review, and the row that owns it must offer the post route. Now the
+       rule cannot be vacuous no matter what the real book is doing on any given
+       afternoon, and it still fails if the route is ever removed. */
+    {
+      const built = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const month = String(d._meta.pulled_at).slice(0, 7);
+        const prior = (() => { const [y, m] = month.split('-').map(Number);
+          return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; })();
+        const sp = d.loan_splits.find(x => String(x.period_label || '').slice(0, 7) === prior
+          && x.status !== 'voided' && x.status !== 'staged');
+        if (sp) { sp.status = 'pending_review'; sp.xero_posted_at = null; sp.xero_manual_journal_id = null;
+                  d.__builtLoan = (d.loan_accounts.find(a => a.id === sp.loan_account_id) || {}).xero_account_name; }
+      } });
+      const b = await built.evaluate(() => {
+        const rf = _loanCloseRollforward(_cvLastMonth());
+        const withUnposted = rf.rows.filter(r => (r.unposted || []).length);
+        return withUnposted.map(r => {
+          const nm = r.a.xero_account_name || r.a.lender_account_number || '';
+          const tr = [...document.querySelectorAll('#lcb-table tbody tr')]
+            .find(x => (x.getAttribute('data-loan') || '') === nm);
+          const cell = tr && tr.querySelector('[data-col="action"]');
+          return { loan: nm, action: cell && cell.getAttribute('data-action'),
+                   text: cell ? cell.innerText.trim() : '' };
+        });
+      });
+      t.ok(b.length > 0,
+           '...and a split forced to pending_review in the closing month really lands in the walk',
+           JSON.stringify(b));
+      t.ok(b.length > 0 && b.every(r => r.action === 'post'),
+           '⭐ ...and every row carrying one offers the post route — built, not borrowed from whatever the book is doing today',
+           JSON.stringify(b));
+      await built.close();
+    }
 
     await p.close();
   },
@@ -5048,7 +5088,11 @@ const CLOSE_REVERTS = {
   // SESSION 278: the inverse of the grade scoping — restore the state where the
   // schedule ask outranked "Find the fix" on EVERY unsettled prestaging loan,
   // including one whose closing came from the lender's own document.
-  'schedule-ask-always-wins': ['&& (_diffRestsOnSchedule || !_bvlFinding)) {', ') {'],
+  // 'schedule-ask-always-wins' was deleted in session 288 with the branch it
+  // patched. A revert recipe naming code that no longer exists fails as "anchor
+  // not found", which reads as a broken test rather than a removed feature. The
+  // control it served is rebuilt inline in `fix-beats-schedule-ask`, where it can
+  // splice the whole branch back instead of tweaking one clause of it.
   'no-schedule-dedup': ["r.balance != null &&\n      String(r.schedule_id || '') === choice.id);", 'r.balance != null);'],
   // The row_type allowlist moved UP into _loanScheduleRows (review F11) so the
   // schedule PICK is made from the rows that will actually be read. It is now
@@ -11408,51 +11452,52 @@ GROUPS.push({
     }
     await owing.close();
 
-    /* ── SESSION 288: AND THE OTHER HALF WAS DAVID'S OWN EXAMPLE ───────────
-       This asserted that with the balance in, BayFirst SBA 2's row moves on to the
-       schedule question. It did -- and David, auditing the page, pointed straight
-       at it: "why show 'Which schedule?' unless there's actually something for the
-       reader to do?" That row is off by ONE CENT. The ask is now scoped to a
-       MATERIAL difference, so the assertion is REPLACED rather than deleted, and
-       by a PAIR, because either half alone describes a different product:
+    /* ══════════════════════════════════════════════════════════════════════
+       SESSION 288 cont. — THE ASK IS GONE, AND THIS IS THE PAIR THAT SAYS SO
+       ══════════════════════════════════════════════════════════════════════
+       David: "'which schedule?' reads as: pick one, which we don't allow. It is
+       not useful information."
 
-         1. the immaterial row asks nothing -- the defect he saw, gone; and
-         2. the question is STILL ON THE SCREEN, in the strip's schedule-choice
-            gate, naming this loan.
+       He was right twice over. The button opened openLoanDetailModal, which has no
+       schedule picker, while its tooltip promised the choice would be recorded.
+       `set_loan_chosen_schedule` exists in the database -- role-gated, reason
+       required, written in session 277 -- and no line of index.html has ever called
+       it. The product asked a question it would not accept an answer to.
 
-       (1) alone is satisfied by deleting the question, which would be a cut that
-       drops a claim (ce17) -- and a real one, because a schedule picked by an
-       internal tie-break goes on staging real transactions in Xero whatever the
-       variance does. (2) alone is satisfied by asking on every green row, which is
-       the nag session 277 refused. Only together do they describe the fix. */
-    const settledRow = (await p.surfaces()).loans.closeBand.rows
-      .find(r => /BayFirst SBA 2/.test(r.name || ''));
-    if (settledRow && !settledRow.awaitingEvidence) {
-      t.ok(settledRow.band !== 'material',
-           'BayFirst SBA 2 is off by less than the materiality line — David\'s own example',
-           JSON.stringify({ band: settledRow.band, variance: settledRow.varianceN }));
-      t.ok(settledRow.action !== 'decide',
-           '⭐ ...so its row does NOT ask which schedule — nothing there is for the reader to do',
-           JSON.stringify({ action: settledRow.action, text: settledRow.actionText }));
-    }
-    /* AND THE CLAIM IS STILL ON THE SCREEN. Read from the strip's own gates, which
-       is where session 277 said this belonged: one gate for the whole table rather
-       than a nag on every green row. It names its loans, per the session-256 rule
-       that a chip answers its own question. */
+       ⚠️ ASSERTED AS A PAIR, because either half alone would go green on the wrong
+       page. (1) no row anywhere offers the ask -- what David asked for. (2) the
+       CHOICE MACHINERY IS STILL LIVE AND STILL UNSETTLED -- because deleting
+       `_loanScheduleChoice` along with the button is the tempting tidy-up, and it
+       would silently change which schedule the close reads its rows from. The cut
+       removes a nag; it must not move a number. */
+    const anyAsk = (await p.surfaces()).loans.closeBand.rows.filter(r => r.action === 'decide');
+    t.eq(anyAsk.length, 0,
+         '⭐⭐ NO row asks "Which schedule?" — the ask is gone, not narrowed (David, session 288)',
+         JSON.stringify(anyAsk.map(r => ({ n: r.name, a: r.action, t: r.actionText }))));
+    /* ⚠️ IT LOOKS FOR A CALL, NOT FOR THE NAME. The first cut searched the page
+       for the string and went red on the COMMENT explaining why the ask was
+       removed — a test that cannot tell a call from a mention of one is not
+       measuring what it claims. `rpc('` is the only way this file reaches a
+       Postgres function, so that is what is searched for. */
+    const noPicker = await p.evaluate(() =>
+      ({ src: typeof _loanScheduleChoice === 'function',
+         wired: /rpc\(\s*['"`]set_loan_chosen_schedule/.test(document.documentElement.innerHTML) }));
+    t.eq(noPicker.src, true,
+         '...and _loanScheduleChoice is STILL LIVE — it decides which schedule the close reads');
+    t.eq(noPicker.wired, false,
+         '⭐ ...while set_loan_chosen_schedule is still called from nowhere — the reason the ask had to go, stated as a fact rather than a comment',
+         JSON.stringify(noPicker));
+    /* AND NO GATE EITHER. Session 288's first cut moved the question to a
+       schedule-choice gate on the strip; David cut that too, on the same reasoning.
+       Pinned so it cannot drift back in as "just data". */
     const schedGate = await p.evaluate(() => {
       const el = document.querySelector('#loans-close-band .lcb-strip');
       let g = [];
       try { g = JSON.parse((el && el.getAttribute('data-gates')) || '[]'); } catch (_) { g = []; }
       return g.find(x => x.key === 'schedule-choice') || null;
     });
-    t.ok(!!schedGate,
-         '⭐ ...and the strip carries a schedule-choice gate — the question did not leave the screen',
-         JSON.stringify(schedGate));
-    t.ok(schedGate && /BayFirst SBA 2/.test(schedGate.text || ''),
-         '⭐ ...naming this very loan, so the reader can still find the decision',
-         JSON.stringify(schedGate && schedGate.text));
-    t.eq(schedGate && schedGate.bad, false,
-         '...and it does NOT block the close — an unagreed projection is not a reason August cannot close',
+    t.eq(schedGate, null,
+         '⭐ ...and no schedule-choice gate — the risk is Tech Debt #47, not a line on a screen nobody can act on',
          JSON.stringify(schedGate));
     // The decision still outranks a difference walk. Proven on a loan that owes no
     // evidence: strip the ask and the schedule question is what surfaces.
@@ -11784,23 +11829,28 @@ GROUPS.push({
   },
 });
 
-/* ── A READY CORRECTION BEATS A SCHEDULE QUESTION IT DOES NOT DEPEND ON ────
+/* ── A READY CORRECTION IS WHAT A ROW WITH A PREPARED FIX OFFERS ──────────
  *
- * Session 277 made the schedule question outrank "Find the fix", on the rule
- * that a difference walked against a projection nobody agreed to cannot be
- * evaluated. Right rule, one branch too wide: it keyed on `prestage_enabled`,
- * which is about what we WRITE to Xero, while this column is about a difference
- * we READ.
+ * HISTORY, because the assertions below are the residue of it. Session 277 made
+ * a "Which schedule?" ask outrank "Find the fix", on the rule that a difference
+ * walked against a projection nobody agreed to cannot be evaluated. Right rule,
+ * one branch too wide: it keyed on `prestage_enabled`, which is about what we
+ * WRITE to Xero, while this column is about a difference we READ. The four Ford
+ * loans are where the two came apart — all close on `lender_statement`, all carry
+ * a grade-A closing anchor, and loan-find-difference walked 23-25 STATEMENT spans
+ * on each and returned a confirmed diagnosis with a correcting journal prepared.
+ * The rows offered "Which schedule?" and hid it. Session 278 rescoped to `r.grade`.
  *
- * The four Ford loans are where the two came apart. All close on
- * `lender_statement`, all carry a grade-A closing anchor, and
- * loan-find-difference walked 23-25 STATEMENT spans on each and returned a
- * confirmed diagnosis with a correcting journal prepared. The rows offered
- * "Which schedule?" and hid it.
- *
- * The scoping is now `r.grade` — where the CLOSING figure actually came from,
- * the same value the SOURCE badge prints — and it only DEFERS the ask, never
- * deletes it. Both halves are asserted below, and both have a control. */
+ * ⚠️ SESSION 288 REMOVED THE OTHER SIDE OF THE ORDERING ENTIRELY. David: "'which
+ * schedule?' reads as: pick one, which we don't allow." The button opened a modal
+ * with no picker in it, and the RPC that would record the choice has never been
+ * called from this file. So there is no longer a contest between two asks — and
+ * this group could not simply be deleted along with the loser, because the thing
+ * it really protects is that a row with a PREPARED CORRECTION offers that
+ * correction. That claim outlives the ask that used to compete with it, and it is
+ * what the assertions below now say, on the same loan, with the same control
+ * inverted: the OLD code hid the fix, so proving the fix is reachable means
+ * proving the hiding branch is gone rather than that it lost a race. */
 GROUPS.push({
   name: 'fix-beats-schedule-ask',
   async run(t) {
@@ -11810,9 +11860,10 @@ GROUPS.push({
       return cb.rows.find(r => /4140/.test(r.name || ''));
     };
 
-    /* ── 1. THE PRECONDITIONS ARE REAL — not a row that would have been 'fix'
-     *      anyway. Every clause the OLD code used to send this to 'decide' is
-     *      still true; only the grade test changes the answer. ───────────── */
+    /* ── 1. THE PRECONDITIONS ARE REAL ────────────────────────────────────
+     * Every clause the pre-278 code used to send this row to 'decide' is STILL
+     * TRUE. That is what makes the assertion below a test rather than a
+     * coincidence: the row is not 'fix' because the conditions lapsed. */
     const pre = await p.evaluate(() => {
       const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '61564140');
       if (!a) return { err: 'no 4140' };
@@ -11826,9 +11877,9 @@ GROUPS.push({
       };
     });
     t.ok(!pre.err, 'the fixture carries E-Transit 4140', pre.err || '');
-    t.eq(pre.unsettled, true, 'its schedule choice is UNSETTLED — the ask would fire');
+    t.eq(pre.unsettled, true, 'its schedule choice is UNSETTLED — the old ask would have fired');
     t.eq(pre.prestage, true, '...and prestaging is on, which is what pulled it into scope');
-    t.eq(pre.closeBasis, 'lender_statement', '⭐ but it closes on the LENDER’S statements, not on a schedule');
+    t.eq(pre.closeBasis, 'lender_statement', '⭐ and it closes on the LENDER’S statements, not on a schedule');
     t.eq(pre.finding, true, '...and it has an open balance-vs-lender finding to walk');
 
     const row = await fordRow();
@@ -11836,22 +11887,17 @@ GROUPS.push({
     if (row) {
       t.eq(row.grade, 'A', '⭐ its closing figure is grade A — the lender’s own document, not the projection');
       t.eq(row.action, 'fix',
-           '⭐ so the row offers the CORRECTION, not a question about a schedule the difference never touched',
+           '⭐ so the row offers the CORRECTION — the prepared $415.88 journal has a way in from the row where it is noticed',
            JSON.stringify({ action: row.action, text: row.actionText }));
       t.ok(/find the fix/i.test(row.actionText || ''),
            '...and it says so in words', JSON.stringify(row.actionText));
     }
 
-    /* ── 2. DEFERRED, NOT ANSWERED ───────────────────────────────────────── */
-    // The scoping must not quietly settle a question nobody answered: a schedule
-    // picked by a tie-break still stages real Xero transactions on this loan.
-    t.eq(pre.unsettled, true,
-         '⭐ the schedule question is still UNSETTLED as a fact — the row defers it, it does not answer it');
-
-    /* ── 3. THE RULE IT NARROWS IS INTACT ────────────────────────────────── */
-    // Stated as an invariant over the whole table rather than one loan, so it
-    // keeps holding as the fixture moves: a fix is only ever offered where the
-    // closing came from the lender.
+    /* ── 2. THE RULE SESSION 278 NARROWED IS INTACT ───────────────────────
+     * Stated as an invariant over the whole table rather than one loan, so it
+     * keeps holding as the fixture moves: a fix is only ever offered where the
+     * closing came from the lender. This one is untouched by session 288 —
+     * removing the ask did not widen what may be corrected. */
     const cbAll = (await p.surfaces()).loans.closeBand;
     const fixRows = cbAll.rows.filter(r => r.action === 'fix');
     t.ok(fixRows.length > 0, 'some rows do offer a fix', String(fixRows.length));
@@ -11859,11 +11905,9 @@ GROUPS.push({
          '⭐ and NOT ONE of them closes on a schedule — a difference measured against an unagreed projection still cannot be evaluated',
          JSON.stringify(fixRows.map(r => ({ n: r.name, g: r.grade }))));
 
-    /* ── 4. A ROW THAT TIES STILL GETS NOTHING ───────────────────────────── */
-    // Session 288: 'queued' is allowed for the reason set out at length beside the
-    // sibling assertion in the close-band group — it is work about ANOTHER month,
-    // reaching the reader from the row it belongs to now that the Waiting on you
-    // card is gone. A claim about THIS month on a tying row is still the defect.
+    /* ── 3. A ROW THAT TIES STILL GETS NOTHING ABOUT THIS MONTH ───────────
+     * 'queued' is allowed: it is work about ANOTHER period, reaching the reader
+     * from the row it belongs to now that the Waiting on you card is gone. */
     const e6 = cbAll.rows.find(r => /7410/.test(r.name || ''));
     if (e6 && e6.band === 'tie') {
       t.ok(!e6.action || e6.action === 'none' || e6.action === 'queued',
@@ -11871,18 +11915,60 @@ GROUPS.push({
            JSON.stringify({ action: e6.action }));
     }
 
-    /* ── 5. IT DISCRIMINATES ─────────────────────────────────────────────── */
-    // Put the OLD precedence back and the correction disappears behind the ask.
-    const rev = await revertFn(p, 'renderLoansCloseBand', EDITS('schedule-ask-always-wins'));
-    t.ok(rev.ok, 'CONTROL: the pre-session-278 precedence could be rebuilt', JSON.stringify(rev.missing));
+    /* ── 4. IT DISCRIMINATES, AND THE CONTROL HAD TO BE REBUILT ───────────
+     * The old control put session 277's precedence back and watched the fix
+     * disappear behind the ask. There is no ask to hide behind any more, so that
+     * control now proves nothing — it would go green on a page with no Action
+     * column at all. What is reconstructed instead is the DEFECT: splice the
+     * whole 'decide' branch back into renderLoansCloseBand from this test's own
+     * source, and confirm 4140's prepared correction is hidden again. Never by
+     * editing index.html (session 245). */
+    const rev = await p.evaluate(() => {
+      const real = renderLoansCloseBand;
+      const src = real.toString();
+      const anchor = "const queuedCell = action.cell ? '' : _bkQueueCellHtml(queued, month);";
+      if (!src.includes(anchor)) return { ok: false, why: 'anchor moved — update this control' };
+      // The pre-288 branch, in its widest (pre-278) form: any unsettled schedule on
+      // a prestaging loan takes the cell, whatever is prepared behind it.
+      const branch = `
+        {
+          const _sc = _loanScheduleChoice(a);
+          if (_sc.unsettled && r.band !== 'tie' && !r.circular
+              && (a.prestage_enabled === true || a.close_basis === 'amortization_schedule')) {
+            action.kind = 'decide';
+            action.cell = '<button type="button" class="lcb-do lcb-decide">Which schedule?</button>';
+          }
+        }
+      `;
+      const patched = src.replace(anchor, branch + anchor);
+      const body = patched.slice(patched.indexOf('{') + 1, patched.lastIndexOf('}'));
+      try { window.renderLoansCloseBand = new Function(body); }
+      catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
+      window.renderLoansCloseBand();
+      const tr = [...document.querySelectorAll('#lcb-table tbody tr')]
+        .find(x => /4140/.test(x.getAttribute('data-loan') || ''));
+      const cell = tr && tr.querySelector('[data-col="action"]');
+      const out = { ok: true, action: cell && cell.getAttribute('data-action'),
+                    text: cell ? cell.innerText.trim() : '' };
+      window.renderLoansCloseBand = real;
+      real();
+      return out;
+    });
+    t.ok(rev.ok, 'CONTROL: the pre-288 "Which schedule?" branch could be rebuilt in page context',
+         JSON.stringify(rev));
     if (rev.ok) {
-      const b = await fordRow();
-      t.eq(b.action, 'decide',
-           '⭐ CONTROL: with the old scoping the row asks "Which schedule?" again — the defect, reproduced',
-           JSON.stringify({ action: b.action, text: b.actionText }));
-      t.ok(!/find the fix/i.test(b.actionText || ''),
-           '⭐ CONTROL: ...and the prepared $415.88 correction has no way in from the row where it is noticed');
+      t.eq(rev.action, 'decide',
+           '⭐ CONTROL: with that branch back, the row asks "Which schedule?" again — the defect, reproduced',
+           JSON.stringify(rev));
+      t.ok(!/find the fix/i.test(rev.text || ''),
+           '⭐ CONTROL: ...and the prepared $415.88 correction has no way in from the row where it is noticed',
+           JSON.stringify(rev.text));
     }
+    /* AND IT IS REALLY GONE AFTERWARDS — a control that leaves its own damage
+       behind would poison every later read of this page. */
+    const after = await fordRow();
+    t.eq(after && after.action, 'fix', 'CONTROL: ...and the real renderer is restored',
+         JSON.stringify(after && after.action));
 
     await p.close();
   },

@@ -126,8 +126,18 @@ const SELECT_SPLITS =
   '*,loan_accounts(lender_account_number,xero_account_name,lender)';
 const SELECT_AMORT_ROWS =
   'id,schedule_id,row_date,row_type,balance,principal,interest,payment,rate,loan_amt,' +
+  // ⚠️ `source` IS LOAD-BEARING AND WAS MISSING (session 288). The dashboard's own
+  // query selects it and `_loanScheduleChoice` RANKS on it -- client_parsed_verified
+  // 3, claude_assisted_parse 2, derived_from_statements 1 -- so a loan whose real
+  // lender schedule outranks its derived sibling is SETTLED in production. It came
+  // back null on all 1,121 rows here, so the rank was 0 everywhere, the `basis:
+  // 'verified'` branch could never run, and the harness reported eight unsettled
+  // loans where the live book has six. A fixture missing a field the shipped code
+  // branches on is not a smaller fixture, it is a different one -- and the branch it
+  // hides is invisible rather than red. Whenever a select here is narrower than the
+  // app's, that gap is a blind spot with no symptom.
   'loan_amortization_schedules(id,storage_path,contract_id,schedule_generated_date,' +
-  'created_at,loan_account_id,balance_basis,amort_type)';
+  'created_at,loan_account_id,balance_basis,amort_type,source)';
 const SELECT_PAYROLL_LINES =
   'id,import_id,raw_full_name,department_key,matched_employee_id,wage_amount,' +
   'er_tax_amount,er_health_amount,er_401k_amount,paycheck_tips_amount,line_type';
