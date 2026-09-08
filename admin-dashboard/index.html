@@ -11931,6 +11931,24 @@
     // same fields, same edge function; change one, change both).
     if (item.kind === 'lender_statement' && item.browserParsed && item.loan) {
       const p = item.browserParsed;
+      // Session 284, the second half of Tech Debt #47. Forwarding the basis
+      // below fixes every parser we have; this refuses the case that brings the
+      // defect back — a NEW parser that omits `balanceBasis`, whose rows would
+      // land 'unknown' and drop out of every lender comparison with nothing on
+      // screen to say so. This screen has no basis control to ask with, so the
+      // honest move is to send the person to the form that does.
+      //
+      // It can only ever REFUSE. It never picks a basis, never guesses one from
+      // the document, and never files anything it is unsure about — the same
+      // asymmetry that makes `_bkSplitPostingHold`'s prose regex admissible
+      // (Tech Debt #30). A false positive costs one statement filed through the
+      // single-statement form; the failure it prevents is a silent $960,005.00.
+      if (!p.balanceBasis) {
+        throw new Error(
+          'This parser did not say what the balance measures, and an unlabelled balance is left '
+          + 'out of every check that compares your books to the lender. File this one through '
+          + 'Upload → Lender statement, which asks.');
+      }
       const { ok, data } = await _loanFn('loan-ingest-statement', {
         lender_account_number: item.loan.lender_account_number,
         statement_date: p.statementDate,
@@ -11942,6 +11960,22 @@
         pulled_by: by,
         transactions: p.transactions || undefined,
         explicit_split: p.explicitSplit || undefined,
+        // Session 284: these two were dropped on this branch alone, and the
+        // comment above claiming parity with _submitIntakeStatement is exactly
+        // how nobody noticed. Both fields exist on `p` already -- every one of
+        // the five PDF parsers sets `balanceBasis`, and the iBusiness/FC parser
+        // sets `splitPeriodLabel`.
+        //   * no balance_basis -> the row lands 'unknown', which is excluded
+        //     from every lender comparison. A silence, not a safeguard. Tech
+        //     Debt #47: EIDL's 09/25 statement filed this way, invisible on
+        //     $960,005.00, eleven days after the last unlabelled row was cleared.
+        //   * no split_period_label -> a statement filed under a period start
+        //     raises its split against the wrong month, which is sessions 281
+        //     and 282's iBusiness bug re-entering through the other door.
+        // Session 231's rule at file scale: a guard is only as good as the
+        // branch it sits on. Change one of these two call sites, change both.
+        split_period_label: p.splitPeriodLabel || undefined,
+        balance_basis: p.balanceBasis || undefined,
       });
       if (!ok || data.error) throw new Error(data.error || 'Ingest failed');
       return;

@@ -10600,6 +10600,123 @@ GROUPS.push({
            '⭐ ...carrying no basis at all, so the row would land "unknown" and leave the lender checks — the exact defect, reproduced');
     }
 
+    /* ── 6. THE OTHER CALL SITE — THE BATCH INTAKE (session 284) ──────────
+     *
+     * Sections 1-5 test `_submitIntakeStatement` and nothing else, and that is
+     * how Tech Debt #47 happened: `_bkFileItem` calls the SAME edge function,
+     * carries a comment claiming parity with it, and dropped two fields.
+     * EIDL's 09/25 statement went in through here and landed 'unknown' on a
+     * $960,005.00 balance eleven days after session 281 declared the last
+     * unlabelled lender row cleared. Session 231's rule at file scale: a guard
+     * is only as good as the branch it sits on — so the branch gets a test.
+     */
+    const batch = await p.evaluate(async () => {
+      const loan = (_allLoanAccounts || []).find(a => a.lender_account_number === '6917479106');
+      const calls = [];
+      const realFn = _loanFn;
+      _loanFn = async (name, body) => { calls.push({ name, body }); return { ok: true, data: {} }; };
+      try {
+        await _bkFileItem({
+          kind: 'lender_statement', name: 'eidl.pdf', base64: 'AAAA', loan,
+          browserParsed: {
+            statementDate: '2026-09-25', principalBalance: '960005.00',
+            totalAmountDue: 4791, paymentDueDate: '2026-09-25',
+            balanceBasis: 'principal_only', splitPeriodLabel: '2026-08',
+          },
+        });
+      } finally { _loanFn = realFn; }
+      const b = (calls.find(c => c.name === 'loan-ingest-statement') || {}).body || {};
+      return { n: calls.length, basis: b.balance_basis, period: b.split_period_label, src: _bkFileItem.toString() };
+    });
+    t.eq(batch.n, 1, 'the batch intake files a parsed lender statement through the same edge function');
+    t.eq(batch.basis, 'principal_only',
+         '⭐ and the parser\'s OWN basis travels with it — the parsers all set it, only this call site failed to send it (Tech Debt #47)');
+    t.eq(batch.period, '2026-08',
+         '⭐ ...as does the split period label, or an iBusiness statement filed here raises its split against the wrong month — sessions 281/282, re-entering by the other door');
+
+    /* The discriminator: strip the two lines back out and confirm both go red. */
+    const batchBroke = await p.evaluate(async (src) => {
+      const stripped = src
+        .replace(/\n\s*split_period_label: p\.splitPeriodLabel \|\| undefined,/, '')
+        .replace(/\n\s*balance_basis: p\.balanceBasis \|\| undefined,/, '');
+      if (stripped === src) return { rebuilt: false };
+      const calls = [];
+      const stub = async (name, body) => { calls.push({ name, body }); return { ok: true, data: {} }; };
+      // The rebuilt copy takes the recorder as its own `_loanFn`, so the page's
+      // real one is never touched — the shipped path stays exactly as it is.
+      const fn = new Function('_loanFn',
+        'return (async function ' + stripped.replace(/^async function\s*/, '') + ')')(stub);
+      const loan = (_allLoanAccounts || []).find(a => a.lender_account_number === '6917479106');
+      try {
+        await fn({
+          kind: 'lender_statement', name: 'eidl.pdf', base64: 'AAAA', loan,
+          browserParsed: { statementDate: '2026-09-25', principalBalance: '960005.00',
+                           balanceBasis: 'principal_only', splitPeriodLabel: '2026-08' },
+        });
+      } catch (e) { /* the branch under test returns before anything else */ }
+      const b = (calls.find(c => c.name === 'loan-ingest-statement') || {}).body || {};
+      return { rebuilt: true, sent: calls.length, basis: b.balance_basis, period: b.split_period_label };
+    }, batch.src);
+    t.ok(batchBroke.rebuilt, 'the inverse of the batch fix could be applied to the shipped source');
+    if (batchBroke.rebuilt) {
+      t.eq(batchBroke.sent, 1, '...and the stripped copy still files the statement, which is what makes the two below the defect and not a crash');
+      t.eq(batchBroke.basis, undefined,
+           '⭐ WITHOUT the line the statement is still filed, silently unlabelled — the $960,005.00 silence, reproduced');
+      t.eq(batchBroke.period, undefined,
+           '⭐ ...and with no period label, which is the iBusiness misdating waiting to happen');
+    }
+
+    /* ── 7. AND THE BATCH PATH REFUSES AN UNLABELLED ONE (session 284) ────
+     *
+     * Forwarding the field fixes all five parsers we have today. This is the
+     * guard for the sixth one somebody writes next year: with no basis control
+     * on this screen there is nothing to ask with, so the item is refused by
+     * name and pointed at the form that asks. It can only ever refuse.
+     */
+    const refusedBatch = await p.evaluate(async () => {
+      const loan = (_allLoanAccounts || []).find(a => a.lender_account_number === '6917479106');
+      const calls = [];
+      const realFn = _loanFn;
+      _loanFn = async (name, body) => { calls.push({ name, body }); return { ok: true, data: {} }; };
+      let msg = null;
+      try {
+        await _bkFileItem({
+          kind: 'lender_statement', name: 'newlender.pdf', base64: 'AAAA', loan,
+          // everything the old guard required is present; ONLY the basis is
+          // missing, so a green here can only be the new check firing.
+          browserParsed: { statementDate: '2026-09-25', principalBalance: '960005.00',
+                           totalAmountDue: 4791, paymentDueDate: '2026-09-25' },
+        });
+      } catch (e) { msg = String((e && e.message) || e); }
+      finally { _loanFn = realFn; }
+      return { msg, sent: calls.length };
+    });
+    t.ok(refusedBatch.msg, '⭐ a parsed statement with no basis is REFUSED by the batch intake');
+    t.eq(refusedBatch.sent, 0,
+         '⭐ ...and NOTHING was sent — a statement is not stored unlabelled here either');
+    t.ok(/left out of every check/.test(refusedBatch.msg || ''),
+         '...stating the consequence, the same sentence the form uses', JSON.stringify(refusedBatch.msg));
+    t.ok(/Lender statement/.test(refusedBatch.msg || ''),
+         '⭐ ...and naming where the person CAN answer, since this screen has no control to ask with');
+
+    /* A labelled one is untouched by the refusal — otherwise "refuses" is
+     * indistinguishable from "stopped working". */
+    const stillFiles = await p.evaluate(async () => {
+      const loan = (_allLoanAccounts || []).find(a => a.lender_account_number === '6917479106');
+      const calls = [];
+      const realFn = _loanFn;
+      _loanFn = async (name, body) => { calls.push({ name, body }); return { ok: true, data: {} }; };
+      try {
+        await _bkFileItem({
+          kind: 'lender_statement', name: 'eidl.pdf', base64: 'AAAA', loan,
+          browserParsed: { statementDate: '2026-09-25', principalBalance: '960005.00',
+                           balanceBasis: 'principal_only' },
+        });
+      } finally { _loanFn = realFn; }
+      return calls.length;
+    });
+    t.eq(stillFiles, 1, '...while a labelled statement files exactly as before — the control');
+
     await p.close();
   },
 });

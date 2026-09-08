@@ -2,6 +2,51 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 283, 2026-09-08)
 >
+> ### 0zn. ✅ TECH DEBT #47'S ROOT CAUSE IS FOUND AND FIXED — and there was a SECOND field (session 284)
+>
+> **`_bkFileItem` — the BATCH intake — calls `loan-ingest-statement` and dropped two fields that
+> `_submitIntakeStatement` sends.** Not a parser gap, not a judgment about the EIDL document: a
+> second call site to the same function, one branch away, carrying a comment that says *"whose
+> payload shape this must stay in sync with — same fields, same edge function; change one, change
+> both"*. Session 278 added the basis to the form; nobody changed the other one. Session 231's rule
+> at file scale.
+>
+> | Dropped | Consequence |
+> |---|---|
+> | `balance_basis` | the row lands `unknown` and leaves **every** lender comparison. This is Tech Debt #47 exactly — EIDL's 09/25 statement, invisible on $960,005.00, eleven days after §0zi declared the last unlabelled lender row cleared. |
+> | `split_period_label` | a statement filed under a period start raises its split against the **wrong month** — sessions 281 and 282's iBusiness bug, re-entering by the other door. Latent: only the FC parser emits this label, and nobody has filed an FC statement through the batch screen. |
+>
+> ⚠️ **`unknown` was NOT the honest answer here, and #47's note left that open.** All five PDF
+> parsers set `balanceBasis: 'principal_only'` on the parsed result, EIDL's included — its extractor
+> reads the document's own *"Outstanding Balance"* label and says so in a comment (session 256).
+> The value was sitting on `p` the whole time and simply was not sent. **No relabelling was needed
+> and none was done.**
+>
+> **Fix:** two lines in `_bkFileItem`, forwarding `p.balanceBasis` and `p.splitPeriodLabel`.
+>
+> **Test:** harness group `statement-basis-asked` gains section 6. Sections 1–5 were session 278's
+> and test `_submitIntakeStatement` and nothing else — **which is how this happened**, so the other
+> call site now has its own assertions. Discriminator included: the two lines are stripped out of the
+> shipped `_bkFileItem.toString()` and rebuilt, and the copy still files the statement while sending
+> neither field. **26 assertions, 26 green; both discriminator assertions go red on the old code.**
+> `intake-on-loans` (14) and `statement-date-basis` (7) re-run green.
+>
+> ✅ **AND THE THIRD DOOR IS SHUT — David said ship it.** Forwarding the field fixes all five parsers
+> we have; the refusal is for the sixth one somebody writes next year. `_bkFileItem` now REFUSES a
+> `lender_statement` item whose parse carries no `balanceBasis`, naming the single-statement form,
+> which is the only surface that can ask. **It can only ever refuse** — it never picks a basis, never
+> infers one from the document, never files anything it is unsure of; the same asymmetry that makes
+> `_bkSplitPostingHold`'s prose regex admissible (Tech Debt #30). A false positive costs one
+> statement re-filed through the form; the failure it prevents is a silent $960,005.00. The item
+> stays on the batch screen as `failed` with the reason on its own row, so a refusal is visible
+> rather than a file that quietly did not happen.
+>
+> **Section 7 covers it, WITH the control that a labelled statement still files** — without that,
+> "refuses" is indistinguishable from "stopped working". **31 assertions, 31 green.**
+>
+> ⏭️ **Tech Debt #46 (EIDL dated to its DUE date) is UNTOUCHED** — it was the other half of §0zk's
+> hand-off and still needs the `due_date` / `period_start` basis decision.
+>
 > ### 0zk. ✅ EVERYTHING IS DEPLOYED. THE FLAG RULE WAS WRONG AND IS FIXED. (session 283)
 >
 > **`loan-ingest-statement` v51 is LIVE with `verify_jwt: true`**, and it took one ordinary CLI
@@ -3114,12 +3159,17 @@ safeguard** — and this one is silent on $960,005.00.
 ⚠️ **Session 281 fixed the DATA and called both root causes fixed; this row is the counter-example.**
 Whatever produced it is still live.
 
-**Next step:** find where intake decides `balance_basis` and establish why this document yielded
-`unknown` where August's yielded `principal_only`. Do NOT bulk-relabel to clear the count — §0zl is
-precisely the story of a good-faith relabel that made a bad row into the winning anchor. Note also
-that `unknown` may be the HONEST answer here: the PDF says "Outstanding Balance", not "Principal
-Balance". If so the defect is that an honest `unknown` is invisible rather than flagged, which is
-Tech Debt #19's subject and should be settled with it.
+✅ **CLOSED (session 284) — and the cause was neither of the two this note guessed at.** It was not
+the parser and it was not an honest `unknown`. **`_bkFileItem`, the BATCH intake, calls the same
+edge function as the single-statement form and never sent `balance_basis` at all** — nor
+`split_period_label`, session 281's field, which would have misdated an FC statement filed the same
+way. Both values were already on the parsed object; all five PDF parsers set `balanceBasis`, EIDL's
+reading the document's own "Outstanding Balance" label. Session 278 made the FORM ask and left the
+second call site behind, under a comment claiming the two were in sync. **No relabel was needed and
+none was done.** Fixed with two lines plus harness section 6 (`statement-basis-asked`), which now
+tests the branch that had none. Full write-up: START HERE §0zn. ⏭️ **One residue, David's call:** a
+future parser that omits `balanceBasis` still lands `unknown` silently, because the batch screen has
+no basis control to refuse against.
 
 
 **1. ✅ SHIPPED session 222, 2026-08-19 — `reconciliation-run` v13. Awaiting a live run to confirm.**
