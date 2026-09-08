@@ -496,17 +496,20 @@ Deno.serve(async (req) => {
         .eq('stripe_subscription_id', sub.id)
         .single()
 
-      if (localSub && Number(localSub.overage_amount_due) > 0) {
-        // v32: Race-condition guard — atomically zero the overage so that if
-        // invoice.created fires at the same time, only ONE handler bills it.
-        const overageAmount = Number(localSub.overage_amount_due)
-        const { data: claimResult } = await db.from('subscriptions')
-          .update({ overage_amount_due: 0, updated_at: now })
-          .eq('id', localSub.id)
-          .gt('overage_amount_due', 0)  // only succeeds if still > 0
-          .select('id')
+      if (localSub) {
+        // Session 280: overage is MEASURED from the orders, never read from a
+        // parallel accrual. claim_subscription_overage returns only overage
+        // raised on an order that never collected, and stamps
+        // orders.overage_invoiced_at on exactly those orders — so anything the
+        // customer already paid at order time can never be billed again, and a
+        // concurrent invoice.created claims nothing.
+        const { data: claim } = await db.rpc('claim_subscription_overage', {
+          p_subscription_id: localSub.id,
+        })
+        const overageAmount = Number(claim?.amount || 0)
+        const claimedOrderIds: string[] = Array.isArray(claim?.order_ids) ? claim.order_ids : []
 
-        if (claimResult && claimResult.length > 0) {
+        if (overageAmount > 0) {
           const overageCents = Math.round(overageAmount * 100)
           try {
             // Create an invoice item on the customer (not attached to a specific invoice)
@@ -555,14 +558,16 @@ Deno.serve(async (req) => {
             console.log('Final overage invoice created:', finalInvoice.id, 'amount:', overageAmount, 'sub:', localSub.id)
           } catch (e: any) {
             console.error('Failed to create final overage invoice:', e.message)
-            // Restore overage so Audit Check #15 can catch it
-            await db.from('subscriptions').update({
-              overage_amount_due: overageAmount,
-              updated_at: now,
-            }).eq('id', localSub.id)
+            // Release the claim so Audit Check #15 can catch it and a retry can
+            // bill it. Un-stamping is the ONLY way an order becomes billable
+            // again — never write overage_amount_due directly.
+            await db.rpc('release_subscription_overage', {
+              p_subscription_id: localSub.id,
+              p_order_ids: claimedOrderIds,
+            })
           }
         } else {
-          console.log('Final overage: another handler already claimed the overage for sub:', localSub.id)
+          console.log('Final overage: nothing uncollected to bill for sub:', localSub.id)
         }
       }
 
@@ -888,20 +893,22 @@ Deno.serve(async (req) => {
           .eq('stripe_subscription_id', subscriptionId)
           .single()
 
-        if (sub && Number(sub.overage_amount_due) > 0) {
-          const overageAmount = Number(sub.overage_amount_due)
+        if (sub) {
           const stripeCustomerId = typeof invoice.customer === 'string'
             ? invoice.customer
             : (invoice.customer as any)?.id
 
-          // v32: Race-condition guard — atomically zero the overage first
-          const { data: claimResult } = await db.from('subscriptions')
-            .update({ overage_amount_due: 0, updated_at: new Date().toISOString() })
-            .eq('id', sub.id)
-            .gt('overage_amount_due', 0)
-            .select('id')
+          // Session 280: this is the safety net for an order whose own card
+          // charge failed — NOT a second collection of overage the customer has
+          // already paid on the order. The RPC measures the uncollected amount
+          // and stamps the orders it covers, atomically.
+          const { data: claim } = await db.rpc('claim_subscription_overage', {
+            p_subscription_id: sub.id,
+          })
+          const overageAmount = Number(claim?.amount || 0)
+          const claimedOrderIds: string[] = Array.isArray(claim?.order_ids) ? claim.order_ids : []
 
-          if (claimResult && claimResult.length > 0) {
+          if (overageAmount > 0) {
             const overageCents = Math.round(overageAmount * 100)
             try {
               await stripe.invoiceItems.create({
@@ -927,14 +934,14 @@ Deno.serve(async (req) => {
               console.log('Overage attached to draft invoice:', invoice.id, 'amount:', overageAmount, 'sub:', sub.id)
             } catch (e: any) {
               console.error('Failed to attach overage to invoice:', e.message)
-              // Restore overage so another handler or audit can catch it
-              await db.from('subscriptions').update({
-                overage_amount_due: overageAmount,
-                updated_at: new Date().toISOString(),
-              }).eq('id', sub.id)
+              // Release the claim so a retry or the audit can pick it up.
+              await db.rpc('release_subscription_overage', {
+                p_subscription_id: sub.id,
+                p_order_ids: claimedOrderIds,
+              })
             }
           } else {
-            console.log('Overage already claimed by another handler for sub:', sub.id)
+            console.log('No uncollected overage to attach for sub:', sub.id)
           }
         }
       }

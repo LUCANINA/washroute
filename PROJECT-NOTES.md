@@ -13,7 +13,7 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: September 1, 2026 — Session 258 (polish) — **Invoice documents now print thousands separators: `$10,548.50`, not `$10548.50`.***
+*Last updated: September 8, 2026 — Session 280 — **Subscription overage was being billed twice; 12 customers overcharged $1,113.75. Root cause fixed, queued double-charges stopped, refunds pending.***
 
 David green-lit the fix flagged in the QA pass. Both customer-facing renderers — `generateInvoiceHTML` (the on-screen / printed invoice) and `buildInvoicePdfBase64` (the emailed PDF) — formatted every figure with a bare `.toFixed(2)`, so Kidango's five-figure August total read `$10536.00`. All **23** money sites across the two functions now go through one shared helper:
 
@@ -1927,6 +1927,103 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Sep 8, 2026 (session 280) — Subscription overage was billed TWICE; 12 customers overcharged $1,113.75
+
+**Trigger:** John Taladiar flagged in Slack that Mayumi Santos was charged **$409.75** for a
+**$275.00** subscription and said he was refunding her the difference. He was right about the
+refund and right that it needed looking into — it was not a one-off, and it was still firing.
+
+**The bug: two independent collection paths for the same money.**
+
+| When | What happens | Who wrote it |
+|---|---|---|
+| Order goes `ready_for_delivery` | `apply_subscription_usage_fn` adds an `lb_overage` line to the order; `charge-order` collects it on the spot | session 168 |
+| Next Stripe renewal | `stripe-webhook` `invoice.created` attaches `subscriptions.overage_amount_due` to the invoice | session 115 (v30) |
+
+The trigger did BOTH: it put the overage on the order *and* accrued the same amount into
+`overage_amount_due`. Session 168 added per-order billing and left the session-115 invoice path
+standing, so from that day every over-limit subscriber paid the same overage twice. Mayumi:
+149 lbs on a 100 lb plan → 49 × $2.75 = **$134.75**, collected on orders #12963 and #13543 in
+August/September, then charged again on the 7 September invoice. $275.00 + $134.75 = $409.75,
+to the cent.
+
+**Scale — 13 invoice events, 12 of them double charges, $1,113.75 collected twice:**
+Christina Sauper Stratton $19.25 · Karla Shallenberger $30.25 · Corey Keller $57.75 ·
+Rachel Lederman $63.25 · Andrew Foster $77.00 · Tess Smagorinsky $13.75 · Cole Bridge $74.25 ·
+Amy Cummings $495.00 · Jamie Addington $24.75 · Lo Ferris $77.00 · Christina Liebner $46.75 ·
+Mayumi Santos $134.75 (already refunded by John). The 13th, Lachar Burns, was invoiced $365.75
+but his card never collected it, and $192.50 of that sat on orders that had been **written off** —
+so his invoice was the only attempted collection, not a duplicate. Written-off overage being
+re-billed at all is the reason the fix now treats a write-off as forgiven.
+
+**Still queued when this was found.** Ten active subscribers were lined up to be double-charged
+$605.00, the first (Rachel Skiffer, $134.75) within hours. `overage_amount_due` was zeroed on the
+14 subscriptions where the overage was already fully paid — snapshot in
+`_resync_subscription_overage_20260908` — before anything else was touched. Lisa Sturges was
+deliberately left alone at that point: $66.00 of hers looked genuinely uncollected.
+
+**A COLUMN THAT MEANS TWO THINGS IS THE BUG.** `overage_amount_due` was simultaneously "overage
+this customer has racked up" (a display figure) and "overage this customer still owes" (a billing
+instruction). Nothing reconciled the two, so the second kept billing what the first had already
+collected. This is the module's own *measured, never derived* rule arriving on the laundry side:
+a quantity accrued in parallel with the thing it describes will drift, and the drift is silent
+because both numbers look plausible.
+
+The field now means exactly what its name says — **overage still OWED** — and it is MEASURED from
+the orders, never accrued:
+
+* `uncollected_subscription_overage(sub, exclude_order)` is the single source: `lb_overage` lines
+  on orders that are not `paid` / `refunded` / `written_off` and not already stamped.
+* `claim_subscription_overage(sub)` is what the webhook calls. It measures, and stamps
+  `orders.overage_invoiced_at` on exactly the orders it counted, in one statement. **The
+  `overage_invoiced_at IS NULL` check is repeated inside the UPDATE's own WHERE on purpose** — under
+  READ COMMITTED that is what makes a concurrent `invoice.created` re-evaluate the predicate and
+  claim nothing. Selecting the ids in a CTE and joining on id alone would not have re-checked it.
+* `release_subscription_overage()` un-stamps if Stripe rejects the invoice item. Un-stamping is now
+  the ONLY way an order becomes billable again; nothing writes `overage_amount_due` directly.
+* A period roll **no longer zeroes** `overage_amount_due`. It used to, which was safe only while the
+  webhook *read* the column; now that the webhook measures, zeroing would hide a real debt.
+* `overage_invoiced_at` is in `enforce_protected_order_columns`' deny-list — it is a money field.
+
+**The invoice path survives, deliberately, as a safety net** — but only for an order whose own card
+charge failed. David chose this over deleting it: an order that fails to collect should still be
+recoverable. A written-off order is forgiven and never re-billed.
+
+**Two real bugs caught in my own migration before it ran, both by checking rather than assuming:**
+
+1. The protected-columns trigger function is `enforce_protected_order_columns` — **not**
+   `..._fn`, which is what I had written by pattern-matching the neighbouring trigger functions.
+   `CREATE OR REPLACE` would have cheerfully created a brand-new, unused function, left the real
+   guard untouched, and **my own assertion would have passed**, because it checked the function I
+   had just created. The assertion now resolves the function through `pg_trigger` — it asks the
+   LIVE trigger what it runs, so it cannot be satisfied by a decoy.
+2. `FOR UPDATE` is illegal alongside `GROUP BY`; the claim CTE would have failed on apply.
+
+**Verification — both directions, rolled back.** Inside a `DO` block ending in `RAISE EXCEPTION`
+(so the whole thing rolls back and still prints):
+
+```
+order charge FAILED  → due=82.50 | claim1=82.50 | after=0.00 | claim2=0.00 | stamped=t
+order charge PAID    → claim=0
+```
+
+The first line is the safety net working and the double-claim being impossible; the second is
+Mayumi's actual scenario now billing nothing extra. **Either test alone proves nothing** — a claim
+that always returns 0 passes the second and breaks the first, and a claim that always bills passes
+the first and reproduces the bug.
+
+**Deployed:** `stripe-webhook` v64 → **v65**, verified BOOTED by probe (400 `{"error":"Invalid
+signature"}` is the handler's own response — an accepted deploy is not proof it runs). Backfill
+put every subscription onto the measured basis: **$0.00 owed across the whole book**, because every
+overage ever raised had in fact been collected on its order — which is the cleanest possible
+confirmation that the invoice path had only ever produced duplicates.
+
+**Refunds:** `scripts/session280-overage-refunds.js` — a dry-run-by-default console script for the
+11 outstanding refunds ($979.00). `refund-charge` requires an admin/manager JWT, so it cannot be
+driven from a session like this one; it runs from David's own logged-in dashboard. `suppress_sms`
+is on, so these customers get a human explanation rather than a bare refund text.
+
 
 ### Aug 7, 2026 (session 207) — Payroll: employee tax withholding was being double-counted (found by auditing the previous day's own work)
 
