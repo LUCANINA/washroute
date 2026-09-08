@@ -43,6 +43,28 @@ const money = (n: number) => '$' + Math.abs(n).toLocaleString('en-US', { minimum
 // (Tech Debt #46's leftover) is what will one day give this an outside witness.
 // Until then it is stated as ours, which is honest, rather than as the lender's,
 // which would not be.
+// ⚠️ WHICH ROWS ARE THE LENDER SPEAKING, AND WHICH ARE OUR OWN ARITHMETIC.
+//
+// `loan_splits.source` is the whole of this distinction and the first cut ignored
+// it, which made the sentence's provenance clause simply false.
+//
+//   explicit_split      the lender's own "Applied to Principal / Applied to
+//                       Interest" line, verbatim (loan-ingest-statement v21).
+//                       This IS the outside witness.
+//   statement_delta     OUR arithmetic: principal = the balance delta. On a
+//                       question about why a BALANCE moved, "principal = 0"
+//                       here means only "the balance did not move" -- it is the
+//                       conclusion restated as its own evidence, which is §246
+//                       exactly. Not merely weaker: uninformative.
+//   amortization_schedule  our schedule, and on most of this book a schedule we
+//                       DERIVED from statements. Ours.
+//
+// So only lender-stated rows can carry the claim. The others are named in the
+// working and explicitly discounted, because a reader who sees three months on
+// the loan and two in the sentence deserves to know which one dropped out and
+// why (nothing is deleted -- ce17).
+const LENDER_STATED = ['explicit_split']
+
 export function deriveIncreaseCause(o: {
   splits: any[], headline: any, winFrom: string, residual: number | null,
 }): { sentence: string, working: string, months: number, covers_event: boolean } | null {
@@ -64,16 +86,20 @@ export function deriveIncreaseCause(o: {
       return /^\d{4}-\d{2}$/.test(m) && m >= fromMonth
     })
     .sort((a: any, b: any) => String(a.period_label).localeCompare(String(b.period_label)))
-  // Two is the minimum that makes "no principal in any of them" a pattern
-  // rather than one month's arithmetic.
-  if (inWindow.length < 2) return null
-  const allInterestOnly = inWindow.every((sp: any) =>
+  const stated = inWindow.filter((sp: any) => LENDER_STATED.includes(String(sp.source || '')))
+  const ours = inWindow.filter((sp: any) => !LENDER_STATED.includes(String(sp.source || '')))
+  // Two is the minimum that makes "no principal in any of them" a pattern rather
+  // than one month's arithmetic -- and they must be two the LENDER stated. With
+  // fewer, the honest answer is that we cannot say, which leaves the ask for the
+  // documents standing (§262) instead of dressing our own arithmetic as evidence.
+  if (stated.length < 2) return null
+  const allInterestOnly = stated.every((sp: any) =>
     Math.abs(Number(sp.principal_amount ?? 0)) < 0.01 && Math.abs(Number(sp.interest_amount ?? 0)) >= 0.01)
   if (!allInterestOnly) return null
 
-  const months = inWindow.length
-  const first = String(inWindow[0].period_label).slice(0, 7)
-  const last = String(inWindow[months - 1].period_label).slice(0, 7)
+  const months = stated.length
+  const first = String(stated[0].period_label).slice(0, 7)
+  const last = String(stated[months - 1].period_label).slice(0, 7)
 
   // ⚠️ THE MONTHS WE EXAMINED ARE NAMED, NOT THE WINDOW WE MEANT TO EXAMINE.
   //
@@ -97,7 +123,9 @@ export function deriveIncreaseCause(o: {
   // evidence the card says so plainly, which also happens to be the honest
   // ground for asking for the earlier statements (§262).
   const coversEvent = !(residual != null && Math.abs(residual) >= TOL)
-  const observed = `The ${months} payments on file from ${first} to ${last} apply $0.00 to principal — every one goes entirely to interest.`
+  const observed = months === 1
+    ? `The lender's own statement for ${first} applies $0.00 to principal — all of it goes to interest.`
+    : `The lender's own statements from ${first} to ${last} apply $0.00 to principal — every one of the ${months} goes entirely to interest.`
   const rule = coversEvent
     ? `A balance that rose while no principal was being applied did so through a fee or capitalised interest, not through a repayment.`
     : `Where no principal is being applied, a rise in the balance is a fee or capitalised interest rather than a missed repayment — though this difference predates ${fromMonth}, so those months are not among the ones read here.`
@@ -106,8 +134,13 @@ export function deriveIncreaseCause(o: {
     months,
     covers_event: coversEvent,
     sentence: `${observed} ${rule}`,
-    working: `From our own payment records, not the lender's: `
-      + inWindow.map((sp: any) => `${sp.period_label} ${money(Number(sp.principal_amount ?? 0))} principal / ${money(Number(sp.interest_amount ?? 0))} interest`).join('; ')
-      + `. The statement's own "Applied to Principal" line is not captured yet, so this is our books describing themselves — corroborating it against the lender's own figure is Tech Debt #46's leftover.`,
+    working: `Stated by the lender (its own "Applied to Principal" line, captured verbatim at ingest): `
+      + stated.map((sp: any) => `${sp.period_label} ${money(Number(sp.principal_amount ?? 0))} principal / ${money(Number(sp.interest_amount ?? 0))} interest`).join('; ')
+      + `.`
+      + (ours.length
+        ? ` Not counted, because these are our own figures rather than the lender's: `
+          + ours.map((sp: any) => `${sp.period_label} (${String(sp.source || 'unknown').replace(/_/g, ' ')}) ${money(Number(sp.principal_amount ?? 0))} principal`).join('; ')
+          + `. On a statement_delta row the principal IS the balance delta, so "$0.00 principal" there says only that the balance did not move — which is the question, not an answer to it.`
+        : ''),
   }
 }

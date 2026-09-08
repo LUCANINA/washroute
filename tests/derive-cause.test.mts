@@ -21,13 +21,16 @@ const ok = (c: unknown, name: string, obs = '') => {
 }
 const sec = (t: string) => console.log(`\n── ${t} `)
 
-// The real EIDL rows, read off the fixture pulled 2026-09-08.
+// The real EIDL rows, read off the database 2026-09-08 — INCLUDING `source`,
+// which the first version of this file omitted and which turned out to be the
+// whole point. 2026-07 is statement_delta (ours); 08 and 09 are explicit_split
+// (the lender's own "Applied to Principal" line).
 const EIDL = [
-  { period_label: '2026-07', principal_amount: 0, interest_amount: 4791 },
-  { period_label: '2026-08', principal_amount: 0, interest_amount: 4791 },
-  { period_label: '2026-09', principal_amount: 0, interest_amount: 4791 },
-  { period_label: '2024-03-22', principal_amount: 4791, interest_amount: 0 },
-  { period_label: '2024-02-22', principal_amount: 1802.21, interest_amount: 2988.79 },
+  { period_label: '2026-07', source: 'statement_delta', principal_amount: 0, interest_amount: 4791 },
+  { period_label: '2026-08', source: 'explicit_split', principal_amount: 0, interest_amount: 4791 },
+  { period_label: '2026-09', source: 'explicit_split', principal_amount: 0, interest_amount: 4791 },
+  { period_label: '2024-03-22', source: 'statement_delta', principal_amount: 4791, interest_amount: 0 },
+  { period_label: '2024-02-22', source: 'statement_delta', principal_amount: 1802.21, interest_amount: 2988.79 },
 ]
 const HEAD = { difference: -5 }          // our books BELOW the lender
 const WIN = '2026-04-25'                 // earliest usable statement
@@ -35,11 +38,15 @@ const WIN = '2026-04-25'                 // earliest usable statement
 sec('it fires on the case it was written for')
 const eidl = deriveIncreaseCause({ splits: EIDL, headline: HEAD, winFrom: WIN, residual: -5 })!
 ok(eidl, 'EIDL produces a cause')
-ok(eidl.months === 3, 'it read the three payments on file, not the six months of window', String(eidl?.months))
+ok(eidl.months === 2, '⭐ it counts the TWO the lender stated, not the three rows on file', String(eidl?.months))
 
 sec('⭐ IT NAMES THE MONTHS IT READ — NOT THE WINDOW IT MEANT TO READ')
-ok(eidl.sentence.includes('from 2026-07 to 2026-09'),
-   'the range is the payments that exist', eidl.sentence)
+ok(eidl.sentence.includes('from 2026-08 to 2026-09'),
+   'the range is the months the LENDER spoke about', eidl.sentence)
+ok(!eidl.sentence.includes('2026-07'),
+   '⭐ 2026-07 is absent from the claim — its "principal" IS the balance delta, so citing it is s246 circularity', eidl.sentence)
+ok(/lender's own statements/.test(eidl.sentence),
+   '...and the sentence says whose figures these are', eidl.sentence)
 ok(!eidl.sentence.includes('since 2026-04'),
    '⭐ CONTROL: the old overclaim is gone — it never says "since <window start>"', eidl.sentence)
 ok(!/\b2026-05\b|\b2026-06\b/.test(eidl.sentence),
@@ -57,24 +64,34 @@ ok(covered.covers_event === true && /did so through a fee or capitalised interes
    'CONTROL: with no residual the evidence DOES cover the event, and then it states it outright', covered.sentence)
 
 sec('the working says whose books these are')
-ok(/not the lender's/.test(eidl.working), "it is our record, and it says so — a check whose inputs share a source (s246)")
-ok(/2026-07 \$0\.00 principal \/ \$4,791\.00 interest/.test(eidl.working), 'every row it read is in the working', eidl.working)
-ok(/Tech Debt #46/.test(eidl.working), 'and it names what would give the claim an outside witness')
+ok(/Stated by the lender/.test(eidl.working), 'the working leads with whose figures carry the claim')
+ok(/2026-08 \$0\.00 principal \/ \$4,791\.00 interest/.test(eidl.working), 'every lender-stated row is in the working', eidl.working)
+ok(/Not counted.*2026-07 \(statement delta\)/.test(eidl.working),
+   '⭐ the discounted row is NAMED and its reason given — dropped from the claim, not from the card (ce17)', eidl.working)
+ok(/the balance did not move — which is the question, not an answer to it/.test(eidl.working),
+   'and it explains WHY our own delta cannot be evidence here', eidl.working)
 
 sec('it refuses where it has no business speaking')
 ok(deriveIncreaseCause({ splits: EIDL, headline: { difference: 5 }, winFrom: WIN, residual: null }) === null,
    'our books ABOVE the lender is a different question — no cause offered')
 ok(deriveIncreaseCause({ splits: EIDL, headline: { difference: -0.01 }, winFrom: WIN, residual: null }) === null,
    'a difference inside tolerance is not a difference')
-ok(deriveIncreaseCause({ splits: [EIDL[0]], headline: HEAD, winFrom: WIN, residual: null }) === null,
-   'one payment is arithmetic, not a pattern — two is the minimum')
+ok(deriveIncreaseCause({ splits: [EIDL[1]], headline: HEAD, winFrom: WIN, residual: null }) === null,
+   'one lender-stated month is arithmetic, not a pattern — two is the minimum')
+ok(deriveIncreaseCause({ splits: [EIDL[0], { period_label: '2026-08', source: 'statement_delta', principal_amount: 0, interest_amount: 4791 }],
+     headline: HEAD, winFrom: WIN, residual: null }) === null,
+   '⭐⭐ TWO of OUR OWN delta rows say nothing — the claim needs the lender, however many rows we hold')
+ok(deriveIncreaseCause({ splits: [{ period_label: '2026-08', source: 'amortization_schedule', principal_amount: 0, interest_amount: 10 },
+                                  { period_label: '2026-09', source: 'amortization_schedule', principal_amount: 0, interest_amount: 10 }],
+     headline: HEAD, winFrom: WIN, residual: null }) === null,
+   'a schedule is ours too — and on most of this book one we derived from statements')
 ok(deriveIncreaseCause({
-     splits: [EIDL[0], { period_label: '2026-08', principal_amount: 120, interest_amount: 4671 }],
+     splits: [EIDL[1], { period_label: '2026-09', source: 'explicit_split', principal_amount: 120, interest_amount: 4671 }],
      headline: HEAD, winFrom: WIN, residual: null }) === null,
    '⭐ ONE month applying principal kills the claim — "every one" has to mean every one')
 ok(deriveIncreaseCause({
-     splits: [{ period_label: 'Period 84', principal_amount: 0, interest_amount: 10 },
-              { period_label: 'Period 85', principal_amount: 0, interest_amount: 10 }],
+     splits: [{ period_label: 'Period 84', source: 'explicit_split', principal_amount: 0, interest_amount: 10 },
+              { period_label: 'Period 85', source: 'explicit_split', principal_amount: 0, interest_amount: 10 }],
      headline: HEAD, winFrom: WIN, residual: null }) === null,
    'a period label carrying no date cannot be placed, so it is not counted (s230)')
 
