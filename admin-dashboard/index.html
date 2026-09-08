@@ -19934,20 +19934,20 @@
       ].filter(Boolean).join(' · ');
 
       return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
-        <td data-agreement="${agreement.has ? '1' : '0'}"><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${agreement.has ? `<span class="lit-agree" title="${esc(agreement.title)}" aria-label="Agreement on file">\u2713</span>` : ''}${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
-        <td class="lcb-c" data-close-basis="${esc(a.close_basis || '')}" title="${esc(basis.title)}">${basis.cell}</td>
-        <td class="lcb-n" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
-        <td class="lcb-n" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
-        <td class="lcb-n" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
-        <td class="lcb-n" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
-        <td class="lcb-n" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
-        <td class="lcb-n" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
-        <td class="lcb-n"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
-        <td>${bookedCell}</td>
-        <td>${_bkLoanStagingCell(a)}</td>
-        <td>${booked}</td>
-        <td>${ledgerCell}</td>
-        <td class="lcb-action" data-action="${esc(action.kind)}">${action.cell}</td>
+        <td data-col="loan" data-agreement="${agreement.has ? '1' : '0'}"><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${agreement.has ? `<span class="lit-agree" title="${esc(agreement.title)}" aria-label="Agreement on file">\u2713</span>` : ''}${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
+        <td class="lcb-c" data-col="source" data-close-basis="${esc(a.close_basis || '')}" title="${esc(basis.title)}">${basis.cell}</td>
+        <td class="lcb-n" data-col="opening" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
+        <td class="lcb-n" data-col="drawn" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
+        <td class="lcb-n" data-col="principal" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-col="interest" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-col="books" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-col="lender" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
+        <td class="lcb-n" data-col="variance"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
+        <td data-col="booked">${bookedCell}</td>
+        <td data-col="staging">${_bkLoanStagingCell(a)}</td>
+        <td data-col="status">${booked}</td>
+        <td data-col="ledger">${ledgerCell}</td>
+        <td class="lcb-action" data-col="action" data-action="${esc(action.kind)}">${action.cell}</td>
       </tr>`;
     };
 
@@ -20019,16 +20019,16 @@
       ? `<span class="lcb-quiet" style="font-size:11px"> · ${coverParts.join(' · ')}</span>`
       : '';
     const totalRow = `<tr data-subtotal="all" data-count="${ta.count}" data-roll-count="${ta.rollCount}" data-closing-count="${ta.closingCount}" data-drawn-measured="${ta.drawnMeasured}" class="lcb-total">
-      <td>Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}${coverageLabel}</td>
-      <td></td>
-      <td class="lcb-n" data-amount="${ta.opening}"${rollTitle}>${money(ta.opening)}</td>
-      <td class="lcb-n" data-amount="${ta.drawn}"${drawnTitle}>${money(ta.drawn)}</td>
-      <td class="lcb-n" data-amount="${ta.principal}">${money(ta.principal)}</td>
-      <td class="lcb-n" data-amount="${ta.interest}">${money(ta.interest)}</td>
-      <td class="lcb-n" data-amount="${ta.computed}"${rollTitle}>${money(ta.computed)}</td>
-      <td class="lcb-n" data-amount="${ta.perLender}"${closingTitle}>${money(ta.perLender)}</td>
-      <td class="lcb-n" data-variance="${ta.variance}" data-material="${ta.material}"${closingTitle}>${varianceCell(ta)}</td>
-      <td></td><td></td><td></td><td></td><td></td>
+      <td data-col="loan">Total · ${ta.count} loan${ta.count === 1 ? '' : 's'}${coverageLabel}</td>
+      <td data-col="source"></td>
+      <td class="lcb-n" data-col="opening" data-amount="${ta.opening}"${rollTitle}>${money(ta.opening)}</td>
+      <td class="lcb-n" data-col="drawn" data-amount="${ta.drawn}"${drawnTitle}>${money(ta.drawn)}</td>
+      <td class="lcb-n" data-col="principal" data-amount="${ta.principal}">${money(ta.principal)}</td>
+      <td class="lcb-n" data-col="interest" data-amount="${ta.interest}">${money(ta.interest)}</td>
+      <td class="lcb-n" data-col="books" data-amount="${ta.computed}"${rollTitle}>${money(ta.computed)}</td>
+      <td class="lcb-n" data-col="lender" data-amount="${ta.perLender}"${closingTitle}>${money(ta.perLender)}</td>
+      <td class="lcb-n" data-col="variance" data-variance="${ta.variance}" data-material="${ta.material}"${closingTitle}>${varianceCell(ta)}</td>
+      <td data-col="booked"></td><td data-col="staging"></td><td data-col="status"></td><td data-col="ledger"></td><td data-col="action"></td>
     </tr>`;
 
     // The close date is NOT stated here. It moved to the period bar, beside the
@@ -20099,15 +20099,15 @@
         <div style="overflow-x:auto;padding:14px 6px 0">
           <table class="lcb-table" id="lcb-table">
             <thead><tr>
-              <th>Loan</th>
-              <th title="What this loan is CLOSED against — its source of truth. Statements means an outside document from the lender settles the month. Schedule means a recorded policy to close against the contractual amortization instead, so no statement is expected. This reads the recorded close basis, never the mere presence of a schedule file: most schedules on this book were derived from the loan's own statements, and closing against those would let a loan excuse itself from its only outside evidence on the strength of our own arithmetic.">Source</th>
-              <th class="lcb-n">Opening · ${esc(short(rf.priorEnd))}</th>
-              <th class="lcb-n">Drawn</th>
-              <th class="lcb-n">Principal</th><th class="lcb-n">Interest</th>
-              <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what OUR books say the closing balance should be. Renamed from Computed in session 280: this table and the month-in-flight table now use one word for our own figure and one for the lender's, so Variance means the same thing on both.">Books</th>
-              <th class="lcb-n" title="The LENDER's own closing figure for this month, and the date of the document it came from (hover the cell). Renamed from Closing in session 280 to match the month-in-flight table — Variance is Books minus Lender on both.">Lender</th>
-              <th class="lcb-n" title="Our books against the lender, for this month. An asterisk means somebody has recorded an explanation for that figure — hover it to read what they found. The explanation is shown against the number rather than in the Action column, because Action answers what to do next and an explanation is not a next action.">Variance</th><th>Booked</th><th title="A pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed — green means the staging loop is working and nothing here needs you. This column was on the month-in-flight table and not here, so a live staged transaction was invisible on the close (session 280).">Staging</th><th title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
-              <th title="The next thing to do about this row. A difference nobody can evaluate asks for the document that would settle it — uploading a current statement is far easier than investigating a gap measured against a stale one. Nothing appears here for a row that ties.">Action</th>
+              <th data-col="loan">Loan</th>
+              <th title="What this loan is CLOSED against — its source of truth. Statements means an outside document from the lender settles the month. Schedule means a recorded policy to close against the contractual amortization instead, so no statement is expected. This reads the recorded close basis, never the mere presence of a schedule file: most schedules on this book were derived from the loan's own statements, and closing against those would let a loan excuse itself from its only outside evidence on the strength of our own arithmetic." data-col="source">Source</th>
+              <th class="lcb-n" data-col="opening">Opening · ${esc(short(rf.priorEnd))}</th>
+              <th class="lcb-n" data-col="drawn">Drawn</th>
+              <th class="lcb-n" data-col="principal">Principal</th><th class="lcb-n" data-col="interest">Interest</th>
+              <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what OUR books say the closing balance should be. Renamed from Computed in session 280: this table and the month-in-flight table now use one word for our own figure and one for the lender's, so Variance means the same thing on both." data-col="books">Books</th>
+              <th class="lcb-n" title="The LENDER's own closing figure for this month, and the date of the document it came from (hover the cell). Renamed from Closing in session 280 to match the month-in-flight table — Variance is Books minus Lender on both." data-col="lender">Lender</th>
+              <th class="lcb-n" title="Our books against the lender, for this month. An asterisk means somebody has recorded an explanation for that figure — hover it to read what they found. The explanation is shown against the number rather than in the Action column, because Action answers what to do next and an explanation is not a next action." data-col="variance">Variance</th><th data-col="booked">Booked</th><th data-col="staging" title="A pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed — green means the staging loop is working and nothing here needs you. This column was on the month-in-flight table and not here, so a live staged transaction was invisible on the close (session 280).">Staging</th><th data-col="status" title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th data-col="ledger" title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
+              <th data-col="action" title="The next thing to do about this row. A difference nobody can evaluate asks for the document that would settle it — uploading a current statement is far easier than investigating a gap measured against a stale one. Nothing appears here for a row that ties.">Action</th>
             </tr></thead>
             <tbody>${rf.rows.map(row).join('')}</tbody>
             <tfoot>
@@ -20182,17 +20182,46 @@
     const amt = (td) => { const v = att(td, 'data-amount'); return v === '' ? '' : Number(v).toFixed(2); };
     const txt = (td) => (td ? (td.textContent || '').replace(/\s+/g, ' ').trim() : '');
 
-    const head = ['Loan', 'Lender', 'Opening', 'Opening source', 'Drawn', 'Drawn gross',
-                  'Principal', 'Interest', 'Computed', 'Closing', 'Closing date',
-                  'Closing source', 'Variance', 'Variance explained by',
+    // ── CELLS ARE FOUND BY NAME, NEVER BY COUNTING (session 286) ─────────
+    // This block used to destructure the row positionally:
+    //   const [cLoan, cOpen, cDrawn, ...] = td;
+    // Session 280 changed the columns — Agreement stopped being a column of its
+    // own and Staging was added — and nothing here moved. Every exported figure
+    // came out one column to the left, silently: Dexter exported Principal 0.00
+    // and Interest 3,344.64 when the screen correctly read 3,344.64 and 494.74.
+    // Nothing threw, nothing went red, and the file is the workpaper the button
+    // above offers "for your accountant".
+    //
+    // Both the cells and the headers now carry data-col, so this reads by name
+    // and the next column anyone inserts cannot shear the export. A missing key
+    // is now an EMPTY cell rather than the neighbour's money — a blank is a
+    // visible gap; a plausible wrong number is not.
+    const byCol = (tr) => {
+      const m = {};
+      for (const td of tr.children) { const k = td.getAttribute('data-col'); if (k) m[k] = td; }
+      return m;
+    };
+
+    const head = ['Loan', 'Lender', 'Agreement', 'Opening', 'Opening source', 'Drawn', 'Drawn gross',
+                  'Principal', 'Interest', 'Books', 'Lender balance', 'Lender balance date',
+                  'Lender balance source', 'Variance', 'Variance explained by',
                   'Ledger unexplained', 'Booked', 'Status', 'Ledger check', 'Notes'];
     const rows = [head];
     for (const tr of table.querySelectorAll('tbody tr')) {
-      const td = [...tr.children];
-      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cBooked, cStat, cLedgerMark] = td;
+      const c = byCol(tr);
+      const cLoan = c.loan, cOpen = c.opening, cDrawn = c.drawn, cPrin = c.principal,
+            cInt = c.interest, cComp = c.books, cClose = c.lender, cVar = c.variance,
+            cBooked = c.booked, cStat = c.status, cLedgerMark = c.ledger;
       rows.push([
         att(tr, 'data-loan'),
         att(tr, 'data-lender'),
+        // THE AGREEMENT CLAIM, RESTORED (session 286). Session 280 folded the
+        // Agreement column into the Loan cell as a tick, which states the
+        // POSITIVE case well and states the negative one by rendering nothing.
+        // "No signed contract behind the rate and term on file" is a claim a
+        // reader can act on, and LESS IS BEST permits cutting words, never a
+        // claim — so it lives here, where it costs no screen width.
+        att(cLoan, 'data-agreement') === '1' ? 'on file' : 'none on file',
         amt(cOpen),
         att(cOpen, 'data-source-label') || att(cOpen, 'data-source'),
         // "not measured" is not a blank and not a zero — the distinction this
@@ -20206,8 +20235,8 @@
         // A tie exports 0.00, not blank; a row that agrees by construction
         // exports the words, because it is not a zero variance — it is no
         // variance measurement at all.
-        cVar.hasAttribute('data-circular') ? 'agrees by construction'
-          : (att(cVar, 'data-variance') === '' ? (cVar.hasAttribute('data-tie') ? '0.00' : '')
+        cVar && cVar.hasAttribute('data-circular') ? 'agrees by construction'
+          : (att(cVar, 'data-variance') === '' ? (cVar && cVar.hasAttribute('data-tie') ? '0.00' : '')
              : Number(att(cVar, 'data-variance')).toFixed(2)),
         att(cVar, 'data-variance-explained'),
         att(cVar, 'data-unexplained') === '' ? '' : Number(att(cVar, 'data-unexplained')).toFixed(2),
@@ -20218,11 +20247,13 @@
       ]);
     }
     for (const tr of table.querySelectorAll('tfoot tr')) {
-      const td = [...tr.children];
-      const [tLoan, tOpen, tDrawn, tPrin, tInt, tComp, tClose, tVar] = td;
-      rows.push([txt(tLoan).replace(/\s+\d+ of \d+.*$/, ''), '', amt(tOpen), '', amt(tDrawn), '',
-                 amt(tPrin), amt(tInt), amt(tComp), amt(tClose), '', '',
-                 att(tVar, 'data-variance') === '' ? '' : Number(att(tVar, 'data-variance')).toFixed(2),
+      // By name here too — the totals row shifted with the body row, and a
+      // total under the wrong header is the one figure a reader will not
+      // re-derive.
+      const c = byCol(tr);
+      rows.push([txt(c.loan).replace(/\s+\d+ of \d+.*$/, ''), '', '', amt(c.opening), '', amt(c.drawn), '',
+                 amt(c.principal), amt(c.interest), amt(c.books), amt(c.lender), '', '',
+                 att(c.variance, 'data-variance') === '' ? '' : Number(att(c.variance, 'data-variance')).toFixed(2),
                  '', '', '', '', '', `${att(tr, 'data-roll-count')} of ${att(tr, 'data-count')} loans in the walk · ${att(tr, 'data-closing-count')} of ${att(tr, 'data-count')} closed against evidence`]);
     }
     // The provenance of the FILE, not of a row. A workpaper that leaves the

@@ -1,47 +1,119 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 285, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 286, 2026-09-08)
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> 1. **SIX MORE RED ASSERTIONS, SAME SHAPE AS LAST NIGHT'S, and they need a JUDGMENT not a rename**
->    (not written up elsewhere — this item and the session 285 log entry are the whole record).
->    `close-band-columns` expects an **Agreement** column second and **Source** third.
->    The table today is `LOAN | SOURCE | OPENING | DRAWN | ...` — there is no Agreement column at all,
->    and two of the six read its cells and find **0 rows**. **Measured identical on HEAD**, so they are
->    not session 285's. ⚠️ **Do NOT just repoint them at the current header.** Session 280 either
->    MOVED the agreement claim or DELETED it, and an assertion rewritten to match whatever is on
->    screen goes green either way — the exact "green on a deletion" failure the skill warns about.
->    Establish where the agreement claim lives now (cell? hover? export?) FIRST, then fix the group to
->    assert it there. If it was genuinely dropped, that is a LESS-IS-BEST violation (a cut may drop
->    words, never a claim) and the fix is in the product, not the test.
-> 2. **The live fixture wants a real refresh** (§0zv-ii). It is pulled 2026-09-03 and it is now
->    six days stale — session 265's "a stale fixture is a blind suite" applies. It does NOT carry the
->    one real `anchor_exclusion_reason` in production (the 08-03 iBusiness row, recorded by session
->    282 the morning after this snapshot), so **nothing in the suite exercises a live anchor exclusion
->    at all.** `node tests/refresh-bookkeeping-fixture.mjs` needs the privileged side-car on your
->    machine. ⚠️ Expect `history`'s `s236` discriminator to complain when you do: it depends on two
->    incidental splits landing in opposite bands, and it correctly refused when I perturbed them.
->    That is the test doing its job, not fallout — fix the SCENARIO to plant its own offsetting pair.
-> 3. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026, proven
+> 1. **The live fixture wants a real refresh** (§0zv-ii). It is pulled 2026-09-03 and now six days
+>    stale — session 265's "a stale fixture is a blind suite" applies. It does NOT carry the one real
+>    `anchor_exclusion_reason` in production (the 08-03 iBusiness row, recorded by session 282 the
+>    morning after this snapshot), so **nothing in the suite exercises a live anchor exclusion at all.**
+>    `node tests/refresh-bookkeeping-fixture.mjs` needs the privileged side-car on your machine.
+>    ⚠️ Expect `history`'s `s236` discriminator to complain when you do: it depends on two incidental
+>    splits landing in opposite bands, and it correctly refused when session 285 perturbed them. That
+>    is the test doing its job, not fallout — fix the SCENARIO to plant its own offsetting pair.
+> 2. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026, proven
 >    by three statements. The question is which account and which period. The note is on the loan and
 >    surfaces on the Variance cell; nothing is blocked, but it is the one open financial question.
-> 4. **There is no UI to WRITE a balance note** (§0zs). EIDL's went in by SQL. The read path is built
+> 3. **There is no UI to WRITE a balance note** (§0zs). EIDL's went in by SQL. The read path is built
 >    and tested; the write path is a textarea beside `structure_note`'s, and it must capture
 >    `balance_note_amount` from the live difference automatically rather than asking a person to type
 >    a figure they will get wrong.
-> 5. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
+> 4. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
 >    intake. They will STORE and raise no split (April/May are closed) — correct, and why the note
 >    carries the question.
-> 6. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still not
+> 5. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still not
 >    captured, the same gap as §0zh's paid-ahead fields. The product could say *"no principal applied
 >    — interest-only"* instead of showing a balance that looks frozen.
-> 7. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
+> 6. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
 >    the old pre-attached command. Repack both, with §0zf's `git push` correction, in one pass.
+> 7. **Small leftover from §0zw:** `_bkLoanAgreement`'s `cell` field (the em-dash for "no agreement")
+>    is now DEAD — session 280 stopped rendering the negative case and nothing reads `.cell`. The
+>    claim is safe (it is in the CSV as of this session), so this is tidying, not a hole. Delete it
+>    when you are next in that function, and not before checking nothing new reads it.
 >
-> ✅ **DEPLOY STATE: session 285 changed NO edge function** — the work was `admin-dashboard/index.html`,
-> the harness and the two fixtures. Session 284's functions remain live as checked in §0zt.
-> ⚠️ **`git push` is still owed from your own terminal** — this sandbox has no network.
+> ✅ **DEPLOY STATE: session 286 changed NO edge function** — the work was `admin-dashboard/index.html`
+> and the harness. Session 284's functions remain live as checked in §0zt.
+> ⚠️ **`git push` is still owed from your own terminal** — this sandbox has no network. Two commits
+> now: session 285's and this one.
+>
+> ### 0zw. ⭐ THE SIX REDS WERE A TEST BUG POINTING AT A PRODUCT BUG (session 286)
+>
+> §0zn-ii's last six — the `close-band-columns` group — were all one cause, and the cause was not in
+> the test. **Session 280 changed the close band's columns**: Agreement stopped being a column of its
+> own (it was folded into the loan name as a ✓ with its title) and Staging was added. The group read
+> cells as `tr.children[1]` and `tr.children[2]`, so it was reading Source where it expected Agreement
+> and Opening where it expected Source. Four assertions failed, two more read the wrong cell for the
+> schedule marker.
+>
+> **The judgment the START HERE demanded, made: the agreement claim was MOVED, not deleted.**
+> `data-agreement` is still on the loan cell and the ✓ carries the full explanation. Repointing the
+> assertions at "whatever the second column is now" would have gone green either way, so they are
+> pointed at the loan cell BY NAME, and the header assertion was inverted — it now asserts Agreement
+> is NOT a column, so re-adding one fires and forces a deliberate decision about the tick.
+>
+> ### 0zw-i. 🔴 AND THE SAME CHANGE HAD SHEARED THE CSV EXPORT, SILENTLY, FOR A WEEK
+>
+> `exportRollforwardCSV` destructured the row positionally too — `const [cLoan, cOpen, cDrawn, ...]`
+> — and session 280 did not touch it. **Every exported figure came out one column to the left.**
+> Measured on Dexter: the file said Principal **0.00**, Interest **3,344.64**, Computed **494.74**;
+> the screen correctly reads Principal 3,344.64, Interest 494.74, Books 86,066.61.
+>
+> **That file is the workpaper the button above the table offers "for your accountant".** Nothing
+> threw. Nothing went red. The `close-band` group already RAN the export and read its bytes — it
+> asserted only that it did not throw and that the verdict line was present, and a shear does neither.
+> This is session 231's rule in its purest form: the reader existed, the check existed, and the check
+> was not on the branch that mattered.
+>
+> **The loud failure and the silent one had ONE cause.** The six reds were worth more than they cost:
+> they were the visible end of a defect whose other end was in a financial export nobody was checking.
+>
+> ### 0zw-ii. ✅ THE FIX IS THAT CELLS ARE FOUND BY NAME (David's call, cleanest-path)
+>
+> Every `th` and every `td` in the close band — head, body and totals row — now carries `data-col`
+> (`loan`, `source`, `opening`, `drawn`, `principal`, `interest`, `books`, `lender`, `variance`,
+> `booked`, `staging`, `status`, `ledger`, `action`). The export and the test both look up by that
+> key. **The next column anyone inserts cannot shear either one.** A missing key now yields an EMPTY
+> cell rather than the neighbour's money — a blank is a visible gap, a plausible wrong number is not.
+>
+> The CSV's own headers were renamed to match session 280's screen — `Computed` → `Books`,
+> `Closing`/`Closing date`/`Closing source` → `Lender balance`/`…date`/`…source`. Session 247's rule:
+> when a decision changes the books, grep the words the interface says about them, and the export is
+> an interface.
+>
+> ### 0zw-iii. ✅ THE AGREEMENT CLAIM IS BACK — in the export, where it costs no width
+>
+> Session 280's fold states the POSITIVE case well (a ✓ with its title) and states the negative one by
+> rendering nothing at all. "No signed contract behind the rate and term on file" is a claim a reader
+> can act on — it is the whole point of session 230's *a typed number is never evidence* — and it was
+> reachable nowhere: no mark, no title, and the CSV had no such column. **LESS IS BEST cuts words,
+> never claims.** The export now carries `Agreement` = `on file` / `none on file` for every loan.
+> David chose this over re-adding the column, which is right: the screen is not where that belongs.
+>
+> ### 0zw-iv. ✅ THE ASSERTION WHOSE ABSENCE COST THE WEEK — and it discriminates
+>
+> New in `close-band-columns`: the export is run, parsed, and **compared to the screen cell by cell**,
+> for every row the fixture supplies. Not a transcribed expectation — a transcript would have agreed
+> with the shear as happily as with the fix.
+>
+> **And it is proved against the code that actually shipped.** The group rebuilds
+> `exportRollforwardCSV` from its own `.toString()` with the positional destructure put back, runs
+> that, and asserts the comparison goes RED. Never by editing `index.html`: an assertion proved
+> against a hand-edited file proves something about the edit. Two more assert that every header and
+> every cell carries a key, because the whole scheme rests on that and an unkeyed cell reads back as
+> a silent blank.
+>
+> ### 0zw-v. 📊 WHERE THE SUITE STANDS (measured 2026-09-08, in three batches)
+>
+> **2,217 browser assertions, 2,216 passing.** The one red is `history`'s `s240 #10` — Tech Debt #19,
+> red ON PURPOSE. **Every one of §0zn-ii's six is now green**, and the group grew from 23 assertions
+> to 31. Node: **33/34 files**, the one being `loan-bundle`'s known `pdfjs-dist` import failure.
+>
+> ⚠️ **The harness browser lives under `$HOME`, a PER-SESSION sandbox, so a fresh session starts with
+> no Chromium.** `tests/run-harness.sh` prints the recovery commands and it takes about two minutes.
+> ⚠️ **`curl -C -` can report success on a PARTIAL file** — this session's first download stopped at
+> 193 MB of 205 MB and `unzip` said "not a zipfile". Re-run the curl (it resumes) rather than
+> concluding the URL is wrong. Do not run `npx playwright install chromium`: it hangs at 0% on that VM.
 >
 > ### 0zv. ✅ FIVE OF THE SIX REDS HAD ONE CAUSE, AND IT WAS NOT WHAT ANY OF THEM SAID (session 285)
 >
@@ -12101,6 +12173,50 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 286 (2026-09-08) — THE LOUD BUG AND THE SILENT ONE HAD ONE CAUSE
+
+**Trigger.** David: *"item 1 in START HERE"* — the six `close-band-columns` reds session 285 left
+with an explicit instruction not to repoint them at whatever the header says today.
+
+**The judgment first, because the block demanded one.** Session 280 folded the Agreement column
+into the loan name as a ✓ carrying its full title, and `data-agreement` stayed on that cell. So the
+claim was **MOVED, not deleted** — the assertions get repointed, and the fix is not in the product.
+They are repointed BY NAME at the loan cell, and the header assertion is inverted: it now asserts
+Agreement is not a column, so re-adding one fires and forces a deliberate decision about the tick.
+All six reds were the same thing — the group read `tr.children[1]` / `[2]`, and session 280 moved
+what sits there.
+
+**Then the part that mattered more.** `exportRollforwardCSV` destructured the row positionally too,
+and session 280 did not touch it either. Measured, not inferred: Dexter exports Principal **0.00**,
+Interest **3,344.64**, Computed **494.74** against a screen reading 3,344.64 / 494.74 / 86,066.61.
+**Every figure one column to the left, in the workpaper the "Export CSV" button offers "for your
+accountant", silently, for a week.** The `close-band` group already ran that export and read its
+bytes — it asserted only that nothing threw and the verdict line was present. Session 231's rule:
+the check existed, one branch away from the thing that needed it.
+
+**The fix, David's call over a re-index.** Every `th` and `td` in the close band — head, body and
+totals — carries `data-col`; the export and the test both look up by that key, so the next column
+insert cannot shear either. A missing key is an empty cell rather than the neighbour's money. The
+CSV's headers were renamed to match session 280's screen (`Computed` → `Books`, `Closing…` →
+`Lender balance…`) — session 247's stale-word rule, applied to the export as an interface.
+
+**The agreement claim is back, in the export.** The fold states the positive case with a ✓ and the
+negative case by rendering nothing; "no signed contract behind the rate and term on file" was
+reachable nowhere. The CSV now carries `Agreement` = on file / none on file for every loan.
+
+**The assertion whose absence cost the week**, and it discriminates: the export is run, parsed and
+compared to the screen cell by cell for every fixture row, and the group then rebuilds
+`exportRollforwardCSV` from its own `.toString()` with the positional destructure put back and
+asserts the comparison goes RED. Two more assert every header and cell is keyed.
+
+**Suite:** 2,217 browser assertions, 2,216 passing (the one red is Tech Debt #19's own report, red
+on purpose); Node 33/34, the one being `loan-bundle`'s known `pdfjs-dist` failure. Group grew 23 → 31.
+
+**Leftover:** `_bkLoanAgreement`'s `cell` field is now dead code — nothing reads it. Noted in START
+HERE item 7 rather than removed, since the claim it once carried is safe in the export.
+
+**No edge function changed.** `git push` owed from David's own terminal.
 
 ### Session 285 (2026-09-08) — A GREEN CLOSE OVER BOOKS WE COULD NOT READ
 

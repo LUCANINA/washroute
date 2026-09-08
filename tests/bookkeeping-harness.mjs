@@ -1483,18 +1483,31 @@ GROUPS.push({
     const seen = await p.evaluate(() => {
       const head = [...document.querySelectorAll('#lcb-table thead th')]
         .map(th => th.innerText.replace(/\s+/g, ' ').trim());
+      // BY NAME, NEVER BY POSITION. Reading tr.children[1] is what made this
+      // group fail for a week after session 280 moved the columns — and, far
+      // worse, it is exactly how exportRollforwardCSV shipped every figure one
+      // column to the left without anything going red. Both now key on data-col.
+      const col = (tr, k) => tr.querySelector(`[data-col="${k}"]`);
       const rows = [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => ({
         loan: (tr.querySelector('.td-name') || {}).innerText || '',
-        agreement: tr.children[1] ? tr.children[1].getAttribute('data-agreement') : null,
-        basis: tr.children[2] ? tr.children[2].getAttribute('data-close-basis') : null,
-        basisText: tr.children[2] ? tr.children[2].innerText.trim() : '',
-        action: tr.lastElementChild ? tr.lastElementChild.getAttribute('data-action') : null,
-        actionText: tr.lastElementChild ? tr.lastElementChild.innerText.trim() : '',
+        // The AGREEMENT claim lives on the LOAN cell as of session 280 — the
+        // column was folded into the loan name as a tick, not deleted. This
+        // asserts it where it now lives; repointing it at whatever the second
+        // column happens to be would have gone green on a deletion too.
+        agreement: col(tr, 'loan') ? col(tr, 'loan').getAttribute('data-agreement') : null,
+        agreementTick: !!(col(tr, 'loan') && col(tr, 'loan').querySelector('.lit-agree')),
+        basis: col(tr, 'source') ? col(tr, 'source').getAttribute('data-close-basis') : null,
+        basisText: col(tr, 'source') ? col(tr, 'source').innerText.trim() : '',
+        action: col(tr, 'action') ? col(tr, 'action').getAttribute('data-action') : null,
+        actionText: col(tr, 'action') ? col(tr, 'action').innerText.trim() : '',
         band: tr.querySelector('[data-band]') ? tr.querySelector('[data-band]').getAttribute('data-band') : '',
       }));
       const cellCounts = [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => tr.children.length);
       const footCounts = [...document.querySelectorAll('#lcb-table tfoot tr')].map(tr => tr.children.length);
-      return { head, rows, cellCounts, footCounts };
+      const keyedHead = document.querySelectorAll('#lcb-table thead th[data-col]').length;
+      const keyedBody = [...document.querySelectorAll('#lcb-table tbody tr')]
+        .map(tr => tr.querySelectorAll('[data-col]').length);
+      return { head, rows, cellCounts, footCounts, keyedHead, keyedBody };
     });
 
     // Every row must have as many cells as the header has columns, and so must
@@ -1549,9 +1562,22 @@ GROUPS.push({
     // case-insensitively — asserting the rendered casing would be testing the
     // stylesheet, not the column order.
     const h = seen.head.map(x => x.toLowerCase());
-    t.ok(h[1] === 'agreement', 'Agreement is the second column', seen.head.join(' | '));
-    t.ok(h[2] === 'source', 'Source is the third column', seen.head.join(' | '));
+    // Agreement is NO LONGER A COLUMN — session 280 folded it into the loan
+    // name. Asserted as an absence on purpose: if someone re-adds it as a
+    // column, this fires and whoever does it has to decide deliberately
+    // whether the tick goes away, rather than the claim being stated twice.
+    t.ok(!h.includes('agreement'),
+         'Agreement is not a column of its own — it is a mark on the loan name',
+         seen.head.join(' | '));
+    t.ok(h[1] === 'source', 'Source is the second column', seen.head.join(' | '));
     t.ok(h[cols - 1] === 'action', 'Action is the far-right column', seen.head.join(' | '));
+    // EVERY header and every cell carries a key. This is the property the export
+    // and this group both rest on, and it is asserted before either uses it —
+    // an unkeyed cell reads back as undefined, which is a blank, not a wrong
+    // number, but it is still a silent hole.
+    t.eq(seen.keyedHead, cols, 'every header column carries a data-col key', JSON.stringify(seen.head));
+    t.ok(seen.keyedBody.every(n => n === cols),
+         'every body row keys all of its cells', `saw ${[...new Set(seen.keyedBody)].join('/')}`);
 
     // Expectation rebuilt from the fixture, not typed in.
     const expect = await p.evaluate(() => {
@@ -1634,7 +1660,7 @@ GROUPS.push({
       return out;
     });
     const marked = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr')]
-      .filter(tr => tr.children[2] && tr.children[2].querySelector('.lcb-basis-alt'))
+      .filter(tr => tr.querySelector('[data-col="source"] .lcb-basis-alt'))
       .map(tr => (tr.querySelector('.td-name') || {}).innerText || ''));
 
     const shouldMark = Object.entries(schedProv)
@@ -1672,6 +1698,133 @@ GROUPS.push({
     t.ok(derivedMarked.length === 0,
          'a loan whose ONLY schedule was derived from its own statements is NOT marked',
          derivedMarked.join(' · '));
+
+    /* ── ⭐ THE EXPORT'S VALUES SIT UNDER THEIR OWN HEADERS (session 286) ──
+       This is the assertion whose absence cost a week. Session 280 inserted a
+       column; exportRollforwardCSV destructured the row by POSITION and was
+       never updated, so every exported figure came out one column to the left —
+       Dexter shipped Principal 0.00 / Interest 3,344.64 / Computed 494.74 when
+       the screen correctly read 3,344.64 / 494.74 / 86,066.61. The export group
+       already RAN the export and read its bytes; it asserted only that nothing
+       threw and that the verdict line was present, and a shear does neither.
+
+       So this compares the file against THE SCREEN, cell by cell, for a row the
+       fixture supplies rather than a row typed in here. A transcribed expectation
+       would have agreed with the shear as happily as with the fix. */
+    {
+      const EXPORT_CMP_FN = (invert) => {
+        // THE DISCRIMINATOR. `invert` rebuilds the SHIPPED function from its own
+        // .toString() with the positional destructure put back — the exact code
+        // that was live before this fix — and measures that. Never by editing
+        // index.html: an assertion proved against a hand-edited file proves
+        // something about the edit, not about what ships.
+        let fn = exportRollforwardCSV;
+        if (invert) {
+          const src = fn.toString();
+          const keyed = `const c = byCol(tr);`;
+          if (src.indexOf(keyed) < 0) return { inverseFailed: 'the keyed lookup is no longer in the source' };
+          const broken = src.replace(
+            /const c = byCol\(tr\);\s*\n\s*const cLoan = c\.loan[\s\S]*?cLedgerMark = c\.ledger;/,
+            'const _td = [...tr.children];\n      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cBooked, cStat, cLedgerMark] = _td;');
+          if (broken === src) return { inverseFailed: 'the inverse rewrite matched nothing' };
+          try { fn = new Function('return (' + broken + ')')(); }
+          catch (e) { return { inverseFailed: 'rebuild threw: ' + e.message }; }
+        }
+
+        let captured = '';
+        const RealBlob = window.Blob, rc = URL.createObjectURL, rr = URL.revokeObjectURL;
+        window.Blob = function (parts) { captured = (parts || []).join(''); return new RealBlob(parts, { type: 'text/plain' }); };
+        URL.createObjectURL = () => 'blob:stub'; URL.revokeObjectURL = () => {};
+        const rk = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () {};
+        try { fn(); } catch (e) { captured = 'THREW: ' + e.message; }
+        window.Blob = RealBlob; URL.createObjectURL = rc; URL.revokeObjectURL = rr;
+        HTMLAnchorElement.prototype.click = rk;
+        if (/^THREW/.test(captured)) return { threw: captured };
+
+        // A minimal CSV reader — the export quotes with doubled quotes.
+        const parse = (line) => {
+          const out = []; let cur = '', q = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+            else if (ch === '"') q = true;
+            else if (ch === ',') { out.push(cur); cur = ''; }
+            else cur += ch;
+          }
+          out.push(cur); return out;
+        };
+        const lines = captured.split(/\r?\n/);
+        const head = parse(lines[0].replace(/^\uFEFF/, ''));
+        const idx = (n) => head.indexOf(n);
+
+        // The screen's own figures for every body row, keyed by loan.
+        const screen = {};
+        for (const tr of document.querySelectorAll('#lcb-table tbody tr')) {
+          const g = (k, a) => { const td = tr.querySelector(`[data-col="${k}"]`); return td ? (td.getAttribute(a) || '') : ''; };
+          screen[tr.getAttribute('data-loan')] = {
+            opening: g('opening', 'data-amount'), drawn: g('drawn', 'data-amount'),
+            principal: g('principal', 'data-amount'), interest: g('interest', 'data-amount'),
+            books: g('books', 'data-amount'), lender: g('lender', 'data-amount'),
+            agreement: g('loan', 'data-agreement'),
+            drawnMeasured: g('drawn', 'data-drawn-measured'),
+          };
+        }
+
+        const bad = [];
+        let checked = 0;
+        for (const line of lines.slice(1)) {
+          const f = parse(line);
+          const name = f[idx('Loan')];
+          const sc = screen[name]; if (!sc) continue;
+          checked++;
+          const num = (v) => (v === '' ? '' : Number(v).toFixed(2));
+          const want = {
+            Opening: num(sc.opening),
+            Principal: num(sc.principal),
+            Interest: num(sc.interest),
+            Books: num(sc.books),
+            'Lender balance': num(sc.lender),
+            Drawn: sc.drawnMeasured === '1' ? num(sc.drawn) : 'not measured',
+            Agreement: sc.agreement === '1' ? 'on file' : 'none on file',
+          };
+          for (const [col, v] of Object.entries(want)) {
+            const got = f[idx(col)];
+            // The Lender cell can carry words rather than an amount; only
+            // compare where the screen has a figure to compare against.
+            if (v === '' && got !== '') continue;
+            if (v !== '' && got !== v) bad.push(`${name} · ${col}: file "${got}", screen "${v}"`);
+          }
+        }
+        return { head, bad, checked };
+      };
+      const cmp = await p.evaluate(EXPORT_CMP_FN, false);
+
+      t.ok(!cmp.threw, 'the rollforward exports without throwing', cmp.threw || '');
+      t.ok(cmp.checked >= 10,
+           `the export/screen comparison covers the real table (${cmp.checked} rows) — not vacuous`,
+           String(cmp.checked));
+      t.ok(cmp.bad && cmp.bad.length === 0,
+           '⭐ every exported figure sits under its own header — the CSV is not sheared',
+           (cmp.bad || []).slice(0, 6).join(' · '));
+      // ...AND THE AGREEMENT CLAIM IS IN THE FILE. Session 280's fold left the
+      // negative case ("no signed contract behind the rate and term on file")
+      // stated nowhere at all: the tick renders only when there IS one, and the
+      // CSV had no such column. LESS IS BEST cuts words, never claims.
+      t.ok((cmp.head || []).includes('Agreement'),
+           'the export carries the agreement claim the column fold took off screen',
+           (cmp.head || []).join(' | '));
+
+      // ...AND IT GOES RED ON THE CODE THAT SHIPPED. A check that passes against
+      // both the fixed and the broken function is decoration — and this one had
+      // a broken function to prove itself against, which is rarer than it sounds.
+      const inv = await p.evaluate(EXPORT_CMP_FN, true);
+      t.ok(!inv.inverseFailed,
+           'the inverse of the fix could be rebuilt from the shipped function itself',
+           inv.inverseFailed || '');
+      t.ok(inv.bad && inv.bad.length > 0,
+           '⭐ ...and the positional destructure that shipped is caught by it',
+           inv.inverseFailed ? 'inverse not built' : 'the sheared export passed the check');
+    }
 
     // THE FIX ROUTE. A red row with an open balance_vs_lender finding offers
     // "Find the fix", which opens the EXISTING analyser. The assertion that
