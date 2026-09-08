@@ -2,6 +2,44 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 281, 2026-09-08)
 >
+> ### 0zj. ⚠️ `--no-verify-jwt` IS NOT A "LEAVE IT ALONE" FLAG — IT IS AN ASSIGNMENT (session 281)
+>
+> **The rule in CLAUDE.md and in both skills is stated for ONE direction only, and I got the other
+> direction wrong in production tonight.**
+>
+> What they say: *"`--no-verify-jwt` is not optional on any function that is currently
+> `verify_jwt: false`"* — omit it there and you flip the function to requiring a JWT and break every
+> caller (session 260, the Stripe payout webhook). True, and unchanged.
+>
+> **What nobody had written down: the reverse is equally true.** `loan-ingest-statement` was
+> `verify_jwt: true`. I told David to deploy WITHOUT the flag *in order to preserve* `true`. The CLI
+> does not preserve anything — **every deploy SETS `verify_jwt`, and the default is `false`.** v49
+> came up with the gateway check off. A no-auth POST reached the function's own code and answered in
+> its own words instead of `401 UNAUTHORIZED_NO_AUTH_HEADER`.
+>
+> **The correct statement of the rule:**
+>
+> > **A deploy always assigns `verify_jwt`. Read the function's current value FIRST, then pass the
+> > flag that reproduces it.** For a `false` function, `--no-verify-jwt` is mandatory. For a `true`
+> > function, omitting it is NOT neutral — it turns the gateway off.
+>
+> **How to read the value in one call, no dashboard:** POST with no `Authorization` header.
+> `401 {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}` = the gateway answered, `verify_jwt` is TRUE. Any
+> reply in the function's own words = FALSE. That is the same probe §0ze uses for "did it boot",
+> reading a different fact out of the same call.
+>
+> **Blast radius, stated honestly rather than minimised:** small but real. The function's own
+> `callerRole(req)` still 403s anything that is not admin/manager, so nothing could be ingested. But
+> the required-fields check runs BEFORE the auth check, so an anonymous caller could read the
+> argument-validation error — an information leak and one removed layer, on the function that writes
+> financial statements. Restored within the hour; **v50, `verify_jwt: true`, verified by the 401
+> probe above, and the session-281 code confirmed still present in the deployed source
+> (`split_period_label` ×5, `closedFor(splitPeriod)`, zero `closedFor(statement_date`) — a reflip
+> must not be assumed to carry the right code.**
+>
+> ⏭️ **Both `.skill` archives need this, in the same repack as the `git push` correction (§0zf).**
+> They currently teach the one-way version of the rule, which is what produced this.
+>
 > ### 0zi. ✅ THE FOUR UNLABELLED BALANCES ARE GONE, AND BOTH ROOT CAUSES ARE FIXED (session 281)
 >
 > **Data:** the four real-lender rows carrying `balance_basis='unknown'` are now `principal_only`,
@@ -4209,6 +4247,12 @@ omit seventeen groups, which is how a run could report green over this.
 **Being the session that did the rename is not evidence the suite is green** — the same shape as the
 deploy claims in §0z, one surface over. Verify a suite by running it, and run it against HEAD when
 you need to know whose red it is. ⏭️ **Fix `colIx` before trusting any count in this file.**
+
+**Shipped and verified live:** `main` = `6d1425f` on the real remote; client serving
+`build-version.txt` = `20260908020017`, the stamp this commit's hook wrote; `loan-ingest-statement`
+**v50** carrying `split_period_label` ×5, `closedFor(splitPeriod)` and zero `closedFor(statement_date)`
+in the DEPLOYED source. The deploy took two attempts because the first one turned the gateway off —
+see §0zj, which is the rule that was missing rather than the mistake.
 
 **What was checked here:** `deno check` on the edge function — 6 errors, byte-identical to HEAD's
 6 (pre-existing `feeInXero` / `principal_balance` typings), so the change adds none;
