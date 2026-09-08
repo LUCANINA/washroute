@@ -119,11 +119,22 @@
 >
 > ### ⏭️ 0zp-iv. WHAT IS LEFT FOR DAVID
 >
-> 1. **The feature is OFF until Ramona names an account.** `settings.loan_writeoff_account_code` is
->    NULL: no card, and the server refuses `post_writeoff`. Ask her for a code — something like
->    "Loan balance adjustments" — and record who and when in the two sibling columns. Putting every
->    write-off in ONE account is deliberate: if this is ever used more than it should be, that account
->    is the alarm. Spread across interest expense it would be invisible.
+> 1. ✅ **ACCOUNT NOMINATED — `801 Loan balance adjustments`**, created by David 2026-09-08 and
+>    verified ACTIVE / type EXPENSE through `xero-read` before anything was pointed at it.
+>    `settings.loan_writeoff_account_code = '801'`, with `set_by` / `set_at` recorded. **The feature
+>    is now armed** (still needs the deploy in step 2). Putting every write-off in ONE account is
+>    deliberate: if this is ever used more than it should be, that account is the alarm — spread
+>    across interest expense it would be invisible. Worth a glance once a quarter.
+>
+>    🟠 **AND THE ACCOUNTS CHECK TURNED UP SOMETHING NOBODY WAS LOOKING FOR: `800 Interest Expense`
+>    is type `OTHERINCOME`, class `REVENUE`.** Almost certainly deliberate — Xero has no "Other
+>    Expense" type, so parking a below-the-line item in `OTHERINCOME` is the standard way to keep
+>    interest out of operating results. But 801 was created as a plain `EXPENSE`, so **the two sit in
+>    different sections of the P&L**: interest below the line, its own write-off account above it,
+>    inside operating expenses. Immaterial in dollars by construction (capped at $25 an entry) and
+>    trivially fixable — but a reader comparing the two will find them in different places, and a
+>    decision made once by Ramona beats one made by accident. ⏭️ **Ask her whether 801 should match
+>    800.** Not changed unilaterally: this is the chart of accounts, not configuration.
 > 2. **Push, then deploy `loan-find-difference` and `reconciliation-run`** (both `verify_jwt: false`,
 >    so BOTH take `--no-verify-jwt` — re-probe first, per CLAUDE.md).
 > 3. **The migration is applied and PostgREST visibility proven** (REST round-trip returned the three
