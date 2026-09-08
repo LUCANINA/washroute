@@ -2,65 +2,58 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 281, 2026-09-08)
 >
-> ### 0zh. 🔴 E4-9744 MUST NOT BE APPROVED — THE LENDER SIDE OF ITS GAP IS FROZEN (session 281, 2026-09-08)
+> ### 0zh. ⚠️ E4-9744 — I CALLED THE LENDER BALANCE STALE. IT IS NOT. (session 281, corrected)
 >
-> **§0y asked for one thing: open the 5/11 payment in Xero and read the interest allocation.
-> Done — and the answer is that the question was aimed at the wrong half of the subtraction.**
+> **The retraction is the point of this block. Read it before §0y.**
 >
-> The measured facts, none of them inferred:
+> Earlier in session 281 I found 9744's lender balance identical at 05-27, 06-19, 07-20 and 08-20
+> (16,223.75) while the other three Fords stepped down every month, and concluded the portal had
+> stalled and the $182.00 gap was measured against a dead figure. **David then produced the actual
+> 08/20/2026 statement PDF, and it explains the repetition in its own words:**
 >
-> | | Figure | How it was established |
-> |---|---|---|
-> | Her 5/11 at-source split | **793.81 → 244, 350.74 → 800** | the Xero BankTransaction itself, `30886184-e137-42be-8b8c-7fe2dc2a1aa6`, fetched by id for lines |
-> | Our April journal `f49a48db` | **800 +181.99 / 244 −181.99**, POSTED, dated 2026-04-09 | fetched by id from ManualJournals |
-> | Live tie-out gap | **182.00** (books 16,405.75, lender 16,223.75) | run `087862bb`, 2026-09-08 01:01 UTC |
+> > *"Your account is paid ahead (0.00 due or amount due is less than your regular payment).
+> > Finance charges continue to accrue on your principal balance at your contract APR."*
 >
-> `350.74 − 168.77 (our May) = 181.97`. **So there are three figures — 181.97, 181.99, 182.00 —
-> and no two agree.** §0y read that as our side being a cent out. It is not.
+> Total Amount Due **$0.00**, and **"Your Transactions Since Last Statement" is EMPTY.** The $5,000
+> payment of 05/27 put the account ahead, the auto-debit on the 9th stopped, and principal has
+> genuinely not moved since. **Four identical balances is the fact, not a stale pull.** The document
+> is on file and correct: `loan_statements` 2026-08-20, `principal_balance` 16,223.75,
+> `balance_basis='principal_only'` — the same number the PDF prints. Nothing failed to stick.
 >
-> #### THE LENDER'S BALANCE ON THIS LOAN HAS NOT MOVED SINCE 2026-05-27
+> It also dissolves the other thing I flagged: **9744 has no June/July/August splits because there
+> were no payments to split.** Not a hole. The same fact, seen from our side.
 >
-> Pulled `loan_statements.principal_balance` for all four Fords from 2026-05-01. The pairs-per-month
-> shape (two portal pulls, same figure) is normal and appears on all four. What is not normal:
+> ✅ **So §0y's diagnosis stands and E4-9744 is the ordinary Ford catch-up bug** — her 5/11 split put
+> 350.74 to interest covering April AND May, our April journal `f49a48db` had already booked April's
+> 181.99, and the loan account carries the duplicate. The residual cent (our 181.99 against the
+> measured 182.00) is real but immaterial on a paid-ahead loan accruing finance charges daily; it is
+> a number to accept or ask the accountant about, not evidence of a broken measurement.
 >
-> | Loan | May | Jun | Jul | Aug |
-> |---|---|---|---|---|
-> | 4140 | 18,862.26 | 17,814.75 | 16,755.81 | 10,685.52 |
-> | 4751 | 31,665.75 | 30,887.47 | 30,094.14 | 29,302.52 |
-> | 2094 | 23,575.78 | 23,112.29 | 22,639.56 | 22,168.92 |
-> | **9744** | **16,223.75** | **16,223.75** | **16,223.75** | **16,223.75** |
+> #### WHAT I ACTUALLY GOT WRONG, because the shape will recur
 >
-> Every other Ford steps down every month. 9744's lender figure is identical on 05-27, 06-19, 07-20
-> and 08-20 — **three months, on a loan that is certainly amortizing** (we hold its April and May
-> splits and a September card).
+> **A balance that stops moving has more than two explanations, and I stopped at two.** §0y said
+> "inherited from a closed period"; I said "the anchor is stale"; the truth was a third thing the
+> document stated plainly — **the loan stopped amortizing.** Both of us reasoned from the pattern in
+> our own table instead of reading the lender's own words, which were sitting in a PDF. *A gap that
+> does not move is evidence about the measurement as much as about the books* was the right
+> instinct and I applied it to the wrong half. **The cheapest test was never a portal pull. It was
+> opening the statement we already had.**
 >
-> **So $182.00 is not a measurement of a booking error.** It is our books moving away from a portal
-> number that stopped. The correction engine proposes reversing $181.99 against that denominator,
-> which is why its arithmetic has never closed to the cent — the residual is not a rounding, it is
-> the shape of a comparison whose right-hand side is stale.
+> #### 🟠 THE PRODUCT GAP THIS EXPOSES — and it is worth building
 >
-> This is session 246's rule arriving from the other direction. That one said a check whose inputs
-> share a source cannot fail. This one: **a check whose lender side has stopped updating cannot
-> pass, and will keep manufacturing a stable-looking difference that invites a correction.** A gap
-> that is IDENTICAL at three consecutive month ends (§0y noticed this and read it as "inherited")
-> has two possible causes, and nobody tested the second.
+> The 08-20 row stores `principal_balance` and NOTHING else: `payoff_amount`, `payoff_good_thru`,
+> `total_amount_due` and `payment_due_date` are all **null**, though the statement prints every one
+> of them. **`total_amount_due = 0.00` with an empty transactions section is the machine-readable
+> form of "paid ahead", and it is exactly the fact that would have stopped two sessions from
+> misreading this loan.** Capture those fields on ingest and the close band can say *"no payment
+> applied — account paid ahead since 05/27"* instead of showing a static balance that looks stale to
+> every reader who meets it. That is a row asking for a document under session 262's rule, answered.
 >
-> ⛔ **Do not approve E4-9744.** ⏭️ **Pull a fresh 9744 balance from the Ford portal first.** Then
-> re-run reconciliation and see what the gap actually is; the whole diagnosis is rebuilt from there.
->
-> 🔍 **And 9744 has NO splits for June, July or August** — the other three Fords have every month.
-> The payments are plainly in Xero (a three-month hole would put the books ~$2,950 high, not $182),
-> so they were posted at source and never became splits. Understand that before trusting any walk
-> over this loan.
->
-> ✅ **4140 and E5-4751 are unaffected** — both lender balances step down monthly. 4140 stays
-> verified and approvable; E5-4751's May-half-only reasoning stands.
->
-> 🛠️ **A route around the `payment_picture` timeout, and it is the reusable part.** §0y recorded
-> that `payment_picture` times out through `net.http_post` at both 5s and 28s. It does — but
-> **`curl` from `device_bash` on David's Mac has no statement timeout**, and two cheap `xero-read`
-> calls (`bank_transactions` by amount+date, then by id for lines) answer the same question in
-> seconds. Reach for that before declaring Xero unreadable.
+> ⚠️ **And never ingest a payoff figure as a balance.** David's portal screenshot shows Payoff
+> $16,694.49 good thru 09/18; the PDF shows Payoff $16,657.33 good thru 09/09 AND Principal
+> $16,223.75. Three different numbers on one loan on one day. The payoff moves daily because finance
+> charges accrue — which is itself corroboration of the paid-ahead story, and the reason
+> `balance_basis` exists.
 >
 > ### 0zg. ✅ `reconciliation-run` IS LIVE — content-verified (session 281, 2026-09-08 ~01:15 UTC)
 >
@@ -102,7 +95,7 @@
 > Credit Line 457.14 @09-04 · Ford 4140 415.88 @08-17 · Ford E5-4751 266.42 @08-12 · Ford E4-9744
 > 182.00 @08-20 · PayPal 21.65 @09-02 · EIDL SBA −5.00 @08-25. The three Fords are unchanged, as
 > expected — that is the diagnosed catch-up bug, and 9744's is still measured against the frozen
-> anchor (§0zh). **The top two are now the unexamined ones.**
+> anchor — see §0zh: that reading was WRONG, the loan is paid ahead and the gap is the ordinary catch-up bug. **The top two are now the unexamined ones.**
 >
 > 💡 **The lesson is the cheap check, not the failure.** Two `get_edge_function` pulls either side of
 > a deploy, grepped for one identifier the new code introduces, settles "is it live" in seconds
@@ -241,12 +234,12 @@
 > our own posted splits, and the live tie-out still shows the gap at exactly $415.88. Safe to
 > approve. The other two have not been re-verified this way.
 >
-> ⛔ **E4-9744 — SUPERSEDED BY §0zh (session 281). DO NOT APPROVE.** The 5/11 payment this block
-> asks for was read in Xero: her split is 793.81/350.74 at source and our April journal is a real
-> 181.99 reallocation. Neither is the problem. **The lender balance this gap is measured against
-> has not moved since 2026-05-27** — three month ends at 16,223.75 while every other Ford steps
-> down monthly. The question below ("settle which figure is right") cannot be answered, because
-> the right-hand side of the subtraction is stale. Pull a fresh portal balance first.
+> ⚠️ **E4-9744 — see §0zh (session 281). The block below is RIGHT; my correction to it was wrong.**
+> The 5/11 payment this block asks for was read in Xero: her split is 793.81/350.74 at source and
+> our April journal is a real 181.99 reallocation. I then claimed the lender balance was stale;
+> the 08/20 statement PDF disproves that — the account is PAID AHEAD since the $5,000 of 05/27,
+> so the balance is genuinely static. **The catch-up diagnosis below stands. The residual cent is
+> immaterial, not a symptom.**
 >
 > ⚠️ **E5-4751 is the one to read carefully.** Her Apr $281.79 had NEVER been booked, so that half
 > of her split is the only correction that month ever had and it stays — *"reversing it would
@@ -4129,37 +4122,41 @@ the two loans and the two dates `2df7667`'s own message named.** Nothing else mo
 whole verification chain the deploy state has been missing for nine days: content diff proves it is
 installed, a status change on a predicted row proves it works.
 
-**2. E4-9744's lender balance has been frozen for three months, and the whole Ford diagnosis on
-that loan rests on it.**
+**2. E4-9744: I found a real anomaly and drew the wrong conclusion from it. The statement settled
+it.**
 
-§0y left one deciding step: open the 5/11 payment in Xero and read the interest allocation, because
-the finding said $182.00 and the correction said $181.99, and this module does not post money on
-inference. I read it. Her at-source split is **793.81 → 244, 350.74 → 800** (BankTransaction
-`30886184`, fetched by id for lines); our April journal `f49a48db` is a real **800 +181.99 /
-244 −181.99** reallocation dated 04-09. `350.74 − 168.77 = 181.97`. Three figures — 181.97, 181.99,
-182.00 — no two agreeing.
+§0y left one deciding step: read the 5/11 interest allocation in Xero rather than infer it. Done —
+her at-source split is **793.81 → 244, 350.74 → 800** (BankTransaction `30886184`, fetched by id for
+lines), and our April journal `f49a48db` is a real **800 +181.99 / 244 −181.99** dated 04-09.
+`350.74 − 168.77 = 181.97`, so three figures — 181.97, 181.99, 182.00 — none agreeing.
 
-That non-agreement was the tell. Pulling every Ford lender balance from 2026-05-01: 4140, 4751 and
-2094 step down every month; **9744 reads 16,223.75 on 05-27, 06-19, 07-20 AND 08-20.** It stopped.
+That non-agreement sent me to the lender balances, where 9744 reads 16,223.75 on 05-27, 06-19,
+07-20 AND 08-20 while 4140, 4751 and 2094 all step down monthly. **I concluded the portal had
+stalled and told David not to approve.** Wrong. He produced the 08/20 statement, which says
+*"Your account is paid ahead… Finance charges continue to accrue"*, shows **Total Amount Due
+$0.00**, and carries an **empty** "Transactions Since Last Statement". The $5,000 of 05/27 put the
+account ahead, the auto-debit stopped, and principal genuinely has not moved. The same fact
+explains the missing June/July/August splits: no payments to split.
 
-**So the gap is measuring our books drifting away from a stalled portal figure**, and the engine's
-proposed reversal is being fitted to a denominator that has not been true since May. The residual
-that never closed to the cent was never a rounding — it was the shape of a comparison with a dead
-right-hand side.
+**So §0y's catch-up diagnosis stands and 9744 is approvable on the same footing as the others.**
 
-**The generalisation, and it is the mirror of session 246.** That rule says a check whose inputs
-share a source cannot fail. This one: **a check whose lender side has stopped updating cannot pass,
-and keeps producing a stable-looking difference that invites a correction.** §0y observed that this
-gap is IDENTICAL at 6/30, 7/31 and 8/31 and concluded the cause was inherited from a closed period.
-That is one explanation for a constant gap. **A frozen anchor is the other, and it was not tested.**
-A difference that does not move is evidence about the measurement as much as about the books.
+**The lesson, and it is not "check the anchor".** A balance that stops moving has more than two
+explanations. §0y offered one (inherited from a closed period), I offered a second (stale anchor),
+and the true one was a third that the lender had written down in plain English in a document
+already in our own storage. Both of us reasoned from the pattern in our table rather than reading
+the evidence under it. *A gap that does not move is evidence about the measurement as much as
+about the books* is still right; I aimed it at the wrong half. **The cheapest test was not a fresh
+portal pull — it was opening the statement we already had.**
 
-⏭️ Pull a fresh 9744 balance from the Ford portal, re-run, then rebuild the diagnosis. 4140 and
-E5-4751 are unaffected — their lender balances move — so 4140 stays approvable and E5-4751's
-May-half-only reasoning stands. Also noted: **9744 has no splits at all for June, July or August**
-while the other three Fords have every month; the payments are in Xero (a three-month hole would
-show ~$2,950, not $182) but never became splits, and that wants understanding before any walk over
-this loan is trusted.
+🟠 **The product gap it exposes is worth building.** Our 08-20 row stores `principal_balance` and
+nothing else — `payoff_amount`, `payoff_good_thru`, `total_amount_due`, `payment_due_date` are all
+null though the statement prints every one. **`total_amount_due = 0.00` plus an empty transactions
+section IS "paid ahead" in machine-readable form**, and capturing it would have stopped two
+sessions misreading this loan; the close band could say *"no payment applied — account paid ahead
+since 05/27"* rather than showing a balance that looks stale to everyone who meets it. Also: never
+ingest a payoff as a balance. One loan, one day, three numbers — screenshot payoff 16,694.49 (thru
+09/18), PDF payoff 16,657.33 (thru 09/09), principal 16,223.75. The payoff moves daily because
+finance charges accrue, which is itself corroboration of the paid-ahead story.
 
 **Reusable:** §0y recorded `payment_picture` timing out through `net.http_post` at 5s and 28s. It
 does — but `curl` from `device_bash` on David's Mac has no statement timeout, and two cheap
