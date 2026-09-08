@@ -833,9 +833,18 @@ function readSurfaces() {
 // three loan splits became unreachable -- work in the month IN FLIGHT is invisible to
 // this strip's own counts by construction, so it could read "everything booked" over
 // real work. It never blocks (bad:false); it exists so the screen cannot look empty
-// while the work band above it is not.
+// while the work band above it is not. Session 288 kept it and reworded it: the
+// work band is gone and the Action column carries that work now, so the gate says
+// where to look rather than naming a card that no longer exists.
+// 'schedule-choice' (session 288) fills the hole session 277 wrote down and left
+// open. The row-level "Which schedule?" is now scoped to a MATERIAL difference
+// (David: "why show it unless there's actually something for the reader to do?"),
+// which is right for the row and silent on a loan that ties every month while its
+// prestaging goes on creating Xero transactions off a schedule chosen by a
+// tie-break. This is the one-gate-for-the-whole-table home 277 said was correct.
+// It never blocks: an unagreed projection is not a reason August cannot close.
 const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting', 'checked',
-                   'unverified', 'explained', 'tie', 'provisional-opening', 'outside-period',
+                   'unverified', 'explained', 'tie', 'provisional-opening', 'outside-period', 'schedule-choice',
                    /* session 285: a failed READ blocks the verdict. See `read-failure`
                       below for why this gate exists and what it caught. */
                    'unread'];
@@ -1988,11 +1997,25 @@ GROUPS.push({
          'the fix route is only offered where an open balance_vs_lender finding exists to walk',
          fixRows.filter(r => !findingLoans.includes(r.loan)).map(r => r.loan).join(' · '));
 
-    // A row that ties gets no action: a column that always says something is a
-    // column people stop reading.
-    const tiedWithAction = seen.rows.filter(r => r.band === 'tie' && r.actionText);
-    t.ok(tiedWithAction.length === 0, 'a row that ties offers no action',
-         tiedWithAction.map(r => `${r.loan}: "${r.actionText}"`).join(' · '));
+    /* A row that ties gets no action ABOUT THIS MONTH: a column that always says
+       something is a column people stop reading.
+
+       ⚠️ SESSION 288 NARROWED THE SUBJECT, NOT THE RULE. David removed the
+       "Waiting on you" card and the Action column now also carries QUEUED work --
+       an approval belonging to another period, on a loan that happens to tie in
+       the month being closed. That is not the defect this assertion was written
+       for; it is the fix for a different one (session 276's unreachable splits),
+       and the two are told apart in the markup precisely so this test can keep
+       meaning what it meant: `data-action="queued"` is a claim about another
+       month, every other kind is a claim about this one.
+
+       The narrowing is deliberately paired with s288d/e in the work-band group,
+       which assert that those queued items really are reachable. Without that
+       pair, exempting a kind here would be indistinguishable from excusing it. */
+    const tiedWithAction = seen.rows.filter(r =>
+      r.band === 'tie' && r.actionText && r.action !== 'queued');
+    t.ok(tiedWithAction.length === 0, 'a row that ties offers no action about the month being closed',
+         tiedWithAction.map(r => `${r.loan}: "${r.actionText}" (${r.action})`).join(' · '));
 
     // AND THE RULE THAT MATTERS MOST: a difference with no established cause is
     // never offered a one-click journal. Booking it to make the books agree
@@ -4160,10 +4183,28 @@ GROUPS.push({
   fixture: 'july',
   async run(t) {
     const noDismissals = (d) => { d.bk_issue_dismissals.length = 0; };
+    /* ⚠️ SESSION 288: THIS HELPER IS CALLED findingsFor AND IT DID NOT MEASURE
+       FINDINGS. It returned every approval item whose loan matched -- which was
+       the same set only because a split approval carried no loan id to match on.
+       Session 288 gave `appr-split-` items a `loanId` (the Action column places
+       each item on its own row, and re-deriving the loan by parsing `name` is
+       exactly what this module forbids), and the helper immediately started
+       counting Paypal 2's ordinary September payment card as one of its findings.
+       CONTROL A caught it: the control removes the FINDINGS and the count stayed
+       at 1, reporting a working filter as broken.
+
+       The repair is to make the helper measure its own name. Split and payroll
+       approvals are excluded BY KEY PREFIX -- the same discipline `notPayroll`
+       uses in _bkLoansBandItems -- never by guessing from wording. This makes
+       every r1 assertion sharper, not looser: they now say a loan's FINDINGS
+       reach Approvals, which is what they were always written to say. */
     const findingsFor = (p, loanName) => p.evaluate((name) => {
       const a = (_allLoanAccounts || []).find(x => x.xero_account_name === name);
       if (!a) return null;
-      return _bkApprovalQueueItems().filter(it => _bkIssueLoanId(it) === a.id).map(it => it.name);
+      const isApproval = (k) => /^appr-(split|pimp)-/.test(String(k || ''));
+      return _bkApprovalQueueItems()
+        .filter(it => !isApproval(it.key) && _bkIssueLoanId(it) === a.id)
+        .map(it => it.name);
     }, loanName);
 
     const p = await newHarnessPage({ tab: 'overview', mutate: noDismissals });
@@ -10629,8 +10670,23 @@ GROUPS.push({
 GROUPS.push({
   name: 'work-band',
   async run(t) {
-    // A pending_review split in a period FAR from the closing month. If band
-    // membership were period-scoped in any way, this row is the one that vanishes.
+    /* ⚠️ SESSION 288 REBUILT THIS GROUP, AND THE REASON MATTERS MORE THAN THE
+       ASSERTIONS. David removed the "Waiting on you" card and asked for the
+       Action column to carry its work instead. Session 276's assertions read the
+       CARD -- `#loans-approvals-band .bk-queue-row` -- so deleting the card would
+       have turned every one of them red, and "fixing" them by deleting them would
+       have quietly given up the only proof that the work is reachable at all.
+
+       So the PROPERTY is unchanged and only its expression moved: every item in
+       the queue is reachable from BOTH period tabs, and the period orders it
+       rather than deciding whether it exists. What is asserted now is the
+       invariant that replaces the card -- EVERY actionable item is either a
+       button on a row of the table you are looking at, or named in the one line
+       under it -- which is strictly stronger than "the card rendered N rows",
+       because it cannot be satisfied by a container nobody can see. */
+
+    // A pending_review split in a period FAR from the closing month. If placement
+    // were period-scoped in any way, this row is the one that vanishes.
     const addFarSplit = (d) => {
       const a = d.loan_accounts.find(x => x.status === 'active' && x.ingestion_method !== 'automatic');
       const base = d.loan_splits.find(sp => sp.loan_account_id === a.id);
@@ -10643,47 +10699,53 @@ GROUPS.push({
       d.__loan = a.xero_account_name;
     };
 
+    /* Reachability, read from the RENDERED DOM of whichever table is on screen.
+       Keys, never button text: the wording is meant to change, and a test that
+       matched on it would report a copy edit as a broken queue. */
     const probe = () => {
       const band = document.getElementById('loans-approvals-band');
       const sum = document.getElementById('loans-summary');
       const closing = document.getElementById('loans-period-closing');
       const inflight = document.getElementById('loans-period-inflight');
-      const rows = band ? [...band.querySelectorAll('.bk-queue-row')] : [];
-      const inPane = (el) => !!(el && ((closing && closing.contains(el)) || (inflight && inflight.contains(el))));
+      const visible = (el) => !!(el && el.offsetParent);
+      const table = visible(closing) ? closing : inflight;
+      const keysFrom = (sel, attr) => [...(table ? table.querySelectorAll(sel) : [])]
+        .flatMap(el => (el.getAttribute(attr) || '').split(/\s+/).filter(Boolean));
+      const onRows = keysFrom('[data-col="action"][data-queued-keys]', 'data-queued-keys');
+      const inLine = keysFrom('.lcb-elsewhere-item[data-bkkey]', 'data-bkkey');
+      const items = _bkLoansBandItems();
       return {
+        // The card itself: still a node (an empty render is honest about a blank
+        // slot), and carrying nothing.
         bandExists: !!band,
-        bandOutsidePanes: !!band && !inPane(band),
-        // Session 280: the tiles left the Loans page altogether for Client View >
-        // Debt Schedule. "Outside both panes" was the right property while they
-        // lived here; it is now trivially true and would go green on a deletion,
-        // so what is pinned instead is where they actually went.
-        tilesOutsidePanes: !!sum && !inPane(sum),
+        bandEmptyHtml: !!(band && band.innerHTML.trim() === ''),
         tilesUnderDebtSubview: (() => {
           const sub = document.getElementById('cv-subview-debt');
           return !!(sum && sub && sub.contains(sum));
         })(),
         tilesRendered: !!(sum && sum.textContent.trim().length > 0),
-        bandEmptyHtml: !!(band && band.innerHTML.trim() === ''),
-        keys: rows.map(r => r.getAttribute('data-bkkey') || ''),
-        reachable: rows.filter(r => r.offsetParent).length,
+        whichTable: visible(closing) ? 'closing' : 'inflight',
+        onRows, inLine,
+        reached: [...new Set(onRows.concat(inLine))].sort(),
+        allApprovalKeys: items.approvals.map(i => i.key).sort(),
+        stagedKeys: items.staged.map(i => i.key).sort(),
       };
     };
 
-    /* ── (a) the containers sit OUTSIDE both period panes ──────────────────
-       This is the assertion that encodes WHY the fix is shaped as it is. Two
-       containers, one per pane, can drift apart under a later edit; one cannot.
-       Membership of a pane is what made the old queue invisible, so "not in a
-       pane" is the property worth pinning, not "renders today". */
+    /* ── (a) THE CARD IS GONE, AND THE TILES DID NOT COME BACK WITH IT ─────
+       Two containers, one per pane, can drift apart under a later edit; one
+       cannot. That reasoning is why the card sat outside both panes, and it is
+       why its replacement is a COLUMN of each table rather than a second list. */
     {
       const p = await newHarnessPage({ tab: 'loans', mutate: addFarSplit });
       const seen = await p.evaluate(probe);
-      t.eq(seen.bandExists, true, 's276a: the work band container exists on the Loans page', JSON.stringify(seen));
-      t.eq(seen.bandOutsidePanes, true,
-           's276b: ⭐ ...outside BOTH period panes, so the two tabs cannot drift apart', JSON.stringify(seen));
-      t.eq(seen.tilesOutsidePanes, true,
-           's276c: ...and so do the summary tiles — they are period-invariant', JSON.stringify(seen));
+      t.eq(seen.bandExists, true,
+           's288a: the work-band container still exists — a deleted node reads as a bug', JSON.stringify(seen));
+      t.eq(seen.bandEmptyHtml, true,
+           's288b: ⭐ ...and renders NOTHING — the "Waiting on you" card is gone (David, session 288)',
+           JSON.stringify(seen));
       t.eq(seen.tilesUnderDebtSubview, true,
-           's280a: ⭐ ...and they now live in Client View > Debt Schedule, not on Loans at all',
+           's280a: ⭐ ...and the summary tiles still live in Client View > Debt Schedule, not on Loans',
            JSON.stringify(seen));
       t.eq(seen.tilesRendered, true,
            's280b: ...still rendered from the Loans page load, one renderer and one node',
@@ -10693,63 +10755,58 @@ GROUPS.push({
 
     /* ── (b) THE BUG ITSELF: reachable from the CLOSING tab ────────────────
        A split labelled 2099-11 has nothing to do with the month being closed.
-       Before this change it appeared on no screen at all. */
+       Before session 276 it appeared on no screen at all; after session 288 it
+       has to appear on this one, in the Action column or in the line beneath. */
     {
       const p = await newHarnessPage({ tab: 'loans', mutate: addFarSplit });
       await p.evaluate(() => switchLoansPeriod('closing'));
       const onClosing = await p.evaluate(probe);
-      t.ok(onClosing.keys.includes('appr-split-harness-band-far'),
-           's276d: ⭐ a split from another period is REACHABLE while the closing month is shown',
-           JSON.stringify(onClosing.keys));
+      t.eq(onClosing.whichTable, 'closing', 's288c: the closing table is the one on screen', JSON.stringify(onClosing.whichTable));
+      t.ok(onClosing.reached.includes('appr-split-harness-band-far'),
+           's288d: ⭐ a split from another period is REACHABLE while the closing month is shown',
+           JSON.stringify(onClosing));
 
-      /* ── COLLAPSED BY DEFAULT, BUT ONE CLICK FROM VISIBLE (session 276 cont.) ──
-         The original s276e asserted the rows were visible on load. David then asked
-         for the band to open on click, so that assertion now encodes the OLD rule.
-         It is REPLACED rather than deleted, and by a stricter pair: hidden first,
-         shown after exactly one click. Deleting it would have quietly given up the
-         only proof that the work is reachable at all -- which is the entire claim
-         this group exists to make. */
-      const collapse = await p.evaluate(() => {
-        const body = document.getElementById('loans-band-body');
-        const before = [...document.querySelectorAll('#loans-approvals-band .bk-queue-row')]
-          .filter(r => r.offsetParent).length;
-        document.querySelector('#loans-approvals-band .card-header').click();
-        const after = [...document.querySelectorAll('#loans-approvals-band .bk-queue-row')]
-          .filter(r => r.offsetParent).length;
-        return { hasBody: !!body, before, after };
-      });
-      t.eq(collapse.hasBody, true, 's276e: the band body is its own collapsible element', JSON.stringify(collapse));
-      t.eq(collapse.before, 0,
-           's276e2: ...collapsed by default — the count is what you see at a glance',
-           JSON.stringify(collapse));
-      t.ok(collapse.after > 0,
-           's276e3: ⭐ ...and ONE click on the header shows the rows — collapsed is not the same as hidden',
-           JSON.stringify(collapse));
-      /* The sub-line is the only statement that work exists while collapsed, so it
-         must never be empty. Asserted because trimming it would look like tidying. */
-      const subLine = await p.evaluate(() =>
-        (document.querySelector('#loans-approvals-band .card-sub') || {}).textContent || '');
-      t.ok(/\d/.test(subLine),
-           's276e4: ...and the collapsed header still states a COUNT, not just a title',
-           JSON.stringify(subLine));
-      // Session 280: the tiles are no longer on either period tab — they moved to
-      // Client View > Debt Schedule. What s276f/h were really pinning is that the
-      // tiles do not appear on ONE tab and not the other, and the strongest form
-      // of that is now that they appear on NEITHER, from the same single node.
-      t.eq(onClosing.tilesUnderDebtSubview, true,
-           's276f: ...with the tiles on neither period tab — one node, in Client View', JSON.stringify(onClosing));
+      /* ── THE INVARIANT THAT REPLACES THE CARD ────────────────────────────
+         Every actionable item is a button on a row or a name in the line. Stated
+         over the WHOLE item list rather than over what the renderer happened to
+         be handed, because a renderer that quietly drops one would otherwise
+         satisfy an assertion written against its own output. */
+      const missingClosing = onClosing.allApprovalKeys.filter(k => !onClosing.reached.includes(k));
+      t.eq(missingClosing.length, 0,
+           's288e: ⭐⭐ EVERY queue item is on a row or in the line beneath it — nothing is unreachable',
+           JSON.stringify({ missing: missingClosing, onRows: onClosing.onRows, inLine: onClosing.inLine }));
 
+      /* ── AND THE DUPLICATE DAVID NAMED IS ACTUALLY GONE ──────────────────
+         "the 'scheduled in Xero' sub section duplicates information already in
+         the Staging column." Staged items must therefore appear in NEITHER of the
+         queue's two homes — the Staging column owns them, on both tables. */
+      const stagedLeaked = onClosing.stagedKeys.filter(k => onClosing.reached.includes(k));
+      t.eq(stagedLeaked.length, 0,
+           's288f: ⭐ ...and no STAGED item is repeated here — the Staging column owns those',
+           JSON.stringify({ leaked: stagedLeaked, staged: onClosing.stagedKeys }));
+      t.ok(onClosing.stagedKeys.length > 0,
+           's288f2: ...on a book that does carry staged splits — the rule is not vacuous',
+           JSON.stringify(onClosing.stagedKeys));
+
+      /* ── BOTH TABS, SAME WORK ────────────────────────────────────────────
+         Session 276's s276g, unchanged in meaning: the period decides ORDER,
+         never membership. It is now a statement about two tables rather than
+         about one card sitting above them, which is the harder version. */
       await p.evaluate(() => switchLoansPeriod('inflight'));
       const onInflight = await p.evaluate(probe);
-      t.eq(JSON.stringify(onInflight.keys.slice().sort()), JSON.stringify(onClosing.keys.slice().sort()),
-           's276g: ⭐ ...and the band holds the SAME work on both tabs — the period orders it, never filters it',
-           `closing ${JSON.stringify(onClosing.keys)} · inflight ${JSON.stringify(onInflight.keys)}`);
+      t.eq(onInflight.whichTable, 'inflight', 's288g0: the in-flight table is the one on screen', JSON.stringify(onInflight.whichTable));
+      t.eq(JSON.stringify(onInflight.reached), JSON.stringify(onClosing.reached),
+           's288g: ⭐ ...and BOTH tabs reach the SAME work — the period orders it, never filters it',
+           `closing ${JSON.stringify(onClosing.reached)} · inflight ${JSON.stringify(onInflight.reached)}`);
+      t.ok(onInflight.onRows.includes('appr-split-harness-band-far'),
+           's288h: ⭐ ...and on In flight the split is on its own loan\'s ROW, not exiled to the line',
+           JSON.stringify(onInflight.onRows));
       t.eq(onInflight.tilesUnderDebtSubview, true,
-           's276h: ...and switching to In flight does not bring them back', JSON.stringify(onInflight));
+           's276h: ...and switching to In flight does not bring the tiles back', JSON.stringify(onInflight));
 
       /* ── DISCRIMINATION, and it must fail the way the OLD code failed ────
          Rebuild the shipped _bkLoansBandItems from its own source with a period
-         FILTER spliced in -- the pre-fix behaviour -- and confirm s276d goes red.
+         FILTER spliced in -- the pre-276 behaviour -- and confirm s288d goes red.
          Never by editing index.html: an assertion that passes against both the
          fixed and the broken function is decoration (session 245). */
       const discriminates = await p.evaluate(() => {
@@ -10762,17 +10819,25 @@ GROUPS.push({
           const only = (i) => String(i.period || '').slice(0, 7) === sel;
           return { approvals: r.approvals.filter(only), staged: r.staged.filter(only) };
         };
+        // ⚠️ switchLoansPeriod only shows a pane; it does not re-render it. Calling
+        // the renderer directly is what actually exercises the override -- reading a
+        // pane painted before the override is how this control passed while testing
+        // nothing (which is exactly what it did on the first run).
         switchLoansPeriod('closing');
-        renderLoansApprovalsBand();
-        const band = document.getElementById('loans-approvals-band');
-        const keys = [...band.querySelectorAll('.bk-queue-row')].map(r => r.getAttribute('data-bkkey'));
+        renderLoansCloseBand();
+        const pane = document.getElementById('loans-period-closing');
+        const keys = [...pane.querySelectorAll('[data-col="action"][data-queued-keys]')]
+          .flatMap(el => (el.getAttribute('data-queued-keys') || '').split(/\s+/))
+          .concat([...pane.querySelectorAll('.lcb-elsewhere-item[data-bkkey]')]
+            .map(el => el.getAttribute('data-bkkey')))
+          .filter(Boolean);
         window._bkLoansBandItems = real;
-        renderLoansApprovalsBand();
+        renderLoansCloseBand();
         return { ok: true, brokenKeys: keys };
       });
-      t.eq(discriminates.ok, true, 's276i: the discrimination check could be built', JSON.stringify(discriminates));
+      t.eq(discriminates.ok, true, 's288i: the discrimination check could be built', JSON.stringify(discriminates));
       t.ok(discriminates.ok && !discriminates.brokenKeys.includes('appr-split-harness-band-far'),
-           's276j: ⭐ ...and period-FILTERING the band hides that split again — so s276d is a real test',
+           's288j: ⭐ ...and period-FILTERING the queue hides that split again — so s288d is a real test',
            JSON.stringify(discriminates.brokenKeys));
       await p.close();
     }
@@ -10881,9 +10946,15 @@ GROUPS.push({
         if (imp) { imp.status = 'parsed'; }
       } });
       const seen = await p.evaluate(probe);
-      t.eq(seen.keys.filter(k => k.startsWith('appr-pimp-')).length, 0,
-           's276k: no payroll import reaches the Loans work band — Payroll owns its own approvals',
-           JSON.stringify(seen.keys));
+      // Session 288: asserted in BOTH places the queue can now surface -- the row
+      // buttons and the line beneath -- because a payroll import leaking into
+      // either one is the same defect. Still keyed on the prefix, never wording.
+      t.eq(seen.reached.filter(k => k.startsWith('appr-pimp-')).length, 0,
+           's276k: no payroll import reaches the Loans queue — Payroll owns its own approvals',
+           JSON.stringify(seen.reached));
+      t.eq(seen.allApprovalKeys.filter(k => k.startsWith('appr-pimp-')).length, 0,
+           's276k2: ...and it is excluded at the SOURCE, not merely unrendered',
+           JSON.stringify(seen.allApprovalKeys));
       await p.close();
     }
 
@@ -10897,9 +10968,23 @@ GROUPS.push({
         d.reconciliation_findings = [];
       } });
       const seen = await p.evaluate(probe);
-      t.eq(seen.bandEmptyHtml, true,
-           's276l: ⭐ with no loan work at all the band renders NOTHING — no empty card, no zero',
-           `html length ${seen.bandEmptyHtml ? 0 : 'non-empty'} · keys ${JSON.stringify(seen.keys)}`);
+      /* ⚠️ SESSION 288: THE OLD FORM OF THIS WOULD NOW PASS TRIVIALLY. It asserted
+         the band renders nothing on a clean book -- but the band renders nothing on
+         EVERY book since the card was removed, so as written it had stopped being a
+         test of anything and would have gone green on a page that shouted at the
+         reader. What rule 10 actually says is that a queue must not show up empty,
+         and the queue's home is now the table: no queued buttons, and above all no
+         "0 not on a row above" line where there is nothing to name. */
+      t.eq(seen.reached.length, 0,
+           's276l: ⭐ with no loan work at all NOTHING is queued anywhere — no empty list, no zero',
+           JSON.stringify(seen));
+      const emptyLine = await p.evaluate(() => {
+        const pane = document.getElementById('loans-period-closing');
+        return pane ? pane.querySelectorAll('.lcb-elsewhere').length : -1;
+      });
+      t.eq(emptyLine, 0,
+           's276l2: ...and the line under the table is ABSENT, not present and saying zero',
+           String(emptyLine));
       await p.close();
     }
   },
@@ -11323,15 +11408,52 @@ GROUPS.push({
     }
     await owing.close();
 
-    /* AND THE OTHER HALF, on the live book: with the balance in, the row moves on
-       to the schedule question rather than staying stuck on a document it has. */
+    /* ── SESSION 288: AND THE OTHER HALF WAS DAVID'S OWN EXAMPLE ───────────
+       This asserted that with the balance in, BayFirst SBA 2's row moves on to the
+       schedule question. It did -- and David, auditing the page, pointed straight
+       at it: "why show 'Which schedule?' unless there's actually something for the
+       reader to do?" That row is off by ONE CENT. The ask is now scoped to a
+       MATERIAL difference, so the assertion is REPLACED rather than deleted, and
+       by a PAIR, because either half alone describes a different product:
+
+         1. the immaterial row asks nothing -- the defect he saw, gone; and
+         2. the question is STILL ON THE SCREEN, in the strip's schedule-choice
+            gate, naming this loan.
+
+       (1) alone is satisfied by deleting the question, which would be a cut that
+       drops a claim (ce17) -- and a real one, because a schedule picked by an
+       internal tie-break goes on staging real transactions in Xero whatever the
+       variance does. (2) alone is satisfied by asking on every green row, which is
+       the nag session 277 refused. Only together do they describe the fix. */
     const settledRow = (await p.surfaces()).loans.closeBand.rows
       .find(r => /BayFirst SBA 2/.test(r.name || ''));
     if (settledRow && !settledRow.awaitingEvidence) {
-      t.eq(settledRow.action, 'decide',
-           '⭐ ...and once the evidence is in, the schedule question is what surfaces',
+      t.ok(settledRow.band !== 'material',
+           'BayFirst SBA 2 is off by less than the materiality line — David\'s own example',
+           JSON.stringify({ band: settledRow.band, variance: settledRow.varianceN }));
+      t.ok(settledRow.action !== 'decide',
+           '⭐ ...so its row does NOT ask which schedule — nothing there is for the reader to do',
            JSON.stringify({ action: settledRow.action, text: settledRow.actionText }));
     }
+    /* AND THE CLAIM IS STILL ON THE SCREEN. Read from the strip's own gates, which
+       is where session 277 said this belonged: one gate for the whole table rather
+       than a nag on every green row. It names its loans, per the session-256 rule
+       that a chip answers its own question. */
+    const schedGate = await p.evaluate(() => {
+      const el = document.querySelector('#loans-close-band .lcb-strip');
+      let g = [];
+      try { g = JSON.parse((el && el.getAttribute('data-gates')) || '[]'); } catch (_) { g = []; }
+      return g.find(x => x.key === 'schedule-choice') || null;
+    });
+    t.ok(!!schedGate,
+         '⭐ ...and the strip carries a schedule-choice gate — the question did not leave the screen',
+         JSON.stringify(schedGate));
+    t.ok(schedGate && /BayFirst SBA 2/.test(schedGate.text || ''),
+         '⭐ ...naming this very loan, so the reader can still find the decision',
+         JSON.stringify(schedGate && schedGate.text));
+    t.eq(schedGate && schedGate.bad, false,
+         '...and it does NOT block the close — an unagreed projection is not a reason August cannot close',
+         JSON.stringify(schedGate));
     // The decision still outranks a difference walk. Proven on a loan that owes no
     // evidence: strip the ask and the schedule question is what surfaces.
     const decideRow = await p.evaluate(() => {
@@ -11738,10 +11860,14 @@ GROUPS.push({
          JSON.stringify(fixRows.map(r => ({ n: r.name, g: r.grade }))));
 
     /* ── 4. A ROW THAT TIES STILL GETS NOTHING ───────────────────────────── */
+    // Session 288: 'queued' is allowed for the reason set out at length beside the
+    // sibling assertion in the close-band group — it is work about ANOTHER month,
+    // reaching the reader from the row it belongs to now that the Waiting on you
+    // card is gone. A claim about THIS month on a tying row is still the defect.
     const e6 = cbAll.rows.find(r => /7410/.test(r.name || ''));
     if (e6 && e6.band === 'tie') {
-      t.ok(!e6.action || e6.action === 'none',
-           'E6-7410 ties and still gets no action — a column that always says something is one people stop reading',
+      t.ok(!e6.action || e6.action === 'none' || e6.action === 'queued',
+           'E6-7410 ties and gets no action about the closing month — a column that always says something is one people stop reading',
            JSON.stringify({ action: e6.action }));
     }
 

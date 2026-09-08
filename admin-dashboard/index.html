@@ -3679,6 +3679,27 @@
                       cursor: pointer; line-height: 1.4; }
             .lcb-do:hover { border-color: var(--gray-300); background: var(--gray-50); color: var(--gray-900); }
             .lcb-noact { font-size: 11.5px; color: var(--gray-400); cursor: help; }
+            /* SESSION 288 — a QUEUED action is work about another period, and it
+               has to be distinguishable from work about the month on screen.
+               One contrast step, per the design rule: a dotted left edge, not a
+               second colour. Colour on this page is spent on staged-green and
+               problem-red already. */
+            .lcb-queued { border-style: dashed; color: var(--gray-600); }
+            /* "+2" beside a button that already owns the row. It is a count, not a
+               verb: the row's next action is the month's, and this says only that
+               there is more behind it. */
+            .lcb-more { margin-left: 4px; padding: 4px 7px; color: var(--gray-500); }
+            /* The line that replaced the Waiting on you card, for the items no row
+               can carry. Quiet by construction: if it ever reads as a queue of its
+               own, the card has grown back. */
+            .lcb-elsewhere { padding: 10px 18px 0; font-size: 11.5px; color: var(--gray-500); }
+            .lcb-elsewhere-item { color: var(--gray-700); font-weight: 600; cursor: pointer;
+                                  text-decoration: underline; text-decoration-style: dotted;
+                                  text-underline-offset: 2px; margin: 0 3px; }
+            .lcb-elsewhere-item:hover { color: var(--gray-900); }
+            /* An ordinary Booked row prints nothing, and the cell still has to
+               occupy its line so the column does not collapse (session 288). */
+            .lcb-mute { visibility: hidden; }
             /* The dropzone answering an Action click. A brief ring, then gone —
                it says "here", it does not decorate the page. */
             @keyframes bkIntakePulse {
@@ -10323,6 +10344,11 @@
         // it. Never parse it back out of `name` -- this module's standing rule is
         // that a value is read from its source, not re-derived from wording.
         period: s.period_label,
+        // session 288: and the LOAN as data too, for the same reason. The Action
+        // column places each item on its own row, and re-deriving the loan from
+        // `name` (which is "<loan> \u2014 <period>") is exactly the re-parsing the
+        // line above forbids.
+        loanId: s.loan_account_id,
         name: `${name} — ${s.period_label}`,
         reason: stageable
           ? `Split known ahead of time: ${fmtMoney(Number(s.principal_amount))} principal, ${fmtMoney(Number(s.interest_amount))} interest — ready to stage in Xero before the payment lands`
@@ -18878,51 +18904,111 @@
       rank(a) - rank(b) || String(a.period || '').localeCompare(String(b.period || '')));
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  //  SESSION 288 — THE ACTION COLUMN IS THE QUEUE (David)
+  // ══════════════════════════════════════════════════════════════════════
+  // David, auditing this page: "my preference would be to remove the Waiting on
+  // you section completely and to instead use the Action column."
+  //
+  // He is right, and the reason is LESS IS BEST test 2 rather than tidiness: the
+  // card was a SECOND list of work, keyed by nothing the table beside it could
+  // see, so a reader had to hold two registers in their head and reconcile them
+  // by loan name. Its sub-line also counted "N scheduled in Xero" and repeated
+  // the staged rows in a sub-list -- which is the Staging column, one table down,
+  // stating the same fact for the third time.
+  //
+  // ⚠️ WHAT MUST SURVIVE, AND WHY THE CARD COULD NOT SIMPLY BE DELETED.
+  // Session 276 built this band because three loan splits were REACHABLE FROM NO
+  // SCREEN: they belonged to the month in flight, the close band only ever renders
+  // the closing month, and the work was painted into a hidden div while the
+  // sidebar badge went on counting it. "The period decides ORDER, never
+  // membership" is that session's rule and it is not negotiable.
+  //
+  // So the queue is not deleted, it is REFILED onto the rows it is about:
+  //   · an item whose loan has a row on the table you are looking at appears in
+  //     that row's Action cell, with its period named when it is not this month;
+  //   · an item with no loan (the retail reclass), a lender-level card folding
+  //     several loans into one, an item whose loan is not on this table, and
+  //     tier-3 notes (which are information, never an action) land in ONE line
+  //     under the table -- _bkQueueElsewhereHtml;
+  //   · STAGED items are not rendered at all, because the Staging column is
+  //     already the register for them on both tables. That is the duplicate
+  //     David named, removed rather than moved.
+  // Both tables now carry an Action column, so every item has a home on both
+  // tabs and s276's reachability property holds in its new shape.
+  //
+  // The container and this renderer stay, blank, for the same reason
+  // renderLoansCloseTiles does: an empty render is honest about a deliberately
+  // blank slot, where a deleted node reads as a bug to the next session.
   function renderLoansApprovalsBand() {
     const el = document.getElementById('loans-approvals-band');
     if (!el) return;
-    const { approvals, staged } = _bkLoansBandItems();
-    // LESS IS BEST, and rule 10 of the dashboard rules read the other way round:
-    // nothing at all when there is nothing. Not an empty card, not "0 approvals".
-    // The readiness strip already states the positive, and a queue that shows up
-    // empty on a clean day teaches a reader to stop looking at it.
-    if (!approvals.length && !staged.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '';
+  }
 
-    // Tier 3 items are informational (a pattern proposal, a note) -- they post
-    // nothing, so they must not be counted as backlog. Same split Issues uses.
-    const actionable = approvals.filter(a => a.tier !== 3).length;
-    const info = approvals.length - actionable;
-    const sub = [
-      actionable ? `${actionable} ready to act on` : '',
-      info ? `${info} for your information` : '',
-      staged.length ? `${staged.length} scheduled in Xero` : '',
-    ].filter(Boolean).join(' · ');
+  // Actionable queue items only. Tier 3 is a note or a pattern proposal -- it
+  // posts nothing, so it is not an ANSWER to "what do I do next" and must never
+  // take the Action cell. Staged items are dropped by reading `.approvals` only:
+  // the Staging column owns them, on both tables.
+  function _bkQueueActionable() {
+    return _bkLoansBandItems().approvals.filter(i => i.tier !== 3);
+  }
 
-    // ── COLLAPSED BY DEFAULT (session 276 cont., David) ────────────────────
-    // The COUNT is what has to be visible at a glance; the rows are what you open
-    // when you intend to act. Same shape the History panel and the staged sub-list
-    // already use, so this invents no third pattern.
-    //
-    // ⚠ THE SUB-LINE IS LOAD-BEARING NOW, not decoration. Collapsed, it is the ONLY
-    // statement that work exists -- so it must never be trimmed to the title alone.
-    // The defect this band was built for was work that existed and said nothing
-    // about itself; a collapsed card with no count would rebuild it in miniature.
-    el.innerHTML = `<div class="card" style="border-color:var(--gray-200);border-radius:14px;box-shadow:0 1px 2px rgba(15,37,71,.04)">
-      <div class="card-header" style="padding:16px 18px 12px;border-bottom:0;cursor:pointer" onclick="toggleOverviewPanel('loans-band-body',this)">
-        <div style="flex:1">
-          <div class="card-title">Waiting on you</div>
-          <div class="card-sub">${esc(sub)}</div>
-        </div>
-        <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▾</span></span>
-      </div>
-      <div id="loans-band-body" style="display:none">
-      ${approvals.length ? approvals.map(_bkQueueRowHtml).join('') : ''}
-      ${staged.length ? `<div style="padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
-        <span onclick="toggleOverviewPanel('loans-band-staged',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">Scheduled in Xero (${staged.length})<span class="overview-chevron" style="font-size:13px;transition:transform .2s">▸</span></span>
-        <div id="loans-band-staged" style="display:none;margin-top:8px">${staged.map(_bkQueueRowHtml).join('')}</div>
-      </div>` : ''}
-      </div>
-    </div>`;
+  // loanId -> items. An item without a loan is not a bug and is not dropped --
+  // it is picked up by _bkQueueElsewhereHtml, which reads the same list.
+  function _bkQueueByLoan() {
+    const m = new Map();
+    _bkQueueActionable().forEach(i => {
+      if (!i.loanId) return;
+      if (!m.has(i.loanId)) m.set(i.loanId, []);
+      m.get(i.loanId).push(i);
+    });
+    return m;
+  }
+
+  // The cell. One item gets its own verb and its period; several get a count and
+  // open the loan, because a row cannot honestly offer two next actions at once.
+  // The period is named whenever it is not the month this table is about -- that
+  // is the whole reason the item could not live in the row's own action, and
+  // hiding it would make a September approval look like August work.
+  function _bkQueueCellHtml(items, tableMonth) {
+    if (!items || !items.length) return '';
+    const per = (it) => {
+      const m7 = String(it.period || '').slice(0, 7);
+      return (m7 && m7 !== tableMonth) ? ` · ${_cvMonthShort(m7)}` : '';
+    };
+    if (items.length === 1) {
+      const it = items[0];
+      return `<button type="button" class="lcb-do lcb-queued" onclick="event.stopPropagation();${it.onclick || ''}" title="${esc(`${it.name} — ${it.reason || ''}`)}">${esc(it.action || 'Review')}${per(it)}</button>`;
+    }
+    const t = items.map(i => `${i.name} — ${i.reason || ''}`).join(' · ');
+    return `<button type="button" class="lcb-do lcb-queued" onclick="event.stopPropagation();openLoanDetailModal('${esc(items[0].loanId)}')" title="${esc(t)}">${items.length} waiting</button>`;
+  }
+
+  // ── NOTHING IS UNREACHABLE, INCLUDING WHAT HAS NO ROW ──────────────────
+  // The invariant this line exists to keep, and the one the suite pins: EVERY
+  // queue item is either a button on a row of this table or named here. A
+  // redesign that quietly loses one rebuilds session 276's defect in a new shape,
+  // and it would do so silently -- which is why the assertion is stated over the
+  // whole item list rather than over the items this function happens to receive.
+  function _bkQueueElsewhereHtml(placed) {
+    const all = _bkLoansBandItems().approvals;
+    // ⚠️ TWO REASONS, TWO SENTENCES, AND THE FIRST CUT TOLD A LIE. Everything that
+    // did not get a button was lumped under "not on a row above" -- including the
+    // tier-3 notes on Funding Circle and EIDL, both of which have a row directly
+    // above. They are not up there because they are NOTES, not because their loan
+    // is missing, and a line that gives the wrong reason is worse than no line: a
+    // reader goes looking for a loan that is already on screen.
+    const info = all.filter(i => i.tier === 3);
+    const off  = all.filter(i => i.tier !== 3 && (!i.loanId || !placed.has(i.loanId)));
+    if (!info.length && !off.length) return '';
+    const chips = (arr) => arr.map(i =>
+      `<span class="lcb-elsewhere-item" data-bkkey="${esc(String(i.key))}"${
+        i.onclick ? ` onclick="${i.onclick}"` : ''} title="${esc(i.reason || '')}">${esc(i.name)}</span>`
+    ).join('<span class="lcb-dot">·</span>');
+    return `<div class="lcb-elsewhere" data-elsewhere="${info.length + off.length}" data-elsewhere-info="${info.length}" data-elsewhere-off="${off.length}">${
+      off.length ? `<div>${off.length} not on a row above: ${chips(off)}</div>` : ''}${
+      info.length ? `<div>For information — nothing to post: ${chips(info)}</div>` : ''}</div>`;
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -19289,7 +19375,26 @@
         // own words. That assertion is the one guarding this module's rule that a claim
         // removed from the screen must survive in the export, so breaking it to save two
         // quote marks is exactly the wrong trade. Caught by the harness, not by reading.
-        text: `${bandOutside.length} more waiting on you outside ${_cvMonthName(month)} — listed under Waiting on you above` });
+        text: `${bandOutside.length} more waiting on you outside ${_cvMonthName(month)} — in the Action column, with the month named on the button` });
+    }
+    // ── SESSION 288: THE SCHEDULE QUESTION, ONCE FOR THE WHOLE TABLE ──────
+    // The row-level ask is now scoped to a MATERIAL difference (David: "why show
+    // 'Which schedule?' unless there's actually something for the reader to do?").
+    // That is right for the row and it leaves a real hole, which session 277 wrote
+    // down and did not fill: a schedule picked by an internal tie-break goes on
+    // CREATING TRANSACTIONS IN XERO whether the row is material, immaterial or
+    // tying, so a loan that ties every month would never be asked at all.
+    //
+    // This is the home that session named -- "one gate for the whole table rather
+    // than a nag on every green row". It names its loans, per the session-256 rule.
+    // bad:false: nothing here stops August closing, and a gate that blocked over a
+    // decision about FUTURE periods would be the nag this module keeps removing.
+    const schedUnsettled = rf.rows.filter(r =>
+      (r.a.prestage_enabled === true || r.a.close_basis === 'amortization_schedule')
+      && _loanScheduleChoice(r.a).unsettled);
+    if (schedUnsettled.length) {
+      gates.push({ key: 'schedule-choice', bad: false, tick: false, n: schedUnsettled.length,
+        text: `${schedUnsettled.length} loan${schedUnsettled.length === 1 ? '' : 's'} carry more than one payment schedule and nothing in the data prefers one -- the projection is picked by an internal tie-break, and these loans stage real transactions in Xero from it: ${names(schedUnsettled, r => r.a)}` });
     }
     const provisional = _bkOpeningProvisional(rf.priorEnd);
     if (provisional) {
@@ -19423,6 +19528,16 @@
     //   2. A HIDDEN FACT MUST STILL BE REACHABLE WITHOUT A CLICK. Hover is the
     //      whole affordance, so the hint has to be complete — a reader who
     //      hovers must not then have to open a tooltip to finish the thought.
+    // ── SESSION 288: THE QUEUE, INDEXED BY LOAN ─────────────────────────
+    // Built ONCE per render, not per row: _bkLoansBandItems walks every split,
+    // payroll import and finding on the book, and calling it fourteen times to
+    // ask fourteen questions is how a render gets slow for no reason.
+    // `placedIds` records which loans actually showed a queued item, so the line
+    // under the table can name exactly what did NOT fit -- the invariant that
+    // replaces the Waiting on you card.
+    const queueByLoan = _bkQueueByLoan();
+    const placedIds = new Set();
+
     const row = (r) => {
       const a = r.a;
 
@@ -19539,7 +19654,31 @@
         const _bvlFinding = (_reconFindings || []).find(f =>
           f.loan_account_id === a.id && f.check_key === 'balance_vs_lender' && f.status === 'open');
         const _diffRestsOnSchedule = r.grade !== 'A';
-        if (_schedChoice.unsettled && r.band !== 'tie' && !r.circular
+        // ── SESSION 288: AN IMMATERIAL ROW IS NOT A QUESTION EITHER (David) ──
+        // David, auditing this page: "why show 'Which schedule?' unless there's
+        // actually something for the reader to do?" -- looking at BayFirst SBA 2,
+        // which is off by ONE CENT and was being asked to settle a schedule.
+        //
+        // The tie exemption three lines below already encodes exactly this rule
+        // ("a row that ties gets no action: a column that always says something
+        // is a column people stop reading"), and an immaterial band is the same
+        // fact with a rounding difference attached -- session 247's own reasoning
+        // for de-escalating it everywhere else on this page. So the test is now
+        // POSITIVE: the ask fires on a MATERIAL difference, and on nothing else.
+        // `unbooked` is excluded by the same logic, and more strongly: that row's
+        // difference is already explained by payments waiting to post, so the
+        // schedule cannot be what is wrong with it.
+        //
+        // ⚠️ THE CLAIM DOES NOT LEAVE THE SCREEN, and this is what session 277
+        // recorded as "not built yet". A schedule chosen by an internal tie-break
+        // still STAGES REAL TRANSACTIONS IN XERO whether the row is material,
+        // immaterial or tying -- so silencing the row without saying so anywhere
+        // would be a deletion, not a trim (ce17). The band's readiness strip now
+        // carries a `schedule-choice` gate counting every loan with an unsettled
+        // schedule, named, which is the one-gate-for-the-whole-table home session
+        // 277 said was the right one. It is bad:false: an unagreed projection is
+        // not a reason August cannot close, it is a reason to go and decide.
+        if (_schedChoice.unsettled && r.band === 'material' && !r.circular
             && (a.prestage_enabled === true || a.close_basis === 'amortization_schedule')
             && (_diffRestsOnSchedule || !_bvlFinding)) {
           const n = _schedChoice.candidates.length;
@@ -19651,6 +19790,45 @@
         return { kind: 'investigate',
                  cell: '<span class="lcb-quiet lcb-noact" title="A real difference with no open balance-vs-lender finding to walk, so there is nothing for the analyser to work from. Deliberately NO one-click journal: booking a difference to make the books agree hides the reason rather than finding it.">Needs a look</span>' };
       })();
+      // ── SESSION 288: AND IF THIS MONTH ASKS NOTHING, THE QUEUE MIGHT ──────
+      // The Waiting on you card's items land here. THE ROW'S OWN MONTH ALWAYS
+      // WINS: every branch above is about the month being closed, and a September
+      // approval must never stand in front of an August correction. This only
+      // fills a cell that would otherwise be EMPTY -- which is precisely the row
+      // that ties, the one the card used to be the only way to reach.
+      //
+      // ⚠️ IT IS MARKED `queued`, NOT FOLDED INTO THE OTHER KINDS. The suite pins
+      // that a row which ties offers no action ABOUT THIS MONTH, and that rule is
+      // right; a queued item is a different claim and has to be distinguishable
+      // from a claim about August, or the assertion goes green on a redesign that
+      // really did break it. The KEYS ride along as data for the same reason a
+      // test must not match on button text: the wording is meant to change.
+      //
+      // ⚠️ AND THE ROW KEEPS ITS QUEUE EVEN WHEN THE MONTH HAS THE BUTTON. The
+      // first cut exiled those items to the line under the table, and eight of
+      // them landed there on the real book -- which is the "Waiting on you" card
+      // growing back, in worse clothes and with no title. A row that already has
+      // an August job carries its other periods as a quiet "+N" beside it; only
+      // work with no row of its own goes in the line.
+      //
+      // ⚠️ AND THE MONTH'S OWN SPLIT IS NOT COUNTED TWICE. An unposted split in the
+      // closing month IS the "Review & post" button; it is also, by construction,
+      // an appr-split item in the queue. Deduped by split id, never by wording --
+      // EIDL was offering the same August split as both a button and a +1.
+      const unpostedKeys = new Set(r.unposted.map(sp => 'appr-split-' + sp.id));
+      const queued = (queueByLoan.get(a.id) || []).filter(i => !unpostedKeys.has(i.key));
+      const queuedCell = action.cell ? '' : _bkQueueCellHtml(queued, month);
+      const moreCell = (action.cell && queued.length)
+        ? `<button type="button" class="lcb-do lcb-queued lcb-more" onclick="event.stopPropagation();openLoanDetailModal('${esc(a.id)}')" title="${esc(`Also waiting on this loan, outside ${name}: ${queued.map(i => `${i.name} — ${i.reason || ''}`).join(' · ')}`)}">+${queued.length}</button>`
+        : '';
+      // The keys this ROW answers -- including the one its own "Review & post"
+      // answers, which is the item deduped out of `queued` above. Reachability is
+      // about whether a person can get to the work, not about which button they
+      // press to do it, and leaving the deduped key out here made the suite report
+      // EIDL's August split as unreachable while the row was offering it.
+      const answeredKeys = queued.map(i => i.key)
+        .concat(action.kind === 'post' ? [...unpostedKeys] : []);
+      if (queuedCell || moreCell || (action.kind === 'post' && unpostedKeys.size)) placedIds.add(a.id);
       const openCell = r.opening
         ? bare(r.opening.amount)
         : '<span class="lcb-none">no opening balance</span>';
@@ -19814,9 +19992,24 @@
       // up front, not one hover away (and the hover wasn't working for him
       // regardless). Booked reads exactly as it did before this session --
       // same three shapes, same colours -- Status carries only the verdict.
+      // ── SESSION 288: THE ORDINARY CASE SAYS NOTHING (David) ──────────────
+      // David, auditing this page: twelve of fourteen rows read "Booked", which is
+      // the healthy default -- a word repeated down a column until nobody reads the
+      // two rows where it changes. LESS IS BEST test 1: a reader acts on "Pending
+      // review" and on "No payment"; nobody has ever acted on "Booked".
+      //
+      // ⚠️ CUT THE WORDS, KEEP THE CLAIM (ce17), and here the claim is genuinely
+      // load-bearing: David asked in session 256 for "was this month's payment
+      // actually booked to Xero" to stay a fact a CPA can read, so blanking the
+      // cell must not make "booked" and "we have no idea" look the same. It does
+      // not -- `data-booked` carries the word on every row, the hover states it,
+      // and the CSV export reads the ATTRIBUTE rather than the text, so the
+      // workpaper is unchanged. Only the pixels are gone.
       const bookedCell = r.unposted.length
         ? `<span class="lcb-flag">${esc(bookedWord)}</span>`
-        : (r.splits.length ? '<span class="lcb-quiet">Booked</span>' : '<span class="lcb-na">No payment</span>');
+        : (r.splits.length
+            ? `<span class="lcb-quiet lcb-mute" title="This month's payment is booked to Xero.">&nbsp;</span>`
+            : '<span class="lcb-na">No payment</span>');
       const booked = `<span class="lcb-mark ${markCls}" data-status="${esc(markVerdict)}" title="${esc(markVerdict)}">${markGlyph}</span>`;
       // ── LEDGER: A SECOND, DIFFERENT VERDICT, SO IT GETS ITS OWN MARK ────────
       // Status above answers "does this loan tie to the lender." This answers
@@ -19943,11 +20136,11 @@
         <td class="lcb-n" data-col="books" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-col="lender" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
         <td class="lcb-n" data-col="variance"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
-        <td data-col="booked">${bookedCell}</td>
+        <td data-col="booked" data-booked="${esc(bookedWord)}" title="${esc(bookedWord)}">${bookedCell}</td>
         <td data-col="staging">${_bkLoanStagingCell(a)}</td>
         <td data-col="status">${booked}</td>
         <td data-col="ledger">${ledgerCell}</td>
-        <td class="lcb-action" data-col="action" data-action="${esc(action.kind)}">${action.cell}</td>
+        <td class="lcb-action" data-col="action" data-action="${esc(queuedCell ? 'queued' : action.kind)}"${queued.length ? ` data-queued="${queued.length}"` : ''}${answeredKeys.length ? ` data-queued-keys="${esc(answeredKeys.join(' '))}"` : ''}>${action.cell || queuedCell}${moreCell}</td>
       </tr>`;
     };
 
@@ -20076,6 +20269,12 @@
       </div>` : '';
     const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.staleAnchorRows.length ? `. ${rf.staleAnchorRows.length} ${rf.staleAnchorRows.length === 1 ? 'is' : 'are'} waiting on a statement dated at or after ${esc(short(rf.monthEnd))} — ${rf.staleAnchorRows.length === 1 ? 'its' : 'their'} newest document predates payments already booked this month, so no comparison is possible yet` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. The <b>Ledger</b> column is a second, different check — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. Both columns use the same mark: <b>✓</b> ties or is fully explained, <b>✗</b> is a real dollar difference to resolve, and <b>·</b> means the check was not run this month — either the numbers trace back to the same one document (so agreeing proves nothing) or there is nothing yet to compare it against. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
 
+    // Rows first, template second: placedIds is only true once every row has
+    // rendered, and a line that claims what "did not fit" before the fitting has
+    // happened is a claim about nothing.
+    const bodyHtml = rf.rows.map(row).join('');
+    const elsewhereHtml = _bkQueueElsewhereHtml(placedIds);
+
     el.innerHTML = `
       <!-- Session 267, David: "remove the rollforward section (same)" — the
            column headers already say Opening / Drawn / Principal / Computed /
@@ -20109,13 +20308,14 @@
               <th class="lcb-n" title="Our books against the lender, for this month. An asterisk means somebody has recorded an explanation for that figure — hover it to read what they found. The explanation is shown against the number rather than in the Action column, because Action answers what to do next and an explanation is not a next action." data-col="variance">Variance</th><th data-col="booked">Booked</th><th data-col="staging" title="A pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed — green means the staging loop is working and nothing here needs you. This column was on the month-in-flight table and not here, so a live staged transaction was invisible on the close (session 280).">Staging</th><th data-col="status" title="Does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.">Status</th><th data-col="ledger" title="Do our recorded splits explain what actually moved in the Xero ledger this month — a different question from Status. Green = yes. Red = money moved in Xero for this loan (a payment, a journal entry, a reallocation) that no split we have accounts for — worth checking in Xero directly. Grey = the month’s ledger movement was not measured, so this has not been checked yet.">Ledger</th>
               <th data-col="action" title="The next thing to do about this row. A difference nobody can evaluate asks for the document that would settle it — uploading a current statement is far easier than investigating a gap measured against a stale one. Nothing appears here for a row that ties.">Action</th>
             </tr></thead>
-            <tbody>${rf.rows.map(row).join('')}</tbody>
+            <tbody>${bodyHtml}</tbody>
             <tfoot>
               ${totalRow}
             </tfoot>
           </table>
         </div>
         <div class="lcb-detail idle" id="lcb-detail" data-idle="${esc(`Hover a loan for where its figures came from — ${rf.rows.length} rows, ${esc(name)}.`)}">Hover a loan for where its figures came from.</div>
+        ${elsewhereHtml}
         <div class="lcb-foot">${footNote}</div>
         ${notesHtml}
       </div>`;
@@ -20240,7 +20440,12 @@
              : Number(att(cVar, 'data-variance')).toFixed(2)),
         att(cVar, 'data-variance-explained'),
         att(cVar, 'data-unexplained') === '' ? '' : Number(att(cVar, 'data-unexplained')).toFixed(2),
-        txt(cBooked),
+        // SESSION 288: the ATTRIBUTE, not the text. The ordinary "Booked" stopped
+        // printing on screen (a word repeated down twelve rows is one nobody
+        // reads), and a workpaper that lost it would be a cut that dropped a
+        // claim rather than words -- exactly what ce17 forbids. data-booked
+        // carries it on every row, so the file is unchanged by the redesign.
+        att(cBooked, 'data-booked') || txt(cBooked),
         att(cStat, 'data-status') || att(cStat, 'title') || txt(cStat),
         att(cLedgerMark, 'data-status') || att(cLedgerMark, 'title') || txt(cLedgerMark),
         att(tr, 'data-hint'),
@@ -21781,8 +21986,26 @@
     // one, because "scheduled ×1" is a count nobody asked for.
     // Session 280: the staging cell moved to _bkLoanStagingCell, shared with the
     // close band. One builder, both tables — the rule that stops them drifting.
+    // ── SESSION 288: THIS TABLE GETS AN ACTION COLUMN TOO ────────────────
+    // Not for symmetry. The Waiting on you card is gone and the Action column is
+    // the queue, and session 276's rule is that an item belongs to no period tab
+    // in particular -- "the period decides ORDER, never membership". A queue that
+    // lived only on the Closing table would make every in-flight approval
+    // reachable from one tab and not the other, which is the same defect the card
+    // was built to fix, in a new shape.
+    //
+    // What this column does NOT do is invent a second opinion about the month.
+    // There is no rollforward here, so there is no "post this / ask for that"
+    // machinery to duplicate: the cell is the queue for that loan and nothing
+    // else, and anything it cannot carry is named in the line under the table.
+    const queueByLoan = _bkQueueByLoan();
+    const placedIds = new Set();
+
     const loanRow = (r) => {
       const { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusBadge, type, bal, v } = r;
+      const queued = queueByLoan.get(a.id) || [];
+      const queuedCell = _bkQueueCellHtml(queued, _bkInFlightMonth());
+      if (queuedCell) placedIds.add(a.id);
       // David's ask: Lender moved to the far left; "Last statement" (the pulled
       // lender-document date) replaced with "Last payment" (the full amount
       // actually debited -- reads directly off the same split, no separate
@@ -21923,6 +22146,7 @@
           // (a pending_review period, say), which nothing else on this row shows.
           inFlight && inFlight.status !== 'staged' ? `<span class="badge badge-blue" style="margin-left:5px" title="A newer entry for ${esc(inFlight.period_label)} is on file (${esc(String(inFlight.status).replace(/_/g, ' '))}) but the money has not moved yet, so it is not counted in the figures on this row.">+1 upcoming</span>` : ''}</td>
         <td>${_bkLoanStagingCell(a)}</td>
+        <td class="lcb-action" data-col="action" data-action="${queuedCell ? 'queued' : ''}"${queued.length ? ` data-queued="${queued.length}"` : ''}${queuedCell ? ` data-queued-keys="${esc(queued.map(i => i.key).join(' '))}"` : ''}>${queuedCell}</td>
       </tr>`;
     };
 
@@ -21951,9 +22175,15 @@
     // lender's own figure. Calling it Outstanding while a Xero column sits beside
     // it would invite reading one for the other on the exact screen where the
     // difference between them is the point.
-    el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto;padding:14px 6px 0"><table class="lit" style="table-layout:fixed;width:100%;min-width:1290px">
-      <!-- THIRTEEN columns as of session 280 (the consolidation: Lender folded
-           into Loan, Source and Status added). The widths sum to 100 and the
+    // Same ordering rule as the close band: the rows have to have rendered
+    // before anything can say what did not fit on one.
+    const inflightBody = sorted.length ? sorted.map(loanRow).join('') : '';
+    const inflightElsewhere = _bkQueueElsewhereHtml(placedIds);
+
+    el.innerHTML = `${filterBarHtml}${closeStripHtml}<div style="overflow-x:auto;padding:14px 6px 0"><table class="lit" style="table-layout:fixed;width:100%;min-width:1390px">
+      <!-- THIRTEEN columns as of session 288 (Action added; the count in this
+           comment said thirteen while the colgroup held twelve, which is its own
+           small lesson about comments that count things). The widths sum to 100 and the
            colgroup, the header, every row and the tfoot's colspans all have to
            move together -- a colgroup one <col> short silently collapses the last
            column instead of erroring.
@@ -21964,7 +22194,7 @@
              Statement -> Lender  the lender's own figure, and its date
            so that Variance means one thing on both tables: books minus lender,
            as of the date on the row. -->
-      <colgroup><col style="width:16%"><col style="width:9%"><col style="width:7%"><col style="width:8%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"></colgroup>
+      <colgroup><col style="width:14%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:6%"></colgroup>
       <thead><tr>
         ${thSort('loan', 'Loan')}
         ${thSort('account', 'Account #')}
@@ -21978,16 +22208,17 @@
         ${thSort('variance', 'Variance', true)}
         ${thSort('type', 'Booked')}
         ${thSort('staging', 'Staging')}
+        <th title="The next thing to do about this loan, wherever it sits in time. The Waiting on you card used to hold these; it was a second list of work keyed to nothing this table could see, so a reader had to reconcile the two by loan name (session 288, David). A button naming a month belongs to that month, not to this one. Anything with no loan of its own is named in the line under the table — nothing is dropped.">Action</th>
       </tr></thead>
-      <tbody>${sorted.length ? sorted.map(loanRow).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
+      <tbody>${inflightBody || `<tr><td colspan="13" style="text-align:center;color:var(--gray-400);padding:24px">No loans match the current filter.</td></tr>`}</tbody>
       <tfoot><tr>
         <td colspan="7">Total${anyFilterActive ? `<span class="lit-quiet" style="font-size:11px"> ${sorted.length} filtered of ${visibleAccounts.length}</span>` : (known.length < sorted.length ? `<span class="lit-quiet" style="font-size:11px"> ${known.length} of ${sorted.length} with a balance on file</span>` : '')}</td>
         <td style="text-align:right">${money2(totalXero)}</td>
         <td style="text-align:right">${money2(totalStatement)}</td>
         <td style="text-align:right"${totalVariance < 0.005 ? '' : ' class="lit-off"'} title="Total variance still to resolve, ignoring direction — see the strip above the table">${totalVariance < 0.005 ? '<span class="lit-quiet">$0.00</span>' : money2(totalVariance)}</td>
-        <td></td><td></td>
+        <td></td><td></td><td></td>
       </tr></tfoot>
-    </table></div>`;
+    </table></div>${inflightElsewhere}`;
   }
 
   // Full posted (and pending/flagged) split history for one loan — lets the CPA

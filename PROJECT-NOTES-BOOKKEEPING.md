@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 287, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 288, 2026-09-08)
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
@@ -33,13 +33,95 @@
 > script now reads a service-role key from `.env.local` on David's machine and pulls every table
 > itself (§0zx). **`node tests/refresh-bookkeeping-fixture.mjs` is now the whole procedure.**
 >
-> ✅ **DEPLOY STATE: session 287 changed NO edge function** — the work was the refresh script, the
+> 🆕 **Session 288 was UI only — the Loan Close page audit (§0zy). Two things to look at:**
+>    the `+N` on a row that already has a job is untried on a real screen (the harness proves the
+>    markup, not that it reads well at 13px), and the schedule-choice gate is computed and carried in
+>    `data-gates` where **nothing draws it** — session 264 took the chips off the strip, so its claim
+>    lives in the export and the suite only. If David wants that question visible, the strip is where
+>    it goes, and it is a deliberate decision rather than an oversight.
+>
+> ✅ **DEPLOY STATE: sessions 287 and 288 changed NO edge function** — the work was the refresh script, the
 > fixture and the harness. Session 284's functions remain live as checked in §0zt.
-> ⚠️ **`git push` is owed from your own terminal** — this sandbox has no network. `git log
-> origin/main..HEAD` says **one** commit is unpushed (this session's), so 285's and 286's appear to
-> have gone out already. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
+> ⚠️ **`git push` is owed from your own terminal** — this sandbox has no network. MEASURED at the end
+> of session 288: `git log origin/main..HEAD` says **one** commit is unpushed (288's), so 287's went
+> out. That ref is only as fresh as the last fetch and this sandbox cannot fetch, so check rather
+> than trust it — the same discipline §0ze demands of the deploy state. That ref is only as fresh as the last fetch and this sandbox cannot fetch,
 > so check rather than trust it — which is the same discipline §0ze demands of the deploy state.
 >
+>
+> ### 0zy. ⭐⭐ THE LOAN CLOSE PAGE AUDIT — THE ACTION COLUMN IS THE QUEUE (session 288, David)
+>
+> David audited the page and named three cuts, each an instance of one rule:
+>
+> 1. **"remove the Waiting on you section completely and instead use the Action column."**
+> 2. **"the 'scheduled in Xero' sub section duplicates information already in the Staging column."**
+> 3. **"why show 'Which schedule?' unless there's actually something for the reader to do?"**
+>
+> All three are LESS IS BEST test 2 — two statements of one fact — and all three were built.
+>
+> **What made (1) hard is what session 276 built the card FOR.** Three loan splits belonging to the
+> month in flight had been reachable from no screen at all, because the close band only ever renders
+> the closing month. "The period decides ORDER, never membership" is that session's rule. So the card
+> could not simply be deleted: its work was REFILED onto the rows it is about, and the In flight
+> table got an **Action column of its own** so every item has a home on both tabs. An item whose loan
+> is on the table you are looking at appears in that row's Action cell, with its period named when it
+> is not this month; a row that already has a job for the closing month carries the rest as a quiet
+> `+N` beside it.
+>
+> **THE FIRST CUT REBUILT THE CARD WITHOUT MEANING TO.** Exiling every item a row could not take to
+> the line under the table put **eight** of them there on the real book — the same list, in worse
+> clothes and with no title. Two fixes: the `+N`, and deduping the month's own unposted split, which
+> IS the "Review & post" button and was also being offered as a `+1` on EIDL.
+>
+> **And the line under the table gave the wrong REASON, which is worse than giving none.** Tier-3
+> notes on Funding Circle and EIDL were filed under "not on a row above" while their loans sat
+> directly above — a reader would go looking for a loan that is on screen. Two reasons, two
+> sentences: *not on a row above* and *for information — nothing to post*.
+>
+> **(3) closed a hole session 277 wrote down and left open.** The row-level ask is now scoped to a
+> MATERIAL difference, so BayFirst SBA 2 stops asking anyone to settle a schedule over ONE CENT. But
+> a schedule chosen by an internal tie-break goes on **staging real transactions in Xero** whether the
+> row is material, immaterial or tying — so silencing the row alone would be a cut that dropped a
+> claim (ce17). The strip now carries a `schedule-choice` gate, naming its loans, `bad:false`: the
+> "one gate for the whole table rather than a nag on every green row" that 277 said was correct.
+>
+> **Booked says only what is not ordinary** (David, same audit): twelve of fourteen rows read
+> "Booked". `data-booked` carries the word on every row, the hover states it, and **the CSV export
+> reads the attribute rather than the text** — the workpaper is unchanged, only the pixels are gone.
+>
+> ### 0zy-i. 🔴 AND A TEST NAMED findingsFor DID NOT MEASURE FINDINGS
+>
+> Giving `appr-split-` items a `loanId` (the Action column places each item on its own row, and
+> re-deriving the loan by parsing `name` is what this module forbids) made
+> `roster-clean-loan-children`'s helper start counting Paypal 2's ordinary September payment card as
+> one of its findings. **CONTROL A caught it**: the control removes the FINDINGS and the count stayed
+> at 1, reporting a working filter as broken. The helper had only ever agreed with its own name
+> because a split approval carried no loan id to match on — a premise borrowed from a data shape,
+> which is §0zx-ii's rule one level down. It now excludes approvals BY KEY PREFIX, the same
+> discipline `notPayroll` uses, and every r1 assertion is sharper for it.
+>
+> ### 0zy-ii. WHAT THE SUITE SAYS NOW
+>
+> **2,262 browser assertions across all 48 groups, ONE red**, and that one is `history`'s
+> `s240 #10` — **proven pre-existing by running the same group against `git show HEAD:` of
+> index.html**, which is the discipline §0ze demands of a deploy claim, applied to a red. Node:
+> 1,127 assertions, 33 of 34 files green, the one failure `loan-bundle.test.mts`'s `pdfjs-dist`
+> import, pre-existing on this machine.
+>
+> `work-band` was **rebuilt rather than repaired**. Its assertions read the CARD, so deleting the
+> card would have turned every one red and "fixing" them by deletion would have given up the only
+> proof the work is reachable. The property is unchanged and only its expression moved, to a
+> **stronger** form: s288e asserts that EVERY queue item is a button on a row or a name in the line
+> — which a container nobody can see cannot satisfy, where "the card rendered N rows" could.
+> Two more assertions were narrowed rather than dropped, each with its reasoning written beside it:
+> "a row that ties offers no action" now says **about the month being closed** (a queued item is a
+> claim about another month, marked `data-action="queued"` precisely so this test keeps meaning what
+> it meant), and the schedule-ask assertion became a PAIR — the immaterial row asks nothing, AND the
+> question is still on screen in the gate. Either half alone describes a different product.
+>
+> ⚠️ **The discrimination control was passing while testing nothing**, and it says so in the file
+> now: `switchLoansPeriod` only shows a pane, it does not re-render one, so the control was reading
+> a pane painted before its own override. `renderLoansCloseBand()` is called directly now.
 >
 > ### 0zx. ✅ THE FIXTURE REFRESH IS ONE COMMAND NOW — Tech Debt #40 closed (session 287)
 >
