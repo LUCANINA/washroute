@@ -1,41 +1,139 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 284, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 285, 2026-09-08)
 >
-> ### 🔴 THE LIST, IN ORDER. Everything below §0zu is detail; this is the list.
+> ### 🔴 THE LIST, IN ORDER.
 >
-> 1. **SIX RED ASSERTIONS NOBODY HAS SEEN, and they are the most valuable thing here.** §0zn-ii —
->    two stale column labels had been taking EIGHT harness groups down for a week, so ~794 assertions
->    never ran. Fixed; six of them fail. **All six measured identical on HEAD, so none is session
->    284's.** Start with `two-surfaces`' *"statement coverage: Loans close-band gate equals the Client
->    View checklist count"* — that is Tech Debt #32's eleven-to-one shape returning, and
->    `ask-not-claim` k4 exists to catch exactly that and could not run. Then `closing-evidence` ce16
->    ×4, **including its own CONTROL** — a failing control means the group's premise no longer holds,
->    so read it before trusting anything else it says. Then `history`'s s240 #10.
-> 2. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026, proven
+> 1. **SIX MORE RED ASSERTIONS, SAME SHAPE AS LAST NIGHT'S, and they need a JUDGMENT not a rename**
+>    (not written up elsewhere — this item and the session 285 log entry are the whole record).
+>    `close-band-columns` expects an **Agreement** column second and **Source** third.
+>    The table today is `LOAN | SOURCE | OPENING | DRAWN | ...` — there is no Agreement column at all,
+>    and two of the six read its cells and find **0 rows**. **Measured identical on HEAD**, so they are
+>    not session 285's. ⚠️ **Do NOT just repoint them at the current header.** Session 280 either
+>    MOVED the agreement claim or DELETED it, and an assertion rewritten to match whatever is on
+>    screen goes green either way — the exact "green on a deletion" failure the skill warns about.
+>    Establish where the agreement claim lives now (cell? hover? export?) FIRST, then fix the group to
+>    assert it there. If it was genuinely dropped, that is a LESS-IS-BEST violation (a cut may drop
+>    words, never a claim) and the fix is in the product, not the test.
+> 2. **The live fixture wants a real refresh** (§0zv-ii). It is pulled 2026-09-03 and it is now
+>    six days stale — session 265's "a stale fixture is a blind suite" applies. It does NOT carry the
+>    one real `anchor_exclusion_reason` in production (the 08-03 iBusiness row, recorded by session
+>    282 the morning after this snapshot), so **nothing in the suite exercises a live anchor exclusion
+>    at all.** `node tests/refresh-bookkeeping-fixture.mjs` needs the privileged side-car on your
+>    machine. ⚠️ Expect `history`'s `s236` discriminator to complain when you do: it depends on two
+>    incidental splits landing in opposite bands, and it correctly refused when I perturbed them.
+>    That is the test doing its job, not fallout — fix the SCENARIO to plant its own offsetting pair.
+> 3. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026, proven
 >    by three statements. The question is which account and which period. The note is on the loan and
 >    surfaces on the Variance cell; nothing is blocked, but it is the one open financial question.
-> 3. **There is no UI to WRITE a balance note** (§0zs). EIDL's went in by SQL. The read path is built
+> 4. **There is no UI to WRITE a balance note** (§0zs). EIDL's went in by SQL. The read path is built
 >    and tested; the write path is a textarea beside `structure_note`'s, and it must capture
 >    `balance_note_amount` from the live difference automatically rather than asking a person to type
 >    a figure they will get wrong.
-> 4. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
+> 5. **File April/May/June's EIDL statements in the app** (§0zr). They were uploaded to chat, not
 >    intake. They will STORE and raise no split (April/May are closed) — correct, and why the note
 >    carries the question.
-> 5. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still not
+> 6. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still not
 >    captured, the same gap as §0zh's paid-ahead fields. The product could say *"no principal applied
 >    — interest-only"* instead of showing a balance that looks frozen.
-> 6. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
+> 7. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
 >    the old pre-attached command. Repack both, with §0zf's `git push` correction, in one pass.
 >
-> ✅ **DEPLOY STATE: everything from session 284 is pushed and live**, checked by behaviour, by the
-> deployed source, AND by a live answer — see §0zt, which says when it was checked. The last change
-> (§0zu) is dashboard-only and needs no function deploy.
+> ✅ **DEPLOY STATE: session 285 changed NO edge function** — the work was `admin-dashboard/index.html`,
+> the harness and the two fixtures. Session 284's functions remain live as checked in §0zt.
+> ⚠️ **`git push` is still owed from your own terminal** — this sandbox has no network.
 >
-> ⚠️ **Two things shipped today can stop each other, on purpose.** The write-off (§0zp) posts "CAUSE
-> UNKNOWN"; the recorded explanation (§0zs) refuses it while a CURRENT note exists. Verified live on
-> EIDL. If you are wondering why a write-off button is missing on a loan, that is the first thing to
-> check, and the refusal says so in words.
+> ### 0zv. ✅ FIVE OF THE SIX REDS HAD ONE CAUSE, AND IT WAS NOT WHAT ANY OF THEM SAID (session 285)
+>
+> §0zn-ii's six came back. **Five of them were one thing, and it was none of the five things their
+> names suggested.** Both fixtures predated `loan_statements.anchor_exclusion_reason` — the column
+> shipped the MORNING of 2026-09-08 (migration `20260908025959`), the live fixture was pulled 09-03 and
+> the frozen one 08-28 — so `_normalizeStatementAnchorDates`' stale-cache guard fired on **every single
+> run**, and the whole suite had been judging a permanently degraded read.
+>
+> The guard was right, the fixtures were behind, and the five assertions were all DOWNSTREAM: the
+> Client View checklist honours that state and stopped saying July was ready, so `ce16` ×4 and
+> `two-surfaces`' coverage tie failed one after another, **each with a message about something else**.
+>
+> ⚠️ **The one named in §0zn-ii as Tech Debt #32's return was NOT that.** "observed 0 · expected null"
+> is a NaN printed through JSON — the checklist count could not be READ, not read differently. The
+> hypothesis was reasonable and one legible failure message beat it, which is §0zr's lesson again.
+>
+> ### 0zv-i. ⭐ THE ACCIDENT WAS WORTH MORE THAN THE FIX — a green close over books we could not read
+>
+> Standing in that degraded state, **the close band printed "Ready for your accountant" while the
+> banner directly above it read "Some of your books could not be read — do not close a period on it",
+> and while the Client View checklist two clicks away correctly refused to go green.**
+>
+> `renderClientChecklist` has consulted `_bkLoadErrors` since session 240. **The strip never did.**
+> Session 231's rule exactly — the guard existed, one branch away — and the branch it was missing from
+> is the one the CPA reads. This is also the module's ONE VERDICT, TWO SURFACES rule with the surfaces
+> reversed from the usual: the client card was the honest one.
+>
+> **Fix: an `unread` gate, FIRST in the list, `bad: true`.** Every other gate asks whether the books are
+> RIGHT; this one asks whether we have them at all, and an answer computed over a partial read is not a
+> better answer than no answer — it is a confident one.
+>
+> ⚠️ **SCOPED TO WHAT THIS SURFACE READS**, matching `renderLoansCloseBand`'s existing choice to gate
+> on `_bkLoansLoaded` and NOT `_bkDataReady()`: a failed PAYROLL read must not block a loan close.
+> Matched by key PREFIX, so a loan loader added later is covered the day it is added. **"Block on any
+> error" is the obvious wrong version of this fix, so it is asserted against directly.**
+>
+> ### 0zv-ii. ✅ WHAT WAS DONE TO THE FIXTURES, AND THE ONE I GOT WRONG FIRST
+>
+> Both fixtures gained `anchor_exclusion_reason: null` on every `loan_statements` row — recording the
+> SHAPE the API returns, which is all the guard checks. **No figure in either file was touched**, so the
+> frozen July fixture's verified numbers are untouched and its `pulled_at` is unchanged.
+>
+> ❌ **My first cut also wrote the one REAL exclusion into the live fixture, and that was wrong.** It
+> was recorded by session 282 on 09-08; the live fixture is a snapshot of 09-03. Filling it in made the
+> file a hybrid of two dates that never existed together — and `history`'s `s236` discriminator caught
+> it immediately, because the changed anchor moved a loan out of its band and the ±415.88 the scenario
+> plants stopped cancelling. **A snapshot is of a moment or it is of nothing.** Reverted; each fixture
+> is now internally consistent as of its own pull date. The real exclusion arrives with a real refresh
+> (list item 2), which is where it belongs.
+>
+> ### 0zv-iii. ✅ THE ONE-LINE TEST THAT WOULD HAVE SAID THIS IMMEDIATELY
+>
+> A missing COLUMN is a whole-suite condition and **no assertion named it.** One line does, and it is
+> now `read-failure`'s premise: *a clean boot reports NO failed reads*, naming the keys and telling the
+> reader to refresh the fixture. Had it existed, the diagnosis would have been the FIRST red in the run
+> instead of five confusing ones.
+>
+> This is the same lesson as session 245's transcribing tests and §0zn-ii's throwing groups, in a third
+> costume: **a test that fails for a reason it cannot state costs more than no test.** Which is also why
+> `t.eq` was fixed — it silently DROPPED any detail argument, so every `eq` failure in this suite could
+> only ever print `observed X · expected Y`. That is why this sat unreadable for a week.
+>
+> **New coverage:** group `read-failure` (8) — premise, the gate, its words, the verdict, and the
+> payroll-scope assertion; plus `closing-evidence` **ce33** (8), which is the DISCRIMINATOR and had to
+> live there because it needs `cleanJuly()`'s otherwise-ready month. On any month with a real blocker
+> the band reads "not ready" either way, so an assertion made elsewhere would pass against a band that
+> never asks — session 246's check-that-cannot-fail, in a control. **ce33 proves it both directions:**
+> with the gate the verdict flips on the read failure alone; with the gate cut out of the shipped
+> function's own source, the band says July is ready while the checklist says the books could not be
+> read. Deliberately NOT a second copy of `cleanJuly`.
+>
+> ### 0zv-iv. ✅ THE SIXTH RED IS THE DELIBERATE ONE — and its COMMENT had rotted
+>
+> `history`'s `s240 #10` is Tech Debt #19, red on purpose. Correct to leave red. **But the comment above
+> it transcribed four loans and $266,140.40, and the truth is now five and $274,659.87** — E-Transit
+> 4140 joined and Stripe moved. The assertion's own detail line is MEASURED and was right all along;
+> only the prose was stale. The list is deleted rather than updated: §0ze's deploy state, session 247's
+> "origination straddles the period", and now this. **If a claim can be measured, do not transcribe it
+> — not in a test, and not in the comment beside it.**
+>
+> ### 0zv-v. 📊 WHERE THE SUITE STANDS (measured 2026-09-08, in three batches)
+>
+> **2,209 browser assertions, 2,202 passing.** The seven reds are: the six `close-band-columns`
+> (pre-existing, measured identical on HEAD, list item 1) and `s240 #10` (deliberate). **Every one of
+> §0zn-ii's five real reds is green.** Node: **33/34 files**, the one being `loan-bundle`'s known
+> `pdfjs-dist` import failure.
+>
+> ⚠️ **The harness browser lives under `$HOME`, which is a PER-SESSION sandbox — and it was evicted
+> MID-SESSION today**, after a successful run, with `cr.zip` left behind. `tests/run-harness.sh` prints
+> the recovery commands; re-unzipping took seconds because the zip survived. If a run suddenly reports
+> "No Chromium", that is this and not a broken checkout.
 >
 > ### 0zu. ❌ I PUT THE EXPLANATION IN THE WRONG COLUMN — and the fix is session 249's own rule (session 284)
 >
@@ -12003,6 +12101,61 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 285 (2026-09-08) — A GREEN CLOSE OVER BOOKS WE COULD NOT READ
+
+**Trigger.** David: *"Next up: resolve the six red assertions that have been invisible for a
+week."* Session 284 had un-silenced eight harness groups a stale pair of column labels had been
+taking down; six assertions came back red and nobody had looked at them yet.
+
+**Five of the six were ONE cause, and it was none of the five things their names said.** Both
+fixtures predated `loan_statements.anchor_exclusion_reason`, which shipped that same morning
+(migration `20260908025959`) — the live fixture was pulled 09-03 and the frozen July one 08-28.
+So `_normalizeStatementAnchorDates`' stale-cache guard fired on every run and the entire suite
+had been judging a permanently degraded read. The Client View checklist honours that state and
+stops calling a month ready, so `ce16` ×4 and `two-surfaces`' coverage tie failed downstream of
+it, each reporting something unrelated.
+
+**§0zn-ii's hypothesis that the `two-surfaces` red was Tech Debt #32 returning was wrong.**
+`observed 0 · expected null` is a NaN through JSON: the checklist count could not be READ, not
+read differently. The thing that settled it was making the failure legible — `t.eq` was silently
+DROPPING its optional detail argument, so no `eq` failure in this suite could ever carry context.
+One line of detail replaced a week of speculation.
+
+**⭐ The accident was worth more than the fix.** In that degraded state the close band printed
+*"Ready for your accountant"* while the banner directly above it read *"Some of your books could
+not be read — do not close a period on it"*, and while the Client View checklist two clicks away
+correctly refused to go green. `renderClientChecklist` has consulted `_bkLoadErrors` since session
+240; the strip never did. Session 231's rule, and the missing branch was the one the CPA reads.
+
+**Fix:** an `unread` gate, first in the list, `bad: true` — every other gate asks whether the books
+are right, this one asks whether we have them. Scoped by key prefix to the loan-side loaders, so a
+failed payroll read cannot block a loan close (the same reasoning that already makes the band gate
+on `_bkLoansLoaded` rather than `_bkDataReady()`); "block on any error" is the obvious wrong version
+and is asserted against directly.
+
+**A fixture mistake I made and the test that caught it.** My first cut wrote the one real production
+exclusion into the live fixture — a row recorded 09-08 into a snapshot of 09-03, a hybrid of two
+dates that never coexisted. `history`'s `s236` discriminator went red at once, because the changed
+anchor moved a loan out of its band and the ±415.88 that scenario plants stopped cancelling. A
+snapshot is of a moment or it is of nothing. Reverted; both fixtures now carry only the null column,
+recording the API's SHAPE and touching no figure.
+
+**New coverage:** `read-failure` (8 assertions — premise, gate, wording, verdict, payroll scope) and
+`closing-evidence` **ce33** (8), the discriminator, which lives there because it needs `cleanJuly()`'s
+otherwise-ready month rather than a second copy of it. ce33 proves both directions: the verdict flips
+on the read failure alone, and with the gate cut out of the shipped function's source the band calls
+July ready while the checklist says the books could not be read.
+
+**The sixth red is Tech Debt #19, deliberate, and stays red — but its comment had rotted**, naming
+four loans and $266,140.40 against a measured five and $274,659.87. The transcript was deleted rather
+than updated: if a claim can be measured, do not transcribe it, in a test or in the comment beside it.
+
+**Left standing, deliberately:** six `close-band-columns` reds, measured identical on HEAD. They
+expect an `Agreement` column the table no longer has. Repointing them at the current header would go
+green whether session 280 moved that claim or deleted it — see START HERE item 1.
+
+**Suite:** 2,209 browser assertions, 2,202 passing (7 red: 6 pre-existing, 1 deliberate); Node 33/34.
 
 ### Session 276 (2026-09-05) — A COUNT AND ITS LIST MUST MOVE TOGETHER, AND A PHANTOM $2,108.25 IN XERO
 

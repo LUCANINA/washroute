@@ -122,9 +122,16 @@ const T = {
     console.log(`  ${tag}  ${name}`);
     if (!cond && observed) console.log(`        ${C.y}${observed}${C.x}`);
   },
-  eq(actual, expected, name) {
+  /* `detail` is OPTIONAL and was silently DROPPED until session 285, which is
+   * how `[two-surfaces] statement coverage` sat red for a week saying only
+   * "observed 0 · expected null" -- a NaN prints as `null` through JSON, so the
+   * one line on screen could not tell "the two surfaces disagree" apart from
+   * "one of them could not be read at all". Callers that pass a fourth argument
+   * now get it printed under the comparison. */
+  eq(actual, expected, name, detail) {
     const pass = String(actual) === String(expected);
-    this.ok(pass, name, pass ? '' : `observed ${JSON.stringify(actual)} · expected ${JSON.stringify(expected)}`);
+    const why = `observed ${JSON.stringify(actual)} · expected ${JSON.stringify(expected)}`;
+    this.ok(pass, name, pass ? '' : (detail ? `${why}\n        ${detail}` : why));
   },
   close(actual, expected, tol, name) {
     const pass = Number.isFinite(actual) && Number.isFinite(expected) && Math.abs(actual - expected) <= tol;
@@ -822,7 +829,10 @@ function readSurfaces() {
 // real work. It never blocks (bad:false); it exists so the screen cannot look empty
 // while the work band above it is not.
 const GATE_KEYS = ['coverage', 'lender-confirmed', 'per-schedule', 'variance', 'immaterial', 'ledger', 'posting', 'checked',
-                   'unverified', 'explained', 'tie', 'provisional-opening', 'outside-period'];
+                   'unverified', 'explained', 'tie', 'provisional-opening', 'outside-period',
+                   /* session 285: a failed READ blocks the verdict. See `read-failure`
+                      below for why this gate exists and what it caught. */
+                   'unread'];
 
 /* ── ISOLATING A READINESS TEST FROM THE NEW GATE (session 262 cont. 3) ─────
    Several scenarios clear their own blocker and then assert the band reads
@@ -2400,7 +2410,8 @@ GROUPS.push({
     const cvCount = s.client.checklistCount || '';
     const cvOutstanding = Number((cvCount.match(/(\d+)/) || [])[1] ?? (/(nothing|all)/i.test(cvCount) ? 0 : NaN));
     t.eq(gateOutstanding, cvOutstanding,
-         'statement coverage: Loans close-band gate equals the Client View checklist count');
+         'statement coverage: Loans close-band gate equals the Client View checklist count',
+         `gate: ${JSON.stringify(covGate && covGate.text)} · checklist: ${JSON.stringify(cvCount)}`);
 
     // ── (f2) THE GRAND TOTAL (session 247) ────────────────────────────────
     // David: "resolve the fact that the total does not compute amortized loans.
@@ -3108,12 +3119,19 @@ GROUPS.push({
     // ⚠ THIS ASSERTION IS RED, AND IT IS RED FOR A REASON. Session 246 checked:
     // it fails identically against the PREVIOUS fixture and against HEAD's
     // index.html, so it is not fixture-refresh fallout and it is not a stale
-    // expectation — it is Tech Debt #19, still open, on four active loans:
+    // expectation — it is Tech Debt #19, still open.
     //
-    //   Stripe Capital  $125,257.71  balance_basis = 'total_payback'
-    //   Dexter Loan 2    $89,411.25  balance_basis = 'unknown'
-    //   E-Transit E5     $29,302.52  balance_basis = 'unknown'
-    //   E-Transit E6     $22,168.92  balance_basis = 'unknown'
+    // ⚠️ THE LOAN LIST THAT USED TO SIT HERE HAS BEEN REMOVED (session 285), and
+    // that is the point rather than tidying. It named four loans and $266,140.40;
+    // by 2026-09-08 the truth was FIVE loans and $274,659.87 — E-Transit 4140 had
+    // joined and Stripe had moved — so the comment was quietly understating a
+    // finding while the assertion beside it measured the real one correctly. A
+    // transcript of today's numbers rots exactly like the START HERE deploy state
+    // (§0ze) and like the sentence session 247 caught still saying "origination
+    // straddles the period" after the fact stopped being true. The failure detail
+    // below is MEASURED on every run and names every loan and every figure, so
+    // read the run, never this comment. Session 245's rule about tests applies to
+    // the prose around them too: if a claim can be measured, do not transcribe it.
     //
     // Stripe is the sharp one. `total_payback` is principal PLUS the whole
     // remaining fee — the loan's own carrying_basis says 'gross_payback' — and
@@ -7641,6 +7659,87 @@ GROUPS.push({
            'ce32: ...and would keep Verdant’s August case, which overshoots by four cents');
       await p.close();
     }
+
+    /* ── 33 ── A FAILED READ IS NOT A CLOSE VERDICT (session 285) ─────────── */
+    // THE ISOLATED PROOF, and the reason it has to be here rather than in the
+    // `read-failure` group: on any month with a real blocker the band reads
+    // "Not ready to close" whether or not it asks about the read, so an
+    // assertion made there would pass against a band that never asks — session
+    // 246's check-that-cannot-fail, in a control. cleanJuly() builds the one
+    // state where the read failure is the ONLY thing left standing between the
+    // month and "Ready for your accountant", which is what makes the pair below
+    // discriminating.
+    //
+    // The bug as it actually stood on 2026-09-08: both fixtures predated
+    // loan_statements.anchor_exclusion_reason, so the stale-cache guard in
+    // _normalizeStatementAnchorDates fired on every run, the banner said "do not
+    // close a period on it" — and this strip, four inches below it, said the
+    // month was ready. renderClientChecklist had honoured that state since
+    // session 240. Session 231's rule: the guard existed, one branch away from
+    // the surface the CPA reads.
+    {
+      const dropColumn = (d) => { for (const st of d.loan_statements) delete st.anchor_exclusion_reason; };
+      const clean = await cleanJuly([]);
+
+      // (i) the month really is ready when the read succeeds — without this the
+      // pair below proves nothing, because "not ready" would be the answer
+      // either way.
+      const pOk = await newHarnessPage({ tab: 'loans', mutate: clean });
+      await alignTieOutsToAnchors(pOk);
+      const okLead = (await pOk.surfaces()).loans.closeBand.lead;
+      t.ok(/ready for your accountant/i.test(okLead || ''),
+           'ce33: PREMISE — with the books fully read, this scenario closes July',
+           `lead=${JSON.stringify(okLead)}`);
+      await pOk.close();
+
+      // (ii) the SAME scenario with one column unreadable must not close.
+      const pBad = await newHarnessPage({ tab: 'loans', mutate: (d) => { clean(d); dropColumn(d); } });
+      await alignTieOutsToAnchors(pBad);
+      const bad = (await pBad.surfaces()).loans.closeBand;
+      t.ok(!!(bad.gateByKey && bad.gateByKey['unread']),
+           'ce33: ...and a failed read raises the unread gate',
+           `chips: ${JSON.stringify(bad.gates.map(g => g.key))}`);
+      t.ok(/not ready to close/i.test(bad.lead || ''),
+           'ce33: ⭐ ...so the ONLY thing that changed flips the verdict — a failed read blocks the close',
+           `lead=${JSON.stringify(bad.lead)}`);
+
+      // ...and the two surfaces reach it together, which is the rule ce16 is
+      // about. The checklist has no coverage complaint left in this scenario, so
+      // its unread branch is the one that speaks.
+      await pBad.switchTab('client', 'dashboard');
+      await pBad.settle(60);
+      const count = (await pBad.surfaces()).client.checklistCount;
+      t.ok(/could not be read/i.test(count || ''),
+           'ce33: ...and the client checklist says the same thing, not a greener one',
+           JSON.stringify(count));
+
+      // ── CONTROL ── take the gate back out of the SHIPPED function's own
+      // source. The defect returns exactly as it stood: green band, honest
+      // checklist, one state and two verdicts.
+      await pBad.switchTab('loans');
+      const rev = await revertFn(pBad, 'renderLoansCloseBand', [[
+        "const readFailures = [..._bkLoadErrors.keys()].filter(k => !/^payroll/.test(String(k)));",
+        "const readFailures = [];"]]);
+      t.ok(rev.ok, 'ce33 CONTROL: a close band that never asks whether the read succeeded could be rebuilt',
+           JSON.stringify(rev.missing));
+      if (rev.ok) {
+        const c = (await pBad.surfaces()).loans.closeBand;
+        t.ok(!(c.gateByKey && c.gateByKey['unread']),
+             'ce33 CONTROL: pre-review, the strip carried no trace of the failed read',
+             `chips: ${JSON.stringify(c.gates.map(g => g.key))}`);
+        t.ok(/ready for your accountant/i.test(c.lead || ''),
+             'ce33 CONTROL: ⭐ ...and told the CPA July was ready for the accountant',
+             `lead=${JSON.stringify(c.lead)}`);
+        await pBad.switchTab('client', 'dashboard');
+        await pBad.settle(60);
+        const c2 = (await pBad.surfaces()).client.checklistCount;
+        t.ok(/could not be read/i.test(c2 || ''),
+             'ce33 CONTROL: ...two clicks from a checklist saying the books could not be read — one state, two verdicts',
+             JSON.stringify(c2));
+      }
+      await restoreFns(pBad);
+      await pBad.close();
+    }
   },
 });
 
@@ -11412,6 +11511,125 @@ GROUPS.push({
     }
   },
 });
+
+GROUPS.push({
+  /* ── A FAILED READ IS NOT A CLOSE VERDICT (session 285) ──────────────────
+     WHY THIS GROUP EXISTS, and it is worth reading before changing anything in
+     it. Session 284 un-silenced eight harness groups that a stale pair of column
+     labels had been taking down for a week. Six assertions came back red. FIVE
+     of the six had one cause, and it was none of the things their names
+     suggested: both fixtures predated `loan_statements.anchor_exclusion_reason`
+     (added the morning of 2026-09-08), so `_normalizeStatementAnchorDates`'
+     stale-cache guard fired on EVERY run and the whole suite sat permanently in
+     "some of your books could not be read". The Client View checklist honours
+     that state and stopped saying July was ready; four ce16 assertions and the
+     two-surfaces coverage tie all failed downstream of it, each with a message
+     about something else.
+
+     Two things came out of that, and this group is both of them.
+
+     (1) THE PREMISE ASSERTION. A missing COLUMN in a fixture is a whole-suite
+     condition that no assertion named. One line does: a clean boot has no load
+     errors. Had it existed, the diagnosis would have been the first red in the
+     run instead of five confusing ones, and this is the cheap half — the same
+     lesson as session 245's transcribing tests and §0zn-ii's throwing groups. A
+     test that fails for a reason it cannot state costs more than no test.
+
+     (2) THE REAL DEFECT IT UNCOVERED, which is why the accident was worth more
+     than the fix. Standing in that degraded state, the close band printed
+     "Ready for your accountant" while the banner directly above it read "Some
+     of your books could not be read -- do not close a period on it", and while
+     the Client View checklist two clicks away correctly refused to go green.
+     renderClientChecklist has consulted _bkLoadErrors since session 240; the
+     strip never did. Session 231's rule exactly: the guard existed, one branch
+     away from the surface that needed it -- and the surface that needed it is
+     the one the CPA reads. */
+  name: 'read-failure',
+  async run(t) {
+    /* ── (a) PREMISE: a clean boot reads everything ────────────────────────
+       Not a formality. This asserts the SUITE's own footing: every other group
+       in this file computes its verdicts over a full read, and if that stops
+       being true they go red one by one saying something else. Naming the keys
+       in the detail is the whole value -- a bare "expected 0" would have sent
+       the next person hunting again. */
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const errs = await p.evaluate(() =>
+        (typeof _bkLoadErrors !== 'undefined') ? [..._bkLoadErrors.entries()].map(([k, v]) => ({ key: k, what: v })) : null);
+      t.ok(errs !== null, 'rf: _bkLoadErrors is reachable, so this group can see what it claims to see');
+      t.eq((errs || []).length, 0,
+           'rf: ⭐ PREMISE — a clean harness boot reports NO failed reads',
+           (errs || []).length
+             ? `the fixture is missing something the page requires: ${JSON.stringify((errs || []).map(e => e.key))} · ` +
+               `${(errs || [])[0] && (errs || [])[0].what} · REFRESH THE FIXTURE (tests/refresh-bookkeeping-fixture.mjs) ` +
+               `or add the column -- until then every group in this file is judging a partial read`
+             : '');
+      await p.close();
+    }
+
+    /* ── (b) THE STATE ITSELF: strip the column back out and both surfaces
+       must refuse together. The mutation reproduces EXACTLY the condition the
+       suite sat in for a week -- the API not returning the column at all, which
+       is the shape the guard is written for (an ABSENT key, not a null one). */
+    const dropColumn = (d) => { for (const s of d.loan_statements) delete s.anchor_exclusion_reason; };
+    {
+      const p = await newHarnessPage({ tab: 'loans', mutate: dropColumn });
+      const errKeys = await p.evaluate(() => [..._bkLoadErrors.keys()]);
+      t.ok(errKeys.includes('statement_anchor_exclusion'),
+           'rf: dropping the column really does raise the load error this scenario is about',
+           JSON.stringify(errKeys));
+
+      const cb = (await p.surfaces()).loans.closeBand;
+      const gate = cb.gateByKey && cb.gateByKey['unread'];
+      t.ok(!!gate, 'rf: ...and the close band carries an "unread" gate saying so',
+           `chips: ${JSON.stringify(cb.gates.map(g => g.key))}`);
+      t.ok(/could not be read/i.test((gate && gate.text) || ''),
+           'rf: ...in words a reader can act on, not a status code',
+           JSON.stringify(gate && gate.text));
+      /* THE POINT OF THE WHOLE GROUP. */
+      t.ok(/not ready to close/i.test(cb.lead || ''),
+           'rf: ⭐ ...so the verdict is NOT "Ready for your accountant" over books we could not read',
+           `lead=${JSON.stringify(cb.lead)}`);
+
+      /* THE TWO-SURFACES HALF IS ce17, NOT HERE, and the reason is worth
+         stating: on THIS fixture the month carries a real coverage blocker, so
+         the band reads "Not ready to close" with or without the gate and the
+         checklist leads with its own outstanding count. Asserting either here
+         would be a check whose inputs leave it unable to fail (session 246) --
+         it would pass just as well against a band that never asked about the
+         read at all. Isolating the read failure needs an otherwise-READY month,
+         and cleanJuly() already builds one inside `closing-evidence`, so the
+         proof lives there beside it rather than in a second copy of it here. */
+      await p.close();
+    }
+
+    /* ── (c) SCOPED TO WHAT THIS SURFACE READS ─────────────────────────────
+       A failed PAYROLL read must NOT block a loan close: renderLoansCloseBand
+       gates on _bkLoansLoaded and not _bkDataReady() for exactly this reason,
+       and a gate that ignored the scope would re-introduce the nag that rule
+       exists to prevent. Asserted, because "block on any error" is the obvious
+       wrong version of this fix and nothing else would catch it. */
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      const before = (await p.surfaces()).loans.closeBand.lead;
+      await p.evaluate(() => { _bkNoteLoadError('payroll_notices', 'harness: a payroll read failed'); renderLoansCloseBand(); });
+      const cb = (await p.surfaces()).loans.closeBand;
+      t.ok(!(cb.gateByKey && cb.gateByKey['unread']),
+           'rf: ⭐ a failed PAYROLL read raises no gate on the loan close band',
+           `chips: ${JSON.stringify(cb.gates.map(g => g.key))}`);
+      t.eq(cb.lead, before, 'rf: ...and the loan close verdict is unchanged by it');
+      await p.close();
+    }
+
+    /* ── (d) THE DISCRIMINATOR IS ce17 in `closing-evidence` ──────────────
+       Taking the gate back out and watching the band go green requires a month
+       that is otherwise ready, which is cleanJuly()'s job. See the note in (b).
+       If you change this gate, ce17 is the control that proves you changed
+       something: every assertion above would still pass against a band that
+       blocks for some entirely different reason. */
+  },
+});
+
 
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 

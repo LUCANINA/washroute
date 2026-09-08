@@ -19137,6 +19137,34 @@
     const names = (arr, getA) => arr.map(x => loanName(getA(x))).join(', ');
 
     const gates = [];
+    // ── A VERDICT IS A CLAIM ABOUT BOOKS WE MANAGED TO READ (session 285) ──
+    // FIRST, because it outranks every gate below it: those all ask whether the
+    // books are RIGHT, and this one asks whether we have them at all. An answer
+    // computed over a partial read is not a better answer than no answer, it is
+    // a confident one.
+    //
+    // The banner directly above this strip has said "do not close a period on
+    // it" since load errors existed. This strip never asked, so it could print
+    // "Ready for your accountant" four inches under that sentence — and it DID:
+    // the harness reproduced exactly that, a band reading ready while the Client
+    // View checklist two clicks away correctly refused to. renderClientChecklist
+    // has consulted _bkLoadErrors since session 240; this is the same claim on
+    // the surface the CPA actually reads, and it was the half without the check.
+    // Session 231's rule at page scale: the guard existed, one branch away.
+    //
+    // ⚠️ SCOPED TO WHAT THIS SURFACE READS, deliberately -- the same reasoning
+    // that makes renderLoansCloseBand gate on _bkLoansLoaded and NOT
+    // _bkDataReady(). A failed PAYROLL read must not blank a correct loan close
+    // position; a failed LOAN read must not be survivable by it. The keys are
+    // matched by prefix so a loan loader added later is covered the day it is
+    // added, which is the same reason the export assertion compares against the
+    // gates themselves rather than a typed list.
+    const readFailures = [..._bkLoadErrors.keys()].filter(k => !/^payroll/.test(String(k)));
+    if (readFailures.length) {
+      gates.push({ key: 'unread', bad: true, n: readFailures.length,
+        // NO QUOTE CHARACTERS -- see the outside-period gate below for why.
+        text: `${readFailures.length} of your books could not be read, so this month cannot be called closed on what is on screen -- reload, and if it persists the data API needs attention` });
+    }
     // ── DAVID'S RULE, AS A GATE (session 262 cont. 3) ─────────────────────
     // "The month cannot be closed without all relevant statements having been
     // uploaded and ingested by the system." Two chips, because they are two
