@@ -133,8 +133,19 @@
 >    different sections of the P&L**: interest below the line, its own write-off account above it,
 >    inside operating expenses. Immaterial in dollars by construction (capped at $25 an entry) and
 >    trivially fixable — but a reader comparing the two will find them in different places, and a
->    decision made once by Ramona beats one made by accident. ⏭️ **Ask her whether 801 should match
->    800.** Not changed unilaterally: this is the chart of accounts, not configuration.
+>    decision made once beats one made by accident.
+>
+>    ✅ **RESOLVED the same hour: David re-typed 801 to `OTHERINCOME` / class `REVENUE`**, re-read and
+>    confirmed through `xero-read`. Interest and its write-offs now sit in the same section of the
+>    P&L. The code is unchanged so the setting still resolves.
+>
+>    ⚠️ **AND NO CODE CHANGED, WHICH IS WORTH WRITING DOWN RATHER THAN ASSUMING.** In Xero's
+>    ManualJournal API a positive `LineAmount` is a DEBIT and a negative is a CREDIT **regardless of
+>    the account's class** — the class governs presentation, not the mechanics of a journal line. The
+>    offset leg is `-difference`, so a −$5 gap posts a $5 debit to 801, which in a revenue-class
+>    account reduces income and nets out exactly as an expense would. Sign tests, the balancing
+>    assertion and the result sentence are all untouched. **A future session re-typing an account
+>    should not go looking for code to change.**
 > 2. **Push, then deploy `loan-find-difference` and `reconciliation-run`** (both `verify_jwt: false`,
 >    so BOTH take `--no-verify-jwt` — re-probe first, per CLAUDE.md).
 > 3. **The migration is applied and PostgREST visibility proven** (REST round-trip returned the three
