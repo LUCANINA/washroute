@@ -23,8 +23,10 @@
 >    de-dupe, not a decision, and it is the cheap half. Only then is it worth asking whether to wire
 >    `set_loan_chosen_schedule`, which has sat in the database uncalled since session 277.
 > 5. **Tech Debt #46's leftover** (§0zo): `Applied to Principal` / `Applied to Interest` are still
->    not captured, the same gap as §0zh's paid-ahead fields. The product could say *"no principal
->    applied — interest-only"* instead of showing a balance that looks frozen.
+>    not captured. **§0ab-iv made this cheaper and more valuable at once:** the card already SAYS
+>    "no principal applied — interest-only", derived from `loan_splits`, so the sentence exists.
+>    What capturing the statement field buys now is an OUTSIDE WITNESS for it — today the claim is
+>    our books describing themselves, which §246 says is the weaker kind of check.
 > 6. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
 >    the old pre-attached command. Repack both, with §0zf's `git push` correction, in one pass.
 >    ⚠️ Add session 287's rule to `washroute-bookkeeping` while you are in there: **a test may not
@@ -158,6 +160,64 @@
 > **Still the note-writing UI's job (list item 2):** the lead paragraph is whatever prose a person
 > typed into `balance_note`. EIDL's was written as a chat message, so it reads long on a card. The
 > chrome is fixed; the COPY is fixed at the WRITE path, never by a renderer editing a human's words.
+>
+> ### 0ab-iv. ⭐⭐ THE "HUMAN CONTRIBUTION" WAS A FACT WE ALREADY HELD (session 289 cont., David)
+>
+> David, on the one sentence I had called irreducibly human — *"No principal was repaid either month,
+> so it's a fee or capitalised interest"*: **"As far as I can tell, that is a fact. What am I
+> missing?"**
+>
+> Nothing. It is a fact, and it is OURS. `loan_splits` carries nine rows for EIDL reading
+> `principal 0 / interest 4791`, month after month. **A person transcribed into prose a claim the
+> database could already make** — and that is not merely redundant, it is WEAKER: a typed fact is
+> never evidence (§230), it does not re-derive when a statement is re-ingested, nothing checks it,
+> and it rots exactly the way §247 describes.
+>
+> `deriveIncreaseCause()` measures it every walk. **Its own module**, for the reason
+> `diagnose-exception.ts` is one: `index.ts` cannot be imported by the Node suite, and reasoning that
+> cannot be called from a test is reasoning nothing checks.
+>
+> **⚠️ THE FIRST CUT WAS WRONG IN A WAY NO FIGURE WOULD HAVE SHOWN — and this is the entry worth
+> reading twice.** It said *"no principal in any of the N payments since `<winFrom>`"*. On EIDL the
+> window opens **2026-04** and the payments on file run **2026-07 → 2026-09**: it claimed to have
+> read three months it had never looked at, and then drew a conclusion about the month the difference
+> actually arose in, which is earlier still. **Every number in it was correct.** That is the whole
+> lesson — §247's "a wrong word beside a right number is the harder mistake to catch", produced by a
+> derivation rather than by stale copy.
+>
+> So the sentence names the range it READ, and where the difference predates that range it states the
+> general rule rather than asserting what this particular rise *"did"* — §246's failure would
+> otherwise have arrived wearing a new coat. `tests/derive-cause.test.mts` (17 assertions) pins both
+> halves, **including a control that the old overclaim cannot come back**.
+>
+> **Precedence, and it is not "the machine wins".** A CURRENT human note still LEADS: somebody looked
+> at this figure and put their name to it, which is an attestation the derivation cannot make. The
+> measured sentence corroborates from inside that note's working, so exactly one section answers
+> *what is this difference?* (§279). A STALE note does NOT outrank a measurement about today, so the
+> measurement goes above it. New `derived-cause` group (9) pins all three states.
+>
+> **This also reframes `balance_note` and kills the form redesign I had proposed one message
+> earlier.** The note is an ATTESTATION, not an explanation — so the write form should PRE-FILL the
+> derived sentence and ask a person to confirm or correct it, never ask them to compose facts we
+> measure. A form that asks a human to type a fact the database holds is the wrong form however well
+> its word budget is set.
+>
+> ### 0ab-v. THE ACCOUNT WAS NEVER UNKNOWABLE — I FENCED THE WRONG THING
+>
+> `INTEREST_EXPENSE_ACCOUNT_CODE = '800'` is declared **in `loan-find-difference/index.ts` itself**
+> (line ~157) and is where `loan-xero-post` puts the interest leg of every loan payment on this book.
+> §0ab shipped an empty picker on the grounds that a GL code must never be guessed. That rule is
+> right and it did not apply: **this was not a guess, it was the product's own established
+> convention, and refusing to state it made a bookkeeper answer a question the product answers for
+> itself everywhere else.**
+>
+> Now pre-selected, Post armed, the reason printed beside it, and still a picker — because the
+> judgment left to a human is *"is this interest, or a fee?"*, never *"which account exists?"*.
+>
+> **David, on the mockup: "interest expense account number 6300 does not exist."** Correct — it was
+> mockup filler. The real codes are **299** (EIDL SBA Loan; loan accounts on this book run 233–394)
+> and **800** (Interest Expense). Worth noting `800` is hard-coded in two files: configuration
+> wearing a constant's clothes, the same shape as `loan_writeoff_account_code`, which is a setting.
 >
 > ### 0aa. ⭐⭐ THE CPA POSTS NOW — AND A PERMISSION WAS ONE FACT WRITTEN DOWN ~70 TIMES (session 289, David)
 >
