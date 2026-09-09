@@ -1055,8 +1055,19 @@ function analyzeWalk(o: {
     // explaining the guard. It caught exactly that on the first run.
     // The DATE we hold stays -- it is the one fact a reader cannot get from
     // anywhere else on the card, and it is what tells them which file to fetch.
+    // ⚠️ s289: NAME THE DATE FOR WHAT IT IS. `lastAnchor` is a BALANCE date --
+    // on a due_date lender it is nothing like the date on the document -- and
+    // this sentence used to call it "the newest lender statement on file",
+    // which told David his September upload was missing while it sat on the
+    // row. The filed date is what he recognises; the balance date is what the
+    // walk can use; the sentence now carries both and asks for neither when the
+    // document is already here.
+    const lastFiled = usable[usable.length - 1]?.filed_date
+    const heldPhrase = lastFiled && lastFiled !== lastAnchor
+      ? `the newest balance we can use is ${lastAnchor}, from the statement filed ${lastFiled}`
+      : `the newest balance we hold is ${lastAnchor}`
     conclusions.push(
-      `${monthName(focusPeriod)}'s statement is not on file — the newest is ${lastAnchor}. Upload it and this row can be measured`
+      `Nothing on file yet places a balance inside ${monthName(focusPeriod)} — ${heldPhrase}. Upload that month's statement and this row can be measured`
       + (realDivergent.length
         ? `. Separately, ${realDivergent.length} earlier span${realDivergent.length === 1 ? '' : 's'} still ${realDivergent.length === 1 ? 'needs' : 'need'} a look — below.`
         : `.`))
@@ -1904,7 +1915,11 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   const bundles: any[] = []
   for (const loan of flagged) {
     const [{ data: statements }, { data: splits }] = await Promise.all([
-      supa.from('loan_statements').select('*').eq('loan_account_id', loan.id).lte('statement_date', today).order('statement_date', { ascending: true }),
+      // s289: NO `.lte('statement_date', today)`. On a due_date lender that filed
+      // date is a payment due date, so filtering here threw away a statement
+      // whose BALANCE was a fortnight old. The test now runs inside
+      // anchorsByBalanceDate, on the re-dated value. See its header.
+      supa.from('loan_statements').select('*').eq('loan_account_id', loan.id).order('statement_date', { ascending: true }),
       supa.from('loan_splits').select('*').eq('loan_account_id', loan.id).order('period_label', { ascending: true }),
     ])
     const finding = (openFindings || []).filter((f: any) => f.loan_account_id === loan.id)
@@ -1916,7 +1931,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     // about which month a payment fell in would be the worse bug.
     const anchors = anchorsByBalanceDate(
       (statements || []).filter((s: any) => s.balance_basis === 'principal_only' && s.principal_balance != null),
-      normalizeBasis((loan as any)?.statement_date_basis),
+      normalizeBasis((loan as any)?.statement_date_basis), today,
     )
     const skippedForBasis = (statements || []).filter((s: any) => s.balance_basis !== 'principal_only').map((s: any) => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
     const { matchKnown } = prepKnownAmounts(loan, splits || [])
@@ -2581,7 +2596,9 @@ async function handle(req: Request): Promise<Response> {
   const today = new Date().toISOString().slice(0, 10)
 
   const [{ data: statements }, { data: splits }, { data: findings }] = await Promise.all([
-    supa.from('loan_statements').select('*').eq('loan_account_id', loan_account_id).lte('statement_date', today).order('statement_date', { ascending: true }),
+    // s289: see the note at the lender-level query — the future test belongs to
+    // the BALANCE date and now lives in anchorsByBalanceDate.
+    supa.from('loan_statements').select('*').eq('loan_account_id', loan_account_id).order('statement_date', { ascending: true }),
     supa.from('loan_splits').select('*').eq('loan_account_id', loan_account_id).order('period_label', { ascending: true }),
     supa.from('reconciliation_findings').select('*').eq('loan_account_id', loan_account_id).eq('check_key', 'balance_vs_lender').eq('status', 'open').order('last_seen_at', { ascending: false }).limit(1),
   ])
@@ -2611,7 +2628,7 @@ async function handle(req: Request): Promise<Response> {
   const dateBasis = normalizeBasis((loan as any)?.statement_date_basis)
   const anchors = anchorsByBalanceDate(
     (statements || []).filter(s => s.balance_basis === 'principal_only' && s.principal_balance != null),
-    dateBasis,
+    dateBasis, today,
   )
   // The suspicion, for a HUMAN to settle against one PDF -- never acted on here.
   const dateBasisSuspicion = looksPeriodLabelled((statements || []) as any, dateBasis)

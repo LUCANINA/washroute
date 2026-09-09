@@ -332,7 +332,18 @@ section('the conclusion bullets no longer restate the table below them')
   ok('...and dropped "until then there is nothing here to investigate"',
      !src.includes('until then there is nothing here to investigate'))
   ok('...while KEEPING the date we hold, which is the one fact the reader cannot get elsewhere',
-     src.includes("statement is not on file — the newest is ${lastAnchor}"))
+     src.includes('the newest balance we hold is ${lastAnchor}'))
+
+  section('rule D — and it names the date for WHAT IT IS (s289, David)')
+  // The sentence called a BALANCE date "the newest lender statement on file",
+  // which told David his September upload was missing while it sat on the row.
+  // On a due_date lender those two dates are a month apart.
+  ok('the ask no longer calls a balance date a statement',
+     !src.includes('the newest lender statement on file is dated'))
+  ok('...and where the filed date differs, BOTH are named',
+     src.includes('from the statement filed ${lastFiled}'))
+  ok('...and it asks about a MONTH having no balance, not about a file being absent',
+     src.includes('Nothing on file yet places a balance inside'))
 
   section('rule E — one disclosure per card')
   ok('the card collects working into a single renderer',

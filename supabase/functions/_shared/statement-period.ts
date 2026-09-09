@@ -110,8 +110,36 @@ export function balanceAsOf(statementDate: string, basis: StatementDateBasis, me
  * cheaper than anybody scrambling to work out whether a gap is real.
  */
 export function anchorRefusal(
-  statementDate: string, basis: StatementDateBasis, measured?: unknown,
+  statementDate: string, basis: StatementDateBasis, measured?: unknown, today?: string,
 ): string | null {
+  // ⚠️ SESSION 289 — THE FUTURE TEST BELONGS TO THE BALANCE DATE, NOT THE FILED
+  // DATE, AND THAT IS THE WHOLE POINT OF THIS FILE.
+  //
+  // David: "the last statement I uploaded is from Sept", against a card saying
+  // August's was not on file. It was, and so was September's. EIDL is a
+  // `due_date` lender: its September document is filed under 2026-09-25, its
+  // payment due date, and PRINTS that its balance is true as of 2026-08-24.
+  //
+  // loan-find-difference excluded it with `.lte('statement_date', today)` in the
+  // SQL — the s196/s217 rule that a future-dated row is a projection, correctly
+  // motivated and applied to the wrong date, one branch upstream of the
+  // re-dating that would have placed that balance a fortnight in the PAST. So
+  // the newest balance the walk could see was 2026-07-22, August had no span at
+  // all, and the card asked a bookkeeper to upload a document filed the day
+  // before. That is session 226's "$182 incident" shape, and s231's: the right
+  // check on the wrong branch.
+  //
+  // It lives here now because this is where every caller converges, and the
+  // date it tests is the MEASURED one. reconciliation-run and derive-schedule
+  // never had the SQL filter, so they were already reading 2026-08-24 — which
+  // means two surfaces of this product disagreed about the newest balance on the
+  // book until now.
+  const measuredOrFiled = measuredDate(measured) && normalizeBasis(basis) === 'due_date'
+    ? String(measuredDate(measured))
+    : statementDate
+  if (today && measuredOrFiled > today) {
+    return `this balance is dated ${measuredOrFiled}, which is still in the future — it is a projection until that day arrives, never a live balance (s196/s217).`
+  }
   if (normalizeBasis(basis) !== 'due_date') return null
   if (measuredDate(measured)) return null
   return `this lender dates its statement to the PAYMENT DUE DATE (${statementDate}), which says nothing about when the balance was true — the statement is issued weeks ahead of it. The document prints the date itself, usually as "Last Payment Date"; until that is recorded on this row this balance cannot be placed in time, so it is kept as evidence for its period and not used as a balance anchor.`
@@ -124,12 +152,12 @@ export function anchorRefusal(
  * calls this one. It never returns a row that the other one returned.
  */
 export function refusedAnchors<T extends { statement_date: string; balance_as_of?: unknown }>(
-  anchors: T[], basis: StatementDateBasis,
+  anchors: T[], basis: StatementDateBasis, today?: string,
 ): (T & { anchor_refusal: string })[] {
   const b = normalizeBasis(basis)
   const out: (T & { anchor_refusal: string })[] = []
   for (const s of anchors || []) {
-    const r = anchorRefusal(s.statement_date, b, (s as any).balance_as_of)
+    const r = anchorRefusal(s.statement_date, b, (s as any).balance_as_of, today)
     if (r) out.push({ ...s, anchor_refusal: r })
   }
   return out
@@ -143,7 +171,7 @@ export function refusedAnchors<T extends { statement_date: string; balance_as_of
  * month land in the opposite order once the latter moves to month end.
  */
 export function anchorsByBalanceDate<T extends { statement_date: string; balance_as_of?: unknown }>(
-  anchors: T[], basis: StatementDateBasis,
+  anchors: T[], basis: StatementDateBasis, today?: string,
 ): (T & { statement_date: string; filed_date: string; anchor_refusal: string | null })[] {
   const b = normalizeBasis(basis)
   return (anchors || [])
@@ -154,7 +182,7 @@ export function anchorsByBalanceDate<T extends { statement_date: string; balance
       // Session 284: computed HERE, once, at load, for the same reason the
       // re-dating is -- every branch that picks a balance inherits it without
       // knowing the rule exists, including the one somebody adds tomorrow.
-      anchor_refusal: anchorRefusal(s.statement_date, b, (s as any).balance_as_of),
+      anchor_refusal: anchorRefusal(s.statement_date, b, (s as any).balance_as_of, today),
     }))
     // Session 284: a REFUSED row never reaches a caller as an anchor. Filtering
     // here rather than in each caller is the same choice as re-dating here --

@@ -92,6 +92,50 @@
 > this line — this sandbox cannot fetch, so a stale ref is the failure mode here, exactly as it is
 > for the deploy state.
 >
+> ### 0ae. 🔴🔴 THE SEPTEMBER STATEMENT WAS ON FILE — A FUTURE TEST ON THE WRONG DATE (session 289, David)
+>
+> David, reading the live card: **"the last statement I uploaded is from Sept"** — against a bullet
+> saying August's was not on file. **It was. So was September's.** Queried, not guessed:
+>
+> | filed | balance true as of | balance | uploaded |
+> |---|---|---|---|
+> | 2026-09-25 | **2026-08-24** | $960,005.00 | 2026-09-08 |
+> | 2026-08-25 | 2026-07-22 | $960,005.00 | 2026-09-08 |
+> | 2026-08-25 | *(none)* | $960,005.00 | 2026-08-05 |
+>
+> EIDL is `statement_date_basis = 'due_date'`: its September document is filed under its PAYMENT DUE
+> DATE and prints that the balance is true as of 2026-08-24. `loan-find-difference` excluded it in
+> SQL — **`.lte('statement_date', today)`** — which is §196/§217's rule that a future-dated row is a
+> projection, correctly motivated and **applied to the wrong date, one branch upstream of the
+> re-dating that would have placed that balance a fortnight in the PAST**. §231's shape exactly: the
+> right check on the wrong branch. And §0zo's rule — *a due date is not a balance date* — enforced
+> everywhere except the query deciding which rows exist at all.
+>
+> **Three silent consequences.** The newest usable balance was 2026-07-22 rather than 2026-08-24;
+> August had NO SPAN AT ALL, which is why the card led with "nothing in this walk covers August";
+> and the bullet then asked a bookkeeper to upload a document **filed the day before**. That is
+> session 226's "$182 incident" — sending someone hunting for files they already uploaded.
+>
+> **And two surfaces of this product disagreed about the newest balance on the book.**
+> `reconciliation-run` and `derive-schedule` call `anchorsByBalanceDate` and never had that SQL
+> filter, so they were reading 2026-08-24 the whole time. Only the walk was behind.
+>
+> **The fix is at the convergence point, not the call sites.** The future test moved into
+> `anchorRefusal`, where the date it tests is the MEASURED one, so every caller inherits it without
+> knowing the rule exists. `today` is an OPTIONAL argument: the two other callers pass nothing and
+> are behaviourally unchanged, so only `loan-find-difference` needs redeploying. The refusal is
+> REPORTABLE through `refusedAnchors`, so an excluded row is never silent (§245).
+>
+> **The sentence was wrong too, and separately.** It called `lastAnchor` *"the newest lender
+> statement on file"* — but `lastAnchor` is a BALANCE date, and on a due_date lender the two are a
+> month apart. It now names both: *"the newest balance we can use is 2026-08-24, from the statement
+> filed 2026-09-25"*, and asks about a MONTH having no balance rather than about a file being absent.
+>
+> `tests/anchor-future-date.test.mts` (11) pins it with the real rows, **including the control that
+> the old shape drops the September row and lands on exactly the 2026-07-22 the card reported** — and
+> that a balance genuinely in the future is still refused, and that a non-due_date loan (Ford) is
+> unaffected in either direction.
+>
 > ### 0ad. ⭐⭐⭐ FIVE FORMATTING RULES — THE CARD ANSWERS THREE QUESTIONS, ONCE EACH (session 289 cont., David)
 >
 > David, measuring the LIVE card against his mockup: **~300 visible words against ~95**, and *"each
