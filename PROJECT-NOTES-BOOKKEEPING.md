@@ -26,7 +26,25 @@
 >    not to be tuned green.** They pin the PRE-VOID figures. Re-pin them to 46,204.32 ONLY
 >    once the books question above is answered — until then they are the record of it.
 >
-> ## 2️⃣ **THE METER IS ON BOTH PULLERS — the cache and the close-band budget are now
+> ## ✅ 2️⃣ **DEPLOYED AND VERIFIED 2026-09-09 21:49 UTC** — deployed source (0 bare Xero
+>    fetches in either bundle), boot probes (403 in their own words), and THE ROWS: one
+>    `xero_api_usage` row, `calls_made 24`. **The cross-check worked first time: probe before
+>    764, meter 24, Xero after 740.**
+>
+>    📏 **A FULL RECONCILIATION RUN COSTS 24 CALLS, MEASURED — not the ~50 assumed.** So the
+>    scheduled run is NOT what empties the day; repeated clicks and by-id hydration are (this
+>    session's investigation alone spent 67). **Put the cache on the Find the Fix walk, not on
+>    the run.** One real click now measures itself.
+>
+>    ⚠️ **The void check raised nothing, and that is the PREDICTED answer** — the cursor is the
+>    previous run (21:02) and the journal was voided at 10:04. It will never announce the PayPal
+>    2 void; the run that would have caught it ran forty minutes before the code existed.
+>    **Do not hand-insert the finding.** Known limitation recorded in the log: a run that starts
+>    and fails still advances the cursor, so a void in that gap is missed forever (s252's
+>    one-shot-window shape). Durable fix is a stored set of counted ids — not worth building
+>    before the check has caught one real void.
+>
+> ## ~~2️⃣ **THE METER IS ON BOTH PULLERS — the cache and the close-band budget are now
 >    measurable, and neither should be built before the numbers arrive** (session 291 cont. 2).
 >    `reconciliation-run` and `loan-find-difference` count every Xero call and report
 >    `{ calls_made, remaining_day }`. **NOT DEPLOYED — both need the CLI.**
@@ -13351,6 +13369,84 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 291 cont. 3 — DEPLOYED AND VERIFIED BY BEHAVIOUR, and the first measured number
+
+Pushed and deployed by David 2026-09-09 ~14:10 local. Checked the way §THE DEPLOY STATE
+IS CHECKED demands — the deployed SOURCE, a boot probe, and then the ROWS.
+
+**1. The deployed source, not the version number.** `get_edge_function` on each:
+
+| symbol | `reconciliation-run` | `loan-find-difference` |
+|---|---|---|
+| `checkVoidedSinceLastRun` | 4 | n/a |
+| `voided_since_last_run` / `voided-since` | 2 / 5 | n/a |
+| `cursorMs` | 2 | n/a |
+| `createXeroMeter` | 3 | 3 |
+| `meter.fetch` | 3 | 8 |
+| **bare `fetch(` to api.xero.com** | **0** | **0** |
+
+Eight of loan-find-difference's metered sites, matching what
+`tests/xero-metered.test.mts` counts in the working tree. **Zero bare calls in either
+deployed bundle** — the property the grep-guard asserts, now asserted against what
+actually runs.
+
+**2. Both BOOT.** A no-auth POST answers `403 {"error":"Not authorized."}` — the
+functions' own words, not a 503 on the CORS preflight, which is what a bundle that
+never booted returns (s264). `verify_jwt` stayed false on both.
+
+**3. THE ROWS, which is the only proof that survives a version-number coincidence.**
+One real run, 2026-09-09 21:49 UTC:
+
+```
+xero_api_usage: reconciliation-run · calls_made 24 · remaining_day 740
+                · statuses [200] · 21:49:21 → 21:49:40
+```
+
+#### THE CROSS-CHECK WORKED ON ITS FIRST RUN, and it is the whole point of the meter
+
+`xero-rate-probe` immediately before the run read **`remaining_day: 764`**. The meter
+counted **24**. Xero's own header after the run read **740**.
+
+> **764 − 24 = 740, exactly.** Two numbers from two independent sources agreeing. A
+> counter with no outside check agrees with itself; a header we merely echo says
+> nothing about who spent it. Together they can catch each other lying, and today they
+> corroborate.
+
+#### 📏 THE FIRST MEASURED NUMBER: A FULL RUN COSTS 24 CALLS, NOT ~50
+
+Twenty-four calls, nineteen seconds, across the whole book. **The "eleven loans × one
+pull each is eleven calls before anyone clicks anything" estimate in item 1 was an
+impression; this is a reading.** A full close is therefore a small fraction of the
+1,000/day cap, and **the daily budget is not being emptied by the scheduled run** — it
+is being emptied by repeated clicks and by by-id hydration (this session's own
+investigation spent 67). That materially changes where the cache is worth putting:
+**on the Find the Fix walk, not on the run.** The Find-the-Fix side still needs one
+real click to measure; it now measures itself.
+
+#### THE VOID CHECK RAISED NOTHING, AND THAT IS THE PREDICTED ANSWER — say so, don't dress it up
+
+`findings_new: 0`, and `select count(*) where check_key='voided_since_last_run'` is
+**0**. Predicted before the run and confirmed after: the cursor is the PREVIOUS run's
+`started_at` (21:02 UTC), and journal `261a4fd6` was voided at **10:04 UTC** — eleven
+hours earlier. From this run's point of view that void is history, not news, which is
+condition 1 doing exactly what it was written to do.
+
+**So the check will never announce the PayPal 2 void.** The run that would have caught
+it — 15:56 — ran forty minutes before the code existed. Nothing to fix; a
+deployment-timing miss on exactly one event, and that event is already item 0 with a
+full write-up. **Do not hand-insert the finding to make the screen look right:** it
+would be a data fix with no root cause left to fix, and the root cause is now deployed.
+
+⚠️ **KNOWN LIMITATION, and it is inherited rather than new — Tech Debt.** The cursor is
+the previous run's `started_at`, so a void that happens in a gap where a run STARTED and
+failed is missed forever: the run row is written at start, the cursor advances, and the
+one-shot window is spent. That is precisely session 252's `changedOld` failure mode
+(*"a transaction's own If-Modified-Since window is a single, non-repeating chance"*),
+one layer up. The durable fix is to compare against a stored set of counted entry ids
+rather than a timestamp — heavier, and not worth building before the check has caught a
+single real void. **Note it; do not let it be rediscovered as a surprise.**
+
 
 ### Session 291 cont. 2 — measure first: the two pullers are metered
 
