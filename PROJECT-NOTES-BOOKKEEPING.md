@@ -50,7 +50,9 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> ✅ **§0ad IS LIVE TOO — `loan-find-difference` v39, deployed by David and CHECKED HERE at
+> ✅ **§0ad AND §0ae ARE LIVE — `loan-find-difference` v40, checked 2026-09-09 by the deployed
+> source, by a boot probe, by the unchanged flag, AND by RUNNING THE WALK (§0ae-i): the August span
+> exists and ties. Earlier note, still true, from v39:, deployed by David and CHECKED HERE at
 > 00:14 UTC, by the deployed SOURCE rather than the version number.** Both new short forms are
 > present (`agree completely.`, `statement is not on file`) and **all three long forms rules D/E
 > removed are absent** — `agree completely (`, and the two dropped clauses — which is the check that
@@ -135,6 +137,32 @@
 > the old shape drops the September row and lands on exactly the 2026-07-22 the card reported** — and
 > that a balance genuinely in the future is still refused, and that a non-due_date loan (Ford) is
 > unaffected in either direction.
+>
+> ### 0ae-i. ✅ MEASURED LIVE AFTER THE DEPLOY — THE AUGUST SPAN EXISTS (v40, 2026-09-09)
+>
+> Not "deployed and presumed fine": the walk was RUN against the real loan through `net.http_post`
+> with the internal secret, focus `2026-08`, and the response read.
+>
+> **Before: 3 spans, none in focus.** The card led with *"Nothing in this walk covers August 2026"*
+> and asked for a statement filed the day before.
+>
+> **After: 4 spans, and the new one IS August.**
+>
+> | span | lender moved | Xero moved | verdict | in focus |
+> |---|---|---|---|---|
+> | 2026-04-22 → 2026-05-22 | $0.00 | $0.00 | clean | (closed) |
+> | 2026-05-22 → 2026-06-22 | $0.00 | $0.00 | clean | (closed) |
+> | 2026-06-22 → 2026-07-22 | $0.00 | $0.00 | clean | no |
+> | **2026-07-22 → 2026-08-24** | **$0.00** | **$0.00** | **clean** | **YES** |
+>
+> The whole conclusions array is now one sentence — **"Every span in August 2026 ties to the cent."**
+> The ask is GONE, because the document was there the whole time. `recorded_entry.eligible` is still
+> true, so the $5.00 is still offered: it arose in April and nothing about this fix pretends
+> otherwise.
+>
+> **That last span is the answer to a question this product could not previously ask.** August was
+> never "unmeasured because a statement was missing" — it was unmeasured because the walk threw the
+> statement away. It ties.
 >
 > ### 0ad. ⭐⭐⭐ FIVE FORMATTING RULES — THE CARD ANSWERS THREE QUESTIONS, ONCE EACH (session 289 cont., David)
 >
