@@ -1,20 +1,56 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 290, updated 2026-09-09 08:00 local)
+> ## ⏭️ START HERE — first thing, next session (left by session 291, updated 2026-09-09 21:00 local)
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> ## 0️⃣ **A CHECKPOINT MOVED ITS DATE AND NOT ITS VALUE — $3,142.26 OFF PAYPAL 2, SILENTLY.**
->    New 2026-09-09, ahead of everything else on this list because it misstates stored balances.
->    Full table and reasoning in session 290 cont. 5 below. In one line: the 15:56 run slid
->    `windowFrom` by a day, dropped one 2026-05-11 ledger entry out of the walk, and kept the same
->    checkpoint figure — so that entry is counted by neither side, at every date after it.
->    **`stale-anchor-ask` and `rollback-beats-stale` are red BECAUSE OF THIS. They are correct.
->    Do not tune them green — that deletes the only record.**
->    **First question, and it must be measured:** does Xero's TrialBalance for 2026-05-11 equal the
->    one for 2026-05-10? The two possible causes need opposite fixes; do not touch the arithmetic
->    until you know which. ⚠️ Costs one Xero call — check `remaining_day` first.
+> ## 0️⃣ **A JOURNAL WAS VOIDED IN XERO AND THE BOOKS NOW DOUBLE-COUNT $3,142.26.**
+>    **CLOSED as a code question, OPEN as a books question.** Session 290's diagnosis
+>    (a window-boundary gap) was wrong in all three limbs — full working in session 291 below.
+>    Measured: nothing on this book is dated 2026-05-11 on account 284, Xero honours the
+>    TrialBalance date exactly (*"As at 11 May 2026"*), and Xero's own Trial Balance for 284
+>    equals `loan_book_balances` **to the cent** at both 2026-07-31 (58,775.97) and
+>    2026-08-31 (46,204.32). **`reconciliation-run`'s arithmetic is correct. Do not change it.**
 >
+>    **What happened:** manual journal `261a4fd6` (2026-07-31, *"Reverse 31 Jul reclass —
+>    2026-08-05 PayPal principal counted twice"*, `284 −3,142.26 / 800 +3,142.26`) was
+>    **VOIDED at 2026-09-09 10:04:15 UTC**, between the 02:10 and 15:56 runs.
+>
+>    🔴 **THE QUESTION FOR DAVID / RAMONA, and it is real money:** was that void deliberate?
+>    It reverses the 2026-09-01 correction, so the 2026-08-05 payment's principal is once
+>    again in the books twice — while split `8d8c4566` still reads `already_in_xero`. The
+>    open `balance_vs_lender` error (*"Paypal 2 — Xero is $3,120.61 below the lender"*) is
+>    **TRUE**. **Repair belongs in Xero, not here — post nothing from the product.**
+>
+>    ⚠️ **`stale-anchor-ask` and `rollback-beats-stale` are still red, still correct, still
+>    not to be tuned green.** They pin the PRE-VOID figures. Re-pin them to 46,204.32 ONLY
+>    once the books question above is answered — until then they are the record of it.
+>
+>    ⭐ **THE PRODUCT HOLE THIS EXPOSED — proposed, not built, David's call.** Nothing says
+>    *"a journal that used to be counted is now voided."* `isLive()` drops it, thirteen stored
+>    balances move, and the same run **auto-RESOLVED the `unexplained_ledger_adjustment`
+>    finding that was the only record the journal ever existed.** The money and the note
+>    explaining it left together, and the consequence surfaced as an unexplained lender gap.
+>    `checkNonLiveCounted` does not cover it (it reads entries our SPLITS point at; this one
+>    had no split). The data is already pulled — `changedOld` re-reads edited entries of any
+>    age — so this is a check, not a new Xero call.
+>
+> ## ✅ NEW TOOL — `xero-read` mode `trial_balance` (session 291, deployed 2026-09-09).
+>    Ask Xero itself for an account's balance at a date, from SQL, read-only. It returns
+>    **Xero's own "As at" wording** beside the date requested, because `fetchTrialBalances`
+>    throws the report header away and stamps every stored checkpoint with the date we ASKED
+>    FOR. Same cell indices as `reconciliation-run`, so the figures are comparable.
+>    ```sql
+>    select net.http_post(url:='https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/xero-read',
+>      headers:=jsonb_build_object('x-wr-internal', public.wr_internal_secret(),'Content-Type','application/json'),
+>      body:=jsonb_build_object('mode','trial_balance','date','2026-08-31','code','284'),
+>      timeout_milliseconds:=25000);
+>    ```
+>    ⚠️ `net.http_post` defaults to a **5-second** timeout and a slow call comes back as a
+>    silent NULL row — always pass `timeout_milliseconds`.
+>    Same commit fixed `fetchOneById`, which hardcoded `.ManualJournals` on every endpoint:
+>    `with_lines` on bank_transactions spent one Xero call PER TRANSACTION and returned
+>    nothing, reported as "not found" rather than as an error.
 >
 > ## 1️⃣ **ASK XERO WHAT IT HAS LEFT BEFORE SPENDING IT.** *(David, 2026-09-09: "yes put it on the
 >    priority list")* — ✅ **BUILT, DEPLOYED AND VERIFIED IN THE BUNDLE 2026-09-09 08:30 local.**
@@ -81,7 +117,16 @@
 >
 > ---
 >
-> ### DEPLOY STATE — MEASURED 2026-09-09 03:05 UTC BY READING THE DEPLOYED SOURCE, not inferred
+> ### DEPLOY STATE
+>
+> ⚠️ **STALE A SIXTH TIME, corrected 2026-09-09 21:00 by session 291.** Everything below was
+> measured at 03:05 UTC and names v45/v80. `list_edge_functions` now reads
+> **`reconciliation-run` v81** and **`loan-find-difference` v46**, both deployed **15:15:34 UTC**
+> — forty minutes before the 15:56 run this whole session is about, and written down nowhere.
+> `xero-read` was deployed to **v22** at ~20:4x UTC (session 291) and verified by behaviour.
+> The rest of this section is history; read it as of 03:05, not as of now.
+>
+> ### (03:05 UTC) MEASURED BY READING THE DEPLOYED SOURCE, not inferred
 >    from git and not from anyone's recollection.
 >
 > **`origin/main` == local HEAD == `80e25a1`, MEASURED 2026-09-09 from the `origin/main` reflog
@@ -13277,6 +13322,142 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 291 (2026-09-09) — THE $3,142.26 WAS NOT LOST BY THE WINDOW. IT WAS VOIDED IN XERO.
+
+START HERE item 0 named one question and demanded it be measured: *does Xero's
+TrialBalance for 2026-05-11 equal the one for 2026-05-10?* It does. **And the answer
+turned out to be irrelevant, because the premise underneath it was wrong.**
+
+#### What session 290 cont. 5 concluded, and why every limb of it is false
+
+> "`windowFrom` slid one day, so an entry dated 2026-05-11 is now excluded by
+> `r.date > checkpointDate` — while the checkpoint that is supposed to already
+> contain it did not move by a cent. The entry is counted by neither side."
+
+Measured against Xero, three at a time:
+
+1. **Nothing on this book is dated 2026-05-11 on account 284.** All 13 bank
+   transactions dated 2026-05-11 were read line by line; not one carries a 284 line.
+   Of the 22 manual journals in the whole of May, **none is dated the 11th** (they
+   fall on the 7th, 14th, 18th ×2, 21st, 28th and 31st ×16). 05-10 and 05-12 are
+   equally empty of 284. There was no entry sitting in the boundary.
+2. **The checkpoint did not "fail to move" — there was nothing to move it.** Two
+   equal Trial Balances a day apart are the CORRECT reading of a day on which the
+   account did not move. Session 290 read that equality as evidence of a gap; it is
+   evidence of the opposite.
+3. **Xero honours the date exactly.** `trial_balance` (new, below) returns Xero's own
+   report header: *"As at 11 May 2026"*, *"As at 31 July 2026"*, *"As at 31 August
+   2026"*. No snapping to a month or week end. `109,751.53` at 2026-05-11 is real.
+
+**And the walk is right to the cent.** Xero's own Trial Balance for account 284:
+
+| date | Xero TrialBalance | `loan_book_balances` after the 15:56 run |
+|---|---|---|
+| 2026-07-31 | **58,775.97** | **58,775.97** |
+| 2026-08-31 | **46,204.32** | **46,204.32** |
+
+`reconciliation-run` is not losing anything. It read the ledger correctly.
+
+#### What actually happened
+
+Manual journal `261a4fd6-8635-4435-b843-76ed45c2480a`, dated **2026-07-31**,
+narration *"Reverse 31 Jul reclass — 2026-08-05 PayPal principal counted twice"*,
+lines `284 −3,142.26 / 800 +3,142.26`, was **VOIDED in Xero at 2026-09-09 10:04:15
+UTC** (`UpdatedDateUTC`) — between the 02:10 run and the 15:56 one.
+
+`isLive()` correctly stopped counting it, so every derived PayPal 2 balance from
+2026-07-31 forward fell by exactly 3,142.26. The date coincidence is what made this
+look like a window bug: `windowFrom` genuinely did slide 05-11 → 05-12 that same
+morning (it is `today − 120 days`, so it slides every day), and the entry count
+genuinely did fall by one. **Two unrelated things moved on the same run and the
+smaller one got the credit.**
+
+#### THIS IS A LIVE FINANCIAL PROBLEM, AND THE PRODUCT IS RIGHT ABOUT IT
+
+The open `balance_vs_lender` error — *"Paypal 2 — Xero is $3,120.61 below the
+lender"* (Xero 43,023.98 vs the lender's own 2026-09-02 portal figure 46,144.59) —
+**is TRUE.** $3,120.61 is the $3,142.26 less this loan's long-standing $21.65.
+
+The chain, from our own records:
+
+* Ramona hand-posted `a2c49ead` on 2026-07-31, *"To reclass the payment made for
+  paypal"*, moving 3,142.26 into 284. It is on file as split `a7e9fb45`
+  (`2026-07-31-adj`, `manual_adjustment`, `already_in_xero`).
+* `261a4fd6` was posted on **2026-09-01** to reverse it. Split `8d8c4566`
+  (`2026-08-05`) says so in its own review note: *"Backfilled only after Ramona's
+  2026-07-31 journal a2c49ead was reversed on 2026-09-01 — before that reversal
+  this payment's principal was in the books twice."*
+* Voiding `261a4fd6` puts that double count back, **and split `8d8c4566` is still
+  `already_in_xero`.**
+
+So the August 5 payment's principal is once again in the books twice. **Do not
+re-post anything to fix it from here** — ask whether the void was deliberate. If it
+was not, the repair is Ramona's, in Xero.
+
+#### The two red groups are now explained, and they must NOT be re-pinned yet
+
+`stale-anchor-ask` and `rollback-beats-stale` (11 assertions) pin the PRE-VOID
+figures — `computed` 49,346.58 at 2026-08-31, which ties to the lender's walked-back
+49,324.93. They are red because the books changed under them, not because the code
+did. **Re-pin them to 46,204.32 only once the books question is settled**, and never
+before: today they are the record of an open financial question, which is Tech Debt
+#19's discipline applied to a fact rather than to a defect.
+
+#### THE REAL PRODUCT HOLE: A VOID IS A SILENT BALANCE CHANGE
+
+Nothing in the module says *"a journal that used to be counted is now voided."*
+`isLive()` drops it, thirteen stored balances move, and no finding names the cause.
+Worse — and this is the part that turns a gap into a deletion — the **only** record
+that the journal ever existed was the `unexplained_ledger_adjustment` finding, and
+**the same run auto-RESOLVED it.** The product removed 3,142.26 of book value and
+the note explaining it in one pass, then reported the consequence as an unexplained
+lender gap. That is s247's "a silence, not a safeguard" in its purest form: the
+evidence and the money left together.
+
+`checkNonLiveCounted` does not cover this — it looks at entries our SPLITS point at,
+and this journal had no split, which is precisely what made it worth flagging in the
+first place. **Proposed (not built; David's call): a check that a previously-counted,
+now-non-live Xero entry raises a finding naming the journal, its date, its amount and
+its narration.** The data to do it exists — `changedOld` already re-reads edited
+entries of any age — so this is a check, not a new pull.
+
+#### Two things built and shipped on the way
+
+**`xero-read` gained a `trial_balance` mode.** The rollforward's checkpoint IS a Xero
+Trial Balance figure and nothing outside `reconciliation-run` could ask Xero for one,
+so item 0's question could only be asked of a number we had stored. It reports
+**Xero's own as-at wording** beside the date we requested, because
+`fetchTrialBalances` parses the account rows and throws the report header away —
+every stored checkpoint is stamped with the date we ASKED FOR whether or not Xero
+honoured it (s245, one layer down). Today Xero honours it; the point is that we could
+not previously have known. Cell indices are deliberately identical to
+`reconciliation-run`'s, so the two figures are comparable rather than merely similar.
+
+**`fetchOneById` hardcoded `.ManualJournals` on every endpoint.** `with_lines` on
+`bank_transactions` therefore spent one Xero call PER TRANSACTION and returned
+nothing — reported as "not found" rather than as an error, because a missing
+collection key and a deleted record are indistinguishable there. Measured live:
+13 ids in, 13 calls out, 0 rows back, `complete:false` the only tell. Sixth instance
+of s231 in this module: **the endpoint was parameterised and the parse of its answer
+was not.** On a day when the tenant's daily quota had been emptied twice, a helper
+that spends thirteen calls to return zero rows is item 1's problem wearing a
+different hat.
+
+Both in `2e9b1c1`. Deployed by David 2026-09-09 ~20:4x UTC and **verified by
+behaviour, not by version**: `trial_balance` returned Xero's real report headers and
+three figures, two of which match `loan_book_balances` to the cent.
+
+#### METHOD NOTE, and it is the transferable part
+
+Every hypothesis in this session that reasoned from OUR stored numbers was wrong, and
+every one that asked Xero was right. The window story, the "Xero must be snapping the
+date" story and the "the tests are stale" story all fitted the stored figures
+perfectly. The thing that settled it was reading the ledger: 13 transactions, 22
+journals, one `UpdatedDateUTC`. **`entries_counted` falling by one says an entry left
+the ledger. It does not say why, and the cheapest wrong answer is the one that shares
+a date with it.**
+
+
 
 
 
@@ -13327,6 +13508,14 @@ up as a fold. Discrimination run by re-keying on the loan alone: 4 of 12 go red.
 ---
 
 #### 🔴 THE REAL FINDING: A CHECKPOINT WHOSE DATE MOVED AND WHOSE VALUE DID NOT
+
+**⚠️ RETRACTED BY SESSION 291 — read that entry before using any of this section.** Every
+limb of the diagnosis below is false: nothing on this book is dated 2026-05-11 on account
+284, Xero honours the TrialBalance date exactly, and the walk agrees with Xero's own Trial
+Balance to the cent. The $3,142.26 left because a manual journal was VOIDED in Xero at
+10:04 UTC that morning. The two red groups are real and the money is real; the mechanism
+described here is not. Kept unedited because how it was reached is the lesson.
+
 
 Refreshing the fixture turned `stale-anchor-ask` and `rollback-beats-stale` red —
 11 assertions, on **PayPal 2**, which gained no new data at all. **They are
