@@ -47,7 +47,10 @@
 >    "no principal applied — interest-only", derived from `loan_splits`, so the sentence exists.
 >    What capturing the statement field buys now is an OUTSIDE WITNESS for it — today the claim is
 >    our books describing themselves, which §246 says is the weaker kind of check.
-> 6. **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
+> 6. ⭐ **Add §289's grep-guard rule to `washroute-bookkeeping` at the same time** — *a guard that
+>    greps must name its region and its count* (Design conventions, above the Invariants). It cost
+>    three red assertions in one session and the skill does not teach it.
+>    **The two `.skill` archives are still stale** (§0zk-ii) — they teach §0zj's wrong flag rule and
 >    the old pre-attached command. Repack both, with §0zf's `git push` correction, in one pass.
 >    ⚠️ Add session 287's rule to `washroute-bookkeeping` while you are in there: **a test may not
 >    borrow its premise from production** (§0zx-i). It is the single most expensive lesson in the
@@ -4070,6 +4073,41 @@ hover away.
 **Keep words at a minimum (session 229, David's standing guideline — verbatim: "keep words at a minimum").** Applies to ALL user-facing copy this module generates: card text, roadmap steps, conclusions, handoff checklists, notes, warnings. Say the number, the action, and the consequence — then stop. No restating what an adjacent line already says, no "the next bullet explains why", no narrating mechanics. When a template grows, trim it before shipping (v8 was a 50% cut on the per-loan bullets; v15 a ~30% cut across the lender card). Structure survives trims; filler doesn't. This extends the session-219 card-subtitle rule and the Xero Narration rule from copy ABOUT the books to copy IN them and around them.
 
 **Card subtitle copy (session 219).** Card-sub text under a title should guide an action or flag a real consequence, not restate what the title/structure already say or narrate read-only mechanics ("One row per uploaded pay period.", "The latest statement and payroll period on file."). Cut those. Keep subtitle text that: disambiguates between two similarly-named sections so nobody wonders which one they're in (e.g. "Ready to Post" vs "Needs Attention"), explains a non-obvious interaction affordance (e.g. "click the pencil to edit"), or carries a real number/warning someone needs before an irreversible action (the one-time correction cards' dollar figures, the Department Bucket Rules typo warning). When in doubt: would removing this sentence change what the user does next? If no, remove it.
+
+### A GUARD THAT GREPS MUST NAME ITS REGION AND ITS COUNT (session 289)
+
+**Three times in one session, a text-matching guard was defeated by the material AROUND its
+subject rather than by the code it was watching.** Not one of them was a wrong rule; all three
+were rules that could no longer fail.
+
+| The guard | What defeated it |
+|---|---|
+| `!src.includes('the row you opened is about that month')` — a clause §0ad removed | **The comment I wrote explaining that the clause had been removed**, which quoted it verbatim. Green forever. |
+| `!harness.includes('Every span in August 2026 ties to the cent.')` — a bullet §0af made conditional | **The CONTROL in `derived-cause`**, which quotes that sentence deliberately to prove the duplication is detectable. Red on the test written to exercise the rule. |
+| `!/\$/.test(tableText)` — "the currency is not repeated on every figure" (§0ah) | **The column heads `Debit ($)` / `Credit ($)`** — the very thing the rule exists to require. An assertion contradicting itself. |
+
+**The shape is always the same.** A file contains its subject in more than one register: the code
+that obeys the rule, the prose explaining the rule, the fixture demonstrating the rule, and the
+heading the rule demands. `includes()` cannot tell them apart. **A string is not a location.**
+
+**So a grep-shaped assertion states two things, always:**
+
+1. **THE REGION.** Not "the harness file" but the `AFTER` fixture block; not "the source" but the
+   function body. Slice to it (`s.slice(indexOf(start), indexOf(end))`) and assert the slice is
+   non-empty before asserting on its content — a mis-sliced empty region passes every `!includes`
+   in existence, which is this failure wearing a third face.
+2. **THE COUNT.** *"Exactly twice, both of them headings"* survives the addition of a comment,
+   a control and a heading; *"never"* survives none of them.
+
+**And when one of these goes red, read which copy it found before touching anything.** All three
+were correct assertions reporting real occurrences. Two needed the *surroundings* reworded or
+scoped; one needed the assertion to stop contradicting itself. **In none of them was the guard the
+thing to weaken** — the temptation each time was to delete the assertion, and each time that would
+have removed a rule that was doing its job.
+
+**Corollary — a control must keep its subject.** §0ag's scoping fix asserts BOTH that the `AFTER`
+fixture no longer quotes the sentence AND that the `BEFORE` one still does. A control that quietly
+loses the string it was built around stops being a control, and nothing else notices.
 
 ---
 
