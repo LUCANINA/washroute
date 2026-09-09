@@ -33,6 +33,30 @@
 /** Longer than this and waiting is not a retry, it is a hang. */
 export const MAX_RETRY_WAIT_SECONDS = 45
 
+/**
+ * ⚠️ "Daily" DOES NOT START WITH d-a-y — session 290 cont.
+ *
+ * This predicate was written twice in this file, both times testing the first
+ * three letters as d/a/y. Xero's value is "Daily", whose fourth letter is an i,
+ * so BOTH copies were false for the exact case they were written for.
+ *
+ * It was invisible in production because Xero usually sends
+ * `X-DayLimit-Remaining: 0` beside the label, and the `|| remainingDay === 0`
+ * half carried the decision alone — the right message rendered for the wrong
+ * reason, which is why a screenshot of it working proved nothing. On a refusal
+ * where Xero names the daily limit and omits the counter, the code fell through
+ * to the per-minute branch and said "this one usually clears on its own — try
+ * again shortly": precisely the advice that pushes a rolling daily window
+ * further out. The one sentence this module exists to prevent was one absent
+ * header away.
+ *
+ * Matched on the first three letters d/a/i so it also covers "DailyLimit" and
+ * any casing. Written ONCE and exported — the duplication is what let one copy
+ * be wrong while the other looked like corroboration.
+ */
+export const isDailyProblem = (problem: string | null | undefined): boolean =>
+  String(problem || '').trim().toLowerCase().startsWith('dai')
+
 export type XeroRateLimit = {
   /** 'Minute' | 'Daily' | 'Concurrent' | 'AppMinute' | null when Xero did not say. */
   problem: string | null
@@ -66,8 +90,7 @@ export function readRateLimit(res: { status: number, headers: { get(k: string): 
   const remainingMinute = res.headers.get('X-MinLimit-Remaining')
 
   // The day cap is never waitable inside one request, whatever it asks for.
-  const daily = String(problem || '').toLowerCase().startsWith('day')
-    || num(remainingDay) === 0
+  const daily = isDailyProblem(problem) || num(remainingDay) === 0
   const asked = retryAfter == null ? (2 + attempt * 3) : retryAfter
   const waitable = !daily && asked <= MAX_RETRY_WAIT_SECONDS
   return {
@@ -92,7 +115,7 @@ const human = (s: number): string => {
  * rolling window out.
  */
 export function rateLimitMessage(info: XeroRateLimit): string {
-  const daily = String(info.problem || '').toLowerCase().startsWith('day') || info.remainingDay === '0'
+  const daily = isDailyProblem(info.problem) || info.remainingDay === '0'
   if (daily) {
     return `Xero's daily API limit for this organisation is used up, so the books cannot be read right now`
       + (info.retryAfter ? ` — it should clear in ${human(info.retryAfter)}` : '')

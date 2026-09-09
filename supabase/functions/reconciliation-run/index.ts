@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { readRateLimit, rateLimitMessage } from '../_shared/xero-429.ts'
+import { budgetFromResponse, refuseBeforeSpending, type XeroBudget } from '../_shared/xero-budget.ts'
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 // INTEREST_CODE, money and the Finding shape live beside the double-correction check
@@ -271,12 +272,34 @@ function effect(rec: any, code: string) {
 // Sign convention: loan accounts are liabilities, so the report's YTD columns
 // give balance = credit − debit (mirrors payroll-check-attention's cells[3]/
 // cells[4] parse, sign flipped for the liability side).
+// s290 cont.: what Xero last told us about the day's budget. Module-level
+// because fetchTrialBalances already returns null for half a dozen reasons and
+// threading a second meaning through that return would make every caller decide
+// which null it got.
+let lastXeroBudget: XeroBudget = budgetFromResponse(null)
+
+/**
+ * Refuse a full ledger pull we already know cannot finish. ONLY on positive
+ * evidence of the daily cap -- unknown, a minute limit and a 500 all proceed.
+ */
+function assertXeroBudget(): void {
+  const verdict = refuseBeforeSpending(lastXeroBudget)
+  if (verdict.refuse) throw new Error(verdict.message || 'Xero daily API limit reached.')
+}
+
 async function fetchTrialBalances(date: string): Promise<Record<string, number> | null> {
   try {
     const { accessToken: token, tenantId } = await getXeroAuth()
     const r = await fetch(`https://api.xero.com/api.xro/2.0/Reports/TrialBalance?date=${date}`, {
       headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' },
     })
+    // ── s290 cont.: THE REFUSAL WAS ARRIVING HERE AND BEING DROPPED ───────
+    // `if (!r.ok) return null` swallowed a 429 -- and Xero's own
+    // X-DayLimit-Remaining with it -- immediately before the run pulled the
+    // whole ledger. Recording it costs nothing; this response is already paid
+    // for. The null return is unchanged: a missing trial balance has always
+    // been survivable, and only the DAILY cap stops the run (see below).
+    lastXeroBudget = budgetFromResponse(r)
     if (!r.ok) return null
     const j = await r.json().catch(() => null)
     if (!j?.Reports?.[0]) return null
@@ -1991,6 +2014,7 @@ async function handle(req: Request): Promise<Response> {
     // age. The stored rolling checkpoint is only the fallback below.
     const tbDate = addDays(windowFrom, -1)
     const tb = await fetchTrialBalances(tbDate)
+    assertXeroBudget()   // s290: the trial balance already told us if the day is spent
 
     // SESSION 252 (cont. 4): moved up from below the loan loop so forceIds (just
     // below) can be computed before pullXero runs. Nothing downstream reads

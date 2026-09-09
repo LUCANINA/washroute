@@ -5,7 +5,12 @@
 > ### 🔴 THE LIST, IN ORDER.
 >
 > ## 1️⃣ **ASK XERO WHAT IT HAS LEFT BEFORE SPENDING IT.** *(David, 2026-09-09: "yes put it on the
->    priority list")*
+>    priority list")* — ⚠️ **THE PRE-CHECK IS BUILT AND COMMITTED BUT NOT DEPLOYED.** See session
+>    290 cont. 2 in the log: `_shared/xero-budget.ts`, wired into both pullers, 35 assertions green,
+>    and it costs ZERO extra calls because both functions already made a cheap call and discarded
+>    its headers. **The CLI deploy commands are in that entry and must be run before any of it is
+>    real.** The cache and the close-band budget are still to do. It also fixed a live predicate
+>    bug — `'daily'.startsWith('day')` is false — which shipped in v45/v80 this morning.
 >
 >    **The problem, measured.** Every click of Find the Fix runs a full ledger pull — bank
 >    transactions plus every manual journal in the window, paged. There is no cache and no
@@ -13234,6 +13239,94 @@ picked up the new anchor.
 
 ## Session Log
 
+
+
+### Session 290 cont. 2 — ask Xero what is left before spending it, and a predicate that was wrong for two years' worth of reasoning
+
+Priority 1 off the START HERE list. **`_shared/xero-budget.ts`** is new; both big
+pullers now refuse before starting a pull the budget cannot pay for.
+
+**THE PRE-CHECK COSTS ZERO CALLS, NOT ONE.** The START HERE note scoped this as
+"one `/Accounts` GET to save fifty". Measured, it is cheaper than that: **both
+pullers ALREADY make a cheap Xero call immediately before the expensive one, and
+both threw away everything about it except the body.**
+
+```
+loan-find-difference  fetchAccountsMap    if (!res.ok) return {}
+reconciliation-run    fetchTrialBalances  if (!r.ok) return null
+```
+
+A 429 on either of those is `X-DayLimit-Remaining: 0` in the hand, dropped on the
+floor, one line before the pull that cannot finish. **Fifth instance of session
+231's rule in this module and the purest yet: the signal was not missing, it was
+being discarded by an error path that had no idea what it was holding.**
+
+**Three rules, written into the module because the first one could cause an
+outage:**
+
+1. **UNKNOWN IS NOT ZERO.** Xero omits the counter on some endpoints and has been
+   seen sending it empty. Absence proceeds, always. Refusing on absence would be
+   a self-inflicted outage dressed as a safety feature — session 247's "a null is
+   not a zero", one layer up.
+2. **ONLY THE DAILY CAP REFUSES THE WHOLE OPERATION.** The minute limit clears in
+   seconds and `fetchPaged` already waits it out. Refusing there would turn a
+   two-second pause into a failed close.
+3. **NO GUESSED FLOOR.** "Refuse when fewer than N remain" is the obvious next
+   move and it is not taken, because nothing has ever measured what a Find the
+   Fix costs. `xero-read` is the ONLY metered caller of eleven and it alone spent
+   **977 calls in six days against a 1,000/day cap**. Wire `xero-meter.ts` into
+   the pullers, read the real distribution out of `xero_api_usage`, then set a
+   floor. A threshold from the same intuition that produced "the cap is 5,000"
+   (it is 1,000, measured) is a number that refuses real work.
+
+---
+
+#### ⚠️ "Daily" DOES NOT START WITH d-a-y — a live bug the new test found
+
+`xero-429.ts` tested the limit name in two places, both as
+`.toLowerCase().startsWith('day')`. **Xero sends `Daily`, whose fourth letter is
+an i.** Both copies were false for the exact case they were written for, and both
+shipped this morning in v45/v80.
+
+**It was invisible because it was corroborated by an accident.** Xero usually
+sends `X-DayLimit-Remaining: 0` alongside the label, and the `|| remainingDay ===
+0` half carried the decision on its own — so the right message rendered for the
+wrong reason. **David's screenshot of it working proved nothing about the
+predicate**, which is the uncomfortable part: a correct screen is not evidence
+that the code deciding it is correct.
+
+On a daily refusal where Xero names the limit and omits the counter, the shipped
+code fell through to the per-minute branch and produced, verbatim:
+
+> *"Xero's per-minute rate limit was hit and did not clear after about 13 hours.
+> This one usually clears on its own — try again shortly."*
+
+Thirteen hours and "try again shortly" in one sentence — and "try again" is the
+single action that pushes a rolling daily window further out. **The one sentence
+this module exists to prevent was one absent header away.**
+
+Fixed as `isDailyProblem`, exported and matched on d/a/i, written **once** —
+the duplication is what let one copy be wrong while the other looked like
+corroboration (ce17's cousin: two statements of one rule is not redundancy, it is
+a second thing that can rot).
+
+**Verification.** `tests/xero-budget.test.mts`, 35 assertions. Most of them are
+about the cases that must PROCEED, because the dangerous failure here is refusing
+real work, not permitting a doomed pull. Discrimination was run by restoring the
+old predicate: **9 of the 35 go red**, and the failure output prints the
+thirteen-hours-try-again-shortly sentence in full, which is the finding.
+
+**NOT DEPLOYED — needs the CLI** (`loan-find-difference` is 158KB, over the MCP
+ceiling). Both are `verify_jwt: false`, MEASURED from `list_edge_functions`:
+
+```
+npx -y supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+npx -y supabase@latest functions deploy reconciliation-run   --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
+
+**Still open on this item:** the cache on the walk, and a budget the close band
+can see (eleven loans × one pull is eleven calls before anyone clicks anything).
+Both were on the original list and neither is done.
 
 ### Session 290 (2026-09-09) — the loan detail becomes an INFORMATION CARD
 

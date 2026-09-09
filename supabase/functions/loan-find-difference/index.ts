@@ -7,6 +7,7 @@ import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 import { anchorsByBalanceDate, refusedAnchors, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
 import { findStaleSplits, trueUpJournalLines, trueUpCard } from '../_shared/stale-split-trueup.ts'
 import { readRateLimit, rateLimitMessage } from '../_shared/xero-429.ts'
+import { budgetFromResponse, refuseBeforeSpending, type XeroBudget } from '../_shared/xero-budget.ts'
 import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
@@ -333,15 +334,37 @@ async function pullWindow(fromDate: string, toDate: string, headers: Record<stri
   return [...bt, ...mj].filter(r => { if (seen.has(r.srcId)) return false; seen.add(r.srcId); return true })
 }
 
-async function fetchAccountsMap(headers: Record<string, string>): Promise<Record<string, string>> {
+// ── s290 cont.: THIS CALL ALREADY KNEW, AND THREW IT AWAY ─────────────────
+// `if (!res.ok) return {}` discarded a 429 -- and with it Xero's own
+// X-DayLimit-Remaining -- immediately before pullWindow started fifty more
+// calls that could not finish. The budget now comes back with the map, so the
+// pre-check costs NOT ONE EXTRA CALL: it reads a response we already paid for.
+// The map still degrades to {} on any failure, exactly as before; account names
+// are a nicety and must never fail the analysis.
+async function fetchAccountsMap(headers: Record<string, string>): Promise<{ map: Record<string, string>, budget: XeroBudget }> {
+  const unknown = budgetFromResponse(null)
   try {
     const res = await fetch('https://api.xero.com/api.xro/2.0/Accounts', { headers })
-    if (!res.ok) return {}
+    const budget = budgetFromResponse(res)
+    if (!res.ok) return { map: {}, budget }
     const json = await res.json().catch(() => null)
     const map: Record<string, string> = {}
     for (const a of json?.Accounts || []) if (a?.Code) map[a.Code] = a.Name
-    return map
-  } catch { return {} }
+    return { map, budget }
+  } catch { return { map: {}, budget: unknown } }
+}
+
+/**
+ * Refuse an expensive pull we already know cannot finish.
+ *
+ * ⚠️ ONLY on positive evidence of the DAILY cap. Unknown proceeds, a minute
+ * limit proceeds (fetchPaged waits those out), a 500 proceeds. See
+ * _shared/xero-budget.ts -- refusing on absence would be a self-inflicted
+ * outage dressed as a safety feature.
+ */
+function assertBudget(budget: XeroBudget): void {
+  const verdict = refuseBeforeSpending(budget)
+  if (verdict.refuse) throw new Error(verdict.message || rateLimitMessage(readRateLimit({ status: 429, headers: { get: () => null } })))
 }
 
 // The CPA fingerprint, verbatim from loan-xero-post v39/v40: a bank transaction
@@ -2189,7 +2212,8 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
 
   const { accessToken, tenantId } = await getXeroAuth()
   const headers = { 'Authorization': `Bearer ${accessToken}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
-  const acctMap = await fetchAccountsMap(headers)
+  const { map: acctMap, budget: xeroBudget } = await fetchAccountsMap(headers)
+  assertBudget(xeroBudget)   // s290: do not start a pull the budget cannot pay for
 
   // ONE pull for every loan. The fast path is only safe when every walkable
   // loan pays from the same known bank account (true for the whole book today:
@@ -2873,7 +2897,8 @@ async function handle(req: Request): Promise<Response> {
 
   const { accessToken, tenantId } = await getXeroAuth()
   const headers = { 'Authorization': `Bearer ${accessToken}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
-  const acctMap = await fetchAccountsMap(headers)
+  const { map: acctMap, budget: xeroBudget } = await fetchAccountsMap(headers)
+  assertBudget(xeroBudget)   // s290: do not start a pull the budget cannot pay for
 
   const winFrom = usable[0].statement_date
   const winTo = usable[usable.length - 1].statement_date
