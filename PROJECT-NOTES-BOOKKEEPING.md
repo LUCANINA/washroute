@@ -4,6 +4,18 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
+> ## 0️⃣ **A CHECKPOINT MOVED ITS DATE AND NOT ITS VALUE — $3,142.26 OFF PAYPAL 2, SILENTLY.**
+>    New 2026-09-09, ahead of everything else on this list because it misstates stored balances.
+>    Full table and reasoning in session 290 cont. 5 below. In one line: the 15:56 run slid
+>    `windowFrom` by a day, dropped one 2026-05-11 ledger entry out of the walk, and kept the same
+>    checkpoint figure — so that entry is counted by neither side, at every date after it.
+>    **`stale-anchor-ask` and `rollback-beats-stale` are red BECAUSE OF THIS. They are correct.
+>    Do not tune them green — that deletes the only record.**
+>    **First question, and it must be measured:** does Xero's TrialBalance for 2026-05-11 equal the
+>    one for 2026-05-10? The two possible causes need opposite fixes; do not touch the arithmetic
+>    until you know which. ⚠️ Costs one Xero call — check `remaining_day` first.
+>
+>
 > ## 1️⃣ **ASK XERO WHAT IT HAS LEFT BEFORE SPENDING IT.** *(David, 2026-09-09: "yes put it on the
 >    priority list")* — ✅ **BUILT, DEPLOYED AND VERIFIED IN THE BUNDLE 2026-09-09 08:30 local.**
 >
@@ -13268,6 +13280,92 @@ picked up the new anchor.
 
 
 
+
+
+### Session 290 cont. 5 — one constant offset is one finding; and the checkpoint that moved without changing
+
+David: *"seeing 38 issues seems pretty high. What happened?"*
+
+**The 38 measured:** 46 open reconciliation findings + 4 pending splits, less
+dismissals, the Issues-loan dedup and session 228's lender fold. **Twenty-eight of
+the 46 were one loan** — Stripe Capital — all written at 15:56 UTC on 2026-09-09,
+by the first `reconciliation-run` on the version deployed that morning. Every
+previous run for two days wrote 0–3 new findings; that one wrote 31. The scan
+window barely moved (05-11 → 05-12), so it was the code path, not the period.
+
+**The fold.** `derived_drift` fingerprints per stored balance date by design, so
+ONE discrepancy that propagates forward fans out across every date the run can
+see. `_bkApprovalQueueItems` now folds them, exactly as session 228 folds
+`balance_vs_lender` at lender level — a move that was never applied to
+`derived_drift`.
+
+**THE GROUPING KEY IS THE WHOLE RULE: loan AND difference to the cent AND whether
+later entries close it.** Folding on the loan alone would hide a second real
+discrepancy behind the first — and that was not hypothetical:
+
+> **I reported "28 restatements of one $688.16 offset". That was wrong, and the
+> test found it before anyone did.** I had read the first ten rows of a query
+> sorted by title, seen −688.16 on every one, and generalised. The fold's own key
+> split them into **21 at $688.16 and 7 at $50.48**. There are TWO discrepancies
+> on Stripe, and the loan-only key I nearly wrote would have buried the smaller
+> one. A grouping key is a claim about what is the same; ten rows of a sorted
+> sample is not evidence for it.
+
+ce17: nothing deleted. Every date and stored balance is in the fold's detail and
+all 28 rows are untouched in `reconciliation_findings`.
+
+**Copy note:** the reason line first read *"Every date from X to Y disagrees…
+That is one discrepancy, not N"* — and `_bkOneLine`'s 130 characters cut it off
+before the only clause that mattered. **The s249 limit does not shorten a
+sentence; it decides which clause survives.** The conclusion goes first.
+
+**Verification.** New group `derived-drift-folds`, 12 assertions: the real
+fan-out against a refreshed fixture, plus two constructed cases —
+different-difference rows must NOT fold, and a lone finding must not be dressed
+up as a fold. Discrimination run by re-keying on the loan alone: 4 of 12 go red.
+
+---
+
+#### 🔴 THE REAL FINDING: A CHECKPOINT WHOSE DATE MOVED AND WHOSE VALUE DID NOT
+
+Refreshing the fixture turned `stale-anchor-ask` and `rollback-beats-stale` red —
+11 assertions, on **PayPal 2**, which gained no new data at all. **They are
+right, and they are reporting a live regression. DO NOT TUNE THEM GREEN.**
+
+What the same 15:56 run did to PayPal 2's `loan_book_balances`:
+
+| as_of | balance before | after | entries_counted | checkpoint | checkpoint_date |
+|---|---|---|---|---|---|
+| 2026-06-30 | 77,301.26 | 77,301.26 | 17 → 17 | 112,685.63 | 2026-05-02 (unchanged) |
+| 2026-07-31 | 61,918.23 | **58,775.97** | 27 → **26** | 109,751.53 → **109,751.53** | 2026-05-10 → **2026-05-11** |
+| 2026-08-31 | 49,346.58 | **46,204.32** | 31 → **30** | 109,751.53 → **109,751.53** | 2026-05-10 → **2026-05-11** |
+
+**−$3,142.26 at every date after the boundary, and exactly one entry fewer
+counted.** `windowFrom` slid one day (`tbDate = addDays(windowFrom, -1)`), so an
+entry dated 2026-05-11 is now excluded by `r.date > checkpointDate` — **while the
+checkpoint that is supposed to already contain it did not move by a cent.** The
+entry is counted by neither side.
+
+**This is the same run and, almost certainly, the same mechanism as Stripe's two
+constant offsets.** $688.16 and $50.48 are exactly the shape of "an entry fell
+into the gap at the window boundary".
+
+**Why it is serious rather than cosmetic:** the window start slides with the
+calendar, so this recurs whenever a loan has a ledger entry on the day the
+boundary crosses — and it silently restates every derived balance from that date
+forward. Nothing errors. `entries_counted` is the only visible tell, and it is in
+a detail blob.
+
+**The question to answer first, and it must be MEASURED, not reasoned:** does
+Xero's TrialBalance for 2026-05-11 genuinely equal the one for 2026-05-10? If it
+does, there is no entry on the 11th and the entry-count drop is the bug. If it
+does not, we are recording a checkpoint under a date Xero did not report it for —
+which is §245's "a date is measured or asked for, never inferred", one layer
+down. **Do not change the arithmetic until that is known**; both stories fit the
+numbers above and they need opposite fixes.
+
+Until then the 11 red assertions are the record of it, in the manner of Tech
+Debt #19.
 
 ### Session 290 cont. 4 — a derived schedule has no file to open
 

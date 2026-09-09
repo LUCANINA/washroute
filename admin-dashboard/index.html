@@ -10545,6 +10545,18 @@
         archive: true, archiveLabel: 'Ignore',
         archiveTitle: 'Set this aside — restore it any time from Ignored',
         _bvl: spec.bvlGroup,
+        // s290 cont. 5: the two facts the fold below groups on, carried as DATA.
+        // Never parsed back out of the title -- this module's standing rule.
+        _drift: (it.kind === 'recon_finding' && it.finding && it.finding.check_key === 'derived_drift')
+          ? {
+              loanId: it.finding.loan_account_id || null,
+              difference: Number(it.finding.detail && it.finding.detail.difference),
+              date: (it.finding.detail && it.finding.detail.date) || null,
+              stored: it.finding.detail && it.finding.detail.stored,
+              closed: !!(it.finding.detail && it.finding.detail.closed_by_later_entries),
+              loanName: ((_allLoanAccounts || []).find(a => a.id === it.finding.loan_account_id) || {}).xero_account_name || 'This loan',
+            }
+          : null,
       });
     });
     // Session 228's lender-level folding, carried over unchanged: 2+ open
@@ -10570,6 +10582,66 @@
           detailHtml: `${rows}
             <div style="margin-top:10px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" id="fdiff-lender-btn-${slug}" data-lender="${esc(lender)}" onclick="bkFindDifferenceLender(this.dataset.lender)">🔍 Find the difference — all ${group.length} loans</button></div>
             <div id="fdiff-lender-out-${slug}"></div>`,
+        });
+        group.slice(1).forEach(i => { const k = items.indexOf(i); if (k >= 0) items.splice(k, 1); });
+      });
+    }
+    // ── s290 cont. 5: ONE CONSTANT OFFSET IS ONE FINDING, NOT TWENTY-EIGHT ───
+    // David: "seeing 38 issues seems pretty high. What happened?" Twenty-eight of
+    // the forty-six open findings were Stripe Capital, every one carrying the
+    // IDENTICAL difference of $688.16, one per stored balance date. `derived_drift`
+    // fingerprints per date by design, so a single discrepancy that propagates
+    // forward fans out across every date the run can see. That is one fact stated
+    // twenty-eight times -- session 279's rule, arriving as a queue count instead
+    // of as paragraph text -- and it buried the ten findings that were about
+    // something else.
+    //
+    // THE GROUPING KEY IS WHAT MAKES THIS HONEST. Loan AND the difference to the
+    // cent AND whether later entries close it. Two genuinely different drifts on
+    // one loan stay two cards; only rows that are literally restating the same
+    // number collapse. Folding on loan alone would hide a second, real
+    // discrepancy behind the first -- which is the failure this is meant to
+    // prevent, not cause.
+    //
+    // NOTHING IS DELETED (ce17). Every date and stored balance is in the fold's
+    // own detail, and all 28 rows are untouched in reconciliation_findings.
+    // Session 228's lender fold above is the same move; this one was never
+    // applied to derived_drift.
+    {
+      const byDrift = {};
+      items.forEach(i => {
+        if (!i._drift || !i._drift.loanId || !isFinite(i._drift.difference)) return;
+        const k = `${i._drift.loanId}|${i._drift.difference.toFixed(2)}|${i._drift.closed ? 'c' : 'o'}`;
+        (byDrift[k] = byDrift[k] || []).push(i);
+      });
+      Object.entries(byDrift).forEach(([, group]) => {
+        if (group.length < 2) return;
+        const idx = items.indexOf(group[0]);
+        const d = group[0]._drift;
+        const dates = group.map(i => i._drift.date).filter(Boolean).sort();
+        const money = fmtMoney(Math.abs(d.difference));
+        const rows = group
+          .slice()
+          .sort((a, b) => String(a._drift.date).localeCompare(String(b._drift.date)))
+          .map(i => `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--gray-100);font-size:12.5px"><span class="td-mono">${esc(i._drift.date || '')}</span><span>we hold ${esc(fmtMoney(Number(i._drift.stored)))}</span></div>`)
+          .join('');
+        items.splice(idx, 1, {
+          key: 'drift-' + d.loanId + '-' + d.difference.toFixed(2),
+          dot: group[0].dot, tier: group[0].tier, loanId: d.loanId,
+          amount: Math.abs(d.difference),
+          name: `${d.loanName} — ${group.length} stored balances are all out by the same ${money}`,
+          // ⚠️ THE CONCLUSION GOES FIRST. This read "Every date from X to Y
+          // disagrees... That is one discrepancy, not N" -- and _bkOneLine's 130
+          // characters cut it off before the only clause that mattered. The
+          // s249 limit does not make a sentence shorter, it makes the FIRST
+          // clause the one that survives.
+          reason: _bkOneLine(d.closed
+            ? `One dating difference, not ${group.length} — every date from ${dates[0]} to ${dates[dates.length - 1]} ties by the same ${money} once later entries take effect.`
+            : `One discrepancy carried forward, not ${group.length} — every date from ${dates[0]} to ${dates[dates.length - 1]} is out by exactly ${money}. Fix the entry behind it and all ${group.length} clear.`),
+          action: 'Review', onclick: group[0].onclick,
+          detailHtml: `<div style="font-size:12.5px;color:var(--gray-500);margin-bottom:6px">Every one of these ${group.length} dates is out by ${money}:</div>${rows}`,
+          archive: true, archiveLabel: 'Ignore',
+          archiveTitle: 'Set this aside — the findings are unchanged; restore it any time from Ignored',
         });
         group.slice(1).forEach(i => { const k = items.indexOf(i); if (k >= 0) items.splice(k, 1); });
       });

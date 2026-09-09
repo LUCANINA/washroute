@@ -13471,6 +13471,131 @@ GROUPS.push({
    this file: "no derived row offers a link" is satisfied by a table with no
    links at all, so it is worthless without "a REAL schedule still does".
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   derived-drift-folds — session 290 cont. 5. David: "seeing 38 issues seems
+   pretty high. What happened?"
+
+   Twenty-eight of the forty-six open findings were Stripe Capital, every one
+   carrying the IDENTICAL -$688.16, one per stored balance date. derived_drift
+   fingerprints per date by design, so ONE discrepancy that propagates forward
+   fans out across every date the run can see -- and buried the ten findings
+   that were about something else.
+
+   THE GROUPING KEY IS THE WHOLE RULE, so the assertions are a pair:
+     * rows restating the same number collapse to one card;
+     * rows with DIFFERENT numbers on the same loan do NOT.
+   Folding on loan alone would hide a second, real discrepancy behind the
+   first -- the exact failure this is meant to prevent. An assertion that only
+   checked "28 became 1" would go green on that broken version.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'derived-drift-folds',
+  async run(t) {
+    const readQueue = (p) => p.page.evaluate(() => {
+      const items = _bkApprovalQueueItems();
+      return {
+        total: items.length,
+        folds: items.filter(i => String(i.key || '').startsWith('drift-'))
+                    .map(i => ({ key: i.key, name: i.name, reason: i.reason,
+                                 detailLen: (i.detailHtml || '').length,
+                                 dates: ((i.detailHtml || '').match(/\d{4}-\d{2}-\d{2}/g) || []).length })),
+        looseDrift: items.filter(i => i._drift).length,
+      };
+    });
+
+    // ── (a) the real book: 28 rows, one card ────────────────────────────────
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      await p.settle();
+      const raw = await p.page.evaluate(() =>
+        (window.__WR_FIXTURE.reconciliation_findings || [])
+          .filter(f => f.status === 'open' && f.check_key === 'derived_drift').length);
+      t.ok(raw >= 20,
+           's290: the fixture carries the real derived_drift fan-out — otherwise this group proves nothing',
+           'derived_drift open in fixture: ' + raw);
+
+      const q = await readQueue(p);
+      /* ⚠️ TWO CARDS, NOT ONE, AND THE TEST FOUND THAT BEFORE ANYONE DID. I read
+         the first ten rows of a SQL query sorted by title, saw -688.16 on every
+         one, and reported "28 restatements of one offset". The fold's own
+         grouping key -- loan AND difference to the cent -- split them into 21 at
+         $688.16 and 7 at $50.48. There are TWO discrepancies on this loan, and a
+         fold keyed on the loan alone would have hidden the smaller one behind
+         the larger. That is precisely the failure the key exists to prevent, and
+         it was live in the data on the day it was written. */
+      t.ok(q.folds.length === 2,
+           's290: ⭐ the fan-out collapses to one card PER DISTINCT DIFFERENCE — two here, not one',
+           JSON.stringify(q.folds.map(f => f.name)));
+      t.ok(q.folds.every(f => /\b(21|7) stored balances\b/.test(f.name)),
+           's290: ⭐ ...and the two groups are 21 and 7, not one bucket of 28',
+           JSON.stringify(q.folds.map(f => f.name)));
+      t.ok(q.looseDrift === 0, 's290: ⭐ ...and no unfolded drift row is left beside it', JSON.stringify(q));
+      const f0 = q.folds.find(f => /688\.16/.test(f.name)) || {};
+      t.ok(/\b\d+ stored balances are all out by the same \$/.test(f0.name || ''),
+           's290: ...the card says how many and by how much', f0.name || '');
+      t.ok(/688\.16/.test(f0.name || ''), 's290: ...naming the real figure', f0.name || '');
+      /* ce17: THE CUT REMOVED THE REPETITION, NOT THE EVIDENCE. Every date is
+         still one click away, and all 28 rows are untouched in the table. */
+      t.ok((f0.dates || 0) >= 20,
+           's290: ⭐ ...and every date is still in the fold, not deleted',
+           'dates in detail: ' + (f0.dates || 0));
+      t.ok(/^One discrepancy carried forward, not \d+/.test(f0.reason || ''),
+           's290: ...and it says plainly that this is one problem, not many', f0.reason || '');
+      await p.close();
+    }
+
+    // ── (b) DISCRIMINATION: different numbers must NOT fold ─────────────────
+    /* Take the same real rows and make three of them disagree. A fold keyed on
+       the loan alone would still produce one card and hide them. */
+    {
+      const p = await newHarnessPage({
+        tab: 'loans',
+        mutate: (data) => {
+          const drift = (data.reconciliation_findings || [])
+            .filter(f => f.status === 'open' && f.check_key === 'derived_drift');
+          drift.slice(0, 3).forEach((f, i) => {
+            f.detail = { ...(f.detail || {}), difference: -(1000 + i) };
+            f.title = `${f.title} [mutated ${i}]`;
+          });
+        },
+      });
+      await p.settle();
+      const q = await readQueue(p);
+      // The 3 mutated rows carry three DIFFERENT differences, so each is a group
+      // of one and none of them folds; the remaining same-value rows still do.
+      t.ok(q.folds.length === 2 && q.folds.every(f => !/1000|1001|1002/.test(f.name)),
+           's290: ⭐ rows with different differences are NOT folded into either card',
+           JSON.stringify(q.folds.map(f => f.name)));
+      t.ok(q.looseDrift === 3,
+           's290: ⭐ ...they stay as three separate findings, visible on their own',
+           JSON.stringify(q));
+      await p.close();
+    }
+
+    // ── (c) a lone drift finding is left exactly as it was ──────────────────
+    {
+      const p = await newHarnessPage({
+        tab: 'loans',
+        mutate: (data) => {
+          const drift = (data.reconciliation_findings || [])
+            .filter(f => f.status === 'open' && f.check_key === 'derived_drift');
+          // keep one, drop the rest
+          const keep = drift[0];
+          data.reconciliation_findings = (data.reconciliation_findings || [])
+            .filter(f => f.check_key !== 'derived_drift' || f === keep);
+        },
+      });
+      await p.settle();
+      const q = await readQueue(p);
+      t.ok(q.folds.length === 0,
+           's290: ⭐ a SINGLE drift finding is not dressed up as a fold', JSON.stringify(q.folds));
+      t.ok(q.looseDrift === 1,
+           's290: ...it stays exactly the finding it was', JSON.stringify(q));
+      await p.close();
+    }
+  },
+});
+
 GROUPS.push({
   name: 'derived-schedule-has-no-file',
   async run(t) {
