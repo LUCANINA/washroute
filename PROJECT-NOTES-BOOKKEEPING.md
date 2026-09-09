@@ -26,6 +26,26 @@
 >    not to be tuned green.** They pin the PRE-VOID figures. Re-pin them to 46,204.32 ONLY
 >    once the books question above is answered — until then they are the record of it.
 >
+> ## 2️⃣ **THE METER IS ON BOTH PULLERS — the cache and the close-band budget are now
+>    measurable, and neither should be built before the numbers arrive** (session 291 cont. 2).
+>    `reconciliation-run` and `loan-find-difference` count every Xero call and report
+>    `{ calls_made, remaining_day }`. **NOT DEPLOYED — both need the CLI.**
+>    ```
+>    npx -y supabase@latest functions deploy reconciliation-run   --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+>    npx -y supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+>    ```
+>    **AFTER A DAY OF DATA**, `select caller, mode, calls_made from xero_api_usage` gives the
+>    real cost of a Find the Fix and of a full run — and only then are the two remaining
+>    item-1 fixes honest work:
+>    * **the close-band budget** needs N ("a full close costs about N calls"); inventing N
+>      today is the guessed floor `80e25a1` refused.
+>    * **the cache** needs a MIGRATION, so `washroute-migration-review` first. ⚠️ Do NOT
+>      build event-based invalidation — every future write path would have to remember to
+>      bust it (s231 waiting to happen). **Key it `(code, from, to, version)` where version is
+>      `greatest(latest statement, latest split, latest reconciliation run)`:** any write makes
+>      a new key by construction and there is nothing to forget.
+>    📏 Measured 2026-09-09: one session's investigation spent **67 of 1,000** daily calls.
+>
 >    ✅ **THE PRODUCT HOLE IS NOW CLOSED IN CODE — `voided_since_last_run`, session 291 cont.**
 >    `reconciliation-run/voided-since.ts`, 41 assertions, seven mutations all red.
 >    ⚠️ **NOT DEPLOYED — needs the CLI, and until it runs the void is still unannounced:**
@@ -13331,6 +13351,59 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 291 cont. 2 — measure first: the two pullers are metered
+
+Item 1's last two fixes are a **cache on the walk** and **a budget the close band can
+see**. Both are THRESHOLDS, and until today nothing had measured what they would be set
+against — `xero-read` was the only metered caller of eleven, so *"what emptied the
+day?"* could only be answered by multiplying invocation counts by a hand-read guess at
+calls-per-invocation. That is the guessed floor `80e25a1` refused to ship this morning,
+and building either fix on it would have been the same mistake one step later.
+
+`reconciliation-run` and `loan-find-difference` now route **every** Xero call through
+`createXeroMeter`. Threaded as a parameter, never module scope (`Deno.serve` handles
+requests concurrently; two invocations sharing a counter produce a number that belongs
+to neither). Flushed in a **`finally`** — a run that threw halfway still spent every
+call it had already made, and that is precisely the shape that empties a budget
+unnoticed. Both responses now carry `{ calls_made, remaining_day }`: two numbers from
+two sources, which is the whole point — a counter with no outside check agrees with
+itself, and a header we merely echo says nothing about who spent it.
+
+**A number for the record, measured rather than felt: this session's own investigation
+spent 67 of the tenant's 1,000 daily calls** — 7% of a day to answer one question,
+most of it re-fetching transactions by id to see their line items. That is the argument
+for the cache, stated as a reading.
+
+**Verification.** `tests/xero-metered.test.mts`, 17 assertions. It GREPS, deliberately:
+the property is about the SOURCE, and running the function only tells you about the
+branches that ran — the dangerous call site is always the one on the branch nobody
+took (s231). So it obeys s289's grep-guard rule and **names its region and its count**:
+14 metered call sites across three functions, asserted, so deleting the integration
+goes red instead of vacuously green. `loan-xero-post` (23 call sites) and `loan-bundle`
+are listed as **deliberately not yet metered** rather than silently omitted — add them
+to that list when they are. Discrimination: one bare `fetch` reintroduced is caught,
+the `${XERO}` spelling is caught, and `meter.fetch` is not mistaken for a bare one.
+Node suite after: **1,893 assertions, 0 red.**
+
+⚠️ **NOT DEPLOYED.** Both need the CLI.
+
+**WHY THE CACHE AND THE CLOSE-BAND BUDGET ARE NOT IN THIS COMMIT, and it is not
+laziness.** Neither can be built honestly yet:
+
+* **The close-band budget** must say *"a full close costs about N calls; you have M
+  left"*. N has to come from `xero_api_usage`, and that table has no rows for these two
+  callers until the meter has been live for a day. Writing N today means inventing it —
+  the exact thing `80e25a1` refused.
+* **The cache** needs a durable store (edge functions are stateless), so it needs a
+  MIGRATION and therefore `washroute-migration-review`. Its danger is staleness, and the
+  event-based invalidation the START HERE sketches is the fragile shape: every future
+  write path has to remember to bust it, which is s231's rule waiting to be broken.
+  **The robust design is a key that cannot go stale — `(account code, from, to,
+  version)` where `version` is `greatest(latest statement, latest split, latest
+  reconciliation run)`.** Any write produces a new key by construction; there are no
+  invalidation call sites to forget. Worth a decision before it is built.
+
 
 ### Session 291 cont. — a void now says so (`voided_since_last_run`)
 
