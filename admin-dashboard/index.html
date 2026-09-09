@@ -347,6 +347,11 @@
     .lc-dot.err { background:var(--red); }
     .lc-err { color:var(--red); font-weight:600; }
 
+    /* s290: the unit is stated once, in the header, and the digits line up so a
+       column can be compared by eye without being read. */
+    .split-num { text-align:right; font-variant-numeric:tabular-nums; }
+    .split-state { font-size:12px; color:var(--gray-500); }
+
     /* ── TOAST ── */
     .toast { position: fixed; bottom: 24px; right: 24px; background: var(--gray-900); color: white; padding: 12px 18px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; z-index: 999; box-shadow: var(--shadow); transform: translateY(80px); opacity: 0; transition: all .25s; }
     .toast.show { transform: translateY(0); opacity: 1; }
@@ -22901,9 +22906,23 @@
       return `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No splits recorded for this loan yet.</div>`;
     }
     {
+      /* ── s290: COLOUR IS SPENT ONLY WHERE SOMEONE IS BEING ASKED FOR SOMETHING ──
+         The table ran three colours over four states, and two of the coloured
+         ones -- green "posted" and grey "handled in Xero" -- ask the reader for
+         nothing at all. A green tick beside sixty settled rows is colour spent
+         where nothing was asked, so the two states that DO need a person had
+         nothing left to spend (LESS IS BEST test 4).
+
+         SETTLED STATES KEEP THEIR OWN WORDS AND LOSE THEIR BADGE. I nearly
+         collapsed both to one word "done" on the argument that the Journal
+         column already tells them apart -- it does NOT. Posted splits can carry
+         no journal id (Dexter's 2026-08 is posted with an empty Journal cell),
+         so collapsing would have dropped the claim that a human, not WashRoute,
+         did the work. That is ce17's exact trap: cut the colour, keep the
+         claim. */
       const statusBadge = (s) => {
-        if (s.status === 'posted') return `<span class="badge badge-green">posted</span>`;
-        if (s.status === 'already_in_xero') return `<span class="badge badge-gray" title="A human confirmed this period was already split directly in Xero — WashRoute posted nothing.">handled in Xero</span>`;
+        if (s.status === 'posted') return `<span class="split-state">posted</span>`;
+        if (s.status === 'already_in_xero') return `<span class="split-state" title="A human confirmed this period was already split directly in Xero — WashRoute posted nothing.">handled in Xero</span>`;
         if (s.status === 'needs_attention') return `<span class="badge badge-red">needs attention</span>`;
         if (s.status === 'staged') return `<span class="badge badge-blue" title="A pre-split transaction sits in Xero waiting for the payment to land — the CPA clicks Match on the reconcile screen.">staged in Xero</span>`;
         return `<span class="badge badge-amber">${esc(s.status)}</span>`;
@@ -22932,9 +22951,9 @@
         <tr>
           <td class="td-mono"${noteAttr}>${esc(s.period_label)}${s.review_notes ? ` <span style="color:#8a5300;cursor:help;font-size:11px" aria-label="has a note">&#9432;</span>` : ''}</td>
           <td style="font-size:12px;color:var(--gray-500)">${s.source === 'amortization_schedule' ? 'schedule' : 'statement'}</td>
-          <td class="td-mono">$${Number(s.principal_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="td-mono">$${Number(s.interest_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="td-mono">$${Number(s.total_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="td-mono split-num">${Number(s.principal_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="td-mono split-num">${Number(s.interest_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="td-mono split-num">${Number(s.total_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td>${statusBadge(s)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${s.xero_posted_at ? esc(s.xero_posted_at.slice(0, 10)) : '—'}</td>
           <td class="td-mono" style="font-size:11px;color:var(--gray-400)" title="${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id) : ''}">${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id.slice(0, 8)) + '…' : '—'}</td>
@@ -22943,7 +22962,7 @@
       `;
       }).join('');
       return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-        <thead><tr><th>Period</th><th>Source</th><th>Principal</th><th>Interest</th><th>Total</th><th>Status</th><th>Posted</th><th>Journal</th><th>File</th></tr></thead>
+        <thead><tr><th>Period</th><th>Source</th><th class="split-num">Principal&nbsp;$</th><th class="split-num">Interest&nbsp;$</th><th class="split-num">Total&nbsp;$</th><th>State</th><th>Posted</th><th>Journal</th><th>File</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`;
     }
   }

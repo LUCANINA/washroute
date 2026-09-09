@@ -13234,11 +13234,31 @@ a key outside the database, decrypt only through an edge function, an access log
 role that is not plain admin), not a text field. Either way it needs a migration and
 `washroute-migration-review`.
 
-**Also open:** the ledger table (`_loanSplitHistoryTableHtml`) is untouched — it
-still repeats "$" in every cell, left-aligns its numeric columns, and renders three
-status pills in three colours where two of them ("posted", "handled in Xero") mean
-the same thing to a reader. The mockup shows the cleanup; it was left out of this
-commit to keep the change reviewable.
+### Session 290 cont. — the ledger table
+
+**The unit is stated once, in the header** (`Principal $`), the numeric columns are
+right-aligned with tabular figures, and `Status` became `State`. Sixty rows each
+repeating "$" is sixty statements of a fact the column heading already makes.
+
+**COLOUR IS SPENT ONLY WHERE SOMEONE IS BEING ASKED FOR SOMETHING.** The table ran
+three colours over four states and two of the coloured ones asked the reader for
+nothing: green *posted* and grey *handled in Xero*. A green tick beside sixty
+settled rows meant the two states that DO need a person — `staged in Xero` and
+`needs attention` — had nothing left to spend. Settled rows now render as quiet grey
+text; staged and needs-attention keep their badges. On Dexter's 62 splits exactly one
+row is coloured, and it is the one waiting on a Match in Xero.
+
+**I NEARLY DROPPED A CLAIM DOING IT, and the mockup was wrong.** The design collapsed
+*posted* and *handled in Xero* into one word "done", on the argument that the Journal
+column already tells them apart. **It does not** — a posted split can carry an empty
+journal id (Dexter's 2026-08 is posted with no journal), so collapsing would have
+erased the fact that a human, not WashRoute, did the work. That is ce17's trap
+exactly: cut the colour, keep the claim. Both words survive; only the badges went.
+
+**Verification.** Six new assertions in `loan-info-card` reading computed style, not
+markup — `textAlign`, `fontVariantNumeric`, and whether a settled row carries a
+`.badge` at all — plus a `toString()` inverse that puts "$" back into every cell and
+confirms the unit-dedup assertion goes red. Group now 138 assertions, all green.
 
 ### Session 290 cont. 5 (2026-09-09) — "TRY AGAIN IN A MOMENT" WAS THE WORST ADVICE WE COULD GIVE
 

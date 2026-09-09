@@ -13623,7 +13623,92 @@ GROUPS.push({
       t.ok(true, 's290: ⚠ REPORTED — no fixture loan carries both a fitted and a typed rate');
     }
 
-    // ── (7) DOES ANY OF THIS DISCRIMINATE? ──────────────────────────────────
+    // ── (7) THE LEDGER: UNIT ONCE, DIGITS ALIGNED, COLOUR ONLY WHERE ASKED ──
+    {
+      const big = accts
+        .map(a2 => ({ a: a2, n: (baseFixture.loan_splits || []).filter(x => x.loan_account_id === a2.id).length }))
+        .sort((x, y) => y.n - x.n)[0].a;
+      const led = await p.page.evaluate((lid) => {
+        openLoanDetailModal(lid);
+        const tbl = [...document.querySelectorAll('#loan-history-body table')][0];
+        const th = [...tbl.querySelectorAll('thead th')];
+        const cells = [...tbl.querySelectorAll('tbody tr')].map(tr => [...tr.children].map(td => ({
+          text: (td.innerText || '').trim(),
+          cls: td.className || '',
+          align: getComputedStyle(td).textAlign,
+          numeric: getComputedStyle(td).fontVariantNumeric,
+        })));
+        const states = [...tbl.querySelectorAll('tbody tr')].map(tr => {
+          const c = tr.children[5];
+          const b = c.querySelector('.badge');
+          return { text: (c.innerText || '').trim(), badge: b ? b.className : null };
+        });
+        return { heads: th.map(x => ({ t: x.innerText.trim(), cls: x.className })), cells, states };
+      }, big.id);
+
+      // The unit is stated ONCE, in the header.
+      for (const col of ['Principal $', 'Interest $', 'Total $']) {
+        t.ok(led.heads.some(h => h.t.replace(/\s+/g, ' ') === col),
+             `s290: ⭐ the ledger states the unit in the header ("${col}")`,
+             JSON.stringify(led.heads.map(h => h.t)));
+      }
+      const moneyCells = led.cells.flatMap(r => [r[2], r[3], r[4]]);
+      t.ok(moneyCells.length > 0, 's290: the ledger rendered money cells to check');
+      t.ok(moneyCells.every(c => !c.text.includes('$')),
+           's290: ⭐ ...and NOT also in every cell -- one statement of the unit, not sixty',
+           JSON.stringify(moneyCells.slice(0, 4).map(c => c.text)));
+      t.ok(moneyCells.every(c => c.align === 'right'),
+           's290: ⭐ the numeric columns are right-aligned so a column compares by eye',
+           JSON.stringify(moneyCells.slice(0, 3).map(c => c.align)));
+      t.ok(moneyCells.every(c => /tabular-nums/.test(c.numeric)),
+           's290: ...and use tabular figures so the digits line up',
+           JSON.stringify(moneyCells.slice(0, 3).map(c => c.numeric)));
+
+      /* COLOUR IS SPENT ONLY WHERE SOMEONE IS ASKED FOR SOMETHING. A settled row
+         keeps its WORD and loses its badge; staged and needs-attention keep both. */
+      const settled = led.states.filter(x => /^(posted|handled in Xero)$/.test(x.text));
+      const acting  = led.states.filter(x => /staged in Xero|needs attention/.test(x.text));
+      if (settled.length) {
+        t.ok(settled.every(x => x.badge === null),
+             's290: ⭐ settled rows carry no coloured badge -- nothing is being asked of the reader',
+             JSON.stringify(settled.slice(0, 3)));
+        /* ce17: the colour went, the CLAIM did not. "handled in Xero" must still be
+           distinguishable from "posted" -- the Journal column cannot do it, because
+           a posted split can have an empty journal id. */
+        const words = new Set(settled.map(x => x.text));
+        t.ok(!(words.has('posted') && words.has('handled in Xero')) || words.size === 2,
+             's290: ⭐ ...and posted vs handled-in-Xero is still told apart by its own word',
+             JSON.stringify([...words]));
+      }
+      if (acting.length) {
+        t.ok(acting.every(x => x.badge && /badge-(blue|red)/.test(x.badge)),
+             's290: ⭐ ...while the states that need a person keep their colour',
+             JSON.stringify(acting.slice(0, 3)));
+      }
+
+      // DISCRIMINATION: put the "$" back in every cell and the dedup-of-unit
+      // assertion above must go red.
+      const q3 = await p.page.evaluate((lid) => {
+        const src = _loanSplitHistoryTableHtml.toString();
+        const broken = src.split('<td class="td-mono split-num">${Number')
+                          .join('<td class="td-mono split-num">$${Number');
+        if (broken === src) return { patched: false };
+        const fn = new Function('return (' + broken + ')')();
+        const html = fn(lid);
+        const d = document.createElement('div'); d.innerHTML = html;
+        const cells = [...d.querySelectorAll('tbody tr')].map(tr => (tr.children[2].textContent || '').trim());
+        return { patched: true, withDollar: cells.filter(c => c.includes('$')).length, total: cells.length };
+      }, big.id);
+      t.ok(q3.patched, 's290: the ledger inverse patch applied', JSON.stringify(q3));
+      if (q3.patched) {
+        t.ok(q3.withDollar === q3.total && q3.total > 0,
+             's290: ⭐ DISCRIMINATION — restoring "$" to every cell is exactly what the assertion above catches',
+             JSON.stringify(q3));
+      }
+      await p.page.evaluate((lid) => openLoanDetailModal(lid), accts[0].id);
+    }
+
+    // ── (8) DOES ANY OF THIS DISCRIMINATE? ──────────────────────────────────
     /* A green assertion proves nothing until the broken version goes red. Two of
        these are self-proving from this session's own history: "did not throw" and
        "the Terms grid rendered" went red on a real crash (a lost `const t`), and
