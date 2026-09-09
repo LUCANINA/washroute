@@ -1,0 +1,100 @@
+{
+  "_meta": {
+    "loan": "Funding Circle Loan (af4dfd44-ac52-4862-bf0b-d290cd458edf)",
+    "focus_period": "2026-08",
+    "pulled_at": "2026-09-09",
+    "source": "live loan-find-difference response (deployed v40), net._http_response id 30940",
+    "note": "FROZEN, and it is the card in David's session-290 screenshot. THREE keys are reduced and all three are proven unread by the renderer, asserted in the group against the renderer's own source rather than assumed: cross_loan_candidates and culprit are stripped from every period, and window.skipped_for_basis is emptied (it held 66 rows; the sentence built from it survives verbatim in conclusions[3], which is what the card actually shows). Everything else is verbatim. Do NOT re-pull this to make an assertion pass: its whole value is that it is the payload the design review was written about."
+  },
+  "verdict": null,
+  "headline": { "as_of": "2026-08-31", "difference": 60.16 },
+  "close_date": "2026-06-30",
+  "focus_period": "2026-08",
+  "total_period_diff": -1891.53,
+  "residual_before_window": 1951.69,
+  "closed_divergent_count": 3,
+  "closed_divergent_total": -880.96,
+  "focus_span_count": 2,
+  "divergent_count": 3,
+  "date_basis_suspicion": null,
+  "derived_cause": null,
+  "balance_note": null,
+  "proposal": null,
+  "can_post": false,
+  "can_post_exception": false,
+  "can_post_writeoff": false,
+  "can_post_recorded": false,
+  "writeoff": {
+    "eligible": false,
+    "why": "the period-by-period walk found differences to attribute — those are the lead, not a write-off"
+  },
+  "recorded_entry": {
+    "eligible": false,
+    "why": "nobody has recorded what this difference is, so there is no explanation to book it against"
+  },
+  "conclusions": [
+    "2026-07-31 → 2026-08-31 is off by $15.38 — nothing on file explains it (5 entries sit inside the span; none matches the amount); one for your CPA (dates in the table).",
+    "2026-08-31 → 2026-08-31 is off by $1,041.09 — no clear candidate; one for your CPA (dates in the table).",
+    "1 more span (2026-06-30 → 2026-07-31, $15.14) — fix the above, then re-run.",
+    "$1,951.69 predates the earliest usable statement (2025-11-30); 56 earlier statements are on file but unusable (balance basis unmarked) — mark them principal-only to pin it down."
+  ],
+  "no_action_detail": [
+    "3 spans (2025-11-30 → 2026-06-30) sit inside books closed through 2026-06-30, $880.96 in total — your accountant has already settled those months with her own adjustments. Nothing to do; they are listed below for reference only."
+  ],
+  "cpa_exception": {
+    "note": "Your accountant's $1,052.84 interest split covers the 1 month below. None of it was booked anywhere else, so nothing is double-counted and there is nothing to propose.",
+    "token": null,
+    "split_period": "2026-05-18",
+    "proposed_entry": null,
+    "period": { "from": "2026-04-30", "to": "2026-05-31" },
+    "entry": {
+      "id": "b2af0b98-d2a8-4bab-a423-e2b2f1cdf0fe",
+      "ref": "FC MARKETPLACE L ACHPAYMENT        HLDI80388518    50340172506\\",
+      "date": "2026-05-18",
+      "total": 2033.77,
+      "status": "AUTHORISED",
+      "contact": "iBusiness Funding",
+      "src_type": "BankTransaction",
+      "reconciled": true,
+      "already_worked": true,
+      "effect_on_loan": -980.93,
+      "lines": [
+        { "amount": 980.93, "description": null, "account_code": "253", "account_name": "Funding Circle Loan" },
+        { "amount": 1052.84, "description": null, "account_code": "800", "account_name": "Interest Expense" }
+      ]
+    },
+    "diagnosis": {
+      "note": "Your accountant's $1,052.84 interest split covers the 1 month below. None of it was booked anywhere else, so nothing is double-counted and there is nothing to propose.",
+      "shape": "no_duplication",
+      "owed": 1052.84,
+      "at_source": 1052.84,
+      "duplicated": 0,
+      "carry_over": null,
+      "entry": null,
+      "components": [
+        { "period": "2026-05-18", "interest": 1052.84, "booked_by": null, "journal_id": null, "already_booked": false }
+      ],
+      "note_working": "Her split covers 2026-05-18 $1,052.84. No reallocation journal on our side books any of it, and none is marked as handled directly in Xero — so her entry is the only correction these months have had."
+    }
+  },
+  "periods": [
+    { "from": "2025-11-30", "to": "2025-12-31", "diff": -910.6, "verdict": "divergent", "entry_from": "2025-12-05", "entry_to": "2026-01-05", "in_focus": false, "xero_delta": -1834.85, "entry_count": 2, "lender_delta": -924.25, "closed_period": true },
+    { "from": "2025-12-31", "to": "2026-01-31", "diff": 0, "verdict": "clean", "entry_from": "2026-01-05", "entry_to": "2026-02-05", "in_focus": false, "xero_delta": -938.11, "entry_count": 1, "lender_delta": -938.11, "closed_period": true },
+    { "from": "2026-01-31", "to": "2026-02-28", "diff": 0, "verdict": "clean", "entry_from": "2026-02-05", "entry_to": "2026-03-05", "in_focus": false, "xero_delta": -952.18, "entry_count": 1, "lender_delta": -952.18, "closed_period": true },
+    { "from": "2026-02-28", "to": "2026-03-31", "diff": 0, "verdict": "clean", "entry_from": "2026-03-05", "entry_to": "2026-04-05", "in_focus": false, "xero_delta": -966.45, "entry_count": 1, "lender_delta": -966.45, "closed_period": true },
+    { "from": "2026-03-31", "to": "2026-04-30", "diff": 0, "verdict": "clean", "entry_from": "2026-04-05", "entry_to": "2026-05-05", "in_focus": false, "xero_delta": -980.93, "entry_count": 1, "lender_delta": -980.93, "closed_period": true },
+    { "from": "2026-04-30", "to": "2026-05-31", "diff": 14.72, "verdict": "divergent", "entry_from": "2026-05-05", "entry_to": "2026-06-05", "in_focus": false, "xero_delta": -980.93, "entry_count": 1, "lender_delta": -995.65, "closed_period": true, "explained_by_exception": true },
+    { "from": "2026-05-31", "to": "2026-06-30", "diff": 14.92, "verdict": "divergent", "entry_from": "2026-06-05", "entry_to": "2026-07-05", "in_focus": false, "xero_delta": -995.65, "entry_count": 1, "lender_delta": -1010.57, "closed_period": true },
+    { "from": "2026-06-30", "to": "2026-07-31", "diff": 15.14, "verdict": "divergent", "entry_from": "2026-07-05", "entry_to": "2026-08-05", "in_focus": false, "xero_delta": -1010.57, "entry_count": 1, "lender_delta": -1025.71, "closed_period": false },
+    { "from": "2026-07-31", "to": "2026-08-31", "diff": 15.38, "verdict": "divergent", "entry_from": "2026-08-05", "entry_to": "2026-08-31", "in_focus": true, "xero_delta": -1025.71, "entry_count": 1, "lender_delta": -1041.09, "closed_period": false },
+    { "from": "2026-08-31", "to": "2026-08-31", "diff": -1041.09, "verdict": "divergent", "entry_from": "2026-08-31", "entry_to": "2026-09-05", "in_focus": true, "xero_delta": 0, "entry_count": 0, "lender_delta": 1041.09, "closed_period": false }
+  ],
+  "window": {
+    "from": "2025-11-30",
+    "to": "2026-08-31",
+    "anchors_used": 11,
+    "truncated_before": null,
+    "read_via": "bank transactions scoped to this loan's own bank account, plus every manual journal in the window",
+    "skipped_for_basis": []
+  }
+}

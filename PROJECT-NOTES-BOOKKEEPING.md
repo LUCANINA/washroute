@@ -4,17 +4,20 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> 🆕 **SESSION 290 LEFT THREE FUNCTIONS UNDEPLOYED AND THE COPY HALF UNFIXED.**
+> 🆕 **SESSION 290 LEFT THREE FUNCTIONS UNDEPLOYED AND THE COPY HALF UNFIXED — the copy is now
+>    MEASURED, and the three changes it asks for are listed at the end of the session 290 cont.
+>    entry. It is David's wording to approve.**
 >    * **Deploy `loan-find-difference` and `loan-xero-post`** (and note that
 >      `_shared/statement-period.ts` + `_shared/derive-schedule.ts` changed, so every function
 >      importing them carries a stale copy until redeployed). CLI only —
 >      `loan-find-difference` is 158KB. **Read each one's `verify_jwt` first, then pick the flag.**
 >      Until this ships, the Funding Circle card still shows the phantom `Aug 31 → Aug 31` span and
 >      still refuses to propose anything.
->    * **The card's copy is UNFIXED** — $60.16 appears nowhere on a card that is about it, and
->      bullets 1–3 restate the table beneath them. `fdiff-copy-budget` measures the 4140 payload
->      only, which is why a 213-word card with four repeated figures passed it. Extend the group to
->      the FC payload BEFORE editing the copy, or the fix is unmeasured.
+>    * **The card's copy is UNFIXED but now MEASURED.** `fdiff-copy-budget-funding-circle` renders
+>      the real frozen FC payload and states every hole as a `⚠ REPORTED` assertion that passes
+>      today and announces itself the day the copy changes. $60.16 is absent from the card entirely
+>      (it is in `headline.difference`); the card is 229 words against a 225 budget; five figures
+>      and the anchor date repeat.
 >    * ⚠️ **`tests/find-difference-walk.test.mts` and `tests/writeoff-fences.test.mts` had not
 >      loaded since s289** (166 assertions reporting as nothing). Fixed with a catch-all in the
 >      loader. **Add this to `washroute-bookkeeping` with the other pending skill edits: an
@@ -13303,11 +13306,72 @@ you edited surgically by hunk, or read the diffstat before believing the commit.
 function that imports them. `loan-find-difference` is 158KB and must go through the CLI from David's
 own terminal. Read each function's `verify_jwt` before picking the flag; do not pre-attach it.
 
-**Where to pick up.** The copy defects above are UNFIXED and they are the half David asked about
-first. The lead sentence is the one that matters: the card should open by naming the figure the
-reader clicked, and bullets 1–3 should collapse into the table they restate. Both need the
-`fdiff-copy-budget` group extended to the FC payload first — it currently measures the 4140 card
-only, which is why a 213-word card with four repeats passed it.
+### Session 290 cont. (2026-09-09) — THE MEASUREMENT CAME FIRST, AND IT CORRECTED ME TWICE
+
+**Trigger.** David: *"Yes please"* — extend `fdiff-copy-budget` to the Funding Circle payload before
+touching the copy.
+
+**The fixture is the LIVE RESPONSE, not the screenshot.** `tests/fixtures/fdiff-funding-circle-2026-08.json`
+is `loan-find-difference`'s actual output for that loan, pulled through `net.http_post` from SQL
+(`net._http_response` id 30940) and frozen at 2026-09-09. Transcribing the screenshot would have
+produced a fixture that agrees with my reading of it — s245's exact failure. Three keys are reduced
+(`cross_loan_candidates`, `culprit`, `window.skipped_for_basis`) and **the group proves the renderer
+reads none of them**, grepping the three render functions' own `.toString()` and asserting a count of
+zero — s289's rule that a guard which greps must name its region and its count.
+
+**AND THE PAYLOAD SETTLES THE HEADLINE FINDING.** `headline.difference` is **60.16**. The figure
+David clicked is in the response, has always been in the response, and the card never renders it:
+with no `derived_cause` and no fresh `balance_note` there is no lead sentence at all, so the modal
+opens straight into "What likely happened". The assertion is a PAIR — absent from the visible text
+AND absent from the working — because asserting only the first goes green on a card that merely
+buried it.
+
+**⚠️ MEASURING IT CORRECTED TWO CLAIMS I HAD ALREADY MADE TO DAVID.**
+
+| I said | Measured | Why I was wrong |
+|---|---|---|
+| 213 visible words, under the 225 budget | **229 — over** | hand-counted off the screenshot; missed the fold summaries and the table head |
+| $1,041.09 stated ×4 | **×3** | the naive regex counted the verdict cell separately from the Lender-moved cell in the SAME `<tr>`. One row is one statement — that exemption is what protects the comparison the table exists for |
+
+So the finding is plainer than the one I reported: **not a subtle disagreement between the two
+guards, a card that fails both.** The version I told him was the more interesting story and it was
+the wrong one. It also found a third repeat I had not seen at all — the anchor date `2026-08-31`
+three times, which is s279 rule D.
+
+**The measurement is now ONE function.** `measureFdiffModal` was hoisted out of `fdiff-copy-budget`
+to module level, because two payloads measured by two copies of a measurement drift, and a dedup
+rule enforced by two slightly different rulers is worse than one enforced by neither — the
+disagreement is invisible. Both groups call it.
+
+**The new assertions are `⚠ REPORTED` (ce32), not red.** They PASS while stating each hole exactly,
+with its current number, so the suite stays honest without going permanently red on a copy decision
+that is **David's to make**. The day the copy is fixed they announce that they must be flipped, and
+"fixed" cannot be confused with "moved slightly". One assertion in the group is a real one and it is
+the ce17 limit: every figure the server put in a sentence must still reach the reader. Whoever writes
+the lead sentence has to keep that green — it is what stops the fix being done by trimming claims off
+the screen. And the group's own control feeds a card WITH a lead through the same ruler, so the two
+reports are about the card rather than about the ruler.
+
+**A finding the fixture surfaced that the screenshot did not make obvious:** the tinted "your
+accountant already worked this payment" box — the loudest element on the card — is
+`shape: no_duplication`, `proposed_entry: null`, about a **2026-05-18** payment, inside books closed
+through 2026-06-30. It is the largest, most colourful block on a card about August, and it reports a
+non-issue in a closed month. LESS IS BEST tests 1 and 4, together.
+
+**Where to pick up. THE COPY IS STILL UNFIXED — that is deliberate, and it is David's call.** What
+the measurement now says has to change, in order:
+
+1. **A lead sentence stating $60.16.** s279 permits the decision's own figure in the lead. Where
+   there is no `derived_cause` and no fresh note, `headline` should speak. This is new copy on a
+   CPA-facing card, so it is his wording to approve, not mine to ship.
+2. **Bullets 1–3 collapse into the table they restate.** The right fix is generator-side: attach the
+   cause to the period object and let the row render it, rather than emitting a paragraph above the
+   table (s279: the per-span figure's one home is its row). ⚠️ This will churn ~20 assertions in
+   `find-difference-walk.test.mts` that pin `conclusions` content, and each must be re-pinned as a
+   PAIR — bullet gone AND claim rehoused — or they go green on a deletion.
+3. **One absence, not two,** and the reassurance box should not outrank the two red rows.
+
+
 
 ### Session 287 (2026-09-08) — THE REFRESH WAS THE TEST, AND THE TESTS FAILED IT
 

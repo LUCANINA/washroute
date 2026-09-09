@@ -12505,6 +12505,60 @@ GROUPS.push({
   },
 });
 
+/* ── THE MEASUREMENT, HOISTED (session 290) ─────────────────────────────────
+   It was defined inside `fdiff-copy-budget` and there is now a SECOND payload
+   to measure -- Funding Circle's. Two copies of a measurement drift, and a
+   dedup rule enforced by two slightly different measurements is worse than one
+   enforced by neither, because the disagreement is invisible. One function,
+   both groups.
+
+   `visible` means: everything except what a <details> hides. The <summary> is
+   visible; the rest of the element is not until someone opens it. */
+async function measureFdiffModal(p, data) {
+  return p.evaluate((d) => {
+    const host = document.createElement('div');
+    host.innerHTML = _bkFdiffHtml(d, 'f1', 'l1');
+    const all = host.textContent.replace(/\s+/g, ' ').trim();
+    const vis = host.cloneNode(true);
+    vis.querySelectorAll('details').forEach((el) => {
+      const sum = el.querySelector('summary');
+      el.textContent = sum ? sum.textContent + ' ' : '';
+    });
+    const visible = vis.textContent.replace(/\s+/g, ' ').trim();
+    const FIG = /\$[\d,]+\.\d{2}|\b\d{4}-\d{2}-\d{2}\b|\b\d{4}-\d{2}\b|\b[0-9a-f]{8}\b/g;
+    const tally = (s) => {
+      const m = {};
+      for (const f of (s.match(FIG) || [])) m[f] = (m[f] || 0) + 1;
+      return m;
+    };
+    // ⚠ ONE ROW IS ONE STATEMENT. The span table prints "Lender moved
+    // $5,000.00 · Xero moved $5,000.00" — two sources agreeing, which is the
+    // entire point of the table, not a figure said twice. Same for the
+    // exception footer's "$415.88 · counted twice: $415.88". So a figure
+    // repeated INSIDE a single <tr> counts once; across rows and sections it
+    // counts every time. Getting this wrong would have made the rule demand
+    // the deletion of the comparison it exists to protect.
+    const tallyByRow = (root) => {
+      const m = {};
+      const seenIn = (el) => new Set(String(el.textContent || '').match(FIG) || []);
+      const rows = [...root.querySelectorAll('tr')];
+      for (const r of rows) for (const f of seenIn(r)) m[f] = (m[f] || 0) + 1;
+      const clone = root.cloneNode(true);
+      clone.querySelectorAll('tr').forEach((r) => { r.textContent = ''; });
+      for (const f of (clone.textContent.match(FIG) || [])) m[f] = (m[f] || 0) + 1;
+      return m;
+    };
+    return {
+      words: visible.split(/\s+/).filter(Boolean).length,
+      visibleText: visible,
+      visibleFigs: tallyByRow(vis),
+      allFigs: tally(all),
+      hasDetails: /<details/.test(host.innerHTML),
+      openedText: all,
+    };
+  }, data);
+}
+
 // ── session 279: A CLAIM IS STATED ONCE PER SCREEN ───────────────────────────
 // David ran "find the difference" on E-Transit 4140 and got a card that was
 // thorough, correct, and 420 visible words. No sentence in it was long. The
@@ -12604,50 +12658,9 @@ GROUPS.push({
     });
 
     // Measured in page context, on the DOM the reader actually gets.
-    const measure = async (data) => p.evaluate((d) => {
-      const host = document.createElement('div');
-      host.innerHTML = _bkFdiffHtml(d, 'f1', 'l1');
-      const all = host.textContent.replace(/\s+/g, ' ').trim();
-      // Visible = everything except what a <details> hides. The <summary> is
-      // visible; the rest of the element is not until someone opens it.
-      const vis = host.cloneNode(true);
-      vis.querySelectorAll('details').forEach((el) => {
-        const sum = el.querySelector('summary');
-        el.textContent = sum ? sum.textContent + ' ' : '';
-      });
-      const visible = vis.textContent.replace(/\s+/g, ' ').trim();
-      const FIG = /\$[\d,]+\.\d{2}|\b\d{4}-\d{2}-\d{2}\b|\b\d{4}-\d{2}\b|\b[0-9a-f]{8}\b/g;
-      const tally = (s) => {
-        const m = {};
-        for (const f of (s.match(FIG) || [])) m[f] = (m[f] || 0) + 1;
-        return m;
-      };
-      // ⚠ ONE ROW IS ONE STATEMENT. The span table prints "Lender moved
-      // $5,000.00 · Xero moved $5,000.00" — two sources agreeing, which is the
-      // entire point of the table, not a figure said twice. Same for the
-      // exception footer's "$415.88 · counted twice: $415.88". So a figure
-      // repeated INSIDE a single <tr> counts once; across rows and sections it
-      // counts every time. Getting this wrong would have made the rule demand
-      // the deletion of the comparison it exists to protect.
-      const tallyByRow = (root) => {
-        const m = {};
-        const seenIn = (el) => new Set(String(el.textContent || '').match(FIG) || []);
-        const rows = [...root.querySelectorAll('tr')];
-        for (const r of rows) for (const f of seenIn(r)) m[f] = (m[f] || 0) + 1;
-        const clone = root.cloneNode(true);
-        clone.querySelectorAll('tr').forEach((r) => { r.textContent = ''; });
-        for (const f of (clone.textContent.match(FIG) || [])) m[f] = (m[f] || 0) + 1;
-        return m;
-      };
-      return {
-        words: visible.split(/\s+/).filter(Boolean).length,
-        visibleText: visible,
-        visibleFigs: tallyByRow(vis),
-        allFigs: tally(all),
-        hasDetails: /<details/.test(host.innerHTML),
-        openedText: all,
-      };
-    }, data);
+    // s290: the measurement moved to module level so Funding Circle's card is
+    // measured by the SAME function. See measureFdiffModal above.
+    const measure = (data) => measureFdiffModal(p, data);
 
     const after = await measure(AFTER);
     const before = await measure(BEFORE);
@@ -12757,6 +12770,186 @@ GROUPS.push({
     t.ok(before.words > 200 || beforeDup.length > 0,
          '⭐ CONTROL: the shipped card FAILS both assertions above — the measurement can go red',
          JSON.stringify({ words: before.words, dup: beforeDup.length }));
+
+    await p.close();
+  },
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SESSION 290 — THE SECOND SHAPE, AND WHY ONE PAYLOAD WAS NEVER ENOUGH
+
+   David, on the Funding Circle card: "The Loan Closing page shows a variance of
+   $60.16 and I expected a suggestion to close the gap."
+
+   The group above measures the E-Transit 4140 CPA-exception card, and it is
+   green. This one measures Funding Circle's, from the SAME renderer through the
+   SAME function, and the rules come apart:
+
+     * 229 visible words against a 225 budget — over
+     * five figures stated more than once, the anchor date among them — over
+     * $60.16, the figure the reader clicked, appears NOWHERE on the card,
+       though `headline.difference` carries it in the payload
+
+   This is the s245 lesson once more, and it is the whole reason for a second
+   payload: an assertion only ever measures what it is given, and one card had
+   been standing in for every card this modal draws. The E-Transit fixture has
+   no lead-less shape, no bullets restating their own table, and no reassurance
+   box about a closed month, so none of those could be seen.
+
+   ⚠️ THESE ARE `⚠ REPORTED` ASSERTIONS (ce32): they PASS while stating the hole
+   exactly, so the suite stays honest without going permanently red on a copy
+   decision that is DAVID'S to make, not this file's. The day the copy is fixed
+   they announce that they must be flipped. Each names the current number, so
+   "fixed" cannot be mistaken for "moved slightly".
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'fdiff-copy-budget-funding-circle',
+  async run(t) {
+    const FC = JSON.parse(fs.readFileSync(
+      fileURLToPath(new URL('./fixtures/fdiff-funding-circle-2026-08.json', import.meta.url)), 'utf8'));
+
+    /* ── 0. THE FIXTURE IS FROZEN ─────────────────────────────────────────
+       Same discipline as bookkeeping-fixture-2026-07.json. Its value is that it
+       is the payload the design review was written about; re-pulling it to make
+       an assertion pass turns a test into a transcript. */
+    t.eq(FC._meta.pulled_at, '2026-09-09',
+         'the FC fixture is frozen at the day David reviewed it', String(FC._meta.pulled_at));
+    t.eq(FC.headline.difference, 60.16,
+         'CONTROL: the payload DOES carry the figure the Loans row shows', String(FC.headline.difference));
+
+    /* ── 0b. THE TRIM IS PROVEN, NOT ASSUMED ──────────────────────────────
+       Three keys are reduced in the fixture. A fixture that quietly drops a
+       field the renderer reads is a transcription that agrees with itself, so
+       the justification is measured against the renderer's own source.
+       ⚠ s289's rule: a guard that greps must name its REGION and its COUNT. The
+       region is these three functions' .toString(); the count is zero. */
+    const p = await newHarnessPage({ tab: 'loans' });
+    const unread = await p.evaluate(() => {
+      const src = [_bkFdiffHtml, _bkFdiffSpanTable, _bkFdiffSpanRows].map(f => f.toString()).join('\n');
+      return {
+        region: src.length,
+        hits: ['cross_loan_candidates', 'culprit', 'skipped_for_basis']
+          .map(k => [k, (src.match(new RegExp(k, 'g')) || []).length]),
+      };
+    });
+    t.ok(unread.region > 4000, 'the grep region is the three render functions, and it is really there',
+         `${unread.region} chars`);
+    for (const [k, n] of unread.hits) {
+      t.eq(n, 0, `⭐ the renderer never reads ${k} — so reducing it in the fixture cannot hide a defect`,
+           `${k} appears ${n}× in the render source`);
+    }
+
+    const m = await measureFdiffModal(p, FC);
+
+    /* ── 1. THE FIGURE THE READER CLICKED IS NOT ON THE CARD ──────────────
+       s279 permits the decision's own figure in the lead sentence. There is no
+       lead sentence: with no derived_cause and no fresh balance_note, the card
+       opens straight into "What likely happened". So the reader arrives from a
+       row saying $60.16 and meets six other figures, none of them that one.
+
+       ⚠ REPORTED — and it is a PAIR. Absent from the visible text is the
+       defect; absent from the WORKING as well is what makes it worse than a
+       relocation, and asserting only the first would go green on a card that
+       merely buried it. */
+    t.ok(!/\$60\.16/.test(m.visibleText),
+         '⚠ REPORTED: $60.16 is absent from the visible text — the card never names the figure it is about',
+         'flip this the day a lead sentence states it');
+    t.ok(!/\$60\.16/.test(m.openedText),
+         '⚠ REPORTED: ...and absent from the working too — not relocated, simply not said',
+         'flip this together with the one above');
+
+    /* ── 2. BOTH GUARDS FAIL, AND MEASURING IT CORRECTED ME TWICE ─────────
+       I told David this card measured 213 visible words — under the 225 budget —
+       and that the interesting part was the two guards disagreeing. Neither
+       claim survived the measurement, and the corrections are the reason to
+       measure rather than count off a screenshot:
+
+         * 229 words, not 213. Hand-counting the screenshot missed the fold
+           summaries and the table head. The soft guard is red too, so there is
+           no disagreement to adjudicate — the card is simply over on both.
+         * $1,041.09 is stated THREE times, not four. The naive regex counted
+           the verdict cell separately from the Lender-moved cell beside it, but
+           they sit in ONE <tr>: one row is one statement, which is the exemption
+           that protects the table's whole purpose. Two rows state it, plus the
+           bullet above them.
+
+       So the finding is plainer than the one I described. Not a subtle
+       disagreement between guards — a card that fails both, on a payload the
+       group that would have caught it had never been given. */
+    const EXEMPT = {};
+    const dup = Object.entries(m.visibleFigs)
+      .filter(([f, n]) => n > (EXEMPT[f] || 1))
+      .sort((a, b) => b[1] - a[1])
+      .map(([f, n]) => `${f}×${n}`);
+    t.ok(m.words > 225,
+         '⚠ REPORTED: the card is OVER the 225-word budget as well', `${m.words} words`);
+    t.ok(dup.length >= 4,
+         '⚠ REPORTED: ...and four or more figures are stated twice — both guards red',
+         dup.join(' '));
+    t.ok(/\$1,041\.09×3/.test(dup.join(' ')),
+         '⚠ REPORTED: $1,041.09 three times — two span rows state it, and a bullet states it again above them',
+         dup.join(' '));
+    t.ok(/\$1,052\.84×3/.test(dup.join(' ')),
+         '⚠ REPORTED: $1,052.84 three times — the box states its own figure in prose, in its row, and in its total',
+         dup.join(' '));
+    t.ok(/2026-08-31×3/.test(dup.join(' ')),
+         '⚠ REPORTED: ...and the anchor DATE three times — s279 rule D, a date is stated by the thing it governs',
+         dup.join(' '));
+
+    /* ── 3. WHERE THE DUPLICATION COMES FROM: BULLETS ABOVE THEIR OWN TABLE
+       s279's named shape — "a per-month figure is the table's row, never a
+       paragraph above the table". Bullets 1 and 3 restate rows rendered
+       directly beneath them. This is the E-Transit 4140 defect, unfixed on this
+       card because the fixture that caught it there never carried this shape. */
+    t.ok(/is off by \$15\.38/.test(m.visibleText) && /\$15\.38/.test(m.visibleText),
+         '⚠ REPORTED: bullet 1 restates the lead row — its dates, its amount and its verdict',
+         'the row below already says all three');
+    t.ok(/\$15\.14/.test(m.visibleText),
+         '⚠ REPORTED: bullet 3 restates the "1 earlier span, still open — $15.14" fold summary',
+         'the fold below already says it');
+
+    /* ── 4. THE LOUDEST BLOCK ON THE CARD REPORTS A NON-ISSUE, IN A CLOSED
+       MONTH. LESS IS BEST test 4: colour is doing a job nothing needed, so the
+       one thing that genuinely needs it has nothing left to spend. And test 1:
+       would a reader act differently without it? It proposes nothing, about a
+       payment inside books closed through 2026-06-30. */
+    t.eq(FC.cpa_exception.proposed_entry, null,
+         'the accountant box proposes nothing — shape is no_duplication',
+         String(FC.cpa_exception.diagnosis.shape));
+    t.ok(FC.cpa_exception.period.to < FC.close_date,
+         '⚠ REPORTED: ...about a period inside books your accountant has already closed',
+         `${FC.cpa_exception.period.to} < ${FC.close_date}`);
+    t.ok(/there is nothing to propose/.test(m.visibleText) && /Not offered as a write-off/.test(m.visibleText),
+         '⚠ REPORTED: two separate absences are explained on one card — the thing _bkFdiffRecordedHtml suppresses on purpose',
+         'one of them should go');
+
+    /* ── 5. NOTHING IS DELETED TODAY (the ce17 half) ──────────────────────
+       This one is a REAL assertion, not a report: every figure the server sent
+       reaches the reader somewhere. It is the half that stops the fix above
+       being done by trimming claims off the screen — whoever writes the lead
+       sentence has to keep this green. */
+    const sent = new Set();
+    for (const c of FC.conclusions.concat(FC.no_action_detail)) {
+      for (const f of (c.match(/\$[\d,]+\.\d{2}/g) || [])) sent.add(f);
+    }
+    const missing = [...sent].filter(f => !m.openedText.includes(f));
+    t.eq(missing.length, 0,
+         '⭐ every figure the server put in a sentence reaches the reader, visible or in the working',
+         missing.join(' '));
+
+    /* ── 6. IT DISCRIMINATES ──────────────────────────────────────────────
+       Feed a card that HAS a lead through the same measurement and watch the
+       reported assertions come out the other way. Without this the reports
+       above are satisfied by a measurement that can only ever say "absent". */
+    const withLead = JSON.parse(JSON.stringify(FC));
+    withLead.derived_cause = {
+      sentence: 'The lender and our books are $60.16 apart.',
+      working: 'proof', bracket: null,
+    };
+    const m2 = await measureFdiffModal(p, withLead);
+    t.ok(/\$60\.16/.test(m2.visibleText),
+         '⭐ CONTROL: give the card a lead that states the figure and the measurement SEES it',
+         'so the two reports above are about the card, not about the ruler');
 
     await p.close();
   },
