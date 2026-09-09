@@ -4,6 +4,26 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
+> 0. **⏸️ DAVID'S DECISION, PARKED — WHICH PERIOD DOES A CORRECTION LAND IN?** (§0ah)
+>    He asked: *"why are we proposing Sep 30, 2026 as the entry date if we're closing August?"* Not a
+>    bug — an encoded POLICY nobody has chosen out loud, plus a sentence describing something else.
+>    **Do not change the date without him**; it moves real money into a different period.
+>    * `postingDateFor('2026-06-30', today)` computes first-open = August, then clamps to the CURRENT
+>      CALENDAR MONTH, giving 2026-09-30. `isProtectedDate` then treats August as unwritable, so the
+>      encoded position is *"never write into the month under close"*.
+>    * **The clamp follows the calendar, not the close being worked.** Close July in September and it
+>      still says September. `focus_period` reaches the walk but never `postingWindow`.
+>    * **The reason line is wrong either way** — *"the month after that is being closed"* asserts
+>      JULY is being closed. July and August are both open and August is the one being closed. That
+>      half is a copy fix and safe on its own.
+>    * The two options he was given: **(a)** keep the policy, fix the sentence to say *"August is the
+>      month you're closing, so this dates into September — the first period still open"*; or
+>      **(b)** date into the month being closed (2026-08-31), so the $5.00 lands in the numbers
+>      Ramona is closing — which needs `focus_period` threaded into `postingWindow` AND a deliberate
+>      relaxation of `isProtectedDate`, which forbids it on purpose.
+>
+
+>
 > 0. **DEPLOY SESSION 289'S EIGHT FUNCTIONS** (§0aa) — see the deploy state below. Until that is done
 >    the CPA sees post buttons that 403. Nothing else on this list matters more.
 > 1. **Ramona owes an answer on EIDL's $5** (§0zr). Diagnosed: the SBA added it in April 2026,
