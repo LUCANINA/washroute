@@ -10,6 +10,7 @@
 // 2026-09-09T03:01:58Z.
 
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { readRateLimit, rateLimitMessage, MAX_RETRY_WAIT_SECONDS } from '../supabase/functions/_shared/xero-429.ts'
 
 let pass = 0, fail = 0
@@ -92,6 +93,36 @@ t('⭐ the OLD rule would have slept 45,461 seconds on the real refusal', () => 
   // And what it does now.
   assert.equal(readRateLimit(DAILY).waitSeconds, 0)
 })
+
+h('AND IT REACHES THE SCREEN — the other half of "render it honestly"')
+/* The server sentence is worthless if the card throws it away. The path is:
+   handle() throws -> Deno.serve's catch returns {error} with status 500 ->
+   _loanFn parses the body on a NON-OK response too -> the modal prefers
+   data.error over its generic fallback.
+
+   Two of those four links are one expression each, and both have been broken
+   before, so they are pinned here rather than assumed.
+   ⚠️ s289's rule: a guard that greps must name its REGION and its COUNT. */
+{
+  const dash = readFileSync(new URL('../admin-dashboard/index.html', import.meta.url), 'utf8')
+  const fdiffErr = dash.match(/data\.error \|\| 'The analysis failed/g) || []
+  t('the modal prefers the server sentence over its own fallback, at BOTH fdiff call sites', () =>
+    assert.equal(fdiffErr.length, 2))
+  const fn = readFileSync(new URL('../supabase/functions/loan-find-difference/index.ts', import.meta.url), 'utf8')
+  t('...and the function returns a JSON body on an unexpected throw, not a bare 500', () =>
+    assert.match(fn, /catch \(e\) \{\s*return new Response\(JSON\.stringify\(\{ error: String\(\(e as Error\)\?\.message/))
+  t('⭐ ...and the unreachable "try again in a few minutes" throw is GONE from both pullers', () => {
+    const recon = readFileSync(new URL('../supabase/functions/reconciliation-run/index.ts', import.meta.url), 'utf8')
+    assert.ok(!/try again in a few minutes/.test(fn), 'loan-find-difference still has it')
+    assert.ok(!/rate limit hit — try again later/.test(recon), 'reconciliation-run still has it')
+  })
+  t('⭐ ...and neither puller sleeps on an unbounded Retry-After any more', () => {
+    const recon = readFileSync(new URL('../supabase/functions/reconciliation-run/index.ts', import.meta.url), 'utf8')
+    const bad = /await sleep\(\(Number\(res\.headers\.get\('Retry-After'\)\)/
+    assert.ok(!bad.test(fn), 'loan-find-difference')
+    assert.ok(!bad.test(recon), 'reconciliation-run')
+  })
+}
 
 console.log(`\n${'='.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(64)}`)
 if (fail) process.exit(1)
