@@ -4,7 +4,23 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> 🆕 **SESSION 290: THE CODE IS DONE AND COMMITTED; THE DEPLOY IS NOT.** Both halves — the
+> ✅ **SESSION 290's FUNCTIONS ARE LIVE — CHECKED 2026-09-09 02:2x UTC BY RUNNING THE WALK, not by
+>    a version number and not because David said so.** `loan-find-difference` on Funding Circle now
+>    returns **`zero_length_spans: 0`** (the phantom `Aug 31 → Aug 31` is gone), `total_period_diff`
+>    **−1891.53 → −850.44** (exactly $1,041.09 less), both open divergent spans carrying a `cause`
+>    with no span/amount/verdict prefix, `conclusions` down to the single residual bullet, and
+>    `window.refused_anchors` carrying the human's sentence in full. The deployed SOURCE also holds
+>    `causeFor`, `humanAnchorExclusion` and `p.cause = causeFor(p)`; the three matches for the OLD
+>    wording are all inside comments, which is why the walk was run rather than the grep trusted.
+>
+> ⚠️ **BUT THE DEPLOY IS AHEAD OF GITHUB, AND THAT IS A NEW SHAPE OF STALE.** `supabase functions
+>    deploy` uploads the LOCAL working tree, not the pushed ref, so the live function carries commit
+>    `3c85807` while `origin/main` is still at `06e46a3`. **Until David pushes, Vercel serves the OLD
+>    dashboard against the NEW function**: no lead sentence, no cause on the row, and a span table
+>    whose rows silently drop a field the server is now sending. `git log origin/main..HEAD` is the
+>    check, and this sandbox cannot fetch, so measure it on his machine.
+>
+> 🆕 **SESSION 290: THE CODE IS DONE AND COMMITTED; THE DASHBOARD DEPLOY IS NOT.** Both halves — the
 >    anchor-exclusion fix and all three copy changes — are in `main` and unshipped. **Every
 >    verify_jwt flag below was MEASURED on 2026-09-09, not read off this file:**
 >    `loan-find-difference` and `loan-xero-post` answer in their OWN words → **`--no-verify-jwt`**;
