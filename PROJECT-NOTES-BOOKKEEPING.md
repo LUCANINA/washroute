@@ -13381,6 +13381,55 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 291 cont. 5 (2026-09-09) — THE PREVIEW SAID TIPS WERE NOT AN EXPENSE. THE JOURNAL HAS EXPENSED THEM SINCE AUGUST.
+
+David, on the Aug 24–30 payroll: *"We need to adjust how Tips are allocated. They should be
+lumped in our books as regular income per category"* — expense per category. Nothing needed
+adjusting in the posting. **`payroll-xero-post` has debited `wages + paycheck tips` to each
+department's own wage account since v17 (Aug 7 2026)** — Laundry 172, Delivery 173, Customer
+Service 176, Operation 668 — and the tip amount is already named in each line's Description.
+The allocation David asked for was already the behaviour.
+
+**What was wrong was the screen he asked the question from.** `renderPayrollReviewModal()`
+summed `wage_amount` only and printed, in the lead line:
+
+> Tips ($6,590.00) are excluded — passed through to employees, not a company expense.
+
+That sentence is v16-era copy that outlived the version it described (§247, *a rule can
+outlive the fact it was written for*). Two separate defects came out of one stale line:
+
+1. **The preview under-reported the journal by the whole tip amount.** $21,068.20 on screen;
+   $27,658.20 debited. The one screen whose entire job is to let a person approve a figure
+   before it reaches Xero showed a different figure from the one it posts.
+2. **It told the reader the opposite of what the posting does** — and a reader who believed
+   it would go looking for a tips allocation problem that does not exist. Which is exactly
+   what happened.
+
+**The fix, in `admin-dashboard/index.html` (~14757):** `totalsByDept` now carries `tips`, the
+Wages cell and the footer total render `wage + tips`, the lead says *"Wages include $X of
+paycheck tips, expensed in each department's own wage account"*, and the posting note under
+the table reads *"wages (tips included) + employer payroll tax"*.
+
+Per §250 (LESS IS BEST) the split did NOT become a fifth column: the wages/tips breakdown is a
+`title` on the figure it describes, on each department row and on the total. Cut the words,
+keep the claim.
+
+**Harness group `payroll-tips-in-wages` (10 assertions, all green).** It reads the RENDERED
+DOM and compares it with the same arithmetic `payroll-xero-post` performs — a builder-level
+check would have been green throughout this, because the builder was right and the screen was
+not. It picks the import with the largest tips in the fixture and asserts that period actually
+has tips first (s291a), so the group cannot go vacuous if the fixture is refreshed to a tipless
+window. **It discriminates:** s291j rebuilds the shipped function from its own `.toString()`
+with `t.wage + t.tips` put back to `t.wage` and asserts the total stops matching.
+
+Note for whoever reads the fixture next: `_allPayrollLines` / `_payrollReviewImportId` are
+top-level `let`s in the page script, so they are reachable by BARE NAME in `page.evaluate` and
+are NOT `window` properties. A first cut of this group read `window._allPayrollLines`, got
+`undefined`, and would have silently tested an empty book if s291a had not been there.
+
+**Not changed, and deliberately:** no edge function was touched, nothing was deployed, no
+journal was re-posted. Every period already in Xero has its tips in the right accounts.
+
 ### Session 291 cont. 4 — "deliberate" answers WHO, not WHETHER THE BOOKS ARE RIGHT
 
 David, asked whether the void of `261a4fd6` was deliberate: *"Yes, I believe the void was

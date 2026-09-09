@@ -14062,6 +14062,138 @@ GROUPS.push({
 
 
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAYROLL REVIEW MODAL: TIPS ARE WAGES (session 291)
+
+   `payroll-xero-post` has debited each department's wage account with
+   `wages + paycheck tips` since v17 (Aug 7 2026). The review modal a person
+   reads BEFORE clicking Post showed `wage_amount` only and said, in so many
+   words, that tips "are excluded -- passed through to employees, not a company
+   expense". Both halves were wrong: the preview under-reported the journal by
+   the whole tip amount, and the sentence told the reader the opposite of what
+   the posting does. A stale sentence beside a correct number (s247), on the one
+   screen whose entire job is to let someone approve the number.
+
+   These assertions read the RENDERED DOM and compare it against the same
+   arithmetic the edge function performs. A builder-level check would not have
+   caught this: the builder was right, the screen was not.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'payroll-tips-in-wages',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'payroll' });
+
+    const seen = await p.evaluate(() => {
+      // These are top-level `let`s in the page script: reachable by bare name
+      // from the same global lexical scope, never as window properties.
+      const lines = (typeof _allPayrollLines !== 'undefined' && _allPayrollLines) || [];
+      // The one import in the book that actually carries paycheck tips -- a
+      // tips assertion on a tipless period is vacuous.
+      const byImp = {};
+      for (const l of lines) {
+        const b = byImp[l.import_id] || (byImp[l.import_id] = { wage: 0, tips: 0 });
+        b.wage += Number(l.wage_amount || 0);
+        b.tips += Number(l.paycheck_tips_amount || 0);
+      }
+      const importId = Object.keys(byImp).sort((a, b) => byImp[b].tips - byImp[a].tips)[0];
+      const expect = byImp[importId];
+
+      _payrollReviewImportId = importId;
+      renderPayrollReviewModal();
+
+      const body = document.getElementById('payroll-review-body');
+      const cell = (tr, i) => (tr.children[i] ? tr.children[i].textContent.trim() : '');
+      const num = (s) => Number(String(s).replace(/[^0-9.-]/g, ''));
+      const foot = body.querySelector('tfoot tr');
+      const deptRows = [...body.querySelectorAll('tbody tr')];
+
+      return {
+        importId,
+        expectWage: Math.round(expect.wage * 100) / 100,
+        expectTips: Math.round(expect.tips * 100) / 100,
+        totalShown: foot ? num(cell(foot, 1)) : null,
+        totalTip: foot ? (foot.children[1].getAttribute('title') || '') : '',
+        deptSum: Math.round(deptRows.reduce((s, r) => s + num(cell(r, 1)), 0) * 100) / 100,
+        deptTitles: deptRows.map(r => r.children[1].getAttribute('title') || ''),
+        lead: (body.firstElementChild || {}).textContent || '',
+        footNote: body.lastElementChild ? body.lastElementChild.textContent : '',
+      };
+    });
+
+    const money = (n) => Math.round(n * 100) / 100;
+    const expectTotal = money(seen.expectWage + seen.expectTips);
+    // The page prints thousands separators; compare against what it prints.
+    const tipsText = seen.expectTips.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    t.ok(seen.expectTips > 0,
+         's291a: the period under test actually carries tips -- otherwise every assertion below is vacuous',
+         'tips=' + seen.expectTips + ' on import ' + seen.importId);
+
+    t.eq(seen.totalShown, expectTotal,
+         's291b: ⭐ the Wages total equals wages + tips -- the same figure payroll-xero-post debits',
+         'shown=' + seen.totalShown + ' expected=' + expectTotal);
+
+    t.eq(money(seen.deptSum), expectTotal,
+         's291c: ...and the per-department rows foot to it, so no department is short its own tips',
+         'deptSum=' + seen.deptSum + ' expected=' + expectTotal);
+
+    // LESS IS BEST (s250): the split survives as a hover on the figure it
+    // describes rather than as a fifth column. Cut the words, keep the claim.
+    t.ok(/wages/.test(seen.totalTip) && seen.totalTip.includes(tipsText),
+         's291d: the wages/tips split is still stated -- on the total it describes, not in a new column',
+         seen.totalTip);
+    t.ok(seen.deptTitles.some(x => /tips/.test(x)),
+         's291e: ...and per department too, for the departments that have tips',
+         JSON.stringify(seen.deptTitles));
+
+    // The stale sentence itself. It is the half that misled a reader even when
+    // the numbers were only wrong by omission.
+    t.ok(!/excluded/.test(seen.lead) && !/not a company expense/.test(seen.lead),
+         's291f: ⭐ the lead no longer says tips are excluded -- the journal expenses them',
+         seen.lead);
+    t.ok(seen.lead.includes(tipsText),
+         's291g: ...and still names the tip amount, so the claim was trimmed, not deleted',
+         seen.lead);
+    t.ok(/tips included/i.test(seen.footNote),
+         's291h: the posting note under the table says what it debits',
+         seen.footNote.slice(0, 160));
+
+    /* ── IT DISCRIMINATES ──────────────────────────────────────────────────
+     * The inverse of the fix, applied to the SHIPPED function's own source in
+     * page context -- never by editing index.html. The old behaviour was
+     * `t.wage` where the journal uses wage + tips; putting it back must make
+     * s291b go red, or s291b is decoration.
+     */
+    const broken = await p.evaluate(() => {
+      const src = renderPayrollReviewModal.toString();
+      const mutated = src
+        .replace('fmtMoney(t.wage + t.tips)', 'fmtMoney(t.wage)')
+        .replace('fmtMoney(grandWage + grandTips)', 'fmtMoney(grandWage)');
+      if (mutated === src) return { installed: false };
+      const fn = new Function('renderPayrollReviewModal', 'return ' + mutated)();
+      fn();
+      const body = document.getElementById('payroll-review-body');
+      const foot = body.querySelector('tfoot tr');
+      return {
+        installed: true,
+        totalShown: foot ? Number(foot.children[1].textContent.replace(/[^0-9.-]/g, '')) : null,
+      };
+    });
+
+    t.ok(broken.installed, 's291i: the tips-excluded regression could be installed');
+    t.ok(broken.installed && broken.totalShown !== expectTotal,
+         's291j: ⭐ DISCRIMINATION -- dropping tips back out of the total makes s291b fail',
+         'broken total=' + broken.totalShown + ' vs expected=' + expectTotal);
+
+    // Repaint the real one so nothing downstream inherits the broken render.
+    await p.page.evaluate(() => renderPayrollReviewModal());
+
+    await p.close();
+  },
+});
+
+
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
 if (ONLY.length) {

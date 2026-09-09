@@ -14755,11 +14755,11 @@
     const reimbOnlyLine = lines.find(l => l.line_type === 'reimbursement_only');
     const unmatched = employeeLines.filter(l => !l.department_key);
     const totalsByDept = {};
-    for (const d of _allPayrollDepartments) totalsByDept[d.key] = { ...d, wage: 0, tax: 0, health: 0, k401: 0, count: 0 };
+    for (const d of _allPayrollDepartments) totalsByDept[d.key] = { ...d, wage: 0, tips: 0, tax: 0, health: 0, k401: 0, count: 0 };
     for (const l of lines) {
       if (!l.department_key || !totalsByDept[l.department_key]) continue;
       const t = totalsByDept[l.department_key];
-      t.wage += Number(l.wage_amount||0); t.tax += Number(l.er_tax_amount||0);
+      t.wage += Number(l.wage_amount||0); t.tips += Number(l.paycheck_tips_amount||0); t.tax += Number(l.er_tax_amount||0);
       t.health += Number(l.er_health_amount||0); t.k401 += Number(l.er_401k_amount||0);
       t.count += 1;
     }
@@ -14769,7 +14769,7 @@
 
     const deptRows = Object.values(totalsByDept).map(t => `<tr>
       <td>${esc(t.display_name)} <span style="color:var(--gray-400);font-size:11.5px">(${t.count})</span></td>
-      <td>${fmtMoney(t.wage)}</td>
+      <td${t.tips > 0 ? ` title="${fmtMoney(t.wage)} wages + ${fmtMoney(t.tips)} tips"` : ''}>${fmtMoney(t.wage + t.tips)}</td>
       <td>${fmtMoney(t.tax)}</td>
       <td>${fmtMoney(t.health)}</td>
       <td>${fmtMoney(t.k401)}</td>
@@ -14791,7 +14791,7 @@
     </tr>`).join('');
 
     body.innerHTML = `
-      <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:14px">Pay date ${esc(fmtDate(imp.pay_date))} · ${employeeLines.length} employee${employeeLines.length!==1?'s':''} · <span style="color:var(--gray-400)">Tips (${fmtMoney(grandTips)}) are excluded — passed through to employees, not a company expense.</span></div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:14px">Pay date ${esc(fmtDate(imp.pay_date))} · ${employeeLines.length} employee${employeeLines.length!==1?'s':''} · <span style="color:var(--gray-400)">Wages include ${fmtMoney(grandTips)} of paycheck tips, expensed in each department's own wage account.</span></div>
       ${reimbOnlyLine ? `
         <div style="background:var(--blue-light,#eff6ff);border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-bottom:14px">
           <div style="font-weight:700;color:#1d4ed8;font-size:13px;margin-bottom:4px">💳 This is a standalone insurance reimbursement run</div>
@@ -14801,14 +14801,14 @@
       <table style="width:100%;margin-bottom:16px">
         <thead><tr><th>Department</th><th>Wages</th><th>Employer Tax</th><th>Employer Health</th><th>Employer 401k</th><th>Xero accts</th></tr></thead>
         <tbody>${deptRows}</tbody>
-        <tfoot><tr style="font-weight:700"><td>Total</td><td>${fmtMoney(grandWage)}</td><td>${fmtMoney(grandTax)}</td><td colspan="3"></td></tr></tfoot>
+        <tfoot><tr style="font-weight:700"><td>Total</td><td title="${fmtMoney(grandWage)} wages + ${fmtMoney(grandTips)} tips">${fmtMoney(grandWage + grandTips)}</td><td>${fmtMoney(grandTax)}</td><td colspan="3"></td></tr></tfoot>
       </table>` : ''}
       ${unmatched.length ? `
         <div style="background:var(--red-light,#fef2f2);border:1px solid #fecaca;border-radius:10px;padding:12px 14px;margin-bottom:10px">
           <div style="font-weight:700;color:var(--red);font-size:13px;margin-bottom:8px">⚠️ ${unmatched.length} employee${unmatched.length!==1?'s':''} not in the department mapping — resolve before marking this reviewed</div>
           <table style="width:100%"><thead><tr><th>Name</th><th>Wages</th><th>Tax</th><th></th></tr></thead><tbody>${unmatchedRows}</tbody></table>
         </div>` : ''}
-      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting to Xero debits <b>wages + employer payroll tax</b> to the department accounts above, and clears net pay, employee tax withholding, employee health, and employee 401k out of the cash/clearing accounts (170, 675, 358) so each period nets to zero. The <b>employer's own</b> 401k match and health contribution shown per department here are not part of this posting — your CPA still handles those the same way as before.</div>
+      <div style="font-size:11.5px;color:var(--gray-400);border-top:1px solid var(--gray-100);padding-top:10px;margin-top:4px">Posting to Xero debits <b>wages (tips included) + employer payroll tax</b> to the department accounts above, and clears net pay, employee tax withholding, employee health, and employee 401k out of the cash/clearing accounts (170, 675, 358) so each period nets to zero. The <b>employer's own</b> 401k match and health contribution shown per department here are not part of this posting — your CPA still handles those the same way as before.</div>
     `;
 
     const canWrite = _bkCanWrite();
