@@ -70,7 +70,7 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> ⚠️ **§0af AND §0ag CHANGED `loan-find-difference` AFTER v40** — the focus-tie condition, and
+> ⚠️ **§0ah IS CARD-ONLY (live on push). §0af AND §0ag CHANGED `loan-find-difference` AFTER v40** — the focus-tie condition, and
 > `bracketIncrease` in `derive-cause.ts` plus the citation line on the card. Redeploy owed
 > (`--no-verify-jwt`); until then the card states the tie twice and shows no bracket.
 >
@@ -117,6 +117,50 @@
 > seven commits. The next session should still MEASURE `git log origin/main..HEAD` rather than trust
 > this line — this sandbox cannot fetch, so a stale ref is the failure mode here, exactly as it is
 > for the deploy state.
+>
+> ### 0ah. ⭐ THE `/dashboard-design` REVIEW — AND THE MOCKUP WAS RIGHT TWICE (session 289, David)
+>
+> David asked for the fix card to be run past `/dashboard-design`. Four findings; **the two that
+> mattered are both places I had DRIFTED FROM HIS MOCKUP**, which is worth more than the findings.
+>
+> **Rule 2 (label → NUMBER → action) and rule 5 (flag the value that means work) — FIXED.** The card's
+> entire subject is a figure, and that figure rendered at body size inside a table cell. Nothing on
+> screen carried real weight, so a reader scanning had no anchor, and the one value whose non-zero
+> state means work sat in the same neutral as the account names beside it.
+> **⚠️ The fix is WEIGHT, not another instance** — §279 already spends this figure's two permitted
+> appearances (the lead, and the journal it writes), so adding a third to satisfy a dashboard rule
+> would trade one defect for another. The journal figures got the size instead.
+>
+> **Rule 6 (state the unit once) — FIXED.** `Debit ($)` / `Credit ($)` in the heads, bare `5.00` in
+> the cells. Exactly what the mockup did.
+>
+> **Rule 4 (colour is three or four words) — NOT changed, deliberately.** `Post to Xero` is a filled
+> BLUE button inside the amber action block: two accents in one place, and the mockup uses a
+> near-black button. But the skill's own precedence says a project's design system wins on specifics,
+> and `.btn-primary` is this app's blue everywhere. Recolouring one button on one card would trade a
+> design-rule nit for an inconsistency across the product. **Left as it is, on purpose.**
+>
+> **Rule 3 (quiet button styles) — judged not to apply.** Its concern is eight filled buttons
+> shouting at once; this card has one primary action.
+>
+> ### 0ah-i. 🔴 A THIRD GUARD DEFEATED BY ITS OWN SURROUNDINGS, IN ONE SESSION
+>
+> The rule-6 assertion was written as *"no `$` anywhere in the table"* — and went red on
+> `Debit ($)` / `Credit ($)`, **the very heads it exists to require.** An assertion that contradicts
+> itself. It now counts: exactly two, both headings, none on a figure.
+>
+> That is the third today, after the comment quoting its own dropped clause (§0ad-ii) and the pin
+> catching the control written to exercise it (§0ag-i). **The shape is always the same: a
+> text-matching guard whose subject also appears in the material AROUND it** — the prose explaining
+> the rule, the control demonstrating the rule, the heading the rule demands. Worth stating as a rule
+> of its own: **a guard that greps must name the region and the count it means, never just the
+> string.**
+>
+> **Also fixed, found by running the live walk rather than by a test:** with §0af making the focus-tie
+> bullet conditional, `conclusions` can come back EMPTY on a clean card — and the narrative fallback
+> then stepped into the emptied section with *"Walked 4 statement spans (2026-04-22 → 2026-08-24)"*, a
+> THIRD range on a card that already has two. It now renders only when nothing else describes the
+> walk. A conditional emptied a section and promoted its fallback; §0af's own shape, one turn later.
 >
 > ### 0ag. ⭐⭐ WHEN IT APPEARED — BRACKETED BETWEEN TWO DOCUMENTS (session 289, David)
 >

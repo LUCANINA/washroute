@@ -1107,6 +1107,24 @@ GROUPS.push({
       ],
     });
     const ties = (allTie.visible.match(/ties to the cent/g) || []).length;
+    /* ⭐ and the narrative must not step into the emptied section (s289). */
+    const narr = await draw({
+      derived_cause: DC, focus_period: '2026-08', close_date: '2026-06-30',
+      conclusions: [], narrative: 'Walked 4 statement spans (2026-04-22 → 2026-08-24) on EIDL SBA Loan.',
+      periods: [
+        { from: '2026-06-22', to: '2026-07-22', lender_delta: 0, xero_delta: 0, verdict: 'clean' },
+        { from: '2026-07-22', to: '2026-08-24', lender_delta: 0, xero_delta: 0, verdict: 'clean', in_focus: true },
+      ],
+    });
+    t.ok(!/Walked 4 statement spans/.test(narr.visible),
+         '⭐ with a cause section present, the narrative fallback stays silent — it would be a THIRD range on one card',
+         narr.visible.slice(0, 200));
+    const narrOnly = await draw({
+      conclusions: [], narrative: 'Walked 4 statement spans (2026-04-22 → 2026-08-24) on EIDL SBA Loan.',
+      periods: [{ from: '2026-06-22', to: '2026-07-22', lender_delta: 0, xero_delta: 0, verdict: 'clean' }],
+    });
+    t.ok(/Walked 4 statement spans/.test(narrOnly.visible),
+         'CONTROL: with nothing else describing the walk it still speaks — a fallback, not a deletion');
     t.eq(ties, 1, '⭐ "ties to the cent" is stated EXACTLY ONCE on the visible card', `saw ${ties}: ${allTie.visible.slice(0, 200)}`);
     t.ok(/Jun 22, 2026 → Aug 24, 2026 ties to the cent/.test(allTie.visible),
          '...and the survivor is the ✓ line, which spans every open row', allTie.visible.slice(0, 200));
@@ -1187,6 +1205,10 @@ GROUPS.push({
         // The columns each figure lands in, read off the rendered row rather
         // than off the payload -- a sign error has to be VISIBLE as a debit and
         // a credit swapping places, which is only true if this reads the DOM.
+        tableText: (() => {
+          const t = host.querySelector('.fdc-act table');
+          return t ? t.textContent.replace(/\s+/g, ' ').trim() : '';
+        })(),
         loanRowCells: (() => {
           const rows = [...host.querySelectorAll('.fdc-act tbody tr')];
           const r = rows.find(x => /2500/.test(x.textContent));
@@ -1247,6 +1269,18 @@ GROUPS.push({
     /* 4 ── THE SIGN IS READ FROM THE FIGURE, NOT ASSERTED IN A LABEL ─────── */
     // loan_leg is NEGATIVE, so the loan account is CREDITED: em dash in the
     // debit column, the money in the credit column.
+    /* dashboard-design rule 6 — the unit is stated once, in the column head. */
+    // Scoped to the TABLE. The first cut read the whole card and went red on the
+    // narration inside the working, which legitimately says "$5.00 adjustment" —
+    // a journal narration goes into Xero, where no column head is there to carry
+    // the unit for it. The rule is about the COLUMN, so the assertion reads one.
+    // ⚠️ The dollar signs in "Debit ($)" / "Credit ($)" are the POINT, so an
+    // assertion of "no $ in the table" contradicts itself — it went red on the
+    // heads it was written to require. Count instead: exactly two, both of them
+    // headings, and none in the body rows.
+    t.ok(/Debit \(\$\)/.test(fresh.tableText) && (fresh.tableText.match(/\$/g) || []).length === 2,
+         '⭐ the currency is stated twice — once per column head — and never on a figure (rule 6)',
+         fresh.tableText);
     t.ok(fresh.loanRowCells && fresh.loanRowCells[1] === '—' && /5\.00/.test(fresh.loanRowCells[2]),
          '⭐ a negative loan leg renders as a CREDIT — the columns follow the sign',
          JSON.stringify(fresh.loanRowCells));

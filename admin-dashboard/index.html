@@ -12831,7 +12831,19 @@
       if (Array.isArray(data.no_action_detail) && data.no_action_detail.length) {
         W('Spans that need no action', `<ul style="margin:0;padding-left:17px">${data.no_action_detail.map(c => `<li style="margin-top:4px">${esc(c)}</li>`).join('')}</ul>`);
       }
-    } else if (data.narrative) {
+    } else if (data.narrative && !dc && !(note && !note.stale)) {
+      // ── s289: THE NARRATIVE IS A FALLBACK, NOT A FOOTER ────────────────────
+      // With the focus-tie bullet now conditional (§0af), `conclusions` can come
+      // back EMPTY on a clean card -- and this branch then surfaced
+      // "Walked 4 statement spans (2026-04-22 → 2026-08-24)" as a bare line,
+      // which restates a range the ✓ line already owns, with a DIFFERENT start
+      // (it counts closed spans; the ✓ line does not). Rule D, arriving through
+      // the same door as §0af: a conditional bullet emptied a section and
+      // promoted its fallback.
+      //
+      // The narrative exists for the card that has nothing else describing the
+      // walk. Where a cause section is present it is the third statement of a
+      // thing already said twice, so it renders only when nothing else speaks.
       parts.push(`<section class="fdc-sec">${esc(data.narrative)}</section>`);
     }
     if (data.verdict === 'not_enough_history') {
@@ -12996,10 +13008,26 @@
     // off the number rather than hard-coding it means a sign error shows up as
     // a debit and a credit swapping places -- visible -- instead of as a label
     // that quietly disagrees with what will post.
+    // ── s289 (dashboard-design rules 2, 5 and 6) ───────────────────────────
+    // The card's entire subject is a figure, and that figure rendered at body
+    // size inside a table cell — nothing on screen had real visual weight, so a
+    // reader scanning had no anchor (rule 2: label → NUMBER → action). Rule 5 is
+    // sharper: the one value whose non-zero state means work was in the same
+    // neutral as the account names beside it.
+    //
+    // ⚠️ The fix is WEIGHT, not another instance. §279 already allows this
+    // figure in the lead and on the journal it writes; a third statement to
+    // satisfy a dashboard rule would trade one defect for another. So the
+    // existing journal figures get the size, and the currency moves to the
+    // column head (rule 6 — state the unit once) exactly as David's mockup had
+    // it, which is the second place I had drifted from it.
+    const fig = 'padding:7px 0;border-top:1px solid #e8cfa4;text-align:right;font-size:15.5px;font-weight:500;color:var(--gray-900);font-variant-numeric:tabular-nums';
+    const dash = 'padding:7px 0;border-top:1px solid #e8cfa4;text-align:right;color:var(--gray-400)';
+    const bare = (v) => esc(fmtMoney(v).replace(/^\$/, ''));
     const row = (name, code, isDebit) => `<tr>
-        <td style="padding:6px 0;border-top:1px solid #e8cfa4">${esc(name || 'Account')} <span style="color:var(--gray-500)">· ${esc(code)}</span></td>
-        <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${isDebit ? esc(fmtMoney(amt)) : '—'}</td>
-        <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${isDebit ? '—' : esc(fmtMoney(amt))}</td>
+        <td style="padding:7px 0;border-top:1px solid #e8cfa4">${esc(name || 'Account')} <span style="color:var(--gray-500)">· ${esc(code)}</span></td>
+        <td style="${isDebit ? fig : dash}">${isDebit ? bare(amt) : '—'}</td>
+        <td style="${isDebit ? dash : fig}">${isDebit ? '—' : bare(amt)}</td>
       </tr>`;
     // ⚠️ s289 rule D: THE DATE IS STATED BY THE THING IT GOVERNS, ONCE. The
     // label carries it; `dated_because` explains it and belongs in the working.
@@ -13033,20 +13061,20 @@
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:9px;font-variant-numeric:tabular-nums">
         <thead><tr style="color:var(--gray-500);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase">
           <th style="text-align:left;font-weight:600;padding-bottom:5px">Account</th>
-          <th style="text-align:right;font-weight:600;padding-bottom:5px">Debit</th>
-          <th style="text-align:right;font-weight:600;padding-bottom:5px">Credit</th>
+          <th style="text-align:right;font-weight:600;padding-bottom:5px">Debit ($)</th>
+          <th style="text-align:right;font-weight:600;padding-bottom:5px">Credit ($)</th>
         </tr></thead>
         <tbody>
           <tr>
-            <td style="padding:6px 0;border-top:1px solid #e8cfa4">
+            <td style="padding:7px 0;border-top:1px solid #e8cfa4">
               <select id="${sel}" class="form-input" style="font-size:12.5px;padding:4px 6px;max-width:320px"
                       onchange="bkRecAcctPicked(this,'fdiff-rec-${findingId}')">
                 <option value=""${dflt ? '' : ' selected'}>Choose the account…</option>${options}
               </select>
               ${dflt ? `<div class="fdc-quiet" style="margin-top:3px">${esc(rec.default_account_why || 'the usual account')} — change it if this is a fee rather than interest</div>` : ''}
             </td>
-            <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${dr ? '—' : esc(fmtMoney(amt))}</td>
-            <td style="padding:6px 0;border-top:1px solid #e8cfa4;text-align:right">${dr ? esc(fmtMoney(amt)) : '—'}</td>
+            <td style="${dr ? dash : fig}">${dr ? '—' : bare(amt)}</td>
+            <td style="${dr ? fig : dash}">${dr ? bare(amt) : '—'}</td>
           </tr>
           ${row(rec.loan_leg.AccountName, rec.loan_leg.AccountCode, dr)}
         </tbody>
