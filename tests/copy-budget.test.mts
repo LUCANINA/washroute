@@ -300,9 +300,14 @@ section('the conclusion bullets no longer restate the table below them')
   // nobody updates the fixture, the harness measures a card that no longer
   // exists — so pin the shapes the fixture depends on.
   const harness = readFileSync(new URL('./bookkeeping-harness.mjs', import.meta.url), 'utf8')
-  ok('the harness fixture still quotes the focus-tie sentence the source builds',
-     src.includes('ties to the cent.`)') &&
-     harness.includes('Every span in August 2026 ties to the cent.'))
+  // s289: the focus-tie bullet is now CONDITIONAL — it is emitted only when
+  // something else in the walk is off. The 4140 fixture's one divergent span is
+  // CLOSED, so realDivergent is 0 and the bullet is correctly absent from it.
+  ok('the focus-tie sentence is built only where the trouble is elsewhere',
+     src.includes('the rest of this walk is where the difference is.`)') &&
+     src.includes('if (realDivergent.length) {'))
+  ok('...and the fixture, whose only divergent span is CLOSED, no longer quotes it',
+     !harness.includes('Every span in August 2026 ties to the cent.'))
   ok('the harness fixture still quotes the approve sentence the source builds',
      src.includes('Approve the prepared ${money(cpaException.proposed_entry.amount)} correction below') &&
      harness.includes('Approve the prepared $415.88 correction below'))

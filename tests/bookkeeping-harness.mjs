@@ -1078,6 +1078,43 @@ GROUPS.push({
     t.ok(stale.workingLabels.some(l => /earlier explanation/i.test(l)),
          '...labelled as an earlier explanation about a different figure', JSON.stringify(stale.workingLabels));
 
+    /* 3b ── ⭐⭐ THE SHAPE NO FIXTURE CARRIED: EVERYTHING TIES, AND THERE IS
+       A FOCUS MONTH. ──────────────────────────────────────────────────────
+       This is EIDL's card the moment §0ae let the walk see August. The
+       focus-tie bullet and the ✓ line then made the SAME claim, and the second
+       range contained the first — a duplication CREATED by a fix, because
+       until the walk could reach August this branch was unreachable with
+       everything clean. The dedup assertion missed it for the only reason
+       assertions ever miss things: no payload had the shape (s245).
+
+       The rule: the focus-tie bullet is worth saying only when the trouble is
+       elsewhere. With nothing off, the ✓ line says it better and wider. */
+    const allTie = await draw({
+      derived_cause: DC, focus_period: '2026-08', close_date: '2026-06-30',
+      conclusions: [],   // what the server now emits when realDivergent is 0
+      periods: [
+        { from: '2026-06-22', to: '2026-07-22', lender_delta: 0, xero_delta: 0, verdict: 'clean' },
+        { from: '2026-07-22', to: '2026-08-24', lender_delta: 0, xero_delta: 0, verdict: 'clean', in_focus: true },
+      ],
+    });
+    const ties = (allTie.visible.match(/ties to the cent/g) || []).length;
+    t.eq(ties, 1, '⭐ "ties to the cent" is stated EXACTLY ONCE on the visible card', `saw ${ties}: ${allTie.visible.slice(0, 200)}`);
+    t.ok(/Jun 22, 2026 → Aug 24, 2026 ties to the cent/.test(allTie.visible),
+         '...and the survivor is the ✓ line, which spans every open row', allTie.visible.slice(0, 200));
+
+    /* CONTROL — feed the bullet back in and the count goes to two, so this
+       assertion can fail on the card it was written for. */
+    const dup = await draw({
+      derived_cause: DC, focus_period: '2026-08', close_date: '2026-06-30',
+      conclusions: ['Every span in August 2026 ties to the cent.'],
+      periods: [
+        { from: '2026-06-22', to: '2026-07-22', lender_delta: 0, xero_delta: 0, verdict: 'clean' },
+        { from: '2026-07-22', to: '2026-08-24', lender_delta: 0, xero_delta: 0, verdict: 'clean', in_focus: true },
+      ],
+    });
+    t.eq((dup.visible.match(/ties to the cent/g) || []).length, 2,
+         '⭐ CONTROL: the card David saw states it twice — the measurement can go red');
+
     /* 4 ── WITH NO DERIVATION A CURRENT NOTE STILL LEADS ─────────────────
        Rule A demotes the prose only when something better answers the same
        question. With nothing measured, the note IS the answer. */
@@ -12344,8 +12381,11 @@ GROUPS.push({
       // Kept in step with the generator by tests/copy-budget.test.mts, which
       // asserts against the real source of these sentences. A transcription
       // that nothing pins is not a test (s245).
+      // s289: the focus-tie bullet is gone from this payload ON PURPOSE. It is
+      // emitted only when an OPEN span is still off, and 4140's one divergent
+      // span is closed — so the ✓ line, which covers a wider range, is the only
+      // place that claim is made. Its removal is the change, not an oversight.
       conclusions: [
-        'Every span in August 2026 ties to the cent.',
         "Your accountant's own split on the 2026-06-17 payment duplicates interest we had already booked. Approve the prepared $415.88 correction below — nothing else to fix in this span.",
       ],
       no_action_detail: ['1 span (2026-05-28 → 2026-06-17) sits inside books closed through 2026-06-30, $283.07 in total — your accountant has already settled those months with her own adjustments. Nothing to do; they are listed below for reference only.'],

@@ -1072,8 +1072,32 @@ function analyzeWalk(o: {
         ? `. Separately, ${realDivergent.length} earlier span${realDivergent.length === 1 ? '' : 's'} still ${realDivergent.length === 1 ? 'needs' : 'need'} a look — below.`
         : `.`))
   } else if (focusPeriod && focusSpans.every(p => p.verdict === 'clean')) {
-    conclusions.push(
-      `Every span in ${monthName(focusPeriod)} ties to the cent.`)
+    // ── s289: THE FOCUS-TIE BULLET EARNS ITS PLACE ONLY WHEN SOMETHING ELSE
+    //    IS OFF ─────────────────────────────────────────────────────────────
+    //
+    // David, on the card the anchor fix had just improved: this bullet said
+    // "Every span in August 2026 ties to the cent" directly above a ✓ line
+    // reading "Jun 22, 2026 → Aug 24, 2026 ties to the cent, nothing else
+    // outstanding". Same claim, and the second range CONTAINS the first.
+    //
+    // ⚠️ THE DUPLICATION WAS CREATED BY §0ae, WHICH IS THE INTERESTING PART.
+    // Those two sentences had never overlapped before, because until the walk
+    // could see the September balance the focus month had NO SPAN — this
+    // branch could not be reached with everything tying. A fix widened the
+    // walk and, in doing so, made a previously-disjoint pair of statements
+    // collide. The dedup assertion missed it because no fixture carried the
+    // shape (all spans clean AND a focus month present), which is the s245
+    // lesson again: an assertion only ever measures the payloads it is given.
+    //
+    // So the bullet says something worth saying ONLY when the reader's month is
+    // fine and the trouble is elsewhere — "yours is clean, look below". With
+    // nothing off anywhere, the ✓ line makes the same claim over a wider range
+    // and makes it better, so this one goes. `focusTiesStated` is still set
+    // either way: the closed-books line below must not restate it (s279).
+    if (realDivergent.length) {
+      conclusions.push(
+        `Every span in ${monthName(focusPeriod)} ties to the cent — the rest of this walk is where the difference is.`)
+    }
     focusTiesStated = true
   }
 

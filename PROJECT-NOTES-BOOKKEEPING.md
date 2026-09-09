@@ -50,6 +50,9 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
+> ⚠️ **§0af CHANGED `loan-find-difference` AFTER v40 — one condition on the focus-tie bullet.
+> Redeploy owed (`--no-verify-jwt`); until then the card states the tie twice.**
+>
 > ✅ **§0ad AND §0ae ARE LIVE — `loan-find-difference` v40, checked 2026-09-09 by the deployed
 > source, by a boot probe, by the unchanged flag, AND by RUNNING THE WALK (§0ae-i): the August span
 > exists and ties. Earlier note, still true, from v39:, deployed by David and CHECKED HERE at
@@ -93,6 +96,35 @@
 > seven commits. The next session should still MEASURE `git log origin/main..HEAD` rather than trust
 > this line — this sandbox cannot fetch, so a stale ref is the failure mode here, exactly as it is
 > for the deploy state.
+>
+> ### 0af. ⭐⭐ A FIX CREATED A DUPLICATION, AND NO FIXTURE HAD THE SHAPE (session 289, David)
+>
+> David, on the card §0ae had just improved: **"Every span in August 2026 ties to the cent"** (bullet)
+> sat directly above **"Jun 22, 2026 → Aug 24, 2026 ties to the cent, nothing else outstanding"**
+> (the ✓ line). One claim, twice, and **the second range contains the first**.
+>
+> **The duplication was CREATED by the fix, and that is the part worth remembering.** Those two
+> sentences had never overlapped, because until the walk could see the September balance the focus
+> month had NO SPAN — the `focusSpans.every(clean)` branch was unreachable with everything tying. A
+> fix widened the walk and made a previously-disjoint pair of statements collide. **Nothing was
+> wrong with either sentence; what changed was that both could now be true at once.**
+>
+> **The dedup assertion missed it for the only reason assertions ever miss things: no payload carried
+> the shape.** `fdiff-copy-budget`'s fixture has a divergent span; `derived-cause`'s had no focus
+> month. Neither could produce all-clean-plus-a-focus-month, which is exactly EIDL's card today.
+> §245's lesson, arriving through a gap in FIXTURES rather than in logic.
+>
+> **The rule: the focus-tie bullet earns its place only when something else is off.** It says
+> something worth saying when the reader's month is fine and the trouble is elsewhere — *"yours is
+> clean, look below"* — and it now reads that way. With nothing off anywhere, the ✓ line makes the
+> same claim over a wider range and makes it better, so the bullet goes. `focusTiesStated` is still
+> set in both branches: the closed-books line must not restate it either (§279).
+>
+> New assertions in `derived-cause`: the visible card states *"ties to the cent"* **exactly once**,
+> the survivor is the ✓ line, and a CONTROL that feeds the bullet back in and counts two — so the
+> measurement can go red on the card David actually saw. `copy-budget.test.mts` pins the new
+> conditional in the real source and pins the fixture's *absence* of the old sentence; that pin is
+> what caught the fixture drift within seconds of the change.
 >
 > ### 0ae. 🔴🔴 THE SEPTEMBER STATEMENT WAS ON FILE — A FUTURE TEST ON THE WRONG DATE (session 289, David)
 >
