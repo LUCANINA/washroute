@@ -114,7 +114,10 @@
 >
 > **NEXT, IN ORDER, ON THIS STRAND:**
 >
-> * **A. Lender access — NEEDS A DECISION BEFORE ANY CODE.** David: *"this is where we could keep
+> * **A. Lender access — ✅ DECIDED (Option A), ⏸️ PARKED. Not a priority; do not build it yet**
+>   (David, 2026-09-09). The write-up is `docs/bookkeeping/DESIGN-LENDER-ACCESS.md` and it is
+>   finished — when this is picked up, read §4 and run `washroute-migration-review`; do not redo the
+>   decision. **Option B (storing the credentials) is closed.** Original ask: *"this is where we could keep
 >   password information and integrations with the banks."* `loan_accounts` has no column for any of
 >   it. The proposal on the table records the ROUTE IN, not the secret: portal URL, username, second
 >   factor, who may sign in, whether statements arrive by email, whether a bank feed exists, last

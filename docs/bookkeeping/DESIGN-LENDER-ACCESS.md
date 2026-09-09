@@ -1,6 +1,18 @@
 # Lender access on the loan card — a decision, not a feature
 
-**Status:** awaiting David's decision. Nothing is built. No migration is written.
+**Status:** ✅ **DECIDED — Option A.** ⏸️ **NOT A PRIORITY. Do not build it yet.**
+David, session 290, 2026-09-09: *"ok for option A, but this feature is not a
+priority yet."*
+
+The decision is settled so it does not have to be re-litigated when the work
+comes up; the SCHEDULING is deliberate. **Do not open this because the card looks
+unfinished without it** — an empty access section is not a defect, and §3's own
+argument says the eight ordinary fields carry the value while the secret carries
+the risk. When it is picked up, §4 is the migration sketch and
+`washroute-migration-review` runs first. **Option B is closed** — reopening it
+needs a new conversation, not a quiet upgrade of `portal_secret_ref` into a place
+a password will fit.
+
 **Raised:** session 290, 2026-09-09 — *"this is where we could keep password
 information and integrations with the banks."*
 
