@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { rederiveIfDerived, REAL_SOURCES } from "../_shared/derive-schedule.ts"
+import { splitPairObjection, splitPairNote } from "../_shared/split-pair.ts"
 import { effectiveCloseDate, isPeriodClosed, closedNote } from "../_shared/close-date.ts"
 import { pairFeesToPayments, footingCheck, basisProvenBy } from '../_shared/statement-split-shape.ts'
 import { resolvePeriodLabel } from '../_shared/period-label.ts'
@@ -847,6 +848,44 @@ async function handleRequest(req: Request): Promise<Response> {
       .limit(1)
     const prior = priorStmts?.[0]
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  SESSION 290 — TWO REASONS A STATEMENT PAIR CANNOT PRODUCE A SPLIT
+    // ══════════════════════════════════════════════════════════════════════
+    // Funding Circle's 2026-08 split was built from `prior` = the 2026-07-01
+    // statement and `current` = the 2026-08-03 one. Both report $66,215.03,
+    // because they are the SAME PDF -- identical bytes, 51,673 of them, the July
+    // statement re-dated. A person established that months ago and wrote it into
+    // `anchor_exclusion_reason`.
+    //
+    // With no measurable movement between them, the explicit-split branch below
+    // fell back to the document's own stated breakdown -- July's, $1,025.71 /
+    // $1,008.06 -- and filed it as AUGUST. The lender applied $1,041.09 to
+    // principal that month. That $15.38 is the variance on David's Loans row,
+    // and the same shape has been running every month: our books book the prior
+    // month's principal, and since the principal portion of an amortising loan
+    // grows, so does the gap (14.72, 14.92, 15.14, 15.38).
+    //
+    // ⚠️ THE GUARD ALREADY EXISTED, ONE BRANCH AWAY -- session 231, third time on
+    // this same document. The statement_delta branch refuses exactly this shape
+    // ("The balance did not fall between X and Y (both $...)"), because it
+    // COMPUTES from the delta and a zero delta is visible to it. The explicit
+    // branch never computes a delta, so it never noticed there was not one.
+    //
+    // ⚠️ AND NOTHING ELSE CAUGHT IT. That branch's one cross-check is against the
+    // amortization schedule, and the schedule of the day started at 2026-09-03 --
+    // no August row at all, so `schedRows.length` was 0 and the comparison
+    // silently did nothing. A missing comparison read as agreement (s247: a null
+    // is not a zero). Guard 3 below makes that silence speak.
+    // Compared off the STORED hashes rather than this request's `fileSha`, so the
+    // test holds however the row arrived -- a re-ingest, a backfill, a row filed
+    // without a document. Both sides are loan_statements rows and both carry the
+    // column, so there is no path where only one side is checkable.
+    // s290: the predicate lives in _shared/split-pair.ts so it can be tested
+    // without a Supabase client -- see that file's header for the measurement.
+    // Both split branches below read THIS, so they cannot come to disagree about
+    // which pairs are admissible (s231).
+    const pairObjection = splitPairObjection(prior as any, stmt as any)
+
     // ── A REAL STATEMENT MAY REFINE A PROJECTION, NEVER CLOBBER BOOKED WORK ──
     // Session 231. The two split upserts below key on (loan_account_id, period_label)
     // and set status='pending_review' outright. Every OTHER writer to that key checks
@@ -912,6 +951,15 @@ async function handleRequest(req: Request): Promise<Response> {
       let reviewNotes: string | null = `From the lender statement's own stated principal/interest breakdown (not computed by diffing against a prior statement).`
       let amortizationRowId: string | null = null
 
+      // ── s290: A PAIR THAT CANNOT MOVE CANNOT MEASURE A MOVEMENT ───────────
+      // The statement is still STORED either way -- it is evidence, and something
+      // has to hold its own period's record. What it may not do is silently
+      // decide what a DIFFERENT month's principal and interest were.
+      if (pairObjection) {
+        status = 'needs_attention'
+        reviewNotes = splitPairNote(pairObjection, periodLabel)
+      }
+
       const { data: schedules } = await supa
         .from('loan_amortization_schedules')
         .select('id')
@@ -940,6 +988,16 @@ async function handleRequest(req: Request): Promise<Response> {
             status = 'needs_attention'
             reviewNotes += ` Mismatch vs. amortization schedule for ${periodLabel}: statement shows principal $${principalAmount.toFixed(2)} / interest $${interestAmount.toFixed(2)}, schedule expects principal $${schedPrincipal.toFixed(2)} / interest $${schedInterest.toFixed(2)}.`
           }
+        } else {
+          // ── s290 GUARD 3: A COMPARISON THAT DID NOT HAPPEN IS NOT AGREEMENT
+          // This is the only cross-check the explicit branch has, and on Funding
+          // Circle's August split it found NOTHING: the schedule of that day
+          // began at 2026-09-03, so there was no August row and this block was
+          // skipped in silence. A reader saw a clean pending_review split and no
+          // reason to doubt it. s247's rule -- an unmeasured input must never be
+          // walked as though it were a measured zero -- applied to a check
+          // rather than to a figure.
+          reviewNotes += ` NOT CROSS-CHECKED: the current amortization schedule has no row inside ${periodLabel}, so nothing independent confirms this breakdown.`
         }
       }
 

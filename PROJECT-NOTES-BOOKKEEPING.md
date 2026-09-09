@@ -13116,6 +13116,87 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 290 cont. 3 (2026-09-09) — ONE DOCUMENT, FIVE MONTHS, AND THE FIX WAS WRITTEN A FORTNIGHT AGO
+
+**Trigger.** David, on the improved card: *"What would make it great is if i could post an adjustment
+for either of these variances. What's keeping us from proposing a fix?"*
+
+**THE ROOT CAUSE IS THE 2026-08-03 DUPLICATE — THE SAME ROW AS THE PHANTOM SPAN.** The `2026-08`
+split was built from this pair:
+
+| | statement | balance |
+|---|---|---|
+| prior | 2026-07-01 | 66,215.03 |
+| current | **2026-08-03** | **66,215.03** |
+
+Same balance both sides, because it is the same PDF. **The period had no measured movement at all**,
+so the explicit-split branch fell back to the document's own stated breakdown — July's, $1,025.71 /
+$1,008.06 — and filed it as August. The lender applied $1,041.09. **1,041.09 − 1,025.71 = $15.38**,
+the number on the card, and the shape repeats monthly and GROWS because the principal portion of an
+amortising loan grows: 14.72, 14.92, 15.14, 15.38.
+
+**THE GUARD EXISTED ONE BRANCH AWAY. THIRD TIME TONIGHT, SAME DOCUMENT.** The `statement_delta`
+branch has refused exactly this since s231 (*"The balance did not fall between X and Y (both $…)"*),
+because it COMPUTES from the delta and a zero delta is visible to it. The explicit branch never
+computes a delta, so it never noticed there was not one.
+
+**AND ITS ONLY CROSS-CHECK FOUND NOTHING AND SAID NOTHING.** The explicit branch compares against the
+amortization schedule; the schedule of that day began at 2026-09-03, so there was no August row,
+`schedRows.length` was 0, and the block was skipped in silence. A missing comparison read as
+agreement — s247's rule about a null not being a zero, applied to a CHECK rather than a figure.
+
+**The schedule hypothesis was real and is already half-fixed.** Four schedules; three anchored on
+08-03, the newest (2026-09-05) correctly on 08-01. The ladders are the same rows shifted one period —
+the old September row (principal $1,041.10, closing $65,173.93) is the new AUGUST row, and
+$65,173.93 is the balance the lender says was true on 31 August. **But the pending `2026-09` split
+still points at `amortization_row_id` 8d0035e0, a row on the SUPERSEDED schedule.** It was staged
+2026-08-24 and unstaged 2026-09-04, so nothing is live — but re-staging as-is books August's
+principal into September.
+
+⚠️ **NOT PROVEN: July's $15.14.** Same shape one month earlier and the same document pair implicated,
+but `xero-read` returned 429 before the payment picture could be fetched. Stated as unproven rather
+than asserted.
+
+**⭐ AND THE THING THAT MATTERS MOST: `_shared/stale-split-trueup.ts` ALREADY DOES WHAT DAVID ASKED
+FOR, AND NOTHING CALLS IT.** Session 275 built it, with 34 passing assertions, computing exactly
+$15.14 and $15.38 for this loan and refusing on anything without the signature. A repo-wide grep for
+`findStaleSplits` / `trueUpCard` / `trueUpJournalLines` outside its own test returns **nothing**. Its
+own header says *"shipping either alone leaves the job half done"* — and only the anchoring half
+shipped. This is the same shape as `set_loan_chosen_schedule` (live in the DB since s277, called from
+nowhere) and the balance-note write path (read built, write never wired). **When a module's header
+says it is half of a pair, grep for the other half before believing it shipped.**
+
+Its signature test is also STRONGER than the reasoning I reached independently tonight: I found
+*"Xero's movement equals the previous period's lender figure"*; it additionally requires *"and does
+not equal this period's"*, without which a loan whose principal is flat month to month would be
+offered a $0.00 correction for ever. Worth reading before wiring.
+
+**WHAT SHIPPED — three guards, and the predicate is now testable.**
+
+1. **`_shared/split-pair.ts`** — extracted for the reason `derive-schedule.ts` gives in its own
+   header: a rule buried in a function that talks to Supabase cannot be tested. `splitPairObjection`
+   refuses a pair that is the same document (by `file_sha256`) or reports the same balance, and
+   separately reports a human's `anchor_exclusion_reason`. **17 assertions, and the load-bearing one
+   is that stripping the human's note leaves the pair STILL refused** — that is the assertion that
+   would have fired in April, months before anyone wrote the note. The exclusion field must never
+   absorb the same-pair test.
+2. **`loan-ingest-statement`** — both split branches now read that one predicate, so they cannot come
+   to disagree about which pairs are admissible; and the schedule cross-check now says
+   *"NOT CROSS-CHECKED"* when it finds no row, instead of skipping in silence.
+3. **`loan-xero-post`** — refuses to stage a card whose `amortization_row_id` sits on a schedule
+   older than the loan's current one. ⚠️ **A DIFFERENT QUESTION FROM THE STALENESS GUARD BESIDE IT**,
+   which asks whether a newer STATEMENT has arrived. On Funding Circle the newest usable statement is
+   2026-08-01 and the old schedule's anchor is 2026-08-03, so `anchor < newestStmt` is false and that
+   guard cannot fire. It refuses on evidence arriving after a projection, never on the projection
+   being replaced.
+
+**Where to pick up.** Wiring `stale-split-trueup` into `loan-find-difference` as a fifth proposal
+shape is the button David asked for, and its inputs are already on the walk (`lender_delta`,
+`xero_delta` per period are exactly `PeriodMovement`). ⚠️ It WRITES JOURNALS, so it needs the full
+preview→confirm discipline, an idempotency check on `xero_manual_journal_id`, and the close-date
+binding on the WRITE and not only the proposal (s231). Not started deliberately — it was 3am and a
+money-writing path is not a thing to half-finish.
+
 ### Session 290 cont. (2026-09-09) — SEVEN LABELS IN ONE COLUMN, AND A DEAD END WHOSE REASON WAS UNTRUE
 
 **Trigger.** David, with a screenshot of the Loan Closing table: *"I'd like the ACTION column to

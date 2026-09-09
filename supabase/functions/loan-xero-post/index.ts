@@ -1451,6 +1451,53 @@ async function handleRequest(req: Request): Promise<Response> {
           }), { status: 409 })
         }
 
+        // ── SESSION 290: IS THIS ROW STILL ON THE LOAN'S CURRENT SCHEDULE? ──
+        //
+        // A DIFFERENT QUESTION FROM THE ONE BELOW, AND NOTHING WAS ASKING IT.
+        // The staleness guard asks "has a newer STATEMENT arrived than the
+        // projection rests on?". It never asks whether the projection this card
+        // was built from is still the projection this loan uses.
+        //
+        // Funding Circle, measured 2026-09-09: the pending 2026-09 split points
+        // at a row from the schedule generated 2026-08-24 and anchored on the
+        // 2026-08-03 duplicate. That schedule was superseded on 2026-09-05 by one
+        // anchored on the genuine 2026-08-01 statement, and the two ladders are
+        // the same rows shifted by a period -- the old September row (principal
+        // $1,041.10, closing $65,173.93) is the new AUGUST row, and $65,173.93 is
+        // the balance the lender says was already true on 31 August. Staging that
+        // card books August's principal into September and carries the one-period
+        // lag forward another month.
+        //
+        // The staleness guard could not catch it: the newest usable statement is
+        // 2026-08-01 and the OLD schedule's anchor is 2026-08-03, so
+        // `anchor < newestStmt` is false. It refuses on evidence arriving after a
+        // projection, not on the projection being replaced.
+        {
+          const { data: currentSched } = await supa.from('loan_amortization_schedules')
+            .select('id, schedule_generated_date, anchor_statement_date')
+            .eq('loan_account_id', loanAcct.id)
+            .order('schedule_generated_date', { ascending: false })
+            .limit(1)
+          const cur = currentSched?.[0]
+          // Only refuse when we can SEE a newer one. No schedule list, or the
+          // card already on the newest, and this says nothing -- a guard that
+          // fires on an unreadable input is the fail-closed mirror of the
+          // fail-open bug above, and just as useless to the person holding it.
+          if (cur && cur.id !== guardSched.id
+              && String(cur.schedule_generated_date || '') > String(guardSched.schedule_generated_date || '')) {
+            return new Response(JSON.stringify({
+              error: `Refusing to stage: this card was built from the schedule generated ${String(guardSched.schedule_generated_date || '').slice(0, 10)}`
+                + `${guardSched.anchor_statement_date ? ` (anchored on the ${String(guardSched.anchor_statement_date).slice(0, 10)} statement)` : ''}`
+                + `, but this loan's current schedule was generated ${String(cur.schedule_generated_date || '').slice(0, 10)}`
+                + `${cur.anchor_statement_date ? ` and is anchored on ${String(cur.anchor_statement_date).slice(0, 10)}` : ''}. `
+                + `Re-generate this period's split from the current schedule before staging it -- a card built from a superseded projection can be a whole period out.`,
+              card_schedule_id: guardSched.id,
+              current_schedule_id: cur.id,
+              fix: 'Run loan-generate-schedule-split for this period, then stage the fresh card.',
+            }), { status: 409 })
+          }
+        }
+
         // ALLOWLIST, not a denylist (session 268, Tech Debt from session 267 §7).
         // The question is "is this the lender's own contractual schedule?", and
         // anything else -- our derivations, a parse of the lender's payment
