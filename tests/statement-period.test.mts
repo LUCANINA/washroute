@@ -11,7 +11,7 @@
 import assert from 'node:assert'
 import {
   endOfMonth, balanceAsOf, anchorsByBalanceDate, looksPeriodLabelled, normalizeBasis,
-  anchorRefusal, refusedAnchors, measuredDate,
+  anchorRefusal, refusedAnchors, measuredDate, humanAnchorExclusion,
 } from '../supabase/functions/_shared/statement-period.ts'
 
 let pass = 0, fail = 0
@@ -233,6 +233,72 @@ t('THE CONTROL: on balance_date the same rows are untouched and none is refused'
   const a = anchorsByBalanceDate(EIDL, 'balance_date')
   assert.deepEqual(a.map(x => x.statement_date), ['2026-08-25', '2026-09-25'])
   assert.equal(refusedAnchors(EIDL, 'balance_date').length, 0)
+})
+
+h("session 290 — A HUMAN'S EXCLUSION IS A REFUSAL, at the same convergence point")
+/* The REAL Funding Circle rows. 2026-08-03 is byte-identical to the 2026-07-01
+   statement and carries JULY's closing balance; a person established that and
+   wrote it into anchor_exclusion_reason. Under 'period_start' BOTH August rows
+   re-date to 2026-08-31, so leaving the excluded one in builds a span from a
+   date to itself -- "Aug 31 -> Aug 31, off by $1,041.09", which is nothing but
+   66,215.03 - 65,173.94 stated a second time. That phantom tripped the
+   write-off's totalPeriodDiff fence and the card refused to propose anything. */
+const FC290 = [
+  { statement_date: '2026-07-01', principal_balance: 66215.03, anchor_exclusion_reason: null },
+  { statement_date: '2026-08-01', principal_balance: 65173.94, anchor_exclusion_reason: null },
+  { statement_date: '2026-08-03', principal_balance: 66215.03, anchor_exclusion_reason: 'Not a balance as of 2026-08-03. This is the SAME PDF as the 2026-07-01 row.' },
+]
+t('the excluded row does not reach a caller as an anchor', () => {
+  const a = anchorsByBalanceDate(FC290, 'period_start')
+  assert.equal(a.length, 2)
+  assert.deepEqual(a.map(x => x.filed_date), ['2026-07-01', '2026-08-01'])
+})
+t('...so August has ONE anchor, not two on the same date', () => {
+  const a = anchorsByBalanceDate(FC290, 'period_start')
+  const aug = a.filter(x => x.statement_date === '2026-08-31')
+  assert.equal(aug.length, 1, 'two anchors on 2026-08-31 is the phantom span')
+  assert.equal(Number(aug[0].principal_balance), 65173.94)
+})
+t('THE DISCRIMINATOR: drop the exclusion and the phantom comes back', () => {
+  // The inverse of the fix, applied to the INPUT rather than the code. If this
+  // does not reproduce the two-anchors-one-date shape, the assertion above is
+  // passing for some other reason and proves nothing.
+  const unmarked = FC290.map(r => ({ ...r, anchor_exclusion_reason: null }))
+  const aug = anchorsByBalanceDate(unmarked, 'period_start').filter(x => x.statement_date === '2026-08-31')
+  assert.equal(aug.length, 2)
+  // ...and it is exactly the $1,041.09 the card showed.
+  const [hi, lo] = aug.map(x => Number(x.principal_balance)).sort((a, b) => b - a)
+  assert.equal(Number((hi - lo).toFixed(2)), 1041.09)
+})
+t('...and comes back from refusedAnchors, in the HUMAN\'s own words', () => {
+  const r = refusedAnchors(FC290, 'period_start')
+  assert.equal(r.length, 1)
+  // refusedAnchors deliberately does NOT re-date: a row whose balance date is
+  // in dispute has no valid balance date, so it keeps the date it was FILED
+  // under, which is the one a person will recognise on the document.
+  assert.equal(r[0].statement_date, '2026-08-03')
+  assert.equal((r[0] as any).filed_date, undefined)
+  assert.ok(/a person ruled this document out/.test(r[0].anchor_refusal))
+  // NOT truncated. The person's sentence is the entire value of the field, and
+  // a cut that drops a claim is a lie rather than a trim (ce17).
+  assert.ok(/SAME PDF as the 2026-07-01 row/.test(r[0].anchor_refusal))
+})
+t('the human objection is tested FIRST — a row that is both keeps their words', () => {
+  const both = [{ statement_date: '2026-09-25', principal_balance: 1, balance_as_of: null,
+                  anchor_exclusion_reason: 'a person looked at the PDF' }]
+  assert.equal(anchorsByBalanceDate(both, 'due_date').length, 0)
+  assert.ok(/a person looked at the PDF/.test(refusedAnchors(both, 'due_date')[0].anchor_refusal))
+})
+t('humanAnchorExclusion is null for every ordinary row — 13 of 14 loans untouched', () => {
+  assert.equal(humanAnchorExclusion({ anchor_exclusion_reason: null }), null)
+  assert.equal(humanAnchorExclusion({ anchor_exclusion_reason: '   ' }), null)
+  assert.equal(humanAnchorExclusion({}), null)
+  assert.equal(humanAnchorExclusion(undefined), null)
+})
+t('THE CONTROL: no exclusions anywhere and nothing changes', () => {
+  const clean = FC290.slice(0, 2)
+  assert.equal(anchorsByBalanceDate(clean, 'period_start').length, 2)
+  assert.equal(refusedAnchors(clean, 'period_start').length, 0)
 })
 
 h('looksPeriodLabelled must not start nagging a due-date loan')

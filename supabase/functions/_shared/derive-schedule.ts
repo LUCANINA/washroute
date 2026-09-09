@@ -129,6 +129,19 @@ export function selectAnchorEvidence(
   const skippedForBasis = rows
     .filter((s: any) => s.balance_basis !== 'principal_only')
     .map((s: any) => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
+  // ── (5) THE HUMAN EXCLUSION ARRIVES FOR FREE, AND THAT IS THE POINT (s290)
+  // anchorsByBalanceDate now drops rows carrying `anchor_exclusion_reason`, so
+  // this branch inherits it without knowing the rule exists -- which is the
+  // whole argument of note (1) above, applied to the objection a PERSON wrote
+  // rather than the one the basis implies. Funding Circle's duplicate 08-03
+  // pull was excluded here only because its basis was 'unknown'; once session
+  // 281 relabelled it 'principal_only' the allowlist stopped catching it and
+  // nothing else was looking.
+  //
+  // ⚠️ `paymentEvidence` below is deliberately NOT filtered -- see note (3).
+  // `anchor_exclusion_reason` objects to the row's BALANCE DATE. It says
+  // nothing about the lender's stated amount due, and that row carries the only
+  // one Funding Circle has ($2,033.77 against a typed $2,000.00).
   const usable = anchorsByBalanceDate(labelled as any, dateBasis)
     .filter((s: any) => String(s.statement_date) <= today)
   const stmts = collapseDuplicateBalances(usable)

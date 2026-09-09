@@ -49,6 +49,18 @@ async function load(mutate?: (src: string) => string) {
     // here would test the stub rather than the number that governs a posting.
     .replace(/from '\.\.\/_shared\/materiality\.ts'/, `from '${new URL('materiality.ts', SHARED).href}'`)
     .replace(/from '\.\/diagnose-exception\.ts'/, `from '${new URL('diagnose-exception.ts', FN_DIR).href}'`)
+    // s290: added because BOTH of these files stopped running the moment s289
+    // introduced derive-cause.ts -- the rewrite list is a denylist by omission,
+    // so a new sibling import breaks the extraction with a module-not-found and
+    // the suite reports nothing at all. A test that cannot run is
+    // indistinguishable from one that always passes.
+    .replace(/from '\.\/derive-cause\.ts'/, `from '${new URL('derive-cause.ts', FN_DIR).href}'`)
+    // ...and then THE CATCH-ALL, so this list can never rot that way again.
+    // Every relative import still standing is resolved to its absolute file URL.
+    // The explicit lines above stay: two of them SUBSTITUTE a stub rather than
+    // resolve a path, and the rest carry the reason they load for real.
+    .replace(/from '\.\.\/_shared\/([\w.-]+\.ts)'/g, (_m: string, f: string) => `from '${new URL(f, SHARED).href}'`)
+    .replace(/from '\.\/([\w.-]+\.ts)'/g, (_m: string, f: string) => `from '${new URL(f, FN_DIR).href}'`)
   src = `globalThis.Deno = { serve: () => {}, env: { get: () => '' } };\n` + src
   src += `\nexport { buildWriteoff, WRITEOFF_REAL_ANCHORS };\n`
   const js = stripTypeScriptTypes(src, { mode: 'transform', sourceMap: false })

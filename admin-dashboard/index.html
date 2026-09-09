@@ -12846,6 +12846,19 @@
       // thing already said twice, so it renders only when nothing else speaks.
       parts.push(`<section class="fdc-sec">${esc(data.narrative)}</section>`);
     }
+    // ── s290: THE DOCUMENTS THE WALK WOULD NOT ANCHOR ON ────────────────────
+    // Working, not a bullet, and OUTSIDE the conclusions branch so it survives
+    // on a card that has no conclusions at all. A document a PERSON has already
+    // ruled out is not a question anybody still has, so it must not compete with
+    // the spans the reader is here to act on (LESS IS BEST test 1). But it must
+    // be readable: before this, Funding Circle's duplicate 08-03 pull left the
+    // walk with no trace at all, and an exclusion nobody can see is evidence
+    // deleted (s245).
+    const refusedAnchorRows = (data.window && data.window.refused_anchors) || [];
+    if (refusedAnchorRows.length) {
+      W(`Document${refusedAnchorRows.length === 1 ? '' : 's'} not used as a balance anchor`,
+        `<ul style="margin:0;padding-left:17px">${refusedAnchorRows.map(r => `<li style="margin-top:4px"><strong>${esc(_bkDay(String(r.date || '')))}</strong> — ${esc(r.why || '')}</li>`).join('')}</ul>`);
+    }
     if (data.verdict === 'not_enough_history') {
       return `<div class="fdc">${parts.join('')}${_bkFdiffWorkingHtml(working)}</div>`;
     }

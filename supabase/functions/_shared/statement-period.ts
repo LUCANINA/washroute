@@ -101,9 +101,11 @@ export function balanceAsOf(statementDate: string, basis: StatementDateBasis, me
 
 /**
  * Why this row may not be used as a balance anchor, in words for the reader, or
- * null when it may. The ONLY refusal this function makes is the due-date one; a
- * human's `anchor_exclusion_reason` is a separate and independent objection and
- * is not read here.
+ * null when it may. The ONLY refusal THIS function makes is the due-date one; a
+ * human's `anchor_exclusion_reason` is a separate and independent objection,
+ * read by `humanAnchorExclusion` below. Both of this file's two entry points
+ * (`anchorsByBalanceDate`, `refusedAnchors`) apply the pair together, so a
+ * caller never has to know there are two — see the s290 note on that function.
  *
  * ASK, DON'T CLAIM (session 262). The sentence names the document we hold and
  * the field that would settle it, because uploading or reading one date is far
@@ -145,6 +147,47 @@ export function anchorRefusal(
   return `this lender dates its statement to the PAYMENT DUE DATE (${statementDate}), which says nothing about when the balance was true — the statement is issued weeks ahead of it. The document prints the date itself, usually as "Last Payment Date"; until that is recorded on this row this balance cannot be placed in time, so it is kept as evidence for its period and not used as a balance anchor.`
 }
 
+// ── SESSION 290: A HUMAN'S EXCLUSION IS A REFUSAL, AND IT BELONGS HERE ────
+//
+// `anchorRefusal` above says, in its own doc, that `anchor_exclusion_reason` is
+// "a separate and independent objection and is not read here". That was a
+// deliberate choice and it was wrong in exactly the way session 231 describes:
+// it made every caller responsible for remembering a rule, and THREE of them
+// forgot.
+//
+// The row that proved it is Funding Circle's 2026-08-03 — byte-identical to the
+// 2026-07-01 statement, carrying JULY's closing balance under an August date. A
+// human opened both PDFs, established that, and wrote it into
+// `anchor_exclusion_reason`. Then:
+//
+//   * `reconciliation-run` dropped it (its own filter, line ~1943) and measured
+//     Funding Circle's variance at $60.16 — correct.
+//   * `loan-find-difference` never read the column at all. Under 'period_start'
+//     both the 08-01 and the 08-03 rows re-date to 2026-08-31, so the walk built
+//     a span FROM A DATE TO ITSELF and reported "Aug 31 → Aug 31, off by
+//     $1,041.09" — which is just July's balance minus August's, stated twice.
+//     That phantom then tripped the write-off's `totalPeriodDiff` fence, so the
+//     card refused to propose anything and told the reader to go and attribute a
+//     difference that does not exist.
+//   * `loan-xero-post`'s staleness guard (~line 1485) still asks SQL directly.
+//     Session 275 fixed it by adding the `principal_only` filter, which excluded
+//     this row THEN because its basis was 'unknown'; session 281 relabelled the
+//     row 'principal_only' in good faith and silently re-broke it.
+//
+// Two surfaces of one product disagreeing about which documents are admissible
+// is the same defect as disagreeing about the newest balance, and it gets the
+// same fix: ONE convergence point. A caller inherits the exclusion without
+// knowing the rule exists, including the one somebody writes tomorrow.
+//
+// The row is NOT lost and NOT truncated. `refusedAnchors` returns it with the
+// human's sentence intact, because an exclusion nobody can see is evidence
+// deleted (s245) — and the human's own words are the whole value of the field.
+export function humanAnchorExclusion(row: any): string | null {
+  const why = String(row?.anchor_exclusion_reason ?? '').replace(/\s+/g, ' ').trim()
+  if (!why) return null
+  return `a person ruled this document out as a balance anchor: ${why}`
+}
+
 /**
  * The rows `anchorsByBalanceDate` REFUSED, each carrying `anchor_refusal` in
  * words. Session 245: an exclusion nobody can see is evidence deleted — so the
@@ -157,7 +200,9 @@ export function refusedAnchors<T extends { statement_date: string; balance_as_of
   const b = normalizeBasis(basis)
   const out: (T & { anchor_refusal: string })[] = []
   for (const s of anchors || []) {
-    const r = anchorRefusal(s.statement_date, b, (s as any).balance_as_of, today)
+    // The human's objection is tested FIRST and reported in their words. It is
+    // the stronger claim: somebody opened the PDF.
+    const r = humanAnchorExclusion(s) ?? anchorRefusal(s.statement_date, b, (s as any).balance_as_of, today)
     if (r) out.push({ ...s, anchor_refusal: r })
   }
   return out
@@ -182,7 +227,11 @@ export function anchorsByBalanceDate<T extends { statement_date: string; balance
       // Session 284: computed HERE, once, at load, for the same reason the
       // re-dating is -- every branch that picks a balance inherits it without
       // knowing the rule exists, including the one somebody adds tomorrow.
-      anchor_refusal: anchorRefusal(s.statement_date, b, (s as any).balance_as_of, today),
+      // s290: the human's exclusion is checked at the SAME point and in the
+      // same field, so the `.filter` below drops it without a second branch --
+      // which is the entire point (s231). Theirs is tested first: a person who
+      // opened the document outranks a rule about what a filed date means.
+      anchor_refusal: humanAnchorExclusion(s) ?? anchorRefusal(s.statement_date, b, (s as any).balance_as_of, today),
     }))
     // Session 284: a REFUSED row never reaches a caller as an anchor. Filtering
     // here rather than in each caller is the same choice as re-dating here --

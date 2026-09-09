@@ -4,7 +4,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { effectiveCloseDate, postingDateFor, isProtectedDate } from '../_shared/close-date.ts'
 import { deriveIncreaseCause } from './derive-cause.ts'
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
-import { anchorsByBalanceDate, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
+import { anchorsByBalanceDate, refusedAnchors, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
 import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
@@ -1953,13 +1953,17 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
     // Same re-dating as the per-loan path -- see the long note there. One rule,
     // both call sites; a lender-level walk that disagreed with the per-loan walk
     // about which month a payment fell in would be the worse bug.
-    const anchors = anchorsByBalanceDate(
-      (statements || []).filter((s: any) => s.balance_basis === 'principal_only' && s.principal_balance != null),
-      normalizeBasis((loan as any)?.statement_date_basis), today,
-    )
+    // s290: one rule, both call sites. anchorsByBalanceDate drops the rows a
+    // human ruled out; refusedAnchors names them, so the lender-level view can
+    // never quietly disagree with the per-loan one about which documents count.
+    const lenderBasis = normalizeBasis((loan as any)?.statement_date_basis)
+    const anchorCandidates = (statements || []).filter((s: any) => s.balance_basis === 'principal_only' && s.principal_balance != null)
+    const anchors = anchorsByBalanceDate(anchorCandidates, lenderBasis, today)
+    const refusedAnchorRows = refusedAnchors(anchorCandidates as any, lenderBasis, today)
+      .map((r: any) => ({ date: r.filed_date || r.statement_date, why: r.anchor_refusal }))
     const skippedForBasis = (statements || []).filter((s: any) => s.balance_basis !== 'principal_only').map((s: any) => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
     const { matchKnown } = prepKnownAmounts(loan, splits || [])
-    bundles.push({ loan, code: String(loan.xero_account_code), finding, headline, anchors, skippedForBasis, splits: splits || [], matchKnown })
+    bundles.push({ loan, code: String(loan.xero_account_code), finding, headline, anchors, skippedForBasis, refusedAnchorRows, splits: splits || [], matchKnown })
   }
 
   const skippedLoans: any[] = []
@@ -2535,6 +2539,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       periods: b.aw.periods, agree_until: b.aw.agree_until,
       conclusions: b.aw.conclusions, proposal: b.aw.proposal, cpa_exception: b.aw.cpa_exception,
       truncated_before: b.truncated, skipped_for_basis: b.skippedForBasis,
+      refused_anchors: b.refusedAnchorRows,
     })),
     skipped_loans: skippedLoans,
     window: { from: winFrom, to: winTo, read_via: oneBank ? 'one pull: bank transactions scoped to the shared checking account, plus every manual journal in the window' : 'one pull: org-wide month-sliced' },
@@ -2650,10 +2655,17 @@ async function handle(req: Request): Promise<Response> {
   // statements mean exactly what they say, and shifting those to month end would
   // fabricate differences. A false ask is worse than a missing one.
   const dateBasis = normalizeBasis((loan as any)?.statement_date_basis)
-  const anchors = anchorsByBalanceDate(
-    (statements || []).filter(s => s.balance_basis === 'principal_only' && s.principal_balance != null),
-    dateBasis, today,
-  )
+  const anchorCandidates = (statements || []).filter(s => s.balance_basis === 'principal_only' && s.principal_balance != null)
+  const anchors = anchorsByBalanceDate(anchorCandidates, dateBasis, today)
+  // ── s290: THE PAIR STAYS A PAIR ─────────────────────────────────────────
+  // anchorsByBalanceDate now drops rows a HUMAN ruled out (see its s290 note),
+  // which is what stops Funding Circle's duplicate 08-03 pull building a span
+  // from Aug 31 to Aug 31. A row that leaves the walk silently is evidence
+  // deleted (s245), so the reasons ship with the answer and the card puts them
+  // behind "Show the working". They are NOT bullets: a document a person has
+  // already ruled out is not a question anybody still has.
+  const refusedAnchorRows = refusedAnchors(anchorCandidates as any, dateBasis, today)
+    .map((r: any) => ({ date: r.filed_date || r.statement_date, why: r.anchor_refusal }))
   // The suspicion, for a HUMAN to settle against one PDF -- never acted on here.
   const dateBasisSuspicion = looksPeriodLabelled((statements || []) as any, dateBasis)
   const skippedForBasis = (statements || []).filter(s => s.balance_basis !== 'principal_only').map(s => ({ date: s.statement_date, basis: s.balance_basis || 'unknown' }))
@@ -2807,6 +2819,7 @@ async function handle(req: Request): Promise<Response> {
     // contradict the basis it is filed under. See looksPeriodLabelled().
     date_basis_suspicion: dateBasisSuspicion,
     window: { from: winFrom, to: winTo, anchors_used: usable.length, truncated_before: truncated, skipped_for_basis: skippedForBasis,
+      refused_anchors: refusedAnchorRows,
       read_via: loan.xero_bank_account_id ? 'bank transactions scoped to this loan\'s own bank account, plus every manual journal in the window' : 'org-wide month-sliced pull' },
     periods, agree_until: lastClean,
     total_period_diff: totalPeriodDiff, residual_before_window: residual,

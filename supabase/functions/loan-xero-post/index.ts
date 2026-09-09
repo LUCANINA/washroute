@@ -1478,11 +1478,22 @@ async function handleRequest(req: Request): Promise<Response> {
           // A guard that can never pass is the mirror of session 246's guard that
           // can never fail. Both stop being checks; one nags instead of the other
           // waving things through, and people learn to work around a nag.
+          // ── SESSION 290: AND THE SAME EXCLUSION, FOR THE SAME REASON ──────
+          // The note above is the whole argument and it was left half-applied.
+          // `balance_basis = 'principal_only'` matched the population
+          // selectAnchorEvidence drew from IN SESSION 275, when Funding Circle's
+          // duplicate 08-03 pull was still basis 'unknown'. Session 281
+          // relabelled that row 'principal_only' in good faith -- the figure IS
+          // principal-only -- and this guard silently went back to refusing for
+          // ever on the one loan it was written to unblock, because the human's
+          // objection to the row lives in `anchor_exclusion_reason` and nothing
+          // here read it. A guard that can never pass is not a stricter guard.
           const { data: newestStmts } = await supa.from('loan_statements')
             .select('statement_date')
             .eq('loan_account_id', loanAcct.id)
             .in('source', ['lender_statement', 'email_pdf_upload', 'portal_manual_pull'])
             .eq('balance_basis', 'principal_only')
+            .is('anchor_exclusion_reason', null)
             .not('principal_balance', 'is', null)
             .lte('statement_date', pacificToday())
             .order('statement_date', { ascending: false })

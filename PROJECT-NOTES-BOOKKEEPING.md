@@ -4,6 +4,22 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
+> 🆕 **SESSION 290 LEFT THREE FUNCTIONS UNDEPLOYED AND THE COPY HALF UNFIXED.**
+>    * **Deploy `loan-find-difference` and `loan-xero-post`** (and note that
+>      `_shared/statement-period.ts` + `_shared/derive-schedule.ts` changed, so every function
+>      importing them carries a stale copy until redeployed). CLI only —
+>      `loan-find-difference` is 158KB. **Read each one's `verify_jwt` first, then pick the flag.**
+>      Until this ships, the Funding Circle card still shows the phantom `Aug 31 → Aug 31` span and
+>      still refuses to propose anything.
+>    * **The card's copy is UNFIXED** — $60.16 appears nowhere on a card that is about it, and
+>      bullets 1–3 restate the table beneath them. `fdiff-copy-budget` measures the 4140 payload
+>      only, which is why a 213-word card with four repeated figures passed it. Extend the group to
+>      the FC payload BEFORE editing the copy, or the fix is unmeasured.
+>    * ⚠️ **`tests/find-difference-walk.test.mts` and `tests/writeoff-fences.test.mts` had not
+>      loaded since s289** (166 assertions reporting as nothing). Fixed with a catch-all in the
+>      loader. **Add this to `washroute-bookkeeping` with the other pending skill edits: an
+>      extraction harness that enumerates imports is a denylist by omission.**
+>
 > 0. **⏸️ DAVID'S DECISION, PARKED — WHICH PERIOD DOES A CORRECTION LAND IN?** (§0ah)
 >    He asked: *"why are we proposing Sep 30, 2026 as the entry date if we're closing August?"* Not a
 >    bug — an encoded POLICY nobody has chosen out loud, plus a sentence describing something else.
@@ -13076,6 +13092,135 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 290 (2026-09-09) — A SPAN FROM A DATE TO ITSELF, AND THE COLUMN THREE BRANCHES NEVER READ
+
+**Trigger.** David, with a screenshot of the fix card on Funding Circle: *"compare this screenshot
+with our design rule. The Loan Closing page shows a variance of $60.16 and I expected a suggestion
+to close the gap."* Two questions, and the second one had a real defect underneath it.
+
+**THE CARD REFUSED CORRECTLY, ON EVIDENCE THAT DID NOT EXIST.** The refusal line was right there and
+right: *"the period-by-period walk found differences to attribute — those are the lead, not a
+write-off."* The `totalPeriodDiff` fence is the plug-machine fence and it did its job. But one of
+the two differences it was pointing at was a phantom:
+
+    Aug 31, 2026 → Aug 31, 2026    lender moved $1,041.09    Xero moved $0.00    off by $1,041.09
+
+**A span from a date to itself.** 66,215.03 − 65,173.94 = 1,041.09 — July's balance minus August's,
+stated a second time as though a month had passed between one instant and the same instant.
+
+**Where it came from: `anchor_exclusion_reason`, and the three branches that never read it.** Funding
+Circle's 2026-08-03 row is byte-identical to the 2026-07-01 statement (same 51,673 bytes, same
+storage etag) and carries July's closing principal under an August date. A person opened both PDFs,
+established that, and wrote 800 words of it into `anchor_exclusion_reason`. Then:
+
+| Branch | Reads the column? | Result |
+|---|---|---|
+| `reconciliation-run` (~1943) | yes | measures the variance at **$60.16** — correct |
+| the dashboard (~15518) | yes | labels the row *not an anchor* — correct |
+| `loan-find-difference` | **no** | the phantom span, and a card that refuses to propose |
+| `derive-schedule.ts` `selectAnchorEvidence` | **no** | see below |
+| `loan-xero-post`'s staleness guard (~1485) | **no** | see below |
+
+Session 231's rule, at its full size: not missing logic, the RIGHT logic on three of five branches.
+
+**AND THE TWO SILENT ONES ARE THE MORE INSTRUCTIVE HALF.** Session 275 fixed `selectAnchorEvidence`
+and the staleness guard by adding `balance_basis = 'principal_only'`, which excluded this row **at
+that time** — its basis was then `unknown`. Session 281 relabelled it `principal_only` in good faith,
+correctly (the figure IS principal-only), and both guards silently reverted. The staleness guard in
+particular has been refusing to stage Funding Circle ever since, on a loan whose projection is
+right — which is the *"guard that can never pass"* its own comment block warns about, arriving
+through the change that comment was written to celebrate. **A guard keyed on a proxy for the real
+objection expires the day somebody corrects the proxy.**
+
+**The fix is ONE convergence point.** `anchorRefusal`'s doc said `anchor_exclusion_reason` "is a
+separate and independent objection and is not read here" — deliberate, and wrong in exactly the way
+s231 describes: it made every caller responsible for remembering. `humanAnchorExclusion()` now sits
+in `_shared/statement-period.ts` and both entry points (`anchorsByBalanceDate`, `refusedAnchors`)
+apply it beside the due-date refusal, in the same field, so the existing `.filter` drops it with no
+second branch. `loan-find-difference` (both call sites) and `derive-schedule` inherit it without
+knowing the rule exists. `loan-xero-post` asks SQL directly and got `.is('anchor_exclusion_reason',
+null)` explicitly.
+
+**The human's objection is tested FIRST and reported in their words, untruncated.** Somebody opened
+the document; that outranks a rule about what a filed date means. And the row is not lost — the card
+carries `window.refused_anchors` and renders it behind **Show the working**, because an exclusion
+nobody can see is evidence deleted (s245). It is working and not a bullet on purpose: a document a
+person has already ruled out is not a question anybody still has (LESS IS BEST test 1).
+
+⚠️ **`paymentEvidence` in `selectAnchorEvidence` is deliberately NOT filtered**, and the comment now
+says why: `anchor_exclusion_reason` objects to the row's BALANCE DATE and says nothing about the
+lender's stated amount due — and that row carries the only one Funding Circle has ($2,033.77, against
+a typed $2,000.00). Session 275 learned this the hard way; it must not be re-learned.
+
+**TWO NODE TEST FILES HAD NOT LOADED SINCE SESSION 289, AND NOBODY KNEW.**
+`tests/find-difference-walk.test.mts` and `tests/writeoff-fences.test.mts` extract `index.ts` into a
+temp dir and rewrite its imports from an ENUMERATED list. Session 289 added `derive-cause.ts`, the
+list did not, and both files died with `ERR_MODULE_NOT_FOUND` before a single assertion ran. A test
+that cannot run is indistinguishable from one that always passes — this file's own doctrine, and it
+cost 166 assertions for a day. The list keeps its explicit lines (two SUBSTITUTE a stub rather than
+resolve a path) and now ends in a **catch-all** that resolves every remaining relative import, so it
+cannot rot that way again.
+
+**The backlog it uncovered: four red assertions, all test-stale, all re-pinned rather than tuned.**
+§0af/§0ae rewrote the focus-month sentences — *"Nothing in this walk covers August 2026 … nothing
+here to investigate"* became *"Nothing on file yet places a balance inside August 2026 … Upload that
+month's statement and this row can be measured"*, which is s262's ASK arriving on this bullet, and a
+better sentence. §0af also **removed** the *"Every span in August 2026 ties to the cent"* bullet when
+nothing else is off, because the ✓ line beneath it makes the same claim over a wider range (s279).
+That one is a RELOCATION, so its assertion is now a **pair**: the bullet is gone AND the claim still
+has a home (every open span clean, which is the condition `_bkFdiffHtml` renders the ✓ line on).
+Asserting only the first would go green on a deletion.
+
+**THE DESIGN REVIEW, which was the other half of what David asked.** Measured on the screenshot:
+**213 visible words against the 225 budget — so the soft guard was GREEN while the dedup rule was
+RED**, exactly the disagreement §279 says will happen and exactly which way it must be resolved.
+
+* **$60.16 is nowhere on the card.** `statement-period.ts`'s own header states 29.64 + 15.14 + 15.38
+  = 60.16; the card is *about* that figure and never says it. §279 permits the decision's figure in
+  a lead sentence — there is no lead sentence. **Not fixed this session** (see below).
+* Visible repeats: **$1,041.09 ×4, $1,052.84 ×3, $15.38 ×2, $15.14 ×2**. Bullets 1–3 restate the
+  table directly beneath them — the E-Transit 4140 shape, unchanged. Removing the phantom kills one
+  bullet and two of the four; the rest stand.
+* **Colour is spent on the reassurance.** The tinted "your accountant already worked this payment"
+  box is the loudest thing on screen and its content is *nothing to propose*, while the red `off by`
+  rows and the missing action carry no weight (LESS IS BEST test 4).
+* **Two absences explained separately** — that box's *"there is nothing to propose"* plus *"Not
+  offered as a write-off"*. `_bkFdiffRecordedHtml` suppresses one of these on purpose; here both
+  render.
+* **"WHAT LIKELY HAPPENED" does not name what is under it.** The `explained` flag flips only on a
+  derived cause or a fresh note; this card has neither, so it keeps the heading s289 already retired
+  for the other case, above bullets that are asks rather than explanations.
+
+**Suite.** 2,312 browser assertions across all 48 groups (run in six batches), 2 red: Tech Debt #19's
+own report (deliberate) and one `schedule-choice` assertion that is **not mine and not in HEAD**.
+
+⚠️ **`tests/bookkeeping-harness.mjs` AND `admin-dashboard/index.html` carry UNCOMMITTED work by an
+earlier session, labelled s290 in its own comments** — seven hunks in the dashboard (the Action
+column's seven labels collapsed to two, `.lcb-noact` deleted) and two in the harness — . Together they relocate the "screenshot of the portal balance, taken
+after the month ends" ask out of the labels and into the button's `title` (~20067 renders it). The
+assertion still reads empty, so either the fixture no longer puts BayFirst SBA 2 on the
+`wantsScreenshot` branch — it was refreshed 2026-09-08 — or the selector misses the button.
+
+**Left unstaged deliberately, and this was a correction rather than a plan:** the first commit of
+this session swept all seven dashboard hunks in, because `git status` run against a stale
+`.git/HEAD.lock` reported the tree clean and `git add <file>` then staged the whole file. Caught on
+reading the commit's own diffstat — 86 insertions where 13 were written — and split back out with
+`git apply --cached` on a single extracted hunk. **`git add <path>` is not "add my changes to that
+path"**, and on this mount a lock can make `status` lie about what is already there. Stage a file
+you edited surgically by hunk, or read the diffstat before believing the commit. Node: 1,133 assertions, 0 red
+(`loan-bundle.test.mts` still cannot import `pdfjs-dist` on this machine — pre-existing).
+
+⚠️ **NOT DEPLOYED. Three edge functions changed** — `loan-find-difference`, `loan-xero-post`, and
+`_shared/statement-period.ts` + `_shared/derive-schedule.ts`, which are bundled into **every**
+function that imports them. `loan-find-difference` is 158KB and must go through the CLI from David's
+own terminal. Read each function's `verify_jwt` before picking the flag; do not pre-attach it.
+
+**Where to pick up.** The copy defects above are UNFIXED and they are the half David asked about
+first. The lead sentence is the one that matters: the card should open by naming the figure the
+reader clicked, and bullets 1–3 should collapse into the table they restate. Both need the
+`fdiff-copy-budget` group extended to the FC payload first — it currently measures the 4140 card
+only, which is why a 213-word card with four repeats passed it.
 
 ### Session 287 (2026-09-08) — THE REFRESH WAS THE TEST, AND THE TESTS FAILED IT
 

@@ -69,6 +69,18 @@ async function loadWalk(mutate?: (src: string) => string) {
     // Loaded for real, like the two above — a stub would test the stub.
     .replace(/from '\.\.\/_shared\/materiality\.ts'/, `from '${new URL('materiality.ts', SHARED).href}'`)
     .replace(/from '\.\/diagnose-exception\.ts'/, `from '${new URL('diagnose-exception.ts', FN_DIR).href}'`)
+    // s290: added because BOTH of these files stopped running the moment s289
+    // introduced derive-cause.ts -- the rewrite list is a denylist by omission,
+    // so a new sibling import breaks the extraction with a module-not-found and
+    // the suite reports nothing at all. A test that cannot run is
+    // indistinguishable from one that always passes.
+    .replace(/from '\.\/derive-cause\.ts'/, `from '${new URL('derive-cause.ts', FN_DIR).href}'`)
+    // ...and then THE CATCH-ALL, so this list can never rot that way again.
+    // Every relative import still standing is resolved to its absolute file URL.
+    // The explicit lines above stay: two of them SUBSTITUTE a stub rather than
+    // resolve a path, and the rest carry the reason they load for real.
+    .replace(/from '\.\.\/_shared\/([\w.-]+\.ts)'/g, (_m: string, f: string) => `from '${new URL(f, SHARED).href}'`)
+    .replace(/from '\.\/([\w.-]+\.ts)'/g, (_m: string, f: string) => `from '${new URL(f, FN_DIR).href}'`)
   src = `globalThis.Deno = { serve: () => {}, env: { get: () => '' } };\n` + src
   src += `\nexport { analyzeWalk, trimAnchors, effect, entryView, r2, TOL };\n`
   const js = stripTypeScriptTypes(src, { mode: 'transform', sourceMap: false })
@@ -284,12 +296,23 @@ section('THE FOCUS MONTH — the button matches the row')
   })
   const joined = r.conclusions.join(' | ')
   ok('no span is in focus', r.focus_span_count === 0, `focus_span_count=${r.focus_span_count}`)
-  ok('the FIRST conclusion says the walk does not cover that month',
-    /^Nothing in this walk covers August 2026/.test(r.conclusions[0]), JSON.stringify(r.conclusions))
+  /* ⚠️ s290: RE-PINNED TO SESSION 289's SENTENCES, NOT TUNED GREEN. §0af/§0ae
+     rewrote this bullet — "Nothing in this walk covers August 2026 … nothing
+     here to investigate" became "Nothing on file yet places a balance inside
+     August 2026 … Upload that month's statement and this row can be measured".
+     That is s262's rule arriving here (ASK when the evidence is missing), and it
+     is a better sentence. The assertions could not say so because THIS FILE HAD
+     NOT LOADED SINCE s289 — a sibling import it does not rewrite broke the
+     extraction, so four red assertions reported as nothing at all. The loader
+     now has a catch-all; these four are the backlog it uncovered. */
+  ok('the FIRST conclusion says the walk cannot place a balance in that month',
+    /^Nothing on file yet places a balance inside August 2026/.test(r.conclusions[0]), JSON.stringify(r.conclusions))
   ok('...and names the newest statement it does have',
     r.conclusions[0].includes(stmts[stmts.length - 1].statement_date), r.conclusions[0])
-  ok('...and asks for the document rather than proposing an investigation',
-    /Upload the August 2026 statement/.test(joined) && /nothing here to investigate/.test(joined), joined)
+  ok('...and ASKS for the document rather than proposing an investigation',
+    /Upload that month's statement and this row can be measured/.test(joined), joined)
+  ok('...and claims no gap it cannot measure — the ask is the whole answer',
+    !/investigate|difference of|off by/i.test(r.conclusions[0]), r.conclusions[0])
 }
 {
   // The focus month IS covered and ties: say so, plainly, first.
@@ -299,8 +322,21 @@ section('THE FOCUS MONTH — the button matches the row')
     focusPeriod: '2026-08',
   })
   ok('spans in the focus month are counted', r.focus_span_count > 0, `n=${r.focus_span_count}`)
-  ok('the lead conclusion is about that month',
-    /^Every span in August 2026 ties to the cent/.test(r.conclusions[0]), JSON.stringify(r.conclusions))
+  /* ⚠️ s290, AND THIS ONE IS A RELOCATION — SO IT IS A PAIR. §0af removed the
+     "Every span in August 2026 ties to the cent" bullet when nothing else is
+     off, because the client's own ✓ line makes the same claim over a WIDER
+     range directly beneath it (s279: a claim is stated once per screen). The
+     bullet survives only when the reader's month is clean and the trouble is
+     elsewhere — "yours is fine, look below".
+     Asserting only that the bullet is gone would go green on a deletion, so the
+     second half asserts the claim still has a home: the condition
+     _bkFdiffHtml uses to render that ✓ line. Both, or this proves nothing. */
+  ok('the focus-tie bullet is NOT restated when nothing else is off',
+    r.conclusions.length === 0, JSON.stringify(r.conclusions))
+  ok('...and the tie still has a home — every open span is clean, which is what the ✓ line renders',
+    r.periods.filter((p: any) => !p.closed_period).length > 0
+    && r.periods.filter((p: any) => !p.closed_period).every((p: any) => p.verdict === 'clean'),
+    JSON.stringify(r.periods.filter((p: any) => !p.closed_period).map((p: any) => p.verdict)))
 }
 {
   // Two open divergences, one in the focus month and one earlier. The focus one
@@ -560,8 +596,10 @@ section('⚠ REVIEW FINDING 5 — the focus line must not contradict the finding
     ...BASE, usable: stmts, entries: ledgerFor(stmts), headline: { difference: 0 },
     closeDate: '2025-01-31', focusPeriod: '2026-10',
   })
-  ok('with a clean book the focus line keeps its plain answer',
-    /nothing here to investigate/.test(r.conclusions[0]), r.conclusions[0])
+  // s290: same re-pin as above — the plain answer is now an ASK, not a verdict.
+  ok('with a clean book the focus line keeps its plain answer — and it is a question',
+    /^Nothing on file yet places a balance inside October 2026/.test(r.conclusions[0])
+    && /Upload that month's statement/.test(r.conclusions[0]), r.conclusions[0])
 }
 
 section('⚠ REVIEW FINDING 6 — "nothing to do" never sits above a live Approve button')
