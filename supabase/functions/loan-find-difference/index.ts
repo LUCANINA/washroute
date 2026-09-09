@@ -8,6 +8,13 @@ import { anchorsByBalanceDate, refusedAnchors, looksPeriodLabelled, normalizeBas
 import { findStaleSplits, trueUpJournalLines, trueUpCard } from '../_shared/stale-split-trueup.ts'
 import { readRateLimit, rateLimitMessage } from '../_shared/xero-429.ts'
 import { budgetFromResponse, refuseBeforeSpending, type XeroBudget } from '../_shared/xero-budget.ts'
+// s291 cont.: COUNT WHAT A CLICK SPENDS. Every Find the Fix runs a full ledger pull
+// and nothing has ever measured it -- so the two fixes still open on item 1 (a cache
+// on the walk, a budget the close band can see) would both have been built on a
+// guess. Threaded as a parameter, never module scope: Deno.serve handles requests
+// concurrently and two invocations sharing a counter produce a number that belongs
+// to neither.
+import { createXeroMeter, type XeroMeter } from '../_shared/xero-meter.ts'
 import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
@@ -228,7 +235,7 @@ function normDate(dateString: any, dateRaw: any): string {
 
 // Same paged fetch discipline as reconciliation-run: hard-fail on a truncated
 // pull rather than analyze partial data (a partial ledger fabricates mismatches).
-async function fetchPaged(baseUrl: string, headers: Record<string, string>, key: string, maxPages = 25) {
+async function fetchPaged(baseUrl: string, headers: Record<string, string>, key: string, meter: XeroMeter, maxPages = 25) {
   const all: any[] = []
   for (let page = 1; page <= maxPages; page++) {
     const sep = baseUrl.includes('?') ? '&' : '?'
@@ -241,7 +248,7 @@ async function fetchPaged(baseUrl: string, headers: Record<string, string>, key:
     // throw below was unreachable. See _shared/xero-429.ts.
     let rate: any = null
     for (let retry = 0; retry < 5; retry++) {
-      res = await fetch(`${baseUrl}${sep}page=${page}`, { headers })
+      res = await meter.fetch(`${baseUrl}${sep}page=${page}`, { headers })
       if (res.status === 429) {
         rate = readRateLimit(res, retry)
         if (!rate.waitable) break
@@ -299,7 +306,7 @@ const normMJ = (x: any) => ({
 // SLOW FALLBACK — a loan with no xero_bank_account_id gets the original
 // month-sliced org-wide pull (complete but slow; a single wide unscoped window
 // can silently truncate, monthly slices never approach the cap).
-async function pullWindow(fromDate: string, toDate: string, headers: Record<string, string>, bankAccountId: string | null) {
+async function pullWindow(fromDate: string, toDate: string, headers: Record<string, string>, bankAccountId: string | null, meter: XeroMeter) {
   const [fy, fm, fd] = fromDate.split('-').map(Number)
   const [ty, tm, td] = toDate.split('-').map(Number)
   const dateClause = `Date>=DateTime(${fy},${fm},${fd})&&Date<=DateTime(${ty},${tm},${td})`
@@ -307,7 +314,7 @@ async function pullWindow(fromDate: string, toDate: string, headers: Record<stri
 
   if (bankAccountId) {
     const w = encodeURIComponent(`BankAccount.AccountID==Guid("${bankAccountId}")&&${dateClause}`)
-    bt.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', 30)).map(normBT))
+    bt.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', meter, 30)).map(normBT))
     await sleep(300)
   } else {
     const months: Array<[string, string]> = []
@@ -323,12 +330,12 @@ async function pullWindow(fromDate: string, toDate: string, headers: Record<stri
       const [ay, am, ad] = mFrom.split('-').map(Number)
       const [by, bm, bd] = mTo.split('-').map(Number)
       const w = encodeURIComponent(`Date>=DateTime(${ay},${am},${ad})&&Date<=DateTime(${by},${bm},${bd})`)
-      bt.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions')).map(normBT))
+      bt.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', meter)).map(normBT))
       await sleep(300)
     }
   }
 
-  mj.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${encodeURIComponent(dateClause)}&order=Date`, headers, 'ManualJournals', 30)).map(normMJ))
+  mj.push(...(await fetchPaged(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${encodeURIComponent(dateClause)}&order=Date`, headers, 'ManualJournals', meter, 30)).map(normMJ))
 
   const seen = new Set<string>()
   return [...bt, ...mj].filter(r => { if (seen.has(r.srcId)) return false; seen.add(r.srcId); return true })
@@ -341,10 +348,10 @@ async function pullWindow(fromDate: string, toDate: string, headers: Record<stri
 // pre-check costs NOT ONE EXTRA CALL: it reads a response we already paid for.
 // The map still degrades to {} on any failure, exactly as before; account names
 // are a nicety and must never fail the analysis.
-async function fetchAccountsMap(headers: Record<string, string>): Promise<{ map: Record<string, string>, budget: XeroBudget }> {
+async function fetchAccountsMap(headers: Record<string, string>, meter: XeroMeter): Promise<{ map: Record<string, string>, budget: XeroBudget }> {
   const unknown = budgetFromResponse(null)
   try {
-    const res = await fetch('https://api.xero.com/api.xro/2.0/Accounts', { headers })
+    const res = await meter.fetch('https://api.xero.com/api.xro/2.0/Accounts', { headers })
     const budget = budgetFromResponse(res)
     if (!res.ok) return { map: {}, budget }
     const json = await res.json().catch(() => null)
@@ -1682,12 +1689,12 @@ const jres = (obj: any, status = 200) => new Response(JSON.stringify(obj, null, 
 // failure followed by a POST that succeeds — which is how you get the second
 // journal. Refusing costs a retry; falling through costs a duplicate in the
 // customer's books, and this module's whole contract is that that never happens.
-async function alreadyPostedInXero(narration: string, date: string, headers: Record<string, string>): Promise<any | null> {
+async function alreadyPostedInXero(narration: string, date: string, headers: Record<string, string>, meter: XeroMeter): Promise<any | null> {
   const [y, m, d] = String(date).slice(0, 10).split('-').map(Number)
   const w = encodeURIComponent(`Date==DateTime(${y},${m},${d})&&Status=="POSTED"`)
   let res: Response
   try {
-    res = await fetch(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${w}`, { headers })
+    res = await meter.fetch(`https://api.xero.com/api.xro/2.0/ManualJournals?where=${w}`, { headers })
   } catch (e) {
     throw new Error(`Could not reach Xero to check whether this correction is already posted (${String((e as Error)?.message || e)}) — refusing to post blind.`)
   }
@@ -2122,7 +2129,7 @@ async function postingWindow(supa: any, today: string) {
   return { closeDate: cd.date, closeSource: cd.source, postingDate, postingWhy }
 }
 
-async function handleLender(supa: any, body: any, role: string): Promise<Response> {
+async function handleLender(supa: any, body: any, role: string, meter: XeroMeter): Promise<Response> {
   const lenderName = String(body.lender || '').trim()
   if (!lenderName) return jres({ error: 'lender is required for a lender-level analysis.' }, 400)
 
@@ -2212,7 +2219,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
 
   const { accessToken, tenantId } = await getXeroAuth()
   const headers = { 'Authorization': `Bearer ${accessToken}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
-  const { map: acctMap, budget: xeroBudget } = await fetchAccountsMap(headers)
+  const { map: acctMap, budget: xeroBudget } = await fetchAccountsMap(headers, meter)
   assertBudget(xeroBudget)   // s290: do not start a pull the budget cannot pay for
 
   // ONE pull for every loan. The fast path is only safe when every walkable
@@ -2223,7 +2230,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
   const oneBank = (bankIds.length === 1 && walkable.every((b: any) => b.loan.xero_bank_account_id)) ? bankIds[0] : null
   let pulled: any[]
   try {
-    pulled = await pullWindow(winFrom, winTo, headers, oneBank)
+    pulled = await pullWindow(winFrom, winTo, headers, oneBank, meter)
   } catch (e) {
     return jres({ error: String((e as Error).message || e) }, 502)
   }
@@ -2713,10 +2720,10 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
       }, 409)
     }
     let dupX: any = null
-    try { dupX = await alreadyPostedInXero(step.journal.Narration, step.journal.Date, headers) }
+    try { dupX = await alreadyPostedInXero(step.journal.Narration, step.journal.Date, headers, meter) }
     catch (e) { return jres({ error: String((e as Error).message) }, 502) }
     if (dupX) return jres({ error: duplicateJournalError(dupX), already_posted: dupX }, 409)
-    const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+    const postRes = await meter.fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ManualJournals: [{ ...step.journal, JournalLines: step.journal.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
     })
@@ -2756,7 +2763,7 @@ async function handleLender(supa: any, body: any, role: string): Promise<Respons
 }
 
 
-async function handle(req: Request): Promise<Response> {
+async function handle(req: Request, meter: XeroMeter): Promise<Response> {
   const supa = admin()
   const body = await req.json().catch(() => ({}))
   const { loan_account_id, post_fix, proposal_token, posted_by } = body
@@ -2812,7 +2819,7 @@ async function handle(req: Request): Promise<Response> {
     if (body.post_crossloan && !canWriteBookkeeping(role)) {
       return new Response(JSON.stringify({ error: 'Your account can review the analysis but not write.' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
-    return await handleLender(supa, body, role)
+    return await handleLender(supa, body, role, meter)
   }
   if (!loan_account_id) {
     return new Response(JSON.stringify({ error: 'loan_account_id is required.' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -2897,7 +2904,7 @@ async function handle(req: Request): Promise<Response> {
 
   const { accessToken, tenantId } = await getXeroAuth()
   const headers = { 'Authorization': `Bearer ${accessToken}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' }
-  const { map: acctMap, budget: xeroBudget } = await fetchAccountsMap(headers)
+  const { map: acctMap, budget: xeroBudget } = await fetchAccountsMap(headers, meter)
   assertBudget(xeroBudget)   // s290: do not start a pull the budget cannot pay for
 
   const winFrom = usable[0].statement_date
@@ -2910,7 +2917,7 @@ async function handle(req: Request): Promise<Response> {
   let entries: any[]
   let siblingPool: any[]
   try {
-    const pulled = await pullWindow(winFrom, winTo, headers, loan.xero_bank_account_id ?? null)
+    const pulled = await pullWindow(winFrom, winTo, headers, loan.xero_bank_account_id ?? null, meter)
     entries = pulled.filter(r => isLive(r) && r.lines.some((l: any) => String(l.c) === String(code)))
     siblingPool = pulled.filter(r => isLive(r)
       && !r.lines.some((l: any) => String(l.c) === String(code))
@@ -2952,7 +2959,7 @@ async function handle(req: Request): Promise<Response> {
   if (huntKnown) {
     try {
       const w = encodeURIComponent(`Total == ${huntKnown.amount.toFixed(2)}`)
-      const raw = await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', 4)
+      const raw = await fetchPaged(`https://api.xero.com/api.xro/2.0/BankTransactions?where=${w}&order=Date`, headers, 'BankTransactions', meter, 4)
       const all = raw.map(normBT)
       hunt = {
         amount: huntKnown.amount, equals: huntKnown.what,
@@ -3112,7 +3119,7 @@ async function handle(req: Request): Promise<Response> {
     // is the loan module's Stripe-idempotency standard: a retry is a no-op or a
     // loud error, NEVER a duplicate journal.
     let dupR: any = null
-    try { dupR = await alreadyPostedInXero(rec.narration, rec.dated_into, headers) }
+    try { dupR = await alreadyPostedInXero(rec.narration, rec.dated_into, headers, meter) }
     catch (e) {
       return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
@@ -3126,7 +3133,7 @@ async function handle(req: Request): Promise<Response> {
     ]
     const recNarration = (rec.narration
       + (posted_by ? ` Approved by ${posted_by}, posted to ${adjust_account_code}${offsetName ? ` ${offsetName}` : ''}.` : '')).slice(0, 4000)
-    const recRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+    const recRes = await meter.fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ManualJournals: [{ Narration: recNarration, Date: rec.dated_into, Status: 'POSTED', JournalLines: recLines }] }),
     })
@@ -3175,7 +3182,7 @@ async function handle(req: Request): Promise<Response> {
     // The narration carries the loan code and the posting date, so a second
     // click, a double submit or a re-run finds its own journal and stops.
     let dupW: any = null
-    try { dupW = await alreadyPostedInXero(wo.journal.Narration, wo.journal.Date, headers) }
+    try { dupW = await alreadyPostedInXero(wo.journal.Narration, wo.journal.Date, headers, meter) }
     catch (e) {
       return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
@@ -3185,7 +3192,7 @@ async function handle(req: Request): Promise<Response> {
     const narration = (wo.journal.Narration
       + (writeoff_note ? ` Note from ${posted_by || 'the approver'}: ${writeoff_note}` : '')
       + (posted_by ? ` Approved by ${posted_by}.` : '')).slice(0, 4000)
-    const woRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+    const woRes = await meter.fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ManualJournals: [{ Narration: narration, Date: wo.journal.Date, Status: wo.journal.Status, JournalLines: wo.journal.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
     })
@@ -3217,14 +3224,14 @@ async function handle(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: `That correction is dated ${prepared.Date}, which falls in a period your accountant has closed or is closing (books closed through ${pw.closeDate}). Nothing was posted.`, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
     let dupE: any = null
-    try { dupE = await alreadyPostedInXero(prepared.Narration, prepared.Date, headers) }
+    try { dupE = await alreadyPostedInXero(prepared.Narration, prepared.Date, headers, meter) }
     catch (e) {
       return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
     if (dupE) {
       return new Response(JSON.stringify({ error: duplicateJournalError(dupE), already_posted: dupE }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
-    const exRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+    const exRes = await meter.fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ManualJournals: [{ Narration: prepared.Narration, Date: prepared.Date, Status: prepared.Status, JournalLines: prepared.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
     })
@@ -3263,14 +3270,14 @@ async function handle(req: Request): Promise<Response> {
     }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   let dupF: any = null
-  try { dupF = await alreadyPostedInXero(proposal.journal.Narration, proposal.journal.Date, headers) }
+  try { dupF = await alreadyPostedInXero(proposal.journal.Narration, proposal.journal.Date, headers, meter) }
   catch (e) {
     return new Response(JSON.stringify({ error: String((e as Error).message), analysis }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
   if (dupF) {
     return new Response(JSON.stringify({ error: duplicateJournalError(dupF), already_posted: dupF, analysis }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
-  const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
+  const postRes = await meter.fetch('https://api.xero.com/api.xro/2.0/ManualJournals', {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ ManualJournals: [{ ...proposal.journal, JournalLines: proposal.journal.JournalLines.map((l: any) => ({ LineAmount: l.LineAmount, AccountCode: l.AccountCode, Description: l.Description, TaxType: l.TaxType })) }] }),
   })
@@ -3289,9 +3296,17 @@ async function handle(req: Request): Promise<Response> {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
+  const meter = createXeroMeter('loan-find-difference')
   try {
-    return await handle(req)
+    return await handle(req, meter)
   } catch (e) {
     return new Response(JSON.stringify({ error: String((e as Error)?.message || e) }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
+  } finally {
+    // In a `finally`, not on the success path. A click that threw halfway through
+    // still SPENT every call it had already made, and that is exactly the shape that
+    // empties a daily budget unnoticed -- twice this week. flush() never throws and
+    // writes nothing when no billed call was made.
+    const r = await meter.flush(admin())
+    if (r.error) console.error('loan-find-difference: could not record Xero usage:', r.error)
   }
 })

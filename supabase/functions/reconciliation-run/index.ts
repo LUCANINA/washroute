@@ -1,6 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { readRateLimit, rateLimitMessage } from '../_shared/xero-429.ts'
 import { budgetFromResponse, refuseBeforeSpending, type XeroBudget } from '../_shared/xero-budget.ts'
+// s291 cont.: COUNT WHAT THIS RUN SPENDS. Until now xero-read was the only metered
+// caller of eleven, so "what emptied the day?" could only be answered by multiplying
+// invocation counts by a hand-read guess at calls-per-invocation -- and item 1's two
+// remaining fixes (a cache on the walk, a budget the close band can see) both need a
+// real number to be worth anything. Threaded as a parameter, never module scope:
+// Deno.serve handles requests concurrently and two invocations sharing a counter
+// produce a number that belongs to neither.
+import { createXeroMeter, type XeroMeter } from '../_shared/xero-meter.ts'
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 // INTEREST_CODE, money and the Finding shape live beside the double-correction check
@@ -186,7 +194,7 @@ function normDate(dateString: any, dateRaw: any): string {
   return String(dateString || dateRaw || '').slice(0, 10)
 }
 
-async function fetchPaged(baseUrl: string, token: string, tenantId: string, key: string, modifiedSince?: string | null, maxPages = 25) {
+async function fetchPaged(baseUrl: string, token: string, tenantId: string, key: string, meter: XeroMeter, modifiedSince?: string | null, maxPages = 25) {
   const all: any[] = []
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json',
@@ -208,7 +216,7 @@ async function fetchPaged(baseUrl: string, token: string, tenantId: string, key:
     // on. Same fix, same shared rule. See _shared/xero-429.ts.
     let rate: any = null
     for (let retry = 0; retry < 5; retry++) {
-      res = await fetch(`${baseUrl}${sep}page=${page}`, { headers })
+      res = await meter.fetch(`${baseUrl}${sep}page=${page}`, { headers })
       if (res.status === 429) {
         rate = readRateLimit(res, retry)
         if (!rate.waitable) break
@@ -292,10 +300,10 @@ function assertXeroBudget(): void {
   if (verdict.refuse) throw new Error(verdict.message || 'Xero daily API limit reached.')
 }
 
-async function fetchTrialBalances(date: string): Promise<Record<string, number> | null> {
+async function fetchTrialBalances(date: string, meter: XeroMeter): Promise<Record<string, number> | null> {
   try {
     const { accessToken: token, tenantId } = await getXeroAuth()
-    const r = await fetch(`https://api.xero.com/api.xro/2.0/Reports/TrialBalance?date=${date}`, {
+    const r = await meter.fetch(`https://api.xero.com/api.xro/2.0/Reports/TrialBalance?date=${date}`, {
       headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' },
     })
     // ── s290 cont.: THE REFUSAL WAS ARRIVING HERE AND BEING DROPPED ───────
@@ -323,7 +331,7 @@ async function fetchTrialBalances(date: string): Promise<Record<string, number> 
   } catch { return null }
 }
 
-async function pullXero(fromDate: string, toDate: string, modifiedSince: string | null, forceIds: string[] = []) {
+async function pullXero(fromDate: string, toDate: string, modifiedSince: string | null, meter: XeroMeter, forceIds: string[] = []) {
   const { accessToken: token, tenantId } = await getXeroAuth()
 
   const norm = (arr: any[], type: 'BankTransaction' | 'ManualJournal') => arr.map((x: any) => type === 'BankTransaction' ? ({
@@ -382,10 +390,10 @@ async function pullXero(fromDate: string, toDate: string, modifiedSince: string 
   }
 
   async function pullBT(url: string, t: string, ten: string, since: string | null, mp = 25) {
-    return norm(await fetchPaged(url, t, ten, 'BankTransactions', since, mp), 'BankTransaction')
+    return norm(await fetchPaged(url, t, ten, 'BankTransactions', meter, since, mp), 'BankTransaction')
   }
   async function pullMJ(url: string, t: string, ten: string, since: string | null, mp = 25) {
-    return norm(await fetchPaged(url, t, ten, 'ManualJournals', since, mp), 'ManualJournal')
+    return norm(await fetchPaged(url, t, ten, 'ManualJournals', meter, since, mp), 'ManualJournal')
   }
 
   const seen = new Set<string>()
@@ -420,7 +428,7 @@ async function pullXero(fromDate: string, toDate: string, modifiedSince: string 
     const raw: any[] = []
     for (const id of forceIds) {
       try {
-        const r = await fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${encodeURIComponent(id)}`, {
+        const r = await meter.fetch(`https://api.xero.com/api.xro/2.0/BankTransactions/${encodeURIComponent(id)}`, {
           headers: { 'Authorization': `Bearer ${token}`, 'Xero-tenant-id': tenantId, 'Accept': 'application/json' },
         })
         if (r.ok) {
@@ -1817,7 +1825,7 @@ function checkCarryingBasis(loan: any, terms: any[], balances: any[], mySplits: 
 
 // ── Runner ──────────────────────────────────────────────────────────────
 
-async function handle(req: Request): Promise<Response> {
+async function handle(req: Request, meter: XeroMeter): Promise<Response> {
   const supa = admin()
   const body = await req.json().catch(() => ({}))
   const mode = body.mode === 'deep' ? 'deep' : 'incremental'
@@ -2026,7 +2034,7 @@ async function handle(req: Request): Promise<Response> {
     // window opens — primary data, refreshed every run, immune to edits of any
     // age. The stored rolling checkpoint is only the fallback below.
     const tbDate = addDays(windowFrom, -1)
-    const tb = await fetchTrialBalances(tbDate)
+    const tb = await fetchTrialBalances(tbDate, meter)
     assertXeroBudget()   // s290: the trial balance already told us if the day is spent
 
     // SESSION 252 (cont. 4): moved up from below the loan loop so forceIds (just
@@ -2051,7 +2059,7 @@ async function handle(req: Request): Promise<Response> {
       .map((f: any) => String(f.detail?.bank_transaction_id || ''))
       .filter(Boolean))] as string[]
 
-    const { entries, changedOld } = await pullXero(windowFrom, pullTo, prev?.started_at ?? null, forceIds)
+    const { entries, changedOld } = await pullXero(windowFrom, pullTo, prev?.started_at ?? null, meter, forceIds)
     const relevantChangedOld = changedOld.filter(r => r.lines.some((l: any) => codes.includes(l.c)))
     const allEntries = [...entries, ...relevantChangedOld]
     const ledger = buildLedger(allEntries, codes)
@@ -2533,6 +2541,12 @@ async function handle(req: Request): Promise<Response> {
         draws_skipped: drawSkips.length,
         draw_skips: drawSkips,
         ...(bookBalanceWriteError ? { book_balance_write_error: bookBalanceWriteError } : {}),
+        // s291 cont.: WHAT THIS RUN COST, counted, and what Xero says is left --
+        // two numbers from two sources, which is the point (see _shared/xero-meter.ts).
+        // A counter with no outside check agrees with itself; a header we merely echo
+        // says nothing about who spent it. If calls_made climbs while remaining_day
+        // does not fall, one of them is lying and now we can see it.
+        xero: { calls_made: meter.calls, remaining_day: meter.remainingDay, rate_limited: meter.rateLimited },
       },
       narrative_source: 'template',
       report_path: reportPath,
@@ -2546,6 +2560,7 @@ async function handle(req: Request): Promise<Response> {
       book_balances_skipped: bookBalanceSkips.length,
       draws_measured: drawsMeasured,
       draws_skipped: drawSkips.length,
+      xero: { calls_made: meter.calls, remaining_day: meter.remainingDay },
       findings: enriched.map(f => ({ state: f._state, severity: f.severity, check: f.check_key, title: f.title })),
     }, null, 2), { headers: { 'Content-Type': 'application/json' } })
   } catch (err: any) {
@@ -2558,9 +2573,20 @@ async function handle(req: Request): Promise<Response> {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
-  const res = await handle(req)
-  const h = new Headers(res.headers)
-  for (const [k, v] of Object.entries(cors)) h.set(k, v)
-  if (!h.has('Content-Type')) h.set('Content-Type', 'application/json')
-  return new Response(res.body, { status: res.status, headers: h })
+  const meter = createXeroMeter('reconciliation-run')
+  try {
+    const res = await handle(req, meter)
+    const h = new Headers(res.headers)
+    for (const [k, v] of Object.entries(cors)) h.set(k, v)
+    if (!h.has('Content-Type')) h.set('Content-Type', 'application/json')
+    return new Response(res.body, { status: res.status, headers: h })
+  } finally {
+    // In a `finally`, not on the success path. A run that threw halfway through
+    // still SPENT every call it had already made, and that is exactly the shape
+    // that empties a daily budget unnoticed -- twice this week. flush() never
+    // throws and writes nothing when no billed call was made, so an OPTIONS
+    // preflight or a rejected role leaves no row.
+    const r = await meter.flush(admin())
+    if (r.error) console.error('reconciliation-run: could not record Xero usage:', r.error)
+  }
 })
