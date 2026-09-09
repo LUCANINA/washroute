@@ -516,6 +516,10 @@ function readSurfaces() {
                // is the stable claim; the words are meant to change.
                action: (() => { const td = tr.querySelector('td.lcb-action'); return td ? att(td, 'data-action') : null; })(),
                actionText: (() => { const td = tr.querySelector('td.lcb-action'); return td ? td.textContent.replace(/\s+/g, ' ').trim() : null; })(),
+               // s290: the seven labels became two, so the SPECIFIC ask each one
+               // used to spell out moved into the title. A test about a claim has
+               // to read the claim's new home, or it goes green on a deletion.
+               actionTitle: (() => { const td = tr.querySelector('td.lcb-action'); const b = td && td.querySelector('[title]'); return b ? b.getAttribute('title') : ''; })(),
                evidenceKind: att(tds[C.closing].querySelector('[data-evidence]') || tds[C.closing], 'data-evidence-kind'),
                evidenceFrom: att(tds[C.closing].querySelector('[data-evidence]') || tds[C.closing], 'data-evidence-from'),
                closingDate: att(tds[C.closingDate], 'data-closing-date'),
@@ -1944,6 +1948,11 @@ GROUPS.push({
         basisText: col(tr, 'source') ? col(tr, 'source').innerText.trim() : '',
         action: col(tr, 'action') ? col(tr, 'action').getAttribute('data-action') : null,
         actionText: col(tr, 'action') ? col(tr, 'action').innerText.trim() : '',
+        // s290: the labels collapsed to two, so the SPECIFIC ask each one used to
+        // spell out now lives in the title. A test about a claim has to read the
+        // claim's new home, or it goes green on a deletion (ce17 / s263's said()).
+        actionTitle: col(tr, 'action') && col(tr, 'action').querySelector('[title]')
+          ? col(tr, 'action').querySelector('[title]').getAttribute('title') : '',
         band: tr.querySelector('[data-band]') ? tr.querySelector('[data-band]').getAttribute('data-band') : '',
       }));
       const cellCounts = [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => tr.children.length);
@@ -10396,7 +10405,10 @@ GROUPS.push({
         text: td.textContent.trim(),
         residual: td.getAttribute('data-stale-residual'),
         hint: td.closest('tr')?.getAttribute('data-hint') || '',
-        action: td.closest('tr')?.lastElementChild?.textContent.trim() || '',
+        // s290: the verdict, not the wording. This read textContent and broke the
+        // day the seven labels became two -- the exact failure this file warns about.
+        action: td.closest('tr')?.lastElementChild?.getAttribute('data-action') || '',
+        actionText: td.closest('tr')?.lastElementChild?.textContent.trim() || '',
       }));
       return { rows, footer: el.textContent };
     });
@@ -10415,8 +10427,11 @@ GROUPS.push({
       t.ok(/statement/i.test(pp2Row ? pp2Row.text : ''),
            'the cell asks for a statement rather than printing a figure', pp2Row && pp2Row.text);
     }
-    t.ok(/Ask for statement/i.test(pp2Row ? pp2Row.action : ''),
-         'and the Action column offers the ask — the button the whole feature is for', pp2Row && pp2Row.action);
+    t.eq(pp2Row && pp2Row.action, 'ask',
+         'and the Action column offers the ask — the button the whole feature is for',
+         JSON.stringify(pp2Row && { a: pp2Row.action, t: pp2Row.actionText }));
+    t.ok(/statement/i.test((pp2Row && pp2Row.actionText) || ''),
+         '...and its label asks for a document', pp2Row && pp2Row.actionText);
     t.ok(/booked after that date/.test(pp2Row ? pp2Row.hint : ''), 'the hover states the cause',
          (pp2Row && pp2Row.hint || '').slice(0, 240));
 
@@ -10456,7 +10471,8 @@ GROUPS.push({
                inJudged: rf.judged.some(x => /Paypal 2/i.test(x.a.xero_account_name || '')),
                inOff: rf.off.some(x => /Paypal 2/i.test(x.a.xero_account_name || '')),
                text: td && td.textContent.trim(),
-               action: td && td.closest('tr').lastElementChild.textContent.trim() };
+               action: td && td.closest('tr').lastElementChild.getAttribute('data-action'),
+               actionText: td && td.closest('tr').lastElementChild.textContent.trim() };
     });
     t.eq(oldRow.stale, true, 'PayPal 2 in its August state is stale-anchored', JSON.stringify(oldRow));
     t.eq(oldRow.asOf, '2026-08-05', '...against the five-day-old document');
@@ -10466,7 +10482,7 @@ GROUPS.push({
     t.eq(oldRow.inJudged, true, '...and stays in the denominator');
     t.eq(oldRow.inOff, false, '...without blocking the close');
     t.ok(/statement/i.test(oldRow.text || ''), '...the cell asks for the document', oldRow.text);
-    t.ok(/Ask for statement/i.test(oldRow.action || ''), '...and the Action column offers the ask', oldRow.action);
+    t.eq(oldRow.action, 'ask', '...and the Action column offers the ask', oldRow.actionText);
 
     /* IT DISCRIMINATES. Rebuild the shipped _loanCloseRollforward with the
        stale-anchor test disabled and confirm that same row comes back as a red
@@ -10784,7 +10800,8 @@ GROUPS.push({
         const r = rf.rows.find(x => (x.a.xero_account_name || x.a.lender_account_number) === name);
         return {
           name, unposted: r ? r.unposted.length : null, band: r ? r.band : null,
-          action: (tr.lastElementChild || {}).textContent?.trim() || '',
+          action: (tr.lastElementChild || {}).getAttribute?.('data-action') || '',
+          actionText: (tr.lastElementChild || {}).textContent?.trim() || '',
         };
       });
     });
@@ -10793,16 +10810,19 @@ GROUPS.push({
     t.ok(withUnposted.length > 0, 'the fixture has at least one row with unposted work',
       JSON.stringify(rows.map(r => [r.name, r.unposted])));
     for (const r of withUnposted) {
-      t.ok(r.action.length > 0,
+      t.ok(r.action.length > 0 && r.actionText.length > 0,
         `${r.name}: has unposted work (${r.unposted}) and therefore an action to take`,
-        `band=${r.band} action="${r.action}"`);
+        `band=${r.band} action="${r.action}" text="${r.actionText}"`);
     }
     // The specific case: a row that TIES and still has unposted work.
     const tying = withUnposted.filter(r => r.band === 'tie');
     for (const r of tying) {
-      t.ok(/Review/i.test(r.action),
+      // s290: was /Review/ over the label. The claim is that the row still offers
+      // the POSTING action; the label it wears is now shared with every other
+      // action in the column, so the verdict is the only thing that can carry it.
+      t.eq(r.action, 'post',
         `⭐ ${r.name}: ties on the dollars AND has unposted work — the action is still offered`,
-        r.action);
+        `action=${r.action} text="${r.actionText}"`);
     }
 
     /* IT DISCRIMINATES — put the tie short-circuit back in front and the row goes
@@ -10821,6 +10841,119 @@ GROUPS.push({
 
     t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
     await p.close();
+  },
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SESSION 290 — THE ACTION COLUMN HAS EXACTLY TWO LABELS
+   ══════════════════════════════════════════════════════════════════════════
+   David: "I'd like the ACTION column to contain exactly two buttons: 'Find the
+   Fix' (consolidates, Needs a Look, Read the Explanation) and 'Upload
+   Statement'."
+
+   Seven wordings had grown in one column, one at a time, each defensible on the
+   session that added it. That is how this defect always arrives, so the guard is
+   not "the labels are right today" — it is that a NEW one cannot appear
+   unnoticed.
+
+   ⚠️ THREE ASSERTIONS, AND EACH COVERS THE OTHERS' BLIND SPOT.
+     1. DOM: every action-column button on the real book wears one of the two.
+        Satisfied by an empty column, so on its own it is worthless.
+     2. DOM: both labels actually appear. Satisfied by a column of two labels and
+        five others, so on its own it is worthless too.
+     3. SOURCE, and it is the one that catches the eighth label: the action
+        builder contains exactly nine `${ACT_*}` uses and no other literal button
+        label. A hand-written label added to a new branch fails here even if the
+        fixture happens not to render that branch — which is precisely how "Upload
+        screenshot of balance" reached production unnoticed by any test.
+
+   ⚠️ ASSERTION 3 GREPS, SO IT NAMES ITS REGION AND ITS COUNT (session 289's
+   rule). The region is the `const action = (() => {` IIFE inside the close band,
+   bounded by its own `})();`, and the count is 9. A grep over the whole file
+   would be satisfied by the string appearing anywhere, and a grep with no count
+   cannot tell a label that MOVED from a label that was ADDED. If this goes red
+   because you deliberately added a branch, update the number in the same commit
+   and say why — do not widen the region.
+
+   ⚠️ THE QUEUE CHIPS ARE OUT OF SCOPE ON PURPOSE, and this is a live question
+   for David rather than a settled rule. Session 288's cross-period queue renders
+   its own labels ("Approve · Sep", "3 waiting", "+2") into this same cell, marked
+   `.lcb-queued`. They are excluded because they are claims about OTHER MONTHS and
+   about other kinds of work — a payroll approval is not something "Find the Fix"
+   can do, so folding them in would break the rule that a label and its
+   destination must agree (s277), which is the rule the consolidation is serving. */
+GROUPS.push({
+  name: 'action-two-labels',
+  async run(t) {
+    const ALLOWED = ['Find the Fix', 'Upload Statement'];
+    const p = await newHarnessPage({ tab: 'loans' });
+    const errs = [];
+    p.page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+
+    const seen = await p.evaluate(() => {
+      renderLoansCloseBand();
+      const cells = [...document.querySelectorAll('#lcb-table tbody td.lcb-action')];
+      const labels = [];
+      for (const td of cells) {
+        for (const b of td.querySelectorAll('button, span')) {
+          // The cross-period queue and the "+N" counter are a different mechanism.
+          if (b.classList.contains('lcb-queued') || b.classList.contains('lcb-more')) continue;
+          const txt = (b.textContent || '').trim();
+          if (txt) labels.push(txt);
+        }
+      }
+      return { cells: cells.length, labels };
+    });
+
+    t.ok(seen.cells > 0, 'the close band rendered action cells to inspect', String(seen.cells));
+    t.ok(seen.labels.length > 0, 'and at least one of them offers an action',
+         JSON.stringify(seen.labels));
+    const strays = [...new Set(seen.labels.filter(l => !ALLOWED.includes(l)))];
+    t.eq(strays.length, 0, '⭐ every action label is one of the two',
+         JSON.stringify({ strays, all: [...new Set(seen.labels)] }));
+    // ...and BOTH are reachable, so the assertion above cannot be satisfied by a
+    // column that offers nothing.
+    for (const want of ALLOWED) {
+      t.ok(seen.labels.includes(want), `⭐ ...and "${want}" is actually offered on this book`,
+           JSON.stringify([...new Set(seen.labels)]));
+    }
+
+    /* IT DISCRIMINATES. The collector is shown a violation and must report it —
+       done by planting a label in the rendered DOM, never by editing index.html.
+       This proves the checker can see an eighth label; assertion 3 below is what
+       proves an eighth label cannot be WRITTEN unnoticed. */
+    const control = await p.evaluate(() => {
+      const td = document.querySelector('#lcb-table tbody td.lcb-action');
+      const b = document.createElement('button');
+      b.textContent = 'Needs a look';
+      td.appendChild(b);
+      const labels = [...document.querySelectorAll('#lcb-table tbody td.lcb-action')]
+        .flatMap(x => [...x.querySelectorAll('button, span')]
+          .filter(e => !e.classList.contains('lcb-queued') && !e.classList.contains('lcb-more'))
+          .map(e => (e.textContent || '').trim()).filter(Boolean));
+      return labels.filter(l => l !== 'Find the Fix' && l !== 'Upload Statement');
+    });
+    t.ok(control.includes('Needs a look'),
+         '⭐ CONTROL: an eighth label planted in the column is reported, not missed',
+         JSON.stringify(control));
+
+    t.eq(errs.length, 0, 'no page errors', errs.join(' | '));
+    await p.close();
+
+    /* ── 3. THE SOURCE GUARD: NAMED REGION, NAMED COUNT ── */
+    const src = fs.readFileSync(INDEX, 'utf8');
+    const start = src.indexOf('      const action = (() => {');
+    const end = src.indexOf('      })();', start);
+    t.ok(start > 0 && end > start, 'the action builder is locatable in index.html',
+         JSON.stringify({ start, end }));
+    const region = src.slice(start, end);
+    const uses = (region.match(/\$\{ACT_(FIX|UPLOAD)\}/g) || []).length;
+    t.eq(uses, 9, '⭐ the action builder uses the two shared labels nine times',
+         String(uses));
+    const literals = [...new Set(region.match(/>([A-Za-z][^<>{}]{2,40})<\/button>/g) || [])];
+    t.eq(literals.length, 0,
+         '⭐ ...and writes NO literal button label of its own — the eighth label cannot sneak in',
+         JSON.stringify(literals));
   },
 });
 
@@ -11827,9 +11960,24 @@ GROUPS.push({
       // David, 2026-09-05: "just add a button next to upload statement that says
       // upload screenshot of balance". A statement is precisely what cannot settle
       // this loan's month, and it is the document uploaded three times today.
-      t.ok(/screenshot of balance/i.test(row.actionText || ''),
-           '⭐ ...and the button asks for the SCREENSHOT, not a statement that cannot settle it',
+      /* ⚠️ SESSION 290 RELOCATED THIS CLAIM, IT DID NOT DELETE IT. David asked for
+         exactly two labels in the Action column, so "Upload screenshot of balance"
+         became "Upload Statement" like every other ask. The claim session 277 was
+         written to protect -- that a STATEMENT cannot settle this loan's month, and
+         a portal screenshot taken after month end is what can -- now rides in the
+         cell's title, in full, beside the closing cell that says the same thing.
+         So this is a PAIR: the label is the shared one, AND the specific ask is
+         still made. Asserting only the first would go green on a deletion; only
+         the second would miss the consolidation. Both, or it proves nothing.
+         ⚠️ IT IS A REAL TRADE AND IT IS DAVID'S TO MAKE, not this file's: the
+         generic label is one hover away from the right ask, where before it was
+         on the button. Flagged in the session entry, not silently tuned green. */
+      t.eq(row.actionText.replace(/\+\d+$/, ''), 'Upload Statement',
+           '⭐ ...and it wears the column\'s one upload label',
            JSON.stringify(row.actionText));
+      t.ok(/screenshot/i.test(row.actionTitle || '') && /after the month ends/i.test(row.actionTitle || ''),
+           '⭐ ...while STILL asking for the screenshot, not a statement that cannot settle it',
+           JSON.stringify(row.actionTitle));
       t.ok(row.awaitingEvidence,
            '...matching the ask in the closing cell — the two agree');
     }

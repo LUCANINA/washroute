@@ -13093,6 +13093,93 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 290 cont. (2026-09-09) — SEVEN LABELS IN ONE COLUMN, AND A DEAD END WHOSE REASON WAS UNTRUE
+
+**Trigger.** David, with a screenshot of the Loan Closing table: *"I'd like the ACTION column to
+contain exactly two buttons: 'Find the Fix' (consolidates, Needs a Look, Read the Explanation) and
+'Upload Statement'. Make it so."*
+
+**What was there.** Seven wordings, each added by a session that had a good reason: `Upload
+statement`, `Upload screenshot of balance` (s277), `Ask for statement` ×2 (s262, s272), `Review &
+post` / `Review N splits` (s273), `Read the explanation` (s284), `Needs a look`. A reader scanning
+fourteen rows had to tell seven verbs apart to find the two things this column can actually ask of
+them: **go and look at this**, or **go and fetch a document**. That is LESS IS BEST (§250) applied
+to the labels rather than to the columns, and the labels had never had it applied to them.
+
+**Shipped.** `ACT_FIX` / `ACT_UPLOAD`, defined once above `_bkQueueCellHtml`, used nine times in
+the action builder and nowhere else. `data-action` is UNCHANGED — upload / ask / post / explained /
+fix / investigate — so every existing assertion still reads the verdict rather than the wording,
+which is the whole reason a test must not match on button text. Two rows can now wear the same word
+and still be told apart by anything that matters.
+
+**⚠️ NOTHING IS DELETED (ce17), and that is the only thing that made this safe.** Each label's
+specific ask moved into its cell's own `title`, in full and case by case: the portal-screenshot ask
+with its "after the month ends" window, the stale anchor's date and payment count, the split's
+principal and interest figures, the recorded explanation's text (now prefixed *"Already
+investigated — this difference has a recorded explanation, which opens with the walk:"*, because
+the old label was the only thing saying an answer existed).
+
+**⚠️ A REAL DEFECT FELL OUT OF IT, AND CONSOLIDATING THE LABELS IS WHAT MADE SOMEONE READ THE
+REASON.** `Needs a look` was a grey non-clickable `lcb-noact` span, justified by *"no open
+balance-vs-lender finding to walk, so there is nothing for the analyser to work from."*
+
+**That premise is false.** `bkFindDifference` sends `{ loan_account_id, focus_period }` and nothing
+else; `findingId` is a DOM id namespace for the output div and the post buttons, start to finish
+(`_fdiffEl`, `fdiff-post-*`, `fdiff-rec-*`, `fdiff-wo-*`). The analyser has never needed a finding.
+So a row with a real, current, independently-anchored difference — the hardest kind, the one most
+worth walking — was **the one row the walk could not be reached from**, for a reason that was never
+true. Session 273's defect in a new place: one row, two halves, disagreeing. It is now a real
+`Find the Fix` button on a synthetic per-loan id (`noflag-<uuid>`, namespaced so two such rows
+cannot collide on `fdiff-out-*`). The refusal that mattered is not lost, because it never lived
+here: `loan-find-difference` proposes a journal only where the shape is mechanically safe, and that
+judgement is on the server where this button cannot talk it round. *"Deliberately NO one-click
+journal"* is still true of the row — enforced by the thing being opened, not by refusing to open it.
+
+**⚠️ TWO DECISIONS OF DAVID'S THAT THIS REVERSES. Both are flagged rather than buried.**
+
+1. **`Review & post` folded into `Find the Fix`** — he was asked and chose to fold it. The
+   DESTINATION is untouched: an unposted row still opens `openLoanReviewModal` / the loan, and its
+   title still names the period, the principal and the interest. So the label is shared and the
+   click goes where the work is. It is worth knowing that this is the one label in the column
+   behind which a journal reaches Xero, and it no longer says so on its face.
+2. **`Upload screenshot of balance` → `Upload Statement`** — §277 renamed that button *because* a
+   statement is precisely what cannot settle BayFirst SBA 2's month, and it is the document David
+   uploaded three times that day. The ask survives in the title and in the closing cell beside it,
+   so the claim is one hover away rather than on the button. **If either of these costs a wrong
+   upload or a surprised post, the label is the thing to revisit — not the tooltip.**
+
+**Out of scope on purpose, and it is a live question.** Session 288's cross-period queue renders
+its own labels into this same cell (`Approve · Sep`, `3 waiting`, `+2`), marked `.lcb-queued`. They
+are excluded because they are claims about OTHER months and about other KINDS of work — a payroll
+approval is not something "Find the Fix" can do — so folding them in would break §277's
+label-must-match-destination rule, which is the rule the consolidation is serving. David may still
+want them tamed; that is a separate decision.
+
+**New guard: harness group `action-two-labels`, 10 assertions, THREE that cover each other's blind
+spots.** (1) every action-column label on the real book is one of the two — satisfied by an empty
+column, so worthless alone; (2) both labels actually appear — satisfied by two right labels plus
+five wrong ones, so worthless alone; (3) **the source guard**, which is the one that catches the
+eighth label: the action builder contains exactly nine `${ACT_*}` uses and no literal button label
+of its own, so a hand-written label in a new branch goes red **even if the fixture never renders
+that branch** — which is exactly how `Upload screenshot of balance` reached production unseen by
+any test. Per §289's rule, assertion 3 **names its region and its count**: the region is the
+`const action = (() => {` IIFE bounded by its own `})();`, the count is 9. If you add a branch,
+move the number in the same commit and say why; do not widen the region. It also discriminates —
+an eighth label planted in the rendered DOM is reported, not missed.
+
+**Four assertions repaired, and every one of them was matching on button TEXT** — the practice this
+file warns against, caught by the session that changed the wording. `stale-anchor-ask` ×2 and
+`unposted-has-an-action` now read `data-action` (`'ask'`, `'post'`), with the label kept alongside
+as `actionText`. `schedule-choice`'s screenshot assertion became a **PAIR**: the label is the
+column's one upload label AND the title still asks for the screenshot after month end. Asserting
+only the first would go green on a deletion; only the second would miss the consolidation.
+`actionTitle` was added to the shared `surfaces()` close-band extractor so a claim's new home is
+readable at all. Dead `.lcb-noact` CSS removed — its last user became a button.
+
+**Verification.** Harness in five batches: **2,322 assertions, 2,321 passing**; the one red is
+`history`'s `s240 #10`, Tech Debt #19, red on purpose. `tests/copy-budget.test.mts` 56/56.
+Committed locally; **David must `git push` from his own terminal** — this sandbox has no network.
+
 ### Session 290 (2026-09-09) — A SPAN FROM A DATE TO ITSELF, AND THE COLUMN THREE BRANCHES NEVER READ
 
 **Trigger.** David, with a screenshot of the fix card on Funding Circle: *"compare this screenshot

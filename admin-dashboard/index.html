@@ -3681,7 +3681,6 @@
                       border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700);
                       cursor: pointer; line-height: 1.4; }
             .lcb-do:hover { border-color: var(--gray-300); background: var(--gray-50); color: var(--gray-900); }
-            .lcb-noact { font-size: 11.5px; color: var(--gray-400); cursor: help; }
 
             /* ════════════════════════════════════════════════════════════════
                SESSION 289 — THE FIX CARD: ONE CARD, ONE CONTRAST STEP
@@ -19440,6 +19439,36 @@
   // The period is named whenever it is not the month this table is about -- that
   // is the whole reason the item could not live in the row's own action, and
   // hiding it would make a September approval look like August work.
+  // ══════════════════════════════════════════════════════════════════════
+  //  SESSION 290 — THE ACTION COLUMN HAS EXACTLY TWO LABELS (David)
+  // ══════════════════════════════════════════════════════════════════════
+  // David: "I'd like the ACTION column to contain exactly two buttons: 'Find
+  // the Fix' (consolidates, Needs a Look, Read the Explanation) and 'Upload
+  // Statement'."
+  //
+  // Seven wordings had accumulated in one column -- Upload statement, Upload
+  // screenshot of balance, Ask for statement, Review & post, Review N splits,
+  // Read the explanation, Needs a look -- and a reader scanning fourteen rows
+  // had to distinguish seven verbs to find the two things a column can ask of
+  // them: GO AND LOOK AT THIS, or GO AND FETCH A DOCUMENT. That is LESS IS BEST
+  // (s250) applied to the labels rather than the columns.
+  //
+  // ⚠️ THE LIMIT IS ce17 AND IT IS THE WHOLE RULE: NOTHING IS DELETED. Every
+  // sentence the seven labels used to carry is now in the cell's own title,
+  // in full and case by case -- the portal-screenshot ask, the stale-anchor
+  // date and payment count, the split's principal/interest figures, the
+  // recorded explanation. A shorter label that stops naming its counterparty
+  // is a worse label, not a tighter one; these name theirs on hover.
+  //
+  // ⚠️ AND `action.kind` IS UNCHANGED, DELIBERATELY. `data-action` still reads
+  // upload / ask / post / explained / fix / investigate, so the suite keeps
+  // asserting about the VERDICT rather than the wording -- which is the whole
+  // reason a test must never match on button text (the wording is meant to
+  // change, and this session is the proof). Two rows can now show the same word
+  // and still be told apart by anything that matters.
+  const ACT_FIX = 'Find the Fix';
+  const ACT_UPLOAD = 'Upload Statement';
+
   function _bkQueueCellHtml(items, tableMonth) {
     if (!items || !items.length) return '';
     const per = (it) => {
@@ -20036,8 +20065,8 @@
                    cell: wantsScreenshot
                      ? `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="${esc(
                          `A statement cannot close this month: this lender's balance did not move inside it, so every statement it prints is dated to the month before. What settles it is a balance read straight off the portal after the month ends — upload the screenshot and pick "Full transaction history" so its figures are imported rather than just filed.`
-                       )}">Upload screenshot of balance</button>`
-                     : `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">Upload statement</button>` };
+                       )}">${ACT_UPLOAD}</button>`
+                     : `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="No lender document has been received for this month, so there is nothing to close this loan against. Upload the current statement — that is what settles it.">${ACT_UPLOAD}</button>` };
         }
         // ══════════════════════════════════════════════════════════════════
         //  SESSION 288 cont. — "WHICH SCHEDULE?" IS GONE (David)
@@ -20108,7 +20137,7 @@
           return { kind: 'post',
                    cell: `<button type="button" class="lcb-do" onclick="${one ? `openLoanReviewModal('${esc(one.id)}')` : `openLoanDetailModal('${esc(a.id)}')`}" title="${one
                      ? `${esc(String(one.period_label))}: ${esc(fmtMoney(Math.abs(Number(one.principal_amount || 0))))} principal, ${esc(fmtMoney(Math.abs(Number(one.interest_amount || 0))))} interest, not yet in Xero. Opens the review with the figures and the journal it would post; nothing reaches Xero until you approve it.`
-                     : `${r.unposted.length} splits on this loan are not yet in Xero. Opens the loan so you can review and post them one at a time.`}">${one ? 'Review &amp; post' : `Review ${r.unposted.length} splits`}</button>` };
+                     : `${r.unposted.length} splits on this loan are not yet in Xero. Opens the loan so you can review and post them one at a time.`}">${ACT_FIX}</button>` };
         }
         if (r.band === 'tie' || r.circular || r.variance == null) return { kind: '', cell: '' };
         // Ask BEFORE offering the analyser: walking eighteen months of history
@@ -20117,11 +20146,11 @@
         // leftover falls through to the ordinary paths below.
         if (r.staleAnchor && r.band !== 'material' && r.band !== 'tie') {
           return { kind: 'ask',
-                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file is dated ${esc(r.staleAnchor.asOf)}, before ${r.staleAnchor.splits} payment${r.staleAnchor.splits === 1 ? '' : 's'} booked this month, so it cannot know about them. Upload the statement dated at or after ${esc(r.staleAnchor.monthEnd)} and this becomes a real check.">Ask for statement</button>` };
+                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file is dated ${esc(r.staleAnchor.asOf)}, before ${r.staleAnchor.splits} payment${r.staleAnchor.splits === 1 ? '' : 's'} booked this month, so it cannot know about them. Upload the statement dated at or after ${esc(r.staleAnchor.monthEnd)} and this becomes a real check.">${ACT_UPLOAD}</button>` };
         }
         if (r.unbooked) {
           return { kind: 'post',
-                   cell: `<button type="button" class="lcb-do" onclick="openLoanDetailModal('${esc(a.id)}')" title="This difference is explained by payments already prepared but not yet posted. Open the loan to review and post them — nothing is written from this table without a preview.">Review &amp; post</button>` };
+                   cell: `<button type="button" class="lcb-do" onclick="openLoanDetailModal('${esc(a.id)}')" title="This difference is explained by payments already prepared but not yet posted. Open the loan to review and post them — nothing is written from this table without a preview.">${ACT_FIX}</button>` };
         }
         // STALE ANCHOR, measured rather than assumed: the newest lender
         // document settling this row is dated on or before the PRIOR month end,
@@ -20139,7 +20168,7 @@
                                && r.perLender.asOf <= rf.priorEnd);
         if (staleAnchor) {
           return { kind: 'ask',
-                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file predates the month being closed, so this difference is measured against a stale anchor — nobody can evaluate it as it stands. Upload the current statement before treating it as a gap.">Ask for statement</button>` };
+                   cell: `<button type="button" class="lcb-do" onclick="bkFocusIntake()" title="The newest lender document on file predates the month being closed, so this difference is measured against a stale anchor — nobody can evaluate it as it stands. Upload the current statement before treating it as a gap.">${ACT_UPLOAD}</button>` };
         }
         // A REAL DIFFERENCE, ANCHORED ON A CURRENT DOCUMENT. This goes to the
         // EXISTING "Find the difference" flow, which already does the whole safe
@@ -20177,14 +20206,38 @@
         if (finding && _bkNoteCurrent(a, r.variance)) {
           const short = String(a.balance_note).replace(/\s+/g, ' ').slice(0, 220);
           return { kind: 'explained',
-                   cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="${esc(short)}">Read the explanation</button>` };
+                   cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="${esc(`Already investigated — this difference has a recorded explanation, which opens with the walk: ${short}`)}">${ACT_FIX}</button>` };
         }
         if (finding) {
           return { kind: 'fix',
-                   cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="Walk this loan's history against the lender's. Where the difference has one mechanically safe explanation, the correcting journal is shown for your approval. Read-only until you approve it.">Find the fix</button>` };
+                   cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('${esc(finding.id)}','${esc(a.id)}')" title="Walk this loan's history against the lender's. Where the difference has one mechanically safe explanation, the correcting journal is shown for your approval. Read-only until you approve it.">${ACT_FIX}</button>` };
         }
+        // ── "NEEDS A LOOK" WAS A DEAD END, AND ITS REASON WAS UNTRUE ────────
+        // This was a grey `lcb-noact` span -- not clickable -- justified by
+        // "no open balance-vs-lender finding to walk, so there is nothing for
+        // the analyser to work from."
+        //
+        // ⚠️ THAT PREMISE IS FALSE, and consolidating the labels is what made
+        // someone read it. `bkFindDifference` sends `{ loan_account_id,
+        // focus_period }` and NOTHING ELSE; `findingId` is a DOM id namespace
+        // for the output div and the post buttons, start to finish. The
+        // analyser never needed a finding. So a row with a real, current,
+        // independently-anchored difference -- the hardest kind, the one most
+        // worth walking -- was the ONE row the walk could not be reached from,
+        // for a reason that was never true. Session 273's defect exactly: two
+        // halves of one row disagreeing, the column contradicting itself.
+        //
+        // The refusal that mattered is not lost, because it never lived here:
+        // `loan-find-difference` proposes a journal only where the shape is
+        // mechanically safe, and that judgement is on the server where this
+        // button cannot talk it round. "Deliberately NO one-click journal" is
+        // still true of this row; it is enforced by the thing being opened, not
+        // by refusing to open it.
+        //
+        // The id is synthetic and namespaced per loan so two such rows opened in
+        // one session cannot collide on `fdiff-out-*`.
         return { kind: 'investigate',
-                 cell: '<span class="lcb-quiet lcb-noact" title="A real difference with no open balance-vs-lender finding to walk, so there is nothing for the analyser to work from. Deliberately NO one-click journal: booking a difference to make the books agree hides the reason rather than finding it.">Needs a look</span>' };
+                 cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('noflag-${esc(a.id)}','${esc(a.id)}')" title="A real difference with no open balance-vs-lender finding behind it. Walks this loan's history against the lender's anyway — the analyser reads the loan, not the flag. It proposes a correcting journal ONLY where the shape is mechanically safe, and never invents one to make the books agree: where it cannot explain the difference it says so and leaves it for a person.">${ACT_FIX}</button>` };
       })();
       // ── SESSION 288: AND IF THIS MONTH ASKS NOTHING, THE QUEUE MIGHT ──────
       // The Waiting on you card's items land here. THE ROW'S OWN MONTH ALWAYS
