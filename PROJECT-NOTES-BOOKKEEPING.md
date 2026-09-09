@@ -57,10 +57,26 @@
 >    row), AND **the stale-split true-up** — `findStaleSplits` appears 3× and `stale_split_trueup`
 >    once in the deployed bundle. It made the 02:56:22 build by ninety seconds.
 >
-> ❌ **NOT LIVE ANYWHERE: the 429 fix (commit `228bae4`).** The deployed bundle has zero matches for
->    `readRateLimit` and still contains the unreachable `try again in a few minutes` throw. **This is
->    why the 03:01:18 click still returned 504.** `loan-find-difference` and `reconciliation-run`
->    both need deploying, and `_shared/xero-429.ts` is new.
+> ✅ **THE 429 FIX IS LIVE — corrected 2026-09-09 08:05 local. This line said "NOT LIVE ANYWHERE"
+>    and was wrong by NINETEEN MINUTES.** `loan-find-difference` **v45** and `reconciliation-run`
+>    **v80** were both deployed at **03:23:48 / 03:23:53 UTC**, after the block was written at 03:05.
+>
+>    **Measured two ways, and the second is the one that counts.** `list_edge_functions` shows the
+>    versions and timestamps — that proves a deploy was ACCEPTED. **The proof it RUNS is David's
+>    screenshot**: the modal renders *"Xero counts the day as a rolling window, so each attempt
+>    pushes the reset further out"* and *"it should clear in about 40 minutes"*. Neither sentence
+>    exists in the old code, and the forty minutes is a real `Retry-After` reaching the screen.
+>    Behaviour, not a version number (CLAUDE.md's rule, and this is the case it was written for).
+>
+>    ⚠️ **THIS IS THE FIFTH TIME THE DEPLOY STATE IN THIS BLOCK HAS BEEN WRONG, and note the
+>    direction: it has now been wrong in BOTH.** "Not deployed" when it was, and "deployed" when it
+>    had never booted (s264). The failure is not optimism, it is writing the line from what the
+>    session just did instead of from a measurement taken after.
+>
+> 🔴 **THE QUOTA WAS EMPTIED AGAIN ON 2026-09-09 — a second consecutive day.** That is the whole
+>    argument for item 1 above: the honest message is now correct and well-worded, and it is still a
+>    message about a day of work being unavailable. **Fixing the SENTENCE was not fixing the
+>    PROBLEM.** A pre-check costs one call; the pull that cannot finish costs fifty.
 >
 > ◻️ **`loan-ingest-statement` v56 (02:58:03) — INFERRED, NOT MEASURED.** It was deployed 7 seconds
 >    after v44 from the same working tree, and `e6028e9` (the split-pair guards) is an ancestor of
@@ -77,8 +93,8 @@
 > `loan-ingest-amortization` are `verify_jwt: true` and take **NO flag** — pasting it on is what
 > broke `loan-ingest-statement` in s281.
 >
-> ⚠️ **THE 429 FIX CANNOT BE VERIFIED UNTIL THE QUOTA CLEARS** (~12h from 03:00 UTC), because
-> proving it needs a live 429. Probe first: `remaining_day` above zero means it is worth trying.
+> ✅ **THE 429 FIX IS VERIFIED — the live 429 arrived on its own** (see above). Nothing further is
+> needed to prove it; the open work is spending less quota, not reporting the exhaustion better.
 >
 > ---
 >
