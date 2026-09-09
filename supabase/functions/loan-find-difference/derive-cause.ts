@@ -123,9 +123,19 @@ export function deriveIncreaseCause(o: {
   // evidence the card says so plainly, which also happens to be the honest
   // ground for asking for the earlier statements (§262).
   const coversEvent = !(residual != null && Math.abs(residual) >= TOL)
+  // ⚠️ THE FIGURE LEADS. David: "there's no mention of the $5 in the opening
+  // paragraph when that's the only relevant piece of information we need."
+  //
+  // He is right and it was a real defect, not a style note. This function was
+  // written as an observation ABOUT SPLITS and it never said what the difference
+  // IS -- a reader got three clauses of evidence for a number the sentence never
+  // named. The lead states the amount and the direction; the evidence follows
+  // and explains it. §279's exemption covers this exactly: the decision's own
+  // figure may appear in the lead AND on the journal it writes.
+  const led = `The lender added ${money(Math.abs(diff))} to the balance that our books have not booked.`
   const observed = months === 1
-    ? `The lender's own statement for ${first} applies $0.00 to principal — all of it goes to interest.`
-    : `The lender's own statements from ${first} to ${last} apply $0.00 to principal — every one of the ${months} goes entirely to interest.`
+    ? `${led} Its own statement for ${first} applies $0.00 to principal — all of it goes to interest.`
+    : `${led} Its own statements from ${first} to ${last} apply $0.00 to principal — every one of the ${months} goes entirely to interest.`
   const rule = coversEvent
     ? `A balance that rose while no principal was being applied did so through a fee or capitalised interest, not through a repayment.`
     : `Where no principal is being applied, a rise in the balance is a fee or capitalised interest rather than a missed repayment — though this difference predates ${fromMonth}, so those months are not among the ones read here.`

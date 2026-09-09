@@ -936,6 +936,65 @@ const CONFIDENT_ZERO = /\$0(?:\.00)?\b/;
 /* ═══════════════════════════ SCENARIO GROUPS ═════════════════════════════ */
 const GROUPS = [];
 
+/* ── s289 ── THE LOAN PROFILE: A NOTE IS ATTACHED, NOT STACKED ─────────────
+   Every split carrying review_notes used to render a full-width paragraph
+   beneath its row. On EIDL that is nine rows and one note of sixty words, so
+   the table a reader opened the modal for was buried in commentary about it.
+   s249's rule: a data- attribute plus a hover reaches every reader, exports in
+   full, and costs no width. */
+GROUPS.push({
+  name: 'loan-profile-notes',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const r = await p.evaluate(() => {
+      const eidl = (_allLoanAccounts || []).find(a => /EIDL/i.test(a.xero_account_name || ''));
+      openLoanDetailModal(eidl.id);
+      const body = document.getElementById('loan-history-body');
+      const noted = (_allLoanSplits || []).filter(s => s.loan_account_id === eidl.id && s.review_notes);
+      return {
+        words: body.textContent.replace(/\s+/g, ' ').trim().split(/\s+/).length,
+        heads: [...body.querySelectorAll('.form-section-head')].map(e => e.textContent.trim()),
+        notedSplits: noted.length,
+        cellsWithNote: body.querySelectorAll('[data-note]').length,
+        // The longest note must NOT be sitting in the page text any more.
+        longestNote: noted.map(s => String(s.review_notes)).sort((a, b) => b.length - a.length)[0] || '',
+        text: body.textContent.replace(/\s+/g, ' ').trim(),
+        structureHeading: !!body.textContent.match(/How this loan is structured/),
+        hasStructureButton: !!body.textContent.match(/Describe how this loan is structured/),
+      };
+    });
+
+    t.ok(r.notedSplits >= 2, 'the fixture actually has splits carrying notes — otherwise this group proves nothing', String(r.notedSplits));
+    t.eq(r.cellsWithNote, r.notedSplits, '⭐ every noted split carries its note as an attribute on its own row');
+    t.ok(!r.text.includes(r.longestNote.slice(0, 60)),
+         '⭐ ...and the note is NOT also stacked in the page text', r.longestNote.slice(0, 80));
+    t.ok(r.words < 420, '⭐ the profile fits a screen rather than a scroll of commentary', `${r.words} words`);
+
+    /* LESS IS BEST test 1 — an empty section is a heading telling you nothing. */
+    t.ok(!r.structureHeading && r.hasStructureButton,
+         '⭐ with no structure note, the heading and placeholder go and the BUTTON survives',
+         JSON.stringify(r.heads));
+
+    /* Rule C — the reason a control is disabled rides on the control. */
+    const basis = await p.evaluate(() => {
+      const btns = [...document.querySelectorAll('#loan-history-body button')];
+      const b = btns.find(x => /Close on the schedule instead/.test(x.textContent));
+      return { disabled: b ? b.disabled : null, title: b ? b.title : '',
+               visible: document.getElementById('loan-history-body').textContent };
+    });
+    t.eq(basis.disabled, true, 'EIDL has no lender-issued schedule, so the switch is disabled');
+    t.ok(/derived from its own statements/.test(basis.title),
+         '⭐ the reason is ON the disabled button', basis.title.slice(0, 90));
+    t.ok(!/could not fail/.test(basis.visible),
+         '⭐ ...and no longer also a paragraph beside it — one statement, on the control (rule C)');
+
+    await p.close();
+  },
+});
+
+
+
+
 
 
 

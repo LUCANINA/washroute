@@ -45,8 +45,10 @@ ok(eidl.sentence.includes('from 2026-08 to 2026-09'),
    'the range is the months the LENDER spoke about', eidl.sentence)
 ok(!eidl.sentence.includes('2026-07'),
    '⭐ 2026-07 is absent from the claim — its "principal" IS the balance delta, so citing it is s246 circularity', eidl.sentence)
-ok(/lender's own statements/.test(eidl.sentence),
-   '...and the sentence says whose figures these are', eidl.sentence)
+ok(/^The lender added \$5\.00 to the balance/.test(eidl.sentence),
+   '⭐ THE FIGURE LEADS — the sentence says what the difference IS before it argues about it', eidl.sentence)
+ok(/Its own statements from/.test(eidl.sentence),
+   '...and then says whose figures back it', eidl.sentence)
 ok(!eidl.sentence.includes('since 2026-04'),
    '⭐ CONTROL: the old overclaim is gone — it never says "since <window start>"', eidl.sentence)
 ok(!/\b2026-05\b|\b2026-06\b/.test(eidl.sentence),

@@ -3702,12 +3702,19 @@
 
                NOTHING IS DELETED by any of this (ce17): it moves claims between
                weights, never off the card. */
-            .fdc { font-size: 13px; line-height: 1.55; color: var(--gray-800); }
-            .fdc-sec { padding: 13px 0; }
+            /* s289: 14.5px, not 13. David, against the mockup: "increase the
+               size of the font". A card a CPA reads under time pressure is not
+               the place to save vertical space -- the whole card is ~90 words
+               now, so the room is there, and 13px was a density chosen when it
+               was 300. The lead sentence goes larger still: it is the one thing
+               everybody reads and some readers read ONLY it. */
+            .fdc { font-size: 14.5px; line-height: 1.6; color: var(--gray-800); }
+            .fdc-sec { padding: 14px 0; }
+            .fdc-sec:first-child > div:not(.fdc-lab) { font-size: 15.5px; line-height: 1.6; }
             .fdc-sec + .fdc-sec { border-top: 1px solid var(--gray-200); }
             .fdc-sec:first-child { padding-top: 2px; }
-            .fdc-lab { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
-                       font-weight: 700; color: var(--gray-500); margin-bottom: 6px; }
+            .fdc-lab { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+                       font-weight: 700; color: var(--gray-500); margin-bottom: 7px; }
             /* The one lifted block. Warm, low-saturation, and the ONLY fill on
                the card — it reads as "act here" precisely because nothing else
                is tinted. */
@@ -3716,10 +3723,11 @@
             .fdc-act .fdc-lab { color: #8a5300; }
             /* Digits line up in columns wherever they appear on this card. */
             .fdc, .fdc table, .fdc .fdc-num { font-variant-numeric: tabular-nums; }
-            .fdc-quiet { font-size: 11.5px; color: var(--gray-500); }
+            .fdc-quiet { font-size: 12.5px; color: var(--gray-500); }
             .fdc-ties { color: #157347; font-weight: 600; }
             .fdc details > summary { cursor: pointer; font-size: 12px; color: var(--gray-500); }
-            .fdc table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            .fdc table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+            .fdc details > summary { font-size: 13px; }
             /* SESSION 288 — a QUEUED action is work about another period, and it
                has to be distinguishable from work about the month on screen.
                One contrast step, per the design rule: a dotted left edge, not a
@@ -12801,8 +12809,23 @@
 
     // ── 2. WHAT LIKELY HAPPENED ────────────────────────────────────────────
     if (Array.isArray(data.conclusions) && data.conclusions.length) {
+      // ── s289: A HEADING MUST NAME WHAT IS UNDER IT ─────────────────────
+      // David: "What likely happened: none of this explains what likely
+      // happened." He is right, and it is the same class of defect as the
+      // heading that outlived its fact (s247) rather than a wording nit.
+      //
+      // `conclusions` holds two shapes: EXPLANATIONS (a divergent span and its
+      // cause) and, when there is nothing to explain, ASKS and REASSURANCES —
+      // "upload August's statement", "every span ties". Neither of the latter
+      // explains anything, and on this card the explanation had ALREADY been
+      // given in the section above.
+      //
+      // So the label follows the card: where question 1 is answered above, this
+      // block is what ELSE the reader should know; where it is not, these
+      // bullets ARE the answer and the old heading is the right one.
+      const explained = !!(dc || (note && !note.stale));
       parts.push(`<section class="fdc-sec">
-        <div class="fdc-lab">What likely happened</div>
+        <div class="fdc-lab">${explained ? 'What else to know' : 'What likely happened'}</div>
         <ul style="margin:0;padding-left:17px">${data.conclusions.map(c => `<li style="margin-top:5px">${esc(c)}</li>`).join('')}</ul>
       </section>`);
       if (Array.isArray(data.no_action_detail) && data.no_action_detail.length) {
@@ -12837,7 +12860,7 @@
         + (pr.based_on ? `<div style="margin-top:5px">${esc(pr.based_on)}</div>` : ''));
       parts.push(`<div class="fdc-act">
         <div class="fdc-lab">Suggested entry — dated ${esc(_bkDay(String(pr.journal?.Date || '')))}, nothing posts until you approve</div>
-        ${(pr.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-700);margin-top:3px;font-size:12.5px"><strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))}${l.AccountName ? ` ${esc(l.AccountName)}` : ''} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}</div>`).join('')}
+        ${(pr.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-700);margin-top:4px"><strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))}${l.AccountName ? ` ${esc(l.AccountName)}` : ''} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}</div>`).join('')}
         ${data.can_post ? `<div style="margin-top:11px;display:flex;gap:8px;align-items:center"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}', this)">Post to Xero</button><button class="btn" style="font-size:12px;padding:6px 12px" onclick="bkIgnoreVariance('${loanId}', this)">Ignore</button></div>` : `<div class="fdc-quiet" style="margin-top:8px">Your account can review this but not post it.</div>`}
       </div>`);
     }
@@ -13264,7 +13287,7 @@
         <div class="fdc-lab">Prepared correction — dated ${esc(_bkDay(pe.Date))}, her entry is not touched</div>
         ${W ? '' : `<div style="margin-top:6px;font-weight:600">${esc(_bkJrnlShort(pe.Narration, true))} (dated ${esc(_bkDay(pe.Date))})</div>
         <div style="color:var(--gray-500);margin-top:2px;font-size:11.5px">Dated here because ${esc(pe.dated_because || '')}.</div>`}
-        ${(pe.JournalLines || []).map(l => `<div style="color:var(--gray-600);margin-top:3px;font-size:12px">
+        ${(pe.JournalLines || []).map(l => `<div style="color:var(--gray-600);margin-top:4px">
           <strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}${(() => {
             // A leg whose description just repeats the narration above it is
             // width, not information (s279). The posted journal keeps both.
@@ -22629,9 +22652,23 @@
         const fileCell = file
           ? `<span onclick="viewLoanFile('${s.id}')" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">${esc(file.label)}</span>`
           : `<span style="font-size:12px;color:var(--gray-300)">—</span>`;
+        // ── s289: A NOTE IS ATTACHED TO ITS ROW, NOT STACKED UNDER IT ──────
+        // Every split carrying `review_notes` rendered a full-width grey
+        // paragraph beneath it. On EIDL that is nine of them and one runs sixty
+        // words, so the table a reader came for was buried in commentary about
+        // it -- 544 words on a screen whose job is to show nine rows of figures.
+        //
+        // Session 249's rule, verbatim: a `data-` attribute plus a hover
+        // "reaches every reader, exports in full, and costs no width". The mark
+        // is on the Period cell because that is what the note is about, the full
+        // text is in the title AND in data-note (so a CSV export still carries
+        // it), and NOTHING IS DELETED -- it moved from the page to the cell.
+        const noteAttr = s.review_notes
+          ? ` data-note="${esc(String(s.review_notes).replace(/\s+/g, ' ').trim())}" title="${esc(String(s.review_notes).replace(/\s+/g, ' ').trim())}"`
+          : '';
         return `
         <tr>
-          <td class="td-mono">${esc(s.period_label)}</td>
+          <td class="td-mono"${noteAttr}>${esc(s.period_label)}${s.review_notes ? ` <span style="color:#8a5300;cursor:help;font-size:11px" aria-label="has a note">&#9432;</span>` : ''}</td>
           <td style="font-size:12px;color:var(--gray-500)">${s.source === 'amortization_schedule' ? 'schedule' : 'statement'}</td>
           <td class="td-mono">$${Number(s.principal_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td class="td-mono">$${Number(s.interest_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -22641,7 +22678,6 @@
           <td class="td-mono" style="font-size:11px;color:var(--gray-400)" title="${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id) : ''}">${s.xero_manual_journal_id ? esc(s.xero_manual_journal_id.slice(0, 8)) + '…' : '—'}</td>
           <td>${fileCell}</td>
         </tr>
-        ${s.review_notes ? `<tr><td colspan="9" style="padding:2px 8px 12px;font-size:12px;color:var(--gray-600);background:var(--gray-50)">⚠ ${esc(s.review_notes)}</td></tr>` : ''}
       `;
       }).join('');
       return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
@@ -22940,19 +22976,20 @@
       ? `<b>The contractual amortization schedule.</b> No lender statement is expected for this loan, so it is excluded from the statement gate by recorded policy rather than by accident.`
       : `<b>The lender's own statements.</b> A current statement is expected each month, and the month cannot close until one has been uploaded and compared.`;
 
-    const provenance = real.length
-      ? `A genuine lender schedule is on file${real[0].schedule_generated_date ? ` (generated ${esc(real[0].schedule_generated_date)})` : ''} — parsed from a document, not derived from this loan's statements.`
-      : `<b>No genuine lender schedule is on file.</b> Any schedule this loan carries was derived from its own statements, so closing against it would be checking our arithmetic against itself — the variance could not fail. Upload the lender's schedule first if this loan should close that way.`;
-
+    // ── s289 rule C: A QUESTION WITH A CONTROL ON SCREEN IS ANSWERED BY THE
+    // CONTROL. `provenance` is 45 words explaining why the button beside it is
+    // disabled -- a second statement of a state the button already shows, and
+    // the words a reader has to get past to reach the one sentence that says
+    // what settles the month. It rides on the button instead, where somebody
+    // wondering why it is greyed will actually look for it.
     const btn = onSchedule
-      ? `<button type="button" class="btn btn-secondary" onclick="bkSetCloseBasis('${esc(a.id)}','lender_statement')">Close on statements instead</button>`
+      ? `<button type="button" class="btn btn-secondary" title="${esc(real.length ? 'A genuine lender schedule is on file.' : 'No lender-issued schedule is on file — this loan closes on a recorded policy.')}" onclick="bkSetCloseBasis('${esc(a.id)}','lender_statement')">Close on statements instead</button>`
       : canSwitchToSchedule
-        ? `<button type="button" class="btn btn-secondary" onclick="bkSetCloseBasis('${esc(a.id)}','amortization_schedule')">Close on the schedule instead</button>`
-        : `<button type="button" class="btn btn-secondary" disabled title="There is no lender-issued schedule on file for this loan — only one derived from its own statements. Closing against that would make the variance agree by construction.">Close on the schedule instead</button>`;
+        ? `<button type="button" class="btn btn-secondary" title="A genuine lender schedule is on file${real[0].schedule_generated_date ? ` (generated ${esc(real[0].schedule_generated_date)})` : ''} — parsed from a document, not derived from this loan's own statements." onclick="bkSetCloseBasis('${esc(a.id)}','amortization_schedule')">Close on the schedule instead</button>`
+        : `<button type="button" class="btn btn-secondary" disabled title="No genuine lender schedule is on file. Any schedule this loan carries was derived from its own statements, so closing against it would be checking our arithmetic against itself — the variance could not fail. Upload the lender's schedule first if this loan should close that way.">Close on the schedule instead</button>`;
 
     return `<div style="font-size:13px;color:var(--gray-700);line-height:1.6">
         <div>${now}</div>
-        <div style="margin-top:6px;color:var(--gray-600);font-size:12.5px">${provenance}</div>
         ${a.close_basis_reason ? `<div style="margin-top:6px;font-size:12.5px;color:var(--gray-600)">Reason on file: ${esc(a.close_basis_reason)}${when ? ` · set ${esc(when)}${a.close_basis_set_by ? ' by ' + esc(a.close_basis_set_by) : ''}` : ''}</div>` : ''}
         <div style="margin-top:10px">${btn}</div>
       </div>`;
@@ -23111,11 +23148,20 @@
       : '';
 
     const section = (title, inner) => `<div style="margin-top:18px"><div class="form-section-head">${esc(title)}</div>${inner}</div>`;
+    // ── s289 LESS IS BEST test 1: WOULD A READER ACT DIFFERENTLY WITHOUT IT? ──
+    // "How this loan is structured" rendered a heading, the words "Not
+    // documented yet." and a button, on every loan that has no structure note --
+    // which is most of them. Three lines of chrome around an absence. The
+    // heading and the placeholder go; the BUTTON survives, in the actions row
+    // with the other things a person can do here, because the ability to write
+    // one is the only part of that section anybody could act on.
+    const undocumented = !a.structure_note && _bkCanWrite();
     document.getElementById('loan-history-body').innerHTML = `
       <div style="display:flex;flex-wrap:wrap;gap:14px 28px;padding:4px 0 2px">${chips.join('')}</div>
       ${actions}
+      ${undocumented ? `<div style="margin:${actions ? '-6px' : '14px'} 0 2px"><button class="btn btn-secondary btn-sm" onclick="_bkEditStructureNote('${esc(a.id)}')">Describe how this loan is structured</button></div>` : ''}
       ${section('What settles this loan\'s month', _bkCloseBasisHtml(a))}
-      ${section('How this loan is structured', _bkStructureNoteHtml(a))}
+      ${a.structure_note ? section('How this loan is structured', _bkStructureNoteHtml(a)) : ''}
       ${section('Where the accounting can be better', _bkLoanImprovementsHtml(a.id))}
       ${section(`Split history (${_allLoanSplits.filter(s => s.loan_account_id === a.id).length})`, _loanSplitHistoryTableHtml(a.id))}
       ${section(`Statements (${stmts.length})`, stmtsHtml)}
