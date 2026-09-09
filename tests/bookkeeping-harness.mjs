@@ -13415,6 +13415,252 @@ GROUPS.push({
 });
 
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   loan-info-card — session 290, David: "it's really an information card for
+   the bookkeepers."
+
+   The loan modal stopped being a chip row plus four stacked lists and became a
+   TERMS card. Three properties are worth assertions, and only the first is
+   about layout:
+
+   1. IT RENDERS AT ALL, for every loan in the book. The old failure mode of
+      this file is a crash inside the render function leaving an empty modal —
+      session 263 cont. 6 shipped exactly that. Source-text assertions cannot
+      see it; only opening every loan can.
+
+   2. ABSENCE IS A VALUE. A loan with no agreement on file must SAY "not on
+      file" rather than dropping the row, because a missing agreement is the
+      thing a bookkeeper chases and a row that vanishes cannot be chased. The
+      assertion is paired: present-and-linked on a loan that has one, plainly
+      absent on a loan that does not.
+
+   3. NOTHING WAS DELETED BY THE FOLD (ce17). "Where the accounting can be
+      better" is collapsed on this screen now, so the pair that matters is:
+      the summary states the count AND every item is still in the DOM. Either
+      half alone is worthless — the first passes if the body is empty, the
+      second passes if nothing was folded at all.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'loan-info-card',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    await p.settle();
+
+    const accts = (baseFixture.loan_accounts || []);
+    t.ok(accts.length > 0, 's290: the fixture carries loan accounts to open');
+
+    // ── (1) every loan opens and paints ─────────────────────────────────────
+    const painted = await p.page.evaluate((ids) => {
+      const out = [];
+      for (const id of ids) {
+        let err = null;
+        try { openLoanDetailModal(id); } catch (e) { err = String(e && e.message || e); }
+        const body = document.getElementById('loan-history-body');
+        const title = document.getElementById('loan-history-title');
+        out.push({
+          id, err,
+          bodyLen: body ? body.innerText.replace(/\s+/g, ' ').trim().length : 0,
+          hasTerms: !!(body && body.querySelector('.lc-terms')),
+          titleLen: title ? title.innerText.replace(/\s+/g, ' ').trim().length : 0,
+        });
+      }
+      return out;
+    }, accts.map(a => a.id));
+
+    for (const r of painted) {
+      t.ok(!r.err, `s290: openLoanDetailModal did not throw for ${r.id}`, r.err || '');
+      t.ok(r.bodyLen > 200, `s290: the card painted real content for ${r.id}`, 'len=' + r.bodyLen);
+      t.ok(r.hasTerms, `s290: ⭐ the Terms grid rendered for ${r.id}`);
+      t.ok(r.titleLen > 10, `s290: the navy header painted for ${r.id}`, 'len=' + r.titleLen);
+    }
+    t.ok(p.pageErrors.length === 0, 's290: ⭐ no page errors while opening every loan',
+         p.pageErrors.join(' | '));
+
+    // ── (2) absence is a value, and presence is a link ───────────────────────
+    const docs = (baseFixture.loan_documents || []);
+    const withAgr = accts.find(a => docs.some(d => d.loan_account_id === a.id && d.doc_type === 'agreement'));
+    const noAgr   = accts.find(a => !docs.some(d => d.loan_account_id === a.id && d.doc_type === 'agreement'));
+
+    const readCard = (id) => p.page.evaluate((lid) => {
+      openLoanDetailModal(lid);
+      const body = document.getElementById('loan-history-body');
+      const title = document.getElementById('loan-history-title');
+      const rows = {};
+      body.querySelectorAll('.lc-row').forEach(r => {
+        const k = (r.querySelector('.lc-k') || {}).innerText || '';
+        const v = r.querySelector('.lc-v');
+        rows[k.trim()] = {
+          text: (v ? v.innerText : '').replace(/\s+/g, ' ').trim(),
+          links: v ? v.querySelectorAll('.lc-link').length : 0,
+        };
+      });
+      const fold = body.querySelector('.lc-fold');
+      return {
+        rows,
+        titleText: title.innerText.replace(/\s+/g, ' ').trim(),
+        bodyText: body.innerText.replace(/\s+/g, ' ').trim(),
+        sparks: title.querySelectorAll('svg').length,
+        fold: fold ? {
+          open: fold.hasAttribute('open'),
+          summary: fold.querySelector('summary').innerText.replace(/\s+/g, ' ').trim(),
+          items: fold.querySelectorAll('.lc-fold-body > div').length,
+          // A COLLAPSED <details> HAS NO innerText. Reading it that way asserted
+          // nothing about the folded content and went red on working code --
+          // textContent is what sees a node the browser is not painting.
+          bodyText: fold.querySelector('.lc-fold-body').textContent.replace(/\s+/g, ' ').trim(),
+        } : null,
+      };
+    }, id);
+
+    if (withAgr) {
+      const c = await readCard(withAgr.id);
+      t.ok(/on file/.test(c.rows['Agreement'] && c.rows['Agreement'].text || ''),
+           's290: ⭐ a loan WITH an agreement says so', JSON.stringify(c.rows['Agreement']));
+      t.ok((c.rows['Agreement'] || {}).links >= 1,
+           's290: ...and the agreement is a link you can open', JSON.stringify(c.rows['Agreement']));
+    } else {
+      t.ok(true, 's290: ⚠ REPORTED — no fixture loan carries an agreement document, so the present-case is unexercised');
+    }
+    if (noAgr) {
+      const c = await readCard(noAgr.id);
+      const txt = (c.rows['Agreement'] || {}).text;
+      t.ok(txt !== undefined, 's290: ⭐ a loan WITHOUT an agreement still renders the row', String(txt));
+      t.ok(/not on file/.test(txt || ''), 's290: ...and it says "not on file" rather than going blank', String(txt));
+    }
+
+    /* THE PAYOFF LETTER IS ITS OWN PAIR. Riding it on the no-agreement loan
+       asserted a coincidence: that loan HAS a payoff letter, so the absence case
+       was never the one being read. Pick each loan by the fact under test. */
+    const withPayoff = accts.find(a => docs.some(d => d.loan_account_id === a.id && d.doc_type === 'payoff_letter'));
+    const noPayoff   = accts.find(a => !docs.some(d => d.loan_account_id === a.id && d.doc_type === 'payoff_letter'));
+    if (withPayoff) {
+      const c = await readCard(withPayoff.id);
+      t.ok(((c.rows['Payoff letter'] || {}).links || 0) >= 1,
+           's290: ⭐ a loan WITH a payoff letter links it', JSON.stringify(c.rows['Payoff letter']));
+    }
+    if (noPayoff) {
+      const c = await readCard(noPayoff.id);
+      t.ok(/not on file/.test((c.rows['Payoff letter'] || {}).text || ''),
+           's290: ⭐ ...and a loan WITHOUT one says "not on file" rather than dropping the row',
+           JSON.stringify(c.rows['Payoff letter']));
+    }
+
+    // ── (3) the outstanding balance is stated ONCE, in the header ───────────
+    /* Session 279's rule on a new surface. It lives in the header caption; a copy
+       in Terms would be the same figure twice on one screen. */
+    for (const a of accts.slice(0, 8)) {
+      const c = await readCard(a.id);
+      if (!/Outstanding/.test(c.titleText)) continue;
+      const money = (c.titleText.match(/\$[\d,]+\.\d\d/) || [])[0];
+      if (!money) continue;
+      const inBody = c.bodyText.split(money).length - 1;
+      t.ok(inBody === 0,
+           `s290: ⭐ the outstanding balance ${money} is stated once, in the header, for ${a.id}`,
+           'occurrences in body: ' + inBody);
+    }
+
+    // ── (4) the fold hides the list without deleting it ─────────────────────
+    const withImps = [];
+    for (const a of accts) {
+      const c = await readCard(a.id);
+      if (c.fold) withImps.push({ id: a.id, c });
+    }
+    t.ok(withImps.length > 0, 's290: at least one fixture loan has improvements to fold',
+         'loans with a fold: ' + withImps.length);
+    for (const { id, c } of withImps.slice(0, 6)) {
+      t.ok(!c.fold.open, `s290: the improvements list is collapsed on ${id}`);
+      t.ok(/\d+ thing/.test(c.fold.summary),
+           `s290: ⭐ ...and the closed summary states how many there are on ${id}`, c.fold.summary);
+      t.ok(c.fold.items > 0,
+           `s290: ⭐ ...and every item is still in the DOM, not deleted, on ${id}`,
+           'items=' + c.fold.items);
+      t.ok(c.fold.bodyText.length > 20,
+           `s290: ...and the folded body carries real text on ${id}`, c.fold.bodyText.slice(0, 120));
+    }
+    /* THE ERROR COUNT SURVIVES THE FOLD. Hiding a red finding behind a neutral
+       triangle is the one way this change could make the screen less safe. */
+    const withErr = withImps.find(({ c }) => /need/.test(c.fold.summary));
+    if (withErr) {
+      t.ok(/\d+ needs? attention/.test(withErr.c.fold.summary),
+           's290: ⭐ a loan with an error says so on the CLOSED line', withErr.c.fold.summary);
+    } else {
+      t.ok(true, 's290: ⚠ REPORTED — no fixture loan carries an error-severity improvement, so the red-summary case is unexercised');
+    }
+
+    // ── (5) the sparkline appears only with enough anchors ───────────────────
+    const stmts = (baseFixture.loan_statements || []);
+    const anchorCount = (id) => stmts.filter(x => x.loan_account_id === id
+      && x.principal_balance != null && !x.anchor_excluded).length;
+    for (const a of accts.slice(0, 10)) {
+      const c = await readCard(a.id);
+      const n = anchorCount(a.id);
+      const vals = stmts.filter(x => x.loan_account_id === a.id
+        && x.principal_balance != null && !x.anchor_excluded).map(x => Number(x.principal_balance));
+      const flat = vals.length ? Math.max(...vals) === Math.min(...vals) : true;
+      if (n >= 3 && flat) {
+        /* A FLAT LINE IS NOT A SPARKLINE. A paid-off loan whose anchors are all
+           $0.00 drew a straight rule across the header -- ink spent to say
+           nothing, found by looking at the rendered page rather than the code. */
+        t.ok(c.sparks === 0, `s290: ⭐ ${n} IDENTICAL anchors draw NO sparkline for ${a.id}`, 'svgs=' + c.sparks);
+      } else if (n >= 3 && /Outstanding/.test(c.titleText)) {
+        t.ok(c.sparks === 1, `s290: ${n} moving anchors draw a sparkline for ${a.id}`, 'svgs=' + c.sparks);
+      } else if (n < 3) {
+        t.ok(c.sparks === 0, `s290: ⭐ ${n} anchors draws NO sparkline for ${a.id}`, 'svgs=' + c.sparks);
+      }
+    }
+
+    // ── (6) both rates, side by side (session 230's whole point) ────────────
+    const rated = accts.find(a => a.fitted_annual_rate != null && a.interest_rate != null);
+    if (rated) {
+      const c = await readCard(rated.id);
+      const txt = (c.rows['Rate'] || {}).text || '';
+      t.ok(txt.includes(Number(rated.fitted_annual_rate).toFixed(3)),
+           's290: ⭐ the MEASURED rate is on the card', txt);
+      t.ok(txt.includes(Number(rated.interest_rate).toFixed(3)),
+           's290: ⭐ ...and the typed contract rate is beside it, so a wrong note is visible', txt);
+    } else {
+      t.ok(true, 's290: ⚠ REPORTED — no fixture loan carries both a fitted and a typed rate');
+    }
+
+    // ── (7) DOES ANY OF THIS DISCRIMINATE? ──────────────────────────────────
+    /* A green assertion proves nothing until the broken version goes red. Two of
+       these are self-proving from this session's own history: "did not throw" and
+       "the Terms grid rendered" went red on a real crash (a lost `const t`), and
+       the fold assertions went red on a real test bug. The dedup check has never
+       been red, so it gets the toString() inverse here -- rebuilt in page context,
+       never by editing index.html. */
+    {
+      const target = withImps.length ? withImps[0].id : accts[0].id;
+      const q2 = await p.page.evaluate((lid) => {
+        const src = openLoanDetailModal.toString();
+        const broken = src.replace("row('Opened',",
+          "row('Outstanding', bal ? ('<b>' + money2(bal.amount) + '</b>') : '-'); row('Opened',");
+        if (broken === src) return { patched: false };
+        const fn = new Function('return (' + broken + ')')();
+        fn(lid);
+        const body = document.getElementById('loan-history-body').innerText.replace(/\s+/g, ' ');
+        const title = document.getElementById('loan-history-title').innerText.replace(/\s+/g, ' ');
+        const money = (title.match(/\$[\d,]+\.\d\d/) || [])[0] || null;
+        return { patched: true, money, inBody: money ? body.split(money).length - 1 : -1 };
+      }, target);
+
+      t.ok(q2.patched, 's290: the inverse patch applied (its anchor string still exists)', JSON.stringify(q2));
+      if (q2.patched && q2.money) {
+        t.ok(q2.inBody > 0,
+             's290: ⭐ DISCRIMINATION — putting the Outstanding row back into Terms makes the balance appear twice, which the dedup assertion above catches',
+             'money=' + q2.money + ' occurrences in body=' + q2.inBody);
+      }
+      // Repaint the real one so nothing downstream inherits the broken render.
+      await p.page.evaluate((lid) => openLoanDetailModal(lid), accts[0].id);
+    }
+
+    await p.close();
+  },
+});
+
+
+
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
 if (ONLY.length) {

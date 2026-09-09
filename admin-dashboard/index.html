@@ -304,6 +304,49 @@
     /* ── FORM SECTION HEADS ── */
     .form-section-head { font-size:12px; font-weight: 600; letter-spacing: 0; color:var(--gray-400); padding-bottom:10px; border-bottom:1px solid var(--gray-100); margin-bottom:14px; }
 
+    /* ── Loan detail card (session 290, David) ───────────────────────────
+       The loan modal is an INFORMATION CARD: terms first, evidence after.
+       Scoped to #modal-loan-history so no other modal inherits the header. */
+    #modal-loan-history .modal-header { background:linear-gradient(180deg,#14304f 0%,#0f2744 100%); border-bottom:none; padding:14px 20px; }
+    #modal-loan-history .modal-close { color:#8aa2bf; }
+    #modal-loan-history .modal-close:hover { background:rgba(255,255,255,.10); color:#fff; }
+    #modal-loan-history .modal-title { flex:1; min-width:0; font-weight:400; }
+    .lc-head { display:flex; align-items:center; gap:14px; }
+    .lc-mono { flex:none; width:38px; height:38px; border-radius:9px; display:grid; place-items:center; background:#1b3a63; border:1px solid rgba(255,255,255,.14); font-size:12.5px; font-weight:700; color:#7dd3fc; }
+    .lc-headtxt { flex:1; min-width:0; }
+    .lc-name { font-size:16px; font-weight:650; color:#fff; letter-spacing:-.01em; }
+    .lc-sub { font-size:12px; color:#a9bdd6; margin-top:3px; font-variant-numeric:tabular-nums; }
+    .lc-spark { flex:none; display:flex; align-items:center; gap:9px; margin-right:14px; }
+    .lc-cap { text-align:right; line-height:1.25; }
+    .lc-cap-k { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:#8aa2bf; }
+    .lc-cap-v { font-size:13px; font-weight:650; color:#fff; font-variant-numeric:tabular-nums; }
+    @media (max-width:720px) { .lc-spark { display:none; } }
+
+    .lc-sec { padding:16px 0; border-bottom:1px solid var(--gray-200); }
+    .lc-sec:first-child { padding-top:2px; }
+    .lc-sec:last-child { border-bottom:0; padding-bottom:0; }
+    .lc-eyebrow { display:flex; align-items:center; gap:8px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--gray-500); font-weight:600; margin-bottom:12px; }
+    .lc-eyebrow::before { content:""; width:14px; height:2px; border-radius:1px; background:var(--accent); opacity:.75; flex:none; }
+    .lc-terms { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:0 34px; }
+    .lc-row { display:flex; align-items:baseline; gap:10px; padding:9px 0; border-bottom:1px solid var(--gray-100); }
+    .lc-k { flex:none; width:124px; font-size:12px; color:var(--gray-500); }
+    .lc-v { min-width:0; font-size:13.5px; color:var(--gray-900); font-variant-numeric:tabular-nums; }
+    .lc-v b { font-weight:650; }
+    .lc-q { font-size:12px; color:var(--gray-500); }
+    .lc-miss { color:var(--gray-400); }
+    .lc-dash { color:var(--gray-300); }
+    .lc-tick { color:var(--green); font-weight:700; }
+    .lc-hint { border-bottom:1px dotted var(--gray-400); cursor:help; font-size:12px; color:var(--gray-500); }
+    .lc-link { color:var(--accent); cursor:pointer; text-decoration:underline; }
+    .lc-fold summary { cursor:pointer; font-size:13px; color:var(--gray-600); list-style:none; display:flex; align-items:center; gap:8px; }
+    .lc-fold summary::-webkit-details-marker { display:none; }
+    .lc-fold summary::after { content:"show"; font-size:11.5px; color:var(--accent); }
+    .lc-fold[open] summary::after { content:"hide"; }
+    .lc-fold-body { padding-top:4px; }
+    .lc-dot { width:7px; height:7px; border-radius:50%; background:var(--gray-300); flex:none; }
+    .lc-dot.err { background:var(--red); }
+    .lc-err { color:var(--red); font-weight:600; }
+
     /* ── TOAST ── */
     .toast { position: fixed; bottom: 24px; right: 24px; background: var(--gray-900); color: white; padding: 12px 18px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; z-index: 999; box-shadow: var(--shadow); transform: translateY(80px); opacity: 0; transition: all .25s; }
     .toast.show { transform: translateY(0); opacity: 1; }
@@ -23291,29 +23334,139 @@
     const a = _allLoanAccounts.find(x => x.id === loanAccountId);
     if (!a) return;
     const money2 = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    document.getElementById('loan-history-title').textContent = `${a.xero_account_name || a.lender_account_number} — ${a.lender || ''}`;
     const t = _loanDerivedTerms(a);
     const bal = _loanOutstandingBalance(a);
 
-    const chips = [];
-    const chip = (label, val, title) => chips.push(`<div style="min-width:120px"><div style="font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--gray-400);font-weight:600">${esc(label)}</div><div style="font-size:13.5px;color:var(--gray-900);margin-top:2px"${title ? ` title="${esc(title)}"` : ''}>${val}</div></div>`);
-    chip('Account #', `<span class="td-mono">#${esc(a.lender_account_number)}</span>`);
-    chip('Status', a.status === 'paid_off' ? 'Paid off' : 'Active');
-    if (bal) chip('Outstanding', `<b>${money2(bal.amount)}</b>`, `as of ${bal.asOf}`);
-    if (t.origination) chip('Originated', `${esc(t.origination.date)}${t.origination.amount != null ? ' · ' + money2(t.origination.amount) : ''}`);
-    if (t.paymentCount) chip('Term', `${t.paymentCount} ${esc(t.cadence || '')} payments`, `${t.firstPayment} → ${t.maturity}`);
-    if (t.scheduledPayment != null) chip('Payment', `${money2(t.scheduledPayment)}${t.cadence === 'weekly' ? '/wk' : t.cadence === 'monthly' ? '/mo' : ''}`);
-    if (t.rate != null) chip('Rate', `${t.rate}%<span style="font-size:11px;color:var(--gray-500)"> (as printed on the schedule)</span>`);
-    // Session 230: the MEASURED rate, shown next to the typed-in one. loan_accounts
-    // .interest_rate said 9.000% for three Ford loans whose real rates are 8.29%,
-    // 9.99% and 8.99% -- $10-12 a period. Showing both is how a wrong contract note
-    // gets noticed instead of quietly costing money.
-    if (a.fitted_annual_rate != null) {
-      chip('Measured rate', `${Number(a.fitted_annual_rate).toFixed(3)}%<span style="font-size:11px;color:var(--gray-500)"> (from ${a.rate_fit_periods || '?'} rows of lender evidence, worst error ${a.rate_fit_residual != null ? money2(a.rate_fit_residual) : 'n/a'})</span>`,
-        `Measured from this loan's own lender statements${a.interest_rate != null ? `; the rate typed in from the contract is ${Number(a.interest_rate).toFixed(3)}%` : ''}.`);
+    // ── SESSION 290, DAVID: THE LOAN DETAIL IS AN INFORMATION CARD ────────
+    // "It's really an information card for the bookkeepers." What a person opens
+    // a loan to learn is what the terms are, whether we hold the agreement, and
+    // what evidence is on file. The old chip row answered none of that: it spent
+    // the top of the screen on the account number in 10.5px uppercase and put the
+    // balance where the eye lands last.
+    //
+    // ABSENCE IS A FIRST-CLASS VALUE HERE. A field with no value renders as a grey
+    // "not recorded" rather than being omitted, because a missing agreement or a
+    // missing origination date is the thing a bookkeeper chases. A row that simply
+    // vanishes cannot be chased.
+    const _lcDoc = (type) => (_allLoanDocuments || [])
+      .filter(d => d.loan_account_id === a.id && d.doc_type === type)
+      .sort((x, y) => String(y.created_at || '').localeCompare(String(x.created_at || '')))[0] || null;
+
+    // Lender statements, oldest first, anchors only -- this feeds both the "paid
+    // down" row and the header sparkline, and both are MEASURED from the lender's
+    // own documents rather than from anything we computed.
+    const _lcStmts = (_allLoanStatements || [])
+      .filter(x => x.loan_account_id === a.id && x.principal_balance != null && !x.anchor_excluded)
+      .slice().sort((x, y) => String(x.statement_date).localeCompare(String(y.statement_date)));
+
+    const rows = [];
+    const row = (label, val, title) => rows.push(
+      `<div class="lc-row"><div class="lc-k">${esc(label)}</div><div class="lc-v"${title ? ` title="${esc(title)}"` : ''}>${val}</div></div>`);
+    const q = (s2) => `<span class="lc-q">${s2}</span>`;
+    const miss = (s2) => `<span class="lc-dash">—</span> <span class="lc-miss">${esc(s2)}</span>`;
+    const docLink = (d) => `<span class="lc-link" onclick="viewLoanDocument('${String(d.storage_path).replace(/'/g, "\\'")}')">${esc(d.title || LOAN_DOC_TYPE_LABELS[d.doc_type] || 'Open')}</span>`;
+
+    // 1. The agreement, first, because it is the question most often asked of a loan.
+    const _lcAgr = _lcDoc('agreement');
+    row('Agreement', _lcAgr
+      ? `<span class="lc-tick">✓</span> on file · ${docLink(_lcAgr)}${_lcAgr.created_at ? ' ' + q('· uploaded ' + esc(String(_lcAgr.created_at).slice(0, 10))) : ''}`
+      : miss('not on file'));
+
+    // 2. Paid down -- measured end to end from the lender's own statements. Only
+    // shown with two or more anchors, and only when it actually fell.
+    if (_lcStmts.length >= 2) {
+      const f0 = _lcStmts[0], f1 = _lcStmts[_lcStmts.length - 1];
+      const down = Number(f0.principal_balance) - Number(f1.principal_balance);
+      if (down > 0) row('Paid down', `<b>${money2(down)}</b> ${q('· since ' + esc(String(f0.statement_date).slice(0, 10)))}`,
+        `Measured from the lender's own statements: ${money2(f0.principal_balance)} on ${f0.statement_date} down to ${money2(f1.principal_balance)} on ${f1.statement_date}.`);
     }
-    else if (t.totalFee != null) chip('Fixed loan fee', `${money2(t.totalFee)}<span style="font-size:11px;color:var(--gray-500)"> (in place of interest)</span>`);
-    if (t.maturity) chip('Final payment', esc(t.maturity));
+
+    // 3. Origination. loan_accounts carries typed values; the schedule's own
+    // 'initial' row is the fallback. Neither posts money, so either is fine here.
+    const _lcOpened = a.original_date || (t.origination && t.origination.date) || null;
+    const _lcOrig = a.original_amount != null ? Number(a.original_amount)
+      : (t.origination && t.origination.amount != null ? Number(t.origination.amount) : null);
+    row('Opened', _lcOpened ? `<b>${esc(String(_lcOpened).slice(0, 10))}</b>` : miss('not recorded'));
+    row('Original amount', _lcOrig != null ? `<b>${money2(_lcOrig)}</b>` : miss('not recorded'));
+
+    if (t.scheduledPayment != null) row('Payment', `<b>${money2(t.scheduledPayment)}</b> ${q(esc(t.cadence || 'per period'))}`);
+
+    // 4. Both rates, side by side. Session 230: loan_accounts.interest_rate said
+    // 9.000% on three Ford loans whose real rates are 8.29 / 9.99 / 8.99%. Showing
+    // the measured figure beside the typed one is how a wrong contract note gets
+    // noticed instead of quietly costing money.
+    if (a.fitted_annual_rate != null) {
+      row('Rate', `<b>${Number(a.fitted_annual_rate).toFixed(3)}%</b> <span class="lc-hint">measured</span>${a.interest_rate != null ? ' ' + q('· contract note says ' + Number(a.interest_rate).toFixed(3) + '%') : ''}`,
+        `Measured from ${a.rate_fit_periods || '?'} rows of this loan's own lender statements; worst error ${a.rate_fit_residual != null ? money2(a.rate_fit_residual) : 'n/a'}. Nothing that posts money reads the typed-in rate.`);
+    } else if (t.rate != null) {
+      row('Rate', `<b>${t.rate}%</b> ${q('· as printed on the schedule')}`);
+    } else if (a.interest_rate != null) {
+      row('Rate', `<b>${Number(a.interest_rate).toFixed(3)}%</b> ${q('· typed from the contract, not measured')}`,
+        'No lender statements have been fitted for this loan yet, so this figure is a human note rather than a measurement.');
+    }
+    if (t.totalFee != null) row('Fixed fee', `<b>${money2(t.totalFee)}</b> ${q('· in place of interest')}`);
+
+    const _lcMat = t.maturity || a.maturity_date || null;
+    if (_lcMat) row('Final payment', `<b>${esc(String(_lcMat).slice(0, 10))}</b>${t.paymentCount ? ' ' + q('· ' + t.paymentCount + ' ' + esc(t.cadence || '') + ' payments on file') : ''}`);
+
+    // 5. Interest actually booked. Only splits that REACHED Xero are counted, and
+    // the label says so -- a figure that silently included pending splits would
+    // disagree with the ledger below it.
+    const _lcBooked = (_allLoanSplits || []).filter(x => x.loan_account_id === a.id
+      && (x.status === 'posted' || x.status === 'already_in_xero'));
+    if (_lcBooked.length) {
+      const iSum = _lcBooked.reduce((n, x) => n + Number(x.interest_amount || 0), 0);
+      row('Interest booked', `<b>${money2(iSum)}</b> ${q('· across ' + _lcBooked.length + ' posted split' + (_lcBooked.length > 1 ? 's' : ''))}`,
+        'Summed from the splits that reached Xero. Splits still awaiting review are not counted.');
+    }
+
+    // 6. What kind of schedule exists, if any -- and never let a derived one look
+    // like a lender document (session 246).
+    const _lcReal = _bkRealSchedulesFor(a.id);
+    row('Schedule', _lcReal.length
+      ? `<span class="lc-tick">✓</span> lender schedule on file`
+      : ((t.schedules || []).length
+        ? `<span class="lc-hint">derived</span> ${q('· no lender schedule on file')}`
+        : miss('none on file')),
+      _lcReal.length
+        ? 'Parsed from a lender document, not computed by us.'
+        : "Any schedule this loan carries was computed from its own lender statements, so closing against it would check our arithmetic against itself.");
+
+    const _lcPayoff = _lcDoc('payoff_letter');
+    row('Payoff letter', _lcPayoff ? `<span class="lc-tick">✓</span> ${docLink(_lcPayoff)}` : miss('not on file'));
+
+    if (a.security_type) row('Security', esc(String(a.security_type).replace(/_/g, ' ')));
+    if (a.debt_category) row('Category', esc(String(a.debt_category).replace(/_/g, ' ')));
+    if (a.vehicle_description || a.vin) row('Collateral',
+      `${esc(a.vehicle_description || '')}${a.vin ? ' ' + q('· VIN ' + esc(a.vin)) : ''}`);
+
+    // ── The header: identity on the left, the loan's whole shape on the right ──
+    // Six-to-twelve lender balances, falling, endpoint lit. It is the one thing a
+    // table of splits cannot say at a glance, and it costs no width.
+    const _lcSpark = (pts) => {
+      if (pts.length < 3) return '';
+      const vals = pts.map(x => Number(x.principal_balance));
+      const lo = Math.min(...vals), hi = Math.max(...vals), rng = hi - lo;
+      // A FLAT LINE IS NOT A SPARKLINE. A paid-off loan whose anchors are all
+      // $0.00 drew a straight rule across the header: ink spent to say nothing.
+      if (!(rng > 0)) return '';
+      const W = 156, H = 32, PADT = 4;
+      const xy = vals.map((v, i2) => [(i2 / (vals.length - 1)) * W, PADT + (1 - (v - lo) / rng) * H]);
+      const d = xy.map((pt, i2) => `${i2 ? 'L' : 'M'}${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' ');
+      const lastPt = xy[xy.length - 1];
+      return `<svg width="164" height="44" viewBox="0 0 164 44" role="img" aria-label="Balance from ${money2(vals[0])} on ${esc(String(pts[0].statement_date).slice(0, 10))} to ${money2(vals[vals.length - 1])} on ${esc(String(pts[pts.length - 1].statement_date).slice(0, 10))}."><defs><linearGradient id="lc-sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7dd3fc" stop-opacity=".38"/><stop offset="100%" stop-color="#7dd3fc" stop-opacity="0"/></linearGradient></defs><path d="${d} L${W},42 L0,42 Z" fill="url(#lc-sg)"/><path d="${d}" fill="none" stroke="#7dd3fc" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${lastPt[0].toFixed(1)}" cy="${lastPt[1].toFixed(1)}" r="3" fill="#7dd3fc"/></svg>`;
+    };
+    const _lcInit = String(a.lender || a.xero_account_name || '?').replace(/[^A-Za-z ]/g, ' ')
+      .trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '—';
+    document.getElementById('loan-history-title').innerHTML = `
+      <div class="lc-head">
+        <div class="lc-mono" aria-hidden="true">${esc(_lcInit)}</div>
+        <div class="lc-headtxt">
+          <div class="lc-name">${esc(a.xero_account_name || a.lender_account_number || 'Loan')}</div>
+          <div class="lc-sub">${esc(a.lender || '')}${a.lender_account_number ? ' · #' + esc(a.lender_account_number) : ''} · ${a.status === 'paid_off' ? 'Paid off' : 'Active'}${a.xero_account_code ? ' · books to ' + esc(a.xero_account_code) : ''}</div>
+        </div>
+        ${bal ? `<div class="lc-spark">${_lcSpark(_lcStmts.slice(-12))}<div class="lc-cap"><div class="lc-cap-k">Outstanding</div><div class="lc-cap-v" title="as of ${esc(bal.asOf)}">${money2(bal.amount)}</div></div></div>` : ''}
+      </div>`;
 
     // Supporting documents: everything in loan_documents, plus each amortization
     // schedule's own source file. Same signed-URL viewer as everywhere else.
@@ -23359,32 +23512,49 @@
     const canWrite = _bkCanWrite();
     const isScheduleLoan = a.ingestion_method === 'amortization_schedule';
     const isAutomaticLoan = a.ingestion_method === 'automatic';
-    const actions = (canWrite && !isAutomaticLoan)
-      ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 2px">
-          ${isScheduleLoan ? `<button class="btn btn-secondary btn-sm" onclick="closeLoanHistoryModal();openLoanScheduleGenerateModal('${a.id}')">Generate a period split</button>` : ''}
-          <button class="btn btn-secondary btn-sm" onclick="closeLoanHistoryModal();openLoanIntakeModal('${a.id}')">Upload a statement / document</button>
-        </div>`
+    // s290: the buttons are handed over BARE so the card can lay them out in one
+    // row with the structure-note button. Two blocks each carrying their own
+    // wrapper is why they stacked vertically.
+    const actionButtons = (canWrite && !isAutomaticLoan)
+      ? `${isScheduleLoan ? `<button class="btn btn-secondary btn-sm" onclick="closeLoanHistoryModal();openLoanScheduleGenerateModal('${a.id}')">Generate a period split</button>` : ''}
+         <button class="btn btn-secondary btn-sm" onclick="closeLoanHistoryModal();openLoanIntakeModal('${a.id}')">Upload a statement / document</button>`
       : '';
+    const actions = actionButtons;
 
-    const section = (title, inner) => `<div style="margin-top:18px"><div class="form-section-head">${esc(title)}</div>${inner}</div>`;
-    // ── s289 LESS IS BEST test 1: WOULD A READER ACT DIFFERENTLY WITHOUT IT? ──
-    // "How this loan is structured" rendered a heading, the words "Not
-    // documented yet." and a button, on every loan that has no structure note --
-    // which is most of them. Three lines of chrome around an absence. The
-    // heading and the placeholder go; the BUTTON survives, in the actions row
-    // with the other things a person can do here, because the ability to write
-    // one is the only part of that section anybody could act on.
+    const section = (title, inner) => `<div class="lc-sec"><div class="lc-eyebrow">${esc(title)}</div>${inner}</div>`;
     const undocumented = !a.structure_note && _bkCanWrite();
+
+    // ── s290: "Where the accounting can be better" is FOLDED, not deleted ──────
+    // David's ask -- this screen is what a bookkeeper reads to LEARN the loan; the
+    // Overview queue is where the loan gets WORKED. But ce17 holds: nothing is
+    // deleted. The summary states the count, and when any item is an error it says
+    // so in red on the closed line, so a real problem still announces itself in one
+    // line rather than hiding behind a neutral disclosure triangle.
+    const _lcImps = _bkLoanImprovements(a.id);
+    const _lcErrs = _lcImps.filter(x => x.sev === 'error').length;
+    const impsHtml = _lcImps.length ? `
+      <details class="lc-fold">
+        <summary>
+          <span class="lc-dot${_lcErrs ? ' err' : ''}"></span>
+          <span>${_lcImps.length} thing${_lcImps.length > 1 ? 's' : ''} the accounting could do better${_lcErrs ? ' · <span class="lc-err">' + _lcErrs + ' need' + (_lcErrs > 1 ? '' : 's') + ' attention</span>' : ''}</span>
+        </summary>
+        <div class="lc-fold-body">${_bkLoanImprovementsHtml(a.id)}</div>
+      </details>` : '';
+
     document.getElementById('loan-history-body').innerHTML = `
-      <div style="display:flex;flex-wrap:wrap;gap:14px 28px;padding:4px 0 2px">${chips.join('')}</div>
-      ${actions}
-      ${undocumented ? `<div style="margin:${actions ? '-6px' : '14px'} 0 2px"><button class="btn btn-secondary btn-sm" onclick="_bkEditStructureNote('${esc(a.id)}')">Describe how this loan is structured</button></div>` : ''}
-      ${section('What settles this loan\'s month', _bkCloseBasisHtml(a))}
-      ${a.structure_note ? section('How this loan is structured', _bkStructureNoteHtml(a)) : ''}
-      ${section('Where the accounting can be better', _bkLoanImprovementsHtml(a.id))}
-      ${section(`Split history (${_allLoanSplits.filter(s => s.loan_account_id === a.id).length})`, _loanSplitHistoryTableHtml(a.id))}
-      ${section(`Statements (${stmts.length})`, stmtsHtml)}
-      ${section('Supporting documents', docsHtml)}
+      ${section('Terms', `<div class="lc-terms">${rows.join('')}</div>`)}
+      ${section('How it is booked', `
+        ${a.structure_note ? _bkStructureNoteHtml(a) : ''}
+        ${_bkCloseBasisHtml(a)}
+        ${(actions || undocumented) ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          ${actionButtons}
+          ${undocumented ? `<button class="btn btn-secondary btn-sm" onclick="_bkEditStructureNote('${esc(a.id)}')">Describe how this loan is structured</button>` : ''}
+        </div>` : ''}
+      `)}
+      ${impsHtml ? `<div class="lc-sec">${impsHtml}</div>` : ''}
+      ${section(`Ledger · ${_allLoanSplits.filter(s2 => s2.loan_account_id === a.id).length} splits`, _loanSplitHistoryTableHtml(a.id))}
+      ${section('Evidence on file', `${docsHtml}
+        <div class="lc-eyebrow" style="margin:20px 0 10px">Statements · ${stmts.length}</div>${stmtsHtml}`)}
     `;
     document.getElementById('modal-loan-history').classList.add('open');
   }

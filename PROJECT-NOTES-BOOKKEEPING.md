@@ -13161,6 +13161,85 @@ picked up the new anchor.
 
 ## Session Log
 
+
+### Session 290 (2026-09-09) — the loan detail becomes an INFORMATION CARD
+
+David, after a design critique of the E-Transit 4140 modal: *"rethink the individual
+loan page... focus on the Loan terms itself rather than its issue. Do we have the
+agreement on file? date it was opened, terms, etc — it's really an information card
+for the bookkeepers."*
+
+**What the old screen was.** Seven labelled chips, then four stacked sections —
+close basis, improvements, splits, statements, documents — all at one weight. The
+critique found three defects worth naming:
+
+* the balance gap ($415.88 above the lender) was the ELEVENTH line, in the third
+  bullet of a list headed *"Where the accounting can be better"*, in the same weight
+  as the account number;
+* **session 279's duplication defect, one screen over.** "E-Transit Loan - 4140"
+  appeared four times, $1,180.32 four times, 2026-05-18 twice. Four bullets each
+  authored to stand alone — the same shape as the 420-word find-difference card;
+* four bullets reported and none carried a verb, while the only two buttons on
+  screen answered neither.
+
+**What it is now.** `openLoanDetailModal` renders TERMS first: agreement (✓ + a
+link, or "not on file"), paid down since the first anchor, opened, original amount,
+payment, both rates side by side, final payment, interest booked, what kind of
+schedule exists, payoff letter, security, category, collateral. Then *How it is
+booked*, the ledger, and *Evidence on file*.
+
+**ABSENCE IS A FIRST-CLASS VALUE.** A field with no value renders as a grey "not
+recorded" rather than being omitted. A missing agreement or origination date is
+precisely the thing a bookkeeper chases, and a row that vanishes cannot be chased.
+Eight of the twenty-two loans carry no `original_date`/`original_amount`; before
+this they simply had no such row and nobody could tell.
+
+**"Where the accounting can be better" is FOLDED, not deleted (ce17).** David asked
+for it hidden — this screen is where a loan is LEARNED; the Overview queue is where
+it is WORKED. The closed summary states the count, and when any item is
+error-severity it says *"N needs attention"* in red on the closed line, so hiding
+can never bury a red finding.
+
+**The outstanding balance moved to the header** — beside a sparkline of the last
+twelve lender anchors — and left Terms, so it is stated once (s279). The row it
+vacated now carries *paid down since <date>*, measured end-to-end from the lender's
+own statements, which the card could not say before.
+
+**Three defects found only by LOOKING at the rendered page**, after 126 green
+assertions: a paid-off loan whose three anchors are all $0.00 drew a flat line
+across the header (a sparkline with no range is ink spent to say nothing — now
+suppressed, with its own assertion); the two action buttons stacked vertically
+because they sat in two blocks each carrying its own wrapper; and the close X
+overlapped the Outstanding figure. **Assertions proved it ran; only the screenshot
+proved it read.**
+
+**Verification.** New harness group `loan-info-card`, 127 assertions. It opens EVERY
+loan in the fixture and asserts no throw, real painted content and a Terms grid —
+which is the assertion that matters, because this file's characteristic failure is a
+crash inside the render leaving an empty modal (s263 cont. 6). It caught one
+immediately: the region replacement had swallowed `const t = _loanDerivedTerms(a)`,
+and every loan threw `t is not defined`. Paired present/absent assertions for the
+agreement and the payoff letter; a dedup assertion proved by a `toString()` inverse
+that puts the Outstanding row back into Terms and confirms it goes red. Full sweep
+2,374 assertions, one red — Tech Debt #19's own report, as always.
+
+**Not built, and it needs a decision.** David: *"this is where we could keep password
+information and integrations with the banks."* `loan_accounts` has no column for any
+of it. The design proposes recording the ROUTE IN rather than the secret — portal
+URL, username, second factor, who can sign in, whether statements arrive by email,
+whether a bank feed exists — with the password a POINTER to 1Password. A credential
+in a Supabase column is readable by every admin session and by any database export,
+and never expires. Storing the secrets themselves is a real project (encryption with
+a key outside the database, decrypt only through an edge function, an access log, a
+role that is not plain admin), not a text field. Either way it needs a migration and
+`washroute-migration-review`.
+
+**Also open:** the ledger table (`_loanSplitHistoryTableHtml`) is untouched — it
+still repeats "$" in every cell, left-aligns its numeric columns, and renders three
+status pills in three colours where two of them ("posted", "handled in Xero") mean
+the same thing to a reader. The mockup shows the cleanup; it was left out of this
+commit to keep the change reviewable.
+
 ### Session 290 cont. 5 (2026-09-09) — "TRY AGAIN IN A MOMENT" WAS THE WORST ADVICE WE COULD GIVE
 
 **Trigger.** David: *"Find the Fix requests are timing out."* Every click returned
