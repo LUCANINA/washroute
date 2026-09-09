@@ -8,6 +8,11 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 // double-reallocation.test.ts -- the ±40-day pairing bug it guards against produced 33
 // false 'corrected twice' findings in one run, and nothing here could have caught it.
 import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './double-reallocation.ts'
+// A void is a silent balance change. PURE and beside double-reallocation for the
+// same reason it is: the check that matters here is a predicate over entries,
+// and a predicate that can only be exercised by booting an edge function against
+// live Xero is a predicate nobody exercises. See tests/voided-since.test.mts.
+import { checkVoidedSinceLastRun, stampMs } from './voided-since.ts'
 // The carrying-basis detector is a PURE module in _shared so that the same
 // judgement runs here (on a schedule) and inside loan-bundle (when documents
 // arrive). Session 242's lesson, learned twice in one day: a guard is only as
@@ -324,10 +329,18 @@ async function pullXero(fromDate: string, toDate: string, modifiedSince: string 
   const norm = (arr: any[], type: 'BankTransaction' | 'ManualJournal') => arr.map((x: any) => type === 'BankTransaction' ? ({
     srcType: 'BankTransaction', srcId: x.BankTransactionID, date: normDate(x.DateString, x.Date),
     status: x.Status, type: x.Type, ref: x.Reference, contact: x.Contact?.Name, total: x.Total,
+    // s291: WHEN Xero last touched this object. Every pull already carried it and
+    // every pull threw it away, so "did this change since we last looked?" could
+    // only be asked of Xero's If-Modified-Since cursor -- a one-shot signal that
+    // ages out (see the changedOld note below). Kept as epoch ms, never as a
+    // string: `prev.started_at` comes back from Postgres as "2026-09-09 02:10:56
+    // .961634+00", which is not ISO-8601, and comparing the two as text is the
+    // kind of silent false that this check exists to catch.
+    updatedMs: stampMs(x.UpdatedDateUTC),
     lines: (x.LineItems || []).map((l: any) => ({ d: l.Description, c: l.AccountCode, a: l.LineAmount })),
   }) : ({
     srcType: 'ManualJournal', srcId: x.ManualJournalID, date: normDate(x.DateString, x.Date),
-    status: x.Status, narration: x.Narration,
+    status: x.Status, narration: x.Narration, updatedMs: stampMs(x.UpdatedDateUTC),
     lines: (x.JournalLines || []).map((l: any) => ({ d: l.Description, c: l.AccountCode, a: l.LineAmount })),
   }))
 
@@ -2022,6 +2035,11 @@ async function handle(req: Request): Promise<Response> {
     // the settlement-lag growth test) still gets it, just via a binding that now
     // exists sooner. See the comment that used to sit here, preserved below.
     const { data: existing } = await supa.from('reconciliation_findings').select('*').eq('source', 'engine')
+    // s291: fingerprints of findings that are OPEN right now. checkVoidedSinceLastRun
+    // needs it to re-raise a void it has already announced -- see the block above that
+    // function for why a once-only finding is worse than no finding.
+    const openFingerprints = new Set(
+      (existing || []).filter((f: any) => f.status === 'open').map((f: any) => String(f.fingerprint)))
 
     // The ids to force-check regardless of the modifiedSince cursor -- see
     // pullXero's forceIds param for why this exists at all. Scoped tightly on
@@ -2312,6 +2330,11 @@ async function handle(req: Request): Promise<Response> {
       // today. A policy with nothing behind it is grade C and must still report.
       findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor, schedAnchors.length > 0))
       findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), mySplits))
+      // Deliberately NOT windowed the way the line above is. A void is news about
+      // TODAY whatever the entry is dated, and the pull is already bounded, so
+      // narrowing it again would only hide the older-dated ones -- which are the
+      // ones whose disappearance is hardest to notice by eye.
+      findings.push(...checkVoidedSinceLastRun(loan, allEntries, prev?.started_at ?? null, openFingerprints))
       // Session 258: recognize hand-posted journals that match an already-confirmed
       // pattern for this loan (writes a loan_splits row so this and every future run
       // sees it as explained), then propose NEW patterns for whatever's left over that
