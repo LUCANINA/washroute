@@ -2780,6 +2780,12 @@ async function handle(req: Request): Promise<Response> {
   // on a loan nobody has attested to yet.
   const derivedCause = deriveIncreaseCause({
     splits: splits || [], headline, winFrom: usable[0]?.statement_date || '', residual: aw.residual,
+    // s289: the RAW statements, including rows refused as anchors. Refused as an
+    // anchor is not the same as unusable as evidence -- a document that cannot
+    // be placed in time still STATES a balance, and two of them straddling the
+    // change are what let the card say when it appeared.
+    statements: statements || [],
+    lenderBalance: findings?.[0]?.detail?.lender_balance == null ? null : Number(findings[0].detail.lender_balance),
   })
   const rec = buildRecordedCauseEntry({
     loan, code, headline, detail: findings?.[0]?.detail ?? null,

@@ -306,8 +306,19 @@ section('the conclusion bullets no longer restate the table below them')
   ok('the focus-tie sentence is built only where the trouble is elsewhere',
      src.includes('the rest of this walk is where the difference is.`)') &&
      src.includes('if (realDivergent.length) {'))
-  ok('...and the fixture, whose only divergent span is CLOSED, no longer quotes it',
-     !harness.includes('Every span in August 2026 ties to the cent.'))
+  // ⚠️ SCOPED TO THE `AFTER` FIXTURE, not to the whole harness file. The first
+  // cut grepped the file and went red on the CONTROL in `derived-cause`, which
+  // quotes that sentence deliberately to prove the duplication can be detected.
+  // A guard defeated by the test written to exercise it — the same shape as the
+  // comment that quoted its own dropped clause, twice in one session. What the
+  // pin means is "the payload the copy budget MEASURES no longer carries it",
+  // so it reads exactly that region.
+  const afterBlock = harness.slice(harness.indexOf('const AFTER = mk({'),
+                                   harness.indexOf('// BEFORE — the card as David saw it'))
+  ok('the AFTER fixture, whose only divergent span is CLOSED, no longer quotes it',
+     afterBlock.length > 200 && !afterBlock.includes('Every span in August 2026 ties to the cent.'))
+  ok('...and the BEFORE fixture still does, so the control keeps its subject',
+     harness.includes('Every span in August 2026 ties to the cent'))
   ok('the harness fixture still quotes the approve sentence the source builds',
      src.includes('Approve the prepared ${money(cpaException.proposed_entry.amount)} correction below') &&
      harness.includes('Approve the prepared $415.88 correction below'))

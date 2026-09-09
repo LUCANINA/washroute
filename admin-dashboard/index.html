@@ -12910,9 +12910,21 @@
   // different strengths of claim and a CPA reads the difference (s246).
   function _bkDerivedCauseHtml(dc, W) {
     if (W) W('How we know', esc(dc.working));
+    // ── s289: WHEN IT APPEARED, ON ONE MONO LINE ───────────────────────────
+    // David: "a simple walk through the statements reveals exactly when the
+    // lender added those $5" — and then, pointing at the mockup, that it shows
+    // it as a citation line rather than a sentence. Two dates and two figures
+    // are a COMPARISON, and a comparison reads faster in columns than in prose.
+    // The figures live only here, so they are still stated once (§279).
+    const b = dc.bracket;
+    const cite = b ? `<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:var(--gray-500);margin-top:10px;font-variant-numeric:tabular-nums;overflow-x:auto;white-space:nowrap">
+        ${esc(_bkDay(b.fromFiled))} stmt <span style="color:var(--gray-700)">${esc(fmtMoney(b.fromBalance))}</span>
+        &nbsp;→&nbsp; ${esc(_bkDay(b.toFiled))} stmt <span style="color:var(--gray-700)">${esc(fmtMoney(b.toBalance))}</span>
+      </div>` : '';
     return `<section class="fdc-sec">
       <div class="fdc-lab">What this difference is</div>
       <div>${esc(dc.sentence)}</div>
+      ${cite}
       ${W ? '' : `<details style="margin-top:7px"><summary>Show the working</summary><div style="margin-top:5px;line-height:1.5;color:var(--gray-600)">${esc(dc.working)}</div></details>`}
     </section>`;
   }

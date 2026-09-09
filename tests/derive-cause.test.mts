@@ -12,7 +12,7 @@
 // beside a right number is the harder mistake to catch" (s247), and it is why
 // this file asserts on the SENTENCE and not only on whether the branch fires.
 // ============================================================================
-import { deriveIncreaseCause } from '../supabase/functions/loan-find-difference/derive-cause.ts'
+import { deriveIncreaseCause, bracketIncrease } from '../supabase/functions/loan-find-difference/derive-cause.ts'
 
 let pass = 0, fail = 0
 const ok = (c: unknown, name: string, obs = '') => {
@@ -34,6 +34,18 @@ const EIDL = [
 ]
 const HEAD = { difference: -5 }          // our books BELOW the lender
 const WIN = '2026-04-25'                 // earliest usable statement
+
+// The real statement rows. 2026-04-25 carries NO balance_as_of, so on a
+// due_date lender it is refused as an ANCHOR — and it is still the document
+// that states $960,000.00, which is the whole point of bracketing.
+const STMTS = [
+  { statement_date: '2026-04-25', principal_balance: 960000, balance_basis: 'principal_only', source: 'portal_manual_pull' },
+  { statement_date: '2026-05-25', principal_balance: 960005, balance_basis: 'principal_only', source: 'portal_manual_pull' },
+  { statement_date: '2026-06-25', principal_balance: 960005, balance_basis: 'principal_only', source: 'portal_manual_pull' },
+  { statement_date: '2026-09-25', principal_balance: 960005, balance_basis: 'principal_only', source: 'portal_manual_pull' },
+  // ours, not the lender's — must never enter the bracket (s246)
+  { statement_date: '2024-03-31', principal_balance: 960000, balance_basis: 'unknown', source: 'xero_derived' },
+]
 
 sec('it fires on the case it was written for')
 const eidl = deriveIncreaseCause({ splits: EIDL, headline: HEAD, winFrom: WIN, residual: -5 })!
@@ -96,6 +108,39 @@ ok(deriveIncreaseCause({
               { period_label: 'Period 85', source: 'explicit_split', principal_amount: 0, interest_amount: 10 }],
      headline: HEAD, winFrom: WIN, residual: null }) === null,
    'a period label carrying no date cannot be placed, so it is not counted (s230)')
+
+sec('⭐ WHEN IT APPEARED — bracketed between two documents (David)')
+const withStmts = deriveIncreaseCause({ splits: EIDL, headline: HEAD, winFrom: WIN, residual: -5,
+                                        statements: STMTS, lenderBalance: 960005 })!
+const b = withStmts.bracket
+ok(b, '⭐ the change is located, from documents the WALK cannot use as anchors')
+ok(b && b.fromFiled === '2026-04-25' && b.fromBalance === 960000,
+   '...the last statement reading the old balance', JSON.stringify(b))
+ok(b && b.toFiled === '2026-05-25' && b.toBalance === 960005,
+   '...and the first reading the new one', JSON.stringify(b))
+ok(!/2026-04-25|960,000/.test(withStmts.sentence),
+   '⭐ the figures are NOT in the prose — the card draws them as a citation line, stated once (s279)',
+   withStmts.sentence)
+ok(!/those months are not among the ones read here/.test(withStmts.sentence),
+   '⭐ and the hedge is GONE: it apologised for not knowing when, and now we know',
+   withStmts.sentence)
+
+sec('the bracket refuses rather than flatter')
+ok(bracketIncrease({ statements: STMTS.filter(x => x.source === 'xero_derived'), lenderBalance: 960005 }) === null,
+   '⭐ our own xero_derived row can never bracket anything (s246)')
+ok(bracketIncrease({ statements: [
+     { statement_date: '2026-01-25', principal_balance: 960005, balance_basis: 'principal_only', source: 'portal_manual_pull' },
+     { statement_date: '2026-02-25', principal_balance: 960000, balance_basis: 'principal_only', source: 'portal_manual_pull' },
+     { statement_date: '2026-03-25', principal_balance: 960005, balance_basis: 'principal_only', source: 'portal_manual_pull' },
+   ], lenderBalance: 960005 }) === null,
+   '⭐ a balance that reached this figure TWICE has a history, not a moment — no bracket')
+ok(bracketIncrease({ statements: [STMTS[1]], lenderBalance: 960005 }) === null,
+   'one statement cannot bracket anything')
+ok(deriveIncreaseCause({ splits: EIDL, headline: HEAD, winFrom: WIN, residual: -5 })!.bracket === null,
+   'CONTROL: with no statements passed, there is no bracket and the hedge returns')
+ok(/those months are not among the ones read here/.test(
+     deriveIncreaseCause({ splits: EIDL, headline: HEAD, winFrom: WIN, residual: -5 })!.sentence),
+   '...which is the honest fallback, not a silent drop')
 
 console.log(`\n${'='.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(64)}`)
 process.exit(fail ? 1 : 0)

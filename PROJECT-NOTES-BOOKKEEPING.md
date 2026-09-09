@@ -50,8 +50,9 @@
 >    lives in the export and the suite only. If David wants that question visible, the strip is where
 >    it goes, and it is a deliberate decision rather than an oversight.
 >
-> ⚠️ **§0af CHANGED `loan-find-difference` AFTER v40 — one condition on the focus-tie bullet.
-> Redeploy owed (`--no-verify-jwt`); until then the card states the tie twice.**
+> ⚠️ **§0af AND §0ag CHANGED `loan-find-difference` AFTER v40** — the focus-tie condition, and
+> `bracketIncrease` in `derive-cause.ts` plus the citation line on the card. Redeploy owed
+> (`--no-verify-jwt`); until then the card states the tie twice and shows no bracket.
 >
 > ✅ **§0ad AND §0ae ARE LIVE — `loan-find-difference` v40, checked 2026-09-09 by the deployed
 > source, by a boot probe, by the unchanged flag, AND by RUNNING THE WALK (§0ae-i): the August span
@@ -96,6 +97,52 @@
 > seven commits. The next session should still MEASURE `git log origin/main..HEAD` rather than trust
 > this line — this sandbox cannot fetch, so a stale ref is the failure mode here, exactly as it is
 > for the deploy state.
+>
+> ### 0ag. ⭐⭐ WHEN IT APPEARED — BRACKETED BETWEEN TWO DOCUMENTS (session 289, David)
+>
+> David: *"a simple walk through the statements reveals exactly when the lender added those $5. That
+> would be good information to share."* Then, pointing at the mockup: *"the mockup shows when the
+> issue occurred"* — as a mono citation line, not a sentence.
+>
+> **The answer was in two rows we already hold.** The statement filed 2026-04-25 reads
+> $960,000.00; the one filed 2026-05-25 reads $960,005.00. That is the whole thing.
+>
+> **Why the card could not say it: REFUSED AS AN ANCHOR IS NOT THE SAME AS UNUSABLE AS EVIDENCE.**
+> The April document carries no `balance_as_of`, so on a due_date lender §0zo refuses it — its
+> balance cannot be *placed in time*. Correct, and the walk never sees it. But a document that cannot
+> be dated still STATES A BALANCE, and two of them straddling the change bracket it. The card had
+> been printing an apology (*"predates the earliest usable statement"*) for not knowing something its
+> own filed documents state.
+>
+> `bracketIncrease()` says it in the only terms the evidence supports: **FILED dates and the word
+> "between"**. It never claims a day — that is precisely what the anchor refusal protects, and
+> inventing one would be §0zo's bug inverted.
+>
+> **Three refusals rather than a tidier story:** only lender-sourced rows count (`xero_derived` is our
+> own record, §246); **exactly one** transition to the current balance, or nothing (a figure reached
+> twice has a history, not a moment); and **nothing if the earliest document already reads the
+> target** — we never saw it appear. That last guard came from the "twice" test going red: the
+> transition scan alone reported a balance RETURNING to a figure as the moment it arrived at one.
+>
+> **It ships as DATA and the card draws it**, as the mockup does:
+> `Apr 25, 2026 stmt $960,000.00 → May 25, 2026 stmt $960,005.00`. Two dates and two figures are a
+> comparison, and a comparison reads faster in columns than in prose — and keeping them out of the
+> sentence keeps each stated once (§279). **With the change located, the hedge about unread months is
+> replaced rather than stacked beside the answer**: it existed to apologise for not knowing when.
+>
+> ### 0ag-i. 🔴 A GUARD DEFEATED BY THE TEST WRITTEN TO EXERCISE IT — THE SECOND TODAY
+>
+> §0af's pin greps the harness for the old focus-tie sentence. It went red on the CONTROL in
+> `derived-cause`, which quotes that sentence deliberately to prove the duplication is detectable.
+> Same shape as the comment in `loan-find-difference` that quoted its own dropped clause while
+> explaining that it had been dropped (§0ad-ii) — **twice in one session, and both times the guard
+> was correct and its own surroundings were the problem.**
+>
+> The fix is scope: what that pin MEANS is *"the payload the copy budget measures no longer carries
+> it"*, so it now reads the `AFTER` fixture region only, plus a second assertion that the BEFORE
+> fixture still quotes it — because a control that loses its subject stops being a control.
+> **Rule worth keeping: a test that greps a file must name the REGION it means, or the file's own
+> commentary about the rule will satisfy it.**
 >
 > ### 0af. ⭐⭐ A FIX CREATED A DUPLICATION, AND NO FIXTURE HAD THE SHAPE (session 289, David)
 >

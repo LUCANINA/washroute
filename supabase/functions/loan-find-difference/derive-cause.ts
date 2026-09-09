@@ -65,9 +65,72 @@ const money = (n: number) => '$' + Math.abs(n).toLocaleString('en-US', { minimum
 // why (nothing is deleted -- ce17).
 const LENDER_STATED = ['explicit_split']
 
+// ── WHEN DID IT APPEAR? BRACKET IT BETWEEN TWO DOCUMENTS (session 289) ──────
+//
+// David: "a simple walk through the statements reveals exactly when the lender
+// added those $5. That would be good information to share."
+//
+// He is right, and the reason the card could not say it is worth writing down.
+// The 2026-04-25 statement reads $960,000.00 and the 2026-05-25 one reads
+// $960,005.00 — the whole answer, sitting in two rows we hold. But the April
+// document carries no `balance_as_of`, so on a due_date lender it is REFUSED as
+// an anchor: its balance cannot be placed in time, and the walk never sees it.
+// The card was left saying the difference "predates the earliest usable
+// statement", which is an apology for not knowing something the documents state.
+//
+// ⚠️ REFUSED AS AN ANCHOR IS NOT THE SAME AS UNUSABLE AS EVIDENCE, and that
+// distinction is the whole function. We cannot say WHAT DAY the balance changed
+// — that is exactly what the refusal protects, and inventing one would be §0zo's
+// bug inverted. We CAN say it changed between two documents, because a filed
+// date is a fact printed on the page. So the sentence names FILED dates and the
+// word "between", and never a balance date.
+//
+// The bracket is claimed only when there is EXACTLY ONE transition to the
+// current balance. Two transitions mean the balance moved more than once and a
+// single bracket would be a tidier story than the truth.
+const LENDER_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
+
+export function bracketIncrease(o: {
+  statements: any[], lenderBalance: number | null,
+}): { fromFiled: string, fromBalance: number, toFiled: string, toBalance: number } | null {
+  const { statements, lenderBalance } = o
+  if (lenderBalance == null) return null
+  // The lender speaking, and nothing else: `xero_derived` rows are OUR record of
+  // a balance and would make this a check on ourselves (§246).
+  const rows = (statements || [])
+    .filter((s: any) => s.balance_basis === 'principal_only'
+      && s.principal_balance != null
+      && LENDER_SOURCES.includes(String(s.source || '')))
+    .map((s: any) => ({ filed: String(s.statement_date), bal: r2(Number(s.principal_balance)) }))
+    .sort((a, b) => a.filed < b.filed ? -1 : a.filed > b.filed ? 1 : 0)
+  if (rows.length < 2) return null
+
+  const target = r2(lenderBalance)
+  // ⚠️ IF THE EARLIEST DOCUMENT ALREADY READS THE TARGET, WE NEVER SAW IT
+  // APPEAR. Caught by the "reached this figure twice" test, which the
+  // transition scan alone let through: 960,005 → 960,000 → 960,005 has exactly
+  // one upward transition, and bracketing it would report the balance
+  // RETURNING to a figure as the moment it arrived at one. The balance already
+  // being there before our earliest statement is the same failure in its
+  // simplest form, so both are refused here.
+  if (Math.abs(rows[0].bal - target) < TOL) return null
+  const transitions: { from: typeof rows[0], to: typeof rows[0] }[] = []
+  for (let i = 1; i < rows.length; i++) {
+    if (Math.abs(rows[i].bal - target) < TOL && Math.abs(rows[i - 1].bal - target) >= TOL) {
+      transitions.push({ from: rows[i - 1], to: rows[i] })
+    }
+  }
+  // Exactly one, or we say nothing: a balance that reached this figure twice has
+  // a history, not a moment, and a single bracket would flatter it.
+  if (transitions.length !== 1) return null
+  const t = transitions[0]
+  return { fromFiled: t.from.filed, fromBalance: t.from.bal, toFiled: t.to.filed, toBalance: t.to.bal }
+}
+
 export function deriveIncreaseCause(o: {
   splits: any[], headline: any, winFrom: string, residual: number | null,
-}): { sentence: string, working: string, months: number, covers_event: boolean } | null {
+  statements?: any[], lenderBalance?: number | null,
+}): { sentence: string, working: string, months: number, covers_event: boolean, bracket: any } | null {
   const { splits, headline, winFrom, residual } = o
   const diff = headline?.difference == null ? null : r2(Number(headline.difference))
   // Only an INCREASE has this explanation. Our books BELOW the lender means the
@@ -122,6 +185,11 @@ export function deriveIncreaseCause(o: {
   // measured, and the general rule it supports. When the difference predates the
   // evidence the card says so plainly, which also happens to be the honest
   // ground for asking for the earlier statements (§262).
+  // ⚠️ A BRACKET FROM THE DOCUMENTS OUTRANKS AN APOLOGY FOR NOT HAVING ONE.
+  // Where two statements we hold straddle the change, WHEN it appeared stops
+  // being an open question and the hedge about unread months has nothing left to
+  // do — so it is replaced rather than stacked beside the answer (§279).
+  const bracket = bracketIncrease({ statements: o.statements || [], lenderBalance: o.lenderBalance ?? null })
   const coversEvent = !(residual != null && Math.abs(residual) >= TOL)
   // ⚠️ THE FIGURE LEADS. David: "there's no mention of the $5 in the opening
   // paragraph when that's the only relevant piece of information we need."
@@ -132,18 +200,29 @@ export function deriveIncreaseCause(o: {
   // named. The lead states the amount and the direction; the evidence follows
   // and explains it. §279's exemption covers this exactly: the decision's own
   // figure may appear in the lead AND on the journal it writes.
+  // ⚠️ THE BRACKET IS DATA, NOT PROSE. David pointed at the mockup: it puts the
+  // two documents on ONE MONO LINE — `04/25/26 stmt 960,000.00 → 05/25/26 stmt
+  // 960,005.00` — under the paragraph, not inside it. That is the right call and
+  // not only a shorter one: two dates and two figures are a comparison, and a
+  // comparison is read faster in columns than in a sentence. So `bracket` ships
+  // structured and the CARD draws it; the prose never mentions those figures,
+  // which also keeps them stated once (§279).
   const led = `The lender added ${money(Math.abs(diff))} to the balance that our books have not booked.`
   const observed = months === 1
-    ? `${led} Its own statement for ${first} applies $0.00 to principal — all of it goes to interest.`
-    : `${led} Its own statements from ${first} to ${last} apply $0.00 to principal — every one of the ${months} goes entirely to interest.`
-  const rule = coversEvent
+    ? `Its own statement for ${first} applies $0.00 to principal — all of it goes to interest.`
+    : `Its own statements from ${first} to ${last} apply $0.00 to principal — every one of the ${months} goes entirely to interest.`
+  // With the change located between two documents, the hedge about unread months
+  // has nothing left to do — it was an apology for not knowing WHEN, and now the
+  // card says when. Replaced, not stacked beside the answer.
+  const rule = (coversEvent || bracket)
     ? `A balance that rose while no principal was being applied did so through a fee or capitalised interest, not through a repayment.`
     : `Where no principal is being applied, a rise in the balance is a fee or capitalised interest rather than a missed repayment — though this difference predates ${fromMonth}, so those months are not among the ones read here.`
 
   return {
     months,
     covers_event: coversEvent,
-    sentence: `${observed} ${rule}`,
+    bracket,
+    sentence: [led, observed, rule].join(' '),
     working: `Stated by the lender (its own "Applied to Principal" line, captured verbatim at ingest): `
       + stated.map((sp: any) => `${sp.period_label} ${money(Number(sp.principal_amount ?? 0))} principal / ${money(Number(sp.interest_amount ?? 0))} interest`).join('; ')
       + `.`

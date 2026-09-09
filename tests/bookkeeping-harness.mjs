@@ -1012,6 +1012,7 @@ GROUPS.push({
       months: 3, covers_event: false,
       sentence: 'The 3 payments on file from 2026-07 to 2026-09 apply $0.00 to principal — every one goes entirely to interest. Where no principal is being applied, a rise in the balance is a fee or capitalised interest rather than a missed repayment — though this difference predates 2026-04, so those months are not among the ones read here.',
       working: "From our own payment records, not the lender's: 2026-07 $0.00 principal / $4,791.00 interest. Tech Debt #46's leftover.",
+      bracket: { fromFiled: '2026-04-25', fromBalance: 960000, toFiled: '2026-05-25', toBalance: 960005 },
     };
     const NOTE = { text: 'The SBA added $5.00 between the March and April payments.', written_about: -5, set_by: 'David', set_at: '2026-09-08', stale: false, stale_why: null };
     const BASE = { verdict: 'divergent', conclusions: [], no_action_detail: [], periods: [], cpa_exception: null, proposal: null };
@@ -1042,6 +1043,14 @@ GROUPS.push({
          '...under the same label a human note would have carried', JSON.stringify(alone.labels));
     t.ok(/not the lender's/.test(alone.all) && !/not the lender's/.test(alone.visible),
          'and its provenance is in the working, one click away, never deleted (ce17)');
+
+    /* ⭐ s289: WHEN it appeared, as a citation line rather than a sentence.
+       David pointed at the mockup — two dates and two figures are a comparison,
+       and a comparison reads faster in columns than in prose. */
+    t.ok(/Apr 25, 2026 stmt \$960,000\.00.*May 25, 2026 stmt \$960,005\.00/.test(alone.visible),
+         '⭐ the two documents that bracket the change are ON the card', alone.visible.slice(0, 240));
+    t.eq((alone.visible.match(/\$960,000\.00/g) || []).length, 1,
+         '...and each figure appears exactly once (s279)');
 
     /* 2 ── ⭐⭐ RULE A: THE MEASURED SENTENCE OUTRANKS THE PROSE ──────────
        This INVERTS what shipped that morning, and the reason is the whole rule.
