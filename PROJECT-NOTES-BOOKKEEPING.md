@@ -26,7 +26,17 @@
 >    not to be tuned green.** They pin the PRE-VOID figures. Re-pin them to 46,204.32 ONLY
 >    once the books question above is answered — until then they are the record of it.
 >
->    ⭐ **THE PRODUCT HOLE THIS EXPOSED — proposed, not built, David's call.** Nothing says
+>    ✅ **THE PRODUCT HOLE IS NOW CLOSED IN CODE — `voided_since_last_run`, session 291 cont.**
+>    `reconciliation-run/voided-since.ts`, 41 assertions, seven mutations all red.
+>    ⚠️ **NOT DEPLOYED — needs the CLI, and until it runs the void is still unannounced:**
+>    ```
+>    npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+>    ```
+>    Watch the FIRST run after it: the PayPal 2 void should appear as an error naming
+>    journal `261a4fd6`, its date, its $3,142.26 and Ramona's own sentence. If it does not,
+>    the cursor is the thing to suspect — see the `cursorMs` story in the log.
+>
+>    ~~⭐ **THE PRODUCT HOLE THIS EXPOSED — proposed, not built, David's call.**~~ Nothing says
 >    *"a journal that used to be counted is now voided."* `isLive()` drops it, thirteen stored
 >    balances move, and the same run **auto-RESOLVED the `unexplained_ledger_adjustment`
 >    finding that was the only record the journal ever existed.** The money and the note
@@ -13321,6 +13331,76 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 291 cont. — a void now says so (`voided_since_last_run`)
+
+David picked this off session 291's list. `reconciliation-run/voided-since.ts`,
+imported by the runner, called once per loan.
+
+**What it raises:** a Xero entry that touches a loan account, is no longer live, and
+moved that loan's balance — naming the journal, its date, its amount, the direction in
+words, and **the writer's own narration**. That last one is the ce17 half: the only
+record journal `261a4fd6` ever existed was a finding the same run auto-resolved.
+
+**Narrow by construction, in three ways, because Xero being messy is not a finding.**
+Stripe Capital voided 16 entries in one day from its own payout sync — that is the
+history `checkNonLiveCounted` learned from and this check inherits. Only entries that
+CHANGED SINCE THE LAST RUN; only entries that MOVED THIS LOAN'S BALANCE
+(`effect === 0` is bookkeeping); **one finding per journal**, never folded on the loan
+— two voids are two events (s290 cont. 5's grouping-key rule).
+
+**A cold start announces nothing.** No previous run, or an unreadable one, raises zero
+rather than the whole back catalogue.
+
+**NOT GATED ON THE CLOSE DATE**, deliberately. A void changes the balance TODAY
+whatever period the entry is dated in — the same reason `balance_vs_lender` is never
+silenced by a close date (s230). Filing it under history would hide exactly the voids
+nobody can see by eye.
+
+**And it stays open until a human deals with it — this is the non-obvious half.** On
+the NEXT run the journal's `updatedMs` is older than that run's cursor, so the cursor
+branch ALONE would stop re-raising it and the resolve sweep would close it after a
+single appearance. **A finding that flashes once and clears itself is worse than
+none**, because the screen meant to carry it is empty by the time anyone looks. An
+already-open fingerprint re-raises on the entry still being non-live, with no
+reference to when it changed.
+
+#### THE TEST CAUGHT A REAL DEFECT IN THE FIRST CUT, and it is this check's own shape
+
+`Date.parse(prev.started_at.replace(' ', 'T'))` returns **NaN** on
+`"2026-09-09 02:10:56.961634+00"` — the shape supabase-js actually returns, with a
+space and a two-digit offset where ISO-8601 wants `+00:00`. The check therefore held a
+cursor it could never read and **announced nothing, for every void, forever** — while
+passing six of its own assertions, because six of them assert SILENCE.
+
+> **A guard that cannot read its input fails quiet, and quiet is indistinguishable
+> from "nothing to report".** That is the same defect this check was written to
+> surface, one level up, and it shipped inside the fix for it.
+
+`cursorMs()` normalises it and returns **null, never 0**, on failure — 0 would date the
+cursor to 1970 and fire on the entire ledger.
+
+**And one assertion was VACUOUS on first writing.** *"a void that moved this loan's
+balance by nothing is not a finding"* used lines on 800/405, so the
+touches-this-account filter caught it before the zero-effect guard ever ran: removing
+that guard left all 40 assertions green. s290 cont. 4's lesson met again — the
+assertion that READS like the point is often not the one doing the work. It now touches
+284 and nets to zero, with a population guard beside it.
+
+**Verification.** `tests/voided-since.test.mts`, **41 assertions against the real
+module** (not a transcription — s245), fixture read from production on 2026-09-09.
+Discrimination run, **seven mutations, all red**: isLive removed (1 red), zero-effect
+removed (1), cold-start removed (5), re-raise removed (3), fingerprint folded on the
+loan alone (5), naive timestamp parse restored (13), direction hardcoded (1). Node
+suite after: **1,876 assertions, 0 red** (`loan-bundle.test.mts` still cannot import
+`pdfjs-dist` here — pre-existing). No dashboard change, so the browser harness was not
+re-run; the queue picks the finding up generically (`_bkApprovalQueueItems` filters on
+severity, not on an allowlist of `check_key`, so a new key renders without a change —
+checked, not assumed).
+
+⚠️ **NOT DEPLOYED.** `reconciliation-run` needs the CLI. Until it runs, the void on
+PayPal 2 is still unannounced.
+
 
 ### Session 291 (2026-09-09) — THE $3,142.26 WAS NOT LOST BY THE WINDOW. IT WAS VOIDED IN XERO.
 
