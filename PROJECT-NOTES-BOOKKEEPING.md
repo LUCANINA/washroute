@@ -1,47 +1,92 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 288, 2026-09-08)
+> ## ⏭️ START HERE — first thing, next session (left by session 290, 2026-09-09 03:05 UTC)
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> ✅ **SESSION 290's FUNCTIONS ARE LIVE — CHECKED 2026-09-09 02:2x UTC BY RUNNING THE WALK, not by
->    a version number and not because David said so.** `loan-find-difference` on Funding Circle now
->    returns **`zero_length_spans: 0`** (the phantom `Aug 31 → Aug 31` is gone), `total_period_diff`
->    **−1891.53 → −850.44** (exactly $1,041.09 less), both open divergent spans carrying a `cause`
->    with no span/amount/verdict prefix, `conclusions` down to the single residual bullet, and
->    `window.refused_anchors` carrying the human's sentence in full. The deployed SOURCE also holds
->    `causeFor`, `humanAnchorExclusion` and `p.cause = causeFor(p)`; the three matches for the OLD
->    wording are all inside comments, which is why the walk was run rather than the grep trusted.
+> ## 1️⃣ **ASK XERO WHAT IT HAS LEFT BEFORE SPENDING IT.** *(David, 2026-09-09: "yes put it on the
+>    priority list")*
 >
-> ⚠️ **BUT THE DEPLOY IS AHEAD OF GITHUB, AND THAT IS A NEW SHAPE OF STALE.** `supabase functions
->    deploy` uploads the LOCAL working tree, not the pushed ref, so the live function carries commit
->    `3c85807` while `origin/main` is still at `06e46a3`. **Until David pushes, Vercel serves the OLD
->    dashboard against the NEW function**: no lead sentence, no cause on the row, and a span table
->    whose rows silently drop a field the server is now sending. `git log origin/main..HEAD` is the
->    check, and this sandbox cannot fetch, so measure it on his machine.
+>    **The problem, measured.** Every click of Find the Fix runs a full ledger pull — bank
+>    transactions plus every manual journal in the window, paged. There is no cache and no
+>    pre-check. On 2026-09-09 that emptied the tenant's daily quota, and once it was empty every
+>    further click hung until the gateway 504'd. **A day's work became unavailable for ~12 hours
+>    because the product had no idea what it had left.**
 >
-> 🆕 **SESSION 290: THE CODE IS DONE AND COMMITTED; THE DASHBOARD DEPLOY IS NOT.** Both halves — the
->    anchor-exclusion fix and all three copy changes — are in `main` and unshipped. **Every
->    verify_jwt flag below was MEASURED on 2026-09-09, not read off this file:**
->    `loan-find-difference` and `loan-xero-post` answer in their OWN words → **`--no-verify-jwt`**;
->    `loan-derive-schedule`, `loan-ingest-statement`, `loan-record-principal-payment` and
->    `loan-ingest-amortization` answer `401 UNAUTHORIZED_NO_AUTH_HEADER` from the gateway → **no
->    flag**, and they need redeploying only because they bundle the two changed `_shared` files.
->    ⚠️ Pasting the flag onto that second group is what broke `loan-ingest-statement` in s281.
->    * **Deploy `loan-find-difference` and `loan-xero-post`** (and note that
->      `_shared/statement-period.ts` + `_shared/derive-schedule.ts` changed, so every function
->      importing them carries a stale copy until redeployed). CLI only —
->      `loan-find-difference` is 158KB. **Read each one's `verify_jwt` first, then pick the flag.**
->      Until this ships, the Funding Circle card still shows the phantom `Aug 31 → Aug 31` span and
->      still refuses to propose anything.
->    * **The copy is FIXED and measured both ways.** `fdiff-copy-budget-funding-circle` renders a
->      BEFORE and an AFTER through one function: 218 → 184 visible words, four repeated figures → 0,
->      $60.16 from absent-entirely to the lead sentence, one tinted block reporting a non-issue → none.
->      Every `⚠ REPORTED` assertion is now a real one.
->    * ⚠️ **`tests/find-difference-walk.test.mts` and `tests/writeoff-fences.test.mts` had not
->      loaded since s289** (166 assertions reporting as nothing). Fixed with a catch-all in the
->      loader. **Add this to `washroute-bookkeeping` with the other pending skill edits: an
->      extraction harness that enumerates imports is a denylist by omission.**
+>    ⚠️ **THE CAP ON THIS TENANT IS 1,000/DAY, NOT THE 5,000 XERO'S DOCS QUOTE.** Measured
+>    2026-09-01 by `xero-rate-probe`, which reads `X-DayLimit-Remaining` and `Retry-After` from a
+>    single `/Accounts` GET. **It is a rolling window, not a midnight reset** — so "it is a new day"
+>    is never evidence it has cleared, and equally it can free up seconds from now. Trust
+>    `remaining_day` and `retry_after_seconds`; nothing else.
+>
+>    **The shape of the fix, cheapest first:**
+>    * **A pre-check before the pull.** One `/Accounts` GET costs one call and returns the headers.
+>      If `remaining_day` is 0, refuse instantly with the honest sentence
+>      (`rateLimitMessage` already writes it) instead of starting a pull that cannot finish. **One
+>      call to save fifty.**
+>    * **A cache on the walk.** The same loan re-walked twice in five minutes pulls the same ledger
+>      twice. The window is `from`/`to` plus the loan's account code — a cache key that is already
+>      computed. ⚠️ It must expire on anything that changes the books (a new statement, a posted
+>      journal, a reconciliation run), or it becomes a stale-data bug, which is worse than a slow
+>      one.
+>    * **A budget the CLOSE BAND can see.** Eleven loans × one pull each is eleven calls before
+>      anyone clicks anything. Worth knowing what a full close costs before the day starts.
+>
+>    ⚠️ **DO NOT "FIX" THIS BY RETRYING MORE PATIENTLY.** That is what session 290 just removed —
+>    see `_shared/xero-429.ts`. The daily cap is not a wait, it is a budget, and the answer is to
+>    spend less of it.
+>
+> ---
+>
+> ### DEPLOY STATE — MEASURED 2026-09-09 03:05 UTC BY READING THE DEPLOYED SOURCE, not inferred
+>    from git and not from anyone's recollection.
+>
+> **`origin/main` == local HEAD == `f3f3bb9`. Nothing is unpushed.**
+>
+> ✅ **LIVE in `loan-find-difference` v44 (deployed 02:57:56):** the anchor-exclusion fix
+>    (`humanAnchorExclusion`), the copy changes (`causeFor`, the lead sentence, the cause on the
+>    row), AND **the stale-split true-up** — `findStaleSplits` appears 3× and `stale_split_trueup`
+>    once in the deployed bundle. It made the 02:56:22 build by ninety seconds.
+>
+> ❌ **NOT LIVE ANYWHERE: the 429 fix (commit `228bae4`).** The deployed bundle has zero matches for
+>    `readRateLimit` and still contains the unreachable `try again in a few minutes` throw. **This is
+>    why the 03:01:18 click still returned 504.** `loan-find-difference` and `reconciliation-run`
+>    both need deploying, and `_shared/xero-429.ts` is new.
+>
+> ◻️ **`loan-ingest-statement` v56 (02:58:03) — INFERRED, NOT MEASURED.** It was deployed 7 seconds
+>    after v44 from the same working tree, and `e6028e9` (the split-pair guards) is an ancestor of
+>    what v44 provably contains, so it should carry them. **Verify before relying on it** — that is
+>    reasoning from a measured anchor, not a measurement.
+>
+> **The commands, with the flags MEASURED on 2026-09-09** (POST with no auth header; whether the
+> gateway or the function answers):
+> ```
+> npx -y supabase@latest functions deploy loan-find-difference --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> npx -y supabase@latest functions deploy reconciliation-run   --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+> ```
+> ⚠️ `loan-derive-schedule`, `loan-ingest-statement`, `loan-record-principal-payment` and
+> `loan-ingest-amortization` are `verify_jwt: true` and take **NO flag** — pasting it on is what
+> broke `loan-ingest-statement` in s281.
+>
+> ⚠️ **THE 429 FIX CANNOT BE VERIFIED UNTIL THE QUOTA CLEARS** (~12h from 03:00 UTC), because
+> proving it needs a live 429. Probe first: `remaining_day` above zero means it is worth trying.
+>
+> ---
+>
+> ### ALSO PENDING FROM SESSION 290
+>
+> * **The true-up is live but has NEVER BEEN POSTED.** Watch the first one: that the journal lands
+>   where `dated_because` says, that a second click is refused as a duplicate rather than posting
+>   twice, and that a re-run afterwards finds nothing left to correct.
+> * **Funding Circle's data is still wrong**, independently of the code. The `2026-08` split carries
+>   July's $1,025.71 (it is `already_in_xero`, so the CPA split it at source), and the pending
+>   `2026-09` split still points at `amortization_row_id` 8d0035e0 — a row on the SUPERSEDED
+>   schedule. Re-point it at the current schedule's September row (1,056.70 / 977.07) before it
+>   stages, or September repeats the lag.
+> * ⚠️ **`tests/find-difference-walk.test.mts` and `tests/writeoff-fences.test.mts` had not loaded
+>   since s289** (166 assertions reporting as nothing). Fixed with a catch-all in the loader.
+>   **Add to `washroute-bookkeeping` with the other pending skill edits: an extraction harness that
+>   enumerates imports is a denylist by omission.**
 >
 > 0. **⏸️ DAVID'S DECISION, PARKED — WHICH PERIOD DOES A CORRECTION LAND IN?** (§0ah)
 >    He asked: *"why are we proposing Sep 30, 2026 as the entry date if we're closing August?"* Not a
