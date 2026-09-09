@@ -309,7 +309,15 @@ async function fetchOneById(endpoint: string, id: string, headers: Record<string
       }
       const text = await res.text()
       if (!res.ok) return undefined
-      return (JSON.parse(text).ManualJournals ?? [])[0] ?? null
+      // Session 291: THE COLLECTION KEY IS THE ENDPOINT, not a constant.
+      // This read `.ManualJournals` on every endpoint, so `with_lines` on
+      // bank_transactions spent one Xero call PER TRANSACTION and returned
+      // `[]` -- reported as "not found" rather than as an error, because a
+      // missing key and a deleted record are indistinguishable here. It is
+      // s231's shape once more: the endpoint was parameterised and the parse
+      // of its answer was not. Measured 2026-09-09: 13 ids in, 13 calls out,
+      // 0 rows back, `complete:false` the only tell.
+      return (JSON.parse(text)[endpoint] ?? [])[0] ?? null
     } catch (_) {
       if (attempt === JOURNAL_RETRIES) return undefined
       await sleep(500 * (attempt + 1))
@@ -340,6 +348,72 @@ async function fetchWithLines(endpoint: string, ids: string[], headers: Record<s
     }
   }
   return { journals, unreadable, notAttempted }
+}
+
+// ── trial_balance ───────────────────────────────────────────────────────────
+// Session 291. The rollforward's checkpoint IS a Trial Balance figure, and until
+// now nothing outside `reconciliation-run` could ask Xero for one -- so
+// "does account 284 stand at the same balance on 2026-05-11 as on 2026-05-10?"
+// was a question about a number we had stored rather than about Xero. That is the
+// question START HERE item 0 turns on, and it must be measured.
+//
+// IT REPORTS XERO'S OWN AS-AT DATE, NEVER THE ONE WE ASKED FOR.
+// `reconciliation-run`'s parser reads the account rows and throws the report header
+// away, so every checkpoint it stores is stamped with the date we REQUESTED whether
+// or not Xero honoured it -- s245, one layer down ("a date is measured or asked for,
+// never inferred"). `report_titles` is Xero's own wording (e.g. "As at 11 May 2026")
+// and `date_requested` sits beside it, so a disagreement is visible instead of
+// assumed away.
+//
+// The cell indices are DELIBERATELY THE SAME as reconciliation-run's (Cells[3] debit,
+// Cells[4] credit, balance = credit - debit for the liability side). A different
+// parse here would produce a figure that looks comparable to a stored checkpoint and
+// is not, which is worse than having no reader at all.
+async function trialBalance(b: any, meter: XeroMeter): Promise<Response> {
+  const date = typeof b.date === 'string' ? b.date : ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return new Response(JSON.stringify({
+      error: 'trial_balance needs a `date` ("YYYY-MM-DD").',
+    }), { status: 400, headers: cors })
+  }
+  const { headers } = await getXeroAuth()
+  const j = await xeroGet(`Reports/TrialBalance?date=${date}`, headers, meter)
+  const rep = j?.Reports?.[0]
+  if (!rep) {
+    return new Response(JSON.stringify({
+      error: 'Xero returned no TrialBalance report.', date_requested: date,
+    }), { status: 502, headers: cors })
+  }
+  const rows: any[] = []
+  for (const section of rep.Rows || []) {
+    for (const row of section.Rows || []) {
+      const label = String(row.Cells?.[0]?.Value || '')
+      const m = label.match(/\((\S+)\)\s*$/)
+      if (!m) continue
+      const d = parseFloat(row.Cells?.[3]?.Value || '0') || 0
+      const c = parseFloat(row.Cells?.[4]?.Value || '0') || 0
+      rows.push({
+        code: m[1],
+        name: label.replace(/\s*\(\S+\)\s*$/, ''),
+        ytd_debit: d,
+        ytd_credit: c,
+        balance_credit_less_debit: Math.round((c - d) * 100) / 100,
+      })
+    }
+  }
+  const wanted = b.code == null ? null
+    : (Array.isArray(b.code) ? b.code.map(String) : [String(b.code)])
+  const results = wanted ? rows.filter((r: any) => wanted.includes(r.code)) : rows
+  return new Response(JSON.stringify({
+    ok: true, mode: 'trial_balance',
+    date_requested: date,
+    report_titles: rep.ReportTitles ?? null,
+    report_date_generated: rep.ReportDate ?? null,
+    note: 'report_titles carries Xero\'s own "As at" wording. If it does not name date_requested, Xero did not honour the date and any figure below is as at Xero\'s date, not ours.',
+    count: results.length,
+    accounts_in_report: rows.length,
+    results,
+  }, null, 2), { headers: cors })
 }
 
 async function paymentPicture(b: any, meter: XeroMeter): Promise<Response> {
@@ -505,12 +579,13 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
   }
 
   if (mode === 'payment_picture') return await paymentPicture(b, meter)
+  if (mode === 'trial_balance') return await trialBalance(b, meter)
 
   const endpoint = ENDPOINTS[mode]
   if (!endpoint) {
     return new Response(JSON.stringify({
       error: `Unknown mode "${mode || '(none)'}".`,
-      modes: ['payment_picture', ...Object.keys(ENDPOINTS), 'whoami'],
+      modes: ['payment_picture', 'trial_balance', ...Object.keys(ENDPOINTS), 'whoami'],
     }), { status: 400, headers: cors })
   }
 
