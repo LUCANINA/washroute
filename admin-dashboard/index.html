@@ -12794,6 +12794,48 @@
     // the only answer to the question.
     const note = data.balance_note;
     const dc = data.derived_cause;
+
+    // ── s290: LEAD WITH THE FIGURE THE READER CLICKED ───────────────────────
+    //
+    // David: "The Loan Closing page shows a variance of $60.16 and I expected a
+    // suggestion to close the gap." The card he got never said $60.16 anywhere
+    // — not visible, not in the working — although `headline.difference` had
+    // carried it all along. With no derived cause and no fresh note there was
+    // no lead sentence at all, so the modal opened straight into "What likely
+    // happened" and the reader met six other figures, none of them theirs.
+    //
+    // s279 permits the decision's own figure in the lead. This is that lead,
+    // and it renders ONLY where nothing else is answering "what is this
+    // difference" — a derived cause or a current note owns that slot and states
+    // its own figure, so adding this above either would be the very duplication
+    // the rule forbids.
+    //
+    // ⚠️ IT STATES THE FIGURE AND A COUNT, NEVER A SECOND AMOUNT. The temptation
+    // is to say "$30.52 of it is in two open spans" — a figure derived by adding
+    // up the rows below, which is s247's "measured, never derived" in miniature
+    // and would put a number on screen that no source ever stated. A count is
+    // not a figure; the reader adds the rows if they want the subtotal.
+    //
+    // The date is deliberately absent too: `headline.as_of` is 2026-08-31, and
+    // the span table already owns that date (rule D).
+    const explainedAbove = !!(dc || (note && !note.stale));
+    const headlineDiff = data.headline && data.headline.difference != null
+      ? Number(data.headline.difference) : null;
+    const openOff = (Array.isArray(data.periods) ? data.periods : [])
+      .filter(p => !p.closed_period && p.verdict === 'divergent'
+                   && !p.timing_pair && !p.month_nets && !p.explained_by_exception).length;
+    let leadStated = false;
+    if (!explainedAbove && headlineDiff != null && Math.abs(headlineDiff) >= 0.01) {
+      leadStated = true;
+      parts.push(`<section class="fdc-sec">
+        <div class="fdc-lab">The difference on your Loans row</div>
+        <div><strong>${esc(fmtMoney(Math.abs(headlineDiff)))}</strong> between our books and the lender.${
+          openOff
+            ? ` ${openOff === 1 ? 'One open span' : `${openOff} open spans`} below still ${openOff === 1 ? 'needs' : 'need'} attributing — work ${openOff === 1 ? 'it' : 'those'}, then re-run.`
+            : ''}</div>
+      </section>`);
+    }
+
     if (dc) {
       parts.push(_bkDerivedCauseHtml(dc, W));
       if (note) {
@@ -12822,15 +12864,21 @@
       // So the label follows the card: where question 1 is answered above, this
       // block is what ELSE the reader should know; where it is not, these
       // bullets ARE the answer and the old heading is the right one.
-      const explained = !!(dc || (note && !note.stale));
+      // s290: `explainedAbove` is computed once at the top of this function now
+      // (the lead sentence needs the same test), so this reads it rather than
+      // recomputing it — two branches deciding "has this already been answered"
+      // from two copies of one expression is how they come to disagree.
+      // ⚠️ The LEAD also answers it: where the lead states the figure and points
+      // at the spans, these bullets are what ELSE to know, exactly as they are
+      // under a derived cause.
       parts.push(`<section class="fdc-sec">
-        <div class="fdc-lab">${explained ? 'What else to know' : 'What likely happened'}</div>
+        <div class="fdc-lab">${explainedAbove || leadStated ? 'What else to know' : 'What likely happened'}</div>
         <ul style="margin:0;padding-left:17px">${data.conclusions.map(c => `<li style="margin-top:5px">${esc(c)}</li>`).join('')}</ul>
       </section>`);
       if (Array.isArray(data.no_action_detail) && data.no_action_detail.length) {
         W('Spans that need no action', `<ul style="margin:0;padding-left:17px">${data.no_action_detail.map(c => `<li style="margin-top:4px">${esc(c)}</li>`).join('')}</ul>`);
       }
-    } else if (data.narrative && !dc && !(note && !note.stale)) {
+    } else if (data.narrative && !explainedAbove && !leadStated) {
       // ── s289: THE NARRATIVE IS A FALLBACK, NOT A FOOTER ────────────────────
       // With the focus-tie bullet now conditional (§0af), `conclusions` can come
       // back EMPTY on a clean card -- and this branch then surfaced
@@ -12889,7 +12937,11 @@
       </div>`);
     }
     if (data.recorded_entry) parts.push(_bkFdiffRecordedHtml(data.recorded_entry, data, findingId, loanId, W));
-    if (data.writeoff) parts.push(_bkFdiffWriteoffHtml(data.writeoff, data, findingId, loanId, W));
+    // s290: the write-off block needs to know whether the lead already made its
+    // point. Passed on `data` rather than as a seventh positional argument,
+    // because this function is called from five places and a positional flag
+    // that four of them omit is a default nobody chose.
+    if (data.writeoff) parts.push(_bkFdiffWriteoffHtml(data.writeoff, Object.assign({ _leadStated: leadStated }, data), findingId, loanId, W));
 
     // ── 4. IS ANYTHING ELSE WRONG? — one line ──────────────────────────────
     if (trailingSpans) parts.push(trailingSpans);
@@ -13158,6 +13210,17 @@
       // sentence anyway tells a reader they cannot do the thing they have just
       // been given a button for. The claim is not lost -- it is answered.
       if (data.recorded_entry && data.recorded_entry.eligible) return '';
+      // ── s290: AND SILENT WHEN THE LEAD HAS ALREADY SAID IT ────────────────
+      // The refusal reads "the period-by-period walk found differences to
+      // attribute — those are the lead, not a write-off". The lead sentence at
+      // the top of the card now says exactly that, in the reader's own terms
+      // ("2 open spans below still need attributing — work those, then
+      // re-run"), so printing this is the same claim twice on one screen
+      // (s279). The full sentence is not lost: it goes to the working.
+      if (data._leadStated && /walk found differences to attribute/.test(String(wo.why || ''))) {
+        if (W) W('Why no write-off is offered', esc(wo.why));
+        return '';
+      }
       // Silent when there is nothing to write off anyway — a card explaining why
       // you cannot do a thing you were not trying to do is noise (LESS IS BEST).
       if (/^the books already agree|^there is no open books/.test(String(wo.why || ''))) return '';
@@ -13353,6 +13416,35 @@
             : `<div class="fdc-quiet" style="margin-top:8px">Your account can review this but not post it.</div>`}
       </div>` : '';
 
+    // ── s290: A REASSURANCE IS NOT AN ACTION, SO IT DOES NOT GET THE TINT ──
+    //
+    // On Funding Circle this block was the loudest thing on the card — the one
+    // tinted rectangle, `fdc-act`, the treatment reserved for the block a reader
+    // acts on — and it proposed NOTHING (`shape: no_duplication`,
+    // `proposed_entry: null`, `duplicated: 0`) about a payment dated 2026-05-18,
+    // inside books closed through 2026-06-30. Meanwhile the two red "off by"
+    // rows, which are the actual work, carried no weight at all.
+    //
+    // LESS IS BEST test 4: colour was doing a job weight and order could do, so
+    // the one thing that genuinely needed it had nothing left to spend. Test 1
+    // is sharper still — would a reader act differently without it? No. But it
+    // is not deleted (ce17): the sentence stays, the components table goes to
+    // the working, and every figure survives. It simply stops shouting.
+    //
+    // ⚠️ THE TEST IS "PROPOSES NOTHING", NOT "IS ABOUT A CLOSED MONTH". A box
+    // with a prepared correction keeps the tint wherever it is dated — s234
+    // re-dates such a correction into an open month on purpose, so keying this
+    // on the period would demote the one shape that has a button in it.
+    const isReassurance = !pe && !(d && Math.abs(Number(d.duplicated || 0)) >= 0.005);
+    if (isReassurance) {
+      if (W && rows) W('Your accountant\'s split, month by month', rows);
+      return `<section class="fdc-sec">
+        <div class="fdc-lab">Your accountant already worked this payment</div>
+        <div style="line-height:1.5;color:var(--gray-700)">${esc(ex.note || '')}</div>
+        ${W ? '' : rows}${carry}${working}
+      </section>`;
+    }
+
     return `<div class="fdc-act">
       <div class="fdc-lab">Your accountant already worked this payment</div>
       <div style="line-height:1.5;color:var(--gray-700)">${esc(ex.note || '')}</div>
@@ -13448,7 +13540,15 @@
           // session 272: the span's own gap is still stated. It is the WEEK that is
           // off; the month it belongs to is not, and the month is what is judged.
           : p.month_nets ? `↔ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))} this week — ${esc(_bkMonthLabel(p.month_nets.month))} ties, nothing to fix`
-          : `✗ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))}`}</td>
+          : `✗ off by ${esc(fmtMoney(Math.abs(Number(p.diff))))}`}${
+          // ── s290: THE CAUSE SITS ON THE ROW IT IS ABOUT ──────────────────
+          // It used to be a bullet above this table, restating the span, the
+          // amount and the verdict this row already carries — every word before
+          // its dash was a second statement of this line (s279). The server now
+          // sends only the half the table cannot say, and it lands here, under
+          // the verdict it explains. Quiet, because the figure is the anchor
+          // and the sentence is the footnote.
+          p.cause ? `<div style="margin-top:2px;font-weight:400;color:var(--gray-500);font-size:11.5px;white-space:normal">${esc(p.cause)}</div>` : ''}</td>
       </tr>`).join('');
   }
   function _bkFdiffSpanTableShell(inner) {

@@ -12839,89 +12839,142 @@ GROUPS.push({
            `${k} appears ${n}× in the render source`);
     }
 
+    /* ── THE AFTER PAYLOAD ────────────────────────────────────────────────
+       FC is the frozen response from the OLD server, so the client alone cannot
+       show the whole fix: the three per-span bullets are IN that payload and
+       `periods[].cause` is not. AFTER applies the server change to it by hand.
+
+       ⚠️ HAND-BUILT, AND PINNED SO IT CANNOT DRIFT. The shape is asserted
+       against the REAL generator by tests/find-difference-walk.test.mts —
+       "no per-span bullet survives in conclusions" and "every divergent span
+       carries a cause" both run against the shipped analyzeWalk. This is the
+       same arrangement the 4140 group uses with tests/copy-budget.test.mts: the
+       harness measures the RENDERING, the Node test proves the payload is real.
+       Without that pin this would be a fixture agreeing with my own idea of the
+       fix, which is the s245 failure exactly. */
+    const AFTER = JSON.parse(JSON.stringify(FC));
+    AFTER.conclusions = FC.conclusions.filter(c => !/is off by \$|more spans? \(/.test(c));
+    const CAUSE = {
+      '2026-08-31|2026-07-31': 'nothing on file explains it (5 entries sit inside the span; none matches the amount) — one for your CPA.',
+      '2026-08-31|2026-08-31': 'no clear candidate — one for your CPA.',
+      '2026-07-31|2026-06-30': 'no clear candidate — one for your CPA.',
+    };
+    for (const per of AFTER.periods) {
+      const k = `${per.to}|${per.from}`;
+      if (!per.closed_period && per.verdict === 'divergent' && CAUSE[k]) per.cause = CAUSE[k];
+    }
+    /* ⚠️ AND THE PHANTOM SPAN GOES, because both server changes ship together.
+       "Aug 31 → Aug 31, off by $1,041.09" is a span from a date to itself: the
+       duplicate 2026-08-03 statement, which a human had ruled out and
+       loan-find-difference did not read. Leaving it here would let the copy
+       assertions below pass while the card still showed an impossible row, and
+       it is the reason $1,041.09 was stated twice even after the bullets went —
+       two rows, one of which does not exist. */
+    AFTER.periods = AFTER.periods.filter(per => per.from !== per.to);
+    AFTER.conclusions = AFTER.conclusions.filter(c => !/2026-08-31 → 2026-08-31/.test(c));
+
     const m = await measureFdiffModal(p, FC);
+    const a = await measureFdiffModal(p, AFTER);
 
-    /* ── 1. THE FIGURE THE READER CLICKED IS NOT ON THE CARD ──────────────
-       s279 permits the decision's own figure in the lead sentence. There is no
-       lead sentence: with no derived_cause and no fresh balance_note, the card
-       opens straight into "What likely happened". So the reader arrives from a
-       row saying $60.16 and meets six other figures, none of them that one.
+    /* ── 1. THE FIGURE THE READER CLICKED IS NOW THE LEAD ────────────────
+       s279 permits the decision's own figure in the lead sentence. Before this
+       there was no lead sentence at all: with no derived_cause and no fresh
+       balance_note the card opened straight into "What likely happened", so a
+       reader arriving from a row that says $60.16 met six other figures and not
+       that one — and it was not in the working either, so it was absent from
+       the whole modal rather than merely buried.
 
-       ⚠ REPORTED — and it is a PAIR. Absent from the visible text is the
-       defect; absent from the WORKING as well is what makes it worse than a
-       relocation, and asserting only the first would go green on a card that
-       merely buried it. */
-    t.ok(!/\$60\.16/.test(m.visibleText),
-         '⚠ REPORTED: $60.16 is absent from the visible text — the card never names the figure it is about',
-         'flip this the day a lead sentence states it');
-    t.ok(!/\$60\.16/.test(m.openedText),
-         '⚠ REPORTED: ...and absent from the working too — not relocated, simply not said',
-         'flip this together with the one above');
+       PAIRED WITH ITS CONTROL. The old payload through the SAME renderer must
+       still lack it, or this passes because the ruler changed. */
+    t.ok(/\$60\.16/.test(a.visibleText),
+         '⭐ the card LEADS with $60.16 — the figure the Loans row shows',
+         a.visibleText.slice(0, 120));
+    t.ok(/open spans below still need attributing/.test(a.visibleText),
+         '...and says what to do with it, in the reader\'s own terms',
+         a.visibleText.slice(0, 200));
+    t.ok(!/\$60\.16 between our books/.test(a.visibleText.replace(/\$60\.16 between our books/, '')),
+         '⭐ ...exactly once — a lead is an exemption for ONE statement, not a licence',
+         String((a.visibleText.match(/\$60\.16/g) || []).length));
+    t.ok(!/2026-08-31|Aug 31, 2026 between/.test(a.visibleText.split('.')[0]),
+         '...and the lead does NOT restate the anchor date — the span table owns it (rule D)',
+         a.visibleText.split('.')[0]);
 
-    /* ── 2. BOTH GUARDS FAIL, AND MEASURING IT CORRECTED ME TWICE ─────────
-       I told David this card measured 213 visible words — under the 225 budget —
-       and that the interesting part was the two guards disagreeing. Neither
-       claim survived the measurement, and the corrections are the reason to
-       measure rather than count off a screenshot:
+    /* ── 2. THE DEDUP RULE, AND THE BUDGET ────────────────────────────────
+       Both were red on the old card: 229 words against 225, and five figures
+       stated more than once. The per-span bullets are the bulk of it — each
+       restated the dates, the amount and the verdict of a row printed directly
+       beneath it. */
+    const dupOf = (x) => Object.entries(x.visibleFigs)
+      .filter(([, n]) => n > 1).sort((p1, p2) => p2[1] - p1[1]).map(([f, n]) => `${f}×${n}`);
+    const beforeDup = dupOf(m);
+    const afterDup = dupOf(a);
+    /* ⚠️ THIS CONTROL FEEDS THE OLD PAYLOAD THROUGH THE CURRENT RENDERER, and
+       the numbers move because of it — the same caveat the 4140 group carries.
+       The card David actually saw measured 229 words with five repeated
+       figures; the client-side half of this fix (the demoted reassurance box,
+       the suppressed write-off line) takes ~11 words off ANY payload, this one
+       included, so the old copy now renders at 218. The threshold moved because
+       the renderer improved, not because the card got wordier and somebody
+       tuned the guard to accept it. What the control still proves is the part
+       only the SERVER change can fix: the per-span bullets and their repeats. */
+    t.ok(beforeDup.length >= 4,
+         'CONTROL: the old copy still states four or more figures twice', beforeDup.join(' '));
+    t.ok(m.words >= 210,
+         'CONTROL: ...and still runs past 210 words on its bullets alone', `${m.words} words`);
+    t.eq(afterDup.length, 0,
+         '⭐ NO FIGURE IS STATED TWICE in the visible text any more', afterDup.join(' '));
+    t.ok(a.words <= 225,
+         '⭐ ...and it fits the budget', `${m.words} → ${a.words} words`);
+    t.ok(m.words - a.words >= 30,
+         '...a real cut, not a rounding', `${m.words} → ${a.words}`);
 
-         * 229 words, not 213. Hand-counting the screenshot missed the fold
-           summaries and the table head. The soft guard is red too, so there is
-           no disagreement to adjudicate — the card is simply over on both.
-         * $1,041.09 is stated THREE times, not four. The naive regex counted
-           the verdict cell separately from the Lender-moved cell beside it, but
-           they sit in ONE <tr>: one row is one statement, which is the exemption
-           that protects the table's whole purpose. Two rows state it, plus the
-           bullet above them.
+    /* ── 3. THE CAUSE IS ON ITS ROW, NOT IN A PARAGRAPH ABOVE IT ──────────
+       The claim moved; it was not deleted. Asserting only that the bullet is
+       gone would go green on a deletion, so the second half finds the sentence
+       in its new home. */
+    t.ok(!/is off by \$15\.38 —/.test(a.visibleText),
+         '⭐ the bullet that restated the lead row is gone', a.visibleText.slice(0, 160));
+    t.ok(/nothing on file explains it \(5 entries sit inside the span/.test(a.visibleText),
+         '⭐ ...and its cause is still on screen — rehoused, not dropped',
+         a.visibleText.slice(0, 200));
+    t.ok(!/1 more span/.test(a.visibleText),
+         '...and the roll-up bullet is gone too — the fold summary already states its count and money',
+         a.visibleText);
+    t.ok(/1 earlier span, still open — \$15\.14/.test(a.visibleText),
+         '...which is where that claim lives', a.visibleText.slice(-200));
 
-       So the finding is plainer than the one I described. Not a subtle
-       disagreement between guards — a card that fails both, on a payload the
-       group that would have caught it had never been given. */
-    const EXEMPT = {};
-    const dup = Object.entries(m.visibleFigs)
-      .filter(([f, n]) => n > (EXEMPT[f] || 1))
-      .sort((a, b) => b[1] - a[1])
-      .map(([f, n]) => `${f}×${n}`);
-    t.ok(m.words > 225,
-         '⚠ REPORTED: the card is OVER the 225-word budget as well', `${m.words} words`);
-    t.ok(dup.length >= 4,
-         '⚠ REPORTED: ...and four or more figures are stated twice — both guards red',
-         dup.join(' '));
-    t.ok(/\$1,041\.09×3/.test(dup.join(' ')),
-         '⚠ REPORTED: $1,041.09 three times — two span rows state it, and a bullet states it again above them',
-         dup.join(' '));
-    t.ok(/\$1,052\.84×3/.test(dup.join(' ')),
-         '⚠ REPORTED: $1,052.84 three times — the box states its own figure in prose, in its row, and in its total',
-         dup.join(' '));
-    t.ok(/2026-08-31×3/.test(dup.join(' ')),
-         '⚠ REPORTED: ...and the anchor DATE three times — s279 rule D, a date is stated by the thing it governs',
-         dup.join(' '));
-
-    /* ── 3. WHERE THE DUPLICATION COMES FROM: BULLETS ABOVE THEIR OWN TABLE
-       s279's named shape — "a per-month figure is the table's row, never a
-       paragraph above the table". Bullets 1 and 3 restate rows rendered
-       directly beneath them. This is the E-Transit 4140 defect, unfixed on this
-       card because the fixture that caught it there never carried this shape. */
-    t.ok(/is off by \$15\.38/.test(m.visibleText) && /\$15\.38/.test(m.visibleText),
-         '⚠ REPORTED: bullet 1 restates the lead row — its dates, its amount and its verdict',
-         'the row below already says all three');
-    t.ok(/\$15\.14/.test(m.visibleText),
-         '⚠ REPORTED: bullet 3 restates the "1 earlier span, still open — $15.14" fold summary',
-         'the fold below already says it');
-
-    /* ── 4. THE LOUDEST BLOCK ON THE CARD REPORTS A NON-ISSUE, IN A CLOSED
-       MONTH. LESS IS BEST test 4: colour is doing a job nothing needed, so the
-       one thing that genuinely needs it has nothing left to spend. And test 1:
-       would a reader act differently without it? It proposes nothing, about a
-       payment inside books closed through 2026-06-30. */
-    t.eq(FC.cpa_exception.proposed_entry, null,
-         'the accountant box proposes nothing — shape is no_duplication',
-         String(FC.cpa_exception.diagnosis.shape));
-    t.ok(FC.cpa_exception.period.to < FC.close_date,
-         '⚠ REPORTED: ...about a period inside books your accountant has already closed',
-         `${FC.cpa_exception.period.to} < ${FC.close_date}`);
-    t.ok(/there is nothing to propose/.test(m.visibleText) && /Not offered as a write-off/.test(m.visibleText),
-         '⚠ REPORTED: two separate absences are explained on one card — the thing _bkFdiffRecordedHtml suppresses on purpose',
-         'one of them should go');
+    /* ── 4. ONE ABSENCE, AND THE TINT IS SPENT ON WORK ────────────────────
+       The old card explained two different absences ("there is nothing to
+       propose" and "Not offered as a write-off"), and gave its only tinted
+       block to a reassurance about a payment inside closed books. */
+    /* The suppression is CONDITIONAL on the lead having made the point, so the
+       control removes the lead rather than looking at the old card — which now
+       renders through the same suppressing client and could not show it. Give
+       the card a derived_cause and the lead does not render; the refusal must
+       come back, or the rule is "never print it", which is a deletion. */
+    const noLead = JSON.parse(JSON.stringify(AFTER));
+    noLead.derived_cause = { sentence: 'Something else explains this.', working: 'w', bracket: null };
+    const nl = await measureFdiffModal(p, noLead);
+    t.ok(/Not offered as a write-off/.test(nl.visibleText),
+         '⭐ CONTROL: with no lead sentence, the write-off refusal prints again — suppressed, not deleted',
+         nl.visibleText.slice(-160));
+    t.ok(!/Not offered as a write-off/.test(a.visibleText),
+         '⭐ the write-off refusal is gone from the visible text — the lead already says it',
+         a.visibleText.slice(-200));
+    t.ok(/walk found differences to attribute/.test(a.openedText),
+         '⭐ ...but it survives in the working, verbatim (ce17)', 'it does');
+    const tinted = await p.evaluate((d) => {
+      const host = document.createElement('div');
+      host.innerHTML = _bkFdiffHtml(d, 'f1', 'l1');
+      return [...host.querySelectorAll('.fdc-act')].map(el => el.textContent.replace(/\s+/g, ' ').trim().slice(0, 60));
+    }, AFTER);
+    t.eq(tinted.length, 0,
+         '⭐ nothing on this card wears the action tint — there is no action to take on it',
+         JSON.stringify(tinted));
+    t.ok(/Your accountant already worked this payment/.test(a.visibleText),
+         '...and the accountant\'s sentence is still said, just not shouted', 'it is');
+    t.ok(/1,052\.84/.test(a.openedText),
+         '...with her month-by-month split one click away', 'it is');
 
     /* ── 5. NOTHING IS DELETED TODAY (the ce17 half) ──────────────────────
        This one is a REAL assertion, not a report: every figure the server sent

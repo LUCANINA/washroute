@@ -40,6 +40,30 @@ const ok = (label: string, cond: boolean, detail = '') => {
 }
 const section = (s: string) => console.log(`\n── ${s} ${'─'.repeat(Math.max(0, 58 - s.length))}`)
 
+/* ── s290: WHERE A CLAIM LIVES NOW, AND WHY THIS IS A PAIR ──────────────────
+   A span's cause used to be a BULLET in `conclusions` reading
+   "2026-08-12 → 2026-08-19 is off by $900.00 — <cause>". Every word before the
+   dash restated the table row printed directly beneath it, so s290 dropped the
+   prefix and attached the remainder to the period, where the row renders it.
+
+   That splits this file's assertions in two, and BOTH halves are needed:
+
+     said(r)  — conclusions + no-action detail + every period's cause. Use it
+                for "did the walk SAY this?". It reads the claim's new home as
+                well as its old one, exactly as `said()` does in
+                tests/loan-bundle-balances.test.mts, so it goes red on a
+                DELETION and stays green on a relocation.
+     the dedicated "no per-span bullet survives in conclusions" assertions —
+                these go red on a relocation being undone.
+
+   said() alone would pass if the bullets came back; the dedup assertions alone
+   would pass if every cause were deleted. Neither is a test on its own. */
+const said = (r: any) => [
+  ...(r.conclusions || []),
+  ...(r.no_action_detail || []),
+  ...(r.periods || []).map((p: any) => p.cause).filter(Boolean),
+].join(' | ')
+
 const FN_DIR = new URL('../supabase/functions/loan-find-difference/', import.meta.url)
 const SHARED = new URL('../supabase/functions/_shared/', import.meta.url)
 
@@ -241,8 +265,8 @@ section('THE OTHER HALF — an OPEN divergence still gets the full treatment')
   ok('it counts as an open finding', r.divergent_count === 1, `divergent_count=${r.divergent_count}`)
   ok('nothing is filed as closed', r.closed_divergent_count === 0)
   ok('a conclusion names the span and its amount',
-    r.conclusions.some((c: string) => c.includes('2026-08-05') && c.includes('1,234.56')),
-    JSON.stringify(r.conclusions))
+    said(r).includes('2026-08-05') || (r.periods || []).some((p: any) => p.to === '2026-08-05' && p.cause),
+    said(r))
 }
 
 section('BOTH AT ONCE — the gate separates them, it does not silence either')
@@ -253,7 +277,10 @@ section('BOTH AT ONCE — the gate separates them, it does not silence either')
   ok('the headline arithmetic still carries BOTH',
     Math.abs(Math.abs(r.total_period_diff) - (2544.96 + 1234.56)) < 0.02, `total=${r.total_period_diff}`)
   const joined = r.conclusions.join(' | ')
-  ok('the open one is spelled out', /2026-08-05/.test(joined), joined)
+  // s290: the span's own dates live on its ROW now, so "spelled out" means the
+  // row carries a cause. said() reads both homes — see its note.
+  ok('the open one is spelled out',
+    (r.periods || []).some((p: any) => p.to === '2026-08-05' && p.cause), said(r))
   // s279: "summarised" now means summarised by the span table's closed fold and
   // carried in full by no_action_detail — never spelled out as a bullet, and
   // never dropped.
@@ -280,8 +307,8 @@ section('NO CLOSE DATE SET — the gate is inert, nothing is hidden')
   const r = run(mod, { breaks: { '2026-02-25': 2544.96 }, closeDate: null })
   ok('nothing is marked closed', r.periods.every((p: any) => p.closed_period === false))
   ok('the divergence is an ordinary open finding', r.divergent_count === 1)
-  ok('and it is spelled out', r.conclusions.some((c: string) => c.includes('2026-02-25')),
-    JSON.stringify(r.conclusions))
+  ok('and it is spelled out',
+    (r.periods || []).some((p: any) => p.to === '2026-02-25' && p.cause), said(r))
 }
 
 section('THE FOCUS MONTH — the button matches the row')
@@ -347,14 +374,31 @@ section('THE FOCUS MONTH — the button matches the row')
     headline: { difference: 0 }, focusPeriod: '2026-08',
   })
   ok('both are open findings', r.divergent_count === 2, `divergent_count=${r.divergent_count}`)
-  const iFocus = r.conclusions.findIndex((c: string) => c.includes('2026-08-19'))
-  const iOther = r.conclusions.findIndex((c: string) => c.includes('2026-07-22'))
-  ok('the focus-month span is named', iFocus >= 0, JSON.stringify(r.conclusions))
-  ok('the earlier span is still named — nothing is dropped', iOther >= 0, JSON.stringify(r.conclusions))
-  ok('the focus-month span comes FIRST', iFocus < iOther, `focus@${iFocus} other@${iOther}`)
-  ok('the spans carry in_focus so the table can tier them',
-    r.periods.filter((p: any) => p.in_focus).every((p: any) => p.to.slice(0, 7) === '2026-08'),
+  /* ⚠️ s290 RELOCATED THIS CLAIM TO THE ROW — SO IT IS A PAIR.
+     These three assertions used to search `conclusions` for the span dates,
+     because the cause was a BULLET reading "2026-08-12 → 2026-08-19 is off by
+     $900.00 — <cause>". Every word before that dash restated the table row
+     directly beneath it (s279), so the prefix is gone and the cause is attached
+     to the period.
+     "Named" therefore cannot mean "its date appears in a sentence" any more.
+     What it means is: the span carries its cause, and the focus month is the
+     tier the table leads with. Asserting only the first would go green if the
+     ordering were lost; asserting only the second would go green if every cause
+     were dropped. Both. */
+  const withCause = r.periods.filter((p: any) => p.cause)
+  ok('the focus-month span carries its cause', 
+    withCause.some((p: any) => p.to === '2026-08-19'), JSON.stringify(withCause.map((p: any) => p.to)))
+  ok('the earlier span carries one too — nothing is dropped',
+    withCause.some((p: any) => p.to === '2026-07-22'), JSON.stringify(withCause.map((p: any) => p.to)))
+  ok('...and NO cause restates the span, the amount or the verdict its row already shows',
+    withCause.every((p: any) => !/is off by|→/.test(String(p.cause))),
+    JSON.stringify(withCause.map((p: any) => p.cause)))
+  ok('the focus-month span is the tier the table LEADS with — the button still matches the row',
+    r.periods.filter((p: any) => p.in_focus).every((p: any) => p.to.slice(0, 7) === '2026-08')
+    && r.periods.some((p: any) => p.in_focus && p.cause),
     JSON.stringify(r.periods.filter((p: any) => p.in_focus).map((p: any) => p.to)))
+  ok('...and no per-span bullet survives in conclusions',
+    !r.conclusions.some((c: string) => /is off by \$/.test(c)), JSON.stringify(r.conclusions))
 }
 {
   // No focus period: the old behaviour, untouched.
@@ -367,6 +411,48 @@ section('THE FOCUS MONTH — the button matches the row')
     !r.conclusions.some((c: string) => /Nothing in this walk covers|Every span in .* ties/.test(c)),
     JSON.stringify(r.conclusions))
   ok('the finding is still reported', r.divergent_count === 1)
+  // s290: and it is reported ON THE ROW, with no focus month in play either.
+  ok('...on the period, not as a bullet',
+    r.periods.some((p: any) => p.verdict === 'divergent' && !p.closed_period && p.cause),
+    JSON.stringify(r.periods.filter((p: any) => p.verdict === 'divergent').map((p: any) => p.cause)))
+}
+
+section('s290 — EVERY divergent span gets a cause, not the first two')
+{
+  /* The cap of two existed because BULLETS compete for a reader's attention.
+     Rows do not: a table with six rows shows six verdicts whether or not each
+     is explained, and the row with no explanation is the one that looks broken.
+     The roll-up bullet that used to stand in for spans 3+ ("N more spans … fix
+     the above, then re-run") carried only a count and a total the fold summary
+     already prints, so it is gone and the causes are not. */
+  const stmts = weekly('2025-12-17', 38, 154000, 3000)
+  const r = mod.analyzeWalk({
+    ...BASE, usable: stmts, headline: { difference: 0 }, focusPeriod: '2026-08',
+    entries: ledgerFor(stmts, { '2026-06-24': 400, '2026-07-08': 500, '2026-07-22': 700, '2026-08-19': 900 }),
+  })
+  const open = r.periods.filter((p: any) => p.verdict === 'divergent' && !p.closed_period && !p.timing_pair && !p.month_nets)
+  // MORE THAN TWO is the whole point — two was the old bullet cap. (Three, not
+  // four: one of the four injected breaks pairs off as timing, which is the
+  // month rule doing its job and not this test's subject.)
+  ok('more than two open divergences in this fixture', open.length >= 3, `n=${open.length}`)
+  ok('⭐ EVERY ONE carries a cause — the third is no longer folded into a roll-up',
+    open.every((p: any) => !!p.cause), JSON.stringify(open.map((p: any) => [p.to, !!p.cause])))
+  ok('...and the roll-up bullet is gone',
+    !r.conclusions.some((c: string) => /more spans? \(/.test(c)), JSON.stringify(r.conclusions))
+  /* THE DISCRIMINATOR. Put the prefix back on the shipped function's own source
+     and confirm the "no cause restates its row" assertion goes red. Never by
+     editing index.ts (s245). */
+  const reverted = await loadWalk((src) =>
+    src.replace("if (!c1) return `no clear candidate — one for your CPA.`",
+                "if (!c1) return `${p.from} → ${p.to} is off by ${gap} — no clear candidate; one for your CPA (dates in the table).`"))
+  const r2 = reverted.analyzeWalk({
+    ...BASE, usable: stmts, headline: { difference: 0 }, focusPeriod: '2026-08',
+    entries: ledgerFor(stmts, { '2026-06-24': 400, '2026-07-08': 500, '2026-07-22': 700, '2026-08-19': 900 }),
+  })
+  const open2 = r2.periods.filter((p: any) => p.verdict === 'divergent' && !p.closed_period && !p.timing_pair && !p.month_nets)
+  ok('⭐ CONTROL: with the prefix restored, a cause DOES restate its own row again',
+    open2.some((p: any) => /is off by|→/.test(String(p.cause || ''))),
+    JSON.stringify(open2.map((p: any) => p.cause)))
 }
 
 // ── PayPal 2's real numbers, transcribed from the screen David sent ─────────
@@ -451,13 +537,13 @@ section('MONTH GRANULARITY — PayPal 2\'s four March spans are one non-event')
      move to `no_action_detail` — which the modal shows behind "Show the working".
      An assertion that read only the visible half would go red on that relocation
      and green on a deletion, which is exactly backwards. */
-  const visible = r.conclusions.join(' | ')
-  const working = (r.no_action_detail || []).join(' | ')
-  const said = `${visible} | ${working}`
+  // s290: renamed off `said` because the module-level said() helper now owns
+  // that name, and it reads the same two halves plus the periods' causes.
+  const saidText = said(r)
   ok('one conclusion explains the shape and names March',
-    /cancel out within/.test(said) && /March 2026/.test(said), said)
+    /cancel out within/.test(saidText) && /March 2026/.test(saidText), saidText)
   ok('...and says what it is: a month-end correction landing in one week',
-    /month-end correction landing in one week/.test(said), said)
+    /month-end correction landing in one week/.test(saidText), saidText)
   ok('...and the working really is carried, not just claimed',
     (r.no_action_detail || []).length >= 1, JSON.stringify(r.no_action_detail))
 
@@ -480,8 +566,9 @@ section('THE WEEKS ARE STILL THE MAGNIFYING GLASS WHEN THE MONTH IS OFF')
   const aug = r.months.find((m: any) => m.month === '2026-08')
   ok('August does not net', aug.nets_internally === false, JSON.stringify(aug))
   ok('the span keeps its finding', r.divergent_count === 1, `divergent_count=${r.divergent_count}`)
+  // s290: the span's own dates are on its ROW; the cause is what the walk adds.
   ok('...and is spelled out by week, not by month',
-    r.conclusions.some((c: string) => c.includes('2026-08-19')), JSON.stringify(r.conclusions))
+    (r.periods || []).some((p: any) => p.to === '2026-08-19' && p.cause), said(r))
   ok('no month-nets line is invented', !r.conclusions.some((c: string) => /cancel out within/.test(c)))
 }
 
@@ -522,8 +609,9 @@ section('⚠ REVIEW FINDING 1 — a paired leg must not cancel a real error in t
   ok('...so April does NOT net', apr.nets_internally === false, JSON.stringify(apr))
   ok('the genuine error survives as work', !real.month_nets && r.divergent_count >= 1,
     `month_nets=${JSON.stringify(real.month_nets)} divergent_count=${r.divergent_count}`)
+  // s290: the span's own dates are on its ROW; the cause is what the walk adds.
   ok('...and is named to the reader',
-    r.conclusions.some((c: string) => c.includes('2026-04-15')), JSON.stringify(r.conclusions))
+    (r.periods || []).some((p: any) => p.to === '2026-04-15' && p.cause), said(r))
   ok('no sentence claims April ties',
     !r.conclusions.concat(r.no_action_detail || []).some((c: string) => /April 2026/.test(c) && /cancel out within/.test(c)),
     JSON.stringify(r.conclusions))
@@ -584,9 +672,11 @@ section('⚠ REVIEW FINDING 5 — the focus line must not contradict the finding
     !/nothing here to investigate/.test(r.conclusions[0]), r.conclusions[0])
   ok('...it points at them instead',
     /still need a look|still needs a look/.test(r.conclusions[0]), r.conclusions[0])
-  ok('and both findings survive the four-bullet cap',
-    r.conclusions.some((c: string) => c.includes('2026-07-15'))
-    && r.conclusions.some((c: string) => c.includes('2026-08-05')), JSON.stringify(r.conclusions))
+  // s290: the cap was on BULLETS. Rows have no cap, which is why both survive
+  // — and the focus line above still points the reader at them.
+  ok('and both findings survive — every span keeps its cause',
+    ['2026-07-15', '2026-08-05'].every(d => (r.periods || []).some((p: any) => p.to === d && p.cause)),
+    said(r))
   ok('the cap is still honoured', r.conclusions.length <= 4, String(r.conclusions.length))
 }
 {
@@ -632,25 +722,40 @@ section('IT DISCRIMINATES — the gate removed, the witch hunt returns')
   ok('without the gate, the closed span counts as open work', r.divergent_count === 1,
     `divergent_count=${r.divergent_count}`)
   ok('without the gate, nothing is filed as closed', r.closed_divergent_count === 0)
+  // s290: "sent hunting" now means the closed span is handed a cause as though
+  // it were open work — the row is where a reader is sent.
   ok('without the gate, the reader IS sent hunting in settled books',
-    r.conclusions.some((c: string) => /2026-02-25 is off by/.test(c)),
-    JSON.stringify(r.conclusions))
+    (r.periods || []).some((p: any) => p.to === '2026-02-25' && p.cause && !p.closed_period),
+    said(r))
 }
 
-section('IT DISCRIMINATES — focus ordering removed, the row and the modal part ways')
+section('IT DISCRIMINATES — the focus MARK removed, the row and the modal part ways')
 {
+  /* ⚠️ s290 REPLACED THE MUTATION, BECAUSE THE OLD ONE STOPPED DISCRIMINATING.
+     It used to delete the reorder of `realDivergent` — which decided which
+     BULLET came first. There are no per-span bullets now, so `ordered` only
+     feeds a loop that attaches causes, where order has no observable effect:
+     the mutation applied cleanly and changed nothing, and an assertion that
+     cannot go red is decoration.
+
+     What actually puts the reader's month first is `in_focus`, which
+     _bkFdiffSpanTable reads to build its lead tier. So that is what is broken
+     here. Deleting a control because its subject moved would be the deletion
+     this whole session is about; this is the same control, aimed at the thing
+     that now carries the claim. */
   const broken = await loadWalk(src => src.replace(
-    '    ? [...realDivergent.filter(p => p.in_focus), ...realDivergent.filter(p => !p.in_focus)]',
-    '    ? realDivergent'))
+    "    period.in_focus = !!(focusPeriod && B.statement_date.slice(0, 7) === focusPeriod)",
+    "    period.in_focus = false"))
   const stmts = weekly('2025-12-17', 38, 154000, 3000)
   const r = broken.analyzeWalk({
     ...BASE, usable: stmts, entries: ledgerFor(stmts, { '2026-07-22': 700, '2026-08-19': 900 }),
     headline: { difference: 0 }, focusPeriod: '2026-08',
   })
-  const iFocus = r.conclusions.findIndex((c: string) => c.includes('2026-08-19'))
-  const iOther = r.conclusions.findIndex((c: string) => c.includes('2026-07-22'))
-  ok('without the reorder, the earlier span leads instead of the row\'s own month',
-    iOther < iFocus, `focus@${iFocus} other@${iOther}`)
+  ok('without the focus mark, NO span is tiered as the row\'s own month',
+    (r.periods || []).every((p: any) => !p.in_focus),
+    JSON.stringify((r.periods || []).filter((p: any) => p.in_focus).map((p: any) => p.to)))
+  ok('...and the causes are still attached — this breaks the ORDER, not the content',
+    (r.periods || []).filter((p: any) => p.cause).length >= 2, said(r))
 }
 {
   const broken = await loadWalk(src => src.replace(
@@ -807,7 +912,7 @@ section('IT DISCRIMINATES — month rule removed')
   const r = broken.analyzeWalk({ ...args })
   ok('without it, all three come back as open findings', r.divergent_count === 3, `divergent_count=${r.divergent_count}`)
   ok('...and the reader is sent after them',
-    r.conclusions.some((c: string) => /is off by/.test(c)), JSON.stringify(r.conclusions))
+    (r.periods || []).filter((p: any) => p.cause).length >= 1, said(r))
   ok('...and no month-nets line is offered', !r.conclusions.some((c: string) => /cancel out within/.test(c)))
 }
 
@@ -823,7 +928,8 @@ section('IT DISCRIMINATES — adjacency restored, the transposition returns as t
   ok('with a one-span lookahead the pair is invisible again', r.divergent_count === 2,
     `divergent_count=${r.divergent_count}`)
   ok('...and both are reported as things to go and fix',
-    r.conclusions.some((c: string) => /2026-07-22|2026-08-12/.test(c)), JSON.stringify(r.conclusions))
+    ['2026-07-22', '2026-08-12'].some(d => (r.periods || []).some((p: any) => p.to === d && p.cause)),
+    said(r))
 }
 
 
@@ -866,7 +972,8 @@ section('session 273 cont.: an entry that cannot explain the gap is not a lead')
     entries: ledgerFor(stmts, { [GAP_DATE]: -15.38 }),
     headline: { difference: 0 },
   })
-  const joined = r.conclusions.join(' | ')
+  // s290: a span's cause lives on its ROW now — said() reads both homes.
+  const joined = said(r)
 
   ok('the span is still reported as divergent — nothing is swept away',
      /15\.38/.test(joined), joined)
@@ -894,7 +1001,8 @@ section('session 273 cont.: an entry that cannot explain the gap is not a lead')
     ...sameLender, usable: stmts,
     entries: ledgerFor(stmts, { [GAP_DATE]: -15.38 }), headline: { difference: 0 },
   })
-  const j2 = r2.conclusions.join(' | ')
+  // s290: a span's cause lives on its ROW now — said() reads both homes.
+  const j2 = said(r2)
   ok('a same-lender sibling IS surfaced, as something to confirm', /worth confirming/.test(j2), j2)
   ok('...phrased as confirm, never recode', /confirm it rather than recode it/.test(j2), j2)
   ok('...and still says the amount does not match', /amount does not match/.test(j2), j2)
@@ -905,7 +1013,8 @@ section('session 273 cont.: an entry that cannot explain the gap is not a lead')
     ...withStranger, siblingPool: exactPool, usable: stmts,
     entries: ledgerFor(stmts, { [GAP_DATE]: -15.38 }), headline: { difference: 0 },
   })
-  const j3 = r3.conclusions.join(' | ')
+  // s290: a span's cause lives on its ROW now — said() reads both homes.
+  const j3 = said(r3)
   ok('an exact match is still called out as likely belonging here', /likely belongs here/.test(j3), j3)
   ok('...and still tells the reader to recode it', /Recode it and re-run/.test(j3), j3)
   ok('...and still promises the span will tie', /the span should tie/.test(j3), j3)
@@ -933,7 +1042,8 @@ section('session 273 cont.: an entry that cannot explain the gap is not a lead')
     acctMap: { ...BASE.acctMap, '253': 'Rapid Credit Line' },
     usable: stmts, entries: ledgerFor(stmts, { '2026-08-12': -15.38 }), headline: { difference: 0 },
   })
-  const joined = r.conclusions.join(' | ')
+  // s290: a span's cause lives on its ROW now — said() reads both homes.
+  const joined = said(r)
   ok('proof the assertions bite: un-gated, a $457.14 entry IS offered for a $15.38 gap',
      /457\.14/.test(joined) && /likely belongs here/.test(joined), joined)
 }

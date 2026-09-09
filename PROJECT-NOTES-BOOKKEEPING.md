@@ -4,20 +4,24 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> 🆕 **SESSION 290 LEFT THREE FUNCTIONS UNDEPLOYED AND THE COPY HALF UNFIXED — the copy is now
->    MEASURED, and the three changes it asks for are listed at the end of the session 290 cont.
->    entry. It is David's wording to approve.**
+> 🆕 **SESSION 290: THE CODE IS DONE AND COMMITTED; THE DEPLOY IS NOT.** Both halves — the
+>    anchor-exclusion fix and all three copy changes — are in `main` and unshipped. **Every
+>    verify_jwt flag below was MEASURED on 2026-09-09, not read off this file:**
+>    `loan-find-difference` and `loan-xero-post` answer in their OWN words → **`--no-verify-jwt`**;
+>    `loan-derive-schedule`, `loan-ingest-statement`, `loan-record-principal-payment` and
+>    `loan-ingest-amortization` answer `401 UNAUTHORIZED_NO_AUTH_HEADER` from the gateway → **no
+>    flag**, and they need redeploying only because they bundle the two changed `_shared` files.
+>    ⚠️ Pasting the flag onto that second group is what broke `loan-ingest-statement` in s281.
 >    * **Deploy `loan-find-difference` and `loan-xero-post`** (and note that
 >      `_shared/statement-period.ts` + `_shared/derive-schedule.ts` changed, so every function
 >      importing them carries a stale copy until redeployed). CLI only —
 >      `loan-find-difference` is 158KB. **Read each one's `verify_jwt` first, then pick the flag.**
 >      Until this ships, the Funding Circle card still shows the phantom `Aug 31 → Aug 31` span and
 >      still refuses to propose anything.
->    * **The card's copy is UNFIXED but now MEASURED.** `fdiff-copy-budget-funding-circle` renders
->      the real frozen FC payload and states every hole as a `⚠ REPORTED` assertion that passes
->      today and announces itself the day the copy changes. $60.16 is absent from the card entirely
->      (it is in `headline.difference`); the card is 229 words against a 225 budget; five figures
->      and the anchor date repeat.
+>    * **The copy is FIXED and measured both ways.** `fdiff-copy-budget-funding-circle` renders a
+>      BEFORE and an AFTER through one function: 218 → 184 visible words, four repeated figures → 0,
+>      $60.16 from absent-entirely to the lead sentence, one tinted block reporting a non-issue → none.
+>      Every `⚠ REPORTED` assertion is now a real one.
 >    * ⚠️ **`tests/find-difference-walk.test.mts` and `tests/writeoff-fences.test.mts` had not
 >      loaded since s289** (166 assertions reporting as nothing). Fixed with a catch-all in the
 >      loader. **Add this to `washroute-bookkeeping` with the other pending skill edits: an
@@ -13358,18 +13362,92 @@ accountant already worked this payment" box — the loudest element on the card 
 through 2026-06-30. It is the largest, most colourful block on a card about August, and it reports a
 non-issue in a closed month. LESS IS BEST tests 1 and 4, together.
 
-**Where to pick up. THE COPY IS STILL UNFIXED — that is deliberate, and it is David's call.** What
-the measurement now says has to change, in order:
+### Session 290 cont. 2 (2026-09-09) — THE COPY, ALL THREE CHANGES, MEASURED BOTH WAYS
 
-1. **A lead sentence stating $60.16.** s279 permits the decision's own figure in the lead. Where
-   there is no `derived_cause` and no fresh note, `headline` should speak. This is new copy on a
-   CPA-facing card, so it is his wording to approve, not mine to ship.
-2. **Bullets 1–3 collapse into the table they restate.** The right fix is generator-side: attach the
-   cause to the period object and let the row render it, rather than emitting a paragraph above the
-   table (s279: the per-span figure's one home is its row). ⚠️ This will churn ~20 assertions in
-   `find-difference-walk.test.mts` that pin `conclusions` content, and each must be re-pinned as a
-   PAIR — bullet gone AND claim rehoused — or they go green on a deletion.
-3. **One absence, not two,** and the reassurance box should not outrank the two red rows.
+**Trigger.** David: *"let's go."* The measurement was in place; this is the fix it was written for.
+
+**1. THE CARD LEADS WITH THE FIGURE THE READER CLICKED.** `_bkFdiffHtml` now renders a lead —
+*"$60.16 between our books and the lender. 2 open spans below still need attributing — work those,
+then re-run."* — but ONLY where nothing else answers "what is this difference": a `derived_cause` or
+a current `balance_note` owns that slot and states its own figure, so leading above either would be
+the duplication the rule forbids.
+
+⚠️ **IT STATES THE FIGURE AND A COUNT, NEVER A SECOND AMOUNT.** The tempting sentence is *"$30.52 of
+it is in two open spans"* — a figure obtained by adding up the rows below, which is s247's "measured,
+never derived" in miniature and would put a number on screen that no source ever stated. A count is
+not a figure. The anchor DATE is absent for the same reason: the span table owns it (rule D).
+
+**2. THE CAUSE MOVED ONTO THE ROW IT IS ABOUT.** `hypFor` returned
+`${from} → ${to} is off by ${gap} — <cause>`, and **every word before that dash is what the row
+already says**. It is now `causeFor`, returning only the half the table cannot say, attached to the
+period — the SAME objects the client renders — and drawn under the verdict it explains. The
+"(dates in the table)" clause went with it: on the row it points at itself.
+
+**The cap of two is gone and that is not a side effect.** It existed because bullets compete for
+attention. Rows do not — a six-row table shows six verdicts either way, and the row with no
+explanation is the one that looks broken. The roll-up that stood in for spans 3+ ("N more spans …
+fix the above, then re-run") carried only a count and a total the fold summary already prints.
+
+**3. ONE ABSENCE, AND THE TINT SPENT ON WORK.** The write-off refusal (*"the walk found differences
+to attribute"*) is the lead's own sentence in other words, so it is suppressed **when the lead has
+made the point** and moved to the working verbatim. And the reassurance box no longer wears
+`fdc-act`: on this card the one tinted rectangle, the treatment reserved for what a reader ACTS on,
+proposed nothing about a payment inside closed books while the two red rows carried no weight at all.
+⚠️ **The test is "proposes nothing", not "is about a closed month"** — a box with a prepared
+correction keeps the tint wherever it is dated, because s234 re-dates such a correction into an open
+month on purpose.
+
+**MEASURED, BOTH DIRECTIONS.** `fdiff-copy-budget-funding-circle` now renders a BEFORE and an AFTER
+through one function, and every `⚠ REPORTED` assertion has been flipped into a real one:
+
+| | before | after |
+|---|---|---|
+| visible words | 218 | **184** |
+| figures stated twice | 4 | **0** |
+| $60.16 on the card | absent entirely | **the lead** |
+| tinted action blocks | 1 (a non-issue) | **0** |
+
+⚠️ **THE "BEFORE" NUMBER IS 218, NOT THE 229 DAVID SAW, AND THE REASON IS WORTH KEEPING.** This
+control feeds the OLD payload through the CURRENT renderer, so the client half of the fix takes ~11
+words off it too. The threshold moved because the renderer improved, not because the card got
+wordier and somebody tuned the guard — the same caveat the 4140 group carries, and the reason both
+groups state it rather than quietly adjusting a number.
+
+**The AFTER payload carries BOTH server changes**, because they ship together: the bullets removed
+AND the phantom `Aug 31 → Aug 31` span gone. Leaving the phantom in would have let the copy
+assertions pass while the card still showed an impossible row — and it was *why* $1,041.09 was still
+stated twice after the bullets went: two rows, one of which does not exist.
+
+**It is hand-built and PINNED so it cannot drift.** `tests/find-difference-walk.test.mts` asserts the
+shape against the real `analyzeWalk` — no per-span bullet survives in `conclusions`, every divergent
+span carries a `cause`, and no cause restates its own row — with a discriminator that puts the prefix
+back on the shipped source and watches it go red. Same arrangement as the 4140 group and
+`copy-budget.test.mts`: the harness measures the rendering, the Node test proves the payload is real.
+
+**THE ASSERTION CHURN, AND ONE CONTROL THAT HAD STOPPED DISCRIMINATING.** ~20 assertions in
+`find-difference-walk.test.mts` read `conclusions` for span text. They now read `said(r)` —
+conclusions + no-action detail + every period's cause — the same shape as `said()` in
+`loan-bundle-balances.test.mts`, so they go red on a DELETION and stay green on a relocation, paired
+with dedicated assertions that go red if the bullets come back. **Neither half is a test alone.**
+
+And one control was quietly dead: it deleted the reorder of `realDivergent`, which used to decide
+which BULLET led. With no bullets, `ordered` only feeds a loop where order has no observable effect —
+the mutation applied cleanly and changed nothing. It now breaks `in_focus`, which is what actually
+puts the reader's month in the table's lead tier. **A control whose subject moved is re-aimed, not
+deleted** — deleting it would be the exact failure this session is about.
+
+**Suite.** 727 browser assertions across the ten fdiff/close groups, 0 red. Node: `find-difference-walk`
+140/0, and copy-budget, writeoff-fences, derive-cause, statement-period, both syntax files all green.
+
+⚠️ **DEPLOY, and every flag was MEASURED rather than read off this file** (POST with no auth header;
+whether the gateway or the function answers):
+* `loan-find-difference` → 403 `Not authorized.` (its own words) → **`--no-verify-jwt`**
+* `loan-xero-post` → 400 `loan_split_id is required` (own words) → **`--no-verify-jwt`**
+* `loan-derive-schedule`, `loan-ingest-statement`, `loan-record-principal-payment`,
+  `loan-ingest-amortization` → 401 `UNAUTHORIZED_NO_AUTH_HEADER` (the gateway) → **no flag.** They
+  bundle the two changed `_shared` files and carry a stale copy until redeployed.
+* `reconciliation-run` → own words, `verify_jwt: false`, but its code already filtered the excluded
+  statements, so it is the one where nothing changes.
 
 
 

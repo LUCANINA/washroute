@@ -1241,14 +1241,34 @@ function analyzeWalk(o: {
   // considered is stated, so the reader can see the denominator did not quietly
   // shrink (s262) -- they simply stop being announced as the answer.
   const explanatory = (c: any) => !!c && (c.confidence === 'explains_exactly' || c.confidence === 'explains_with_known')
-  const hypFor = (p: any) => {
+  // ── SESSION 290: THE CAUSE BELONGS TO THE ROW, NOT TO A PARAGRAPH ABOVE IT
+  //
+  // David, on the Funding Circle card: it opened with three bullets, and the
+  // table directly beneath them stated the same spans, the same amounts and the
+  // same verdicts. Measured: 229 visible words against a 225 budget, $1,041.09
+  // three times, $15.38 and $15.14 twice each, the anchor date three times.
+  //
+  // This function used to return `${from} → ${to} is off by ${gap} — <cause>`,
+  // and EVERY WORD BEFORE THE DASH is what the row already says. s279's own
+  // wording: "a per-month figure is the table's row, never a paragraph above
+  // the table". So the prefix goes and what is left — the cause, which the
+  // table could not say — is attached to the period and rendered ON the row.
+  //
+  // "(dates in the table)" goes with it. It was a pointer from a paragraph to
+  // a table; on the row it points at itself.
+  //
+  // ⚠️ NOTHING IS DELETED (ce17). The cause is not dropped, it is rehoused, and
+  // it now reaches EVERY divergent span rather than the first two — the roll-up
+  // bullet that stood in for the rest ("1 more span … fix the above, then
+  // re-run") said only a count and a figure the fold summary already carries.
+  const causeFor = (p: any) => {
     const gap = money(Math.abs(p.diff))
     const cands = p.cross_loan_candidates || []
     const c1 = cands[0]
     if (p.culprit?.kind === 'duplicate_suspected' && p.culprit.entry) {
-      return `${p.from} → ${p.to} is off by ${gap} — likely a duplicate: the ${money(Math.abs(p.culprit.entry.effect_on_loan))} entry on ${p.culprit.entry.date}. Remove the copy and re-run.`
+      return `likely a duplicate: the ${money(Math.abs(p.culprit.entry.effect_on_loan))} entry on ${p.culprit.entry.date}. Remove the copy and re-run.`
     }
-    if (!c1) return `${p.from} → ${p.to} is off by ${gap} — no clear candidate; one for your CPA (dates in the table).`
+    if (!c1) return `no clear candidate — one for your CPA.`
     // Nothing on file can account for the gap. Say so, say what WAS looked at,
     // and -- only where the shape genuinely warrants a look (a sibling loan of
     // the SAME lender, which is how a payment lands on the wrong one) -- name
@@ -1256,19 +1276,19 @@ function analyzeWalk(o: {
     if (!explanatory(c1)) {
       const looked = cands.length === 1 ? '1 entry sits' : `${cands.length} entries sit`
       const sib = cands.find((c: any) => c.same_lender)
-      const base = `${p.from} → ${p.to} is off by ${gap} — nothing on file explains it (${looked} inside the span; none matches the amount)`
+      const base = `nothing on file explains it (${looked} inside the span; none matches the amount)`
       return sib
         ? `${base}. Closest worth a look: the ${money(sib.amount)} ${sib.src_type === 'ManualJournal' ? 'journal' : 'payment'} (${sib.date}) on ${sib.coded_to?.loan_name || 'a sibling loan'} — same lender, so worth confirming it went to the right loan. The amount does not match this gap, so confirm it rather than recode it.`
-        : `${base}; one for your CPA (dates in the table).`
+        : `${base} — one for your CPA.`
     }
     const c2 = cands[1]
     // Both legs of an "either/or" must be able to explain the gap -- offering a
     // real candidate beside one that cannot is worse than offering one alone.
     const secondStrong = explanatory(c2)
     if (secondStrong) {
-      return `${p.from} → ${p.to} is off by ${gap} — either ${candDesc(c1)}, or ${candDesc(c2)}. Fix the right one and re-run.`
+      return `either ${candDesc(c1)}, or ${candDesc(c2)}. Fix the right one and re-run.`
     }
-    let s = `${p.from} → ${p.to} is off by ${gap} — ${candDesc(c1)}. Recode it and re-run`
+    let s = `${candDesc(c1)}. Recode it and re-run`
     if (c1.explains_after) s += `; the span should close to ~${money(c1.explains_after.amount)}`
     else if (c1.confidence === 'explains_exactly') s += `; the span should tie`
     s += `.`
@@ -1280,11 +1300,12 @@ function analyzeWalk(o: {
   const ordered = focusPeriod
     ? [...realDivergent.filter(p => p.in_focus), ...realDivergent.filter(p => !p.in_focus)]
     : realDivergent
-  for (const p of ordered.slice(0, 2)) conclusions.push(hypFor(p))
-  if (ordered.length > 2) {
-    const rest = ordered.slice(2)
-    conclusions.push(`${rest.length} more span${rest.length === 1 ? '' : 's'} (${rest.map(p => `${p.from} → ${p.to}, ${money(Math.abs(p.diff))}`).join('; ')}) — fix the above, then re-run.`)
-  }
+  // s290: attached, not pushed. `realDivergent` holds the SAME objects the
+  // client renders as rows (they come straight off `periods`), so writing the
+  // cause here puts it on the row without a second lookup that could drift.
+  // Every divergent span gets one — the cap of two existed because bullets
+  // compete for a reader's attention and rows do not.
+  for (const p of ordered) p.cause = causeFor(p)
 
   // ── session 272: THE CLOSED-BOOKS LINE ──────────────────────────────────
   // One sentence for the whole of settled history, never a list. It states the
