@@ -5,7 +5,33 @@
 > ### 🔴 THE LIST, IN ORDER.
 >
 > ## 1️⃣ **ASK XERO WHAT IT HAS LEFT BEFORE SPENDING IT.** *(David, 2026-09-09: "yes put it on the
->    priority list")* — ⚠️ **THE PRE-CHECK IS BUILT AND COMMITTED BUT NOT DEPLOYED.** See session
+>    priority list")* — ✅ **BUILT, DEPLOYED AND VERIFIED IN THE BUNDLE 2026-09-09 08:30 local.**
+>
+>    **Verified by READING THE DEPLOYED SOURCE, which is the only check that discriminates here.**
+>    A version number can coincide and a boot probe cannot tell old code from new — both bundles
+>    would boot either way. `get_edge_function` on each, then grep:
+>
+>    | | `loan-find-difference` | `reconciliation-run` |
+>    |---|---|---|
+>    | `isDailyProblem` | 7 | 7 |
+>    | `refuseBeforeSpending` | 4 | 4 |
+>    | `assertBudget` / `assertXeroBudget` | 3 (1 def + 2 call sites) | 2 |
+>    | old `startsWith('day')` **in code** | **0** | **0** |
+>    | old `Promise<Record<string, string>>` signature | **0** | n/a |
+>
+>    Both also answer `403 {"error":"Not authorized."}` to an unauthenticated POST — their own
+>    words, not a 503 on the CORS preflight, which is what a bundle that never booted returns
+>    (s264). Boot matters here beyond the usual reason: a missing `_shared/xero-budget.ts` in the
+>    deployed graph would fail exactly that way.
+>
+>    ⚠️ **WHAT IS STILL UNPROVEN, and say so rather than calling this done.** The pre-check has
+>    never actually FIRED. Proving it needs a real daily 429, and the quota is healthy right now.
+>    **The next time the day is spent, watch for the refusal arriving IMMEDIATELY on click rather
+>    than after a long hang** — that is the observation that closes this, and nothing before it
+>    does. The same applies to `isDailyProblem`: the corrected branch only runs when Xero names the
+>    daily limit AND omits the counter, which is precisely the case nobody has yet seen in the wild.
+>
+>    ~~⚠️ **THE PRE-CHECK IS BUILT AND COMMITTED BUT NOT DEPLOYED.**~~ See session
 >    290 cont. 2 in the log: `_shared/xero-budget.ts`, wired into both pullers, 35 assertions green,
 >    and it costs ZERO extra calls because both functions already made a cheap call and discarded
 >    its headers. **The CLI deploy commands are in that entry and must be run before any of it is
@@ -46,8 +72,8 @@
 > ### DEPLOY STATE — MEASURED 2026-09-09 03:05 UTC BY READING THE DEPLOYED SOURCE, not inferred
 >    from git and not from anyone's recollection.
 >
-> **`origin/main` == local HEAD == `c1096b6`, MEASURED 2026-09-09 from the `origin/main` reflog
-> (`update by push` at 07:55:29 local), not from anyone's recollection.** The two loan-card commits
+> **`origin/main` == local HEAD == `80e25a1`, MEASURED 2026-09-09 from the `origin/main` reflog
+> (`update by push` at 08:27:35 local), not from anyone's recollection.** The two loan-card commits
 > below are pushed and therefore live on the SPA — Vercel auto-deploys the four `index.html` apps in
 > about thirty seconds. **This says nothing about the edge functions**, which a push never deploys;
 > that is the section above and it is still true.
