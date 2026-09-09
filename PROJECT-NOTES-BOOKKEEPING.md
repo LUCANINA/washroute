@@ -13116,6 +13116,66 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 290 cont. 5 (2026-09-09) — "TRY AGAIN IN A MOMENT" WAS THE WORST ADVICE WE COULD GIVE
+
+**Trigger.** David: *"Find the Fix requests are timing out."* Every click returned
+*"The analysis failed — try again in a moment."*
+
+**IT WAS OUR CODE, NOT XERO BEING SLOW, AND NOT THE DEPLOY.** `xero-rate-probe` at 03:01 UTC:
+
+    status 429 · rate_limited true · limit "day"
+    remaining_day 0 · retry_after 45461s (~12.6 hours)
+
+**The mechanism, exactly.** Both big Xero pullers retried a 429 like this:
+
+    if (res.status === 429) { await sleep((Number(res.headers.get('Retry-After')) || (2 + retry * 3)) * 1000); continue }
+
+Correct for the limit it was written for — the per-MINUTE burst, whose `Retry-After` is a few
+seconds. On the DAILY cap Xero sends **45,461**, so the function slept for twelve and a half hours,
+up to five times, until the gateway killed it and returned a bodyless 504. **The line directly below
+it — `throw new Error('Xero rate limit hit — try again in a few minutes.')` — was unreachable**, and
+because there was no JSON body the card fell back to its generic sentence.
+
+⚠️ **AND THAT SENTENCE WAS ACTIVELY HARMFUL.** Xero enforces the day as a ROLLING window, so every
+retry pushes the reset further out. The product was recommending the one action that made the
+problem worse, in the exact situation where doing nothing was the fix.
+
+**FOURTH TIME IN THIS SESSION: THE CORRECT GUARD EXISTED ONE BRANCH AWAY.** `xero-read` has capped
+this since it was written — `Math.min(Number(res.headers.get('Retry-After') || 0) || 5, 30)`. The two
+functions that pull the most from Xero did not.
+
+**TIMELINE, because "the deploy broke it" was the obvious wrong answer.** Last success 02:30:58 on
+v43. First 504 at **02:34:13**. David's deploy of v44 landed at **02:57:56** — twenty-three minutes
+AFTER the failures began. The true-up wiring had nothing to do with it.
+
+**THE FIX: `_shared/xero-429.ts`, and the rule is that a header is not permission to hang.**
+`readRateLimit` reads `X-Rate-Limit-Problem`, `Retry-After`, `X-DayLimit-Remaining` and
+`X-MinLimit-Remaining` and returns `waitable` plus a bounded `waitSeconds`; `rateLimitMessage` writes
+the sentence. Wired into `loan-find-difference` and `reconciliation-run`.
+
+* **Daily is never waitable inside one request**, whatever it asks for.
+* **`X-DayLimit-Remaining: 0` is decisive on its own**, header or no header — Xero does not always
+  send the problem name.
+* Anything over **45s** is refused even when Xero calls it a Minute problem.
+* ⚠️ **A missing `Retry-After` is neither permission to wait for ever nor a reason to give up** — it
+  falls back to a short backoff that grows with the attempt. Both halves matter.
+* The per-minute case still waits exactly as before, and its message does NOT tell the reader to
+  stop. **The fix must not break the case the loop was written for.**
+
+**18 assertions in `tests/xero-429.test.mts`**, including a control that computes what the DELETED
+line would have done on the real refusal — 45,461 seconds — so the difference is measured rather
+than asserted.
+
+⚠️ **THE DAILY CAP ON THIS TENANT IS 1,000, NOT THE 5,000 XERO'S DOCS QUOTE.** Measured 2026-09-01,
+recorded in the probe, and it is the only figure to trust. Today it was spent by the reconciliation
+run (org-wide pull), the diagnostic calls in this session, and repeated Find the Fix clicks — each of
+which is a full ledger pull. **Worth a follow-up: the card fires a fresh Xero pull on every click,
+with no cache and no cheap pre-check. A `remaining_day` probe before the pull would cost one call and
+save fifty.**
+
+⚠️ **NOT DEPLOYED — and it cannot be verified until the quota clears (~12h from 03:00 UTC).** The
+probe is the way to check: `remaining_day` above zero means it is worth trying again.
+
 ### Session 290 cont. 4 (2026-09-09) — THE BUTTON EXISTS. IT WAS NEVER CALLED.
 
 **Trigger.** David: *"go ahead."* Wire `_shared/stale-split-trueup.ts`.

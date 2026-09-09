@@ -6,6 +6,7 @@ import { deriveIncreaseCause } from './derive-cause.ts'
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 import { anchorsByBalanceDate, refusedAnchors, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
 import { findStaleSplits, trueUpJournalLines, trueUpCard } from '../_shared/stale-split-trueup.ts'
+import { readRateLimit, rateLimitMessage } from '../_shared/xero-429.ts'
 import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
@@ -231,13 +232,25 @@ async function fetchPaged(baseUrl: string, headers: Record<string, string>, key:
   for (let page = 1; page <= maxPages; page++) {
     const sep = baseUrl.includes('?') ? '&' : '?'
     let res: Response | null = null, text = ''
+    // ── s290: A RETRY-AFTER OF 45,461 SECONDS IS NOT A RETRY ────────────────
+    // This loop obeyed Retry-After literally. On the DAILY cap Xero sends ~12.6
+    // hours, so the function slept until the gateway killed it and the caller
+    // got a 504 with no body — which the card renders as "try again in a
+    // moment", the one action that makes a rolling daily window worse. The
+    // throw below was unreachable. See _shared/xero-429.ts.
+    let rate: any = null
     for (let retry = 0; retry < 5; retry++) {
       res = await fetch(`${baseUrl}${sep}page=${page}`, { headers })
-      if (res.status === 429) { await sleep((Number(res.headers.get('Retry-After')) || (2 + retry * 3)) * 1000); continue }
+      if (res.status === 429) {
+        rate = readRateLimit(res, retry)
+        if (!rate.waitable) break
+        await sleep(rate.waitSeconds * 1000)
+        continue
+      }
       text = await res.text(); break
     }
     if (!res) throw new Error('Xero: no response after retries')
-    if (res.status === 429) throw new Error('Xero rate limit hit — try again in a few minutes.')
+    if (res.status === 429) throw new Error(rateLimitMessage(rate || readRateLimit(res)))
     let j: any
     try { j = JSON.parse(text) } catch { throw new Error(`Xero returned non-JSON (${res.status}): ${text.slice(0, 200)}`) }
     if (!res.ok) throw new Error(`Xero error ${res.status}: ${JSON.stringify(j).slice(0, 300)}`)

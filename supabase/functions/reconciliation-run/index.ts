@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import { readRateLimit, rateLimitMessage } from '../_shared/xero-429.ts'
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { getXeroAuth } from '../_shared/xero-auth.ts'
 // INTEREST_CODE, money and the Finding shape live beside the double-correction check
@@ -194,13 +195,24 @@ async function fetchPaged(baseUrl: string, token: string, tenantId: string, key:
     const sep = baseUrl.includes('?') ? '&' : '?'
     let res: Response | null = null
     let text = ''
+    // ── s290: A RETRY-AFTER OF 45,461 SECONDS IS NOT A RETRY ────────────────
+    // Identical to the loop in loan-find-difference, and identically wrong: on
+    // the DAILY cap Xero asks for ~12.6 hours and this obeyed it, so the run
+    // hung until its own wall instead of reporting a refusal anyone could act
+    // on. Same fix, same shared rule. See _shared/xero-429.ts.
+    let rate: any = null
     for (let retry = 0; retry < 5; retry++) {
       res = await fetch(`${baseUrl}${sep}page=${page}`, { headers })
-      if (res.status === 429) { await sleep((Number(res.headers.get('Retry-After')) || (2 + retry * 3)) * 1000); continue }
+      if (res.status === 429) {
+        rate = readRateLimit(res, retry)
+        if (!rate.waitable) break
+        await sleep(rate.waitSeconds * 1000)
+        continue
+      }
       text = await res.text(); break
     }
     if (!res) throw new Error('Xero: no response after retries')
-    if (res.status === 429) throw new Error('Xero daily/minute rate limit hit — try again later.')
+    if (res.status === 429) throw new Error(rateLimitMessage(rate || readRateLimit(res)))
     if (res.status === 304) break // If-Modified-Since: nothing changed
     let j: any
     try { j = JSON.parse(text) } catch { throw new Error(`Xero returned non-JSON (${res.status}): ${text.slice(0, 200)}`) }
