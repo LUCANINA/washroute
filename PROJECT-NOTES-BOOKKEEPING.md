@@ -4,27 +4,38 @@
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
-> ## 0️⃣ **A JOURNAL WAS VOIDED IN XERO AND THE BOOKS NOW DOUBLE-COUNT $3,142.26.**
->    **CLOSED as a code question, OPEN as a books question.** Session 290's diagnosis
->    (a window-boundary gap) was wrong in all three limbs — full working in session 291 below.
->    Measured: nothing on this book is dated 2026-05-11 on account 284, Xero honours the
->    TrialBalance date exactly (*"As at 11 May 2026"*), and Xero's own Trial Balance for 284
->    equals `loan_book_balances` **to the cent** at both 2026-07-31 (58,775.97) and
->    2026-08-31 (46,204.32). **`reconciliation-run`'s arithmetic is correct. Do not change it.**
+> ## 0️⃣ **THE VOID WAS DELIBERATE — AND THE BOOKS ARE STILL $3,120.61 SHORT.**
+>    David, 2026-09-09: *"Yes, I believe the void was deliberate."* That answers WHO and WHY
+>    it is not a mystery. It does not answer whether the books are right, and **PayPal says
+>    they are not.** Measured from Xero's own Trial Balance and the lender's own portal pull:
 >
->    **What happened:** manual journal `261a4fd6` (2026-07-31, *"Reverse 31 Jul reclass —
->    2026-08-05 PayPal principal counted twice"*, `284 −3,142.26 / 800 +3,142.26`) was
->    **VOIDED at 2026-09-09 10:04:15 UTC**, between the 02:10 and 15:56 runs.
+>    | | |
+>    |---|---|
+>    | Xero, account 284, as at 2 September 2026 | **43,023.98** |
+>    | PayPal's portal statement, same date | **46,144.59** |
 >
->    🔴 **THE QUESTION FOR DAVID / RAMONA, and it is real money:** was that void deliberate?
->    It reverses the 2026-09-01 correction, so the 2026-08-05 payment's principal is once
->    again in the books twice — while split `8d8c4566` still reads `already_in_xero`. The
->    open `balance_vs_lender` error (*"Paypal 2 — Xero is $3,120.61 below the lender"*) is
->    **TRUE**. **Repair belongs in Xero, not here — post nothing from the product.**
+>    **THE GAP IS A SPECIFIC LINE, NOT AN APPROXIMATION.** Both of these are live in Xero
+>    right now: `a2c49ead` (2026-07-31, Ramona's reclass, **still POSTED**, `284 +3,142.26`)
+>    books the August 5 payment's principal BEFORE it happened, and `b90ceb80` (**2026-08-06,
+>    AUTHORISED and reconciled**, PayPal Loan $3,414.71, lines `284 3,120.60 / 800 294.11`)
+>    books it again. `261a4fd6` was the journal that removed the first so the second could
+>    stand alone — and it is the one that was voided.
 >
->    ⚠️ **`stale-anchor-ask` and `rollback-beats-stale` are still red, still correct, still
->    not to be tuned green.** They pin the PRE-VOID figures. Re-pin them to 46,204.32 ONLY
->    once the books question above is answered — until then they are the record of it.
+>    **43,023.98 + 3,142.26 = 46,166.24 vs the lender's 46,144.59 — a difference of $21.65**,
+>    this loan's long-standing immaterial gap and exactly what the pre-void tests pinned.
+>    Restoring the reversal returns the loan to its known-good state on PayPal's own number.
+>
+>    🔴 **THE REPAIR IS A JOURNAL IN XERO AND IT IS RAMONA'S. Post nothing from the product.**
+>    The question to put to her is narrow: *the 31 Jul reclass and the 6 Aug bank line both
+>    book the same principal — which one should stand?*
+>
+>    ⚠️ **DO NOT RE-PIN `stale-anchor-ask` OR `rollback-beats-stale`** to 46,204.32. That would
+>    make the suite agree with a figure PayPal contradicts. They stay red until the books and
+>    the lender agree, then they are re-pinned to the agreed figure.
+>
+>    📌 **The general lesson, worth carrying:** a recorded INTENT is not evidence about a
+>    BALANCE. §246's independence test and §230's "a typed number is never evidence", applied
+>    to a human's account of their own action. The outside document settles it.
 >
 > ## ✅ 2️⃣ **DEPLOYED AND VERIFIED 2026-09-09 21:49 UTC** — deployed source (0 bare Xero
 >    fetches in either bundle), boot probes (403 in their own words), and THE ROWS: one
@@ -13369,6 +13380,68 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 291 cont. 4 — "deliberate" answers WHO, not WHETHER THE BOOKS ARE RIGHT
+
+David, asked whether the void of `261a4fd6` was deliberate: *"Yes, I believe the void was
+deliberate."*
+
+**That closes the mystery and it does not close the gap.** Intent and effect are separate
+claims, and the outside witness disagrees with the books. Measured from Xero's own Trial
+Balance and PayPal's own portal figure, not from our walk:
+
+| | |
+|---|---|
+| Xero, account 284, **as at 2 September 2026** (Xero's own wording) | **43,023.98** |
+| PayPal's portal statement, same date | **46,144.59** |
+| difference | **−3,120.61**, material |
+
+#### THE GAP IS NOT "ABOUT A PAYMENT". IT IS A SPECIFIC LINE, TO THE CENT.
+
+Three live objects in Xero, all read today:
+
+1. `a2c49ead` — 2026-07-31, Ramona's *"To reclass the payment made for paypal"*, **still
+   POSTED**: `284 +3,142.26 / 800 −3,142.26`. It books the August 5 payment's principal
+   **before the payment happened**.
+2. `b90ceb80` — the real bank transaction, **2026-08-06, AUTHORISED and reconciled**,
+   PayPal Loan, $3,414.71, lines **`284 3,120.60 / 800 294.11`**. It books the same
+   payment's principal again.
+3. `261a4fd6` — the 2026-09-01 journal that removed (1) so that (2) would stand alone.
+   **VOIDED 2026-09-09 10:04 UTC.**
+
+**The arithmetic closes exactly:** 43,023.98 + 3,142.26 = **46,166.24** against the
+lender's 46,144.59 — a difference of **$21.65**, which is this loan's long-standing
+immaterial gap and the very figure the pre-void tests pinned (49,346.58 vs 49,324.93 is
+the same $21.65). Restore the reversal and the loan returns to its known-good state on
+the lender's own number.
+
+> The early reclass and the real bank line are **both** live. That is a double count of
+> the August 5 principal, and it has been standing since 2026-09-09 10:04.
+
+**Split `8d8c4566` (`2026-08-05`, `already_in_xero`) still says so in its own review note,
+written before any of this:** *"Backfilled only after Ramona's 2026-07-31 journal a2c49ead
+was reversed on 2026-09-01 — before that reversal this payment's principal was in the
+books twice."*
+
+#### WHAT IS NOT BEING DONE, AND WHY
+
+* **The two red groups are NOT being re-pinned.** `stale-anchor-ask` and
+  `rollback-beats-stale` hold 49,346.58 for August. Re-pinning them to 46,204.32 would
+  make the suite agree with a figure PayPal contradicts — tuning a red assertion green
+  over a fact, which is the one thing Tech Debt #19's discipline exists to prevent. They
+  stay red until the books and the lender agree; then they are re-pinned to whatever the
+  agreed figure is.
+* **Nothing is posted from the product.** The repair is a journal in Xero and it is
+  Ramona's. **Never re-post a correction from here to make a screen look right.**
+
+#### THE PRODUCT LESSON, AND IT IS THE GENERAL ONE
+
+A recorded *intent* is not evidence about a *balance*. This module already knows the rule
+in another dress — §246's independence test, §230's "a typed number is never evidence" —
+and this is the same shape applied to a human's account of their own action. **The only
+thing that settles whether the books are right is the outside document**, and on this
+loan it is a weekly portal pull that has been on file the whole time.
+
 
 ### Session 291 cont. 3 — DEPLOYED AND VERIFIED BY BEHAVIOUR, and the first measured number
 
