@@ -13441,6 +13441,101 @@ GROUPS.push({
       half alone is worthless — the first passes if the body is empty, the
       second passes if nothing was folded at all.
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   loan-row-opens-profile — session 290 cont. 3, David: "the individual Loan
+   profiles are only accessible from the IN FLIGHT page. Apply same access to
+   the CLOSING page."
+
+   Two assertions matter and they pull in opposite directions, which is why
+   neither is sufficient alone:
+
+     * a click on the ROW opens the loan — on BOTH tables now;
+     * a click on a BUTTON INSIDE the row does NOT also open it.
+
+   The second is the whole reason there is a helper rather than a second
+   onclick. Both tables carry buttons in their rows; two of the close band's
+   already called stopPropagation and two did not — a guard on some branches
+   and not others (s231). An assertion that only checked "the row opens" would
+   go green on the version that opens the profile behind every Review click.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'loan-row-opens-profile',
+  async run(t) {
+    for (const [label, sel] of [['in flight', '#loans-table-wrap tbody tr[data-loan-id]'],
+                                ['closing', '.lcb-table tbody tr[data-loan-id], #bk-close-band tbody tr[data-loan-id]']]) {
+      const p = await newHarnessPage({ tab: 'loans' });
+      await p.settle();
+
+      const found = await p.page.evaluate((s2) => {
+        const rows = [...document.querySelectorAll(s2)];
+        return {
+          count: rows.length,
+          withHandler: rows.filter(r => /(_bkOpenLoanFromRow)/.test(r.getAttribute('onclick') || '')).length,
+          pointer: rows.filter(r => /pointer/.test(r.getAttribute('style') || '')).length,
+          ids: rows.slice(0, 3).map(r => r.getAttribute('data-loan-id')),
+        };
+      }, sel);
+
+      if (label === 'closing' && found.count === 0) {
+        // The close band renders only in the CLOSING month; if this fixture's
+        // month has no rows, say so rather than passing silently.
+        t.ok(true, `s290: ⚠ REPORTED — the ${label} table rendered no rows in this fixture, so its click is unexercised`);
+        await p.close();
+        continue;
+      }
+
+      t.ok(found.count > 0, `s290: the ${label} table rendered rows`, JSON.stringify(found));
+      t.ok(found.withHandler === found.count,
+           `s290: ⭐ every ${label} row opens the loan profile`, JSON.stringify(found));
+      t.ok(found.pointer === found.count,
+           `s290: ...and looks clickable`, JSON.stringify(found));
+      t.ok(found.ids.every(Boolean), `s290: ...and carries the loan id`, JSON.stringify(found.ids));
+
+      // ── the half that matters: a button inside the row must NOT open it ──
+      const guarded = await p.page.evaluate((s2) => {
+        const opened = [];
+        const real = window.openLoanDetailModal;
+        window.openLoanDetailModal = (id) => { opened.push(id); };
+        const out = { buttons: 0, openedByButton: 0, openedByRow: 0 };
+        try {
+          for (const row of document.querySelectorAll(s2)) {
+            const btn = row.querySelector('button, a[onclick]');
+            if (!btn) continue;
+            out.buttons++;
+            opened.length = 0;
+            // Drive the row handler exactly as a real bubbled click would.
+            const ev = { target: btn };
+            // eslint-disable-next-line no-eval
+            const fn = row.getAttribute('onclick');
+            new Function('event', fn).call(row, ev);
+            if (opened.length) out.openedByButton++;
+          }
+          // ...and a click on a plain cell still opens it.
+          for (const row of [...document.querySelectorAll(s2)].slice(0, 5)) {
+            const cell = row.querySelector('td');
+            opened.length = 0;
+            new Function('event', row.getAttribute('onclick')).call(row, { target: cell });
+            if (opened.length) out.openedByRow++;
+          }
+        } finally { window.openLoanDetailModal = real; }
+        return out;
+      }, sel);
+
+      if (guarded.buttons > 0) {
+        t.ok(guarded.openedByButton === 0,
+             `s290: ⭐ a click on a BUTTON in a ${label} row does not also open the profile behind it`,
+             JSON.stringify(guarded));
+      } else {
+        t.ok(true, `s290: ⚠ REPORTED — no ${label} row carried a button, so the guard is unexercised here`);
+      }
+      t.ok(guarded.openedByRow > 0,
+           `s290: ⭐ ...while a click on a plain cell still does`, JSON.stringify(guarded));
+
+      await p.close();
+    }
+  },
+});
+
 GROUPS.push({
   name: 'loan-info-card',
   async run(t) {

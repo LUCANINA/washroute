@@ -13267,6 +13267,46 @@ picked up the new anchor.
 
 
 
+
+### Session 290 cont. 3 — the loan profile opens from the CLOSING table too
+
+David: *"the individual Loan profiles are only accessible/clickable from the IN
+FLIGHT page. Apply same access to the CLOSING page."* Correct, and backwards from
+where it should have been: the close band shows the month a person is **actually
+closing** — the month they have questions about — and it was the one table you
+could not open a loan from.
+
+**ONE HELPER, NOT A SECOND `onclick`.** Both tables carry buttons inside their
+rows (Find the Fix, Review, the "+N waiting" chip). A bare row-level handler
+fires for those too, so a Review click would open the review modal AND the loan
+profile behind it. Two of the close band's buttons already called
+`event.stopPropagation()` and two did not — **a guard on some branches and not
+others, session 231's rule in miniature**. `_bkOpenLoanFromRow(ev, id)` asks once
+whether the click landed on something interactive, so the next button added to
+either row cannot forget. The In flight row was moved onto it too; it had the
+same latent bug.
+
+#### The guard was broken, and only a PAIR of assertions could see it
+
+First cut: `if (t.closest('button, a, …, [onclick]')) return`. **The row itself
+carries an `onclick`**, so `closest` matched the row for every click and the
+guard swallowed all of them — the profile opened from nothing at all.
+
+*"A click on a button does not open it"* went **green** against a guard that
+opened nothing. Only its opposite — *"a click on a plain cell still does"* —
+could tell a working guard from a dead one. Same shape as the fdiff copy budget
+(§279) and the `xero-budget` no-floor rule: **either half alone is satisfied by
+doing nothing, or by doing everything.**
+
+**Verification.** New harness group `loan-row-opens-profile`, 12 assertions, both
+tables. It found the guard bug on its first run. Full sweep 2,513 assertions, one
+red — Tech Debt #19's own report.
+
+**Not done, deliberately:** neither row is keyboard-reachable (no `tabindex`, no
+`role`). That was already true of the In flight table and this change keeps
+parity rather than quietly widening scope; it is worth a pass of its own across
+the module rather than one row type at a time.
+
 ### Session 290 cont. 2 — ask Xero what is left before spending it, and a predicate that was wrong for two years' worth of reasoning
 
 Priority 1 off the START HERE list. **`_shared/xero-budget.ts`** is new; both big

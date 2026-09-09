@@ -20736,7 +20736,7 @@
         _bkHintAttribution(a.id),
       ].filter(Boolean).join(' · ');
 
-      return `<tr data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
+      return `<tr onclick="_bkOpenLoanFromRow(event,'${esc(a.id)}')" style="cursor:pointer" data-loan-id="${esc(a.id)}" data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
         <td data-col="loan" data-agreement="${agreement.has ? '1' : '0'}"><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${agreement.has ? `<span class="lit-agree" title="${esc(agreement.title)}" aria-label="Agreement on file">\u2713</span>` : ''}${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
         <td class="lcb-c" data-col="source" data-close-basis="${esc(a.close_basis || '')}" title="${esc(basis.title)}">${basis.cell}</td>
         <td class="lcb-n" data-col="opening" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
@@ -22738,7 +22738,7 @@
       // (the suite did, in four places) silently stopped finding rows. The close
       // band has carried its facts as attributes since session 249 for the same
       // reason: a cell's text is for a reader, an attribute is for a machine.
-      return `<tr onclick="openLoanDetailModal('${a.id}')" style="cursor:pointer" data-loan="${esc(a.xero_account_name || '')}" data-loan-id="${esc(a.id)}">
+      return `<tr onclick="_bkOpenLoanFromRow(event,'${esc(a.id)}')" style="cursor:pointer" data-loan="${esc(a.xero_account_name || '')}" data-loan-id="${esc(a.id)}">
         <td>${loanCell}</td>
         <td class="td-mono lit-acct">#${esc(a.lender_account_number)}</td>
         <td>${sourceCell}</td>
@@ -23347,6 +23347,40 @@
     if (!host) return;
     host.classList.remove('open');
     host.style.display = 'none';
+  }
+
+  // ── s290 cont. 3: THE LOAN PROFILE OPENS FROM EITHER TABLE (David) ────────
+  // "The individual Loan profiles are only accessible from the IN FLIGHT page.
+  // Apply same access to the CLOSING page." The In flight row has been clickable
+  // since s226; the close band never was, so the month a person is actually
+  // CLOSING -- the one they have questions about -- was the one they could not
+  // open the loan from.
+  //
+  // ONE HELPER, NOT A SECOND onclick. Both tables carry buttons inside their
+  // rows (Find the Fix, Review, the "+N waiting" chip). A bare row-level
+  // onclick fires for those too, so the close band's Review button would open
+  // the review modal AND the loan profile behind it. Two of the close band's
+  // buttons already carried `event.stopPropagation()` and two did not -- a guard
+  // on some branches and not others, which is session 231's rule exactly. The
+  // fix is one place that asks whether the click landed on something
+  // interactive, rather than N stopPropagation calls that the next button to be
+  // added will forget.
+  // ⚠️ THE ROW ITSELF CARRIES AN onclick, so `closest('[onclick]')` matches the
+  // row for EVERY click and the guard swallowed all of them -- the profile
+  // opened from nothing at all. Caught by the assertion pair: "a button does not
+  // open it" went green on a guard that opened nothing, and only "a plain cell
+  // still does" could tell the difference. Either half alone is worthless.
+  function _bkOpenLoanFromRow(ev, loanAccountId) {
+    const t = ev && ev.target;
+    if (t && t.closest) {
+      const row = t.closest('tr');
+      const hit = t.closest('button, a, input, select, textarea, label, summary, [role="button"], [onclick]');
+      if (hit && hit !== row) return;
+    }
+    // A person selecting a figure to copy is not asking to open anything.
+    const sel = window.getSelection && window.getSelection();
+    if (sel && String(sel).length > 0) return;
+    openLoanDetailModal(loanAccountId);
   }
 
   function openLoanDetailModal(loanAccountId) {
