@@ -1,6 +1,6 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-> ## ⏭️ START HERE — first thing, next session (left by session 290, 2026-09-09 03:05 UTC)
+> ## ⏭️ START HERE — first thing, next session (left by session 290, updated 2026-09-09 08:00 local)
 >
 > ### 🔴 THE LIST, IN ORDER.
 >
@@ -41,7 +41,16 @@
 > ### DEPLOY STATE — MEASURED 2026-09-09 03:05 UTC BY READING THE DEPLOYED SOURCE, not inferred
 >    from git and not from anyone's recollection.
 >
-> **`origin/main` == local HEAD == `f3f3bb9`. Nothing is unpushed.**
+> **`origin/main` == local HEAD == `c1096b6`, MEASURED 2026-09-09 from the `origin/main` reflog
+> (`update by push` at 07:55:29 local), not from anyone's recollection.** The two loan-card commits
+> below are pushed and therefore live on the SPA — Vercel auto-deploys the four `index.html` apps in
+> about thirty seconds. **This says nothing about the edge functions**, which a push never deploys;
+> that is the section above and it is still true.
+>
+> ⚠️ **This line named `f3f3bb9` for most of the day and was wrong within the hour.** It is the
+> fourth time the START HERE push/deploy state has gone stale the same day it was written. The
+> reflog is the cheapest real measurement available offline — use it rather than restating the
+> previous session's claim.
 >
 > ✅ **LIVE in `loan-find-difference` v44 (deployed 02:57:56):** the anchor-exclusion fix
 >    (`humanAnchorExclusion`), the copy changes (`causeFor`, the lead sentence, the cause on the
@@ -70,6 +79,51 @@
 >
 > ⚠️ **THE 429 FIX CANNOT BE VERIFIED UNTIL THE QUOTA CLEARS** (~12h from 03:00 UTC), because
 > proving it needs a live 429. Probe first: `remaining_day` above zero means it is worth trying.
+>
+> ---
+>
+> ### THE LOAN CARD (session 290, David's design strand — SHIPPED AND PUSHED)
+>
+> `0567fe3` the information card, `c1096b6` the ledger. Both live. Full write-ups are in the
+> session log; the harness group is `loan-info-card`, 138 assertions, all green, and it opens
+> EVERY loan in the fixture rather than one — which is what caught a real crash (a swallowed
+> `const t`) the first time it ran.
+>
+> **THREE OF THE FOUR DEFECTS THIS STRAND FOUND WERE INVISIBLE TO 126 GREEN ASSERTIONS.** A flat
+> sparkline on a paid-off loan, two buttons stacking, and the close X sitting on the balance were
+> all found by SCREENSHOTTING THE RENDERED MODAL and looking at it. The harness can now do this
+> offline in about a minute (`tests/run-harness.sh` installs Chromium under `$HOME`); a temporary
+> screenshot driver is parked in `_to_delete/_shot-tmp-s290b.mjs`. **Worth promoting to a real
+> script.** Assertions prove a screen RUNS; only a picture proves it READS.
+>
+> **NEXT, IN ORDER, ON THIS STRAND:**
+>
+> * **A. Lender access — NEEDS A DECISION BEFORE ANY CODE.** David: *"this is where we could keep
+>   password information and integrations with the banks."* `loan_accounts` has no column for any of
+>   it. The proposal on the table records the ROUTE IN, not the secret: portal URL, username, second
+>   factor, who may sign in, whether statements arrive by email, whether a bank feed exists, last
+>   successful sign-in — with the password a POINTER to 1Password. **A credential in a Supabase
+>   column is readable by every admin session and by any database export, and never expires.**
+>   Storing the secrets themselves is a real project (encryption with a key held outside the
+>   database, decrypt only through an edge function, an access log, a role that is not plain admin)
+>   and must not be reached by adding a text field. Either shape needs a migration and
+>   `washroute-migration-review`.
+> * **B. Fill the terms the card now exposes.** Eight of twenty-two loans carry no `original_date`
+>   or `original_amount`; before this they had no row and nobody could see the hole. The agreements
+>   are on file for most of them. This is data entry, not code — but it is what makes the card worth
+>   opening.
+> * **C. Two small things the screenshots raised and I did not do.** The `structure_note` on a rich
+>   loan (Dexter) runs four paragraphs and dominates *How it is booked*; consider the s249 treatment
+>   — a first line visible, the rest behind the fold. And the ledger's future-dated schedule rows
+>   are not visually distinguished from settled ones; the `staged in Xero` badge covers the next one
+>   but not the ones after it.
+>
+> ⚠️ **ONE CORRECTION TO CARRY FORWARD, because the mockup was wrong and the code is right.** The
+> design collapsed `posted` and `already_in_xero` into a single word "done", on the argument that
+> the Journal column already tells them apart. **IT DOES NOT — a posted split can carry an empty
+> `xero_manual_journal_id`** (Dexter's `2026-08` is posted with a blank Journal cell). Collapsing
+> would have erased the claim that a HUMAN, not WashRoute, did the work. Cut the colour, keep the
+> claim (ce17). If anyone revisits that table, do not re-make this cut.
 >
 > ---
 >
