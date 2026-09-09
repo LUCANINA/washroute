@@ -13268,6 +13268,53 @@ picked up the new anchor.
 
 
 
+
+### Session 290 cont. 4 — a derived schedule has no file to open
+
+David, clicking **View schedule** on E-Transit 4140's 2026-09 row:
+`Could not load file: Object not found`.
+
+**The cause, and it is the sixth instance of session 231 in this module — third
+today.** A schedule we DERIVED from a loan's own statements has no document
+behind it; its `storage_path` is a MARKER (`derived://…`), not an object in the
+bucket. **Session 230 knew this and guarded it — in the loan card's document
+list, and only there.** The ledger's File column offered "View schedule" on the
+same marker and handed it straight to the storage API, which correctly answered
+that the object does not exist.
+
+`_isDerivedPath` is now written once and called from **four** places: the two
+cell renderers, and BOTH viewers — `viewLoanFile` and `viewLoanDocument` — which
+is the convergence point s231 asks for. Even if some future branch hands a
+viewer a marker, it refuses with a sentence instead of a 404, and opens no blank
+tab it then has to close.
+
+**ce17: the broken link went, the claim did not.** The cell still reads *derived
+schedule* with the reason on hover. An em dash would have removed the 404 and the
+fact that the split came from a schedule at the same time.
+
+#### The test was wrong twice before it was right, in two different ways
+
+1. **It paired DOM rows to data rows by `period_label`, and went red on working
+   code.** Labels are not unique within a loan (Verdant's `Period NN`, PayPal's
+   dated ones), so a `<tr>` was matched to a different split and the PAIRING
+   failed, not the renderer. Rewritten to assert on **what the renderer
+   produced** — the cell's own text says which branch it took, and that needs no
+   pairing to be true. Session 245's rule, one level up: a test whose premise is
+   reconstructed rather than read is testing its own reconstruction.
+
+2. **The starred assertion was VACUOUS on the broken code.** With the guard
+   removed, those cells say "View schedule", so `derivedCells` falls to zero and
+   *"no derived cell offers a link"* passes because there are no derived cells to
+   check. What actually discriminates is the population guard —
+   *"the fixture has rows on a derived schedule — otherwise this group proves
+   nothing"* — which goes red. **The assertion that reads like the point of the
+   group was not the one doing the work**, and the only reason that is visible is
+   that discrimination was run rather than assumed.
+
+**Verification.** New harness group `derived-schedule-has-no-file`, 8 assertions,
+scanning every loan's ledger. Discrimination run by removing the guard: 2 of 8
+go red. Neighbouring groups re-run together: 166 assertions, all green.
+
 ### Session 290 cont. 3 — the loan profile opens from the CLOSING table too
 
 David: *"the individual Loan profiles are only accessible/clickable from the IN

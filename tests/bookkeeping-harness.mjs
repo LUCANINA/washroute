@@ -13458,6 +13458,102 @@ GROUPS.push({
    and not others (s231). An assertion that only checked "the row opens" would
    go green on the version that opens the profile behind every Review click.
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   derived-schedule-has-no-file — session 290 cont. 4, David: "when clicking on
+   a Loan schedule I get an error" (Could not load file: Object not found).
+
+   A schedule DERIVED from a loan's own statements has no document behind it --
+   its storage_path is a marker, `derived://...`, not an object in the bucket.
+   Session 230 knew and guarded it in the document list, and only there; the
+   ledger's File column offered "View schedule" on the same marker.
+
+   The assertions come in a PAIR for the same reason as every other guard in
+   this file: "no derived row offers a link" is satisfied by a table with no
+   links at all, so it is worthless without "a REAL schedule still does".
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'derived-schedule-has-no-file',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    await p.settle();
+
+    /* ⚠️ DO NOT PAIR DOM ROWS TO DATA ROWS BY period_label. The first cut did,
+       and it went red on working code: labels are not unique within a loan
+       (Verdant's 'Period NN', PayPal's dated ones), so a tr was matched to a
+       different split and the pairing, not the renderer, was what failed.
+       Assert on what the RENDERER PRODUCED instead -- the cell's own text says
+       which case it took, and that needs no pairing to be true. */
+    const scan = await p.page.evaluate(() => {
+      const out = { loans: 0, derivedCells: 0, derivedClickable: 0, linkCells: 0, linkClickable: 0, dash: 0, samples: [] };
+      for (const a of (_allLoanAccounts || [])) {
+        openLoanDetailModal(a.id);
+        out.loans++;
+        for (const tr of document.querySelectorAll('#loan-history-body table tbody tr')) {
+          const cell = tr.children[8];
+          if (!cell) continue;
+          const text = (cell.innerText || '').trim();
+          const clickable = !!cell.querySelector('[onclick]');
+          if (/derived schedule/i.test(text)) {
+            out.derivedCells++;
+            if (clickable) { out.derivedClickable++; out.samples.push({ loan: a.xero_account_name, text }); }
+          } else if (/^View (schedule|statement)$/i.test(text)) {
+            out.linkCells++;
+            if (clickable) out.linkClickable++;
+            else out.samples.push({ loan: a.xero_account_name, text, note: 'says View but is not clickable' });
+          } else {
+            out.dash++;
+          }
+        }
+      }
+      return out;
+    });
+
+    t.ok(scan.loans > 0, 's290: opened every loan to scan its ledger', JSON.stringify({ loans: scan.loans }));
+    t.ok(scan.derivedCells > 0,
+         's290: the fixture has rows on a DERIVED schedule — otherwise this group proves nothing',
+         JSON.stringify(scan));
+    t.ok(scan.derivedClickable === 0,
+         's290: ⭐ a derived-schedule cell offers NO link — it cannot 404 because it cannot be clicked',
+         JSON.stringify(scan.samples.slice(0, 3)));
+    /* THE OTHER HALF. Without this, a File column rendering nothing at all
+       passes the assertion above. */
+    t.ok(scan.linkCells > 0 && scan.linkClickable === scan.linkCells,
+         's290: ⭐ ...while every cell that SAYS "View …" is actually clickable',
+         JSON.stringify(scan));
+    /* ce17: the cut removed the broken link, not the claim. The cell still
+       names what the split came from. */
+    t.ok(scan.derivedCells > 0,
+         's290: ⭐ ...and the derived row still SAYS it came from a schedule rather than going blank',
+         JSON.stringify({ derivedCells: scan.derivedCells, dash: scan.dash }));
+
+    // The viewers are the convergence point (s231): even if some other branch
+    // hands them a marker, they must refuse with words rather than a 404.
+    const viewers = await p.page.evaluate(async () => {
+      const said = [];
+      const realToast = window.showToast;
+      window.showToast = (m) => said.push(String(m));
+      const openedWindows = [];
+      const realOpen = window.open;
+      window.open = (...a) => { openedWindows.push(a); return { closed: false, close() {}, location: {} }; };
+      try {
+        await viewLoanDocument('derived://schedule/abc');
+        _historyFilePaths['probe'] = 'derived://schedule/abc';
+        await viewLoanFile('probe');
+      } finally { window.showToast = realToast; window.open = realOpen; }
+      return { said, windows: openedWindows.length };
+    });
+    t.ok(viewers.said.length === 2,
+         's290: ⭐ both viewers refuse a derived marker instead of asking storage for it',
+         JSON.stringify(viewers));
+    t.ok(viewers.said.every(m => /no document to open/.test(m)),
+         's290: ...and say WHY, rather than "Object not found"', JSON.stringify(viewers.said));
+    t.ok(viewers.windows === 0,
+         's290: ...and open no blank tab that then has to be closed', JSON.stringify(viewers));
+
+    await p.close();
+  },
+});
+
 GROUPS.push({
   name: 'loan-row-opens-profile',
   async run(t) {

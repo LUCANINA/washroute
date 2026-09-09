@@ -22839,6 +22839,24 @@
   // Resolves the actual source file backing a split -- a pulled statement for
   // statement_delta splits, or the parent amortization schedule (the loan's
   // full-life-of-loan document, not a per-period file) for schedule-sourced ones.
+  // ── s290 cont. 4: A DERIVED SCHEDULE HAS NO FILE TO OPEN (David) ──────────
+  // "When clicking on a Loan schedule I get an error" -- `Could not load file:
+  // Object not found`, on E-Transit 4140's 2026-09 row.
+  //
+  // A schedule we DERIVED from a loan's own statements has no document behind
+  // it; its `storage_path` is a MARKER (`derived://...`), not an object in the
+  // bucket. Session 230 knew this and guarded it -- in the loan card's document
+  // list, and only there. The ledger's File column offered "View schedule" on
+  // the same marker and handed it to the storage API, which correctly said the
+  // object does not exist.
+  //
+  // ⚠️ SIXTH INSTANCE OF SESSION 231 IN THIS MODULE, and the third today. The
+  // logic was right, one branch away from the path that needed it. So the
+  // predicate is written ONCE here and every branch that could reach a marker
+  // calls it -- the two cell renderers AND both viewers, which is where those
+  // branches converge.
+  const _isDerivedPath = (p) => String(p || '').startsWith('derived://');
+
   function _loanFileForSplit(s) {
     if (s.current_statement_id) {
       const stmt = _allLoanStatements.find(x => x.id === s.current_statement_id);
@@ -22847,7 +22865,12 @@
     if (s.amortization_row_id) {
       const row = _allLoanAmortRows.find(x => x.id === s.amortization_row_id);
       const schedPath = row?.loan_amortization_schedules?.storage_path;
-      return schedPath ? { path: schedPath, label: 'View schedule' } : null;
+      if (!schedPath) return null;
+      // NOTHING IS DELETED (ce17): the cell still says a schedule is what this
+      // split came from, and the hover says why there is no file. Rendering an
+      // em dash would drop the claim along with the broken link.
+      if (_isDerivedPath(schedPath)) return { derived: true, label: 'derived schedule' };
+      return { path: schedPath, label: 'View schedule' };
     }
     return null;
   }
@@ -22929,10 +22952,12 @@
       };
       const rows = splits.map(s => {
         const file = _loanFileForSplit(s);
-        if (file) _historyFilePaths[s.id] = file.path;
-        const fileCell = file
-          ? `<span onclick="viewLoanFile('${s.id}')" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">${esc(file.label)}</span>`
-          : `<span style="font-size:12px;color:var(--gray-300)">—</span>`;
+        if (file && file.path) _historyFilePaths[s.id] = file.path;
+        const fileCell = (file && file.derived)
+          ? `<span class="lc-hint" style="font-size:12px;white-space:nowrap" title="This schedule was computed from this loan's own lender statements — there is no document to open. Upload the lender's schedule if one exists.">${esc(file.label)}</span>`
+          : file
+            ? `<span onclick="viewLoanFile('${s.id}')" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap">${esc(file.label)}</span>`
+            : `<span style="font-size:12px;color:var(--gray-300)">—</span>`;
         // ── s289: A NOTE IS ATTACHED TO ITS ROW, NOT STACKED UNDER IT ──────
         // Every split carrying `review_notes` rendered a full-width grey
         // paragraph beneath it. On EIDL that is nine of them and one runs sixty
@@ -23538,7 +23563,7 @@
       // this loan's own statements, and its storage_path is a marker, not an object in
       // the bucket. Rendering it as a link would open a 404 and imply a document that
       // does not exist.
-      ...(t.schedules || []).map(s => String(s.path || '').startsWith('derived://')
+      ...(t.schedules || []).map(s => _isDerivedPath(s.path)
         ? `<div style="padding:7px 0;border-bottom:1px solid var(--gray-100)">
              <div style="font-size:13px;color:var(--gray-900)">Derived schedule${s.generated ? ` — ${esc(s.generated)}` : ''}</div>
              <div style="font-size:11.5px;color:var(--gray-500);margin-top:1px">Computed from this loan's own lender statements — no document to open. ${esc((s.type || '').replace(/_/g, ' '))}</div>
@@ -23987,9 +24012,14 @@ ${noActivityNote}
   // already grants read to admin/manager/cpa, same as the loan_* tables). Opens a
   // blank tab synchronously first, then redirects it once the signed URL comes back,
   // so the popup isn't blocked by the async gap.
+  // The message a marker earns, not a storage 404. Shared so the two viewers
+  // cannot drift -- this is the convergence point s231 asks for.
+  const DERIVED_NO_FILE = 'That schedule was computed from this loan\'s own statements — there is no document to open.';
+
   async function viewLoanFile(splitId) {
     const path = _historyFilePaths[splitId];
     if (!path) { showToast('No file on record for this entry.', 'error'); return; }
+    if (_isDerivedPath(path)) { showToast(DERIVED_NO_FILE, 'error'); return; }
     const win = window.open('', '_blank');
     const { data, error } = await db.storage.from('loan-statements').createSignedUrl(path, 300);
     if (error || !data?.signedUrl) {
@@ -24074,6 +24104,7 @@ ${noActivityNote}
   // content-blind upload path is exactly the footgun this step existed to close.
 
   async function viewLoanDocument(path) {
+    if (_isDerivedPath(path)) { showToast(DERIVED_NO_FILE, 'error'); return; }
     const win = window.open('', '_blank');
     const { data, error } = await db.storage.from('loan-statements').createSignedUrl(path, 300);
     if (error || !data?.signedUrl) {
