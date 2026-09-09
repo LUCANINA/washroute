@@ -5,6 +5,7 @@ import { effectiveCloseDate, postingDateFor, isProtectedDate } from '../_shared/
 import { deriveIncreaseCause } from './derive-cause.ts'
 import { diagnoseWorkedEntry } from './diagnose-exception.ts'
 import { anchorsByBalanceDate, refusedAnchors, looksPeriodLabelled, normalizeBasis } from '../_shared/statement-period.ts'
+import { findStaleSplits, trueUpJournalLines, trueUpCard } from '../_shared/stale-split-trueup.ts'
 import { isMaterialGap, MATERIAL_FLOOR, MATERIAL_SHARE } from '../_shared/materiality.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
@@ -201,6 +202,12 @@ async function isInternalCall(req: Request): Promise<boolean> {
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const money = (n: number) => '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const r2 = (n: number) => Math.round(n * 100) / 100
+/** Last day of a 'YYYY-MM' period label. UTC, so no zone can shift it (s272). */
+const endOfMonthLabel = (label: string): string => {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(label || ''))
+  if (!m) return String(label || '')
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]), 0)).toISOString().slice(0, 10)
+}
 // session 272: '2026-08' -> 'August 2026'. Built from a fixed table rather than
 // toLocaleString because this runs on an edge runtime whose default locale is
 // not the reader's, and a month name that changes with the server is not a fact.
@@ -810,6 +817,9 @@ function analyzeWalk(o: {
   // correcting journal is fully determined by lender data. Everything else is
   // an exception for a human. ──
   let proposal: any = null
+  // s290: carried even when nothing is proposed, because `refusal` is what lets
+  // the card say what would have to change instead of showing an absence.
+  let trueUp: any = null
   let cpaException: any = null
   for (const p of periods) {
     if (p.verdict !== 'divergent' || proposal) continue
@@ -995,6 +1005,144 @@ function analyzeWalk(o: {
   // figures and its row; it stops being work.
   const realDivergent = openDivergent.filter(p => !p.timing_pair && !p.explained_by_exception && !p.month_nets)
   const nettedMonths = months.filter(m => m.nets_internally && !m.closed_period)
+
+  // ⚠️ s290: THE TRUE-UP RUNS HERE, NOT WHERE THE OTHER PROPOSALS ARE BUILT.
+  // It reads `realDivergent` -- the walk's own verdict on what is still work --
+  // and that is computed just above. Placed with the other proposals it threw
+  // "Cannot access 'realDivergent' before initialization" on the first test run.
+  // Ordering is the guard here: a proposal that outranks the walk's judgement is
+  // exactly the plug this module refuses to be.
+  // ══════════════════════════════════════════════════════════════════════════
+  //  SESSION 290 — THE STALE-SPLIT TRUE-UP IS WIRED AT LAST
+  // ══════════════════════════════════════════════════════════════════════════
+  // David: "What would make it great is if i could post an adjustment for either
+  // of these variances. What's keeping us from proposing a fix?"
+  //
+  // The answer was that nothing was. `_shared/stale-split-trueup.ts` has computed
+  // exactly this correction since session 275 -- 34 passing assertions, the right
+  // refusals, Funding Circle's own $15.14 and $15.38 in its header -- and a
+  // repo-wide grep for its exports outside its own test returned NOTHING. Its
+  // header says "shipping either alone leaves the job half done"; only the
+  // re-anchoring half shipped. Same shape as `set_loan_chosen_schedule` (in the
+  // database since s277, called from nowhere) and the balance-note write path.
+  // ⚠️ WHEN A MODULE'S HEADER SAYS IT IS HALF OF A PAIR, GREP FOR THE OTHER HALF
+  // BEFORE BELIEVING IT SHIPPED.
+  //
+  // ── IT IS A `proposal`, NOT A FIFTH SHAPE, AND THAT IS THE MODULE'S OWN RULE
+  // "Deliberately NOT a new write path: it hands back lines for the existing
+  // approval → token → server-side re-verify → close-date → duplicate-check
+  // machinery to carry." So it builds the same object `post_fix` already posts,
+  // and inherits every guard on that path -- including the close date binding the
+  // WRITE and not merely the proposal (s231), and the Xero duplicate search that
+  // makes a second click a no-op rather than a second journal.
+  //
+  // ── WHY THIS IS NOT THE PLUG BUTTON DAVID REJECTED IN SESSION 272 ──────────
+  // It does not fire on a difference. It fires on a SIGNATURE, and the signature
+  // is falsifiable: Xero's movement equals the PREVIOUS period's lender figure to
+  // the cent AND does not equal this period's. A mis-keyed amount, a missing
+  // payment, a duplicate or a fee lands nowhere near the previous period's
+  // principal to the cent. A loan whose books are right produces no signature and
+  // therefore no button.
+  if (!proposal && !cpaException?.proposed_entry) {
+    // The walk's own spans ARE PeriodMovement. `lender_delta`/`xero_delta` are
+    // negative for a reduction; the module wants reductions positive.
+    const movements = periods
+      .slice()
+      .sort((a: any, b: any) => String(a.to).localeCompare(String(b.to)))
+      .map((p: any) => ({
+        period_label: String(p.to).slice(0, 7),
+        lender_principal: r2(-Number(p.lender_delta)),
+        xero_principal: r2(-Number(p.xero_delta)),
+        booked_principal: (() => {
+          const sp = (splits || []).find((x: any) => String(x.period_label) === String(p.to).slice(0, 7))
+          return sp && sp.principal_amount != null ? Number(sp.principal_amount) : null
+        })(),
+        closed: !!p.closed_period,
+      }))
+    // ⚠️ TWO GATES, AND THE SUITE FOUND THE NEED FOR BOTH.
+    //
+    // (a) ONE ROW PER PERIOD, OR NOT AT ALL. The module compares rows[i-1] to
+    //     rows[i] with no adjacency test, because it was written for monthly
+    //     periods. On a weekly lender (PayPal 2) several spans collapse to one
+    //     'YYYY-MM' label, so consecutive rows can share a period and the
+    //     signature can match by coincidence. Refusing is right: a stale SPLIT is
+    //     a statement about a period's booked split, and a loan with four spans
+    //     in a month does not have one.
+    //
+    // (b) THE WALK'S OWN JUDGEMENT OUTRANKS THE SIGNATURE. `tests/find-difference-walk`
+    //     caught this on the first run: a correction was offered inside a month
+    //     the walk had already explained as internally netting. A span the walk
+    //     has ruled out as work -- a timing pair, a netting month, one the
+    //     accountant already handled -- must not become a journal because a
+    //     coincidence upstream looks like the fingerprint. So the RESULT is
+    //     filtered, not the input: filtering the input would silently compare
+    //     across a gap, which is a worse bug than the one it fixes.
+    const labels = movements.map((m: any) => m.period_label)
+    const duplicated = labels.some((l: string, i: number) => i > 0 && l === labels[i - 1])
+    const tu = duplicated
+      ? { correctable: [], closed_periods: [], total: 0,
+          refusal: 'This lender reports more than once a month, so a period does not have a single booked split to be stale — the true-up does not apply here.' }
+      : findStaleSplits(movements)
+    const workable = new Set(realDivergent.map((p: any) => String(p.to).slice(0, 7)))
+    const gated = tu.correctable.filter((r: any) => workable.has(r.period_label))
+    const gatedOut = tu.correctable.filter((r: any) => !workable.has(r.period_label))
+    trueUp = {
+      correctable: gated, closed_periods: tu.closed_periods, total: r2(gated.reduce((t: number, r: any) => t + (r.direction === 'interest_back_to_loan' ? r.amount : -r.amount), 0)),
+      refusal: gated.length ? null : (tu.refusal
+        || (gatedOut.length
+          ? `${gatedOut.length} period${gatedOut.length === 1 ? '' : 's'} carry the previous period's split, but the walk has already accounted for ${gatedOut.length === 1 ? 'that span' : 'those spans'} — as timing, as a month that nets, or as work your accountant has done. Nothing is proposed over an explanation that already exists.`
+          : null)),
+    }
+    if (gated.length) {
+      tu.correctable = gated
+      tu.total = trueUp.total
+      // ⚠️ MIXED DIRECTIONS ARE REFUSED RATHER THAN NETTED. Two corrections that
+      // point opposite ways may both be right, but one journal for their net
+      // states a figure neither period owns, and the card would have to describe
+      // it as something no statement says. Rare enough to refuse and say so.
+      const dirs = new Set(tu.correctable.map((r: any) => r.direction))
+      if (dirs.size > 1) {
+        trueUp.refusal = `${tu.correctable.length} periods carry the previous period's split but they correct in opposite directions, so no single journal states them honestly. They need to be worked one at a time.`
+      } else {
+        const direction = tu.correctable[0].direction
+        const amount = r2(Math.abs(tu.total))
+        const card = trueUpCard(tu.correctable, loan.xero_account_name || 'this loan')
+        // Dated at the END of the latest period it corrects, which is where an
+        // accountant looks for it -- moved forward only when that month is
+        // closed or closing, exactly as the lump correction above does.
+        const latest = tu.correctable[tu.correctable.length - 1].period_label
+        const naturalDate = endOfMonthLabel(latest)
+        const protectedDate = isProtectedDate(naturalDate, closeDate, today)
+        const journalDate = protectedDate ? postingDate : naturalDate
+        const periodsText = tu.correctable.map((r: any) => r.period_label).join(', ')
+        proposal = {
+          kind: 'stale_split_trueup',
+          period: periodsText,
+          span: { from: tu.correctable[0].period_label, to: latest },
+          amount, direction,
+          dated_into: journalDate,
+          dated_because: protectedDate
+            ? `${naturalDate} sits in a period that is closed or closing, and ${postingWhy} — so the correction lands at ${journalDate} instead`
+            : `${latest} is still open, so the correction is dated at that period's end`,
+          based_on: card.plain_english,
+          trueup_working: card.working,
+          trueup_rows: tu.correctable,
+          journal: {
+            Narration: `${loan.xero_account_name} — stale split true-up, ${periodsText} [WR-TRUEUP ${code} ${journalDate}]`,
+            Date: journalDate, Status: 'POSTED',
+            JournalLines: trueUpJournalLines({
+              amount, direction,
+              loanAccountCode: String(code),
+              interestAccountCode: INTEREST_EXPENSE_ACCOUNT_CODE,
+              loanName: loan.xero_account_name || 'this loan',
+            }).map((l: any) => ({ ...l, AccountName: acctMap[l.AccountCode] ?? null })),
+          },
+          token: proposalToken(loan.id, `trueup:${periodsText}`, amount, direction, journalDate),
+        }
+      }
+    }
+  }
+
 
   // ⚠ A PAIR IS ONE EVENT, SO ITS CLOSEDNESS IS A PROPERTY OF THE PAIR.
   // Caught in review. `pairFirsts` used to filter on the FIRST leg's own
@@ -1421,6 +1569,8 @@ function analyzeWalk(o: {
   return {
     periods, agree_until: lastClean, total_period_diff: totalPeriodDiff, residual,
     proposal, cpa_exception: cpaException, conclusions: finalConclusions,
+    // s290: the true-up's result travels whether or not it proposed anything.
+    trueup: trueUp,
     // session 272: divergent_count is what a reader treats as "things to go and
     // fix", so it must mean exactly that -- open, and not already explained by the
     // close date, a timing pair, the month rollup or the accountant's own entry.
@@ -2870,6 +3020,10 @@ async function handle(req: Request): Promise<Response> {
     // `why` is what lets the card say what would have to change instead of
     // showing an absence the reader has to interpret.
     recorded_entry: rec,
+    // s290: the true-up's own refusal travels even when it proposes nothing —
+    // a row that cannot say WHY it has no button cannot be told apart from a
+    // feature that failed to run, which is what hid this module for 15 sessions.
+    trueup: aw.trueup,
     derived_cause: derivedCause,
     // session 284: rendered at the TOP of the fix modal and summarised in the
     // close band's Action column, because an explanation filed where nobody

@@ -13116,6 +13116,71 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 290 cont. 4 (2026-09-09) — THE BUTTON EXISTS. IT WAS NEVER CALLED.
+
+**Trigger.** David: *"go ahead."* Wire `_shared/stale-split-trueup.ts`.
+
+**IT PRODUCES THE ANSWER, AND THE ANSWER FOOTS.** Run against Funding Circle's real ladder:
+
+    2026-07  $15.14  interest_back_to_loan  corroborated=false
+    2026-08  $15.38  interest_back_to_loan  corroborated=true
+    total $30.52 · refusal null
+    DR 253 Funding Circle Loan 30.52 / CR 800 Interest Expense 30.52
+
+**$30.52 open + $29.64 already inside closed books = $60.16** — the headline on David's row, to the
+cent, arrived at from the other end. The true-up clears the open half and correctly leaves the closed
+half alone (s230: a closed period stops generating work).
+
+**IT IS A `proposal`, NOT A FIFTH SHAPE — the module's own instruction.** *"Deliberately NOT a new
+write path: it hands back lines for the existing approval → token → server-side re-verify →
+close-date → duplicate-check machinery to carry."* So it builds the object `post_fix` already posts
+and inherits every guard on that path, including the close date binding the WRITE (s231) and the Xero
+duplicate search that makes a second click a no-op. **No new money-writing path was added.**
+
+**TWO GATES, AND THE SUITE FOUND THE NEED FOR THE SECOND ON THE FIRST RUN.**
+
+1. **One row per period, or nothing.** `findStaleSplits` compares `rows[i-1]` to `rows[i]` with no
+   adjacency test, because it was written for monthly periods. On a weekly lender several spans
+   collapse to one `YYYY-MM` label and the signature can match by coincidence. Refused, with a
+   sentence saying why.
+2. ⭐ **THE WALK'S OWN VERDICT OUTRANKS THE SIGNATURE.** `tests/find-difference-walk` went red
+   immediately: a correction was being offered inside a month the walk had already explained as
+   internally netting. A span ruled out as timing, as a netting month, or as the accountant's own
+   work must never become a journal because a coincidence upstream wears the fingerprint. **The
+   RESULT is filtered, not the input** — filtering the input would silently compare across a gap,
+   which is a worse bug than the one it fixes.
+
+⚠️ **ORDERING IS LOAD-BEARING.** The true-up is built AFTER `realDivergent`, not beside the other
+proposals, because it reads the walk's verdict. Placed with them it threw
+*"Cannot access 'realDivergent' before initialization"* on the first run — the error was the design
+telling me where the block belongs.
+
+⚠️ **MIXED DIRECTIONS ARE REFUSED, NEVER NETTED.** Two corrections pointing opposite ways may both be
+right, but one journal for their net states a figure neither period owns.
+
+**THE CARD.** For an ordinary reallocation `based_on` is provenance and belongs in the working; for a
+true-up it IS the decision sentence — what gets written, plus the one check that would have failed —
+so it renders visibly inside s263's budget, with the per-period arithmetic behind the fold. **The
+true-up block does NOT restate $15.14 / $15.38: the table rows own those (s290's own relocation).**
+
+⚠️ **AND THE FIRST CUT OF THAT ASSERTION WAS WRONG IN AN INSTRUCTIVE WAY.** It asserted the two
+monthly figures were absent from the whole visible card. They are present — in the Verdict column,
+which is exactly where this session moved them. The assertion was scoped to the proposal block and
+PAIRED with one confirming the figures are still on screen in their row. An assertion that would go
+green when the rows lost their figures is the wrong assertion however it reads.
+
+**Suite.** 518 browser assertions across the ten fdiff/close groups including the new
+`fdiff-trueup-card`, 0 red. Every `.test.mts` green, `find-difference-walk` now 145.
+
+⚠️ **NOT DEPLOYED — four functions now:** `loan-find-difference`, `loan-xero-post`,
+`loan-ingest-statement`, plus the `_shared` consumers. The dashboard needs a push.
+
+**Where to pick up.** The true-up is proposed and postable but **has never been posted**, so the
+`post_fix` path has not been exercised on this `kind`. Watch the first one: confirm the journal lands
+dated where `dated_because` says, that a second click is refused as a duplicate rather than posting
+twice, and that a re-run afterwards finds nothing left to correct. ⚠️ And `postingDate` is still
+2026-09-30 for an August correction — **David's parked §0ah decision**, unchanged and still his.
+
 ### Session 290 cont. 3 (2026-09-09) — ONE DOCUMENT, FIVE MONTHS, AND THE FIX WAS WRITTEN A FORTNIGHT AGO
 
 **Trigger.** David, on the improved card: *"What would make it great is if i could post an adjustment

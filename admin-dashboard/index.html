@@ -12928,10 +12928,23 @@
       const pr = data.proposal;
       // s289: the narration and the reasoning are the WORKING; the visible
       // block is the legs, the date and the two buttons.
+      // ── s290: THE TRUE-UP STATES ITS CASE ON THE CARD ─────────────────────
+      // For the ordinary reallocation `based_on` is provenance and belongs in the
+      // working. For a stale-split true-up it IS the decision sentence — what
+      // gets written, and the one check that would have failed if it were wrong
+      // ("Xero moved the PREVIOUS period's principal, to the cent"), inside the
+      // 40-word budget s263 sets for an action card. A reader cannot approve a
+      // correction whose whole justification is a click away.
+      const isTrueUp = pr.kind === 'stale_split_trueup';
       W('The entry that will post', `<div style="font-style:italic">${esc(pr.journal?.Narration || '')}</div>`
-        + (pr.based_on ? `<div style="margin-top:5px">${esc(pr.based_on)}</div>` : ''));
+        + (!isTrueUp && pr.based_on ? `<div style="margin-top:5px">${esc(pr.based_on)}</div>` : '')
+        + (pr.dated_because ? `<div style="margin-top:5px">Dated ${esc(_bkDay(String(pr.journal?.Date || '')))} because ${esc(pr.dated_because)}.</div>` : ''));
+      // The per-period arithmetic — lender, Xero, the difference, and whether our
+      // own split corroborates it — is complete and unabridged behind the fold.
+      if (pr.trueup_working) W('How each period was measured', `<div style="white-space:pre-wrap">${esc(pr.trueup_working)}</div>`);
       parts.push(`<div class="fdc-act">
         <div class="fdc-lab">Suggested entry — dated ${esc(_bkDay(String(pr.journal?.Date || '')))}, nothing posts until you approve</div>
+        ${isTrueUp && pr.based_on ? `<div style="color:var(--gray-700);margin-bottom:2px">${esc(pr.based_on)}</div>` : ''}
         ${(pr.journal?.JournalLines || []).map(l => `<div style="color:var(--gray-700);margin-top:4px"><strong>${Number(l.LineAmount) >= 0 ? 'Debit' : 'Credit'}</strong> ${esc(String(l.AccountCode))}${l.AccountName ? ` ${esc(l.AccountName)}` : ''} — ${esc(fmtMoney(Math.abs(Number(l.LineAmount))))}</div>`).join('')}
         ${data.can_post ? `<div style="margin-top:11px;display:flex;gap:8px;align-items:center"><button class="btn btn-primary" style="font-size:12px;padding:6px 12px" id="fdiff-post-${findingId}" onclick="bkPostFdiffFix('${findingId}','${loanId}','${esc(pr.token)}', this)">Post to Xero</button><button class="btn" style="font-size:12px;padding:6px 12px" onclick="bkIgnoreVariance('${loanId}', this)">Ignore</button></div>` : `<div class="fdc-quiet" style="margin-top:8px">Your account can review this but not post it.</div>`}
       </div>`);

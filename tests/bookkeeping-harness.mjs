@@ -12776,6 +12776,105 @@ GROUPS.push({
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
+   SESSION 290 — THE TRUE-UP CARD, RENDERED
+
+   The correction David asked for, drawn. The arithmetic is proven in
+   tests/find-difference-walk.test.mts against the real analyzeWalk and in
+   stale-split-trueup's own 34 assertions; this group is about what a person
+   SEES before they approve a journal, which is the part neither of those can
+   check.
+
+   The payload is the one the walk now builds for Funding Circle: $30.52 across
+   2026-07 and 2026-08, debit the loan, credit Interest Expense.
+   ══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'fdiff-trueup-card',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    const FC = JSON.parse(fs.readFileSync(
+      fileURLToPath(new URL('./fixtures/fdiff-funding-circle-2026-08.json', import.meta.url)), 'utf8'));
+    const data = JSON.parse(JSON.stringify(FC));
+    data.conclusions = [];
+    data.periods = data.periods.filter(x => x.from !== x.to);
+    data.can_post = true;
+    data.proposal = {
+      kind: 'stale_split_trueup',
+      period: '2026-07, 2026-08',
+      amount: 30.52, direction: 'interest_back_to_loan',
+      dated_into: '2026-09-30',
+      dated_because: '2026-08-31 sits in a period that is closed or closing',
+      based_on: "Moves $30.52 from Interest Expense back to Funding Circle Loan across 2026-07 and 2026-08. Each month Xero moved the PREVIOUS period's principal, to the cent.",
+      trueup_working: '2026-07: lender $1025.71 · Xero $1010.57 · difference $15.14\n  Xero\'s movement equals 2026-06\'s lender figure exactly.\n\n2026-08: lender $1041.09 · Xero $1025.71 · difference $15.38\n  Our own split records $1025.71, agreeing with Xero independently.',
+      journal: {
+        Narration: 'Funding Circle Loan — stale split true-up, 2026-07, 2026-08 [WR-TRUEUP 253 2026-09-30]',
+        Date: '2026-09-30', Status: 'POSTED',
+        JournalLines: [
+          { LineAmount: 30.52, AccountCode: '253', Description: 'Funding Circle Loan principal correction', AccountName: 'Funding Circle Loan' },
+          { LineAmount: -30.52, AccountCode: '800', Description: 'Interest correction', AccountName: 'Interest Expense' },
+        ],
+      },
+      token: 'tok',
+    };
+    const m = await measureFdiffModal(p, data);
+
+    /* ── 1. THE DECISION IS ON THE CARD, NOT BEHIND THE FOLD ──────────────
+       A reader cannot approve a journal whose entire justification is a click
+       away. s263: what gets written, then the one check that would have failed
+       if it were wrong. */
+    t.ok(/Moves \$30\.52 from Interest Expense back to Funding Circle Loan/.test(m.visibleText),
+         '⭐ the card states what the entry does, visibly', m.visibleText.slice(0, 200));
+    t.ok(/PREVIOUS period's principal, to the cent/.test(m.visibleText),
+         '⭐ ...and the one check that would have failed if it were wrong',
+         'the signature is the whole argument');
+    t.ok(/Post to Xero/.test(m.visibleText),
+         '...and there is a button, which is the entire point of the session', 'there is');
+
+    /* ── 2. BOTH LEGS ARE SHOWN ───────────────────────────────────────────
+       The journal exemption in s279: a journal has to show both legs, so $30.52
+       twice here is two sides of one entry, not a figure stated twice. */
+    t.ok(/Debit 253/.test(m.visibleText) && /Credit 800/.test(m.visibleText),
+         'both legs are named with their accounts', m.visibleText.slice(-300));
+
+    /* ── 3. THE PER-PERIOD ARITHMETIC IS COMPLETE, AND BEHIND THE FOLD ────
+       ce17: the visible card is short because the detail moved, not because it
+       was dropped. Both monthly figures and both lender/Xero pairs must survive. */
+    for (const claim of ['15.14', '15.38', '1025.71', '1010.57', '1041.09']) {
+      t.ok(m.openedText.includes(claim), `...${claim} survives in the working`);
+    }
+    /* ⚠️ SCOPED TO THE PROPOSAL BLOCK, and the first cut of this assertion was
+       wrong in an instructive way. It asserted $15.14 and $15.38 were absent
+       from the WHOLE visible card -- and they are present, correctly, in the span
+       table's Verdict column. That is exactly where s290 moved them: the row owns
+       its own figure. The claim worth defending is narrower -- the true-up block
+       must not RESTATE them beside its total, or one screen states each month
+       twice (s279). */
+    const actText = await p.evaluate((d) => {
+      const host = document.createElement('div');
+      host.innerHTML = _bkFdiffHtml(d, 'f1', 'l1');
+      const act = host.querySelector('.fdc-act');
+      if (!act) return '';
+      const vis = act.cloneNode(true);
+      vis.querySelectorAll('details').forEach((el) => { el.textContent = ''; });
+      return vis.textContent.replace(/\s+/g, ' ').trim();
+    }, data);
+    t.ok(actText.length > 40, 'the proposal block really rendered', actText.slice(0, 80));
+    t.ok(!/15\.14/.test(actText) && !/15\.38/.test(actText),
+         '⭐ ...and the true-up block does not RESTATE the months the table already owns',
+         actText);
+    t.ok(/15\.38/.test(m.visibleText),
+         '...which are on screen, on their own row, where s290 put them', 'they are');
+
+    /* ── 4. THE DATE IS STATED ONCE, BY THE THING IT GOVERNS (rule D) ─────── */
+    const dateCount = (m.visibleText.match(/Sep 30, 2026/g) || []).length;
+    t.eq(dateCount, 1, '⭐ the posting date appears exactly once in the visible text', String(dateCount));
+    t.ok(/closed or closing/.test(m.openedText),
+         '...and the REASON for that date is in the working, not beside it', 'it is');
+
+    await p.close();
+  },
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
    SESSION 290 — THE SECOND SHAPE, AND WHY ONE PAYLOAD WAS NEVER ENOUGH
 
    David, on the Funding Circle card: "The Loan Closing page shows a variance of

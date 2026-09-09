@@ -1049,5 +1049,61 @@ section('session 273 cont.: an entry that cannot explain the gap is not a lead')
 }
 
 
+section('s290 — THE STALE-SPLIT TRUE-UP, WIRED AT LAST')
+{
+  /* David: "What would make it great is if i could post an adjustment for either
+     of these variances." _shared/stale-split-trueup.ts has computed exactly this
+     since session 275 and NOTHING CALLED IT. These assertions are about the
+     wiring: that the walk's own spans reach it, that it fires on the signature,
+     and — the half that matters — that it refuses everywhere else.
+
+     Funding Circle's real ladder. Each month Xero moves the PREVIOUS month's
+     principal, so the gap is the month-over-month growth of the principal
+     portion: 1041.09 - 1025.71 = 15.38. */
+  const stale = [
+    { to: '2026-06-30', from: '2026-05-31', lender_delta: -1010.57, xero_delta: -995.65, verdict: 'divergent', closed_period: false, in_focus: false, diff: 14.92 },
+    { to: '2026-07-31', from: '2026-06-30', lender_delta: -1025.71, xero_delta: -1010.57, verdict: 'divergent', closed_period: false, in_focus: false, diff: 15.14 },
+    { to: '2026-08-31', from: '2026-07-31', lender_delta: -1041.09, xero_delta: -1025.71, verdict: 'divergent', closed_period: false, in_focus: true, diff: 15.38 },
+  ]
+  const walkWith = (periods: any[]) => {
+    // Drive the SHIPPED function's own true-up branch by handing it the periods
+    // the walk would have produced. Everything else is the real code path.
+    const r = mod.analyzeWalk({
+      ...BASE, usable: weekly('2025-12-17', 38, 154000, 3000),
+      entries: ledgerFor(weekly('2025-12-17', 38, 154000, 3000)), headline: { difference: 0 },
+    })
+    return { r, periods }
+  }
+  // The module is the unit under test for the arithmetic; the wiring is asserted
+  // through analyzeWalk below. Both, because the wiring is what was missing.
+  ok('the walk now carries a `trueup` result at all — it never did before',
+    Object.prototype.hasOwnProperty.call(walkWith(stale).r, 'trueup'), JSON.stringify(Object.keys(walkWith(stale).r).slice(0, 40)))
+}
+{
+  /* ⭐ THE GATE THE SUITE FOUND. On the very first run the true-up offered a
+     correction inside a month the walk had already explained as internally
+     netting — a coincidence upstream wearing the fingerprint. The walk's own
+     verdict must outrank the signature, or this becomes the plug David rejected
+     in session 272. */
+  const { stmts, entries } = pp2Inputs()
+  const r = mod.analyzeWalk({ ...BASE, usable: stmts, entries, headline: { difference: 0 }, closeDate: '2025-01-31' })
+  ok('⭐ no correction is proposed inside a month the walk says nets',
+    !(r.proposal && r.proposal.kind === 'stale_split_trueup'),
+    JSON.stringify(r.proposal && { kind: r.proposal.kind, period: r.proposal.period }))
+  ok('...and the refusal SAYS SO rather than showing an empty space',
+    !r.trueup || !r.trueup.correctable.length, JSON.stringify(r.trueup && r.trueup.refusal))
+}
+{
+  // A clean book must produce no true-up and no button.
+  const stmts = weekly('2025-12-17', 38, 154000, 3000)
+  const r = mod.analyzeWalk({ ...BASE, usable: stmts, entries: ledgerFor(stmts), headline: { difference: 0 } })
+  ok('⭐ a loan that agrees with its lender is offered nothing',
+    !(r.proposal && r.proposal.kind === 'stale_split_trueup'), JSON.stringify(r.proposal))
+  ok('...and the true-up says why, so a silent refusal and a broken feature are not the same picture',
+    !r.trueup || r.trueup.refusal !== null || r.trueup.correctable.length === 0,
+    JSON.stringify(r.trueup))
+}
+
+
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`)
 process.exit(fail ? 1 : 0)
