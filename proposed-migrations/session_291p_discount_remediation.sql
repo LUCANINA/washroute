@@ -1,0 +1,40 @@
+-- session 291p — DATA remediation for the discount bugs. APPLIED 2026-09-10.
+-- Root causes were fixed first (291L POS intake, 291o recurring generator); this is
+-- only the clean-up of orders and money already affected.
+--
+-- THE RULE THAT DECIDED THE MECHANISM: an unpaid order can be corrected in place,
+-- because nothing has moved. A PAID order cannot — editing its line_items would make
+-- the record disagree with what Stripe actually took. Those get an account credit
+-- instead, ledgered in customer_transactions.
+--
+-- 1. UNPAID ORDERS CORRECTED IN PLACE — 20 orders.
+--    Every order with billing_status IS NULL, not archived, in a live status, whose
+--    customer carries an active percent discount and whose discount line was wrong or
+--    missing. The discount row is rebuilt at 5% of base + overage + addon +
+--    addon_service + pref_service (session 146 scope) and total_amount moved with it.
+--    18 Kidango (incl. Mayfair #14239 $0.00 -> $35.75 and Toyon #14226 $8.85 ->
+--    $26.00), plus Charlotte Maxwell Clinic #14444, Joyce Prado #14702 and Sheila
+--    Meltzer #14726, which had no discount line at all.
+--    Verified after: of 34 unpaid discount-carrying orders, 0 wrong, and line_items
+--    sums equal total_amount on all 34.
+--    Rollback snapshot: public._archive_discount_fix_291p (old line_items + total).
+--
+-- 2. PAID ORDERS — account credits, 4 customers, $20.60 via adjust_customer_credits:
+--      Mike Jenkins        #667    $3.40   (NON PROFIT)
+--      Satina Dunigan      #1542   $9.30   (NON PROFIT)
+--      Amy Cummings        #10580  $4.50   (NON PROFIT)
+--      Catalina Goldstein  #14299  $3.40   (SENIORS)
+--    Each ledgered in customer_transactions naming the order. No message is sent by
+--    that RPC.
+--
+-- 3. KIDANGO CREDIT NOTE corrected $516.00 -> $518.10 on the pending
+--    invoice_adjustments row. The first figure counted only orders with a positive
+--    shortfall and missed two; $518.10 is the audited number from
+--    audits/discount-audit.sql. Still pending, so it lands on the group's next
+--    consolidated invoice in early October.
+--
+-- NOT touched: 44 orders from Mar 31 - May 29 that match the pre-session-146
+-- base-only scope (correct for their time), 56 orders predating the customer's first
+-- discounted order (discount granted later), and the ~209 delivered Kidango orders
+-- covered by the credit note above — correcting those in place AND crediting them
+-- would refund the same money twice.
