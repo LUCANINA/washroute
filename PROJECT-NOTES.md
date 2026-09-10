@@ -13,6 +13,44 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
+*Last updated: September 9, 2026 — Session 290 — **Duplicate accounts: session 227's protected-column trigger silently disabled BOTH account-matching RPCs for three weeks. 16 customers got a second, empty account. Cause fixed, all 16 merged, standing alarm added.***
+
+**What David saw.** Liz Morris and Kalen Gleeson each logged in and landed in a brand-new empty account — no history, no saved card, no address. Kalen then placed an order under the wrong account and drew a $20 new-customer promo credit he already had.
+
+**Root cause — a security fix that quietly broke a feature.** Session 227 added `trg_enforce_protected_customer_columns`, and `profile_id` is in its `v_protected` array. Both dedup RPCs work by writing exactly that column:
+
+- `link_phone_auth_account` — phone-OTP login → find the real account by phone
+- `claim_existing_customer` — signup/confirm → find the real account by email or phone
+
+Both are `SECURITY DEFINER`, and this is the trap: **SECURITY DEFINER changes the database user, not the JWT claims.** Inside them `auth.role()` is still `authenticated` and `is_staff()` is still false, so the trigger fired and raised `Not permitted to change customer field(s): profile_id` on every single call from **2026-08-22 onward**.
+
+Reproduced before the fix:
+
+```sql
+PERFORM set_config('request.jwt.claims', '{"sub":"<a customer>","role":"authenticated"}', true);
+UPDATE customers SET profile_id = '<their phone auth user>' WHERE id = '<their customer>';
+-- ERROR: Not permitted to change customer field(s): profile_id
+```
+
+**Why it ran for three weeks.** Every one of the six call sites in `customer-app/index.html` handled the failure with `console.warn` (or `catch (_) {}`) and then carried straight on to `db.from('customers').insert(...)`. The app's fallback for "couldn't match this customer" was *create a new one*. A silent failure plus a destructive fallback is how a one-line permissions change becomes 16 angry customers.
+
+**The fixes (migrations `session_290a`–`290d`):**
+
+1. **290a** — both RPCs now `PERFORM public.wr_allow_protected_write()` before the write. That helper is transaction-local, so nothing leaks. While in there: `claim_existing_customer` took `p_email` / `p_phone` as free parameters and trusted them, so restoring the bypass alone would have handed any signed-in customer a one-call account takeover. Every match arm is now bound to the **caller's own** `email_confirmed_at` email or `phone_confirmed_at` phone; only `auth.role() = 'service_role'` is exempt — deliberately **not** `auth.uid() IS NULL`, because anon has a null uid too. Email matching also became case/whitespace-insensitive (`LianaChavarin@gmail.com` vs `lianachavarin@gmail.com` had produced its own duplicate).
+2. **290b/290c** — `find_duplicate_customer_pairs()`, a staff RPC `list_duplicate_customer_candidates()`, a `customer_duplicate_dismissals` table, and cron job **`wr-duplicate-customer-check`** (daily 08:00 PT) raising a `duplicate_customer_accounts` row in `_health_alerts`. Deliberately **not** a unique constraint: households and business accounts genuinely share a phone (Homebase / Soul Sanctuary; Casey Farmer / Galen Wilson), so it flags rather than blocks, and a pair can be dismissed.
+3. **290d** — `merge_duplicate_customer(keep, dup)`, service-role only: moves every child row, collapses the cloned address (repointing `orders` *and* `route_stops`), drops a cloned card that already exists on the survivor, rolls up totals, stamps a note on the survivor, deletes the duplicate, and re-points the survivor at whichever login the customer used most recently.
+4. **customer-app** — `_accountMatchFailed` / `_blockDuplicateInsert()`. An **error** from either RPC now blocks the `customers.insert` entirely and tells the customer to call. An RPC returning *no rows* is still a genuine new customer and proceeds normally. **⚠️ Not yet deployed — needs a customer-app push.**
+
+**Verified** by restoring the pre-fix state inside a rolled-back transaction: `link_phone_auth_account('15103331043', <Kalen's phone user>)` now returns his real account (96 orders) instead of raising.
+
+**Cleanup (second pass).** The 7 older candidate pairs were reviewed one by one. Six were genuinely one customer and were merged: Noelle Foote (same email, phone AND address as an "Operations Assistant" record), Franny Canfield and Patrick Moyer (same email, moved house — kept the active record, carried the old address across as non-default), and three business accounts where the named contact had picked up a blank second account the same way — Isabella Rivera → Oakland Roots & Soul, Tina Cheng → Drew School, Faye Navarro → USS Hornet, each confirmed by an identical site address. **Kristen Connell is deliberately left flagged**: two different emails, two different addresses (Haight St SF and Miles Ave Oakland), both ordering *now*, and the older record's login is a colleague's address — that reads as a work-booked account plus a personal one, not a duplicate. David's call.
+
+Merging also exposed a flaw in the keep/duplicate ranking (`session_290e`): it ranked on `total_orders` then `created_at`, so when both sides showed the same count the NEWER record won — and the newer record is normally the empty one the bug just created. It now ranks on real `orders` rows, then most recent order, then oldest account.
+
+**Cleanup.** All 16 duplicates merged — 11 orders, 4 cards and ~70 SMS threads moved back onto the right accounts. 7 older candidate pairs remain and are David's call; several are one business email on two contacts (Drew School / Tina Cheng, USS Hornet / Faye Navarro) rather than true duplicates.
+
+**The lesson worth carrying.** When session 227 added a deny-list trigger, nothing checked which existing `SECURITY DEFINER` functions wrote those columns. Adding a column to `v_protected` in either protected-column trigger means auditing `pg_proc` for functions that write it — and any of them that should still be allowed needs `wr_allow_protected_write()` in the same migration.
+
 *Last updated: September 8, 2026 — Session 281 — **30-day billing audit: post-payment total edits went unreconciled, and a pricelist guard was missing from one of three branches. Both fixed; two new P0 audit checks added.***
 
 David green-lit the fix flagged in the QA pass. Both customer-facing renderers — `generateInvoiceHTML` (the on-screen / printed invoice) and `buildInvoicePdfBase64` (the emailed PDF) — formatted every figure with a bare `.toFixed(2)`, so Kidango's five-figure August total read `$10536.00`. All **23** money sites across the two functions now go through one shared helper:
@@ -1927,6 +1965,183 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Sep 10, 2026 (session 291) — CS escalation & pattern detection: making repeat complaints visible
+
+**Trigger:** David shared an SMS thread with the neighbour at 5811 Mendocino Ave (not a
+customer). She asked seven times over seven weeks — Jul 23 to Sep 10 — that drivers stop
+parking in her driveway while servicing 5805. Three reps sent three near-identical apologies.
+Tone went from a polite 95-second voicemail to profanity and a threat to post fabricated
+negative reviews. **Nobody in management knew.**
+
+**Four root causes, all addressed:** (1) `cs_issues` was a scratchpad — 112 of 176 rows were
+`note` rows from one day, categories free-text (`Billing` and `billing` both present).
+(2) Everything keyed to `customer_id`; she isn't a customer, so she was invisible to every
+view. (3) Nothing counted repetition. (4) "Resolved" meant "I replied" — nobody changed the
+route note or spoke to the driver.
+
+**Measured the ground truth first (12 months of inbound SMS):** 597 phones have inbound on
+≥3 distinct days, so repeat contact ALONE is noise. Repeat contact *plus a complaint
+classification* is 118 phones ≈ 2/week — the right alert volume. Only 6 non-customer phones
+have ≥3 contact days; one is a genuine grievance (Lauren) and five are sales robocalls, which
+is precisely why keyword matching cannot do this job and the LLM pass earns its keep.
+Also surfaced two live spikes nobody could see: **damage complaints running ~3x their 12-month
+rate** (16 of 25 messages in the last quarter) and **parking ~2x** (31 of 59).
+
+**Shipped:** migrations `session_291_cs_escalation` (contact-keyed columns on `cs_issues`,
+enforced `theme` vocabulary, `cs_signals` with fingerprint dedup) and
+`session_291a_revoke_anon_cs_signals`. Edge function `cs-signal-scan` (verify_jwt TRUE,
+measured). Design doc `docs/washroute/DESIGN-CS-ESCALATION.md`.
+
+**Three things worth remembering:**
+
+1. **`cs_issues` was readable by 2 people out of 30.** Its only policy was `is_admin()`, and
+   there are 2 admins against 3 managers and 9 attendants. The CS team literally could not
+   see the tool they were supposed to be using. Added `is_cs_team()` (admin/manager/attendant)
+   — widening only, the admin policy is untouched. Suspect this is most of why the table decayed.
+2. **The close-requires-a-note CHECK had to be split into `session_291b`.** Applied with 291a
+   it would have broken the existing Resolve button — `changeIssueStatus()` (~line 35855) and
+   `resolveLostFound()` (~line 34991) both set `status='resolved'` with no action text. Same
+   shape as the session 176/177 charge outage. Apply 291b ONLY with the dashboard change.
+3. **A detector must never escalate on its own output.** v1 had no idempotency gate: re-running
+   an identical 14-day window took severity-3 from 2 to 5, because the issues the first run
+   created read to the second run as proof of a repeat contact. v2 gates on
+   `cs_signals.evidence.message_ids` — a message is counted once, ever, and reruns skip the LLM
+   call entirely. Regression test is `verify-session-291.sh`: run the same window twice, the
+   second run must report 0. **Do not enable the cron until that passes.**
+
+**Also learned:** the `public` schema's default ACL auto-granted `anon` on `cs_signals` at
+CREATE TABLE time even though the migration never granted it. RLS denied anon anyway (the only
+policy is TO authenticated), but the grant was there. Always re-read
+`information_schema.role_table_grants` after creating a table rather than trusting the
+migration text — the session-162 rule assumes you check, not just that you wrote the GRANT.
+
+**Left undone (v2 written, NOT deployed — the Supabase MCP token expired mid-deploy):**
+run `bash deploy-session-291.sh` then `bash verify-session-291.sh <secret>`. Then: dashboard
+card, `session_291b`, the digest email (through `washroute-preflight` — the function currently
+CANNOT mail anyone, `notify` mode returns 501 by design), the pg_cron job, and the chunked
+historical backfill. DB is in a clean state: `cs_signals` empty, no scan-created issues.
+
+---
+
+### Sep 10, 2026 (session 291, cont.) — Overview redesign, part 1: "For your review"
+
+David: only critical issues belong on Overview. The test he set, and the one now written
+into the code: **are we holding the customer's laundry?**
+
+**Needs rescheduling** — dropped `pickup_failed` and `skipped` from the card's query.
+A failed pickup or a skip means we never took their laundry, so nothing of theirs is in
+our building. Both are still on the Orders tab under Issues (`ORDER_FILTER_GROUPS.issues`
+and `_isIssueRow` are deliberately UNCHANGED — the change is scoped to
+`loadRescheduleOrders`). The card is now `delivery_failed` + `on_hold` only, which took it
+from 4 rows to 0 today. Only 2 orders in the last 90 days ever reached those statuses, so
+this section will usually be empty — arguably correct for a critical-issues card, but worth
+revisiting when the rest of the page is designed. Also fixed the date column, which was
+hardcoded to `pickup_window_start` and therefore showed the wrong leg for every row that
+can now appear.
+
+**Stalled in process — the card was 100% false positives.** It showed 6 orders; every one
+had moved that same day, and 0 had genuinely not moved in 7 days. #12874 displayed "23d"
+and had been picked up the previous afternoon.
+
+Root cause: `v_outstanding_orders` classified `stuck_in_process` on
+`created_at < now() - 7 days`. **Recurring orders are minted ~14 days before the pickup
+date by `generate_route_runs(14)`**, so that clock starts while the customer's bag is still
+in their own hallway. All 6 were `source: recurring`. The card promised "hasn't moved in
+7+ days" and measured "was scheduled more than 7 days ago" — completely different numbers
+for the majority of orders.
+
+Fixed in `session_291c`: the clock is now time in OUR BUILDING —
+`actual_pickup_at`, or `created_at` for `walk_in` (no pickup leg; verified all 1,962
+walk_ins have `actual_pickup_at` NULL and 0 non-walk_in in-process orders do). NULL fails
+safe and is never flagged. `age_days` was left alone because Unpaid Orders needs
+age-since-creation for collections; `days_in_building` is a new appended column.
+
+Scope confirmed by David: **strictly pre-wash.** Anything unpaid past ready-for-delivery
+belongs on Unpaid Orders. Corrected card shows 0 today; 5 orders in the last 90 days
+genuinely sat over a week, worst 26 days — about one every two or three weeks.
+
+**Archived, still owed — removed, and the exclusion killed at its source (291d).**
+First pass moved the rows by filtering `bucket !== 'stuck_in_process'` in
+`loadUnpaidOrders` -- which is exactly the "do NOT re-implement the unpaid rule here"
+mistake the view's own comment warns about, committed while reading that comment.
+David then said to remove the rule itself, which is the right call: `session_291d`
+drops `AND archived_at IS NULL` from `counts_as_due`, and the client filter went back
+to plain `counts_as_due`. One definition, one place.
+
+That change reaches THREE consumers, not just the widget -- worth knowing before
+touching `counts_as_due` again: Unpaid Orders, the daily audit's P0 outstanding check,
+and the customer-panel balance. The third was silently wrong: a customer whose only
+debt was an archived order showed a $0 balance. Same family as the session-230 bug the
+comment above that code describes. Andrew Chamberlain's balance went $0.00 -> $63.95.
+Measured after: 271 rows, chaseable $473.95 -> $537.90, 0 stuck_in_process leaked in.
+
+**Original framing of the same work — MOVED not deleted.** David: any unpaid order belongs
+on Unpaid Orders. The trap: `loadUnpaidOrders` filtered on `counts_as_due`, which is
+`bucket <> 'stuck_in_process' AND archived_at IS NULL` -- it deliberately DROPS archived
+rows, because since session 230 archived orders lived in "For your review" instead. Deleting
+the section on its own would have made #4669 ($63.95, card declined, still owed) disappear
+from the dashboard entirely. The filter is now `bucket !== 'stuck_in_process'`, which is
+counts_as_due minus the archived exclusion; the view is untouched, since `counts_as_due` is
+still the right rule for anything that wants "ordinary money owed". Archived rows show in
+their natural bucket with an ARCHIVED chip carrying the archive reason as a tooltip, and the
+same one-click Restore the old section offered. Measured: Unpaid Orders 270 -> 271 rows,
+chaseable $473.95 -> $537.90, exactly the one order. The dead `_fyrArchivedHtml` renderer
+was deleted rather than left to rot.
+
+**One flat list.** David: "Just one clear list to act upon." The three collapsible
+subsections (`_fyrSection` + `_fyrRescheduleHtml`/`_fyrCardErrorHtml`/`_fyrStalledHtml`)
+are gone, replaced by `_fyrUnifiedHtml` + `_fyrRow`. The section heading became a **Why**
+column, so the reason a row is present is readable without opening anything. Rows arrive in
+two different shapes -- reschedule rows from `orders` (nested `customers`), the money kinds
+from `v_outstanding_orders` (flat `*_cache`) -- and are normalised in `_fyrRow`. Sort is
+kind priority (laundry-with-us > mislabelled money > here too long), then oldest first.
+The `4 to reschedule · 1 archived` breakdown line is gone too; the badge already gives the
+count and the breakdown described a structure that no longer exists. The element is kept
+only for the "All clear" / "Could not load" states.
+
+**Trap caught while doing it:** the money kinds never had checkboxes before, so the
+For-your-review query never selected `phone_cache`. Making every row selectable would have
+fed the batch bar `data-phone=""` for those rows -- a batch SMS that silently goes nowhere.
+`phone_cache` added to the select. Worth remembering: adding a checkbox to a row is not a
+cosmetic change, it opts that row into every batch action.
+
+**Open Issues (`loadOverviewIssues`).** Four changes: the `⚠ 1 need attention · 3 high ·
+8 total` line is gone (the list is sorted by priority now, so "3 high" is visible by
+looking at it); sorted urgent > high > normal > low, newest first within a priority --
+the query ordered by created_at only, which buried a high issue under five low ones;
+`.issue-pri-badge` got `min-width:62px` + centred text so the pill column lines up and
+priority can be scanned down the page; and auto-detected titles are shortened.
+
+`cs-signal-scan` titles itself "Customer +15105551234 — lost item: ..." because the
+detector works from a phone number, not a name. On the row the customer's NAME is already
+in the meta, so the phone was pure noise. The prefix is stripped and the remainder
+capitalised. For a NON-CUSTOMER there is no name, so the phone moves into the meta slot
+where '—' used to be: "Non-customer (415) 994-5735". Regression-tested against all 8 live
+open issues, including the two negative cases that must NOT be rewritten: "Subscription
+ended unpaid — grace period expired" (contains an em-dash but no phone prefix) and
+"Customer is missing black Adidas sports bra" (starts with the word Customer but has no
+digits after it). Both pass through untouched.
+
+**Unpaid Orders: On account group removed.** 269 of the widget's 271 rows were invoiced
+receivables -- $55,844.55 across 34 commercial customers (Kidango, Kasa, City of Oakland)
+-- burying the 2 declined cards ($537.90) that are the only thing anyone can act on today.
+The group, `_unpaidOnAccountHtml`, and the "$X on account" tail in the header summary are
+all gone; `on_account` rows are filtered out of `data` so nothing downstream counts them.
+Verified before claiming it: **Reports -> On Account is a real tab** (`setRptTab('onaccount')`,
+full invoice machinery) and is the ONLY place these can be settled -- an account payment,
+never a card retry. So the money moved to the page that can act on it rather than being
+hidden. Widget: 271 rows -> 2 rows, $537.90.
+
+**Lesson worth keeping: a column named `created_at` is not the same as "when this started."**
+For anything generated ahead of time — recurring orders, scheduled runs — `created_at` is
+when WE minted the row, not when the real-world thing began. Any age/staleness rule built
+on it will fire early and constantly, and a card that is always wrong is a card everybody
+learns to ignore. Check what the clock is actually measuring before trusting an age column.
+
+**Still open in the real world:** Lauren's complaint itself. It needs a route note on the
+5805 Mendocino stop and a conversation with the driver — the system now makes it visible,
+which is not the same as fixed.
 
 ### Sep 8, 2026 (session 281) — 30-day billing audit: two real bugs, and three of my own checks that lied
 

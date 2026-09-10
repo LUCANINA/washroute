@@ -1,0 +1,21 @@
+-- Session 291d — counts_as_due no longer excludes archived orders.
+-- APPLIED 2026-09-10 via apply_migration (name: session_291d_counts_as_due_includes_archived).
+-- Kept here for the repo record; the full view body is in 291c plus this one change.
+--
+-- David: "Any unpaid order goes in UNPAID ORDERS." Archiving is a human filing
+-- gesture, not a statement that the money stopped being owed. Since session 230
+-- counts_as_due was (bucket <> 'stuck_in_process' AND archived_at IS NULL), which
+-- hid archived debt from THREE places: Unpaid Orders, the daily audit's P0
+-- outstanding check, and the customer-panel balance -- a customer whose only debt
+-- was an archived order showed a $0 balance.
+--
+-- The change is one clause inside the final SELECT of v_outstanding_orders:
+--
+--   BEFORE: bucket <> 'stuck_in_process'::text AND archived_at IS NULL AS counts_as_due
+--   AFTER:  bucket <> 'stuck_in_process'::text                          AS counts_as_due
+--
+-- stuck_in_process is still excluded: no charge is due yet on pre-wash work.
+-- Measured after applying: Unpaid Orders 270 -> 271 rows, chaseable $473.95 ->
+-- $537.90, Andrew Chamberlain's balance $0.00 -> $63.95 (order #4669).
+--
+-- Rollback: restore the AND archived_at IS NULL clause.
