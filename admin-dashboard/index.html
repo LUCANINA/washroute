@@ -5868,6 +5868,30 @@
         <div style="font-weight:600;margin-bottom:4px">Attachments</div>
         <div id="inv-attachment-list"></div>
       </div>
+      <!-- Session 291m: credits and surcharges that ride on this invoice. -->
+      <div id="inv-adjustments" style="font-size:12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-weight:600;color:var(--gray-700)">Credits &amp; adjustments</div>
+          <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px" onclick="showAddAdjustmentRow()">+ Add</button>
+        </div>
+        <div id="inv-adjustment-list"></div>
+        <div id="inv-adjustment-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-200)">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <input type="text" id="inv-adj-label" class="form-input" style="flex:2 1 200px;font-size:12px;padding:6px 8px"
+                   placeholder="Label the customer will read" />
+            <input type="number" id="inv-adj-amount" class="form-input" style="flex:0 1 120px;font-size:12px;padding:6px 8px"
+                   step="0.01" placeholder="-516.00" />
+          </div>
+          <input type="text" id="inv-adj-reason" class="form-input" style="margin-top:6px;font-size:12px;padding:6px 8px"
+                 placeholder="Internal note (optional) — why this exists" />
+          <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+            <span style="color:var(--gray-500);font-size:11px">Negative = credit · Positive = surcharge</span>
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;margin-left:auto" onclick="hideAddAdjustmentRow()">Cancel</button>
+            <button class="btn btn-primary" style="font-size:11px;padding:3px 10px" onclick="saveAdjustment()">Save</button>
+          </div>
+          <div id="inv-adj-error" style="display:none;color:var(--red);font-size:11px;margin-top:6px"></div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer" style="display:flex;gap:8px">
       <button class="btn btn-ghost" onclick="previewInvoicePDF()" style="margin-right:auto">Preview PDF</button>
@@ -53509,6 +53533,124 @@ async function _dvIframeLoaded() {
   let _oaReportRows = [];
   let _oaBillingGroups = [];
 
+  // ── INVOICE ADJUSTMENTS (session 291m) ──────────────────────────────
+  // A credit or surcharge that waits until the next invoice for its account and
+  // then rides on it as a line. Built because the Kidango NON PROFIT discount was
+  // computed against a stale $59 bag rate for four months (291L) and there was no
+  // way to put $516.00 back on an invoice — `invoices` is a flat snapshot with no
+  // room for one. Negative amount = credit, positive = surcharge.
+  //
+  // Every pending row is held here, not just the open account's: getSelectedInvoiceData
+  // is also used by the bulk "invoice everything" path, which walks several accounts
+  // in one pass and cannot await a fetch per account.
+  let _pendingAdjustments = [];
+
+  async function loadPendingAdjustments() {
+    const { data, error } = await db.from('invoice_adjustments')
+      .select('id, customer_id, billing_group_id, label, amount, reason, created_at, created_by')
+      .eq('status', 'pending')
+      .order('created_at');
+    if (error) { console.warn('loadPendingAdjustments:', error.message); _pendingAdjustments = []; return; }
+    _pendingAdjustments = data || [];
+  }
+
+  // Which pending adjustments belong on THIS invoice. A customer-scoped row matches
+  // its customer. A group-scoped row matches only a consolidated group invoice —
+  // on a 'separate'-style group the group invoice is really N per-customer invoices
+  // and there is no answer to "which one carries the credit" (issue_invoice refuses it).
+  function adjustmentsForScope(customerId, billingGroupId) {
+    return _pendingAdjustments.filter(a =>
+      a.customer_id
+        ? a.customer_id === customerId
+        : (a.billing_group_id === billingGroupId && !customerId)
+    );
+  }
+
+  function renderAdjustmentsPanel() {
+    const el = document.getElementById('inv-adjustment-list');
+    if (!el) return;
+    const rows = adjustmentsForScope(_invoiceCustomerId, _invoiceGroupId);
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:var(--gray-500)">None — this invoice bills the orders as they stand.</div>';
+      return;
+    }
+    el.innerHTML = rows.map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:3px 0">
+        <div style="min-width:0">
+          <div style="color:var(--gray-800);font-weight:600">${esc(a.label)}</div>
+          ${a.reason ? `<div style="color:var(--gray-500);font-size:11px">${esc(a.reason)}</div>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;white-space:nowrap">
+          <span style="font-weight:700;font-variant-numeric:tabular-nums;color:${Number(a.amount) < 0 ? 'var(--green)' : 'var(--gray-800)'}">
+            ${Number(a.amount) < 0 ? '−' : '+'}$${invAmt(Math.abs(Number(a.amount)))}
+          </span>
+          <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px;color:var(--red)"
+                  onclick="voidAdjustment('${a.id}')">Remove</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function showAddAdjustmentRow() {
+    document.getElementById('inv-adjustment-form').style.display = '';
+    document.getElementById('inv-adj-label').value  = '';
+    document.getElementById('inv-adj-amount').value = '';
+    document.getElementById('inv-adj-reason').value = '';
+    document.getElementById('inv-adj-error').style.display = 'none';
+    document.getElementById('inv-adj-label').focus();
+  }
+  window.showAddAdjustmentRow = showAddAdjustmentRow;
+
+  function hideAddAdjustmentRow() {
+    document.getElementById('inv-adjustment-form').style.display = 'none';
+  }
+  window.hideAddAdjustmentRow = hideAddAdjustmentRow;
+
+  async function saveAdjustment() {
+    const errEl  = document.getElementById('inv-adj-error');
+    const label  = (document.getElementById('inv-adj-label').value || '').trim();
+    const amount = parseFloat(document.getElementById('inv-adj-amount').value);
+    const reason = (document.getElementById('inv-adj-reason').value || '').trim();
+    errEl.style.display = 'none';
+
+    if (!label)               { errEl.textContent = 'A label is required — it is what the customer reads on the invoice.'; errEl.style.display = ''; return; }
+    if (!amount || isNaN(amount)) { errEl.textContent = 'Enter a non-zero amount. Negative credits, positive charges.'; errEl.style.display = ''; return; }
+
+    // A group-wide adjustment only makes sense on a consolidated group invoice.
+    const g = _oaBillingGroups.find(bg => bg.id === _invoiceGroupId);
+    if (_invoiceGroupId && !_invoiceCustomerId && g && g.invoice_style !== 'consolidated') {
+      errEl.textContent = `${g.name} bills each account separately, so a group-wide adjustment has no single invoice to land on. Add it to one account instead.`;
+      errEl.style.display = ''; return;
+    }
+
+    const { error } = await db.rpc('add_invoice_adjustment', {
+      p_customer_id:      _invoiceCustomerId || null,
+      p_billing_group_id: _invoiceCustomerId ? null : (_invoiceGroupId || null),
+      p_label:            label,
+      p_amount:           amount,
+      p_reason:           reason || null,
+      p_actor_name:       currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) { errEl.textContent = error.message; errEl.style.display = ''; return; }
+
+    await loadPendingAdjustments();
+    renderAdjustmentsPanel();
+    hideAddAdjustmentRow();
+    showToast('Adjustment added — it will appear on the next invoice for this account');
+  }
+  window.saveAdjustment = saveAdjustment;
+
+  async function voidAdjustment(id) {
+    if (!confirm('Remove this adjustment? It will not appear on any invoice.')) return;
+    const { error } = await db.rpc('void_invoice_adjustment', {
+      p_id: id, p_reason: null,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) { showToast(error.message, 'error'); return; }
+    await loadPendingAdjustments();
+    renderAdjustmentsPanel();
+  }
+  window.voidAdjustment = voidAdjustment;
+
   async function loadOnAccountReport() {
     // Use the shared Reports date pickers
     const startVal = document.getElementById('rpt-from').value;
@@ -53517,6 +53659,7 @@ async function _dvIframeLoaded() {
     // Fetch billing groups
     const { data: groups } = await db.from('billing_groups').select('*').order('name');
     _oaBillingGroups = groups || [];
+    await loadPendingAdjustments();
 
     // Build query — fetch all delivered/ready orders for on_account customers.
     // Filter by pickup_window_start (actual service date) not created_at (import
@@ -53823,7 +53966,7 @@ async function _dvIframeLoaded() {
       all.forEach((inv, i) => {
         const w = wins[i];
         if (!w) return;
-        w.document.write(generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber));
+        w.document.write(generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber, inv.adjustments));
         w.document.close();
       });
       showToast('Opened ' + all.length + ' invoice(s) — use Print to save as PDF');
@@ -54088,12 +54231,16 @@ async function _dvIframeLoaded() {
     document.getElementById('inv-subject').value = expand(tpl?.invoice_subject_template || defaultSubject);
     document.getElementById('inv-body').value    = expand(tpl?.invoice_body_template || defaultBody);
     document.getElementById('inv-attachment-list').innerHTML = `<div>📄 ${name} — Invoice.pdf</div>`;
+    document.getElementById('inv-adjustments').style.display = '';
+    hideAddAdjustmentRow();
+    await loadPendingAdjustments();
+    renderAdjustmentsPanel();
     document.getElementById('modal-send-invoice').style.display = 'flex';
   }
   window.openStandaloneInvoiceModal = openStandaloneInvoiceModal;
 
   // ── GROUP INVOICE MODAL ─────────────────────────────────────────
-  function openInvoiceModal(groupId) {
+  async function openInvoiceModal(groupId) {
     _invoiceOverrideDescriptors = null;
     _invoiceGroupId = groupId;
     _invoiceCustomerId = null;
@@ -54121,6 +54268,13 @@ async function _dvIframeLoaded() {
       ).join('');
     }
 
+    // Session 291m. A 'separate'-style group has no single invoice for a group-wide
+    // credit to land on, so the panel is offered only where it can actually work.
+    const adjBox = document.getElementById('inv-adjustments');
+    adjBox.style.display = (g.invoice_style === 'consolidated') ? '' : 'none';
+    hideAddAdjustmentRow();
+    await loadPendingAdjustments();
+    renderAdjustmentsPanel();
     document.getElementById('modal-send-invoice').style.display = 'flex';
   }
   window.openInvoiceModal = openInvoiceModal;
@@ -54139,13 +54293,18 @@ async function _dvIframeLoaded() {
   // five-figure invoice expects, and jsPDF's WinAnsi fonts render the comma fine.
   const invAmt = (n) => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  function generateInvoiceHTML(title, orders, period, groupName, invoiceNumber) {
+  function generateInvoiceHTML(title, orders, period, groupName, invoiceNumber, adjustments) {
     // Customer-facing PDF — must always show Pacific dates regardless of where admin is.
     const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
     const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
 
     // Build per-order detail sections
     let grandSubtotal = 0, grandDeliveryFees = 0, grandTips = 0, grandTotal = 0;
+    // Session 291m: credits (negative) and surcharges (positive) attached to this
+    // invoice. They sit below the order detail and before Total Due, so the customer
+    // sees what they were billed for AND what was put right.
+    const _adj      = Array.isArray(adjustments) ? adjustments : [];
+    const _adjTotal = Math.round(_adj.reduce((s, a) => s + Number(a.amount || 0), 0) * 100) / 100;
 
     const orderSections = orders.map((o, idx) => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
@@ -54261,7 +54420,7 @@ async function _dvIframeLoaded() {
   </div>
   <div style="text-align:right">
     <div style="font-size:11px;color:#6b7280;">Amount Due</div>
-    <div style="font-size:20px;font-weight:700;margin-top:2px">$${invAmt(grandTotal)}</div>
+    <div style="font-size:20px;font-weight:700;margin-top:2px">$${invAmt(grandTotal + _adjTotal)}</div>
     <div style="font-size:11px;color:#6b7280">${orders.length} order${orders.length !== 1 ? 's' : ''}</div>
   </div>
 </div>
@@ -54282,9 +54441,13 @@ ${orderSections}
     <td style="padding:5px 0;font-size:12px">Team Tips</td>
     <td style="padding:5px 0;text-align:right;font-size:12px">$${invAmt(grandTips)}</td>
   </tr>` : ''}
+  ${_adj.map(a => `<tr>
+    <td style="padding:5px 0;font-size:12px">${a.label || 'Adjustment'}</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px">${Number(a.amount) < 0 ? '−' : ''}$${invAmt(Math.abs(Number(a.amount || 0)))}</td>
+  </tr>`).join('')}
   <tr style="border-top:1px solid #d1d5db">
     <td style="padding:7px 0;font-size:14px;font-weight:700">Total Due</td>
-    <td style="padding:7px 0;text-align:right;font-size:14px;font-weight:700">$${invAmt(grandTotal)}</td>
+    <td style="padding:7px 0;text-align:right;font-size:14px;font-weight:700">$${invAmt(grandTotal + _adjTotal)}</td>
   </tr>
 </table>
 
@@ -54321,7 +54484,12 @@ ${orderSections}
   _preloadInvoiceLogo(BIZ_INVOICE.logo_url);
 
   // Build a PDF directly from invoice data using jsPDF (no screenshots)
-  function buildInvoicePdfBase64(title, orders, period, groupName, invoiceNumber) {
+  function buildInvoicePdfBase64(title, orders, period, groupName, invoiceNumber, adjustments) {
+    // Session 291m: keep this in lockstep with generateInvoiceHTML — the emailed PDF
+    // and the printed page are the same document to the customer, and a total that
+    // differs between them is the kind of thing that costs an account.
+    const _adj      = Array.isArray(adjustments) ? adjustments : [];
+    const _adjTotal = Math.round(_adj.reduce((s, a) => s + Number(a.amount || 0), 0) * 100) / 100;
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait' });
     const pw = 215.9, ph = 279.4; // letter size in mm
@@ -54401,7 +54569,7 @@ ${orderSections}
       grandTotal += Math.round((_preTip + _tipDol) * 100) / 100;
     });
     doc.setFontSize(14);
-    rText('$' + invAmt(grandTotal), y);
+    rText('$' + invAmt(grandTotal + _adjTotal), y);
     y += 5;
     if (groupName && groupName !== title) {
       doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
@@ -54498,9 +54666,16 @@ ${orderSections}
     doc.text('Subtotal', ml, y); rText('$' + invAmt(grandSub), y); y += 4.5;
     doc.text('Delivery Fees', ml, y); rText('$' + invAmt(grandDel), y); y += 4.5;
     if (grandTip > 0) { doc.text('Team Tips', ml, y); rText('$' + invAmt(grandTip), y); y += 4.5; }
+    _adj.forEach(a => {
+      needPage(10);
+      const amt = Number(a.amount || 0);
+      doc.text(String(a.label || 'Adjustment'), ml, y);
+      rText((amt < 0 ? '-' : '') + '$' + invAmt(Math.abs(amt)), y);
+      y += 4.5;
+    });
     hLine(y - 1, [209,213,219]); y += 2;
     doc.setFontSize(11); doc.setFont('helvetica', 'bold');
-    doc.text('Total Due', ml, y); rText('$' + invAmt(grandTotal), y); y += 10;
+    doc.text('Total Due', ml, y); rText('$' + invAmt(grandTotal + _adjTotal), y); y += 10;
 
     // ── FOOTER ──
     doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(156,163,175);
@@ -54530,7 +54705,16 @@ ${orderSections}
         customerId:     customerId || null,
         billingGroupId: billingGroupId || null,
         orderIds:       sorted.map(o => o.id),
-        total:          Math.round(sorted.reduce((s, o) => s + orderChargedTotal(o), 0) * 100) / 100,
+        // Session 291m: pending credits/surcharges for this scope ride on this
+        // invoice. They are part of the total the customer owes, so they are folded
+        // in here — not bolted on at render time, where the emailed PDF and the
+        // stored invoices.total_amount would disagree.
+        adjustments:    adjustmentsForScope(customerId || null, billingGroupId || null),
+        total:          Math.round((
+                          sorted.reduce((s, o) => s + orderChargedTotal(o), 0)
+                          + adjustmentsForScope(customerId || null, billingGroupId || null)
+                              .reduce((s, a) => s + Number(a.amount || 0), 0)
+                        ) * 100) / 100,
         invoiceNumber:  null,
       };
     };
@@ -54582,6 +54766,9 @@ ${orderSections}
         p_total_amount:     d.total,
         p_mark_sent:        !!markSent,
         p_actor_name:       currentUserDisplayName || currentUserFirstName || 'Admin',
+        // Session 291m: issue_invoice stamps these applied under the same advisory
+        // lock that mints the number, so a credit cannot land on two invoices.
+        p_adjustment_ids:   (d.adjustments || []).map(a => a.id),
       });
       if (error) throw new Error('Could not assign an invoice number: ' + error.message);
       d.invoiceNumber = data?.invoice_number || null;
@@ -54601,7 +54788,7 @@ ${orderSections}
       invData.forEach((inv, i) => {
         const w = wins[i];
         if (!w) return;
-        w.document.write(generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber));
+        w.document.write(generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber, inv.adjustments));
         w.document.close();
       });
       showToast('Opened ' + invData.length + ' invoice(s) — use Print to save as PDF');
@@ -54646,7 +54833,7 @@ ${orderSections}
       for (const inv of invData) {
         const fname = inv.filename + (inv.invoiceNumber ? ' ' + inv.invoiceNumber : '');
         try {
-          const pdfBase64 = buildInvoicePdfBase64(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber);
+          const pdfBase64 = buildInvoicePdfBase64(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber, inv.adjustments);
           attachments.push({
             filename: fname + '.pdf',
             content: pdfBase64,
@@ -54654,7 +54841,7 @@ ${orderSections}
           });
         } catch (pdfErr) {
           console.error('PDF generation failed, falling back to HTML:', pdfErr);
-          const html = generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber);
+          const html = generateInvoiceHTML(inv.title, inv.orders, inv.period, inv.groupName, inv.invoiceNumber, inv.adjustments);
           attachments.push({
             filename: fname + '.html',
             content: btoa(unescape(encodeURIComponent(html))),
@@ -54891,6 +55078,19 @@ ${orderSections}
       new Date(a.pickup_window_start || a.created_at || 0) - new Date(b.pickup_window_start || b.created_at || 0));
   }
 
+  // Session 291m: what a reprint/resend must show is what was SENT — so the
+  // adjustments come from the ones stamped onto this invoice, not from whatever is
+  // pending now. A reissue passes the same ids back and issue_invoice re-applies
+  // them (it releases and re-stamps under the same lock), so nothing double-counts.
+  async function _fetchInvoiceAdjustments(invoiceId) {
+    const { data, error } = await db.from('invoice_adjustments')
+      .select('id, label, amount, reason')
+      .eq('invoice_id', invoiceId)
+      .order('created_at');
+    if (error) { console.warn('_fetchInvoiceAdjustments:', error.message); return []; }
+    return data || [];
+  }
+
   async function printIssuedInvoice(invoiceId) {
     const r = _invoiceListRows.find(x => x.id === invoiceId);
     if (!r) { showToast('Invoice not found — reload the report', 'error'); return; }
@@ -54898,7 +55098,8 @@ ${orderSections}
     try {
       const orders = await _fetchInvoiceOrders(r);
       if (!orders.length) { if (w) w.close(); showToast('This invoice has no orders left on file', 'error'); return; }
-      const html = generateInvoiceHTML(r.bill_to_name || '—', orders, r.period_label, r.billing_group_name, r.invoice_number);
+      const adj = await _fetchInvoiceAdjustments(r.id);
+      const html = generateInvoiceHTML(r.bill_to_name || '—', orders, r.period_label, r.billing_group_name, r.invoice_number, adj);
       if (w) { w.document.write(html); w.document.close(); }
       showToast('Opened ' + r.invoice_number + ' — use Print to save as PDF');
     } catch (err) {
@@ -54934,6 +55135,7 @@ ${orderSections}
     try {
       const orders = await _fetchInvoiceOrders(r);
       if (!orders.length) { showToast('This invoice has no orders left on file', 'error'); return; }
+      const _resendAdj = await _fetchInvoiceAdjustments(r.id);
       await openResendInvoiceModal(r, {
         title:          r.bill_to_name || '—',
         orders,
@@ -54943,7 +55145,11 @@ ${orderSections}
         customerId:     r.customer_id || null,
         billingGroupId: r.billing_group_id || null,
         orderIds:       r.order_ids,
-        total:          Math.round(orders.reduce((s, o) => s + orderChargedTotal(o), 0) * 100) / 100,
+        adjustments:    _resendAdj,
+        total:          Math.round((
+                          orders.reduce((s, o) => s + orderChargedTotal(o), 0)
+                          + _resendAdj.reduce((s, a) => s + Number(a.amount || 0), 0)
+                        ) * 100) / 100,
         invoiceNumber:  r.invoice_number,
       });
     } catch (err) { showToast(err.message, 'error'); }
@@ -54958,6 +55164,11 @@ ${orderSections}
     _invoiceGroupId    = r.billing_group_id || null;
     _invoiceCustomerId = r.customer_id || null;
     _invoiceOverrideDescriptors = [descriptor];
+    // A resend must reproduce what was sent. Its adjustment lines are already fixed
+    // on the descriptor, so the add/remove panel (which shows what is PENDING) would
+    // only invite someone to change a document that has already gone out.
+    const _adjBox = document.getElementById('inv-adjustments');
+    if (_adjBox) _adjBox.style.display = 'none';
 
     const period = r.period_label || '';
     const expand = s => (s || '').replace(/\{\{period\}\}/g, period);

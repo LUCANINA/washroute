@@ -1,0 +1,54 @@
+-- session 291m — credits and adjustments on on-account invoices. APPLIED 2026-09-10.
+--
+-- Applied in three parts:
+--   291m   public.invoice_adjustments (table, RLS, grants, indexes)
+--   291m2  add_invoice_adjustment() / void_invoice_adjustment()
+--   291m3  issue_invoice() gains p_adjustment_ids; void_invoice() releases
+--
+-- WHY. `invoices` is a flat snapshot — order_ids + one total_amount — with no room
+-- for a line that is not an order. When 291L found the Kidango NON PROFIT discount
+-- had been computed against a stale $59 bag rate for four months ($516.00 over-billed
+-- to a nonprofit), there was no way to put it right on an invoice. This adds one.
+--
+-- MODEL. An adjustment is a standing instruction: "the next invoice for this account
+-- carries this line". Negative = credit, positive = surcharge. It waits as `pending`
+-- until an invoice is issued for its scope, then becomes `applied`, stamped with that
+-- invoice id.
+--
+-- SCOPE RULE. Exactly one of customer_id / billing_group_id, mirroring `invoices`.
+-- A customer-scoped row matches an invoice with that customer_id. A group-scoped row
+-- matches ONLY a consolidated group invoice (customer_id IS NULL): on a 'separate'-
+-- style group the "group invoice" is really N per-customer invoices and "which one
+-- carries the credit" has no answer, so issue_invoice refuses it and the UI hides the
+-- panel. Kidango Group is consolidated; HCEB is separate.
+--
+-- IDEMPOTENCY. issue_invoice reuses an existing invoice for the same (scope, period)
+-- and never re-mints a number. It now also RELEASES every adjustment currently applied
+-- to that invoice back to pending before applying the ids it was given — so
+-- regenerating an invoice with an adjustment removed returns it to the pending pool
+-- instead of stranding it as applied against a document that no longer shows it. All
+-- of this happens under the advisory lock that already serialises issuing, so a credit
+-- cannot be applied to two invoices by two clicks.
+--
+-- void_invoice releases the same way: a voided invoice must not swallow a credit.
+--
+-- SIGNATURE CHANGE. p_adjustment_ids is a NEW parameter, so the old issue_invoice was
+-- DROPped and recreated rather than CREATE OR REPLACEd — an added parameter makes an
+-- overload, and two candidates make every PostgREST call to that RPC ambiguous.
+-- Grants re-issued after the drop; verified one signature remains.
+--
+-- SAFETY (skill checklist): new table has RLS enabled and explicit grants to
+-- authenticated + service_role only, anon REVOKEd (session 162 rule — the three
+-- customer apps never read this). All four functions are SECURITY DEFINER with
+-- assert_staff(), explicit search_path, REVOKE PUBLIC + REVOKE anon, GRANT
+-- authenticated + service_role. No column dropped or renamed. FKs point at
+-- customers / billing_groups / invoices — each a new table pair, so no PostgREST
+-- embed ambiguity of the kind that took Orders down in 291e.
+--
+-- PostgREST visibility proven before any client code shipped (session 176/177 rule):
+-- REST round-trips to /invoice_adjustments and /rpc/add_invoice_adjustment both
+-- returned 42501 permission denied — resolved, and correctly closed to anon — rather
+-- than PGRST202 not-found.
+--
+-- Rollback: DROP TABLE public.invoice_adjustments CASCADE; then restore issue_invoice
+-- and void_invoice from the session-258 definitions.
