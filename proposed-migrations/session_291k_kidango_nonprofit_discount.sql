@@ -1,0 +1,32 @@
+-- session 291k — attach the NON PROFIT (5%) discount to every Kidango customer.
+-- APPLIED 2026-09-10.
+--
+-- 4 of 20 Kidango centres had customers.discount_id = NULL and were therefore billed
+-- at full price: Hesperian Center and Del Rey Center (the two starting 24 Sep, so
+-- fixed before their first pickup), plus Russo and Hillview Crest, which have been
+-- running for months.
+--
+--   UPDATE customers SET discount_id = '3716b801-c6a6-420a-943c-7037db5c7b7c'  -- NON PROFIT, percent, 5
+--   WHERE first_name_cache ILIKE '%kidango%' AND discount_id IS NULL;
+--
+-- After: 20 of 20 on NON PROFIT, 0 missing.
+-- Rollback snapshot: public._archive_kidango_discount_291k.
+--
+-- THIS DOES NOT FIX THE AMOUNT BUG. Separate and still live: the discount stopped
+-- tracking the bag price when it went $59 -> $65 around June. The base line bills
+-- $65/bag while the discount line is still 5% of $59 ($2.95 instead of $3.25).
+--   Mar-Apr: base $59, discount $2.95 — correct.
+--   May:     transition, still correct.
+--   Jun on:  base $65, discount $2.95 — WRONG, every month since, including Sept.
+-- A second class: 22 orders discount the right rate against the wrong bag count
+-- (order 14226 is 8 bags with a discount sized for 3), which looks like the discount
+-- being stamped at booking and never recomputed when bags are counted at intake.
+-- The intake code (admin-dashboard ~48565) computes 5% of the CURRENT discountable
+-- subtotal and is correct, so the stale value is written somewhere else — most likely
+-- the recurring-order generator copying the previous order's line_items. NOT YET
+-- ROOT-CAUSED. Do not consider Kidango billing correct until it is.
+--
+-- Cumulative overcharge on DELIVERED orders, Mar-Aug: $516.00
+--   May $2.95 · Jun $40.10 · Jul $166.90 · Aug $306.05
+-- A further ~$79 sits on orders still in process; those should be corrected in place
+-- rather than credited.
