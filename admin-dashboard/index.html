@@ -845,8 +845,10 @@
     .issue-row-meta { font-size: 12px; color: var(--gray-400); white-space: nowrap; }
     /* Fixed width so the badge column lines up and the eye can scan priority down
        the list instead of re-reading each pill (session 291). URGENT/NORMAL are the
-       widest words at 6 chars; 62px fits them at 10px/700 with the 7px padding. */
-    .issue-pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; flex-shrink: 0; display: inline-block; box-sizing: border-box; min-width: 62px; text-align: center; letter-spacing: .02em; }
+       widest words at 6 chars. MEASURED in a headless browser, not guessed: NORMAL
+       renders 63.84px, so the original 62px was silently exceeded and the column
+       was not actually fixed. 68px covers NORMAL and URGENT. */
+    .issue-pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; flex-shrink: 0; display: inline-block; box-sizing: border-box; min-width: 68px; text-align: center; letter-spacing: .02em; }
     .pri-badge-urgent { background: #fee2e2; color: #991b1b; }
     .pri-badge-high   { background: #ffedd5; color: #c2410c; }
     .pri-badge-normal { background: #dbeafe; color: #1d4ed8; }
@@ -874,7 +876,19 @@
     .issue-comment-box { display:flex;gap:8px;align-items:flex-end; }
     .issue-comment-input { flex:1;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;resize:none;outline:none;min-height:38px;max-height:100px; }
     .issue-comment-input:focus { border-color:var(--accent); }
-    .issue-cat-badge { font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:#f0fdf4;color:#166534; }
+    .issue-cat-badge { font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:#f0fdf4;color:#166534;display:inline-block;box-sizing:border-box;min-width:64px;text-align:center;white-space:nowrap; }
+
+    /* Overview's Open Issues list: fixed-width trailing columns so the category
+       chip, the attention flag and the meta all start at the same x on every row
+       (session 291). The title is the only flexible column, so it absorbs the
+       slack; without this the chips drifted with the length of the customer name.
+       Scoped to .issue-row-ov -- the Issues page row has an extra status badge and
+       its own margin-left:auto layout, which this must not disturb. Category labels
+       run up to "Billing / Payment", the attention chip is "⚠ Needs attention". */
+    .issue-row-ov .issue-row-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .issue-row-ov .issue-row-cat   { flex:0 0 124px; display:flex; align-items:center; }
+    .issue-row-ov .issue-row-attn  { flex:0 0 120px; display:flex; align-items:center; }
+    .issue-row-ov .issue-row-meta  { flex:0 0 250px; text-align:right; overflow:hidden; text-overflow:ellipsis; }
     /* Open issue that's gone 7+ days without resolution — flags admin to act. */
     .issue-attention-badge { font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;white-space:nowrap;flex-shrink:0; }
 
@@ -27302,12 +27316,13 @@ ${noActivityNote}
       }
       const age = inboxTimeAgo(iss.created_at);
       const catLabel = ISSUE_CATEGORIES[iss.category] || iss.category || '';
-      return `<div class="issue-row" onclick="openIssueDetail(${iss.id})">
+      const metaText = `${custName} · ${age}${iss.assigned_to ? ' · ' + iss.assigned_to : ''}`;
+      return `<div class="issue-row issue-row-ov" onclick="openIssueDetail(${iss.id})">
         <span class="issue-pri-badge ${priBadgeClass(iss.priority)}">${iss.priority.toUpperCase()}</span>
-        <span class="issue-row-title">${esc(title)}</span>
-        ${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}
-        ${issueAttentionBadge(iss)}
-        <span class="issue-row-meta">${esc(custName)} · ${age}${iss.assigned_to ? ' · ' + esc(iss.assigned_to) : ''}</span>
+        <span class="issue-row-title" title="${esc(title)}">${esc(title)}</span>
+        <span class="issue-row-cat">${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}</span>
+        <span class="issue-row-attn">${issueAttentionBadge(iss)}</span>
+        <span class="issue-row-meta" title="${esc(metaText)}">${esc(metaText)}</span>
       </div>`;
     }).join('');
   }
@@ -27718,31 +27733,24 @@ ${noActivityNote}
   // stop leaves pending/en_route (delivered, skipped, failed). "Reassign" resolves
   // the exception via resolve_missing_bag_and_reassign (session 193) instead of a
   // plain driver_id update, so the picked driver gets alerted and the original
-  // driver is told it's found. Also shows a short recently-resolved history below.
+  // driver is told it's found.
   async function loadBagCheckIssues() {
     const el = document.getElementById('bagcheck-missing-body');
     if (!el) return;
 
-    const [{ data, error }, resolvedRes] = await Promise.all([
-      db.from('route_stops')
-        .select(`id, order_id, driver_id, bag_checked_at,
-                 routes!route_stops_route_id_fkey(route_templates(name)),
-                 orders(id, order_number, delivery_window_start, customer_id, customers(first_name_cache, last_name_cache, phone_cache))`)
-        .eq('bag_check_status', 'missing')
-        .in('status', ['pending', 'en_route'])
-        .order('bag_checked_at', { ascending: false }),
-      db.from('route_stops')
-        .select(`id, order_id, bag_check_resolved_at, bag_check_resolved_by,
-                 orders(id, order_number, customer_id, customers(first_name_cache, last_name_cache)),
-                 drivers!route_stops_driver_id_fkey(profiles(first_name, last_name))`)
-        // Keyed off bag_check_resolved_at alone (not bag_check_status='found_elsewhere' too) —
-        // a later route move (reconcile_order_stops / reconcile_stop_route_on_run_change)
-        // resets bag_check_status to NULL but doesn't touch the resolved_at/resolved_by audit
-        // columns, and this history entry should survive that.
-        .not('bag_check_resolved_at', 'is', null)
-        .order('bag_check_resolved_at', { ascending: false })
-        .limit(10)
-    ]);
+    // Session 291 (David): the "Recently resolved" history below this list was
+    // removed. Overview is for what needs doing now; a resolved bag needs nothing.
+    // The audit trail is untouched -- bag_check_resolved_at / bag_check_resolved_by
+    // are still written by resolve_missing_bag_and_reassign, so the history is in
+    // the database and on the order itself, just not on this card. Its query is
+    // dropped too rather than left fetching rows nobody renders.
+    const { data, error } = await db.from('route_stops')
+      .select(`id, order_id, driver_id, bag_checked_at,
+               routes!route_stops_route_id_fkey(route_templates(name)),
+               orders(id, order_number, delivery_window_start, customer_id, customers(first_name_cache, last_name_cache, phone_cache))`)
+      .eq('bag_check_status', 'missing')
+      .in('status', ['pending', 'en_route'])
+      .order('bag_checked_at', { ascending: false });
 
     if (error || !data) {
       el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load bag check status.</div>';
@@ -27779,31 +27787,7 @@ ${noActivityNote}
       }).join('')}
     </tbody></table>`;
 
-    // Session 187 pt 2 QA fix: this query's error was previously never checked, so a
-    // failed fetch silently rendered as "nothing resolved yet" instead of surfacing.
-    if (resolvedRes?.error) console.error('loadBagCheckIssues (resolved history):', resolvedRes.error);
-    const resolvedData = (!resolvedRes?.error && resolvedRes?.data) || [];
-    const resolvedHtml = resolvedData.length ? `
-      <div style="padding:14px 20px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-400)">Recently resolved</div>
-      <table><thead><tr><th>Order</th><th>Customer</th><th>Resolved to</th><th>When</th></tr></thead><tbody>
-      ${resolvedData.map(s => {
-        const o = s.orders;
-        const cust = o?.customers;
-        const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
-        const drv = Array.isArray(s.drivers) ? s.drivers[0] : s.drivers;
-        const p = drv?.profiles ? (Array.isArray(drv.profiles) ? drv.profiles[0] : drv.profiles) : null;
-        const driverName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Driver';
-        const when = s.bag_check_resolved_at ? fmtDate(s.bag_check_resolved_at) : '—';
-        return `<tr>
-          <td class="td-mono">${o?.order_number ? '#' + o.order_number : '—'}</td>
-          <td class="td-name">${esc(name)}</td>
-          <td style="font-size:12px;color:var(--gray-600)">${esc(driverName)}</td>
-          <td style="font-size:12px;color:var(--gray-500)">${when}${s.bag_check_resolved_by ? ' · ' + esc(s.bag_check_resolved_by) : ''}</td>
-        </tr>`;
-      }).join('')}
-      </tbody></table>` : '';
-
-    el.innerHTML = missingHtml + resolvedHtml;
+    el.innerHTML = missingHtml;
   }
 
   // Ensures the driver list is loaded before opening the reassign modal from this

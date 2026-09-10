@@ -2133,6 +2133,24 @@ full invoice machinery) and is the ONLY place these can be settled -- an account
 never a card retry. So the money moved to the page that can act on it rather than being
 hidden. Widget: 271 rows -> 2 rows, $537.90.
 
+**Open Issues: category chips aligned.** The row is flex with the title at `flex:1`, so
+the category chip's x position was `rowWidth - meta - attention - chip` -- it drifted with
+the length of the customer name. Fixed by making every column right of the title a fixed
+width (`.issue-row-ov .issue-row-cat/-attn/-meta`), scoped to the Overview row because the
+Issues-page row has an extra status badge and its own `margin-left:auto` layout.
+
+**Measured it in a headless browser rather than eyeballing it, and that caught a real bug:**
+`NORMAL` renders at 63.84px, so the priority badge's `min-width:62px` from earlier today was
+silently exceeded and that column was never actually fixed. Bumped to 68px (covers NORMAL
+and URGENT). After: title left-x spread 0.00px, category chip spread 1.4px (sub-pixel), no
+horizontal overflow. Lesson: a min-width chosen by counting characters is a guess -- render
+it and measure.
+
+**Missing Bags: "Recently resolved" removed.** Overview is for what needs doing now, and a
+resolved bag needs nothing. The second query is dropped too rather than left fetching ten
+rows nobody renders. The audit trail is untouched -- `bag_check_resolved_at` /
+`bag_check_resolved_by` are still written by `resolve_missing_bag_and_reassign`.
+
 **Lesson worth keeping: a column named `created_at` is not the same as "when this started."**
 For anything generated ahead of time — recurring orders, scheduled runs — `created_at` is
 when WE minted the row, not when the real-world thing began. Any age/staleness rule built
