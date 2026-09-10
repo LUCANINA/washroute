@@ -27416,9 +27416,29 @@ ${noActivityNote}
   // What each bucket MEANS still matters, so it lives on the row instead: the
   // Billing chip is FAILED for card_declined and UNPAID for awaiting_payment.
   //   card_declined    — a charge was attempted and the card came back declined.
-  //   awaiting_payment — washed, not charged yet; usually clears on the next
-  //                      autocharge sweep (wr-autocharge-ready-sweep, every 5 min).
+  //                      THIS is what the widget shows. It is the only unpaid state
+  //                      a human can act on.
+  //   awaiting_payment — washed, not charged yet. Clears on the next autocharge
+  //                      sweep (wr-autocharge-ready-sweep, every 5 min; median lag
+  //                      ~0 min). Session 291 (David): NOT displayed. Nobody can do
+  //                      anything about a row that the system is about to settle by
+  //                      itself, and a list that is supposed to mean "act on this"
+  //                      loses its meaning the moment it carries rows that need no act.
+  //
+  // The catch, and why UNPAID_SWEEP_STALL_HOURS exists: hiding awaiting_payment is
+  // safe only while the sweep works. If the sweep wedges (see the 15-hour charging
+  // outage, sessions 176/177), billing_status stays NULL forever, no failure is ever
+  // recorded, and these orders would vanish silently until the 30-day rule wrote them
+  // off as bad debt. So the hidden rows are still counted, and if any has been sitting
+  // chargeable for more than UNPAID_SWEEP_STALL_HOURS the card says so in a warning
+  // line. Silence and success must not look identical.
   // on_account was removed from this widget entirely — see loadUnpaidOrders.
+
+  // How long an order may sit chargeable-but-uncharged before the widget calls it
+  // a stall. The sweep runs every 5 minutes with a 3-minute grace, so 4 hours is
+  // ~48x normal — long enough to never fire on an ordinary day, short enough to
+  // catch a wedged sweep the same morning.
+  const UNPAID_SWEEP_STALL_HOURS = 4;
 
   async function loadUnpaidOrders() {
     const el = document.getElementById('unpaid-orders-body');
@@ -27426,7 +27446,7 @@ ${noActivityNote}
     if (!el) return;
 
     const { data: rows, error } = await db.from('v_outstanding_orders')
-      .select('id, order_number, status, billing_status, charge_failed_at, has_failed_charge, total_amount, tip_amount, tip_type, amount_due, created_at, bucket, counts_as_due, is_archived, archived_reason, on_account_card_error, age_days, customer_id, first_name_cache, last_name_cache, phone_cache, billing_type')
+      .select('id, order_number, status, billing_status, charge_failed_at, has_failed_charge, total_amount, tip_amount, tip_type, amount_due, created_at, bucket, counts_as_due, is_archived, archived_reason, on_account_card_error, age_days, customer_id, first_name_cache, last_name_cache, phone_cache, billing_type, unpaid_since, has_card_on_file, hours_unpaid')
       .order('age_days', { ascending: false });
 
     if (error || !rows) {
@@ -27457,16 +27477,40 @@ ${noActivityNote}
       },
     }));
 
-    if (!data.length) {
-      if (subEl) subEl.textContent = 'All clear';
+    // Session 291 (David): only FAILED charges are shown. awaiting_payment rows are
+    // held back — the sweep settles them, there is nothing to act on. See the note
+    // above the function for why they are still counted rather than discarded.
+    const due     = data.filter(o => o.bucket !== 'awaiting_payment');
+    const pending = data.filter(o => o.bucket === 'awaiting_payment');
+
+    // The stall check. A pending row past the threshold means the sweep is not doing
+    // its job — either it is wedged, or (has_card_on_file = false) it never could
+    // charge this customer in the first place. Both need a human; neither shows up
+    // as a failed charge, which is exactly why this line exists.
+    const stalled     = pending.filter(o => Number(o.hours_unpaid || 0) > UNPAID_SWEEP_STALL_HOURS);
+    const stalledNoCard = stalled.filter(o => !o.has_card_on_file).length;
+    const stalledTotal  = stalled.reduce((s2, o) => s2 + Number(o.amount_due || 0), 0);
+    const stallHtml = stalled.length
+      ? `<div style="display:flex;gap:8px;align-items:flex-start;padding:10px 14px;background:var(--red-light);border-bottom:1px solid var(--gray-100)">
+           <span style="color:var(--red);font-weight:700;font-size:12px;line-height:1.5">⚠</span>
+           <div style="font-size:12px;color:var(--red);line-height:1.5">
+             <strong>Card charging may be stalled.</strong>
+             ${stalled.length} delivered order${stalled.length !== 1 ? 's' : ''}
+             (${fmtMoney(stalledTotal)}) ${stalled.length !== 1 ? 'have' : 'has'} been
+             chargeable for over ${UNPAID_SWEEP_STALL_HOURS} hours with no charge attempted.
+             ${stalledNoCard ? `${stalledNoCard} of them ${stalledNoCard !== 1 ? 'have' : 'has'} no card on file.` : 'Check that the autocharge sweep is running.'}
+           </div>
+         </div>`
+      : '';
+
+    if (!due.length) {
+      if (subEl) subEl.textContent = stalled.length ? 'Charging may be stalled' : 'All clear';
       const badgeEmpty = document.getElementById('unpaid-count-badge');
       if (badgeEmpty) badgeEmpty.style.display = 'none';
-      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid orders</div>';
+      el.innerHTML = stallHtml +
+        '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid orders</div>';
       return;
     }
-
-    // Everything that survived the filter above is real, ordinary money owed.
-    const due = data;
 
     // Card lookups are only meaningful for card-paying customers — on-account
     // customers are invoiced, so skip them and keep the query small.
@@ -27498,12 +27542,13 @@ ${noActivityNote}
     // kind of mismatch that makes a widget untrustworthy.
     const chaseable      = due;
     const chaseableTotal = chaseable.reduce((s, o) => s + Number(o.amount_due || 0), 0);
-    const declinedCount  = chaseable.filter(o => o.bucket === 'card_declined').length;
 
+    // "N card declined" was dropped in session 291: every row here IS a declined
+    // card now, so it restated the count immediately to its left.
     const parts = chaseable.length
       ? [`${chaseable.length} to chase`, fmtMoney(chaseableTotal)]
       : ['Nothing to chase'];
-    if (declinedCount) parts.push(`${declinedCount} card declined`);
+    if (stalled.length) parts.push('charging may be stalled');
     if (subEl) subEl.textContent = parts.join(' · ');
     const unpaidBadge = document.getElementById('unpaid-count-badge');
     if (unpaidBadge) {
@@ -27520,7 +27565,7 @@ ${noActivityNote}
       ((BUCKET_ORDER[a.bucket] ?? 9) - (BUCKET_ORDER[b.bucket] ?? 9))
       || Number(b.age_days || 0) - Number(a.age_days || 0));
 
-    el.innerHTML = `<table style="border-top:1px solid var(--gray-100)"><thead><tr>
+    el.innerHTML = stallHtml + `<table style="border-top:1px solid var(--gray-100)"><thead><tr>
         <th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Billing</th>
         <th style="text-align:right">Amount</th><th style="text-align:right">Action</th>
       </tr></thead><tbody>

@@ -1,0 +1,26 @@
+-- session 291h — v_outstanding_orders: expose unpaid_since / has_card_on_file / hours_unpaid
+--
+-- APPLIED 2026-09-10.
+--
+-- Why: Unpaid Orders now shows only FAILED charges (David: "surface them if
+-- payment fails"). An order still waiting for the autocharge sweep is not
+-- actionable, so it is hidden. That is safe only while the sweep works — if it
+-- wedges (cf. the 15-hour charging outage, sessions 176/177) billing_status stays
+-- NULL forever, no failure is ever recorded, and the card looks CLEAN precisely
+-- when it is wrong. The dashboard therefore still counts the hidden rows and warns
+-- inside the same card when any has been chargeable for > 4 hours.
+--
+-- age_days is measured from created_at, which for recurring orders begins ~14 days
+-- before pickup — useless for a "should have charged by now" test. Hence an
+-- hours-level clock anchored on when the order actually became chargeable.
+--
+-- Columns are APPENDED, so CREATE OR REPLACE is legal and no existing caller shifts.
+--   unpaid_since     COALESCE(ready_for_delivery_at, actual_delivery_at, actual_pickup_at, created_at)
+--   has_card_on_file customers.stripe_default_payment_method_id IS NOT NULL
+--   hours_unpaid     hours since unpaid_since, 1dp
+--
+-- Rollback: re-run the session 291d definition of the view (this file minus the
+-- three appended columns and the two new base-CTE expressions).
+--
+-- Full SQL as applied: see the apply_migration call in session 291h. The view body
+-- is identical to 291d except for the additions listed above.
