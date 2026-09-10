@@ -2707,6 +2707,33 @@
                   <div class="card-sub" id="baddebt-sub">Loading…</div>
                 </div>
               </div>
+              <!-- The rule is explained on the report itself: this is the only screen
+                   where someone asks "why is this money gone?", and the answer should
+                   not require finding a developer. -->
+              <div style="padding:0 24px 14px;font-size:12px;color:var(--gray-500);line-height:1.6;border-bottom:1px solid var(--gray-100)">
+                <strong style="color:var(--gray-700)">How an order gets written off.</strong>
+                There is no manual write-off button — it happens automatically, once a night, and only when
+                <em>all</em> of these are true:
+                <ul style="margin:6px 0 0;padding-left:18px">
+                  <li>the order was <strong>delivered</strong> — we did the work and the customer has their laundry;</li>
+                  <li>it has been <strong>more than 30 days</strong> since delivery;</li>
+                  <li>a card charge was <strong>attempted and declined</strong>. An order that was never charged is a
+                      system problem, not bad debt, and is left alone;</li>
+                  <li>the customer is <strong>not on account</strong>. Invoiced customers are a collections matter and
+                      are settled in Reports → On Account.</li>
+                </ul>
+                <div style="margin-top:8px">
+                  Writing off does two things at once: the money is recorded as uncollectible, and the customer's
+                  account is <strong>frozen</strong> so no new orders can be placed until someone unfreezes it.
+                  The order can never be charged afterwards.
+                  If more than a handful come due on the same night the job <strong>refuses to run</strong> and raises an
+                  alert instead — a sudden spike means something upstream broke, not that many customers went bad at once.
+                </div>
+                <div style="margin-top:8px;color:var(--gray-400)">
+                  Rows marked <em>auto (30-day rule)</em> in the By column were written off by that job.
+                  Anything else was recorded by a person or carried over from before this was tracked.
+                </div>
+              </div>
               <div id="baddebt-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
           </div>
@@ -27485,15 +27512,19 @@ ${noActivityNote}
     const baseAction = isOnAcct
       ? '<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">Bill by invoice</span>'
       : _deliveredActionBtn(o);
-    // Session 291e: every row here is unpaid, non-on-account money, so every row
-    // can be written off. Placed last and styled quietly -- it is the destructive
-    // option, not the first thing to reach for.
-    const woBtn = `<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;margin-left:6px;color:#991b1b" onclick="event.stopPropagation();writeOffOrder('${o.id}',${o.order_number},${escAttrJSArg(cust)},${escAttrJSArg(fmtMoney(o.amount_due))},this)" title="Record as uncollectible and freeze the account">Write off</button>`;
+    // Session 291 (David): there is NO manual "Write off" button, on purpose. It was
+    // built, then removed the moment it was seen on the row -- a one-click,
+    // irreversible, money-destroying action sitting next to "Update card" is a human
+    // error waiting to happen. Write-off now happens exactly one way: the nightly
+    // 30-day rule (auto_write_off_stale_orders, cron wr-auto-write-off, 291f), which
+    // requires a charge to have already failed, caps how many can go at once, and
+    // records what it did. write_off_order() still exists as that job's mechanism and
+    // is admin/manager-guarded, but NOTHING in the UI calls it.
     // Session 291: archived orders live here now. Keep the one-click Restore that the
     // old "Archived, still owed" section offered, so filing something away stays undoable.
-    const action = (o.is_archived
+    const action = o.is_archived
       ? `${baseAction}<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;margin-left:6px;color:var(--accent)" onclick="event.stopPropagation();unarchiveOrder('${o.id}',${o.order_number})" title="Un-archive">Restore</button>`
-      : baseAction) + woBtn;
+      : baseAction;
     const archivedTag = o.is_archived
       ? `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--gray-100);color:var(--gray-600);margin-left:5px" title="${esc(o.archived_reason || 'Set aside earlier')}">ARCHIVED</span>`
       : '';
@@ -27739,42 +27770,12 @@ ${noActivityNote}
   }
   window.fyrClearCardError = fyrClearCardError;
 
-  // ── Write off as bad debt (session 291e) ───────────────────────────────────
-  // Two effects in ONE transaction, server-side: the order becomes uncollectible
-  // and the customer is frozen. The RPC is the only place that happens, so the
-  // two can never drift apart -- which is what the old manual SQL ritual risked.
-  //
-  // The RPC re-checks everything this button assumes (admin/manager, not already
-  // settled, not on-account). The confirm below is for the HUMAN, not the guard:
-  // a write-off cannot be undone by clicking again, because a written_off order
-  // never grows a Charge button.
-  async function writeOffOrder(orderId, orderNumber, custName, amountLabel, btn) {
-    if (!orderId) return;
-    const reason = prompt(
-      `Write off #${orderNumber} — ${custName}, ${amountLabel}?\n\n` +
-      `This records the money as uncollectible AND freezes the account, so no new ` +
-      `orders can be placed until it is unfrozen.\n\n` +
-      `The order can no longer be charged afterwards.\n\n` +
-      `Reason (kept for accounting):`,
-      'Uncollectible'
-    );
-    if (reason === null) return;   // cancelled
+  // The write-off UI handler was removed in session 291 (David). A one-click,
+  // irreversible, money-destroying action on a dashboard row is a human error waiting
+  // to happen. Write-off is only ever performed by the nightly 30-day rule
+  // (auto_write_off_stale_orders / cron wr-auto-write-off). The record of what was
+  // written off, by whom and why lives in Reports -> Bad Debt.
 
-    if (btn) { btn.disabled = true; btn.textContent = 'Writing off…'; }
-    const { data, error } = await db.rpc('write_off_order', {
-      p_order_id: orderId,
-      p_reason:   (reason || '').trim() || 'Uncollectible',
-      p_actor:    currentUserDisplayName || currentUserFirstName || 'Admin',
-    });
-    if (error) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Write off'; }
-      showToast('Could not write off: ' + error.message, 'error');
-      return;
-    }
-    showToast(`✓ #${orderNumber} written off — ${custName} is now frozen`, 'success');
-    if (currentPage === 'overview') loadOverview();
-  }
-  window.writeOffOrder = writeOffOrder;
 
   // ── Bags Not On Rack (session 191, reassign-to-resolve added session 193) ──
   // Surfaces delivery stops the driver flagged "Missing" during their pre-departure

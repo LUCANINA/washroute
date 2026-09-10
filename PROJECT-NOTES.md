@@ -2231,10 +2231,21 @@ who approved it; `written_off_by` distinguishes a human from the nightly rule, a
 customer shows a FROZEN chip if still frozen. Opens on a 365-day window because write-offs
 are rare enough that a today-only default would always be empty.
 
-**THE CRON JOB IS NOT SCHEDULED.** Deliberate: the first live run would write off $473.95
-(Kayla Jones, #10471) and freeze her. That is David's call to make with the two candidates
-in front of him, not something to switch on at the end of a session. To enable:
-`SELECT cron.schedule('wr-auto-write-off','0 11 * * *', $$SELECT auto_write_off_stale_orders(false, 5, 30)$$);`
+**THE MANUAL BUTTON WAS BUILT AND THEN DELETED — read this before adding one back.**
+David saw "Write off" sitting on the Unpaid Orders row next to "Update card" and called it
+immediately: a one-click, irreversible, money-destroying action on a dashboard row is a
+human error waiting to happen. He was right, and it is the best decision of the session.
+The button is gone; `write_off_order()` survives ONLY as the nightly job's mechanism and
+nothing in the UI calls it.
+
+That makes the cron the ONLY path, so it is now scheduled: **jobid 28, `wr-auto-write-off`,
+`0 11 * * *`** (4am Pacific), running `auto_write_off_stale_orders(false, 5, 30)`.
+Disable with `SELECT cron.unschedule('wr-auto-write-off');`.
+
+The 30-day rule is explained ON the Bad Debt report itself, in plain language — all four
+conditions, both effects (money recorded, account frozen), and what the cap refusal means.
+That report is the only screen where anyone asks "why is this money gone?", and the answer
+should not require finding a developer.
 
 **Unpaid Orders: one flat list.** The `Card declined` / `Awaiting payment` sections are
 gone (`UNPAID_GROUPS`, `_unpaidGroupHtml`). The Billing chip on each row already says which
