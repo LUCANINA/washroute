@@ -2236,6 +2236,13 @@ are rare enough that a today-only default would always be empty.
 in front of him, not something to switch on at the end of a session. To enable:
 `SELECT cron.schedule('wr-auto-write-off','0 11 * * *', $$SELECT auto_write_off_stale_orders(false, 5, 30)$$);`
 
+**Unpaid Orders: one flat list.** The `Card declined` / `Awaiting payment` sections are
+gone (`UNPAID_GROUPS`, `_unpaidGroupHtml`). The Billing chip on each row already says which
+kind it is — FAILED vs UNPAID — so a heading plus a note per bucket said the same thing a
+third time. Declined cards sort first (those need chasing), then oldest first. What the
+buckets MEAN is kept as a comment where UNPAID_GROUPS used to be, since that knowledge
+is real even though the sections were not.
+
 **Lesson worth keeping: a column named `created_at` is not the same as "when this started."**
 For anything generated ahead of time — recurring orders, scheduled runs — `created_at` is
 when WE minted the row, not when the real-world thing began. Any age/staleness rule built

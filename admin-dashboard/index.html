@@ -27355,18 +27355,13 @@ ${noActivityNote}
   // money owed that showed up in Issues and nowhere on Overview. The definition now
   // lives in the view's WHERE clause so these surfaces cannot disagree again.
   // Read the view's COMMENT before changing anything about what appears here.
-  const UNPAID_GROUPS = [
-    { key: 'card_declined',    title: 'Card declined',
-      note: 'A charge was attempted and the card came back declined. Chase these first.' },
-    { key: 'awaiting_payment', title: 'Awaiting payment',
-      note: 'Washed but not charged yet — usually clears on the next autocharge sweep.' },
-    // Session 291 (David): the On account group was REMOVED from this widget.
-    // It is ~$56k of ordinary receivables across ~34 invoiced commercial customers
-    // (Kidango, Kasa, City of Oakland) and it dwarfed the two declined cards that
-    // actually need chasing today. It has its own home: Reports -> On Account, which
-    // is also the only place it can be settled (record an account payment, never a
-    // card retry). Nothing is hidden -- it moved to the page that can act on it.
-  ];
+  // UNPAID_GROUPS was removed in session 291 along with the per-bucket sections.
+  // What each bucket MEANS still matters, so it lives on the row instead: the
+  // Billing chip is FAILED for card_declined and UNPAID for awaiting_payment.
+  //   card_declined    — a charge was attempted and the card came back declined.
+  //   awaiting_payment — washed, not charged yet; usually clears on the next
+  //                      autocharge sweep (wr-autocharge-ready-sweep, every 5 min).
+  // on_account was removed from this widget entirely — see loadUnpaidOrders.
 
   async function loadUnpaidOrders() {
     const el = document.getElementById('unpaid-orders-body');
@@ -27459,30 +27454,25 @@ ${noActivityNote}
       unpaidBadge.style.display = chaseable.length ? '' : 'none';
     }
 
-    el.innerHTML = UNPAID_GROUPS.map(g => {
-      const list = due.filter(o => o.bucket === g.key);
-      if (!list.length) return '';
-      const subtotal = list.reduce((s, o) => s + Number(o.amount_due || 0), 0);
-      return _unpaidGroupHtml(g, list, subtotal);
-    }).join('');
-  }
+    // Session 291 (David): ONE list, no per-bucket sections. The Billing chip on
+    // each row already says which kind it is (FAILED vs UNPAID), so a heading and
+    // a note per bucket was saying the same thing a third time. Declined cards
+    // sort first — those are the ones that need chasing.
+    const BUCKET_ORDER = { card_declined: 0, awaiting_payment: 1 };
+    const sorted = [...due].sort((a, b) =>
+      ((BUCKET_ORDER[a.bucket] ?? 9) - (BUCKET_ORDER[b.bucket] ?? 9))
+      || Number(b.age_days || 0) - Number(a.age_days || 0));
 
-  // One group: a labelled header strip + its table.
-  function _unpaidGroupHtml(g, list, subtotal) {
-    return `<div style="border-top:1px solid var(--gray-100)">
-      <div style="display:flex;align-items:baseline;gap:10px;padding:14px 24px 8px">
-        <div style="font-size:13px;font-weight:700;color:var(--gray-900)">${esc(g.title)}</div>
-        <div style="font-size:12px;font-weight:600;color:var(--gray-600)">${list.length} · ${fmtMoney(subtotal)}</div>
-      </div>
-      <div style="padding:0 24px 4px;font-size:11.5px;color:var(--gray-400)">${esc(g.note)}</div>
-      <table><thead><tr>
+    el.innerHTML = `<table style="border-top:1px solid var(--gray-100)"><thead><tr>
         <th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Billing</th>
         <th style="text-align:right">Amount</th><th style="text-align:right">Action</th>
       </tr></thead><tbody>
-        ${list.map(o => _unpaidRowHtml(o)).join('')}
-      </tbody></table>
-    </div>`;
+        ${sorted.map(o => _unpaidRowHtml(o)).join('')}
+      </tbody></table>`;
   }
+
+  // _unpaidGroupHtml (one section per bucket) was removed in session 291 —
+  // Unpaid Orders is one flat list now.
 
   function _unpaidRowHtml(o) {
     const cust = `${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown';
