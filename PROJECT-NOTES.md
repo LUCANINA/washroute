@@ -2278,6 +2278,24 @@ Both `written_off_by = 'auto (30-day rule)'`, both accounts frozen with the free
 back to the causing order, and the run logged itself to `_health_alerts`. Unpaid Orders went
 from $663.35 to $125.45. The mechanism works end to end.
 
+**Ageing issues escalate instead of growing a chip.** The "⚠ Needs attention" badge is
+gone. An issue open 7+ days now simply reads HIGH and sorts with the high group — one
+signal instead of two sitting side by side.
+
+**Derived, never stored,** and the original comment on `issueNeedsAttention` is why: a
+stored copy is a thing to keep in sync, and a nightly job rewriting `priority` would fight
+any human who deliberately set something low. So the stored value stays exactly as a person
+left it; only the DISPLAYED and SORTED priority is bumped, the badge explains itself on
+hover, and the detail panel says "Escalated to High — open N days" so it never silently
+contradicts the row that was clicked.
+
+Two guards, both tested: escalation only ever moves priority UP (an `urgent` issue 71 days
+old is not demoted to high), and only open/in_progress issues escalate (a resolved issue
+101 days old stays put). Sorting uses the effective priority — sorting on the stored value
+would leave an escalated issue reading HIGH while sitting at the bottom of the list, which
+is worse than not escalating at all. Applied to the Overview list, the Issues page and the
+detail panel together, so the three cannot disagree.
+
 **Lesson worth keeping: a column named `created_at` is not the same as "when this started."**
 For anything generated ahead of time — recurring orders, scheduled runs — `created_at` is
 when WE minted the row, not when the real-world thing began. Any age/staleness rule built
